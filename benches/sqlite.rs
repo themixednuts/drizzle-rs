@@ -1,17 +1,13 @@
-#![allow(clippy::redundant_closure)]
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use std::hint::black_box;
 
-use divan::{AllocProfiler, Bencher, black_box};
-use drizzle::core::expr::{alias, count, eq};
+#[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+use drizzle::core::expr::{count, eq};
+#[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use drizzle::sqlite::prelude::*;
 
-#[global_allocator]
-static ALLOC: AllocProfiler = AllocProfiler::system();
-
-// ============================================================================
-// Schema Definitions
-// ============================================================================
-
-#[SQLiteTable(name = "users")]
+#[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+#[SQLiteTable(name = "bench_users")]
 struct User {
     #[column(primary)]
     id: i32,
@@ -19,3055 +15,991 @@ struct User {
     email: String,
 }
 
-#[SQLiteTable(name = "posts")]
+#[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+#[SQLiteTable(name = "bench_posts")]
 struct Post {
     #[column(primary)]
     id: i32,
     title: String,
-    content: String,
+    body: String,
     author_id: i32,
 }
 
+#[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 #[derive(SQLiteSchema)]
 struct Schema {
     user: User,
 }
 
+#[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 #[derive(SQLiteSchema)]
 struct BlogSchema {
     user: User,
     post: Post,
 }
 
-// ============================================================================
-// Helper Macros for Reducing Duplication
-// ============================================================================
-
-/// Generate data for benchmarks
-macro_rules! gen_users {
-    ($count:expr) => {
-        (0..$count)
-            .map(|i| InsertUser::new(format!("User {}", i), format!("user{}@example.com", i)))
+#[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+macro_rules! users {
+    ($n:expr) => {
+        (0..$n).map(|i| InsertUser::new(format!("User {}", i), format!("user{}@x.dev", i)))
     };
 }
 
-#[allow(unused_macros)]
-macro_rules! gen_posts {
-    ($count:expr, $author_id:expr) => {
-        (0..$count).map(|i| {
+#[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+macro_rules! posts {
+    ($n:expr, $authors:expr) => {
+        (0..$n).map(|i| {
             InsertPost::new(
                 format!("Post {}", i),
-                format!("Content for post {}", i),
-                $author_id,
+                format!("Body {}", i),
+                (i % $authors) + 1,
             )
         })
     };
 }
 
-// ============================================================================
-// Rusqlite Setup Functions
-// ============================================================================
-
 #[cfg(feature = "rusqlite")]
-fn setup_rusqlite_connection() -> ::rusqlite::Connection {
-    let conn = ::rusqlite::Connection::open_in_memory().unwrap();
-    conn.execute(User::ddl_sql(), []).unwrap();
+fn rs_raw() -> ::rusqlite::Connection {
+    let conn = ::rusqlite::Connection::open_in_memory().expect("open");
+    conn.execute(User::ddl_sql(), []).expect("ddl");
     conn
 }
 
 #[cfg(feature = "rusqlite")]
-fn setup_rusqlite_blog_connection() -> ::rusqlite::Connection {
-    let conn = ::rusqlite::Connection::open_in_memory().unwrap();
-    conn.execute(User::ddl_sql(), []).unwrap();
-    conn.execute(Post::ddl_sql(), []).unwrap();
+fn rs_raw_blog() -> ::rusqlite::Connection {
+    let conn = ::rusqlite::Connection::open_in_memory().expect("open");
+    conn.execute(User::ddl_sql(), []).expect("ddl users");
+    conn.execute(Post::ddl_sql(), []).expect("ddl posts");
     conn
 }
 
 #[cfg(feature = "rusqlite")]
-fn setup_rusqlite_drizzle() -> (drizzle::sqlite::rusqlite::Drizzle<Schema>, User) {
-    let conn = ::rusqlite::Connection::open_in_memory().unwrap();
+fn rs_db() -> (drizzle::sqlite::rusqlite::Drizzle<Schema>, User) {
+    let conn = ::rusqlite::Connection::open_in_memory().expect("open");
     let (db, Schema { user }) = drizzle::sqlite::rusqlite::Drizzle::new(conn, Schema::new());
-    db.create().expect("create tables");
+    db.create().expect("create");
     (db, user)
 }
 
 #[cfg(feature = "rusqlite")]
-fn setup_rusqlite_blog_drizzle() -> (drizzle::sqlite::rusqlite::Drizzle<BlogSchema>, User, Post) {
-    let conn = ::rusqlite::Connection::open_in_memory().unwrap();
+fn rs_db_blog() -> (drizzle::sqlite::rusqlite::Drizzle<BlogSchema>, User, Post) {
+    let conn = ::rusqlite::Connection::open_in_memory().expect("open");
     let (db, BlogSchema { user, post }) =
         drizzle::sqlite::rusqlite::Drizzle::new(conn, BlogSchema::new());
-    db.create().expect("create tables");
+    db.create().expect("create");
     (db, user, post)
 }
 
-// ============================================================================
-// Turso Setup Functions
-// ============================================================================
-
 #[cfg(feature = "turso")]
-async fn setup_turso_connection() -> ::turso::Connection {
+async fn tu_raw() -> ::turso::Connection {
     let db = ::turso::Builder::new_local(":memory:")
         .build()
         .await
-        .expect("create in memory");
-    let conn = db.connect().expect("connect to db");
-    conn.execute(User::ddl_sql(), ())
-        .await
-        .expect("create table");
+        .expect("db");
+    let conn = db.connect().expect("connect");
+    conn.execute(User::ddl_sql(), ()).await.expect("ddl");
     conn
 }
 
 #[cfg(feature = "turso")]
-async fn setup_turso_blog_connection() -> ::turso::Connection {
+async fn tu_db() -> (drizzle::sqlite::turso::Drizzle<Schema>, User) {
     let db = ::turso::Builder::new_local(":memory:")
         .build()
         .await
-        .expect("create in memory");
-    let conn = db.connect().expect("connect to db");
-    conn.execute(User::ddl_sql(), ())
-        .await
-        .expect("create users table");
-    conn.execute(Post::ddl_sql(), ())
-        .await
-        .expect("create posts table");
-    conn
-}
-
-#[cfg(feature = "turso")]
-async fn setup_turso_drizzle() -> (drizzle::sqlite::turso::Drizzle<Schema>, User) {
-    let db = ::turso::Builder::new_local(":memory:")
-        .build()
-        .await
-        .expect("create in memory");
-    let conn = db.connect().expect("connect to db");
+        .expect("db");
+    let conn = db.connect().expect("connect");
     let (db, Schema { user }) = drizzle::sqlite::turso::Drizzle::new(conn, Schema::new());
     db.execute(drizzle::core::SQL::raw(User::ddl_sql()))
         .await
-        .expect("create table");
+        .expect("create");
     (db, user)
 }
 
 #[cfg(feature = "turso")]
-async fn setup_turso_blog_drizzle() -> (drizzle::sqlite::turso::Drizzle<BlogSchema>, User, Post) {
+async fn tu_db_blog() -> (drizzle::sqlite::turso::Drizzle<BlogSchema>, User, Post) {
     let db = ::turso::Builder::new_local(":memory:")
         .build()
         .await
-        .expect("create in memory");
-    let conn = db.connect().expect("connect to db");
+        .expect("db");
+    let conn = db.connect().expect("connect");
     let (db, BlogSchema { user, post }) =
         drizzle::sqlite::turso::Drizzle::new(conn, BlogSchema::new());
     db.execute(drizzle::core::SQL::raw(User::ddl_sql()))
         .await
-        .expect("create users table");
+        .expect("create users");
     db.execute(drizzle::core::SQL::raw(Post::ddl_sql()))
         .await
-        .expect("create posts table");
+        .expect("create posts");
     (db, user, post)
 }
 
-// ============================================================================
-// Libsql Setup Functions
-// ============================================================================
-
 #[cfg(feature = "libsql")]
-async fn setup_libsql_connection() -> ::libsql::Connection {
+async fn ls_raw() -> ::libsql::Connection {
     let db = ::libsql::Builder::new_local(":memory:")
         .build()
         .await
-        .expect("create in memory");
-    let conn = db.connect().expect("connect to db");
-    conn.execute(User::ddl_sql(), ())
-        .await
-        .expect("create table");
+        .expect("db");
+    let conn = db.connect().expect("connect");
+    conn.execute(User::ddl_sql(), ()).await.expect("ddl");
     conn
 }
 
 #[cfg(feature = "libsql")]
-async fn setup_libsql_blog_connection() -> ::libsql::Connection {
+async fn ls_db() -> (drizzle::sqlite::libsql::Drizzle<Schema>, User) {
     let db = ::libsql::Builder::new_local(":memory:")
         .build()
         .await
-        .expect("create in memory");
-    let conn = db.connect().expect("connect to db");
-    conn.execute(User::ddl_sql(), ())
-        .await
-        .expect("create users table");
-    conn.execute(Post::ddl_sql(), ())
-        .await
-        .expect("create posts table");
-    conn
-}
-
-#[cfg(feature = "libsql")]
-async fn setup_libsql_drizzle() -> (drizzle::sqlite::libsql::Drizzle<Schema>, User) {
-    let db = ::libsql::Builder::new_local(":memory:")
-        .build()
-        .await
-        .expect("create in memory");
-    let conn = db.connect().expect("connect to db");
+        .expect("db");
+    let conn = db.connect().expect("connect");
     let (db, Schema { user }) = drizzle::sqlite::libsql::Drizzle::new(conn, Schema::new());
     db.execute(drizzle::core::SQL::raw(User::ddl_sql()))
         .await
-        .expect("create table");
+        .expect("create");
     (db, user)
 }
 
 #[cfg(feature = "libsql")]
-async fn setup_libsql_blog_drizzle() -> (drizzle::sqlite::libsql::Drizzle<BlogSchema>, User, Post) {
+async fn ls_db_blog() -> (drizzle::sqlite::libsql::Drizzle<BlogSchema>, User, Post) {
     let db = ::libsql::Builder::new_local(":memory:")
         .build()
         .await
-        .expect("create in memory");
-    let conn = db.connect().expect("connect to db");
+        .expect("db");
+    let conn = db.connect().expect("connect");
     let (db, BlogSchema { user, post }) =
         drizzle::sqlite::libsql::Drizzle::new(conn, BlogSchema::new());
     db.execute(drizzle::core::SQL::raw(User::ddl_sql()))
         .await
-        .expect("create users table");
+        .expect("create users");
     db.execute(drizzle::core::SQL::raw(Post::ddl_sql()))
         .await
-        .expect("create posts table");
+        .expect("create posts");
     (db, user, post)
 }
 
-// ============================================================================
-// Rusqlite Benchmarks
-// ============================================================================
-
 #[cfg(feature = "rusqlite")]
-#[divan::bench_group]
-mod rusqlite {
-    use super::*;
+fn bench_rusqlite(c: &mut Criterion) {
+    use drizzle::sqlite::connection::SQLiteTransactionType;
+    use drizzle_core::asc;
 
-    #[divan::bench_group]
-    mod select {
-        use super::*;
+    let mut read = c.benchmark_group("rusqlite/read");
+    read.bench_function("select_raw", |b| {
+        b.iter_batched(
+            || {
+                let conn = rs_raw();
+                for i in 0..100 {
+                    conn.execute(
+                        "INSERT INTO bench_users (name, email) VALUES (?1, ?2)",
+                        [format!("User {}", i), format!("user{}@x.dev", i)],
+                    )
+                    .expect("seed");
+                }
+                conn
+            },
+            |conn| {
+                let mut stmt = conn
+                    .prepare("SELECT id, name, email FROM bench_users")
+                    .expect("prepare");
+                let rows = stmt
+                    .query_map([], |r| {
+                        Ok((
+                            r.get::<_, i32>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, String>(2)?,
+                        ))
+                    })
+                    .expect("query");
+                black_box(rows.collect::<Vec<_>>());
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+    read.bench_function("select_drizzle", |b| {
+        b.iter_batched(
+            || {
+                let (db, user) = rs_db();
+                db.insert(user).values(users!(100)).execute().expect("seed");
+                (db, user)
+            },
+            |(db, user)| {
+                let out: Vec<(i32, String, String)> = db
+                    .select((user.id, user.name, user.email))
+                    .from(user)
+                    .all()
+                    .expect("select");
+                black_box(out);
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+    read.finish();
 
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let conn = setup_rusqlite_connection();
-                    for i in 0..100 {
-                        conn.execute(
-                            "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                            [format!("User {}", i), format!("user{}@example.com", i)],
-                        )
-                        .unwrap();
-                    }
-                    conn
+    let mut write = c.benchmark_group("rusqlite/write");
+    write.bench_function("insert", |b| {
+        b.iter_batched(
+            rs_db,
+            |(db, user)| {
+                db.insert(user)
+                    .values([InsertUser::new("one", "one@x.dev")])
+                    .execute()
+                    .expect("insert");
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+    write.bench_function("update", |b| {
+        b.iter_batched(
+            || {
+                let (db, user) = rs_db();
+                db.insert(user)
+                    .values([InsertUser::new("a", "a@x.dev").with_id(1)])
+                    .execute()
+                    .expect("seed");
+                (db, user)
+            },
+            |(db, user)| {
+                db.update(user)
+                    .set(UpdateUser::default().with_name("b"))
+                    .r#where(eq(user.id, 1))
+                    .execute()
+                    .expect("update");
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+    write.bench_function("delete", |b| {
+        b.iter_batched(
+            || {
+                let (db, user) = rs_db();
+                db.insert(user)
+                    .values([InsertUser::new("a", "a@x.dev").with_id(1)])
+                    .execute()
+                    .expect("seed");
+                (db, user)
+            },
+            |(db, user)| {
+                db.delete(user)
+                    .r#where(eq(user.id, 1))
+                    .execute()
+                    .expect("delete");
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+    write.finish();
+
+    let mut bulk = c.benchmark_group("rusqlite/bulk");
+    bulk.bench_function("drizzle", |b| {
+        b.iter_batched(
+            rs_db,
+            |(db, user)| {
+                db.insert(user)
+                    .values(users!(1_000))
+                    .execute()
+                    .expect("bulk");
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+    bulk.finish();
+
+    let mut query = c.benchmark_group("rusqlite/query");
+    query.bench_function("join", |b| {
+        b.iter_batched(
+            || {
+                let (db, user, post) = rs_db_blog();
+                db.insert(user)
+                    .values(users!(10))
+                    .execute()
+                    .expect("seed users");
+                db.insert(post)
+                    .values(posts!(100, 10))
+                    .execute()
+                    .expect("seed posts");
+                (db, user, post)
+            },
+            |(db, user, post)| {
+                let out: Vec<(String, String)> = db
+                    .select((user.name, post.title))
+                    .from(user)
+                    .inner_join((post, eq(user.id, post.author_id)))
+                    .all()
+                    .expect("join");
+                black_box(out);
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+    query.bench_function("agg", |b| {
+        b.iter_batched(
+            || {
+                let (db, user) = rs_db();
+                db.insert(user).values(users!(100)).execute().expect("seed");
+                (db, user)
+            },
+            |(db, user)| {
+                let out: Vec<(i32,)> = db.select((count(user.id),)).from(user).all().expect("agg");
+                black_box(out);
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+    query.bench_function("page", |b| {
+        b.iter_batched(
+            || {
+                let (db, user) = rs_db();
+                db.insert(user).values(users!(100)).execute().expect("seed");
+                (db, user)
+            },
+            |(db, user)| {
+                let out: Vec<(i32, String, String)> = db
+                    .select((user.id, user.name, user.email))
+                    .from(user)
+                    .order_by([asc(user.name)])
+                    .limit(10)
+                    .offset(20)
+                    .all()
+                    .expect("page");
+                black_box(out);
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+    query.finish();
+
+    let mut extra = c.benchmark_group("rusqlite/extra");
+    extra.bench_function("tx", |b| {
+        b.iter_batched(
+            rs_db,
+            |(mut db, user)| {
+                db.transaction(SQLiteTransactionType::Immediate, |tx| {
+                    tx.insert(user).values(users!(25)).execute()?;
+                    Ok::<(), drizzle::error::DrizzleError>(())
                 })
-                .bench_values(|conn| {
-                    let mut stmt = conn
-                        .prepare(
-                            r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users""#,
-                        )
-                        .unwrap();
+                .expect("tx");
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+    extra.bench_function("upsert", |b| {
+        b.iter_batched(
+            rs_db,
+            |(db, user)| {
+                db.insert(user)
+                    .values([InsertUser::new("up", "up@x.dev").with_id(1)])
+                    .on_conflict(user.id)
+                    .do_update(UpdateUser::default().with_name("up").with_email("up@x.dev"))
+                    .execute()
+                    .expect("upsert");
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+    extra.bench_function("ret", |b| {
+        b.iter_batched(
+            rs_db,
+            |(db, user)| {
+                let out: Vec<(i32, String, String)> = db
+                    .insert(user)
+                    .values([InsertUser::new("ret", "ret@x.dev")])
+                    .returning((user.id, user.name, user.email))
+                    .all()
+                    .expect("ret");
+                black_box(out);
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+    extra.bench_function("sql", |b| {
+        b.iter_batched(
+            rs_db,
+            |(db, user)| {
+                let sql = db
+                    .select((user.id,))
+                    .from(user)
+                    .r#where(eq(user.id, 42))
+                    .to_sql();
+                black_box(sql.sql());
+                black_box(sql.params().count());
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+    extra.finish();
 
-                    let rows = stmt
-                        .query_map([], |row| {
-                            Ok((
-                                row.get::<_, i32>(0)?,
-                                row.get::<_, String>(1)?,
-                                row.get::<_, String>(2)?,
-                            ))
-                        })
-                        .unwrap();
-
-                    let results: Vec<_> = rows.collect();
-                    black_box(results);
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let conn = setup_rusqlite_connection();
-                    for i in 0..100 {
-                        conn.execute(
-                            "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                            [format!("User {}", i), format!("user{}@example.com", i)],
-                        )
-                        .unwrap();
-                    }
-                    conn
-                })
-                .bench_values(|conn| {
-                    let mut stmt = conn
-                        .prepare_cached(
-                            r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users""#,
-                        )
-                        .unwrap();
-
-                    let rows = stmt
-                        .query_map([], |row| {
-                            Ok((
-                                row.get::<_, i32>(0)?,
-                                row.get::<_, String>(1)?,
-                                row.get::<_, String>(2)?,
-                            ))
-                        })
-                        .unwrap();
-
-                    let results: Vec<_> = rows.collect();
-                    black_box(results);
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let (db, users) = setup_rusqlite_drizzle();
-                    db.insert(users).values(gen_users!(100)).execute().unwrap();
-                    (db, users)
-                })
-                .bench_values(|(db, users)| {
-                    let results: Vec<SelectUser> = db.select(()).from(users).all().unwrap();
-                    black_box(results);
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let (db, users) = setup_rusqlite_drizzle();
-                    db.insert(users).values(gen_users!(100)).execute().unwrap();
-                    let prepared = db.select(()).from(users).prepare().into_owned();
-                    (db, prepared)
-                })
-                .bench_values(|(db, prepared)| {
-                    let results: Vec<SelectUser> = prepared.all(db.conn(), []).unwrap();
-                    black_box(results);
-                });
-        }
-    }
-
-    #[divan::bench_group]
-    mod select_where {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let conn = setup_rusqlite_connection();
-                    for i in 0..100 {
-                        conn.execute(
-                            "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                            [format!("User {}", i), format!("user{}@example.com", i)],
-                        )
-                        .unwrap();
-                    }
-                    conn
-                })
-                .bench_values(|conn| {
-                    let mut stmt = conn
-                        .prepare(
-                            r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users" WHERE "users"."id" = ?1"#,
-                        )
-                        .unwrap();
-
-                    let rows = stmt
-                        .query_map([black_box(50)], |row| {
-                            Ok((
-                                row.get::<_, i32>(0)?,
-                                row.get::<_, String>(1)?,
-                                row.get::<_, String>(2)?,
-                            ))
-                        })
-                        .unwrap();
-
-                    let results: Vec<_> = rows.collect();
-                    black_box(results);
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let conn = setup_rusqlite_connection();
-                    for i in 0..100 {
-                        conn.execute(
-                            "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                            [format!("User {}", i), format!("user{}@example.com", i)],
-                        )
-                        .unwrap();
-                    }
-                    conn
-                })
-                .bench_values(|conn| {
-                    let mut stmt = conn
-                        .prepare_cached(
-                            r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users" WHERE "users"."id" = ?1"#,
-                        )
-                        .unwrap();
-
-                    let rows = stmt
-                        .query_map([black_box(50)], |row| {
-                            Ok((
-                                row.get::<_, i32>(0)?,
-                                row.get::<_, String>(1)?,
-                                row.get::<_, String>(2)?,
-                            ))
-                        })
-                        .unwrap();
-
-                    let results: Vec<_> = rows.collect();
-                    black_box(results);
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let (db, users) = setup_rusqlite_drizzle();
-                    db.insert(users).values(gen_users!(100)).execute().unwrap();
-                    (db, users)
-                })
-                .bench_values(|(db, users)| {
-                    let results: Vec<SelectUser> = db
-                        .select(())
-                        .from(users)
-                        .r#where(eq(users.id, black_box(50)))
+    let mut scale = c.benchmark_group("rusqlite/scale");
+    for n in [10, 100, 1_000] {
+        scale.throughput(Throughput::Elements(n as u64));
+        scale.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
+            b.iter_batched(
+                || {
+                    let (db, user) = rs_db();
+                    db.insert(user).values(users!(n)).execute().expect("seed");
+                    (db, user)
+                },
+                |(db, user)| {
+                    let out: Vec<(i32, String, String)> = db
+                        .select((user.id, user.name, user.email))
+                        .from(user)
+                        .r#where(eq(user.id, n / 2))
                         .all()
-                        .unwrap();
-                    black_box(results);
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let (db, users) = setup_rusqlite_drizzle();
-                    db.insert(users).values(gen_users!(100)).execute().unwrap();
-                    let prepared = db
-                        .select(())
-                        .from(users)
-                        .r#where(eq(users.id, 50))
-                        .prepare()
-                        .into_owned();
-                    (db, prepared)
-                })
-                .bench_values(|(db, prepared)| {
-                    let results: Vec<SelectUser> = prepared.all(db.conn(), []).unwrap();
-                    black_box(results);
-                });
-        }
-    }
-
-    #[divan::bench_group]
-    mod insert {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            bencher
-                .with_inputs(|| setup_rusqlite_connection())
-                .bench_values(|conn| {
-                    conn.execute(
-                        "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                        [black_box("user"), black_box("user@example.com")],
-                    )
-                    .unwrap()
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            bencher
-                .with_inputs(setup_rusqlite_connection)
-                .bench_values(|conn| {
-                    let mut stmt = conn
-                        .prepare_cached("INSERT INTO users (name, email) VALUES (?1, ?2)")
-                        .unwrap();
-                    stmt.execute([black_box("user"), black_box("user@example.com")])
-                        .unwrap();
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            bencher
-                .with_inputs(|| setup_rusqlite_drizzle())
-                .bench_values(|(db, user)| {
-                    db.insert(user)
-                        .values([InsertUser::new("user", "user@example.com")])
-                        .execute()
-                        .unwrap();
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let (db, users) = setup_rusqlite_drizzle();
-                    let prepared = db
-                        .insert(users)
-                        .values([InsertUser::new("user", "user@example.com")])
-                        .prepare()
-                        .into_owned();
-
-                    (db, prepared)
-                })
-                .bench_values(|(db, prepared)| {
-                    prepared.execute(db.conn(), []).unwrap();
-                });
-        }
-    }
-
-    #[divan::bench_group]
-    mod update {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let conn = setup_rusqlite_connection();
-                    conn.execute(
-                        "INSERT INTO users (id, name, email) VALUES (1, 'user', 'user@example.com')",
-                        [],
-                    )
-                    .unwrap();
-                    conn
-                })
-                .bench_values(|conn| {
-                    conn.execute(
-                        r#"UPDATE "users" SET "name" = ?1 WHERE "users"."id" = ?2"#,
-                        [black_box("updated"), black_box("1")],
-                    )
-                    .unwrap()
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let conn = setup_rusqlite_connection();
-                    conn.execute(
-                        "INSERT INTO users (id, name, email) VALUES (1, 'user', 'user@example.com')",
-                        [],
-                    )
-                    .unwrap();
-                    conn
-                })
-                .bench_values(|conn| {
-                    let mut stmt = conn
-                        .prepare_cached(r#"UPDATE "users" SET "name" = ?1 WHERE "users"."id" = ?2"#)
-                        .unwrap();
-                    stmt.execute([black_box("updated"), black_box("1")]).unwrap();
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let (db, users) = setup_rusqlite_drizzle();
-                    db.insert(users)
-                        .values([InsertUser::new("user", "user@example.com")])
-                        .execute()
-                        .unwrap();
-                    (db, users)
-                })
-                .bench_values(|(db, users)| {
-                    db.update(users)
-                        .set(UpdateUser::default().with_name(black_box("updated")))
-                        .r#where(eq(users.id, black_box(1)))
-                        .execute()
-                        .unwrap();
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let (db, users) = setup_rusqlite_drizzle();
-                    db.insert(users)
-                        .values([InsertUser::new("user", "user@example.com")])
-                        .execute()
-                        .unwrap();
-                    let prepared = db
-                        .update(users)
-                        .set(UpdateUser::default().with_name("updated"))
-                        .r#where(eq(users.id, 1))
-                        .prepare()
-                        .into_owned();
-                    (db, prepared)
-                })
-                .bench_values(|(db, prepared)| {
-                    prepared.execute(db.conn(), []).unwrap();
-                });
-        }
-    }
-
-    #[divan::bench_group]
-    mod delete {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let conn = setup_rusqlite_connection();
-                    for i in 0..10 {
-                        conn.execute(
-                            "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                            [format!("User {}", i), format!("user{}@example.com", i)],
-                        )
-                        .unwrap();
-                    }
-                    conn
-                })
-                .bench_values(|conn| {
-                    conn.execute(
-                        r#"DELETE FROM "users" WHERE "users"."id" = ?1"#,
-                        [black_box(1)],
-                    )
-                    .unwrap()
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let conn = setup_rusqlite_connection();
-                    for i in 0..10 {
-                        conn.execute(
-                            "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                            [format!("User {}", i), format!("user{}@example.com", i)],
-                        )
-                        .unwrap();
-                    }
-                    conn
-                })
-                .bench_values(|conn| {
-                    let mut stmt = conn
-                        .prepare_cached(r#"DELETE FROM "users" WHERE "users"."id" = ?1"#)
-                        .unwrap();
-                    stmt.execute([black_box(1)]).unwrap();
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let (db, users) = setup_rusqlite_drizzle();
-                    db.insert(users).values(gen_users!(10)).execute().unwrap();
-                    (db, users)
-                })
-                .bench_values(|(db, users)| {
-                    db.delete(users)
-                        .r#where(eq(users.id, black_box(1)))
-                        .execute()
-                        .unwrap();
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let (db, users) = setup_rusqlite_drizzle();
-                    db.insert(users).values(gen_users!(10)).execute().unwrap();
-                    let prepared = db
-                        .delete(users)
-                        .r#where(eq(users.id, 1))
-                        .prepare()
-                        .into_owned();
-                    (db, prepared)
-                })
-                .bench_values(|(db, prepared)| {
-                    prepared.execute(db.conn(), []).unwrap();
-                });
-        }
-    }
-
-    #[divan::bench_group]
-    mod bulk_insert {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let conn = setup_rusqlite_connection();
-
-                    let mut sql = String::from("INSERT INTO users (name, email) VALUES ");
-                    let mut params: Vec<String> = Vec::with_capacity(2000);
-
-                    for i in 0..1000 {
-                        if i > 0 {
-                            sql.push_str(", ");
-                        }
-                        sql.push_str("(?, ?)");
-                        params.push(black_box(format!("User {}", i)));
-                        params.push(black_box(format!("user{}@example.com", i)));
-                    }
-
-                    (conn, sql, params)
-                })
-                .bench_values(|(conn, sql, params)| {
-                    conn.execute(&sql, ::rusqlite::params_from_iter(params))
-                        .unwrap();
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let conn = setup_rusqlite_connection();
-                    let data: Vec<_> = (0..1000)
-                        .map(|i| {
-                            (
-                                black_box(format!("User {}", i)),
-                                black_box(format!("user{}@example.com", i)),
-                            )
-                        })
-                        .collect();
-                    (conn, data)
-                })
-                .bench_values(|(conn, data)| {
-                    let mut stmt = conn
-                        .prepare_cached("INSERT INTO users (name, email) VALUES (?1, ?2)")
-                        .unwrap();
-                    for (name, email) in data {
-                        stmt.execute([name, email]).unwrap();
-                    }
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let (db, users) = setup_rusqlite_drizzle();
-                    let data: Vec<_> = (0..1000)
-                        .map(|i| {
-                            InsertUser::new(
-                                black_box(format!("User {}", i)),
-                                black_box(format!("user{}@example.com", i)),
-                            )
-                        })
-                        .collect();
-                    (db, users, data)
-                })
-                .bench_values(|(db, users, data)| {
-                    db.insert(users).values(data).execute().unwrap();
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            bencher
-                .with_inputs(|| {
-                    let (db, users) = setup_rusqlite_drizzle();
-
-                    let data: Vec<_> = (0..1000)
-                        .map(|i| {
-                            InsertUser::new(
-                                black_box(format!("User {}", i)),
-                                black_box(format!("user{}@example.com", i)),
-                            )
-                        })
-                        .collect();
-                    let stmt = db.insert(users).values(data);
-                    let prepared = stmt.prepare().into_owned();
-                    (db, prepared)
-                })
-                .bench_values(|(db, prepared)| {
-                    prepared.execute(db.conn(), []).unwrap();
-                })
-        }
-    }
-
-    #[divan::bench_group]
-    mod complex {
-        use super::*;
-
-        mod join {
-            use super::*;
-
-            #[derive(Debug, Default, SQLiteFromRow)]
-            #[allow(dead_code)]
-            struct JoinResult {
-                #[column(User::name)]
-                user_name: String,
-                #[column(Post::title)]
-                post_title: String,
-            }
-
-            #[divan::bench]
-            fn raw(bencher: Bencher) {
-                bencher
-                    .with_inputs(|| {
-                        let conn = setup_rusqlite_blog_connection();
-                        // Insert users
-                        for i in 0..10 {
-                            conn.execute(
-                                "INSERT INTO users (id, name, email) VALUES (?1, ?2, ?3)",
-                                (
-                                    i + 1,
-                                    format!("User {}", i),
-                                    format!("user{}@example.com", i),
-                                ),
-                            )
-                            .unwrap();
-                        }
-                        // Insert posts
-                        for i in 0..100 {
-                            conn.execute(
-                                "INSERT INTO posts (title, content, author_id) VALUES (?1, ?2, ?3)",
-                                (
-                                    format!("Post {}", i),
-                                    format!("Content {}", i),
-                                    (i % 10) + 1,
-                                ),
-                            )
-                            .unwrap();
-                        }
-                        conn
-                    })
-                    .bench_values(|conn| {
-                        let mut stmt = conn
-                            .prepare(
-                                r#"SELECT "users"."name", "posts"."title" FROM "users"
-                                   INNER JOIN "posts" ON "users"."id" = "posts"."author_id""#,
-                            )
-                            .unwrap();
-
-                        let rows = stmt
-                            .query_map([], |row| {
-                                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                            })
-                            .unwrap();
-
-                        let results: Vec<_> = rows.collect();
-                        black_box(results);
-                    });
-            }
-
-            #[divan::bench]
-            fn drizzle(bencher: Bencher) {
-                bencher
-                    .with_inputs(|| {
-                        let (db, users, posts) = setup_rusqlite_blog_drizzle();
-                        // Insert users
-                        db.insert(users).values(gen_users!(10)).execute().unwrap();
-                        // Insert posts
-                        let post_data: Vec<_> = (0..100)
-                            .map(|i| {
-                                InsertPost::new(
-                                    format!("Post {}", i),
-                                    format!("Content {}", i),
-                                    (i % 10) + 1,
-                                )
-                            })
-                            .collect();
-                        db.insert(posts).values(post_data).execute().unwrap();
-                        (db, users, posts)
-                    })
-                    .bench_values(|(db, users, posts)| {
-                        let results: Vec<JoinResult> = db
-                            .select(JoinResult::default())
-                            .from(users)
-                            .inner_join((posts, eq(users.id, posts.author_id)))
-                            .all()
-                            .unwrap();
-                        black_box(results);
-                    });
-            }
-        }
-
-        mod aggregate {
-            use super::*;
-
-            #[derive(Debug, SQLiteFromRow)]
-            #[allow(dead_code)]
-            struct CountResult {
-                count: i32,
-            }
-
-            #[divan::bench]
-            fn raw(bencher: Bencher) {
-                bencher
-                    .with_inputs(|| {
-                        let conn = setup_rusqlite_connection();
-                        for i in 0..100 {
-                            conn.execute(
-                                "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                [format!("User {}", i), format!("user{}@example.com", i)],
-                            )
-                            .unwrap();
-                        }
-                        conn
-                    })
-                    .bench_values(|conn| {
-                        let count: i32 = conn
-                            .query_row(r#"SELECT COUNT(*) FROM "users""#, [], |row| row.get(0))
-                            .unwrap();
-                        black_box(count);
-                    });
-            }
-
-            #[divan::bench]
-            fn drizzle(bencher: Bencher) {
-                bencher
-                    .with_inputs(|| {
-                        let (db, users) = setup_rusqlite_drizzle();
-                        db.insert(users).values(gen_users!(100)).execute().unwrap();
-                        (db, users)
-                    })
-                    .bench_values(|(db, users)| {
-                        let results: Vec<CountResult> = db
-                            .select(alias(count(users.id), "count"))
-                            .from(users)
-                            .all()
-                            .unwrap();
-                        black_box(results);
-                    });
-            }
-        }
-
-        mod order_limit {
-            use super::*;
-            use drizzle_core::asc;
-
-            #[divan::bench]
-            fn raw(bencher: Bencher) {
-                bencher
-                    .with_inputs(|| {
-                        let conn = setup_rusqlite_connection();
-                        for i in 0..100 {
-                            conn.execute(
-                                "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                [format!("User {}", i), format!("user{}@example.com", i)],
-                            )
-                            .unwrap();
-                        }
-                        conn
-                    })
-                    .bench_values(|conn| {
-                        let mut stmt = conn
-                            .prepare(
-                                r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users"
-                                   ORDER BY "users"."name" ASC LIMIT 10 OFFSET 20"#,
-                            )
-                            .unwrap();
-
-                        let rows = stmt
-                            .query_map([], |row| {
-                                Ok((
-                                    row.get::<_, i32>(0)?,
-                                    row.get::<_, String>(1)?,
-                                    row.get::<_, String>(2)?,
-                                ))
-                            })
-                            .unwrap();
-
-                        let results: Vec<_> = rows.collect();
-                        black_box(results);
-                    });
-            }
-
-            #[divan::bench]
-            fn drizzle(bencher: Bencher) {
-                bencher
-                    .with_inputs(|| {
-                        let (db, users) = setup_rusqlite_drizzle();
-                        db.insert(users).values(gen_users!(100)).execute().unwrap();
-                        (db, users)
-                    })
-                    .bench_values(|(db, users)| {
-                        let results: Vec<SelectUser> = db
-                            .select(())
-                            .from(users)
-                            .order_by([asc(users.name)])
-                            .limit(10)
-                            .offset(20)
-                            .all()
-                            .unwrap();
-                        black_box(results);
-                    });
-            }
-        }
-    }
-}
-
-// ============================================================================
-// Turso Benchmarks
-// ============================================================================
-
-#[cfg(feature = "turso")]
-#[divan::bench_group]
-mod turso {
-    use super::*;
-
-    #[divan::bench_group]
-    mod select {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_turso_connection().await;
-                        for i in 0..100 {
-                            conn.execute(
-                                "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                [format!("User {}", i), format!("user{}@example.com", i)],
-                            )
-                            .await
-                            .unwrap();
-                        }
-                        conn
-                    })
-                })
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        let mut rows = conn
-                            .query(
-                                r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users""#,
-                                (),
-                            )
-                            .await
-                            .expect("query rows");
-
-                        let mut results = Vec::new();
-                        while let Some(row) = rows.next().await.expect("get row") {
-                            let col0: i32 = *row.get_value(0).unwrap().as_integer().unwrap() as i32;
-                            let col1: String = row.get_value(1).unwrap().as_text().unwrap().to_string();
-                            let col2: String = row.get_value(2).unwrap().as_text().unwrap().to_string();
-
-                            results.push((col0, col1, col2));
-                        }
-
-                        black_box(results);
-                    });
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_turso_connection().await;
-                        for i in 0..100 {
-                            conn.execute(
-                                "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                [format!("User {}", i), format!("user{}@example.com", i)],
-                            )
-                            .await
-                            .unwrap();
-                        }
-                        conn
-                    })
-                })
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        let mut stmt = conn
-                            .prepare(
-                                r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users""#,
-                            )
-                            .await
-                            .unwrap();
-
-                        let mut rows = stmt.query(()).await.expect("query rows");
-
-                        let mut results = Vec::new();
-                        while let Some(row) = rows.next().await.expect("get row") {
-                            let col0: i32 = *row.get_value(0).unwrap().as_integer().unwrap() as i32;
-                            let col1: String = row.get_value(1).unwrap().as_text().unwrap().to_string();
-                            let col2: String = row.get_value(2).unwrap().as_text().unwrap().to_string();
-
-                            results.push((col0, col1, col2));
-                        }
-
-                        black_box(results);
-                    });
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_turso_drizzle().await;
-                        db.insert(users)
-                            .values(gen_users!(100))
-                            .execute()
-                            .await
-                            .unwrap();
-                        (db, users)
-                    })
-                })
-                .bench_values(|(db, users)| {
-                    let results: Vec<SelectUser> =
-                        rt.block_on(async { db.select(()).from(users).all().await.unwrap() });
-                    black_box(results);
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_turso_drizzle().await;
-                        db.insert(users)
-                            .values(gen_users!(100))
-                            .execute()
-                            .await
-                            .unwrap();
-                        let prepared = db.select(()).from(users).prepare().into_owned();
-                        (db, prepared)
-                    })
-                })
-                .bench_values(|(db, prepared)| {
-                    let results: Vec<SelectUser> =
-                        rt.block_on(async { prepared.all(db.conn(), []).await.unwrap() });
-                    black_box(results);
-                });
-        }
-    }
-
-    #[divan::bench_group]
-    mod select_where {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_turso_connection().await;
-                        for i in 0..100 {
-                            conn.execute(
-                                "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                [format!("User {}", i), format!("user{}@example.com", i)],
-                            )
-                            .await
-                            .unwrap();
-                        }
-                        conn
-                    })
-                })
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        let mut rows = conn
-                            .query(
-                                r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users" WHERE "users"."name" = ?1"#,
-                                [black_box("User 50")],
-                            )
-                            .await
-                            .expect("query rows");
-
-                        let mut results = Vec::new();
-                        while let Some(row) = rows.next().await.expect("get row") {
-                            let col0: i32 = *row.get_value(0).unwrap().as_integer().unwrap() as i32;
-                            let col1: String = row.get_value(1).unwrap().as_text().unwrap().to_string();
-                            let col2: String = row.get_value(2).unwrap().as_text().unwrap().to_string();
-                            results.push((col0, col1, col2));
-                        }
-
-                        black_box(results);
-                    });
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_turso_connection().await;
-                        for i in 0..100 {
-                            conn.execute(
-                                "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                [format!("User {}", i), format!("user{}@example.com", i)],
-                            )
-                            .await
-                            .unwrap();
-                        }
-                        conn
-                    })
-                })
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        let mut stmt = conn
-                            .prepare(
-                                r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users" WHERE "users"."name" = ?1"#,
-                            )
-                            .await
-                            .unwrap();
-
-                        let mut rows = stmt.query([black_box("User 50")]).await.expect("query rows");
-
-                        let mut results = Vec::new();
-                        while let Some(row) = rows.next().await.expect("get row") {
-                            let col0: i32 = *row.get_value(0).unwrap().as_integer().unwrap() as i32;
-                            let col1: String = row.get_value(1).unwrap().as_text().unwrap().to_string();
-                            let col2: String = row.get_value(2).unwrap().as_text().unwrap().to_string();
-                            results.push((col0, col1, col2));
-                        }
-
-                        black_box(results);
-                    });
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_turso_drizzle().await;
-                        db.insert(users)
-                            .values(gen_users!(100))
-                            .execute()
-                            .await
-                            .unwrap();
-                        (db, users)
-                    })
-                })
-                .bench_values(|(db, users)| {
-                    let results: Vec<SelectUser> = rt.block_on(async {
-                        db.select(())
-                            .from(users)
-                            .r#where(eq(users.name, black_box("User 50")))
-                            .all()
-                            .await
-                            .unwrap()
-                    });
-                    black_box(results);
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_turso_drizzle().await;
-                        db.insert(users)
-                            .values(gen_users!(100))
-                            .execute()
-                            .await
-                            .unwrap();
-                        let prepared = db
-                            .select(())
-                            .from(users)
-                            .r#where(eq(users.name, "User 50"))
-                            .prepare()
-                            .into_owned();
-                        (db, prepared)
-                    })
-                })
-                .bench_values(|(db, prepared)| {
-                    let results: Vec<SelectUser> =
-                        rt.block_on(async { prepared.all(db.conn(), []).await.unwrap() });
-                    black_box(results);
-                });
-        }
-    }
-
-    #[divan::bench_group]
-    mod insert {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| rt.block_on(async { setup_turso_connection().await }))
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        conn.execute(
-                            "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                            [black_box("user"), black_box("user@example.com")],
-                        )
-                        .await
-                        .unwrap()
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| rt.block_on(async { setup_turso_connection().await }))
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        let mut stmt = conn
-                            .prepare("INSERT INTO users (name, email) VALUES (?1, ?2)")
-                            .await
-                            .unwrap();
-                        stmt.execute([black_box("user"), black_box("user@example.com")])
-                            .await
-                            .unwrap()
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| rt.block_on(async { setup_turso_drizzle().await }))
-                .bench_values(|(db, user)| {
-                    rt.block_on(async move {
-                        db.insert(user)
-                            .values([InsertUser::new("user", "user@example.com")])
-                            .execute()
-                            .await
-                            .unwrap()
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_turso_drizzle().await;
-                        let prepared = db
-                            .insert(users)
-                            .values([InsertUser::new("user", "user@example.com")])
-                            .prepare()
-                            .into_owned();
-
-                        (db, prepared)
-                    })
-                })
-                .bench_values(|(db, prepared)| {
-                    rt.block_on(async {
-                        prepared.execute(db.conn(), []).await.unwrap();
-                    })
-                });
-        }
-    }
-
-    #[divan::bench_group]
-    mod update {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_turso_connection().await;
-                        conn.execute(
-                            "INSERT INTO users (id, name, email) VALUES (1, 'user', 'user@example.com')",
-                            (),
-                        )
-                        .await
-                        .unwrap();
-                        conn
-                    })
-                })
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        conn.execute(
-                            r#"UPDATE "users" SET "name" = ?1 WHERE "users"."id" = ?2"#,
-                            [black_box("updated"), black_box("1")],
-                        )
-                        .await
-                        .unwrap()
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_turso_connection().await;
-                        conn.execute(
-                            "INSERT INTO users (id, name, email) VALUES (1, 'user', 'user@example.com')",
-                            (),
-                        )
-                        .await
-                        .unwrap();
-                        conn
-                    })
-                })
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        let mut stmt = conn
-                            .prepare(r#"UPDATE "users" SET "name" = ?1 WHERE "users"."id" = ?2"#)
-                            .await
-                            .unwrap();
-                        stmt.execute([black_box("updated"), black_box("1")])
-                            .await
-                            .unwrap()
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_turso_drizzle().await;
-                        db.insert(users)
-                            .values([InsertUser::new("user", "user@example.com")])
-                            .execute()
-                            .await
-                            .unwrap();
-                        (db, users)
-                    })
-                })
-                .bench_values(|(db, users)| {
-                    rt.block_on(async {
-                        db.update(users)
-                            .set(UpdateUser::default().with_name(black_box("updated")))
-                            .r#where(eq(users.id, black_box(1)))
-                            .execute()
-                            .await
-                            .unwrap();
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_turso_drizzle().await;
-                        db.insert(users)
-                            .values([InsertUser::new("user", "user@example.com")])
-                            .execute()
-                            .await
-                            .unwrap();
-                        let prepared = db
-                            .update(users)
-                            .set(UpdateUser::default().with_name("updated"))
-                            .r#where(eq(users.id, 1))
-                            .prepare()
-                            .into_owned();
-                        (db, prepared)
-                    })
-                })
-                .bench_values(|(db, prepared)| {
-                    rt.block_on(async {
-                        prepared.execute(db.conn(), []).await.unwrap();
-                    })
-                });
-        }
-    }
-
-    #[divan::bench_group]
-    mod delete {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_turso_connection().await;
-                        for i in 0..10 {
-                            conn.execute(
-                                "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                [format!("User {}", i), format!("user{}@example.com", i)],
-                            )
-                            .await
-                            .unwrap();
-                        }
-                        conn
-                    })
-                })
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        conn.execute(
-                            r#"DELETE FROM "users" WHERE "users"."id" = ?1"#,
-                            [black_box(1)],
-                        )
-                        .await
-                        .unwrap()
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_turso_connection().await;
-                        for i in 0..10 {
-                            conn.execute(
-                                "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                [format!("User {}", i), format!("user{}@example.com", i)],
-                            )
-                            .await
-                            .unwrap();
-                        }
-                        conn
-                    })
-                })
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        let mut stmt = conn
-                            .prepare(r#"DELETE FROM "users" WHERE "users"."id" = ?1"#)
-                            .await
-                            .unwrap();
-                        stmt.execute([black_box(1)]).await.unwrap()
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_turso_drizzle().await;
-                        db.insert(users)
-                            .values(gen_users!(10))
-                            .execute()
-                            .await
-                            .unwrap();
-                        (db, users)
-                    })
-                })
-                .bench_values(|(db, users)| {
-                    rt.block_on(async {
-                        db.delete(users)
-                            .r#where(eq(users.id, black_box(1)))
-                            .execute()
-                            .await
-                            .unwrap();
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_turso_drizzle().await;
-                        db.insert(users)
-                            .values(gen_users!(10))
-                            .execute()
-                            .await
-                            .unwrap();
-                        let prepared = db
-                            .delete(users)
-                            .r#where(eq(users.id, 1))
-                            .prepare()
-                            .into_owned();
-                        (db, prepared)
-                    })
-                })
-                .bench_values(|(db, prepared)| {
-                    rt.block_on(async {
-                        prepared.execute(db.conn(), []).await.unwrap();
-                    })
-                });
-        }
-    }
-
-    #[divan::bench_group]
-    mod bulk_insert {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_turso_connection().await;
-
-                        let mut sql = String::from("INSERT INTO users (name, email) VALUES ");
-                        let mut params: Vec<String> = Vec::with_capacity(2000);
-
-                        for i in 0..1000 {
-                            if i > 0 {
-                                sql.push_str(", ");
-                            }
-                            sql.push_str("(?, ?)");
-                            params.push(black_box(format!("User {}", i)));
-                            params.push(black_box(format!("user{}@example.com", i)));
-                        }
-
-                        (conn, sql, params)
-                    })
-                })
-                .bench_values(|(conn, sql, params)| {
-                    rt.block_on(async {
-                        conn.execute(&sql, ::turso::params_from_iter(params))
-                            .await
-                            .unwrap();
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_turso_connection().await;
-                        let data: Vec<_> = (0..1000)
-                            .map(|i| {
-                                (
-                                    black_box(format!("User {}", i)),
-                                    black_box(format!("user{}@example.com", i)),
-                                )
-                            })
-                            .collect();
-                        (conn, data)
-                    })
-                })
-                .bench_values(|(conn, data)| {
-                    rt.block_on(async {
-                        let mut stmt = conn
-                            .prepare("INSERT INTO users (name, email) VALUES (?1, ?2)")
-                            .await
-                            .unwrap();
-                        for (name, email) in data {
-                            stmt.execute([name, email]).await.unwrap();
-                        }
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_turso_drizzle().await;
-                        let data: Vec<_> = (0..1000)
-                            .map(|i| {
-                                InsertUser::new(
-                                    black_box(format!("User {}", i)),
-                                    black_box(format!("user{}@example.com", i)),
-                                )
-                            })
-                            .collect();
-                        (db, users, data)
-                    })
-                })
-                .bench_values(|(db, users, data)| {
-                    rt.block_on(async {
-                        db.insert(users).values(data).execute().await.unwrap();
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_turso_drizzle().await;
-
-                        let data: Vec<_> = (0..1000)
-                            .map(|i| {
-                                InsertUser::new(
-                                    black_box(format!("User {}", i)),
-                                    black_box(format!("user{}@example.com", i)),
-                                )
-                            })
-                            .collect();
-                        let prepared = db.insert(users).values(data).prepare().into_owned();
-                        (db, prepared)
-                    })
-                })
-                .bench_values(|(db, prepared)| {
-                    rt.block_on(async {
-                        prepared.execute(db.conn(), []).await.unwrap();
-                    })
-                })
-        }
-    }
-
-    #[divan::bench_group]
-    mod complex {
-        use super::*;
-
-        mod join {
-            use super::*;
-
-            #[derive(Debug, Default, SQLiteFromRow)]
-            #[allow(dead_code)]
-            struct JoinResult {
-                #[column(User::name)]
-                user_name: String,
-                #[column(Post::title)]
-                post_title: String,
-            }
-
-            #[divan::bench]
-            fn raw(bencher: Bencher) {
-                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-                bencher
-                    .with_inputs(|| {
-                        rt.block_on(async {
-                            let conn = setup_turso_blog_connection().await;
-                            for i in 0..10 {
-                                conn.execute(
-                                    &format!(
-                                        "INSERT INTO users (id, name, email) VALUES ({}, 'User {}', 'user{}@example.com')",
-                                        i + 1,
-                                        i,
-                                        i
-                                    ),
-                                    (),
-                                )
-                                .await
-                                .unwrap();
-                            }
-                            for i in 0..100 {
-                                conn.execute(
-                                    &format!(
-                                        "INSERT INTO posts (title, content, author_id) VALUES ('Post {}', 'Content {}', {})",
-                                        i,
-                                        i,
-                                        (i % 10) + 1
-                                    ),
-                                    (),
-                                )
-                                .await
-                                .unwrap();
-                            }
-                            conn
-                        })
-                    })
-                    .bench_values(|conn| {
-                        rt.block_on(async {
-                            let mut rows = conn
-                                .query(
-                                    r#"SELECT "users"."name", "posts"."title" FROM "users"
-                                       INNER JOIN "posts" ON "users"."id" = "posts"."author_id""#,
-                                    (),
-                                )
-                                .await
-                                .unwrap();
-
-                            let mut results = Vec::new();
-                            while let Some(row) = rows.next().await.unwrap() {
-                                let user_name = row.get_value(0).unwrap().as_text().unwrap().to_string();
-                                let post_title = row.get_value(1).unwrap().as_text().unwrap().to_string();
-                                results.push((user_name, post_title));
-                            }
-                            black_box(results);
-                        });
-                    });
-            }
-
-            #[divan::bench]
-            fn drizzle(bencher: Bencher) {
-                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-                bencher
-                    .with_inputs(|| {
-                        rt.block_on(async {
-                            let (db, users, posts) = setup_turso_blog_drizzle().await;
-                            db.insert(users)
-                                .values(gen_users!(10))
-                                .execute()
-                                .await
-                                .unwrap();
-                            let post_data: Vec<_> = (0..100)
-                                .map(|i| {
-                                    InsertPost::new(
-                                        format!("Post {}", i),
-                                        format!("Content {}", i),
-                                        (i % 10) + 1,
-                                    )
-                                })
-                                .collect();
-                            db.insert(posts).values(post_data).execute().await.unwrap();
-                            (db, users, posts)
-                        })
-                    })
-                    .bench_values(|(db, users, posts)| {
-                        let results: Vec<JoinResult> = rt.block_on(async {
-                            db.select(JoinResult::default())
-                                .from(users)
-                                .inner_join((posts, eq(users.id, posts.author_id)))
-                                .all()
-                                .await
-                                .unwrap()
-                        });
-                        black_box(results);
-                    });
-            }
-        }
-
-        mod aggregate {
-            use super::*;
-
-            #[derive(Debug, SQLiteFromRow)]
-            #[allow(dead_code)]
-            struct CountResult {
-                count: i32,
-            }
-
-            #[divan::bench]
-            fn raw(bencher: Bencher) {
-                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-                bencher
-                    .with_inputs(|| {
-                        rt.block_on(async {
-                            let conn = setup_turso_connection().await;
-                            for i in 0..100 {
-                                conn.execute(
-                                    "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                    [format!("User {}", i), format!("user{}@example.com", i)],
-                                )
-                                .await
-                                .unwrap();
-                            }
-                            conn
-                        })
-                    })
-                    .bench_values(|conn| {
-                        rt.block_on(async {
-                            let mut rows = conn
-                                .query(r#"SELECT COUNT(*) FROM "users""#, ())
-                                .await
-                                .unwrap();
-                            let row = rows.next().await.unwrap().unwrap();
-                            let count = *row.get_value(0).unwrap().as_integer().unwrap() as i32;
-                            black_box(count);
-                        });
-                    });
-            }
-
-            #[divan::bench]
-            fn drizzle(bencher: Bencher) {
-                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-                bencher
-                    .with_inputs(|| {
-                        rt.block_on(async {
-                            let (db, users) = setup_turso_drizzle().await;
-                            db.insert(users)
-                                .values(gen_users!(100))
-                                .execute()
-                                .await
-                                .unwrap();
-                            (db, users)
-                        })
-                    })
-                    .bench_values(|(db, users)| {
-                        let results: Vec<CountResult> = rt.block_on(async {
-                            db.select(alias(count(users.id), "count"))
-                                .from(users)
-                                .all()
-                                .await
-                                .unwrap()
-                        });
-                        black_box(results);
-                    });
-            }
-        }
-
-        mod order_limit {
-            use super::*;
-            use drizzle_core::asc;
-
-            #[divan::bench]
-            fn raw(bencher: Bencher) {
-                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-                bencher
-                    .with_inputs(|| {
-                        rt.block_on(async {
-                            let conn = setup_turso_connection().await;
-                            for i in 0..100 {
-                                conn.execute(
-                                    "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                    [format!("User {}", i), format!("user{}@example.com", i)],
-                                )
-                                .await
-                                .unwrap();
-                            }
-                            conn
-                        })
-                    })
-                    .bench_values(|conn| {
-                        rt.block_on(async {
-                            let mut rows = conn
-                                .query(
-                                    r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users"
-                                       ORDER BY "users"."name" ASC LIMIT 10 OFFSET 20"#,
-                                    (),
-                                )
-                                .await
-                                .unwrap();
-
-                            let mut results = Vec::new();
-                            while let Some(row) = rows.next().await.unwrap() {
-                                let col0: i32 = *row.get_value(0).unwrap().as_integer().unwrap() as i32;
-                                let col1: String = row.get_value(1).unwrap().as_text().unwrap().to_string();
-                                let col2: String = row.get_value(2).unwrap().as_text().unwrap().to_string();
-                                results.push((col0, col1, col2));
-                            }
-                            black_box(results);
-                        });
-                    });
-            }
-
-            #[divan::bench]
-            fn drizzle(bencher: Bencher) {
-                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-                bencher
-                    .with_inputs(|| {
-                        rt.block_on(async {
-                            let (db, users) = setup_turso_drizzle().await;
-                            db.insert(users)
-                                .values(gen_users!(100))
-                                .execute()
-                                .await
-                                .unwrap();
-                            (db, users)
-                        })
-                    })
-                    .bench_values(|(db, users)| {
-                        let results: Vec<SelectUser> = rt.block_on(async {
-                            db.select(())
-                                .from(users)
-                                .order_by([asc(users.name)])
-                                .limit(10)
-                                .offset(20)
-                                .all()
-                                .await
-                                .unwrap()
-                        });
-                        black_box(results);
-                    });
-            }
-        }
-    }
-}
-
-// ============================================================================
-// Libsql Benchmarks
-// ============================================================================
-
-#[cfg(feature = "libsql")]
-#[divan::bench_group]
-mod libsql {
-    use super::*;
-
-    #[divan::bench_group]
-    mod select {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_libsql_connection().await;
-                        for i in 0..100 {
-                            conn.execute(
-                                "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                [format!("User {}", i), format!("user{}@example.com", i)],
-                            )
-                            .await
-                            .unwrap();
-                        }
-                        conn
-                    })
-                })
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        let mut rows = conn
-                            .query(
-                                r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users""#,
-                                (),
-                            )
-                            .await
-                            .expect("query rows");
-
-                        let mut results = Vec::new();
-                        while let Some(row) = rows.next().await.expect("get row") {
-                            let col0: i32 = row.get(0).unwrap();
-                            let col1: String = row.get(1).unwrap();
-                            let col2: String = row.get(2).unwrap();
-
-                            results.push((col0, col1, col2));
-                        }
-
-                        black_box(results);
-                    });
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_libsql_connection().await;
-                        for i in 0..100 {
-                            conn.execute(
-                                "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                [format!("User {}", i), format!("user{}@example.com", i)],
-                            )
-                            .await
-                            .unwrap();
-                        }
-                        conn
-                    })
-                })
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        let stmt = conn
-                            .prepare(
-                                r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users""#,
-                            )
-                            .await
-                            .unwrap();
-
-                        let mut rows = stmt.query(()).await.expect("query rows");
-
-                        let mut results = Vec::new();
-                        while let Some(row) = rows.next().await.expect("get row") {
-                            let col0: i32 = row.get(0).unwrap();
-                            let col1: String = row.get(1).unwrap();
-                            let col2: String = row.get(2).unwrap();
-
-                            results.push((col0, col1, col2));
-                        }
-
-                        black_box(results);
-                    });
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_libsql_drizzle().await;
-                        db.insert(users)
-                            .values(gen_users!(100))
-                            .execute()
-                            .await
-                            .unwrap();
-                        (db, users)
-                    })
-                })
-                .bench_values(|(db, users)| {
-                    let results: Vec<SelectUser> =
-                        rt.block_on(async { db.select(()).from(users).all().await.unwrap() });
-                    black_box(results);
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_libsql_drizzle().await;
-                        db.insert(users)
-                            .values(gen_users!(100))
-                            .execute()
-                            .await
-                            .unwrap();
-                        let prepared = db.select(()).from(users).prepare().into_owned();
-                        (db, prepared)
-                    })
-                })
-                .bench_values(|(db, prepared)| {
-                    let results: Vec<SelectUser> =
-                        rt.block_on(async { prepared.all(db.conn(), []).await.unwrap() });
-                    black_box(results);
-                });
-        }
-    }
-
-    #[divan::bench_group]
-    mod select_where {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_libsql_connection().await;
-                        for i in 0..100 {
-                            conn.execute(
-                                "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                [format!("User {}", i), format!("user{}@example.com", i)],
-                            )
-                            .await
-                            .unwrap();
-                        }
-                        conn
-                    })
-                })
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        let mut rows = conn
-                            .query(
-                                r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users" WHERE "users"."name" = ?1"#,
-                                [black_box("User 50")],
-                            )
-                            .await
-                            .expect("query rows");
-
-                        let mut results = Vec::new();
-                        while let Some(row) = rows.next().await.expect("get row") {
-                            let col0: i32 = row.get(0).unwrap();
-                            let col1: String = row.get(1).unwrap();
-                            let col2: String = row.get(2).unwrap();
-                            results.push((col0, col1, col2));
-                        }
-
-                        black_box(results);
-                    });
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_libsql_connection().await;
-                        for i in 0..100 {
-                            conn.execute(
-                                "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                [format!("User {}", i), format!("user{}@example.com", i)],
-                            )
-                            .await
-                            .unwrap();
-                        }
-                        conn
-                    })
-                })
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        let stmt = conn
-                            .prepare(
-                                r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users" WHERE "users"."name" = ?1"#,
-                            )
-                            .await
-                            .unwrap();
-
-                        let mut rows = stmt.query([black_box("User 50")]).await.expect("query rows");
-
-                        let mut results = Vec::new();
-                        while let Some(row) = rows.next().await.expect("get row") {
-                            let col0: i32 = row.get(0).unwrap();
-                            let col1: String = row.get(1).unwrap();
-                            let col2: String = row.get(2).unwrap();
-                            results.push((col0, col1, col2));
-                        }
-
-                        black_box(results);
-                    });
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_libsql_drizzle().await;
-                        db.insert(users)
-                            .values(gen_users!(100))
-                            .execute()
-                            .await
-                            .unwrap();
-                        (db, users)
-                    })
-                })
-                .bench_values(|(db, users)| {
-                    let results: Vec<SelectUser> = rt.block_on(async {
-                        db.select(())
-                            .from(users)
-                            .r#where(eq(users.name, black_box("User 50")))
-                            .all()
-                            .await
-                            .unwrap()
-                    });
-                    black_box(results);
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_libsql_drizzle().await;
-                        db.insert(users)
-                            .values(gen_users!(100))
-                            .execute()
-                            .await
-                            .unwrap();
-                        let prepared = db
-                            .select(())
-                            .from(users)
-                            .r#where(eq(users.name, "User 50"))
-                            .prepare()
-                            .into_owned();
-                        (db, prepared)
-                    })
-                })
-                .bench_values(|(db, prepared)| {
-                    let results: Vec<SelectUser> =
-                        rt.block_on(async { prepared.all(db.conn(), []).await.unwrap() });
-                    black_box(results);
-                });
-        }
-    }
-
-    #[divan::bench_group]
-    mod insert {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| rt.block_on(async { setup_libsql_connection().await }))
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        conn.execute(
-                            "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                            [black_box("user"), black_box("user@example.com")],
-                        )
-                        .await
-                        .unwrap()
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| rt.block_on(async { setup_libsql_connection().await }))
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        let stmt = conn
-                            .prepare("INSERT INTO users (name, email) VALUES (?1, ?2)")
-                            .await
-                            .unwrap();
-                        stmt.execute([black_box("user"), black_box("user@example.com")])
-                            .await
-                            .unwrap()
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| rt.block_on(async { setup_libsql_drizzle().await }))
-                .bench_values(|(db, user)| {
-                    rt.block_on(async move {
-                        db.insert(user)
-                            .values([InsertUser::new("user", "user@example.com")])
-                            .execute()
-                            .await
-                            .unwrap()
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_libsql_drizzle().await;
-                        let prepared = db
-                            .insert(users)
-                            .values([InsertUser::new("user", "user@example.com")])
-                            .prepare()
-                            .into_owned();
-
-                        (db, prepared)
-                    })
-                })
-                .bench_values(|(db, prepared)| {
-                    rt.block_on(async {
-                        prepared.execute(db.conn(), []).await.unwrap();
-                    })
-                });
-        }
-    }
-
-    #[divan::bench_group]
-    mod update {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_libsql_connection().await;
-                        conn.execute(
-                            "INSERT INTO users (id, name, email) VALUES (1, 'user', 'user@example.com')",
-                            (),
-                        )
-                        .await
-                        .unwrap();
-                        conn
-                    })
-                })
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        conn.execute(
-                            r#"UPDATE "users" SET "name" = ?1 WHERE "users"."id" = ?2"#,
-                            [black_box("updated"), black_box("1")],
-                        )
-                        .await
-                        .unwrap()
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_libsql_connection().await;
-                        conn.execute(
-                            "INSERT INTO users (id, name, email) VALUES (1, 'user', 'user@example.com')",
-                            (),
-                        )
-                        .await
-                        .unwrap();
-                        conn
-                    })
-                })
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        let stmt = conn
-                            .prepare(r#"UPDATE "users" SET "name" = ?1 WHERE "users"."id" = ?2"#)
-                            .await
-                            .unwrap();
-                        stmt.execute([black_box("updated"), black_box("1")])
-                            .await
-                            .unwrap()
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_libsql_drizzle().await;
-                        db.insert(users)
-                            .values([InsertUser::new("user", "user@example.com")])
-                            .execute()
-                            .await
-                            .unwrap();
-                        (db, users)
-                    })
-                })
-                .bench_values(|(db, users)| {
-                    rt.block_on(async {
-                        db.update(users)
-                            .set(UpdateUser::default().with_name(black_box("updated")))
-                            .r#where(eq(users.id, black_box(1)))
-                            .execute()
-                            .await
-                            .unwrap();
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_libsql_drizzle().await;
-                        db.insert(users)
-                            .values([InsertUser::new("user", "user@example.com")])
-                            .execute()
-                            .await
-                            .unwrap();
-                        let prepared = db
-                            .update(users)
-                            .set(UpdateUser::default().with_name("updated"))
-                            .r#where(eq(users.id, 1))
-                            .prepare()
-                            .into_owned();
-                        (db, prepared)
-                    })
-                })
-                .bench_values(|(db, prepared)| {
-                    rt.block_on(async {
-                        prepared.execute(db.conn(), []).await.unwrap();
-                    })
-                });
-        }
-    }
-
-    #[divan::bench_group]
-    mod delete {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_libsql_connection().await;
-                        for i in 0..10 {
-                            conn.execute(
-                                "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                [format!("User {}", i), format!("user{}@example.com", i)],
-                            )
-                            .await
-                            .unwrap();
-                        }
-                        conn
-                    })
-                })
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        conn.execute(
-                            r#"DELETE FROM "users" WHERE "users"."id" = ?1"#,
-                            [black_box(1)],
-                        )
-                        .await
-                        .unwrap()
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_libsql_connection().await;
-                        for i in 0..10 {
-                            conn.execute(
-                                "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                [format!("User {}", i), format!("user{}@example.com", i)],
-                            )
-                            .await
-                            .unwrap();
-                        }
-                        conn
-                    })
-                })
-                .bench_values(|conn| {
-                    rt.block_on(async {
-                        let stmt = conn
-                            .prepare(r#"DELETE FROM "users" WHERE "users"."id" = ?1"#)
-                            .await
-                            .unwrap();
-                        stmt.execute([black_box(1)]).await.unwrap()
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_libsql_drizzle().await;
-                        db.insert(users)
-                            .values(gen_users!(10))
-                            .execute()
-                            .await
-                            .unwrap();
-                        (db, users)
-                    })
-                })
-                .bench_values(|(db, users)| {
-                    rt.block_on(async {
-                        db.delete(users)
-                            .r#where(eq(users.id, black_box(1)))
-                            .execute()
-                            .await
-                            .unwrap();
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_libsql_drizzle().await;
-                        db.insert(users)
-                            .values(gen_users!(10))
-                            .execute()
-                            .await
-                            .unwrap();
-                        let prepared = db
-                            .delete(users)
-                            .r#where(eq(users.id, 1))
-                            .prepare()
-                            .into_owned();
-                        (db, prepared)
-                    })
-                })
-                .bench_values(|(db, prepared)| {
-                    rt.block_on(async {
-                        prepared.execute(db.conn(), []).await.unwrap();
-                    })
-                });
-        }
-    }
-
-    #[divan::bench_group]
-    mod bulk_insert {
-        use super::*;
-
-        #[divan::bench]
-        fn raw(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_libsql_connection().await;
-
-                        let mut sql = String::from("INSERT INTO users (name, email) VALUES ");
-                        let mut params: Vec<String> = Vec::with_capacity(2000);
-
-                        for i in 0..1000 {
-                            if i > 0 {
-                                sql.push_str(", ");
-                            }
-                            sql.push_str("(?, ?)");
-                            params.push(black_box(format!("User {}", i)));
-                            params.push(black_box(format!("user{}@example.com", i)));
-                        }
-
-                        (conn, sql, params)
-                    })
-                })
-                .bench_values(|(conn, sql, params)| {
-                    rt.block_on(async {
-                        conn.execute(&sql, ::libsql::params_from_iter(params))
-                            .await
-                            .unwrap();
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn raw_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let conn = setup_libsql_connection().await;
-                        let data: Vec<_> = (0..1000)
-                            .map(|i| {
-                                (
-                                    black_box(format!("User {}", i)),
-                                    black_box(format!("user{}@example.com", i)),
-                                )
-                            })
-                            .collect();
-                        (conn, data)
-                    })
-                })
-                .bench_values(|(conn, data)| {
-                    rt.block_on(async {
-                        let stmt = conn
-                            .prepare("INSERT INTO users (name, email) VALUES (?1, ?2)")
-                            .await
-                            .unwrap();
-                        for (name, email) in data {
-                            stmt.execute([name, email]).await.unwrap();
-                        }
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_libsql_drizzle().await;
-                        let data: Vec<_> = (0..1000)
-                            .map(|i| {
-                                InsertUser::new(
-                                    black_box(format!("User {}", i)),
-                                    black_box(format!("user{}@example.com", i)),
-                                )
-                            })
-                            .collect();
-                        (db, users, data)
-                    })
-                })
-                .bench_values(|(db, users, data)| {
-                    rt.block_on(async {
-                        db.insert(users).values(data).execute().await.unwrap();
-                    })
-                });
-        }
-
-        #[divan::bench]
-        fn drizzle_prepared(bencher: Bencher) {
-            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            bencher
-                .with_inputs(|| {
-                    rt.block_on(async {
-                        let (db, users) = setup_libsql_drizzle().await;
-
-                        let data: Vec<_> = (0..1000)
-                            .map(|i| {
-                                InsertUser::new(
-                                    black_box(format!("User {}", i)),
-                                    black_box(format!("user{}@example.com", i)),
-                                )
-                            })
-                            .collect();
-                        let prepared = db.insert(users).values(data).prepare().into_owned();
-                        (db, prepared)
-                    })
-                })
-                .bench_values(|(db, prepared)| {
-                    rt.block_on(async {
-                        prepared.execute(db.conn(), []).await.unwrap();
-                    })
-                })
-        }
-    }
-
-    #[divan::bench_group]
-    mod complex {
-        use super::*;
-
-        mod join {
-            use super::*;
-
-            #[derive(Debug, Default, SQLiteFromRow)]
-            #[allow(dead_code)]
-            struct JoinResult {
-                #[column(User::name)]
-                user_name: String,
-                #[column(Post::title)]
-                post_title: String,
-            }
-
-            #[divan::bench]
-            fn raw(bencher: Bencher) {
-                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-                bencher
-                    .with_inputs(|| {
-                        rt.block_on(async {
-                            let conn = setup_libsql_blog_connection().await;
-                            for i in 0..10 {
-                                conn.execute(
-                                    &format!(
-                                        "INSERT INTO users (id, name, email) VALUES ({}, 'User {}', 'user{}@example.com')",
-                                        i + 1,
-                                        i,
-                                        i
-                                    ),
-                                    (),
-                                )
-                                .await
-                                .unwrap();
-                            }
-                            for i in 0..100 {
-                                conn.execute(
-                                    &format!(
-                                        "INSERT INTO posts (title, content, author_id) VALUES ('Post {}', 'Content {}', {})",
-                                        i,
-                                        i,
-                                        (i % 10) + 1
-                                    ),
-                                    (),
-                                )
-                                .await
-                                .unwrap();
-                            }
-                            conn
-                        })
-                    })
-                    .bench_values(|conn| {
-                        rt.block_on(async {
-                            let mut rows = conn
-                                .query(
-                                    r#"SELECT "users"."name", "posts"."title" FROM "users"
-                                       INNER JOIN "posts" ON "users"."id" = "posts"."author_id""#,
-                                    (),
-                                )
-                                .await
-                                .unwrap();
-
-                            let mut results = Vec::new();
-                            while let Some(row) = rows.next().await.unwrap() {
-                                let user_name: String = row.get(0).unwrap();
-                                let post_title: String = row.get(1).unwrap();
-                                results.push((user_name, post_title));
-                            }
-                            black_box(results);
-                        });
-                    });
-            }
-
-            #[divan::bench]
-            fn drizzle(bencher: Bencher) {
-                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-                bencher
-                    .with_inputs(|| {
-                        rt.block_on(async {
-                            let (db, users, posts) = setup_libsql_blog_drizzle().await;
-                            db.insert(users)
-                                .values(gen_users!(10))
-                                .execute()
-                                .await
-                                .unwrap();
-                            let post_data: Vec<_> = (0..100)
-                                .map(|i| {
-                                    InsertPost::new(
-                                        format!("Post {}", i),
-                                        format!("Content {}", i),
-                                        (i % 10) + 1,
-                                    )
-                                })
-                                .collect();
-                            db.insert(posts).values(post_data).execute().await.unwrap();
-                            (db, users, posts)
-                        })
-                    })
-                    .bench_values(|(db, users, posts)| {
-                        let results: Vec<JoinResult> = rt.block_on(async {
-                            db.select(JoinResult::default())
-                                .from(users)
-                                .inner_join((posts, eq(users.id, posts.author_id)))
-                                .all()
-                                .await
-                                .unwrap()
-                        });
-                        black_box(results);
-                    });
-            }
-        }
-
-        mod aggregate {
-            use super::*;
-
-            #[derive(Debug, SQLiteFromRow)]
-            #[allow(dead_code)]
-            struct CountResult {
-                count: i32,
-            }
-
-            #[divan::bench]
-            fn raw(bencher: Bencher) {
-                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-                bencher
-                    .with_inputs(|| {
-                        rt.block_on(async {
-                            let conn = setup_libsql_connection().await;
-                            for i in 0..100 {
-                                conn.execute(
-                                    "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                    [format!("User {}", i), format!("user{}@example.com", i)],
-                                )
-                                .await
-                                .unwrap();
-                            }
-                            conn
-                        })
-                    })
-                    .bench_values(|conn| {
-                        rt.block_on(async {
-                            let mut rows = conn
-                                .query(r#"SELECT COUNT(*) FROM "users""#, ())
-                                .await
-                                .unwrap();
-                            let row = rows.next().await.unwrap().unwrap();
-                            let count: i32 = row.get(0).unwrap();
-                            black_box(count);
-                        });
-                    });
-            }
-
-            #[divan::bench]
-            fn drizzle(bencher: Bencher) {
-                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-                bencher
-                    .with_inputs(|| {
-                        rt.block_on(async {
-                            let (db, users) = setup_libsql_drizzle().await;
-                            db.insert(users)
-                                .values(gen_users!(100))
-                                .execute()
-                                .await
-                                .unwrap();
-                            (db, users)
-                        })
-                    })
-                    .bench_values(|(db, users)| {
-                        let results: Vec<CountResult> = rt.block_on(async {
-                            db.select(alias(count(users.id), "count"))
-                                .from(users)
-                                .all()
-                                .await
-                                .unwrap()
-                        });
-                        black_box(results);
-                    });
-            }
-        }
-
-        mod order_limit {
-            use super::*;
-            use drizzle_core::asc;
-
-            #[divan::bench]
-            fn raw(bencher: Bencher) {
-                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-                bencher
-                    .with_inputs(|| {
-                        rt.block_on(async {
-                            let conn = setup_libsql_connection().await;
-                            for i in 0..100 {
-                                conn.execute(
-                                    "INSERT INTO users (name, email) VALUES (?1, ?2)",
-                                    [format!("User {}", i), format!("user{}@example.com", i)],
-                                )
-                                .await
-                                .unwrap();
-                            }
-                            conn
-                        })
-                    })
-                    .bench_values(|conn| {
-                        rt.block_on(async {
-                            let mut rows = conn
-                                .query(
-                                    r#"SELECT "users"."id", "users"."name", "users"."email" FROM "users"
-                                       ORDER BY "users"."name" ASC LIMIT 10 OFFSET 20"#,
-                                    (),
-                                )
-                                .await
-                                .unwrap();
-
-                            let mut results = Vec::new();
-                            while let Some(row) = rows.next().await.unwrap() {
-                                let col0: i32 = row.get(0).unwrap();
-                                let col1: String = row.get(1).unwrap();
-                                let col2: String = row.get(2).unwrap();
-                                results.push((col0, col1, col2));
-                            }
-                            black_box(results);
-                        });
-                    });
-            }
-
-            #[divan::bench]
-            fn drizzle(bencher: Bencher) {
-                let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-                bencher
-                    .with_inputs(|| {
-                        rt.block_on(async {
-                            let (db, users) = setup_libsql_drizzle().await;
-                            db.insert(users)
-                                .values(gen_users!(100))
-                                .execute()
-                                .await
-                                .unwrap();
-                            (db, users)
-                        })
-                    })
-                    .bench_values(|(db, users)| {
-                        let results: Vec<SelectUser> = rt.block_on(async {
-                            db.select(())
-                                .from(users)
-                                .order_by([asc(users.name)])
-                                .limit(10)
-                                .offset(20)
-                                .all()
-                                .await
-                                .unwrap()
-                        });
-                        black_box(results);
-                    });
-            }
-        }
-    }
-}
-
-fn main() {
-    #[cfg(feature = "profiling")]
-    let captured_frames: std::sync::Arc<
-        std::sync::Mutex<Vec<std::sync::Arc<puffin::FrameData>>>,
-    > = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-
-    #[cfg(feature = "profiling")]
-    let sink_id = {
-        let captured_frames = std::sync::Arc::clone(&captured_frames);
-        puffin::GlobalProfiler::lock().add_sink(Box::new(move |frame| {
-            if let Ok(mut frames) = captured_frames.lock() {
-                frames.push(frame);
-            }
-        }))
-    };
-
-    #[cfg(feature = "profiling")]
-    {
-        puffin::set_scopes_on(true);
-        std::thread::spawn(|| {
-            loop {
-                puffin::GlobalProfiler::lock().new_frame();
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
+                        .expect("where");
+                    black_box(out);
+                },
+                criterion::BatchSize::SmallInput,
+            );
         });
     }
+    scale.finish();
 
-    divan::main();
-
-    #[cfg(feature = "profiling")]
-    {
-        use std::collections::HashMap;
-
-        fn accumulate_scope_times(
-            stream: &puffin::Stream,
-            offset: u64,
-            totals_ns: &mut HashMap<(puffin::ScopeId, String), i64>,
-        ) {
-            let Ok(reader) = puffin::Reader::with_offset(stream, offset) else {
-                return;
-            };
-            for scope in reader.flatten() {
-                *totals_ns
-                    .entry((scope.id, scope.record.data.to_owned()))
-                    .or_insert(0) += scope.record.duration_ns;
-                accumulate_scope_times(stream, scope.child_begin_position, totals_ns);
-            }
-        }
-
-        puffin::GlobalProfiler::lock().new_frame();
-        let _ = puffin::GlobalProfiler::lock().remove_sink(sink_id);
-
-        let frames = captured_frames
-            .lock()
-            .map(|f| f.clone())
-            .unwrap_or_default();
-
-        let mut frame_view = puffin::FrameView::default();
-        let mut totals_ns: HashMap<(puffin::ScopeId, String), i64> = HashMap::new();
-
-        for frame in &frames {
-            frame_view.add_frame(frame.clone());
-            if let Ok(unpacked) = frame.unpacked() {
-                for stream_info in unpacked.thread_streams.values() {
-                    accumulate_scope_times(&stream_info.stream, 0, &mut totals_ns);
-                }
-            }
-        }
-
-        let scopes = frame_view.scope_collection();
-        let mut totals: Vec<(String, i64)> = totals_ns
-            .into_iter()
-            .map(|((id, data), total_ns)| {
-                let base = scopes
-                    .fetch_by_id(&id)
-                    .map(|d| d.name().to_string())
-                    .unwrap_or_else(|| format!("scope#{}", id.0));
-                let name = if data.is_empty() {
-                    base
-                } else {
-                    format!("{}::{}", base, data)
-                };
-                (name, total_ns)
-            })
-            .collect();
-
-        totals.sort_by_key(|entry| std::cmp::Reverse(entry.1));
-
-        println!("\n=== Puffin Scope Totals (sqlite bench) ===");
-        for (idx, (name, total_ns)) in totals.iter().take(20).enumerate() {
-            println!(
-                "{:>2}. {:<60} {:>10.3} ms",
-                idx + 1,
-                name,
-                *total_ns as f64 / 1_000_000.0
-            );
-        }
-    }
+    let _ = rs_raw_blog;
 }
+
+#[cfg(feature = "turso")]
+fn bench_turso(c: &mut Criterion) {
+    use drizzle::sqlite::connection::SQLiteTransactionType;
+    use drizzle_core::asc;
+
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    let mut read = c.benchmark_group("turso/read");
+    read.bench_function("select", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = tu_db().await;
+                db.insert(user)
+                    .values(users!(100))
+                    .execute()
+                    .await
+                    .expect("seed");
+                let out: Vec<(i32, String, String)> = db
+                    .select((user.id, user.name, user.email))
+                    .from(user)
+                    .all()
+                    .await
+                    .expect("select");
+                black_box(out);
+            })
+        })
+    });
+    read.finish();
+
+    let mut write = c.benchmark_group("turso/write");
+    write.bench_function("insert", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = tu_db().await;
+                db.insert(user)
+                    .values([InsertUser::new("one", "one@x.dev")])
+                    .execute()
+                    .await
+                    .expect("insert");
+            })
+        })
+    });
+    write.bench_function("tx", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (mut db, user) = tu_db().await;
+                db.transaction(SQLiteTransactionType::Immediate, async |tx| {
+                    tx.insert(user).values(users!(25)).execute().await?;
+                    Ok::<(), drizzle::error::DrizzleError>(())
+                })
+                .await
+                .expect("tx");
+            })
+        })
+    });
+    write.bench_function("upsert", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = tu_db().await;
+                db.insert(user)
+                    .values([InsertUser::new("up", "up@x.dev").with_id(1)])
+                    .on_conflict(user.id)
+                    .do_update(UpdateUser::default().with_name("up").with_email("up@x.dev"))
+                    .execute()
+                    .await
+                    .expect("upsert");
+            })
+        })
+    });
+    write.bench_function("ret", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = tu_db().await;
+                let out: Vec<(i32, String, String)> = db
+                    .insert(user)
+                    .values([InsertUser::new("ret", "ret@x.dev")])
+                    .returning((user.id, user.name, user.email))
+                    .all()
+                    .await
+                    .expect("ret");
+                black_box(out);
+            })
+        })
+    });
+    write.finish();
+
+    let mut query = c.benchmark_group("turso/query");
+    query.bench_function("join", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user, post) = tu_db_blog().await;
+                db.insert(user)
+                    .values(users!(10))
+                    .execute()
+                    .await
+                    .expect("seed users");
+                db.insert(post)
+                    .values(posts!(100, 10))
+                    .execute()
+                    .await
+                    .expect("seed posts");
+                let out: Vec<(String, String)> = db
+                    .select((user.name, post.title))
+                    .from(user)
+                    .inner_join((post, eq(user.id, post.author_id)))
+                    .all()
+                    .await
+                    .expect("join");
+                black_box(out);
+            })
+        })
+    });
+    query.bench_function("agg", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = tu_db().await;
+                db.insert(user)
+                    .values(users!(100))
+                    .execute()
+                    .await
+                    .expect("seed");
+                let out: Vec<(i32,)> = db
+                    .select((count(user.id),))
+                    .from(user)
+                    .all()
+                    .await
+                    .expect("agg");
+                black_box(out);
+            })
+        })
+    });
+    query.bench_function("page", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = tu_db().await;
+                db.insert(user)
+                    .values(users!(100))
+                    .execute()
+                    .await
+                    .expect("seed");
+                let out: Vec<(i32, String, String)> = db
+                    .select((user.id, user.name, user.email))
+                    .from(user)
+                    .order_by([asc(user.name)])
+                    .limit(10)
+                    .offset(20)
+                    .all()
+                    .await
+                    .expect("page");
+                black_box(out);
+            })
+        })
+    });
+    query.finish();
+
+    let mut extra = c.benchmark_group("turso/extra");
+    extra.bench_function("sql", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = tu_db().await;
+                let sql = db
+                    .select((user.id,))
+                    .from(user)
+                    .r#where(eq(user.id, 42))
+                    .to_sql();
+                black_box(sql.sql());
+                black_box(sql.params().count());
+            })
+        })
+    });
+    extra.finish();
+
+    let mut scale = c.benchmark_group("turso/scale");
+    for n in [10, 100, 1_000] {
+        scale.throughput(Throughput::Elements(n as u64));
+        scale.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
+            b.iter(|| {
+                rt.block_on(async {
+                    let (db, user) = tu_db().await;
+                    db.insert(user)
+                        .values(users!(n))
+                        .execute()
+                        .await
+                        .expect("seed");
+                    let out: Vec<(i32, String, String)> = db
+                        .select((user.id, user.name, user.email))
+                        .from(user)
+                        .r#where(eq(user.id, n / 2))
+                        .all()
+                        .await
+                        .expect("where");
+                    black_box(out);
+                })
+            });
+        });
+    }
+    scale.finish();
+
+    let _ = tu_raw;
+}
+
+#[cfg(feature = "libsql")]
+fn bench_libsql(c: &mut Criterion) {
+    use drizzle::sqlite::connection::SQLiteTransactionType;
+    use drizzle_core::asc;
+
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    let mut read = c.benchmark_group("libsql/read");
+    read.bench_function("select", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = ls_db().await;
+                db.insert(user)
+                    .values(users!(100))
+                    .execute()
+                    .await
+                    .expect("seed");
+                let out: Vec<(i32, String, String)> = db
+                    .select((user.id, user.name, user.email))
+                    .from(user)
+                    .all()
+                    .await
+                    .expect("select");
+                black_box(out);
+            })
+        })
+    });
+    read.finish();
+
+    let mut write = c.benchmark_group("libsql/write");
+    write.bench_function("insert", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = ls_db().await;
+                db.insert(user)
+                    .values([InsertUser::new("one", "one@x.dev")])
+                    .execute()
+                    .await
+                    .expect("insert");
+            })
+        })
+    });
+    write.bench_function("tx", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = ls_db().await;
+                db.transaction(SQLiteTransactionType::Immediate, async |tx| {
+                    tx.insert(user).values(users!(25)).execute().await?;
+                    Ok::<(), drizzle::error::DrizzleError>(())
+                })
+                .await
+                .expect("tx");
+            })
+        })
+    });
+    write.bench_function("upsert", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = ls_db().await;
+                db.insert(user)
+                    .values([InsertUser::new("up", "up@x.dev").with_id(1)])
+                    .on_conflict(user.id)
+                    .do_update(UpdateUser::default().with_name("up").with_email("up@x.dev"))
+                    .execute()
+                    .await
+                    .expect("upsert");
+            })
+        })
+    });
+    write.bench_function("ret", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = ls_db().await;
+                let out: Vec<(i32, String, String)> = db
+                    .insert(user)
+                    .values([InsertUser::new("ret", "ret@x.dev")])
+                    .returning((user.id, user.name, user.email))
+                    .all()
+                    .await
+                    .expect("ret");
+                black_box(out);
+            })
+        })
+    });
+    write.finish();
+
+    let mut query = c.benchmark_group("libsql/query");
+    query.bench_function("join", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user, post) = ls_db_blog().await;
+                db.insert(user)
+                    .values(users!(10))
+                    .execute()
+                    .await
+                    .expect("seed users");
+                db.insert(post)
+                    .values(posts!(100, 10))
+                    .execute()
+                    .await
+                    .expect("seed posts");
+                let out: Vec<(String, String)> = db
+                    .select((user.name, post.title))
+                    .from(user)
+                    .inner_join((post, eq(user.id, post.author_id)))
+                    .all()
+                    .await
+                    .expect("join");
+                black_box(out);
+            })
+        })
+    });
+    query.bench_function("agg", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = ls_db().await;
+                db.insert(user)
+                    .values(users!(100))
+                    .execute()
+                    .await
+                    .expect("seed");
+                let out: Vec<(i32,)> = db
+                    .select((count(user.id),))
+                    .from(user)
+                    .all()
+                    .await
+                    .expect("agg");
+                black_box(out);
+            })
+        })
+    });
+    query.bench_function("page", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = ls_db().await;
+                db.insert(user)
+                    .values(users!(100))
+                    .execute()
+                    .await
+                    .expect("seed");
+                let out: Vec<(i32, String, String)> = db
+                    .select((user.id, user.name, user.email))
+                    .from(user)
+                    .order_by([asc(user.name)])
+                    .limit(10)
+                    .offset(20)
+                    .all()
+                    .await
+                    .expect("page");
+                black_box(out);
+            })
+        })
+    });
+    query.finish();
+
+    let mut extra = c.benchmark_group("libsql/extra");
+    extra.bench_function("sql", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = ls_db().await;
+                let sql = db
+                    .select((user.id,))
+                    .from(user)
+                    .r#where(eq(user.id, 42))
+                    .to_sql();
+                black_box(sql.sql());
+                black_box(sql.params().count());
+            })
+        })
+    });
+    extra.finish();
+
+    let mut scale = c.benchmark_group("libsql/scale");
+    for n in [10, 100, 1_000] {
+        scale.throughput(Throughput::Elements(n as u64));
+        scale.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
+            b.iter(|| {
+                rt.block_on(async {
+                    let (db, user) = ls_db().await;
+                    db.insert(user)
+                        .values(users!(n))
+                        .execute()
+                        .await
+                        .expect("seed");
+                    let out: Vec<(i32, String, String)> = db
+                        .select((user.id, user.name, user.email))
+                        .from(user)
+                        .r#where(eq(user.id, n / 2))
+                        .all()
+                        .await
+                        .expect("where");
+                    black_box(out);
+                })
+            });
+        });
+    }
+    scale.finish();
+
+    let _ = ls_raw;
+}
+
+#[cfg(all(feature = "rusqlite", feature = "turso"))]
+fn bench_mvcc(c: &mut Criterion) {
+    use drizzle::sqlite::connection::SQLiteTransactionType;
+    use std::sync::mpsc;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    fn path(prefix: &str) -> String {
+        let n = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir()
+            .join(format!(
+                "drizzle-{}-{}-{}.db",
+                prefix,
+                std::process::id(),
+                n
+            ))
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    let mut g = c.benchmark_group("mvcc/readwrite");
+
+    g.bench_function("rusqlite", |b| {
+        b.iter_batched(
+            || {
+                let p = path("rs");
+                let conn = ::rusqlite::Connection::open(&p).expect("open");
+                let _ = conn.execute("PRAGMA journal_mode=WAL", []);
+                conn.execute(User::ddl_sql(), []).expect("ddl");
+                conn.execute(
+                    "INSERT INTO bench_users (id, name, email) VALUES (1, 'seed', 'seed@x.dev')",
+                    [],
+                )
+                .expect("seed");
+                p
+            },
+            |p| {
+                let (tx, rx) = mpsc::channel();
+                let p2 = p.clone();
+                let writer = std::thread::spawn(move || {
+                    let conn = ::rusqlite::Connection::open(&p2).expect("open");
+                    conn.execute("BEGIN IMMEDIATE", []).expect("begin");
+                    conn.execute("UPDATE bench_users SET name = 'writer' WHERE id = 1", [])
+                        .expect("update");
+                    let _ = tx.send(());
+                    std::thread::sleep(Duration::from_millis(2));
+                    conn.execute("COMMIT", []).expect("commit");
+                });
+
+                let _ = rx.recv();
+                let conn = ::rusqlite::Connection::open(&p).expect("open");
+                let (db, Schema { user }) =
+                    drizzle::sqlite::rusqlite::Drizzle::new(conn, Schema::new());
+                let out: Vec<(i32, String, String)> = db
+                    .select((user.id, user.name, user.email))
+                    .from(user)
+                    .r#where(eq(user.id, 1))
+                    .all()
+                    .expect("read");
+                black_box(out);
+                let _ = writer.join();
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+
+    g.bench_function("turso", |b| {
+        b.iter_batched(
+            || {
+                rt.block_on(async {
+                    let p = path("tu");
+                    let db = ::turso::Builder::new_local(&p).build().await.expect("db");
+                    let conn = db.connect().expect("connect");
+                    conn.execute(User::ddl_sql(), ()).await.expect("ddl");
+                    conn.execute(
+                        "INSERT INTO bench_users (id, name, email) VALUES (1, 'seed', 'seed@x.dev')",
+                        (),
+                    )
+                    .await
+                    .expect("seed");
+                    p
+                })
+            },
+            |p| {
+                rt.block_on(async {
+                    let db = ::turso::Builder::new_local(&p).build().await.expect("db");
+                    let wc = db.connect().expect("wc");
+                    let rc = db.connect().expect("rc");
+
+                    let (mut wdb, Schema { user: wu }) =
+                        drizzle::sqlite::turso::Drizzle::new(wc, Schema::new());
+                    let (rdb, Schema { user: ru }) =
+                        drizzle::sqlite::turso::Drizzle::new(rc, Schema::new());
+
+                    let w = async {
+                        wdb.transaction(SQLiteTransactionType::Immediate, async |tx| {
+                            tx.update(wu)
+                                .set(UpdateUser::default().with_name("writer"))
+                                .r#where(eq(wu.id, 1))
+                                .execute()
+                                .await?;
+                            tokio::time::sleep(Duration::from_millis(2)).await;
+                            Ok::<(), drizzle::error::DrizzleError>(())
+                        })
+                        .await
+                        .expect("tx");
+                    };
+
+                    let r = async {
+                        tokio::time::sleep(Duration::from_micros(200)).await;
+                        let out: Vec<(i32, String, String)> = rdb
+                            .select((ru.id, ru.name, ru.email))
+                            .from(ru)
+                            .r#where(eq(ru.id, 1))
+                            .all()
+                            .await
+                            .expect("read");
+                        black_box(out);
+                    };
+
+                    tokio::join!(w, r);
+                });
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+
+    g.finish();
+}
+
+fn bench_sqlite(c: &mut Criterion) {
+    #[cfg(feature = "rusqlite")]
+    bench_rusqlite(c);
+
+    #[cfg(feature = "turso")]
+    bench_turso(c);
+
+    #[cfg(feature = "libsql")]
+    bench_libsql(c);
+
+    #[cfg(all(feature = "rusqlite", feature = "turso"))]
+    bench_mvcc(c);
+}
+
+criterion_group!(sqlite, bench_sqlite);
+criterion_main!(sqlite);

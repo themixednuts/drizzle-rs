@@ -45,11 +45,11 @@ sqlite-matrix:
     set -euo pipefail
     echo "=== SQLite matrix ==="
     # rusqlite: bare then full
-    cargo test --workspace --lib --tests --features rusqlite
-    cargo test --workspace --lib --tests --features "rusqlite,{{_sqlite-ext}}"
+    cargo test --workspace --features rusqlite
+    cargo test --workspace --features "rusqlite,{{_sqlite-ext}}"
     # libsql: bare then full
-    cargo test --workspace --lib --tests --features libsql
-    cargo test --workspace --lib --tests --features "libsql,{{_sqlite-ext}}"
+    cargo test --workspace --features libsql
+    cargo test --workspace --features "libsql,{{_sqlite-ext}}"
 
 # Run full PostgreSQL matrix
 pg-matrix:
@@ -61,11 +61,11 @@ pg-matrix:
     echo "PostgreSQL is ready!"
     echo "=== PostgreSQL matrix ==="
     # postgres-sync: bare then full
-    cargo test --workspace --lib --tests --features postgres-sync
-    cargo test --workspace --lib --tests --features "postgres-sync,{{_pg-ext}}"
+    cargo test --workspace --features postgres-sync
+    cargo test --workspace --features "postgres-sync,{{_pg-ext}}"
     # tokio-postgres: bare then full
-    cargo test --workspace --lib --tests --features tokio-postgres
-    cargo test --workspace --lib --tests --features "tokio-postgres,{{_pg-ext}}"
+    cargo test --workspace --features tokio-postgres
+    cargo test --workspace --features "tokio-postgres,{{_pg-ext}}"
 
 # ---------------------------------------------------------------------------
 # CI helpers — output feature matrices as JSON for GitHub Actions
