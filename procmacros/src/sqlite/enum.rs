@@ -241,61 +241,77 @@ pub fn generate_enum_impl(
 
     // Add rusqlite FromSql/ToSql implementations when the feature is enabled
     #[cfg(feature = "rusqlite")]
-    let rusqlite_impls = quote! {
-        // FromSql implementation that handles both TEXT and INTEGER storage
-        impl ::rusqlite::types::FromSql for #name {
-            fn column_result(value: ::rusqlite::types::ValueRef<'_>) -> ::rusqlite::types::FromSqlResult<Self> {
-                match value {
-                    ::rusqlite::types::ValueRef::Integer(i) => {
-                        Self::try_from(i).map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)
-                    },
-                    ::rusqlite::types::ValueRef::Text(s) => {
-                        let s_str = ::std::str::from_utf8(s)
-                            .map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)?;
-                        Self::try_from(s_str).map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)
-                    },
-                    _ => ::std::result::Result::Err(::rusqlite::types::FromSqlError::InvalidType),
+    let rusqlite_impls = if crate::common::caller_has_dep("rusqlite") {
+        quote! {
+            // FromSql implementation that handles both TEXT and INTEGER storage
+            impl ::rusqlite::types::FromSql for #name {
+                fn column_result(value: ::rusqlite::types::ValueRef<'_>) -> ::rusqlite::types::FromSqlResult<Self> {
+                    match value {
+                        ::rusqlite::types::ValueRef::Integer(i) => {
+                            Self::try_from(i).map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)
+                        },
+                        ::rusqlite::types::ValueRef::Text(s) => {
+                            let s_str = ::std::str::from_utf8(s)
+                                .map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)?;
+                            Self::try_from(s_str).map_err(|_| ::rusqlite::types::FromSqlError::InvalidType)
+                        },
+                        _ => ::std::result::Result::Err(::rusqlite::types::FromSqlError::InvalidType),
+                    }
+                }
+            }
+
+            // ToSql defaults to TEXT representation (use table macro for INTEGER storage)
+            impl ::rusqlite::types::ToSql for #name {
+                fn to_sql(&self) -> ::rusqlite::Result<::rusqlite::types::ToSqlOutput<'_>> {
+                    let val: &str = self.into();
+                    ::std::result::Result::Ok(::rusqlite::types::ToSqlOutput::Borrowed(
+                        ::rusqlite::types::ValueRef::Text(val.as_bytes())
+                    ))
                 }
             }
         }
-
-        // ToSql defaults to TEXT representation (use table macro for INTEGER storage)
-        impl ::rusqlite::types::ToSql for #name {
-            fn to_sql(&self) -> ::rusqlite::Result<::rusqlite::types::ToSqlOutput<'_>> {
-                let val: &str = self.into();
-                ::std::result::Result::Ok(::rusqlite::types::ToSqlOutput::Borrowed(
-                    ::rusqlite::types::ValueRef::Text(val.as_bytes())
-                ))
-            }
-        }
+    } else {
+        quote! {}
     };
 
     #[cfg(not(feature = "rusqlite"))]
     let rusqlite_impls = quote! {};
 
     #[cfg(feature = "rusqlite")]
-    let row_column_list_rusqlite = quote! {
-        impl<'__drizzle_r> #row_column_list<::rusqlite::Row<'__drizzle_r>> for #name {
-            type Columns = #type_set_cons<#name, #type_set_nil>;
+    let row_column_list_rusqlite = if crate::common::caller_has_dep("rusqlite") {
+        quote! {
+            impl<'__drizzle_r> #row_column_list<::rusqlite::Row<'__drizzle_r>> for #name {
+                type Columns = #type_set_cons<#name, #type_set_nil>;
+            }
         }
+    } else {
+        quote! {}
     };
     #[cfg(not(feature = "rusqlite"))]
     let row_column_list_rusqlite = quote! {};
 
     #[cfg(feature = "libsql")]
-    let row_column_list_libsql = quote! {
-        impl #row_column_list<::libsql::Row> for #name {
-            type Columns = #type_set_cons<#name, #type_set_nil>;
+    let row_column_list_libsql = if crate::common::caller_has_dep("libsql") {
+        quote! {
+            impl #row_column_list<::libsql::Row> for #name {
+                type Columns = #type_set_cons<#name, #type_set_nil>;
+            }
         }
+    } else {
+        quote! {}
     };
     #[cfg(not(feature = "libsql"))]
     let row_column_list_libsql = quote! {};
 
     #[cfg(feature = "turso")]
-    let row_column_list_turso = quote! {
-        impl #row_column_list<::turso::Row> for #name {
-            type Columns = #type_set_cons<#name, #type_set_nil>;
+    let row_column_list_turso = if crate::common::caller_has_dep("turso") {
+        quote! {
+            impl #row_column_list<::turso::Row> for #name {
+                type Columns = #type_set_cons<#name, #type_set_nil>;
+            }
         }
+    } else {
+        quote! {}
     };
     #[cfg(not(feature = "turso"))]
     let row_column_list_turso = quote! {};

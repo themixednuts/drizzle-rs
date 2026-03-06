@@ -47,6 +47,17 @@ pub(crate) use type_utils::{
     type_is_geo_rect, type_is_ip_addr, type_is_ip_cidr, type_is_mac_addr,
 };
 
+/// Check if the calling crate has a specific dependency in its Cargo.toml.
+///
+/// Uses `proc_macro_crate::crate_name` which reads the calling crate's
+/// `CARGO_MANIFEST_DIR/Cargo.toml` at macro expansion time. This prevents
+/// generating driver-specific code (e.g., `::libsql::Row`) for crates that
+/// don't depend on that driver, even when the proc macro has the feature
+/// enabled (e.g., under `--all-features` in a workspace).
+pub(crate) fn caller_has_dep(name: &str) -> bool {
+    proc_macro_crate::crate_name(name).is_ok()
+}
+
 // Re-export dialect traits (always available)
 #[allow(unused_imports)]
 pub(crate) use generators::{Dialect, GeneratorPaths};

@@ -223,19 +223,31 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         ctx.struct_ident,
     )?;
     #[cfg(feature = "rusqlite")]
-    let rusqlite_impls = rusqlite::generate_rusqlite_impls(&ctx)?;
+    let rusqlite_impls = if crate::common::caller_has_dep("rusqlite") {
+        rusqlite::generate_rusqlite_impls(&ctx)?
+    } else {
+        quote!()
+    };
 
     #[cfg(not(feature = "rusqlite"))]
     let rusqlite_impls = quote!();
 
     #[cfg(feature = "turso")]
-    let turso_impls = turso::generate_turso_impls(&ctx)?;
+    let turso_impls = if crate::common::caller_has_dep("turso") {
+        turso::generate_turso_impls(&ctx)?
+    } else {
+        quote!()
+    };
 
     #[cfg(not(feature = "turso"))]
     let turso_impls = quote!();
 
     #[cfg(feature = "libsql")]
-    let libsql_impls = libsql::generate_libsql_impls(&ctx)?;
+    let libsql_impls = if crate::common::caller_has_dep("libsql") {
+        libsql::generate_libsql_impls(&ctx)?
+    } else {
+        quote!()
+    };
 
     #[cfg(not(feature = "libsql"))]
     let libsql_impls = quote!();

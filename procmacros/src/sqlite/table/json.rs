@@ -146,21 +146,33 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
 
     // Generate rusqlite-specific implementations
     #[cfg(feature = "rusqlite")]
-    let rusqlite_impls = super::rusqlite::generate_json_impls(&json_type_storage)?;
+    let rusqlite_impls = if crate::common::caller_has_dep("rusqlite") {
+        super::rusqlite::generate_json_impls(&json_type_storage)?
+    } else {
+        vec![]
+    };
 
     #[cfg(not(feature = "rusqlite"))]
     let rusqlite_impls: Vec<TokenStream> = vec![];
 
     // Generate turso-specific implementations
     #[cfg(feature = "turso")]
-    let turso_json_impls = super::turso::generate_json_impls(&json_type_storage)?;
+    let turso_json_impls = if crate::common::caller_has_dep("turso") {
+        super::turso::generate_json_impls(&json_type_storage)?
+    } else {
+        vec![]
+    };
 
     #[cfg(not(feature = "turso"))]
     let turso_json_impls: Vec<TokenStream> = vec![];
 
     // Generate libsql-specific implementations
     #[cfg(feature = "libsql")]
-    let libsql_json_impls = super::libsql::generate_json_impls(&json_type_storage)?;
+    let libsql_json_impls = if crate::common::caller_has_dep("libsql") {
+        super::libsql::generate_json_impls(&json_type_storage)?
+    } else {
+        vec![]
+    };
 
     #[cfg(not(feature = "libsql"))]
     let libsql_json_impls: Vec<TokenStream> = vec![];
