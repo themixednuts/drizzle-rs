@@ -26,7 +26,6 @@ postgres = { workspace = true }
 tokio-postgres = { workspace = true }
 rusqlite = { workspace = true }
 turso = { workspace = true }
-libsql = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 sysinfo = { version = "0.38.3" }
 jsonschema = { version = "0.44.1", default-features = false, features = ["resolve-file"] }
