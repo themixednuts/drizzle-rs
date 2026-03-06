@@ -146,9 +146,9 @@ pub type DrizzleBuilder<'a, Schema, Builder, State> =
 crate::drizzle_prepare_impl!();
 
 impl<Schema> common::Drizzle<Connection, Schema> {
-    pub fn execute<'a, T>(&'a self, query: T) -> rusqlite::Result<usize>
+    pub fn execute<'q, T>(&self, query: T) -> rusqlite::Result<usize>
     where
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "drizzle.execute");
@@ -162,12 +162,12 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
-    pub fn all<'a, T, R, C>(&'a self, query: T) -> drizzle_core::error::Result<C>
+    pub fn all<'q, T, R, C>(&self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
         for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
             Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
         C: std::iter::FromIterator<R>,
     {
         self.rows(query)?
@@ -175,12 +175,12 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     }
 
     /// Runs the query and returns a row cursor.
-    pub fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    pub fn rows<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
         for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
             Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "drizzle.all");
@@ -206,12 +206,12 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     }
 
     /// Runs the query and returns a single row (for SELECT queries)
-    pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r rusqlite::Row<'r>>,
         for<'r> <R as TryFrom<&'r rusqlite::Row<'r>>>::Error:
             Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "drizzle.get");

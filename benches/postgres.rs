@@ -63,9 +63,37 @@ macro_rules! posts {
 
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 fn url() -> String {
-    std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-        "host=localhost user=postgres password=postgres dbname=drizzle_test".to_string()
-    })
+    let default = "host=localhost user=postgres password=postgres dbname=drizzle_test";
+    let raw = std::env::var("DATABASE_URL").unwrap_or_default();
+    if raw.trim().is_empty() {
+        return default.to_string();
+    }
+
+    let mut parts = Vec::new();
+    let mut saw_port = false;
+    let mut valid_port = false;
+
+    for part in raw.split_whitespace() {
+        if let Some(port) = part.strip_prefix("port=") {
+            saw_port = true;
+            if port.parse::<u16>().is_ok() {
+                valid_port = true;
+                parts.push(part.to_string());
+            }
+        } else {
+            parts.push(part.to_string());
+        }
+    }
+
+    if saw_port && !valid_port {
+        parts.push("port=5432".to_string());
+    }
+
+    if parts.is_empty() {
+        default.to_string()
+    } else {
+        parts.join(" ")
+    }
 }
 
 #[cfg(feature = "postgres-sync")]

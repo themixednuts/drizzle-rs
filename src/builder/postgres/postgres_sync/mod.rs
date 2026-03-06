@@ -196,9 +196,9 @@ impl<Schema> Drizzle<Schema> {
 
     postgres_builder_constructors!(mut);
 
-    pub fn execute<'a, T>(&'a mut self, query: T) -> Result<u64, postgres::Error>
+    pub fn execute<'q, T>(&mut self, query: T) -> Result<u64, postgres::Error>
     where
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.execute");
@@ -249,11 +249,11 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
-    pub fn all<'a, T, R, C>(&'a mut self, query: T) -> drizzle_core::error::Result<C>
+    pub fn all<'q, T, R, C>(&mut self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
         C: std::iter::FromIterator<R>,
     {
         self.rows(query)?
@@ -261,11 +261,11 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Runs the query and returns a lazy row cursor.
-    pub fn rows<'a, T, R>(&'a mut self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    pub fn rows<'q, T, R>(&mut self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.all");
@@ -291,11 +291,11 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Runs the query and returns a single row (for SELECT queries)
-    pub fn get<'a, T, R>(&'a mut self, query: T) -> drizzle_core::error::Result<R>
+    pub fn get<'q, T, R>(&mut self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.get");

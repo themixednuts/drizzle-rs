@@ -15,12 +15,12 @@ type ReturningMarker<Table, Columns> = drizzle_core::Scoped<
 type ReturningRow<Table, Columns> =
     <<Columns as drizzle_core::IntoSelectTarget>::Marker as drizzle_core::ResolveRow<Table>>::Row;
 
-type DeleteReturningTxBuilder<'a, 'conn, S, T, Columns> = TransactionBuilder<
-    'a,
+type DeleteReturningTxBuilder<'tx, 'conn, 'q, S, T, Columns> = TransactionBuilder<
+    'tx,
     'conn,
     S,
     DeleteBuilder<
-        'a,
+        'q,
         S,
         DeleteReturningSet,
         T,
@@ -30,17 +30,17 @@ type DeleteReturningTxBuilder<'a, 'conn, S, T, Columns> = TransactionBuilder<
     DeleteReturningSet,
 >;
 
-impl<'a, 'conn, S, T>
-    TransactionBuilder<'a, 'conn, S, DeleteBuilder<'a, S, DeleteInitial, T>, DeleteInitial>
+impl<'tx, 'conn, 'q, S, T>
+    TransactionBuilder<'tx, 'conn, S, DeleteBuilder<'q, S, DeleteInitial, T>, DeleteInitial>
 where
-    T: PostgresTable<'a>,
+    T: PostgresTable<'q>,
 {
     pub fn r#where<E>(
         self,
         condition: E,
-    ) -> TransactionBuilder<'a, 'conn, S, DeleteBuilder<'a, S, DeleteWhereSet, T>, DeleteWhereSet>
+    ) -> TransactionBuilder<'tx, 'conn, S, DeleteBuilder<'q, S, DeleteWhereSet, T>, DeleteWhereSet>
     where
-        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+        E: drizzle_core::expr::Expr<'q, PostgresValue<'q>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
         let builder = self.builder.r#where(condition);
@@ -54,9 +54,9 @@ where
     pub fn returning<Columns>(
         self,
         columns: Columns,
-    ) -> DeleteReturningTxBuilder<'a, 'conn, S, T, Columns>
+    ) -> DeleteReturningTxBuilder<'tx, 'conn, 'q, S, T, Columns>
     where
-        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns: ToSQL<'q, PostgresValue<'q>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<T>,
     {
         let builder = self.builder.returning(columns);
@@ -68,15 +68,15 @@ where
     }
 }
 
-impl<'a, 'conn, S, T>
-    TransactionBuilder<'a, 'conn, S, DeleteBuilder<'a, S, DeleteWhereSet, T>, DeleteWhereSet>
+impl<'tx, 'conn, 'q, S, T>
+    TransactionBuilder<'tx, 'conn, S, DeleteBuilder<'q, S, DeleteWhereSet, T>, DeleteWhereSet>
 {
     pub fn returning<Columns>(
         self,
         columns: Columns,
-    ) -> DeleteReturningTxBuilder<'a, 'conn, S, T, Columns>
+    ) -> DeleteReturningTxBuilder<'tx, 'conn, 'q, S, T, Columns>
     where
-        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns: ToSQL<'q, PostgresValue<'q>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<T>,
     {
         let builder = self.builder.returning(columns);

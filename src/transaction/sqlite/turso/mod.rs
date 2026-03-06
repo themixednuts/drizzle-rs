@@ -151,7 +151,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     sqlite_transaction_constructors!('conn);
 
     /// Executes a raw query within the transaction
-    pub async fn execute<'a, T>(&'a self, query: T) -> Result<u64, DrizzleError>
+    pub async fn execute<'a, T>(&self, query: T) -> Result<u64, DrizzleError>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -163,7 +163,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Runs a query and returns all matching rows within the transaction
-    pub async fn all<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Vec<R>>
+    pub async fn all<'a, T, R>(&self, query: T) -> drizzle_core::error::Result<Vec<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
@@ -173,7 +173,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Runs a query and returns a row cursor within the transaction.
-    pub async fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    pub async fn rows<'a, T, R>(&self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
@@ -188,7 +188,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Runs a query and returns a single row within the transaction
-    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'a, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
@@ -219,8 +219,8 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 }
 
 #[cfg(feature = "turso")]
-impl<'a, 'conn, S, Schema, State, Table, Mk, Rw>
-    TransactionBuilder<'a, 'conn, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw>, State>
+impl<'tx, 'a, 'conn, S, Schema, State, Table, Mk, Rw>
+    TransactionBuilder<'tx, 'conn, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw>, State>
 where
     State: builder::ExecutableState,
 {

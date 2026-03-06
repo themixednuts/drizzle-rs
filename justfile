@@ -3,6 +3,7 @@
 
 set windows-shell := ["pwsh", "-NoLogo", "-NoProfile", "-Command"]
 
+mod act
 mod test
 
 # Default recipe - show available commands

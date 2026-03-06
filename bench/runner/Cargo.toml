@@ -1,0 +1,38 @@
+[package]
+name = "bench-runner"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "bench-runner"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["std"] }
+time = { workspace = true, features = ["std", "formatting"] }
+sha2 = { workspace = true }
+rand = { workspace = true }
+axum = { version = "0.6.20", default-features = false, features = ["http1", "json", "macros", "query", "tokio"] }
+drizzle = { workspace = true, features = ["postgres-sync", "tokio-postgres", "rusqlite", "turso"] }
+drizzle-seed = { workspace = true, default-features = false, features = ["sqlite"] }
+postgres = { workspace = true }
+tokio-postgres = { workspace = true }
+rusqlite = { workspace = true }
+turso = { workspace = true }
+libsql = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+sysinfo = { version = "0.38.3" }
+jsonschema = { version = "0.44.1", default-features = false, features = ["resolve-file"] }
+parquet = { version = "58.0.0", default-features = false }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+tempfile = { workspace = true }
+serde_json = { workspace = true, features = ["std"] }

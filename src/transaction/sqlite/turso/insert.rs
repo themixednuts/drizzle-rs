@@ -18,8 +18,8 @@ type ReturningMarker<Table, Columns> = drizzle_core::Scoped<
 type ReturningRow<Table, Columns> =
     <<Columns as drizzle_core::IntoSelectTarget>::Marker as drizzle_core::ResolveRow<Table>>::Row;
 
-type InsertReturningTxBuilder<'a, 'conn, Schema, Table, Columns> = TransactionBuilder<
-    'a,
+type InsertReturningTxBuilder<'tx, 'a, 'conn, Schema, Table, Columns> = TransactionBuilder<
+    'tx,
     'conn,
     Schema,
     InsertBuilder<
@@ -34,12 +34,12 @@ type InsertReturningTxBuilder<'a, 'conn, Schema, Table, Columns> = TransactionBu
 >;
 
 /// Intermediate builder for typed ON CONFLICT within a turso transaction.
-pub struct TransactionOnConflictBuilder<'a, 'conn, Schema, Table> {
-    transaction: &'a super::Transaction<'conn, Schema>,
+pub struct TransactionOnConflictBuilder<'tx, 'a, 'conn, Schema, Table> {
+    transaction: &'tx super::Transaction<'conn, Schema>,
     builder: OnConflictBuilder<'a, Schema, Table>,
 }
 
-impl<'a, 'conn, Schema, Table> TransactionOnConflictBuilder<'a, 'conn, Schema, Table> {
+impl<'tx, 'a, 'conn, Schema, Table> TransactionOnConflictBuilder<'tx, 'a, 'conn, Schema, Table> {
     /// Adds a WHERE clause to the conflict target for partial index matching.
     pub fn r#where<E>(mut self, condition: E) -> Self
     where
@@ -54,7 +54,7 @@ impl<'a, 'conn, Schema, Table> TransactionOnConflictBuilder<'a, 'conn, Schema, T
     pub fn do_nothing(
         self,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
         InsertBuilder<'a, Schema, InsertOnConflictSet, Table>,
@@ -72,7 +72,7 @@ impl<'a, 'conn, Schema, Table> TransactionOnConflictBuilder<'a, 'conn, Schema, T
         self,
         set: impl ToSQL<'a, SQLiteValue<'a>>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
         InsertBuilder<'a, Schema, InsertDoUpdateSet, Table>,
@@ -86,9 +86,9 @@ impl<'a, 'conn, Schema, Table> TransactionOnConflictBuilder<'a, 'conn, Schema, T
     }
 }
 
-impl<'a, 'conn, Schema, Table>
+impl<'tx, 'a, 'conn, Schema, Table>
     TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
         InsertBuilder<'a, Schema, InsertInitial, Table>,
@@ -100,7 +100,7 @@ impl<'a, 'conn, Schema, Table>
         self,
         value: Table::Insert<T>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
         InsertBuilder<'a, Schema, InsertValuesSet, Table>,
@@ -118,7 +118,7 @@ impl<'a, 'conn, Schema, Table>
         self,
         values: impl IntoIterator<Item = Table::Insert<T>>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
         InsertBuilder<'a, Schema, InsertValuesSet, Table>,
@@ -137,9 +137,9 @@ impl<'a, 'conn, Schema, Table>
     }
 }
 
-impl<'a, 'conn, Schema, Table>
+impl<'tx, 'a, 'conn, Schema, Table>
     TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
         InsertBuilder<'a, Schema, InsertValuesSet, Table>,
@@ -152,7 +152,7 @@ where
     pub fn on_conflict<C: ConflictTarget<Table>>(
         self,
         target: C,
-    ) -> TransactionOnConflictBuilder<'a, 'conn, Schema, Table> {
+    ) -> TransactionOnConflictBuilder<'tx, 'a, 'conn, Schema, Table> {
         TransactionOnConflictBuilder {
             transaction: self.transaction,
             builder: self.builder.on_conflict(target),
@@ -163,7 +163,7 @@ where
     pub fn on_conflict_do_nothing(
         self,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
         InsertBuilder<'a, Schema, InsertOnConflictSet, Table>,
@@ -180,7 +180,7 @@ where
     pub fn returning<Columns>(
         self,
         columns: Columns,
-    ) -> InsertReturningTxBuilder<'a, 'conn, Schema, Table, Columns>
+    ) -> InsertReturningTxBuilder<'tx, 'a, 'conn, Schema, Table, Columns>
     where
         Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
@@ -194,9 +194,9 @@ where
     }
 }
 
-impl<'a, 'conn, Schema, Table>
+impl<'tx, 'a, 'conn, Schema, Table>
     TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
         InsertBuilder<'a, Schema, InsertOnConflictSet, Table>,
@@ -207,7 +207,7 @@ impl<'a, 'conn, Schema, Table>
     pub fn returning<Columns>(
         self,
         columns: Columns,
-    ) -> InsertReturningTxBuilder<'a, 'conn, Schema, Table, Columns>
+    ) -> InsertReturningTxBuilder<'tx, 'a, 'conn, Schema, Table, Columns>
     where
         Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
@@ -221,9 +221,9 @@ impl<'a, 'conn, Schema, Table>
     }
 }
 
-impl<'a, 'conn, Schema, Table>
+impl<'tx, 'a, 'conn, Schema, Table>
     TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
         InsertBuilder<'a, Schema, InsertDoUpdateSet, Table>,
@@ -235,7 +235,7 @@ impl<'a, 'conn, Schema, Table>
         self,
         condition: E,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
         InsertBuilder<'a, Schema, InsertOnConflictSet, Table>,
@@ -256,7 +256,7 @@ impl<'a, 'conn, Schema, Table>
     pub fn returning<Columns>(
         self,
         columns: Columns,
-    ) -> InsertReturningTxBuilder<'a, 'conn, Schema, Table, Columns>
+    ) -> InsertReturningTxBuilder<'tx, 'a, 'conn, Schema, Table, Columns>
     where
         Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,

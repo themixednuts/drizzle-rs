@@ -220,8 +220,8 @@ impl<Schema> Transaction<Schema> {
 }
 
 #[cfg(feature = "libsql")]
-impl<'a, S, Schema, State, Table, Mk, Rw>
-    TransactionBuilder<'a, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw>, State>
+impl<'tx, 'a, S, Schema, State, Table, Mk, Rw>
+    TransactionBuilder<'tx, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw>, State>
 where
     State: builder::ExecutableState,
 {

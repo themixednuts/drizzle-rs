@@ -151,7 +151,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     sqlite_transaction_constructors!('conn);
 
     /// Executes a raw query within the transaction
-    pub fn execute<'a, T>(&'a self, query: T) -> rusqlite::Result<usize>
+    pub fn execute<'a, T>(&self, query: T) -> rusqlite::Result<usize>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -165,7 +165,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Runs a query and returns all matching rows within the transaction
-    pub fn all<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Vec<R>>
+    pub fn all<'a, T, R>(&self, query: T) -> drizzle_core::error::Result<Vec<R>>
     where
         R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
         for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
@@ -177,7 +177,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Runs a query and returns a row cursor within the transaction.
-    pub fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    pub fn rows<'a, T, R>(&self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
         for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
@@ -206,7 +206,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Runs a query and returns a single row within the transaction
-    pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub fn get<'a, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r rusqlite::Row<'r>>,
         for<'r> <R as TryFrom<&'r rusqlite::Row<'r>>>::Error:
@@ -238,8 +238,8 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 }
 
 #[cfg(feature = "rusqlite")]
-impl<'a, 'conn, S, Schema, State, Table, Mk, Rw>
-    TransactionBuilder<'a, 'conn, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw>, State>
+impl<'tx, 'a, 'conn, S, Schema, State, Table, Mk, Rw>
+    TransactionBuilder<'tx, 'conn, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw>, State>
 where
     State: builder::ExecutableState,
 {

@@ -165,32 +165,32 @@ macro_rules! drizzle_pg_builder_join_using_impl {
 
 #[doc(hidden)]
 macro_rules! transaction_builder_join_impl {
-    ($($lifetimes:lifetime),*) => {
-        transaction_builder_join_impl!($($lifetimes),*, natural, drizzle_core::AfterJoin);
-        transaction_builder_join_impl!($($lifetimes),*, natural_left, drizzle_core::AfterLeftJoin);
-        transaction_builder_join_impl!($($lifetimes),*, left, drizzle_core::AfterLeftJoin);
-        transaction_builder_join_impl!($($lifetimes),*, left_outer, drizzle_core::AfterLeftJoin);
-        transaction_builder_join_impl!($($lifetimes),*, natural_left_outer, drizzle_core::AfterLeftJoin);
-        transaction_builder_join_impl!($($lifetimes),*, natural_right, drizzle_core::AfterRightJoin);
-        transaction_builder_join_impl!($($lifetimes),*, right, drizzle_core::AfterRightJoin);
-        transaction_builder_join_impl!($($lifetimes),*, right_outer, drizzle_core::AfterRightJoin);
-        transaction_builder_join_impl!($($lifetimes),*, natural_right_outer, drizzle_core::AfterRightJoin);
-        transaction_builder_join_impl!($($lifetimes),*, natural_full, drizzle_core::AfterFullJoin);
-        transaction_builder_join_impl!($($lifetimes),*, full, drizzle_core::AfterFullJoin);
-        transaction_builder_join_impl!($($lifetimes),*, full_outer, drizzle_core::AfterFullJoin);
-        transaction_builder_join_impl!($($lifetimes),*, natural_full_outer, drizzle_core::AfterFullJoin);
-        transaction_builder_join_impl!($($lifetimes),*, inner, drizzle_core::AfterJoin);
-        transaction_builder_join_impl!($($lifetimes),*, cross, drizzle_core::AfterJoin);
+    ($query_lt:lifetime; $($lifetimes:lifetime),*) => {
+        transaction_builder_join_impl!($query_lt; $($lifetimes),*, natural, drizzle_core::AfterJoin);
+        transaction_builder_join_impl!($query_lt; $($lifetimes),*, natural_left, drizzle_core::AfterLeftJoin);
+        transaction_builder_join_impl!($query_lt; $($lifetimes),*, left, drizzle_core::AfterLeftJoin);
+        transaction_builder_join_impl!($query_lt; $($lifetimes),*, left_outer, drizzle_core::AfterLeftJoin);
+        transaction_builder_join_impl!($query_lt; $($lifetimes),*, natural_left_outer, drizzle_core::AfterLeftJoin);
+        transaction_builder_join_impl!($query_lt; $($lifetimes),*, natural_right, drizzle_core::AfterRightJoin);
+        transaction_builder_join_impl!($query_lt; $($lifetimes),*, right, drizzle_core::AfterRightJoin);
+        transaction_builder_join_impl!($query_lt; $($lifetimes),*, right_outer, drizzle_core::AfterRightJoin);
+        transaction_builder_join_impl!($query_lt; $($lifetimes),*, natural_right_outer, drizzle_core::AfterRightJoin);
+        transaction_builder_join_impl!($query_lt; $($lifetimes),*, natural_full, drizzle_core::AfterFullJoin);
+        transaction_builder_join_impl!($query_lt; $($lifetimes),*, full, drizzle_core::AfterFullJoin);
+        transaction_builder_join_impl!($query_lt; $($lifetimes),*, full_outer, drizzle_core::AfterFullJoin);
+        transaction_builder_join_impl!($query_lt; $($lifetimes),*, natural_full_outer, drizzle_core::AfterFullJoin);
+        transaction_builder_join_impl!($query_lt; $($lifetimes),*, inner, drizzle_core::AfterJoin);
+        transaction_builder_join_impl!($query_lt; $($lifetimes),*, cross, drizzle_core::AfterJoin);
     };
-    ($($lifetimes:lifetime),*, $type:ident, $join_trait:path) => {
+    ($query_lt:lifetime; $($lifetimes:lifetime),*, $type:ident, $join_trait:path) => {
         paste::paste! {
-            pub fn [<$type _join>]<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
+            pub fn [<$type _join>]<J: drizzle_sqlite::helpers::JoinArg<$query_lt, T>>(
                 self,
                 arg: J,
             ) -> TransactionBuilder<
                 $($lifetimes,)*
                 Schema,
-                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow>,
+                SelectBuilder<$query_lt, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow>,
                 SelectJoinSet,
             >
             where
@@ -212,18 +212,18 @@ macro_rules! sqlite_transaction_constructors {
     ($($conn_lt:lifetime),*) => {
         /// Creates a SELECT query builder within the transaction
         #[cfg(feature = "sqlite")]
-        pub fn select<'a, 'b, T>(
-            &'a self,
+        pub fn select<'tx, 'q, T>(
+            &'tx self,
             query: T,
         ) -> TransactionBuilder<
-            'a,
+            'tx,
             $($conn_lt,)*
             Schema,
-            SelectBuilder<'b, Schema, SelectInitial, (), T::Marker>,
+            SelectBuilder<'q, Schema, SelectInitial, (), T::Marker>,
             SelectInitial,
         >
         where
-            T: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
+            T: ToSQL<'q, SQLiteValue<'q>> + drizzle_core::IntoSelectTarget,
         {
             use drizzle_sqlite::builder::QueryBuilder;
 
@@ -238,18 +238,18 @@ macro_rules! sqlite_transaction_constructors {
 
         /// Creates a SELECT DISTINCT query builder within the transaction
         #[cfg(feature = "sqlite")]
-        pub fn select_distinct<'a, 'b, T>(
-            &'a self,
+        pub fn select_distinct<'tx, 'q, T>(
+            &'tx self,
             query: T,
         ) -> TransactionBuilder<
-            'a,
+            'tx,
             $($conn_lt,)*
             Schema,
-            SelectBuilder<'b, Schema, SelectInitial, (), T::Marker>,
+            SelectBuilder<'q, Schema, SelectInitial, (), T::Marker>,
             SelectInitial,
         >
         where
-            T: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
+            T: ToSQL<'q, SQLiteValue<'q>> + drizzle_core::IntoSelectTarget,
         {
             use drizzle_sqlite::builder::QueryBuilder;
 
@@ -264,18 +264,18 @@ macro_rules! sqlite_transaction_constructors {
 
         /// Creates an INSERT query builder within the transaction
         #[cfg(feature = "sqlite")]
-        pub fn insert<'a, Table>(
-            &'a self,
+        pub fn insert<'tx, 'q, Table>(
+            &'tx self,
             table: Table,
         ) -> TransactionBuilder<
-            'a,
+            'tx,
             $($conn_lt,)*
             Schema,
-            InsertBuilder<'a, Schema, InsertInitial, Table>,
+            InsertBuilder<'q, Schema, InsertInitial, Table>,
             InsertInitial,
         >
         where
-            Table: SQLiteTable<'a>,
+            Table: SQLiteTable<'q>,
         {
             let builder = QueryBuilder::new::<Schema>().insert(table);
             TransactionBuilder {
@@ -287,18 +287,18 @@ macro_rules! sqlite_transaction_constructors {
 
         /// Creates an UPDATE query builder within the transaction
         #[cfg(feature = "sqlite")]
-        pub fn update<'a, Table>(
-            &'a self,
+        pub fn update<'tx, 'q, Table>(
+            &'tx self,
             table: Table,
         ) -> TransactionBuilder<
-            'a,
+            'tx,
             $($conn_lt,)*
             Schema,
-            UpdateBuilder<'a, Schema, UpdateInitial, Table>,
+            UpdateBuilder<'q, Schema, UpdateInitial, Table>,
             UpdateInitial,
         >
         where
-            Table: SQLiteTable<'a>,
+            Table: SQLiteTable<'q>,
         {
             let builder = QueryBuilder::new::<Schema>().update(table);
             TransactionBuilder {
@@ -310,18 +310,18 @@ macro_rules! sqlite_transaction_constructors {
 
         /// Creates a DELETE query builder within the transaction
         #[cfg(feature = "sqlite")]
-        pub fn delete<'a, T>(
-            &'a self,
+        pub fn delete<'tx, 'q, T>(
+            &'tx self,
             table: T,
         ) -> TransactionBuilder<
-            'a,
+            'tx,
             $($conn_lt,)*
             Schema,
-            DeleteBuilder<'a, Schema, DeleteInitial, T>,
+            DeleteBuilder<'q, Schema, DeleteInitial, T>,
             DeleteInitial,
         >
         where
-            T: SQLiteTable<'a>,
+            T: SQLiteTable<'q>,
         {
             let builder = QueryBuilder::new::<Schema>().delete(table);
             TransactionBuilder {
@@ -333,18 +333,18 @@ macro_rules! sqlite_transaction_constructors {
 
         /// Creates a query with CTE (Common Table Expression) within the transaction
         #[cfg(feature = "sqlite")]
-        pub fn with<'a, C>(
-            &'a self,
+        pub fn with<'tx, 'q, C>(
+            &'tx self,
             cte: C,
         ) -> TransactionBuilder<
-            'a,
+            'tx,
             $($conn_lt,)*
             Schema,
-            QueryBuilder<'a, Schema, builder::CTEInit>,
+            QueryBuilder<'q, Schema, builder::CTEInit>,
             builder::CTEInit,
         >
         where
-            C: builder::CTEDefinition<'a>,
+            C: builder::CTEDefinition<'q>,
         {
             let builder = QueryBuilder::new::<Schema>().with(cte);
             TransactionBuilder {

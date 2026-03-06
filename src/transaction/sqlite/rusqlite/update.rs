@@ -7,9 +7,9 @@ use std::marker::PhantomData;
 
 use crate::transaction::sqlite::rusqlite::TransactionBuilder;
 
-impl<'a, 'conn, Schema, Table>
+impl<'tx, 'a, 'conn, Schema, Table>
     TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
         UpdateBuilder<'a, Schema, UpdateInitial, Table>,
@@ -23,7 +23,7 @@ where
         self,
         values: Table::Update,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
         UpdateBuilder<'a, Schema, UpdateSetClauseSet, Table>,
@@ -38,9 +38,9 @@ where
     }
 }
 
-impl<'a, 'conn, Schema, Table>
+impl<'tx, 'a, 'conn, Schema, Table>
     TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
         UpdateBuilder<'a, Schema, UpdateSetClauseSet, Table>,
@@ -51,7 +51,7 @@ impl<'a, 'conn, Schema, Table>
         self,
         condition: E,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
         UpdateBuilder<'a, Schema, UpdateWhereSet, Table>,

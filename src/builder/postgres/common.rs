@@ -416,7 +416,7 @@ impl<'d, 'a, DrizzleRef, Schema>
         on: On,
         columns: Columns,
     ) -> DrizzleBuilder<
-        'a,
+        'd,
         DrizzleRef,
         Schema,
         SelectBuilder<'a, Schema, builder::select::SelectInitial, (), Columns::Marker>,

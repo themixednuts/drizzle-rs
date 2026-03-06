@@ -5,11 +5,17 @@
 # Large image has full GitHub runner parity but is ~17GB
 -P ubuntu-latest=catthehacker/ubuntu:act-latest
 
-# Reuse containers between runs for faster iteration
---reuse
+# Reuse containers between runs for faster local iteration.
+# Run `just act::clean` when you want a fresh start.
+--reuse=true
+
+# Keep containers after runs so reuse can take effect.
+--rm=false
 
 # Bind working directory
 --bind
 
 # Default artifact server (for upload/download-artifact actions)
 --artifact-server-path .act-artifacts
+--artifact-server-addr 127.0.0.1
+--artifact-server-port 0

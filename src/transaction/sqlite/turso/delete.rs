@@ -6,15 +6,15 @@ use drizzle_sqlite::{
 };
 use std::marker::PhantomData;
 
-impl<'a, 'conn, S, T>
-    TransactionBuilder<'a, 'conn, S, DeleteBuilder<'a, S, DeleteInitial, T>, DeleteInitial>
+impl<'tx, 'a, 'conn, S, T>
+    TransactionBuilder<'tx, 'conn, S, DeleteBuilder<'a, S, DeleteInitial, T>, DeleteInitial>
 where
     T: SQLiteTable<'a>,
 {
     pub fn r#where<E>(
         self,
         condition: E,
-    ) -> TransactionBuilder<'a, 'conn, S, DeleteBuilder<'a, S, DeleteWhereSet, T>, DeleteWhereSet>
+    ) -> TransactionBuilder<'tx, 'conn, S, DeleteBuilder<'a, S, DeleteWhereSet, T>, DeleteWhereSet>
     where
         E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
