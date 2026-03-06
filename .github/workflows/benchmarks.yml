@@ -5,15 +5,19 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: '0 4 * * 1'  # weekly Monday 04:00 UTC
   workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
+  R2_BUCKET: drizzle-bench
 
 jobs:
   benchmark-sqlite:
     name: Benchmark SQLite (${{ matrix.platform }})
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -31,13 +35,14 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: bench-sqlite-${{ matrix.platform }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Restore Criterion baseline
-        if: github.event_name == 'pull_request'
+        if: ${{ github.event_name == 'pull_request' && !env.ACT }}
         uses: actions/cache/restore@v4
         with:
           path: target/criterion
@@ -49,7 +54,10 @@ jobs:
         if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
-          cargo bench --bench sqlite --features "rusqlite,turso,libsql,uuid" -- \
+          tele="bench-out/telemetry/sqlite-${{ matrix.platform }}"
+          rm -rf "$tele"
+          cargo run -p bench-runner -- capture --out "$tele" --label "sqlite-${{ matrix.platform }}" --ms 1000 -- \
+            cargo bench --bench sqlite --features "rusqlite,turso,libsql,uuid" -- \
             --save-baseline main \
             --output-format bencher \
             --color never | tee bench_output.txt
@@ -58,10 +66,51 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: bash
         run: |
-          cargo bench --bench sqlite --features "rusqlite,turso,libsql,uuid" -- \
+          tele="bench-out/telemetry/sqlite-${{ matrix.platform }}"
+          rm -rf "$tele"
+          cargo run -p bench-runner -- capture --out "$tele" --label "sqlite-${{ matrix.platform }}" --ms 1000 -- \
+            cargo bench --bench sqlite --features "rusqlite,turso,libsql,uuid" -- \
             --baseline-lenient main \
             --output-format bencher \
             --color never | tee bench_output.txt
+
+      - name: Restore runner baseline
+        if: ${{ !env.ACT }}
+        uses: actions/cache/restore@v4
+        with:
+          path: bench-out/sqlite-${{ matrix.platform }}/runs
+          key: runner-baseline-sqlite-${{ matrix.platform }}-
+          restore-keys: |
+            runner-baseline-sqlite-${{ matrix.platform }}-
+
+      - name: Run contract runner
+        id: runner
+        shell: bash
+        run: |
+          class="small"
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            class="publish"
+          fi
+
+          out="bench-out/sqlite-${{ matrix.platform }}"
+          mkdir -p "$out"
+
+          cargo run -p bench-runner -- run \
+            --suite throughput-http \
+            --workload bench/spec/workload.throughput.v1.json \
+            --targets bench/spec/targets.sqlite.v1.json \
+            --requests bench/spec/requests.empty.v1.json \
+            --out "$out" \
+            --class "$class" \
+            --baseline auto \
+            --json | tee runner_output.txt
+
+          run_id="$(grep '^run_id=' runner_output.txt | tail -n1 | cut -d= -f2)"
+          if [[ -z "$run_id" ]]; then
+            echo "run_id was not emitted"
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
 
       - name: Create report
         shell: bash
@@ -73,20 +122,49 @@ jobs:
             echo "**Commit:** ${{ github.sha }}"
             echo "**Platform:** ${{ runner.os }} (${{ runner.arch }})"
             echo "**Mode:** ${{ github.event_name == 'pull_request' && 'baseline compare' || 'baseline save' }}"
+            echo "**Runner Run ID:** ${{ steps.runner.outputs.run_id }}"
             echo ""
             echo '```'
             cat bench_output.txt
             echo '```'
           } > sqlite-${{ matrix.platform }}.md
 
+      - name: Validate runner artifacts
+        shell: bash
+        run: |
+          cargo run -q -p bench-runner -- validate \
+            --run "bench-out/sqlite-${{ matrix.platform }}/runs/${{ steps.runner.outputs.run_id }}" \
+            --workload bench/spec/workload.throughput.v1.json \
+            --targets bench/spec/targets.sqlite.v1.json
+
       - name: Upload text report
+        if: ${{ !env.ACT }}
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-sqlite-${{ matrix.platform }}
           path: sqlite-${{ matrix.platform }}.md
           retention-days: 30
 
+      - name: Upload runner artifacts
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-sqlite-${{ matrix.platform }}
+          path: |
+            bench-out/sqlite-${{ matrix.platform }}/runs/${{ steps.runner.outputs.run_id }}
+            runner_output.txt
+          retention-days: 30
+
+      - name: Upload telemetry artifacts
+        if: ${{ always() && !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: telemetry-sqlite-${{ matrix.platform }}
+          path: bench-out/telemetry/sqlite-${{ matrix.platform }}
+          retention-days: 14
+
       - name: Upload Criterion reports
+        if: ${{ !env.ACT }}
         uses: actions/upload-artifact@v4
         with:
           name: criterion-sqlite-${{ matrix.platform }}
@@ -94,14 +172,55 @@ jobs:
           retention-days: 14
 
       - name: Save Criterion baseline
-        if: github.ref == 'refs/heads/main'
+        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
         uses: actions/cache/save@v4
         with:
           path: target/criterion
           key: criterion-sqlite-${{ matrix.platform }}-main-${{ github.sha }}
 
+      - name: Save runner baseline
+        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
+        uses: actions/cache/save@v4
+        with:
+          path: bench-out/sqlite-${{ matrix.platform }}/runs/${{ steps.runner.outputs.run_id }}
+          key: runner-baseline-sqlite-${{ matrix.platform }}-${{ github.sha }}
+
+      - name: Publish to R2
+        if: ${{ github.ref == 'refs/heads/main' && !env.ACT && secrets.CLOUDFLARE_API_TOKEN != '' }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          run_id="${{ steps.runner.outputs.run_id }}"
+          run_dir="bench-out/sqlite-${{ matrix.platform }}/runs/$run_id"
+
+          # Upload all run files to R2
+          find "$run_dir" -type f | while read -r file; do
+            key="runs/$run_id/${file#$run_dir/}"
+            npx wrangler r2 object put "$R2_BUCKET/$key" --file "$file"
+          done
+
+          # Update index
+          npx wrangler r2 object get "$R2_BUCKET/index.json" --file /tmp/index.json 2>/dev/null \
+            || echo '{"version":"v1","runs":[]}' > /tmp/index.json
+          cargo run -q -p bench-runner -- publish \
+            --run "$run_dir" \
+            --index /tmp/index.json
+          npx wrangler r2 object put "$R2_BUCKET/index.json" --file /tmp/index.json
+
   benchmark-postgres:
-    name: Benchmark PostgreSQL (linux)
+    name: Benchmark PostgreSQL (${{ matrix.driver }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - driver: sync
+            features: postgres-sync,uuid
+            baseline: sync-main
+          - driver: tokio
+            features: tokio-postgres,uuid
+            baseline: tokio-main
     runs-on: ubuntu-latest
 
     services:
@@ -112,7 +231,7 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: drizzle_test
         ports:
-          - 5432:5432
+          - 5432/tcp
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -126,63 +245,70 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: bench-postgres
+          shared-key: bench-postgres-${{ matrix.driver }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Restore Criterion baseline
-        if: github.event_name == 'pull_request'
+        if: ${{ github.event_name == 'pull_request' && !env.ACT }}
         uses: actions/cache/restore@v4
         with:
           path: target/criterion
-          key: criterion-postgres-main-
+          key: criterion-postgres-${{ matrix.driver }}-main-
           restore-keys: |
-            criterion-postgres-main-
+            criterion-postgres-${{ matrix.driver }}-main-
 
-      - name: Run PostgreSQL sync benchmarks (save baseline on main)
-        if: github.ref == 'refs/heads/main'
-        env:
-          DATABASE_URL: "host=localhost user=postgres password=postgres dbname=drizzle_test"
+      - name: Run PostgreSQL benchmarks
         shell: bash
         run: |
-          cargo bench --bench postgres --features "postgres-sync,uuid" -- \
-            --save-baseline sync-main \
-            --output-format bencher \
-            --color never | tee sync_output.txt
-
-      - name: Run PostgreSQL tokio benchmarks (save baseline on main)
-        if: github.ref == 'refs/heads/main'
-        env:
-          DATABASE_URL: "host=localhost user=postgres password=postgres dbname=drizzle_test"
-        shell: bash
-        run: |
-          cargo bench --bench postgres --features "tokio-postgres,uuid" -- \
-            --save-baseline tokio-main \
-            --output-format bencher \
-            --color never | tee tokio_output.txt
-
-      - name: Run PostgreSQL sync benchmarks (compare on PR)
-        if: github.event_name == 'pull_request'
-        env:
-          DATABASE_URL: "host=localhost user=postgres password=postgres dbname=drizzle_test"
-        shell: bash
-        run: |
-          cargo bench --bench postgres --features "postgres-sync,uuid" -- \
-            --baseline-lenient sync-main \
-            --output-format bencher \
-            --color never | tee sync_output.txt
-
-      - name: Run PostgreSQL tokio benchmarks (compare on PR)
-        if: github.event_name == 'pull_request'
-        env:
-          DATABASE_URL: "host=localhost user=postgres password=postgres dbname=drizzle_test"
-        shell: bash
-        run: |
-          cargo bench --bench postgres --features "tokio-postgres,uuid" -- \
-            --baseline-lenient tokio-main \
-            --output-format bencher \
-            --color never | tee tokio_output.txt
+          pg_host="localhost"
+          pg_port="${{ job.services.postgres.ports[5432] }}"
+          if [[ -n "${ACT:-}" ]]; then
+            pg_host="127.0.0.1"
+            pg_id="${{ job.services.postgres.id }}"
+            if [[ -z "$pg_id" ]] && command -v docker >/dev/null 2>&1; then
+              pg_id="$(
+                docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' \
+                | awk '$2 ~ /^act-/ && $0 ~ /->5432\/tcp/ { print $1; exit }'
+              )"
+            fi
+            if [[ -n "$pg_id" ]] && command -v docker >/dev/null 2>&1; then
+              mapped="$(docker port "$pg_id" 5432/tcp 2>/dev/null | head -n1)"
+              if [[ "$mapped" == *:* ]]; then
+                pg_port="${mapped##*:}"
+              fi
+              echo "act postgres id=${pg_id} map=${mapped:-none}"
+            fi
+            for host in host.docker.internal 127.0.0.1 localhost; do
+              if (echo >"/dev/tcp/${host}/${pg_port}") >/dev/null 2>&1; then
+                pg_host="$host"
+                break
+              fi
+            done
+          fi
+          if [[ -z "$pg_port" ]]; then
+            pg_port="5432"
+          fi
+          echo "postgres host=${pg_host} port=${pg_port}"
+          db_url="host=${pg_host} port=${pg_port} user=postgres password=postgres dbname=drizzle_test"
+          out="${{ matrix.driver }}_output.txt"
+          tele="bench-out/telemetry/postgres-${{ matrix.driver }}"
+          rm -rf "$tele"
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            cargo run -p bench-runner -- capture --out "$tele" --label "postgres-${{ matrix.driver }}" --ms 1000 -- \
+              env DATABASE_URL="$db_url" cargo bench --bench postgres --features "${{ matrix.features }}" -- \
+              --save-baseline "${{ matrix.baseline }}" \
+              --output-format bencher \
+              --color never | tee "$out"
+          else
+            cargo run -p bench-runner -- capture --out "$tele" --label "postgres-${{ matrix.driver }}" --ms 1000 -- \
+              env DATABASE_URL="$db_url" cargo bench --bench postgres --features "${{ matrix.features }}" -- \
+              --baseline-lenient "${{ matrix.baseline }}" \
+              --output-format bencher \
+              --color never | tee "$out"
+          fi
 
       - name: Create report
         shell: bash
@@ -193,38 +319,319 @@ jobs:
             echo "**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo "**Commit:** ${{ github.sha }}"
             echo "**Platform:** ${{ runner.os }} (${{ runner.arch }})"
+            echo "**Driver:** ${{ matrix.driver }}"
             echo "**Mode:** ${{ github.event_name == 'pull_request' && 'baseline compare' || 'baseline save' }}"
             echo ""
-            echo "## sync"
+            echo "## result"
             echo ""
             echo '```'
-            cat sync_output.txt
+            cat "${{ matrix.driver }}_output.txt"
             echo '```'
-            echo ""
-            echo "## tokio"
-            echo ""
-            echo '```'
-            cat tokio_output.txt
-            echo '```'
-          } > postgres-linux.md
+          } > postgres-linux-${{ matrix.driver }}.md
 
       - name: Upload text report
+        if: ${{ !env.ACT }}
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-postgres-linux
-          path: postgres-linux.md
+          name: benchmark-postgres-linux-${{ matrix.driver }}
+          path: postgres-linux-${{ matrix.driver }}.md
           retention-days: 30
 
       - name: Upload Criterion reports
+        if: ${{ !env.ACT }}
         uses: actions/upload-artifact@v4
         with:
-          name: criterion-postgres-linux
+          name: criterion-postgres-linux-${{ matrix.driver }}
           path: target/criterion
           retention-days: 14
 
+      - name: Upload telemetry artifacts
+        if: ${{ always() && !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: telemetry-postgres-linux-${{ matrix.driver }}
+          path: bench-out/telemetry/postgres-${{ matrix.driver }}
+          retention-days: 14
+
       - name: Save Criterion baseline
-        if: github.ref == 'refs/heads/main'
+        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
         uses: actions/cache/save@v4
         with:
           path: target/criterion
-          key: criterion-postgres-main-${{ github.sha }}
+          key: criterion-postgres-${{ matrix.driver }}-main-${{ github.sha }}
+
+  benchmark-postgres-runner:
+    name: Benchmark Runner PostgreSQL (linux)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: drizzle_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bench-postgres-runner
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Resolve DATABASE_URL
+        id: pgurl
+        shell: bash
+        run: |
+          pg_host="localhost"
+          pg_port="${{ job.services.postgres.ports[5432] }}"
+          if [[ -n "${ACT:-}" ]]; then
+            pg_host="127.0.0.1"
+            pg_id="${{ job.services.postgres.id }}"
+            if [[ -z "$pg_id" ]] && command -v docker >/dev/null 2>&1; then
+              pg_id="$(
+                docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' \
+                | awk '$2 ~ /^act-/ && $0 ~ /->5432\/tcp/ { print $1; exit }'
+              )"
+            fi
+            if [[ -n "$pg_id" ]] && command -v docker >/dev/null 2>&1; then
+              mapped="$(docker port "$pg_id" 5432/tcp 2>/dev/null | head -n1)"
+              if [[ "$mapped" == *:* ]]; then
+                pg_port="${mapped##*:}"
+              fi
+            fi
+            for host in host.docker.internal 127.0.0.1 localhost; do
+              if (echo >"/dev/tcp/${host}/${pg_port}") >/dev/null 2>&1; then
+                pg_host="$host"
+                break
+              fi
+            done
+          fi
+          if [[ -z "$pg_port" ]]; then
+            pg_port="5432"
+          fi
+          echo "url=host=${pg_host} port=${pg_port} user=postgres password=postgres dbname=drizzle_test" >> "$GITHUB_OUTPUT"
+
+      - name: Restore runner baseline
+        if: ${{ !env.ACT }}
+        uses: actions/cache/restore@v4
+        with:
+          path: bench-out/postgres-linux/runs
+          key: runner-baseline-postgres-linux-
+          restore-keys: |
+            runner-baseline-postgres-linux-
+
+      - name: Run contract runner
+        id: runner
+        shell: bash
+        env:
+          DATABASE_URL: ${{ steps.pgurl.outputs.url }}
+        run: |
+          class="small"
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            class="publish"
+          fi
+
+          out="bench-out/postgres-linux"
+          tele="bench-out/telemetry/postgres-runner"
+          rm -rf "$tele"
+          mkdir -p "$out"
+
+          cargo run -p bench-runner -- capture --out "$tele" --label "postgres-runner" --ms 1000 -- \
+            cargo run -p bench-runner -- run \
+              --suite throughput-http \
+              --workload bench/spec/workload.throughput.v1.json \
+              --targets bench/spec/targets.postgres.v1.json \
+              --requests bench/spec/requests.empty.v1.json \
+              --out "$out" \
+              --class "$class" \
+              --baseline auto \
+              --json | tee runner_output.txt
+
+          run_id="$(grep '^run_id=' runner_output.txt | tail -n1 | cut -d= -f2)"
+          if [[ -z "$run_id" ]]; then
+            echo "run_id was not emitted"
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Validate runner artifacts
+        shell: bash
+        run: |
+          cargo run -q -p bench-runner -- validate \
+            --run "bench-out/postgres-linux/runs/${{ steps.runner.outputs.run_id }}" \
+            --workload bench/spec/workload.throughput.v1.json \
+            --targets bench/spec/targets.postgres.v1.json
+
+      - name: Upload runner artifacts
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-postgres-linux
+          path: |
+            bench-out/postgres-linux/runs/${{ steps.runner.outputs.run_id }}
+            runner_output.txt
+          retention-days: 30
+
+      - name: Upload telemetry artifacts
+        if: ${{ always() && !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: telemetry-postgres-runner-linux
+          path: bench-out/telemetry/postgres-runner
+          retention-days: 14
+
+      - name: Save runner baseline
+        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
+        uses: actions/cache/save@v4
+        with:
+          path: bench-out/postgres-linux/runs/${{ steps.runner.outputs.run_id }}
+          key: runner-baseline-postgres-linux-${{ github.sha }}
+
+      - name: Publish to R2
+        if: ${{ github.ref == 'refs/heads/main' && !env.ACT && secrets.CLOUDFLARE_API_TOKEN != '' }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          run_id="${{ steps.runner.outputs.run_id }}"
+          run_dir="bench-out/postgres-linux/runs/$run_id"
+
+          find "$run_dir" -type f | while read -r file; do
+            key="runs/$run_id/${file#$run_dir/}"
+            npx wrangler r2 object put "$R2_BUCKET/$key" --file "$file"
+          done
+
+          npx wrangler r2 object get "$R2_BUCKET/index.json" --file /tmp/index.json 2>/dev/null \
+            || echo '{"version":"v1","runs":[]}' > /tmp/index.json
+          cargo run -q -p bench-runner -- publish \
+            --run "$run_dir" \
+            --index /tmp/index.json
+          npx wrangler r2 object put "$R2_BUCKET/index.json" --file /tmp/index.json
+
+  benchmark-turso-runner:
+    name: Benchmark Runner Turso (linux)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bench-turso-runner
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Restore runner baseline
+        if: ${{ !env.ACT }}
+        uses: actions/cache/restore@v4
+        with:
+          path: bench-out/turso-linux/runs
+          key: runner-baseline-turso-linux-
+          restore-keys: |
+            runner-baseline-turso-linux-
+
+      - name: Run contract runner
+        id: runner
+        shell: bash
+        run: |
+          class="small"
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            class="publish"
+          fi
+
+          out="bench-out/turso-linux"
+          tele="bench-out/telemetry/turso-runner"
+          rm -rf "$tele"
+          mkdir -p "$out"
+
+          cargo run -p bench-runner -- capture --out "$tele" --label "turso-runner" --ms 1000 -- \
+            cargo run -p bench-runner -- run \
+              --suite throughput-http \
+              --workload bench/spec/workload.throughput.v1.json \
+              --targets bench/spec/targets.turso.v1.json \
+              --requests bench/spec/requests.empty.v1.json \
+              --out "$out" \
+              --class "$class" \
+              --baseline auto \
+              --json | tee runner_output.txt
+
+          run_id="$(grep '^run_id=' runner_output.txt | tail -n1 | cut -d= -f2)"
+          if [[ -z "$run_id" ]]; then
+            echo "run_id was not emitted"
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Validate runner artifacts
+        shell: bash
+        run: |
+          cargo run -q -p bench-runner -- validate \
+            --run "bench-out/turso-linux/runs/${{ steps.runner.outputs.run_id }}" \
+            --workload bench/spec/workload.throughput.v1.json \
+            --targets bench/spec/targets.turso.v1.json
+
+      - name: Upload runner artifacts
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-turso-linux
+          path: |
+            bench-out/turso-linux/runs/${{ steps.runner.outputs.run_id }}
+            runner_output.txt
+          retention-days: 30
+
+      - name: Upload telemetry artifacts
+        if: ${{ always() && !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: telemetry-turso-runner-linux
+          path: bench-out/telemetry/turso-runner
+          retention-days: 14
+
+      - name: Save runner baseline
+        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
+        uses: actions/cache/save@v4
+        with:
+          path: bench-out/turso-linux/runs/${{ steps.runner.outputs.run_id }}
+          key: runner-baseline-turso-linux-${{ github.sha }}
+
+      - name: Publish to R2
+        if: ${{ github.ref == 'refs/heads/main' && !env.ACT && secrets.CLOUDFLARE_API_TOKEN != '' }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          run_id="${{ steps.runner.outputs.run_id }}"
+          run_dir="bench-out/turso-linux/runs/$run_id"
+
+          find "$run_dir" -type f | while read -r file; do
+            key="runs/$run_id/${file#$run_dir/}"
+            npx wrangler r2 object put "$R2_BUCKET/$key" --file "$file"
+          done
+
+          npx wrangler r2 object get "$R2_BUCKET/index.json" --file /tmp/index.json 2>/dev/null \
+            || echo '{"version":"v1","runs":[]}' > /tmp/index.json
+          cargo run -q -p bench-runner -- publish \
+            --run "$run_dir" \
+            --index /tmp/index.json
+          npx wrangler r2 object put "$R2_BUCKET/index.json" --file /tmp/index.json
