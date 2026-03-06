@@ -1,0 +1,51 @@
+[
+  {
+    "version": "v1",
+    "id": "drizzle-rs-sqlite",
+    "lang": "rust",
+    "runtime": {
+      "name": "rust",
+      "ver": "1.91"
+    },
+    "orm": {
+      "name": "drizzle-rs",
+      "ver": "0.1.5"
+    },
+    "driver": {
+      "name": "rusqlite",
+      "ver": "0.37"
+    },
+    "proc": {
+      "mode": "single",
+      "workers": 1
+    },
+    "pool": {
+      "max": 8,
+      "min": 1,
+      "acquire_ms": 50
+    },
+    "db": {
+      "profile": "sqlite",
+      "hash": "sha256:7bd4286ec47f86445e5ef9f6cc6357a27974cb8313766444fa5cbeff8eb83d43"
+    },
+    "wire": {
+      "format": "json"
+    },
+    "fair": {
+      "workers": 1,
+      "pool": 8,
+      "db": "sqlite",
+      "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
+      "contract": "v1"
+    },
+    "contract": {
+      "ver": "v1"
+    },
+    "parity": {
+      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "parity"]
+    },
+    "load": {
+      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
+    }
+  }
+]

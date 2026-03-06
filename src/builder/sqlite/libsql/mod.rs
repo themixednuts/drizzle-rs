@@ -107,12 +107,9 @@ pub type DrizzleBuilder<'a, Schema, Builder, State> =
     common::DrizzleBuilder<'a, Connection, Schema, Builder, State>;
 
 impl<Schema> common::Drizzle<Connection, Schema> {
-    pub async fn execute<'a, T>(
-        &'a self,
-        query: T,
-    ) -> Result<u64, drizzle_core::error::DrizzleError>
+    pub async fn execute<'q, T>(&self, query: T) -> Result<u64, drizzle_core::error::DrizzleError>
     where
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
     {
         let query = query.to_sql();
         let (sql, params) = query.build();
@@ -125,22 +122,22 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
-    pub async fn all<'a, T, R, C>(&'a self, query: T) -> drizzle_core::error::Result<C>
+    pub async fn all<'q, T, R, C>(&self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
         C: Default + Extend<R>,
     {
         self.rows(query).await?.collect().await
     }
 
     /// Runs the query and returns a row cursor.
-    pub async fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    pub async fn rows<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
     {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
@@ -156,11 +153,11 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     }
 
     /// Runs the query and returns a single row (for SELECT queries)
-    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
     {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();

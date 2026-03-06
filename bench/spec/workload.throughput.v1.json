@@ -1,0 +1,37 @@
+{
+  "version": "v1",
+  "suite": "throughput-http",
+  "load": {
+    "kind": "open",
+    "executor": "constant-arrival-rate",
+    "unit": "1s"
+  },
+  "data": {
+    "name": "bench",
+    "seed": 42,
+    "schema": "bench/schema.sql"
+  },
+  "shape": {
+    "mode": "mixed",
+    "endpoint": null
+  },
+  "stages": [
+    {
+      "sec": 30,
+      "rps": 1000
+    }
+  ],
+  "requests": {
+    "source": "generated",
+    "file": "bench/spec/requests.empty.v1.json",
+    "skip": []
+  },
+  "sampling": {
+    "cpu_ms": 100,
+    "bucket_s": 1
+  },
+  "limits": {
+    "err": 0.01,
+    "p95": 200
+  }
+}
