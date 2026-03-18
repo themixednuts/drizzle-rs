@@ -1,0 +1,10 @@
+/mnt/e/Projects/drizzle-rs/bench/targets/spacetime-native-rs/target/debug/deps/spacetimedb_query_builder-62c6bc232f71f461.d: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spacetimedb-query-builder-2.0.3/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spacetimedb-query-builder-2.0.3/src/expr.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spacetimedb-query-builder-2.0.3/src/join.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spacetimedb-query-builder-2.0.3/src/table.rs
+
+/mnt/e/Projects/drizzle-rs/bench/targets/spacetime-native-rs/target/debug/deps/libspacetimedb_query_builder-62c6bc232f71f461.rlib: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spacetimedb-query-builder-2.0.3/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spacetimedb-query-builder-2.0.3/src/expr.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spacetimedb-query-builder-2.0.3/src/join.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spacetimedb-query-builder-2.0.3/src/table.rs
+
+/mnt/e/Projects/drizzle-rs/bench/targets/spacetime-native-rs/target/debug/deps/libspacetimedb_query_builder-62c6bc232f71f461.rmeta: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spacetimedb-query-builder-2.0.3/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spacetimedb-query-builder-2.0.3/src/expr.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spacetimedb-query-builder-2.0.3/src/join.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spacetimedb-query-builder-2.0.3/src/table.rs
+
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spacetimedb-query-builder-2.0.3/src/lib.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spacetimedb-query-builder-2.0.3/src/expr.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spacetimedb-query-builder-2.0.3/src/join.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spacetimedb-query-builder-2.0.3/src/table.rs:

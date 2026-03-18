@@ -1,0 +1,1 @@
+{"version":3,"file":"connection_state.d.ts","sourceRoot":"","sources":["../../src/react/connection_state.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,gBAAgB,EAAE,MAAM,2BAA2B,CAAC;AAClE,OAAO,KAAK,EAAE,eAAe,IAAI,sBAAsB,EAAE,MAAM,2BAA2B,CAAC;AAE3F,MAAM,MAAM,eAAe,GAAG,sBAAsB,GAAG;IACrD,aAAa,IAAI,gBAAgB,CAAC,GAAG,CAAC,GAAG,IAAI,CAAC;CAC/C,CAAC"}

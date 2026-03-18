@@ -1,0 +1,2 @@
+import{t as e}from"./purry-GjwKKIlp.js";function t(...t){return e(n,t)}function n(e,t,r){let[i,...a]=t;if(i===void 0)return r;if(Array.isArray(e)){let t=[...e];return t[i]=n(e[i],a,r),t}let{[i]:o,...s}=e;return{...s,[i]:n(o,a,r)}}export{t as setPath};
+//# sourceMappingURL=setPath.js.map

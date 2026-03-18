@@ -1,0 +1,12 @@
+/mnt/e/Projects/drizzle-rs/bench/targets/spacetime-native-rs/target/debug/deps/console-4cc797ed1c5a093e.d: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/common_term.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/kb.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/term.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/unix_term.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/utils.rs
+
+/mnt/e/Projects/drizzle-rs/bench/targets/spacetime-native-rs/target/debug/deps/libconsole-4cc797ed1c5a093e.rlib: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/common_term.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/kb.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/term.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/unix_term.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/utils.rs
+
+/mnt/e/Projects/drizzle-rs/bench/targets/spacetime-native-rs/target/debug/deps/libconsole-4cc797ed1c5a093e.rmeta: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/common_term.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/kb.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/term.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/unix_term.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/utils.rs
+
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/lib.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/common_term.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/kb.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/term.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/unix_term.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/console-0.15.11/src/utils.rs:

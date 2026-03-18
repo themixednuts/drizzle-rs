@@ -1,0 +1,2 @@
+import{t as e}from"./purry-GjwKKIlp.js";function t(...t){return e(r,t)}const n=(e,t)=>e-t;function r(e){if(e.length===0)return;let t=[...e].sort(n);if(t.length%2!=0)return t[(t.length-1)/2];let r=t.length/2;return(t[r]+t[r-1])/2}export{t as median};
+//# sourceMappingURL=median.js.map

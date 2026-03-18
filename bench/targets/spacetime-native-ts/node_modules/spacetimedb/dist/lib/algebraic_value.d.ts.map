@@ -1,0 +1,1 @@
+{"version":3,"file":"algebraic_value.d.ts","sourceRoot":"","sources":["../../src/lib/algebraic_value.ts"],"names":[],"mappings":"AAAA,OAAO,YAAY,MAAM,iBAAiB,CAAC;AAE3C,MAAM,WAAW,aAAa,CAAC,CAAC;IAC9B,WAAW,EAAE,CAAC,MAAM,EAAE,YAAY,KAAK,CAAC,CAAC;CAC1C;AAED,wBAAgB,UAAU,CAAC,CAAC,EAAE,EAAE,EAAE,aAAa,CAAC,CAAC,CAAC,EAAE,GAAG,EAAE,UAAU,GAAG,CAAC,CAGtE"}

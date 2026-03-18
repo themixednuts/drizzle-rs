@@ -1,0 +1,2 @@
+const e=require(`./purry-3_3M-Pet.cjs`);function t(...t){return e.t(n,t)}function n(e,t){if(e<1)return[];let n=Number.isInteger(e)?e:Math.floor(e),r=Array(n);for(let e=0;e<n;e++)r[e]=t(e);return r}exports.times=t;
+//# sourceMappingURL=times.cjs.map

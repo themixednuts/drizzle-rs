@@ -1,0 +1,1 @@
+import{Hono as n}from"hono/tiny";import{StatusCodes as p}from"http-status-codes";var o=new n;o.post("/database/dump",async t=>{let a=t.get("db"),e=t.get("databaseDumpPath");return await a.dump(e),t.json({dumpPath:e},p.CREATED)});var u=o.get("/health",t=>t.json({name:t.get("name")}));export{o as utilityRoute};

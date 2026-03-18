@@ -1,0 +1,2 @@
+function e(e,t,n){return typeof e==`string`?e.slice(t,n):n=>n.slice(e,t)}export{e as sliceString};
+//# sourceMappingURL=sliceString.js.map

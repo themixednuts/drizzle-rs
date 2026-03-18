@@ -1,0 +1,2 @@
+import{t as e}from"./lazyDataLastImpl-DtF3cihj.js";function t(t,n,r){let i=t.length-n.length;if(i===0)return t(...n);if(i===1)return e(t,n,r);throw Error(`Wrong number of arguments`)}export{t};
+//# sourceMappingURL=purry-GjwKKIlp.js.map

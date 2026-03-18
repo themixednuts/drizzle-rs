@@ -1,0 +1,2 @@
+const e=require(`./purry-3_3M-Pet.cjs`),t=`ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789`;function n(...t){return e.t(r,t)}function r(e){let t=[];for(let n=0;n<e;n++){let e=`ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789`[Math.floor(Math.random()*62)];t.push(e)}return t.join(``)}exports.randomString=n;
+//# sourceMappingURL=randomString.cjs.map

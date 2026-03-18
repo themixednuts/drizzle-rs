@@ -1,0 +1,2 @@
+import{t as e}from"./purry-GjwKKIlp.js";function t(...t){return e(n,t)}const n=(e,t)=>{for(let n=e.length-1;n>=0;n--)if(t(e[n],n,e))return n;return-1};export{t as findLastIndex};
+//# sourceMappingURL=findLastIndex.js.map

@@ -1,0 +1,2 @@
+import{t as e}from"./purry-GjwKKIlp.js";function t(...t){return e(n,t)}function n(e){let t=[];for(let n=0;n<e;n++){let e=`ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789`[Math.floor(Math.random()*62)];t.push(e)}return t.join(``)}export{t as randomString};
+//# sourceMappingURL=randomString.js.map

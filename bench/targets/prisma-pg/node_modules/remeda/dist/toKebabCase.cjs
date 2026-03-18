@@ -1,0 +1,2 @@
+const e=require(`./purry-3_3M-Pet.cjs`),t=require(`./words-tWG2QPXb.cjs`);function n(...t){return e.t(r,t)}const r=e=>t.t(e).join(`-`).toLowerCase();exports.toKebabCase=n;
+//# sourceMappingURL=toKebabCase.cjs.map

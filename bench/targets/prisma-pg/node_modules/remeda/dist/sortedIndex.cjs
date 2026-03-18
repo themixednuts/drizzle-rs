@@ -1,0 +1,2 @@
+const e=require(`./purry-3_3M-Pet.cjs`),t=require(`./binarySearchCutoffIndex-Cgz2eJ3b.cjs`);function n(...t){return e.t(r,t)}const r=(e,n)=>t.t(e,e=>e<n);exports.sortedIndex=n;
+//# sourceMappingURL=sortedIndex.cjs.map
