@@ -1,0 +1,8 @@
+{
+  "name": "spacetime-native-ts",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "spacetimedb": "^2.0.0"
+  }
+}
