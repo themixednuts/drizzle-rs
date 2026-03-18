@@ -1,0 +1,243 @@
+name: Criterion
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 4 * * 1'  # weekly Monday 04:00 UTC
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  sqlite:
+    name: SQLite (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: criterion-sqlite-${{ matrix.platform }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Restore Criterion baseline
+        if: ${{ github.event_name == 'pull_request' && !env.ACT }}
+        uses: actions/cache/restore@v4
+        with:
+          path: target/criterion
+          key: criterion-sqlite-${{ matrix.platform }}-main-
+          restore-keys: |
+            criterion-sqlite-${{ matrix.platform }}-main-
+
+      - name: Run SQLite benchmarks (save baseline on main)
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          cargo bench --bench sqlite --features "rusqlite,turso,libsql,uuid" -- \
+            --save-baseline main \
+            --output-format bencher \
+            --color never | tee bench_output.txt
+
+      - name: Run SQLite benchmarks (compare on PR)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          cargo bench --bench sqlite --features "rusqlite,turso,libsql,uuid" -- \
+            --baseline-lenient main \
+            --output-format bencher \
+            --color never | tee bench_output.txt
+
+      - name: Create report
+        shell: bash
+        run: |
+          {
+            echo "# Criterion SQLite"
+            echo ""
+            echo "**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "**Commit:** ${{ github.sha }}"
+            echo "**Platform:** ${{ runner.os }} (${{ runner.arch }})"
+            echo "**Mode:** ${{ github.event_name == 'pull_request' && 'baseline compare' || 'baseline save' }}"
+            echo ""
+            echo '```'
+            cat bench_output.txt
+            echo '```'
+          } > criterion-sqlite-${{ matrix.platform }}.md
+
+      - name: Upload text report
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-sqlite-${{ matrix.platform }}
+          path: criterion-sqlite-${{ matrix.platform }}.md
+          retention-days: 30
+
+      - name: Upload Criterion reports
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-sqlite-${{ matrix.platform }}-data
+          path: target/criterion
+          retention-days: 14
+
+      - name: Save Criterion baseline
+        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
+        uses: actions/cache/save@v4
+        with:
+          path: target/criterion
+          key: criterion-sqlite-${{ matrix.platform }}-main-${{ github.sha }}
+
+  postgres:
+    name: PostgreSQL (${{ matrix.driver }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - driver: sync
+            features: postgres-sync,uuid
+            baseline: sync-main
+          - driver: tokio
+            features: tokio-postgres,uuid
+            baseline: tokio-main
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: drizzle_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: criterion-postgres-${{ matrix.driver }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Restore Criterion baseline
+        if: ${{ github.event_name == 'pull_request' && !env.ACT }}
+        uses: actions/cache/restore@v4
+        with:
+          path: target/criterion
+          key: criterion-postgres-${{ matrix.driver }}-main-
+          restore-keys: |
+            criterion-postgres-${{ matrix.driver }}-main-
+
+      - name: Run PostgreSQL benchmarks
+        shell: bash
+        run: |
+          pg_host="localhost"
+          pg_port="${{ job.services.postgres.ports[5432] }}"
+          if [[ -n "${ACT:-}" ]]; then
+            pg_host="127.0.0.1"
+            pg_id="${{ job.services.postgres.id }}"
+            if [[ -z "$pg_id" ]] && command -v docker >/dev/null 2>&1; then
+              pg_id="$(
+                docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' \
+                | awk '$2 ~ /^act-/ && $0 ~ /->5432\/tcp/ { print $1; exit }'
+              )"
+            fi
+            if [[ -n "$pg_id" ]] && command -v docker >/dev/null 2>&1; then
+              mapped="$(docker port "$pg_id" 5432/tcp 2>/dev/null | head -n1)"
+              if [[ "$mapped" == *:* ]]; then
+                pg_port="${mapped##*:}"
+              fi
+              echo "act postgres id=${pg_id} map=${mapped:-none}"
+            fi
+            for host in host.docker.internal 127.0.0.1 localhost; do
+              if (echo >"/dev/tcp/${host}/${pg_port}") >/dev/null 2>&1; then
+                pg_host="$host"
+                break
+              fi
+            done
+          fi
+          if [[ -z "$pg_port" ]]; then
+            pg_port="5432"
+          fi
+          echo "postgres host=${pg_host} port=${pg_port}"
+          db_url="host=${pg_host} port=${pg_port} user=postgres password=postgres dbname=drizzle_test"
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            env DATABASE_URL="$db_url" cargo bench --bench postgres --features "${{ matrix.features }}" -- \
+              --save-baseline "${{ matrix.baseline }}" \
+              --output-format bencher \
+              --color never | tee bench_output.txt
+          else
+            env DATABASE_URL="$db_url" cargo bench --bench postgres --features "${{ matrix.features }}" -- \
+              --baseline-lenient "${{ matrix.baseline }}" \
+              --output-format bencher \
+              --color never | tee bench_output.txt
+          fi
+
+      - name: Create report
+        shell: bash
+        run: |
+          {
+            echo "# Criterion PostgreSQL"
+            echo ""
+            echo "**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "**Commit:** ${{ github.sha }}"
+            echo "**Platform:** ${{ runner.os }} (${{ runner.arch }})"
+            echo "**Driver:** ${{ matrix.driver }}"
+            echo "**Mode:** ${{ github.event_name == 'pull_request' && 'baseline compare' || 'baseline save' }}"
+            echo ""
+            echo '```'
+            cat bench_output.txt
+            echo '```'
+          } > criterion-postgres-${{ matrix.driver }}.md
+
+      - name: Upload text report
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-postgres-${{ matrix.driver }}
+          path: criterion-postgres-${{ matrix.driver }}.md
+          retention-days: 30
+
+      - name: Upload Criterion reports
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-postgres-${{ matrix.driver }}-data
+          path: target/criterion
+          retention-days: 14
+
+      - name: Save Criterion baseline
+        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
+        uses: actions/cache/save@v4
+        with:
+          path: target/criterion
+          key: criterion-postgres-${{ matrix.driver }}-main-${{ github.sha }}
