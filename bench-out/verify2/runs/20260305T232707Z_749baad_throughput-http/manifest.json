@@ -1,0 +1,49 @@
+{
+  "version": "v1",
+  "run_id": "20260305T232707Z_749baad_throughput-http",
+  "suite": "throughput-http",
+  "git": "749baad",
+  "workload": "sha256:5013732b5efed9df4b536b83dab16c547e880d07014ee51b66e37d8dcc79b94d",
+  "targets": [
+    "drizzle-rs-pg-sync",
+    "drizzle-rs-pg-tokio"
+  ],
+  "start": "2026-03-05T23:27:07.4194687Z",
+  "end": "2026-03-05T23:27:08.4477317Z",
+  "status": "success",
+  "artifacts": {
+    "base": ".",
+    "summary": "targets/",
+    "report": "reports/compare.md",
+    "sums": {
+      "env.json": "sha256:bf5d2e03166b0a2e6c855ecf98086cfcf9b6c1eed2776cb1081c35e2163584cd",
+      "reports/compare.md": "sha256:0858f87efb7b7f485cdd6390ae1f8c5c213bb8927c0e3ac22b53801ca968a5fc",
+      "requests.generated.json": "sha256:6ab235974eaadc340ee619200296bf265b452db4a2cd06cb035f4bf89dcf0b8a",
+      "targets/drizzle-rs-pg-sync/raw/cpu.csv": "sha256:3099dbfaf25d5597e961847fce69e4c05c1edad32519c15ca571fafd5e6af82b",
+      "targets/drizzle-rs-pg-sync/raw/k6.csv": "sha256:b6c07ba3f23b786233672afff48b7dc8f661073dda155ab994faa7b7ab76e044",
+      "targets/drizzle-rs-pg-sync/raw/k6.parquet": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "targets/drizzle-rs-pg-sync/summary.json": "sha256:ac95f25926aad7cbabd4d3fb05346183df137e7588756d99386a7612cf9907b6",
+      "targets/drizzle-rs-pg-sync/timeseries.json": "sha256:3c62d1e0c3385ef510f3e533bba86cd00463541e11f23180221ee2646fd4e9bf",
+      "targets/drizzle-rs-pg-tokio/raw/cpu.csv": "sha256:64e3dddec0900d5b8d3129811dfd1c1c6b8fa0465a35c67eab2daf7fd9ef4a1b",
+      "targets/drizzle-rs-pg-tokio/raw/k6.csv": "sha256:e2858052804040e0f41beb4573c58b86536e2185eae984c67fb3c30782a3b109",
+      "targets/drizzle-rs-pg-tokio/raw/k6.parquet": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "targets/drizzle-rs-pg-tokio/summary.json": "sha256:1a2be77b3196714bb3bf80e9e8936265a42caeb2dd7053abd3d8856f27ab95ae",
+      "targets/drizzle-rs-pg-tokio/timeseries.json": "sha256:b9749481e525bb36edb5380fcfd9e4471c6df3485c421cd38c5d2683d2f2bc3f"
+    }
+  },
+  "runner": {
+    "class": "runner-v1",
+    "os": "windows",
+    "cpu": "x86_64",
+    "cores": 24,
+    "mem_gb": 31.927684783935547,
+    "headroom": {
+      "cpu_peak": 63.98999999999978,
+      "net_peak": 23.56
+    }
+  },
+  "trials": {
+    "count": 1,
+    "aggregate": "median"
+  }
+}

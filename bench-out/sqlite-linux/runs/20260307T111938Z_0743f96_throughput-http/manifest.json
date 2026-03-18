@@ -1,0 +1,56 @@
+{
+  "version": "v1",
+  "run_id": "20260307T111938Z_0743f96_throughput-http",
+  "suite": "throughput-http",
+  "git": "0743f96",
+  "workload": "sha256:5013732b5efed9df4b536b83dab16c547e880d07014ee51b66e37d8dcc79b94d",
+  "targets": [
+    "drizzle-rs-sqlite"
+  ],
+  "start": "2026-03-07T11:19:38.05318086Z",
+  "end": "2026-03-07T11:23:21.247314023Z",
+  "status": "success",
+  "artifacts": {
+    "base": ".",
+    "summary": "targets/",
+    "report": "reports/compare.md",
+    "sums": {
+      "env.json": "sha256:f9ffba23cf3228f7fe0f9a74aa8d350f6f762cfc8391a5c3a065e019d3169342",
+      "reports/compare.md": "sha256:0dcdb470d0d067e3ef1ce3a3e3d8fce561072edc331b0d3d6fb1610806c6ffdf",
+      "requests.generated.json": "sha256:6ab235974eaadc340ee619200296bf265b452db4a2cd06cb035f4bf89dcf0b8a",
+      "seed.v1.json": "sha256:85fcb6e917e9b1111d22b63d6d4047bf2b55e1fd4cdb83d37c1faad6969e3c5c",
+      "targets/drizzle-rs-sqlite/raw/cpu.csv": "sha256:5d368043c35eb55dedf20f37946366bfac9228685430146472356e148678be39",
+      "targets/drizzle-rs-sqlite/raw/k6.csv": "sha256:f9b3453b62b44d136f7e09900feedecf1a2f47e4789a6d1c5b6b75d85e221af3",
+      "targets/drizzle-rs-sqlite/raw/k6.parquet": "sha256:ead534e1d5d2f04729c0e2dbec37b3920be76ba7f4f87d314527e0103dcea331",
+      "targets/drizzle-rs-sqlite/raw/trial/1.series.json": "sha256:6973aba7faae018df450bcef8d10c103d0a65be1180dbd56a1d71ebd3b3e5f8a",
+      "targets/drizzle-rs-sqlite/raw/trial/2.series.json": "sha256:40a5c2e7e1183446e983008e62872593c813ed819b8e1224c6b8845ccb841dd1",
+      "targets/drizzle-rs-sqlite/raw/trial/3.series.json": "sha256:4ef188e0559f0d8fc00f00cec0fcb84398b759c51d5e2c2bb32cac8318427da6",
+      "targets/drizzle-rs-sqlite/raw/trial/4.series.json": "sha256:6a9f624b2442f81577ceffae84b2871fdd7ecf70a200998d628ec3d0c866cc2d",
+      "targets/drizzle-rs-sqlite/raw/trial/5.series.json": "sha256:9d4a05ba9e6a6aa1b0d958603dcb04b80d2fdb1cd99f847bd4143ee4c1e8230c",
+      "targets/drizzle-rs-sqlite/summary.json": "sha256:f2a36b33ac5aeacd6752426e165eb5dd6b57eba7d19d9243dd6c9f8f2e7ecdb1",
+      "targets/drizzle-rs-sqlite/timeseries.json": "sha256:74b786d55504489977b7a13a67844adb3f5a011ae892e83912d4f50b66eda83a"
+    }
+  },
+  "runner": {
+    "class": "publish",
+    "os": "linux",
+    "cpu": "x86_64",
+    "cores": 24,
+    "mem_gb": 15.578277587890625,
+    "headroom": {
+      "cpu_peak": 6.813808783888817,
+      "net_peak": 6.622264933921291
+    }
+  },
+  "trials": {
+    "count": 5,
+    "aggregate": "median"
+  },
+  "compat": {
+    "workload": "sha256:5013732b5efed9df4b536b83dab16c547e880d07014ee51b66e37d8dcc79b94d",
+    "class": "publish",
+    "targets": [
+      "drizzle-rs-sqlite"
+    ]
+  }
+}

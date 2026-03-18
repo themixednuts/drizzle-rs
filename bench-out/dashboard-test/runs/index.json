@@ -1,0 +1,17 @@
+{
+  "version": "v1",
+  "runs": [
+    {
+      "run_id": "20260308T084253Z_0743f96_throughput-http",
+      "suite": "throughput-http",
+      "status": "success",
+      "class": "small",
+      "git": "0743f96",
+      "start": "2026-03-08T08:42:53.2246424Z",
+      "end": "2026-03-08T08:49:36.5695796Z",
+      "targets": [
+        "drizzle-rs-sqlite"
+      ]
+    }
+  ]
+}

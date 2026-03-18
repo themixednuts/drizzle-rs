@@ -1,0 +1,8 @@
+{
+  "customers": 10000,
+  "employees": 200,
+  "orders": 50000,
+  "products": 5000,
+  "seed": 42,
+  "suppliers": 1000
+}

@@ -1,0 +1,14 @@
+{"time":"2026-03-08T08:35:43.4855807Z","level":"info","step":"validate","msg":"start"}
+{"time":"2026-03-08T08:35:43.4856272Z","level":"info","step":"validate","msg":"ok"}
+{"time":"2026-03-08T08:35:47.7928607Z","level":"info","step":"parity","msg":"start"}
+{"time":"2026-03-08T08:36:02.0517777Z","level":"info","step":"parity","msg":"target=drizzle-rs-sqlite pass"}
+{"time":"2026-03-08T08:36:02.0518246Z","level":"info","step":"warmup","msg":"start"}
+{"time":"2026-03-08T08:36:02.0518469Z","level":"info","step":"warmup","msg":"done"}
+{"time":"2026-03-08T08:36:02.051866Z","level":"info","step":"trials","msg":"start count=1"}
+{"time":"2026-03-08T08:42:14.139197Z","level":"info","step":"trial","msg":"run index=1"}
+{"time":"2026-03-08T08:42:14.1392294Z","level":"info","step":"trials","msg":"done"}
+{"time":"2026-03-08T08:42:14.13924Z","level":"info","step":"aggregate","msg":"start"}
+{"time":"2026-03-08T08:42:14.1497074Z","level":"info","step":"aggregate","msg":"done"}
+{"time":"2026-03-08T08:42:14.1497412Z","level":"info","step":"gates","msg":"headroom cpu_peak=69.03 net_peak=4.72 status=pass"}
+{"time":"2026-03-08T08:42:14.149752Z","level":"info","step":"gates","msg":"regression status=skip"}
+{"time":"2026-03-08T08:42:14.1497603Z","level":"info","step":"gates","msg":"limits status=pass"}

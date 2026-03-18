@@ -1,0 +1,19 @@
+{"time":"2026-03-07T11:19:38.076607577Z","level":"info","step":"validate","msg":"start"}
+{"time":"2026-03-07T11:19:38.077079256Z","level":"info","step":"validate","msg":"ok"}
+{"time":"2026-03-07T11:19:38.106269808Z","level":"info","step":"parity","msg":"start"}
+{"time":"2026-03-07T11:19:46.469573149Z","level":"info","step":"parity","msg":"target=drizzle-rs-sqlite pass"}
+{"time":"2026-03-07T11:19:46.469638173Z","level":"info","step":"warmup","msg":"start"}
+{"time":"2026-03-07T11:19:46.469660979Z","level":"info","step":"warmup","msg":"done"}
+{"time":"2026-03-07T11:19:46.469675667Z","level":"info","step":"trials","msg":"start count=5"}
+{"time":"2026-03-07T11:20:28.053395621Z","level":"info","step":"trial","msg":"run index=1"}
+{"time":"2026-03-07T11:21:12.911348533Z","level":"info","step":"trial","msg":"run index=2"}
+{"time":"2026-03-07T11:21:54.204095461Z","level":"info","step":"trial","msg":"run index=3"}
+{"time":"2026-03-07T11:22:37.181436843Z","level":"info","step":"trial","msg":"run index=4"}
+{"time":"2026-03-07T11:23:21.201633446Z","level":"info","step":"trial","msg":"run index=5"}
+{"time":"2026-03-07T11:23:21.201710504Z","level":"info","step":"trials","msg":"done"}
+{"time":"2026-03-07T11:23:21.201737034Z","level":"info","step":"aggregate","msg":"start"}
+{"time":"2026-03-07T11:23:21.243913685Z","level":"info","step":"aggregate","msg":"done"}
+{"time":"2026-03-07T11:23:21.244382551Z","level":"info","step":"gates","msg":"headroom cpu_peak=6.81 net_peak=6.62 status=pass"}
+{"time":"2026-03-07T11:23:21.244686552Z","level":"info","step":"gates","msg":"regression status=pass"}
+{"time":"2026-03-07T11:23:21.244710661Z","level":"info","step":"gates","msg":"limits status=pass"}
+{"time":"2026-03-07T11:23:21.374900798Z","level":"info","step":"write","msg":"wrote manifest, target artifacts, and result"}

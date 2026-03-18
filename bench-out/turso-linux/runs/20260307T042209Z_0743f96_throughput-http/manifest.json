@@ -1,0 +1,55 @@
+{
+  "version": "v1",
+  "run_id": "20260307T042209Z_0743f96_throughput-http",
+  "suite": "throughput-http",
+  "git": "0743f96",
+  "workload": "sha256:5013732b5efed9df4b536b83dab16c547e880d07014ee51b66e37d8dcc79b94d",
+  "targets": [
+    "drizzle-rs-turso"
+  ],
+  "start": "2026-03-07T04:22:09.771966204Z",
+  "end": "2026-03-07T04:26:13.71129138Z",
+  "status": "success",
+  "artifacts": {
+    "base": ".",
+    "summary": "targets/",
+    "report": "reports/compare.md",
+    "sums": {
+      "env.json": "sha256:41ba9d215ecaf8c98a7a567eca76b7d1b196c7c48f07c423cc2a8150426f9b2e",
+      "reports/compare.md": "sha256:e84357da279e8d72f15d9124e0c581bee89a37483e2dd4a03e8b05f3db44c9ca",
+      "requests.generated.json": "sha256:6ab235974eaadc340ee619200296bf265b452db4a2cd06cb035f4bf89dcf0b8a",
+      "targets/drizzle-rs-turso/raw/cpu.csv": "sha256:758c0f2972cd6ba44858fd529ae11f7f83da46b0631a5911d912e5d1d318efbf",
+      "targets/drizzle-rs-turso/raw/k6.csv": "sha256:73c5823c1bea3fc9e1525d0b13ae29bd490d152c3e5242b5a4e768b4b021195d",
+      "targets/drizzle-rs-turso/raw/k6.parquet": "sha256:1bf8646b65e3f0eb32a93cfffd8fbf7b2d9fc990b0b46e9d787a686b7bd25bf2",
+      "targets/drizzle-rs-turso/raw/trial/1.series.json": "sha256:233d0d8c52aed607d1c6e713f4162a756c66fd00cbd3d7769da0bee38f28e4d9",
+      "targets/drizzle-rs-turso/raw/trial/2.series.json": "sha256:2160d21657509ec8f84040a250884a0084d283cc8c5ab29ce8e407acc3192902",
+      "targets/drizzle-rs-turso/raw/trial/3.series.json": "sha256:a0a0ffcf9f44ea8a38a58a94fc158218fee1e0e10abc82d81921858806a43d9b",
+      "targets/drizzle-rs-turso/raw/trial/4.series.json": "sha256:d33db0ceee75cf722a90befddfaa08493136f05e2bd21c0ee2f9ba8538de7790",
+      "targets/drizzle-rs-turso/raw/trial/5.series.json": "sha256:750ea8e7f704d7f69c0b5713eaa7a5503bc0b77005ee46e6c8314f93c795ce3e",
+      "targets/drizzle-rs-turso/summary.json": "sha256:8ea8306c5af71cfb12a18c720e1f1447ca64ce6907f3891a2d26bdf1e918de07",
+      "targets/drizzle-rs-turso/timeseries.json": "sha256:00936e5b91d5850502df57bfb476121e2f6c05fc56105ae5c962f6a52474f488"
+    }
+  },
+  "runner": {
+    "class": "publish",
+    "os": "linux",
+    "cpu": "x86_64",
+    "cores": 24,
+    "mem_gb": 15.57828140258789,
+    "headroom": {
+      "cpu_peak": 11.924658035238584,
+      "net_peak": 2.5585691751641586
+    }
+  },
+  "trials": {
+    "count": 5,
+    "aggregate": "median"
+  },
+  "compat": {
+    "workload": "sha256:5013732b5efed9df4b536b83dab16c547e880d07014ee51b66e37d8dcc79b94d",
+    "class": "publish",
+    "targets": [
+      "drizzle-rs-turso"
+    ]
+  }
+}

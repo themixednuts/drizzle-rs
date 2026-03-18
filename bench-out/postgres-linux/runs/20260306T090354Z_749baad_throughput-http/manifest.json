@@ -1,0 +1,67 @@
+{
+  "version": "v1",
+  "run_id": "20260306T090354Z_749baad_throughput-http",
+  "suite": "throughput-http",
+  "git": "749baad",
+  "workload": "sha256:5013732b5efed9df4b536b83dab16c547e880d07014ee51b66e37d8dcc79b94d",
+  "targets": [
+    "drizzle-rs-pg-sync",
+    "drizzle-rs-pg-tokio"
+  ],
+  "start": "2026-03-06T09:03:54.658989687Z",
+  "end": "2026-03-06T09:04:31.678744719Z",
+  "status": "success",
+  "artifacts": {
+    "base": ".",
+    "summary": "targets/",
+    "report": "reports/compare.md",
+    "sums": {
+      "env.json": "sha256:592782bbb280e9113af0f58a427898195158041248ae61baa35489c8cb58b218",
+      "reports/compare.md": "sha256:8d50818a71453efc95ee51177e8b87f25bb4f84c820651f97813e9076c591d46",
+      "requests.generated.json": "sha256:6ab235974eaadc340ee619200296bf265b452db4a2cd06cb035f4bf89dcf0b8a",
+      "targets/drizzle-rs-pg-sync/raw/cpu.csv": "sha256:25458517798dee4e78f4584269e7f67ea2dcadcb53468f97be35e79f8d6ab6de",
+      "targets/drizzle-rs-pg-sync/raw/k6.csv": "sha256:7a0f0feb1284e23c7c3f9b7a349487a341fa8506b16e045e292d401e7f4f3d40",
+      "targets/drizzle-rs-pg-sync/raw/k6.parquet": "sha256:9f4106ea68021fa310442f0cffed97aaab31d590f53072af7fa999995f8ba6b0",
+      "targets/drizzle-rs-pg-sync/raw/trial/1.series.json": "sha256:d8914d7b266e5bfc57ddb85b2426c316366644b31da0444d740081b1d39b8214",
+      "targets/drizzle-rs-pg-sync/raw/trial/2.series.json": "sha256:13fb228ffab10fcbc3c4e09f0ae1b976343315f212942686581377d0d96da41a",
+      "targets/drizzle-rs-pg-sync/raw/trial/3.series.json": "sha256:7b087dd60dab402c014a7710bd0e6a931eb1bb8c005710a2203006072a099d41",
+      "targets/drizzle-rs-pg-sync/raw/trial/4.series.json": "sha256:509e455068ebb2b35bdd78c8e12c7c6fb579c329a4434dcb35bc2412e179cedb",
+      "targets/drizzle-rs-pg-sync/raw/trial/5.series.json": "sha256:4f0bc5e6b815bbe999fde0f15e6ad263bf41688fa752f445767b2946eeba1129",
+      "targets/drizzle-rs-pg-sync/summary.json": "sha256:cd9ad45fa7400934ec83451edb4e3e67fc6c77d214e7d3779c3562e229eeac34",
+      "targets/drizzle-rs-pg-sync/timeseries.json": "sha256:41a08413311ee2c1a8cfe4f15bd46b437ba4783e75dadf4b59bcfdaf679eb105",
+      "targets/drizzle-rs-pg-tokio/raw/cpu.csv": "sha256:d125eea9065dfbc1e204a4d68e84c3352a8325c4acb8cdab630e367425dba883",
+      "targets/drizzle-rs-pg-tokio/raw/k6.csv": "sha256:df3668294e9fcb572713b4b044e97fe20503b9813f662e6835a00a59b45f3994",
+      "targets/drizzle-rs-pg-tokio/raw/k6.parquet": "sha256:b51193fbbca31394a83d9273477b8c37c16eb5b404a78ca99c11f65a45476d8d",
+      "targets/drizzle-rs-pg-tokio/raw/trial/1.series.json": "sha256:7695b69e286064075cb7f8803e46c5cb22c713727518aa7bd98ef933cd8c485c",
+      "targets/drizzle-rs-pg-tokio/raw/trial/2.series.json": "sha256:db19c2d226608f1c69aa3bbf86b023d34b6faf63df3a528cda3950ca2bfab96f",
+      "targets/drizzle-rs-pg-tokio/raw/trial/3.series.json": "sha256:e6592038f6b2c7539a0ed7886bc526a7ffe539a87b304980f8fd61adc2b1b7e0",
+      "targets/drizzle-rs-pg-tokio/raw/trial/4.series.json": "sha256:130370075c7e4a630a7a32716c854ed8e6b87805c8c559877de27177db28d2a4",
+      "targets/drizzle-rs-pg-tokio/raw/trial/5.series.json": "sha256:a974c29f190f4515a1dbc8de66f4d7c3c342ec22e55ba63637093ed2f2aac4c6",
+      "targets/drizzle-rs-pg-tokio/summary.json": "sha256:5a9966501b6116891035c1f2af3f0a3a329397bd2f1810b388cab4b31ec6ee15",
+      "targets/drizzle-rs-pg-tokio/timeseries.json": "sha256:a10afdfa40d5462153933c66edcb60633930c82cf1c8521361ca2a5c5c04e005"
+    }
+  },
+  "runner": {
+    "class": "publish",
+    "os": "linux",
+    "cpu": "x86_64",
+    "cores": 24,
+    "mem_gb": 15.57828140258789,
+    "headroom": {
+      "cpu_peak": 61.48250000000027,
+      "net_peak": 24.3
+    }
+  },
+  "trials": {
+    "count": 5,
+    "aggregate": "median"
+  },
+  "compat": {
+    "workload": "sha256:5013732b5efed9df4b536b83dab16c547e880d07014ee51b66e37d8dcc79b94d",
+    "class": "publish",
+    "targets": [
+      "drizzle-rs-pg-sync",
+      "drizzle-rs-pg-tokio"
+    ]
+  }
+}

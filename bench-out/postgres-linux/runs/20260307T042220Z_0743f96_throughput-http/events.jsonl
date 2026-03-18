@@ -1,0 +1,19 @@
+{"time":"2026-03-07T04:22:20.291725209Z","level":"info","step":"validate","msg":"start"}
+{"time":"2026-03-07T04:22:20.291794865Z","level":"info","step":"validate","msg":"ok"}
+{"time":"2026-03-07T04:22:20.296382323Z","level":"info","step":"parity","msg":"start"}
+{"time":"2026-03-07T04:22:35.644327628Z","level":"info","step":"parity","msg":"target=drizzle-rs-pg-sync pass"}
+{"time":"2026-03-07T04:22:54.364894283Z","level":"info","step":"parity","msg":"target=drizzle-rs-pg-tokio pass"}
+{"time":"2026-03-07T04:22:54.36496971Z","level":"info","step":"warmup","msg":"start"}
+{"time":"2026-03-07T04:22:54.364989362Z","level":"info","step":"warmup","msg":"done"}
+{"time":"2026-03-07T04:22:54.365000801Z","level":"info","step":"trials","msg":"start count=5"}
+{"time":"2026-03-07T04:24:19.566800325Z","level":"info","step":"trial","msg":"run index=1"}
+{"time":"2026-03-07T04:25:45.146933269Z","level":"info","step":"trial","msg":"run index=2"}
+{"time":"2026-03-07T04:27:09.250151241Z","level":"info","step":"trial","msg":"run index=3"}
+{"time":"2026-03-07T04:28:35.107298094Z","level":"info","step":"trial","msg":"run index=4"}
+{"time":"2026-03-07T04:29:58.129665269Z","level":"info","step":"trial","msg":"run index=5"}
+{"time":"2026-03-07T04:29:58.129722638Z","level":"info","step":"trials","msg":"done"}
+{"time":"2026-03-07T04:29:58.129742134Z","level":"info","step":"aggregate","msg":"start"}
+{"time":"2026-03-07T04:29:58.200838123Z","level":"info","step":"aggregate","msg":"done"}
+{"time":"2026-03-07T04:29:58.200923429Z","level":"info","step":"gates","msg":"headroom cpu_peak=12.14 net_peak=2.29 status=pass"}
+{"time":"2026-03-07T04:29:58.200943304Z","level":"info","step":"gates","msg":"regression status=fail"}
+{"time":"2026-03-07T04:29:58.200952151Z","level":"info","step":"gates","msg":"limits status=pass"}

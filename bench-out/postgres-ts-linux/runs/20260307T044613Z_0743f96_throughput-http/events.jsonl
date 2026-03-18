@@ -1,0 +1,9 @@
+{"time":"2026-03-07T04:46:13.60955545Z","level":"info","step":"validate","msg":"start"}
+{"time":"2026-03-07T04:46:13.609811102Z","level":"info","step":"validate","msg":"ok"}
+{"time":"2026-03-07T04:46:13.618988193Z","level":"info","step":"parity","msg":"start"}
+{"time":"2026-03-07T04:46:13.619306404Z","level":"info","step":"parity","msg":"target=bun-sql-pg pass"}
+{"time":"2026-03-07T04:46:13.619350558Z","level":"info","step":"parity","msg":"target=drizzle-ts-pg pass"}
+{"time":"2026-03-07T04:46:13.619367378Z","level":"info","step":"parity","msg":"target=prisma-pg pass"}
+{"time":"2026-03-07T04:46:13.619375721Z","level":"info","step":"warmup","msg":"start"}
+{"time":"2026-03-07T04:46:13.619383722Z","level":"info","step":"warmup","msg":"done"}
+{"time":"2026-03-07T04:46:13.619392551Z","level":"info","step":"trials","msg":"start count=5"}

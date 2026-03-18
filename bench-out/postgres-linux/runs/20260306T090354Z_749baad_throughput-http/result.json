@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "run_id": "20260306T090354Z_749baad_throughput-http",
+  "status": "success",
+  "suite": "throughput-http",
+  "class": "publish",
+  "trials": 5,
+  "targets": 2,
+  "requests": 100,
+  "gates": {
+    "parity": "pass",
+    "headroom": "pass",
+    "regression": "skip"
+  }
+}

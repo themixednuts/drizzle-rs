@@ -1,0 +1,15 @@
+{"time":"2026-03-06T10:00:26.4777467Z","level":"info","step":"validate","msg":"start"}
+{"time":"2026-03-06T10:00:26.4777849Z","level":"info","step":"validate","msg":"ok"}
+{"time":"2026-03-06T10:00:26.4796008Z","level":"info","step":"parity","msg":"start"}
+{"time":"2026-03-06T10:00:26.4796244Z","level":"info","step":"parity","msg":"target=drizzle-rs-pg-sync pass"}
+{"time":"2026-03-06T10:00:26.4796337Z","level":"info","step":"parity","msg":"target=drizzle-rs-pg-tokio pass"}
+{"time":"2026-03-06T10:00:26.479642Z","level":"info","step":"warmup","msg":"start"}
+{"time":"2026-03-06T10:00:26.4796495Z","level":"info","step":"warmup","msg":"done"}
+{"time":"2026-03-06T10:00:26.4796588Z","level":"info","step":"trials","msg":"start count=1"}
+{"time":"2026-03-06T10:01:29.1758586Z","level":"info","step":"trial","msg":"run index=1"}
+{"time":"2026-03-06T10:01:29.1758876Z","level":"info","step":"trials","msg":"done"}
+{"time":"2026-03-06T10:01:29.1758972Z","level":"info","step":"aggregate","msg":"start"}
+{"time":"2026-03-06T10:01:29.194219Z","level":"info","step":"aggregate","msg":"done"}
+{"time":"2026-03-06T10:01:29.1942384Z","level":"info","step":"gates","msg":"headroom cpu_peak=25.33 net_peak=2.49 status=pass"}
+{"time":"2026-03-06T10:01:29.1942484Z","level":"info","step":"gates","msg":"regression status=skip"}
+{"time":"2026-03-06T10:01:29.5454405Z","level":"info","step":"write","msg":"wrote manifest, target artifacts, and result"}

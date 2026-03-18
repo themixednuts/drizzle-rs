@@ -1,0 +1,9 @@
+{"time":"2026-03-07T05:44:26.889438068Z","level":"info","step":"validate","msg":"start"}
+{"time":"2026-03-07T05:44:26.889730611Z","level":"info","step":"validate","msg":"ok"}
+{"time":"2026-03-07T05:44:26.899243498Z","level":"info","step":"parity","msg":"start"}
+{"time":"2026-03-07T05:44:26.899505907Z","level":"info","step":"parity","msg":"target=spacetime-pgwire-rs pass"}
+{"time":"2026-03-07T05:44:26.899534757Z","level":"info","step":"parity","msg":"target=spacetime-native-rs pass"}
+{"time":"2026-03-07T05:44:26.899543995Z","level":"info","step":"parity","msg":"target=spacetime-native-ts pass"}
+{"time":"2026-03-07T05:44:26.899552204Z","level":"info","step":"warmup","msg":"start"}
+{"time":"2026-03-07T05:44:26.899560349Z","level":"info","step":"warmup","msg":"done"}
+{"time":"2026-03-07T05:44:26.899569368Z","level":"info","step":"trials","msg":"start count=5"}

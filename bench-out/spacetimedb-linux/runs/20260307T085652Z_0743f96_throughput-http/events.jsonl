@@ -1,0 +1,20 @@
+{"time":"2026-03-07T08:56:53.043567353Z","level":"info","step":"validate","msg":"start"}
+{"time":"2026-03-07T08:56:53.043824929Z","level":"info","step":"validate","msg":"ok"}
+{"time":"2026-03-07T08:56:53.052526078Z","level":"info","step":"parity","msg":"start"}
+{"time":"2026-03-07T08:56:53.052813386Z","level":"info","step":"parity","msg":"target=spacetime-pgwire-rs pass"}
+{"time":"2026-03-07T08:56:53.05283347Z","level":"info","step":"parity","msg":"target=spacetime-native-rs pass"}
+{"time":"2026-03-07T08:56:53.052843077Z","level":"info","step":"parity","msg":"target=spacetime-native-ts pass"}
+{"time":"2026-03-07T08:56:53.052851189Z","level":"info","step":"warmup","msg":"start"}
+{"time":"2026-03-07T08:56:53.052859036Z","level":"info","step":"warmup","msg":"done"}
+{"time":"2026-03-07T08:56:53.052868422Z","level":"info","step":"trials","msg":"start count=5"}
+{"time":"2026-03-07T08:59:45.242162859Z","level":"info","step":"trial","msg":"run index=1"}
+{"time":"2026-03-07T09:02:38.819893479Z","level":"info","step":"trial","msg":"run index=2"}
+{"time":"2026-03-07T09:05:29.986960681Z","level":"info","step":"trial","msg":"run index=3"}
+{"time":"2026-03-07T09:08:21.114395385Z","level":"info","step":"trial","msg":"run index=4"}
+{"time":"2026-03-07T09:11:16.428758805Z","level":"info","step":"trial","msg":"run index=5"}
+{"time":"2026-03-07T09:11:16.428820494Z","level":"info","step":"trials","msg":"done"}
+{"time":"2026-03-07T09:11:16.428841054Z","level":"info","step":"aggregate","msg":"start"}
+{"time":"2026-03-07T09:11:16.555225352Z","level":"info","step":"aggregate","msg":"done"}
+{"time":"2026-03-07T09:11:16.555297771Z","level":"info","step":"gates","msg":"headroom cpu_peak=8.08 net_peak=31.70 status=pass"}
+{"time":"2026-03-07T09:11:16.555318391Z","level":"info","step":"gates","msg":"regression status=skip"}
+{"time":"2026-03-07T09:11:16.555327671Z","level":"info","step":"gates","msg":"limits status=fail"}

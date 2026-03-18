@@ -1,0 +1,27 @@
+{
+  "version": "v1",
+  "time": "2026-03-06T08:54:10.33359905Z",
+  "label": "postgres-tokio",
+  "cmd": [
+    "env",
+    "DATABASE_URL=host=host.docker.internal port=52495 user=postgres password=postgres dbname=drizzle_test",
+    "cargo",
+    "bench",
+    "--bench",
+    "postgres",
+    "--features",
+    "tokio-postgres,uuid",
+    "--",
+    "--save-baseline",
+    "tokio-main",
+    "--output-format",
+    "bencher",
+    "--color",
+    "never"
+  ],
+  "os": "Ubuntu 24.04 (Linux (Ubuntu 24.04); ubuntu)",
+  "kernel": "6.6.87.2-microsoft-standard-WSL2",
+  "host": "docker-desktop",
+  "cpus": 24,
+  "mem_kb": 16335012
+}

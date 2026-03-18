@@ -1,0 +1,177 @@
+$ vite build && wrangler dev -c wrangler.toml -c wrangler.isr.jsonc
+error: script "cf:dev" exited with code 1
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mBuild failed with 13 errors:[0m
+
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/nodes/0.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:15:23:
+  [37m      15 │       __memo(() => import([32m'../output/server/nodes/0.js'[37m)),
+           ╵                           [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/nodes/1.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:16:23:
+  [37m      16 │       __memo(() => import([32m'../output/server/nodes/1.js'[37m)),
+           ╵                           [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/nodes/2.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:17:23:
+  [37m      17 │       __memo(() => import([32m'../output/server/nodes/2.js'[37m)),
+           ╵                           [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/nodes/3.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:18:23:
+  [37m      18 │       __memo(() => import([32m'../output/server/nodes/3.js'[37m)),
+           ╵                           [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/nodes/4.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:19:23:
+  [37m      19 │       __memo(() => import([32m'../output/server/nodes/4.js'[37m)),
+           ╵                           [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/nodes/5.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:20:23:
+  [37m      20 │       __memo(() => import([32m'../output/server/nodes/5.js'[37m))
+           ╵                           [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/chunks/remote-1ic5y8r.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:23:34:
+  [37m      23 │ ... __memo(() => import([32m'../output/server/chunks/remote-1ic5y8r.js'[37m))
+           ╵                         [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/entries/endpoints/api/v1/compare/_server.ts.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:38:34:
+  [37m      38 │ ...=> import([32m'../output/server/entries/endpoints/api/v1/compare/_s[37m...
+           ╵              [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/entries/endpoints/api/v1/runs/latest/_server.ts.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:45:34:
+  [37m      45 │ ...=> import([32m'../output/server/entries/endpoints/api/v1/runs/lates[37m...
+           ╵              [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/entries/endpoints/api/v1/runs/_run_id_/manifest/_server.ts.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:52:34:
+  [37m      52 │ ...=> import([32m'../output/server/entries/endpoints/api/v1/runs/_run_[37m...
+           ╵              [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/entries/endpoints/api/v1/runs/_run_id_/summary/_server.ts.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:59:34:
+  [37m      59 │ ...=> import([32m'../output/server/entries/endpoints/api/v1/runs/_run_[37m...
+           ╵              [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/entries/endpoints/api/v1/runs/_run_id_/timeseries/_server.ts.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:66:34:
+  [37m      66 │ ...=> import([32m'../output/server/entries/endpoints/api/v1/runs/_run_[37m...
+           ╵              [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "./../output/server/index.js"[0m
+  
+      .svelte-kit/cloudflare/_worker.js:2:23:
+  [37m      2 │ import { Server } from [32m"./../output/server/index.js"[37m;
+          ╵                        [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mBuild failed with 6 errors:[0m
+
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/nodes/0.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:15:23:
+  [37m      15 │       __memo(() => import([32m'../output/server/nodes/0.js'[37m)),
+           ╵                           [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/nodes/1.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:16:23:
+  [37m      16 │       __memo(() => import([32m'../output/server/nodes/1.js'[37m)),
+           ╵                           [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/nodes/2.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:17:23:
+  [37m      17 │       __memo(() => import([32m'../output/server/nodes/2.js'[37m)),
+           ╵                           [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/nodes/3.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:18:23:
+  [37m      18 │       __memo(() => import([32m'../output/server/nodes/3.js'[37m)),
+           ╵                           [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/nodes/4.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:19:23:
+  [37m      19 │       __memo(() => import([32m'../output/server/nodes/4.js'[37m)),
+           ╵                           [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "../output/server/nodes/5.js"[0m
+  
+      .svelte-kit/cloudflare-tmp/manifest.js:20:23:
+  [37m      20 │       __memo(() => import([32m'../output/server/nodes/5.js'[37m))
+           ╵                           [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mBuild failed with 1 error:[0m
+
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "E:\\Projects\\drizzle-rs\\bench\\dashboard\\.svelte-kit\\cloudflare\\_worker.js"[0m
+  
+      .wrangler/tmp/bundle-G5MO0L/middleware-insertion-facade.js:1:43:
+  [37m      1 │ ...PORTS from [32m"E:\\Projects\\drizzle-rs\\bench\\dashboard\\.svelte-[37m...
+          ╵               [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mBuild failed with 1 error:[0m
+
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "E:\\Projects\\drizzle-rs\\bench\\dashboard\\.svelte-kit\\cloudflare\\_worker.js"[0m
+  
+      .wrangler/tmp/bundle-G5MO0L/middleware-insertion-facade.js:1:43:
+  [37m      1 │ ...PORTS from [32m"E:\\Projects\\drizzle-rs\\bench\\dashboard\\.svelte-[37m...
+          ╵               [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mBuild failed with 1 error:[0m
+
+  [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mCould not resolve "E:\\Projects\\drizzle-rs\\bench\\dashboard\\.svelte-kit\\cloudflare\\_worker.js"[0m
+  
+      .wrangler/tmp/bundle-G5MO0L/middleware-insertion-facade.js:1:43:
+  [37m      1 │ ...PORTS from [32m"E:\\Projects\\drizzle-rs\\bench\\dashboard\\.svelte-[37m...
+          ╵               [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+  
+  
+
+
+🪵  Logs were written to "C:\Users\jonfo\AppData\Roaming\xdg.config\.wrangler\logs\wrangler-2026-03-08_11-13-52_504.log"

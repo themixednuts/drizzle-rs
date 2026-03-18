@@ -1,0 +1,68 @@
+{
+  "version": "v1",
+  "run_id": "20260308T084253Z_0743f96_throughput-http",
+  "suite": "throughput-http",
+  "git": "0743f96",
+  "workload": "sha256:f44c49a5530543e611ac21f5bb36b6c50fc7300965555257fee8b3a82ebf8c6a",
+  "targets": [
+    "drizzle-rs-sqlite"
+  ],
+  "start": "2026-03-08T08:42:53.2246424Z",
+  "end": "2026-03-08T08:49:36.5695796Z",
+  "status": "success",
+  "seed": 42,
+  "load": {
+    "executor": "ramping-vus",
+    "stages": 30,
+    "duration_s": 340,
+    "max_vus": 3000,
+    "requests": 427000
+  },
+  "dataset": {
+    "customers": 10000,
+    "employees": 200,
+    "orders": 50000,
+    "suppliers": 1000,
+    "products": 5000,
+    "details_per_order": 6
+  },
+  "artifacts": {
+    "base": ".",
+    "summary": "targets/",
+    "report": "reports/compare.md",
+    "sums": {
+      "env.json": "sha256:ac3ae5007d740d0922e5da0f550caa172f40af203b2f169ad9d78cbd34074cbe",
+      "reports/compare.md": "sha256:9637f3cdf00c3a646b93faba792d0575ee8da3fdacd5ab9eea497b5592a229d0",
+      "requests.generated.json": "sha256:c3c9f9f00d3279a952f34259d405d3a96f21dece699ed0514e06291999773204",
+      "seed.v1.json": "sha256:de9f09d70838d7a7e28bf484db9e410eaa79f73091dfd186ad0eeb0bfe6f920c",
+      "targets/drizzle-rs-sqlite/raw/cpu.csv": "sha256:3f6c5c893fc15e77ec900e938ad918a5dd895ca65db3673dd664b466bfa004ae",
+      "targets/drizzle-rs-sqlite/raw/k6.csv": "sha256:893e343d680c5b25e640ac61bfd2dbcd8e045e1497d25d6f685bc586f47cec6d",
+      "targets/drizzle-rs-sqlite/raw/k6.parquet": "sha256:dffd51fadbc44f0dc0cfb3501d7055f2e12fb639043e29881452b585715c81d3",
+      "targets/drizzle-rs-sqlite/raw/trial/1.series.json": "sha256:13cf6358df799219f281591e6a8a0dc2b63e59f5bf0bb3406ce38227ac65f1c8",
+      "targets/drizzle-rs-sqlite/summary.json": "sha256:4071913c7939785ed1a38ea6bedf482dffb7838b0c9ec12645f35f14f821bbe5",
+      "targets/drizzle-rs-sqlite/timeseries.json": "sha256:ed540112fff4cf29fd16c01b890f2e9a5b3c5e1d45ce62fde259ad47c9e268cf"
+    }
+  },
+  "runner": {
+    "class": "small",
+    "os": "windows",
+    "cpu": "x86_64",
+    "cores": 24,
+    "mem_gb": 31.927684783935547,
+    "headroom": {
+      "cpu_peak": 100.0,
+      "net_peak": 4.334297666658818
+    }
+  },
+  "trials": {
+    "count": 1,
+    "aggregate": "median"
+  },
+  "compat": {
+    "workload": "sha256:f44c49a5530543e611ac21f5bb36b6c50fc7300965555257fee8b3a82ebf8c6a",
+    "class": "small",
+    "targets": [
+      "drizzle-rs-sqlite"
+    ]
+  }
+}

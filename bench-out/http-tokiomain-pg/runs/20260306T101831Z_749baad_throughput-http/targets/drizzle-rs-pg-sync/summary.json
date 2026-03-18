@@ -1,0 +1,40 @@
+{
+  "version": "v1",
+  "run_id": "20260306T101831Z_749baad_throughput-http",
+  "suite": "throughput-http",
+  "target_id": "drizzle-rs-pg-sync",
+  "primary": {
+    "rps": {
+      "avg": 226.57251467983335,
+      "peak": 226.57251467983335
+    },
+    "latency": {
+      "avg": 4.412385706971172,
+      "p90": 7.808684,
+      "p95": 8.4877,
+      "p99": 8.8104,
+      "p999": 9.2972
+    },
+    "cpu": {
+      "avg": 13.93924854066637,
+      "peak": 19.013206005096436
+    },
+    "err": 0.0
+  },
+  "spread": {
+    "trials": 1,
+    "aggregate": "median",
+    "rps": {
+      "min": 226.57251467983335,
+      "max": 226.57251467983335
+    },
+    "p95": {
+      "min": 8.4877,
+      "max": 8.4877
+    }
+  },
+  "saturation": {
+    "knee_rps": 226.57251467983335,
+    "knee_p95": 8.4877
+  }
+}

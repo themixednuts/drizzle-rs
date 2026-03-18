@@ -1,0 +1,57 @@
+{
+  "version": "v1",
+  "run_id": "20260306T031436Z_749baad_throughput-http",
+  "suite": "throughput-http",
+  "git": "749baad",
+  "workload": "sha256:5013732b5efed9df4b536b83dab16c547e880d07014ee51b66e37d8dcc79b94d",
+  "targets": [
+    "drizzle-rs-pg-sync",
+    "drizzle-rs-pg-tokio"
+  ],
+  "start": "2026-03-06T03:14:36.2554359Z",
+  "end": "2026-03-06T03:14:42.8265686Z",
+  "status": "success",
+  "artifacts": {
+    "base": ".",
+    "summary": "targets/",
+    "report": "reports/compare.md",
+    "sums": {
+      "env.json": "sha256:843b658f358bf3d67ac1532293660938432cb612e5a0f14126c7bb98f0cf2fe5",
+      "reports/compare.md": "sha256:2ebf0861492508187e9d8984392f4b39a0b82b2de7671ba9575c38db6b2cace2",
+      "requests.generated.json": "sha256:6ab235974eaadc340ee619200296bf265b452db4a2cd06cb035f4bf89dcf0b8a",
+      "targets/drizzle-rs-pg-sync/raw/cpu.csv": "sha256:95abb00da4dd99f5988016578eb2f8be35fb2a03d7e4b3373188b35a20a8ed56",
+      "targets/drizzle-rs-pg-sync/raw/k6.csv": "sha256:86e3e40f69f444f7a022576691800f36a892e05238865e92c617dcc0dbd9115c",
+      "targets/drizzle-rs-pg-sync/raw/k6.parquet": "sha256:1747df6b88b44572bcf93e3727a7357bdd09ba66fba60a92cc90d5806e329fe4",
+      "targets/drizzle-rs-pg-sync/summary.json": "sha256:d5f765d4f88dcad0d4afcfaf8b0fc4b7afd0691ee05b128b327c958fa18fda40",
+      "targets/drizzle-rs-pg-sync/timeseries.json": "sha256:73d7fb17853f3b3e9ae66762310cf4af74d715fbfe4b6dc226931055086ff084",
+      "targets/drizzle-rs-pg-tokio/raw/cpu.csv": "sha256:a9f3c37531a2a6817d781946bc88120def3c0118a2f15f1138854159c27c6ed3",
+      "targets/drizzle-rs-pg-tokio/raw/k6.csv": "sha256:04901f3595bd4011a6f50eebbb985f2a4ab70f0363072470161d0e0a1cd64a19",
+      "targets/drizzle-rs-pg-tokio/raw/k6.parquet": "sha256:0cef1ac980a9448ca3f0b01ec81bc8de0517ab3a8470b4bf2bfcf5db1c3b9d1e",
+      "targets/drizzle-rs-pg-tokio/summary.json": "sha256:97ca7261a237db69ea1411b764e4b6f052acbdb09e31765b674a99fc046fea6e",
+      "targets/drizzle-rs-pg-tokio/timeseries.json": "sha256:ab1d63d39ceabc3ae678ee85accaac80a9e72d93aa2e4b39a84fe677a13ae1b8"
+    }
+  },
+  "runner": {
+    "class": "publish",
+    "os": "windows",
+    "cpu": "x86_64",
+    "cores": 24,
+    "mem_gb": 31.927684783935547,
+    "headroom": {
+      "cpu_peak": 64.5,
+      "net_peak": 25.63
+    }
+  },
+  "trials": {
+    "count": 5,
+    "aggregate": "median"
+  },
+  "compat": {
+    "workload": "sha256:5013732b5efed9df4b536b83dab16c547e880d07014ee51b66e37d8dcc79b94d",
+    "class": "publish",
+    "targets": [
+      "drizzle-rs-pg-sync",
+      "drizzle-rs-pg-tokio"
+    ]
+  }
+}
