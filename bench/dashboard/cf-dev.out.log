@@ -1,0 +1,123 @@
+[36mvite v6.4.1 [32mbuilding SSR bundle for production...[36m[39m
+transforming...
+[32m✓[39m 222 modules transformed.
+rendering chunks...
+[36mvite v6.4.1 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 177 modules transformed.
+rendering chunks...
+computing gzip size...
+[2m.svelte-kit/output/client/[22m[32m_app/version.json                       [39m[1m[2m 0.03 kB[22m[1m[22m[2m │ gzip:  0.05 kB[22m
+[2m.svelte-kit/output/client/[22m[32m.vite/manifest.json                     [39m[1m[2m 5.24 kB[22m[1m[22m[2m │ gzip:  0.78 kB[22m
+[2m.svelte-kit/output/client/[22m[35m_app/immutable/assets/2.By6rgcnc.css    [39m[1m[2m 2.97 kB[22m[1m[22m[2m │ gzip:  0.84 kB[22m
+[2m.svelte-kit/output/client/[22m[35m_app/immutable/assets/3.CeNPNyKB.css    [39m[1m[2m 3.69 kB[22m[1m[22m[2m │ gzip:  1.08 kB[22m
+[2m.svelte-kit/output/client/[22m[35m_app/immutable/assets/5.fXkoyiYl.css    [39m[1m[2m 4.56 kB[22m[1m[22m[2m │ gzip:  1.17 kB[22m
+[2m.svelte-kit/output/client/[22m[35m_app/immutable/assets/4.DX6Xvvya.css    [39m[1m[2m 5.35 kB[22m[1m[22m[2m │ gzip:  1.30 kB[22m
+[2m.svelte-kit/output/client/[22m[35m_app/immutable/assets/0.Cx8KBf0u.css    [39m[1m[2m 5.59 kB[22m[1m[22m[2m │ gzip:  1.98 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/entry/start.bu4EHHjg.js  [39m[1m[2m 0.08 kB[22m[1m[22m[2m │ gzip:  0.09 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/chunks/Qnfa8Suz.js       [39m[1m[2m 0.18 kB[22m[1m[22m[2m │ gzip:  0.15 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/chunks/DNmKP_eR.js       [39m[1m[2m 0.40 kB[22m[1m[22m[2m │ gzip:  0.29 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/nodes/1.BcHLfaRS.js      [39m[1m[2m 0.44 kB[22m[1m[22m[2m │ gzip:  0.29 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/chunks/BOYeiL20.js       [39m[1m[2m 0.53 kB[22m[1m[22m[2m │ gzip:  0.34 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/chunks/CHK7Y-sf.js       [39m[1m[2m 0.75 kB[22m[1m[22m[2m │ gzip:  0.47 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/nodes/0.QRvzL2iD.js      [39m[1m[2m 1.69 kB[22m[1m[22m[2m │ gzip:  0.82 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/chunks/qP6eRbBc.js       [39m[1m[2m 1.70 kB[22m[1m[22m[2m │ gzip:  0.87 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/chunks/CUBiwmYk.js       [39m[1m[2m 2.27 kB[22m[1m[22m[2m │ gzip:  1.01 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/nodes/2.Di9mAaP1.js      [39m[1m[2m 4.48 kB[22m[1m[22m[2m │ gzip:  1.83 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/nodes/3.Ciy0aLbe.js      [39m[1m[2m 5.72 kB[22m[1m[22m[2m │ gzip:  2.09 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/chunks/C4WdkKep.js       [39m[1m[2m 6.63 kB[22m[1m[22m[2m │ gzip:  3.03 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/entry/app.Dp6GFUfi.js    [39m[1m[2m 7.96 kB[22m[1m[22m[2m │ gzip:  3.59 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/chunks/BnFOtRDk.js       [39m[1m[2m 8.22 kB[22m[1m[22m[2m │ gzip:  3.50 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/nodes/5.Ch3bBCDj.js      [39m[1m[2m10.84 kB[22m[1m[22m[2m │ gzip:  3.95 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/nodes/4.C52XJbOo.js      [39m[1m[2m19.75 kB[22m[1m[22m[2m │ gzip:  6.67 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/chunks/NtY01yuK.js       [39m[1m[2m24.66 kB[22m[1m[22m[2m │ gzip:  9.61 kB[22m
+[2m.svelte-kit/output/client/[22m[36m_app/immutable/chunks/o-FTB3qd.js       [39m[1m[2m38.76 kB[22m[1m[22m[2m │ gzip: 14.74 kB[22m
+[32m✓ built in 1.12s[39m
+[2m.svelte-kit/output/server/[22m[32m.vite/manifest.json                                              [39m[1m[2m  7.75 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[35m_app/immutable/assets/_page.By6rgcnc.css                         [39m[1m[2m  2.97 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[35m_app/immutable/assets/_page.DblVVYo0.css                         [39m[1m[2m  3.65 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[35m_app/immutable/assets/_page.D6UATQMr.css                         [39m[1m[2m  4.52 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[35m_app/immutable/assets/_page.BbHIWl-L.css                         [39m[1m[2m  5.27 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[35m_app/immutable/assets/_layout.coYnIRZB.css                       [39m[1m[2m  5.53 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mchunks/false.js                                                  [39m[1m[2m  0.04 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mchunks/remote-1ic5y8r.js                                         [39m[1m[2m  0.06 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mchunks/environment.js                                            [39m[1m[2m  0.19 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mentries/endpoints/api/v1/runs/_run_id_/manifest/_server.ts.js    [39m[1m[2m  0.30 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mentries/fallbacks/error.svelte.js                                [39m[1m[2m  0.35 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mentries/pages/runs/_run_id_/_page.server.ts.js                   [39m[1m[2m  0.37 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36minternal.js                                                      [39m[1m[2m  0.40 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mchunks/server.js                                                 [39m[1m[2m  0.45 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mentries/endpoints/api/v1/runs/_run_id_/summary/_server.ts.js     [39m[1m[2m  0.60 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mentries/pages/_page.server.ts.js                                 [39m[1m[2m  0.66 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mentries/endpoints/api/v1/runs/latest/_server.ts.js               [39m[1m[2m  0.69 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mchunks/api.remote.js                                             [39m[1m[2m  0.95 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mchunks/index.js                                                  [39m[1m[2m  1.13 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mchunks/utils.js                                                  [39m[1m[2m  1.15 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mchunks/r2.js                                                     [39m[1m[2m  1.19 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mentries/endpoints/api/v1/runs/_run_id_/timeseries/_server.ts.js  [39m[1m[2m  1.22 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mchunks/format.js                                                 [39m[1m[2m  1.29 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mentries/pages/trends/_page.server.ts.js                          [39m[1m[2m  1.36 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mentries/pages/_layout.svelte.js                                  [39m[1m[2m  1.53 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mentries/pages/compare/_page.server.ts.js                         [39m[1m[2m  2.00 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mentries/endpoints/api/v1/compare/_server.ts.js                   [39m[1m[2m  2.42 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mchunks/url.js                                                    [39m[1m[2m  3.16 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mchunks/internal.js                                               [39m[1m[2m  3.60 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mchunks/exports.js                                                [39m[1m[2m  3.81 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mentries/pages/_page.svelte.js                                    [39m[1m[2m  5.23 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mentries/pages/compare/_page.svelte.js                            [39m[1m[2m  7.66 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mchunks/query.js                                                  [39m[1m[2m  9.11 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mremote-entry.js                                                  [39m[1m[2m 10.49 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mentries/pages/trends/_page.svelte.js                             [39m[1m[2m 13.00 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mentries/pages/runs/_run_id_/_page.svelte.js                      [39m[1m[2m 13.63 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mchunks/shared.js                                                 [39m[1m[2m 27.07 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mentries/hooks.server.js                                          [39m[1m[2m 30.65 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mchunks/root.js                                                   [39m[1m[2m117.33 kB[22m[1m[22m
+[2m.svelte-kit/output/server/[22m[36mindex.js                                                         [39m[1m[2m123.26 kB[22m[1m[22m
+[32m✓ built in 5.94s[39m
+
+Run npm run preview to preview your production build locally.
+
+> Using @sveltejs/adapter-cloudflare
+  ✔ done
+
+ ⛅️ wrangler 4.71.0
+───────────────────
+drizzle-bench has access to the following bindings:
+Binding                                                           Resource            Mode
+env.TAG_INDEX (ISRTagIndexDO, defined in drizzle-bench-isr)       Durable Object      local [not connected]
+env.ISR_CACHE (c9767b93da2a4b3c80956215ba53548f)                  KV Namespace        local
+env.BENCH_DATA (drizzle-bench)                                    R2 Bucket           local
+env.ASSETS                                                        Assets              local
+
+
+Service bindings, Durable Object bindings, and Tail consumers connect to other Wrangler or Vite dev processes running locally, with their connection status indicated by [connected] or [not connected]. For more details, refer to https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/#local-development
+
+drizzle-bench-isr has access to the following bindings:
+Binding                            Resource            Mode
+env.TAG_INDEX (ISRTagIndexDO)      Durable Object      local
+
+⎔ Starting local server...
+[wrangler:info] ✨ Parsed 2 valid header rules.
+[wrangler:info] Ready on http://127.0.0.1:8787
+[wrangler:info] GET /trends 200 OK (76ms)
+[wrangler:info] GET / 200 OK (44ms)
+[wrangler:info] GET /compare 200 OK (11ms)
+[wrangler:info] GET / 200 OK (8ms)
+[wrangler:info] GET /runs/20260308T084253Z_0743f96_throughput-http 200 OK (17ms)
+⎔ Reloading local server...
+[wrangler:info] ✨ Parsed 2 valid header rules.
+⎔ Local server updated and ready
+⎔ Reloading local server...
+[wrangler:info] ✨ Parsed 2 valid header rules.
+⎔ Local server updated and ready
+⎔ Reloading local server...
+[wrangler:info] ✨ Parsed 2 valid header rules.
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+[wrangler:info] ✨ Parsed 2 valid header rules.
+⎔ Local server updated and ready
+⎔ Reloading local server...
+[wrangler:info] ✨ Parsed 2 valid header rules.
+⎔ Local server updated and ready

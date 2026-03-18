@@ -1,0 +1,7 @@
+{"time":"2026-03-06T09:34:08.6339743Z","level":"info","step":"validate","msg":"start"}
+{"time":"2026-03-06T09:34:08.6340493Z","level":"info","step":"validate","msg":"ok"}
+{"time":"2026-03-06T09:34:08.6358186Z","level":"info","step":"parity","msg":"start"}
+{"time":"2026-03-06T09:34:08.6358412Z","level":"info","step":"parity","msg":"target=drizzle-rs-sqlite pass"}
+{"time":"2026-03-06T09:34:08.6358534Z","level":"info","step":"warmup","msg":"start"}
+{"time":"2026-03-06T09:34:08.6358615Z","level":"info","step":"warmup","msg":"done"}
+{"time":"2026-03-06T09:34:08.6358735Z","level":"info","step":"trials","msg":"start count=1"}

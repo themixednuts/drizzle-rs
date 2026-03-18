@@ -1,0 +1,40 @@
+{
+  "version": "v1",
+  "run_id": "20260306T093233Z_749baad_throughput-http",
+  "suite": "throughput-http",
+  "target_id": "drizzle-rs-sqlite",
+  "primary": {
+    "rps": {
+      "avg": 1562.7297402917452,
+      "peak": 1562.7297402917452
+    },
+    "latency": {
+      "avg": 0.0,
+      "p90": 0.0,
+      "p95": 0.0,
+      "p99": 0.0,
+      "p999": 0.0
+    },
+    "cpu": {
+      "avg": 43.665333318710324,
+      "peak": 99.99770323435466
+    },
+    "err": 1.0
+  },
+  "spread": {
+    "trials": 1,
+    "aggregate": "median",
+    "rps": {
+      "min": 1562.7297402917452,
+      "max": 1562.7297402917452
+    },
+    "p95": {
+      "min": 0.0,
+      "max": 0.0
+    }
+  },
+  "saturation": {
+    "knee_rps": 1562.7297402917452,
+    "knee_p95": 0.0
+  }
+}

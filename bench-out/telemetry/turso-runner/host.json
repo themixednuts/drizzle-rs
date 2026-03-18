@@ -1,0 +1,33 @@
+{
+  "version": "v1",
+  "time": "2026-03-07T04:17:44.762224255Z",
+  "label": "turso-runner",
+  "cmd": [
+    "cargo",
+    "run",
+    "-p",
+    "bench-runner",
+    "--",
+    "run",
+    "--suite",
+    "throughput-http",
+    "--workload",
+    "bench/spec/workload.throughput.v1.json",
+    "--targets",
+    "bench/spec/targets.turso.v1.json",
+    "--requests",
+    "bench/spec/requests.empty.v1.json",
+    "--out",
+    "bench-out/turso-linux",
+    "--class",
+    "publish",
+    "--baseline",
+    "auto",
+    "--json"
+  ],
+  "os": "Ubuntu 24.04 (Linux (Ubuntu 24.04); ubuntu)",
+  "kernel": "6.6.87.2-microsoft-standard-WSL2",
+  "host": "docker-desktop",
+  "cpus": 24,
+  "mem_kb": 16335012
+}

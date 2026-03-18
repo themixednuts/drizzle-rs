@@ -1,0 +1,27 @@
+{
+  "version": "v1",
+  "time": "2026-03-06T08:48:44.423896807Z",
+  "label": "postgres-sync",
+  "cmd": [
+    "env",
+    "DATABASE_URL=host=host.docker.internal port=49400 user=postgres password=postgres dbname=drizzle_test",
+    "cargo",
+    "bench",
+    "--bench",
+    "postgres",
+    "--features",
+    "postgres-sync,uuid",
+    "--",
+    "--save-baseline",
+    "sync-main",
+    "--output-format",
+    "bencher",
+    "--color",
+    "never"
+  ],
+  "os": "Ubuntu 24.04 (Linux (Ubuntu 24.04); ubuntu)",
+  "kernel": "6.6.87.2-microsoft-standard-WSL2",
+  "host": "docker-desktop",
+  "cpus": 24,
+  "mem_kb": 16335012
+}

@@ -1,0 +1,18 @@
+{"time":"2026-03-07T10:28:46.652736013Z","level":"info","step":"validate","msg":"start"}
+{"time":"2026-03-07T10:28:46.653536573Z","level":"info","step":"validate","msg":"ok"}
+{"time":"2026-03-07T10:28:46.682637382Z","level":"info","step":"parity","msg":"start"}
+{"time":"2026-03-07T10:28:57.558030906Z","level":"info","step":"parity","msg":"target=drizzle-rs-sqlite pass"}
+{"time":"2026-03-07T10:28:57.558102481Z","level":"info","step":"warmup","msg":"start"}
+{"time":"2026-03-07T10:28:57.558121309Z","level":"info","step":"warmup","msg":"done"}
+{"time":"2026-03-07T10:28:57.558134785Z","level":"info","step":"trials","msg":"start count=5"}
+{"time":"2026-03-07T10:29:38.439760847Z","level":"info","step":"trial","msg":"run index=1"}
+{"time":"2026-03-07T10:30:20.364825878Z","level":"info","step":"trial","msg":"run index=2"}
+{"time":"2026-03-07T10:31:04.628366772Z","level":"info","step":"trial","msg":"run index=3"}
+{"time":"2026-03-07T10:31:58.009417018Z","level":"info","step":"trial","msg":"run index=4"}
+{"time":"2026-03-07T10:32:46.659139039Z","level":"info","step":"trial","msg":"run index=5"}
+{"time":"2026-03-07T10:32:46.659278125Z","level":"info","step":"trials","msg":"done"}
+{"time":"2026-03-07T10:32:46.659357424Z","level":"info","step":"aggregate","msg":"start"}
+{"time":"2026-03-07T10:32:46.918602542Z","level":"info","step":"aggregate","msg":"done"}
+{"time":"2026-03-07T10:32:46.918735436Z","level":"info","step":"gates","msg":"headroom cpu_peak=96.86 net_peak=6.15 status=fail"}
+{"time":"2026-03-07T10:32:46.918793212Z","level":"info","step":"gates","msg":"regression status=skip"}
+{"time":"2026-03-07T10:32:46.918818168Z","level":"info","step":"gates","msg":"limits status=pass"}

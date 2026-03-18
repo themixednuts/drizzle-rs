@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "run_id": "20260308T084253Z_0743f96_throughput-http",
+  "status": "success",
+  "suite": "throughput-http",
+  "class": "small",
+  "trials": 1,
+  "targets": 1,
+  "requests": 427000,
+  "gates": {
+    "parity": "pass",
+    "headroom": "fail",
+    "regression": "skip",
+    "limits": "pass"
+  }
+}

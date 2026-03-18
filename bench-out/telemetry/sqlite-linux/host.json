@@ -1,0 +1,25 @@
+{
+  "version": "v1",
+  "time": "2026-03-07T09:47:48.705967414Z",
+  "label": "sqlite-linux",
+  "cmd": [
+    "cargo",
+    "bench",
+    "--bench",
+    "sqlite",
+    "--features",
+    "rusqlite,turso,libsql,uuid",
+    "--",
+    "--save-baseline",
+    "main",
+    "--output-format",
+    "bencher",
+    "--color",
+    "never"
+  ],
+  "os": "Ubuntu 24.04 (Linux (Ubuntu 24.04); ubuntu)",
+  "kernel": "6.6.87.2-microsoft-standard-WSL2",
+  "host": "docker-desktop",
+  "cpus": 24,
+  "mem_kb": 16335008
+}

@@ -1,0 +1,8 @@
+{"time":"2026-03-06T09:49:24.9827864Z","level":"info","step":"validate","msg":"start"}
+{"time":"2026-03-06T09:49:24.9828276Z","level":"info","step":"validate","msg":"ok"}
+{"time":"2026-03-06T09:49:24.9845483Z","level":"info","step":"parity","msg":"start"}
+{"time":"2026-03-06T09:49:24.9845802Z","level":"info","step":"parity","msg":"target=drizzle-rs-pg-sync pass"}
+{"time":"2026-03-06T09:49:24.9845899Z","level":"info","step":"parity","msg":"target=drizzle-rs-pg-tokio pass"}
+{"time":"2026-03-06T09:49:24.9845983Z","level":"info","step":"warmup","msg":"start"}
+{"time":"2026-03-06T09:49:24.9846058Z","level":"info","step":"warmup","msg":"done"}
+{"time":"2026-03-06T09:49:24.9846164Z","level":"info","step":"trials","msg":"start count=1"}

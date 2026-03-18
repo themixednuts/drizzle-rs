@@ -1,0 +1,40 @@
+{
+  "version": "v1",
+  "run_id": "20260306T101831Z_749baad_throughput-http",
+  "suite": "throughput-http",
+  "target_id": "drizzle-rs-pg-tokio",
+  "primary": {
+    "rps": {
+      "avg": 249.424379811537,
+      "peak": 249.424379811537
+    },
+    "latency": {
+      "avg": 4.007969723505976,
+      "p90": 7.267264000000001,
+      "p95": 7.8992,
+      "p99": 8.11955,
+      "p999": 8.75545
+    },
+    "cpu": {
+      "avg": 14.016935412089028,
+      "peak": 19.922483762105305
+    },
+    "err": 0.0
+  },
+  "spread": {
+    "trials": 1,
+    "aggregate": "median",
+    "rps": {
+      "min": 249.424379811537,
+      "max": 249.424379811537
+    },
+    "p95": {
+      "min": 7.8992,
+      "max": 7.8992
+    }
+  },
+  "saturation": {
+    "knee_rps": 249.424379811537,
+    "knee_p95": 7.8992
+  }
+}

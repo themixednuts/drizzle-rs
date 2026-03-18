@@ -1,0 +1,51 @@
+{
+  "version": "v1",
+  "run_id": "20260306T093445Z_749baad_throughput-http",
+  "suite": "throughput-http",
+  "git": "749baad",
+  "workload": "sha256:5013732b5efed9df4b536b83dab16c547e880d07014ee51b66e37d8dcc79b94d",
+  "targets": [
+    "drizzle-rs-sqlite"
+  ],
+  "start": "2026-03-06T09:34:45.2164152Z",
+  "end": "2026-03-06T09:35:16.3713189Z",
+  "status": "success",
+  "artifacts": {
+    "base": ".",
+    "summary": "targets/",
+    "report": "reports/compare.md",
+    "sums": {
+      "env.json": "sha256:8e8342c8b3fe80b57190640dcf6cf940ce910256613cbef39facb988a4660bf7",
+      "reports/compare.md": "sha256:f5f8989cb587b2fab6125c3a4560569b4bba0ec6ce9a27469d04b1a8eecdf75d",
+      "requests.generated.json": "sha256:6ab235974eaadc340ee619200296bf265b452db4a2cd06cb035f4bf89dcf0b8a",
+      "targets/drizzle-rs-sqlite/raw/cpu.csv": "sha256:d7b4996f146f455bbe11ee2790215fb7873eddf50ecf45a89c933f14b75eeb70",
+      "targets/drizzle-rs-sqlite/raw/k6.csv": "sha256:9b464b5ca459c87881fb4de2bdbee17656ea074ce12f8ef70746f708aa26fff5",
+      "targets/drizzle-rs-sqlite/raw/k6.parquet": "sha256:abb2352e8aaeec8ea49584026c50b703708c593bc000c3acfe2d79711ca1365e",
+      "targets/drizzle-rs-sqlite/raw/trial/1.series.json": "sha256:c382db02c4779cc5a00fe936bc2f14193221d137b278efbe3b3a04e63a478b8a",
+      "targets/drizzle-rs-sqlite/summary.json": "sha256:85ac178720f65f12b1b1664e0c06f6e8368992caaa5b81a2202cc7f7a2c27026",
+      "targets/drizzle-rs-sqlite/timeseries.json": "sha256:1bec7be1d5669e05f25382060e81b26e12aead89a41eb9fde13ba96e7803f4a5"
+    }
+  },
+  "runner": {
+    "class": "small",
+    "os": "windows",
+    "cpu": "x86_64",
+    "cores": 24,
+    "mem_gb": 31.927684783935547,
+    "headroom": {
+      "cpu_peak": 18.669913291931152,
+      "net_peak": 5.6136062670549
+    }
+  },
+  "trials": {
+    "count": 1,
+    "aggregate": "median"
+  },
+  "compat": {
+    "workload": "sha256:5013732b5efed9df4b536b83dab16c547e880d07014ee51b66e37d8dcc79b94d",
+    "class": "small",
+    "targets": [
+      "drizzle-rs-sqlite"
+    ]
+  }
+}
