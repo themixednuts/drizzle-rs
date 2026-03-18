@@ -1,0 +1,47 @@
+{
+  "name": "@prisma/adapter-pg",
+  "version": "7.4.2",
+  "description": "Prisma's driver adapter for \"pg\"",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      }
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/prisma/prisma.git",
+    "directory": "packages/adapter-pg"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [],
+  "author": "Tom Houlé <houle@prisma.io>",
+  "license": "Apache-2.0",
+  "sideEffects": false,
+  "dependencies": {
+    "pg": "^8.16.3",
+    "postgres-array": "3.0.4",
+    "@prisma/driver-adapter-utils": "7.4.2"
+  },
+  "devDependencies": {
+    "@types/pg": "8.11.11",
+    "@prisma/debug": "7.4.2"
+  },
+  "scripts": {
+    "dev": "DEV=true tsx helpers/build.ts",
+    "build": "tsx helpers/build.ts",
+    "test": "vitest run"
+  }
+}

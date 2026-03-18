@@ -1,0 +1,11 @@
+{
+  "name": "bench-drizzle-ts-pg",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run server.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.1"
+  }
+}

@@ -1,0 +1,2 @@
+import{t as e}from"./purry-GjwKKIlp.js";function t(...t){return e(n,t)}function n(e,t){let n={};for(let[r,i]of e.entries()){let a=t(i,r,e);n[a]=i}return n}export{t as indexBy};
+//# sourceMappingURL=indexBy.js.map

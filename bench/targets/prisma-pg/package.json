@@ -1,0 +1,17 @@
+{
+  "name": "bench-prisma-pg",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "bunx prisma generate",
+    "start": "bun run server.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.4.0",
+    "@prisma/adapter-pg": "^7.4.0",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "prisma": "^7.4.0"
+  }
+}

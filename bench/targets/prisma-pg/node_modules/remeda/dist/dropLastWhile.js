@@ -1,0 +1,2 @@
+import{t as e}from"./purry-GjwKKIlp.js";function t(...t){return e(n,t)}function n(e,t){for(let n=e.length-1;n>=0;n--)if(!t(e[n],n,e))return e.slice(0,n+1);return[]}export{t as dropLastWhile};
+//# sourceMappingURL=dropLastWhile.js.map

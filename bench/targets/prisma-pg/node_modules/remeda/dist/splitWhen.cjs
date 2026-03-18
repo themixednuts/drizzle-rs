@@ -1,0 +1,2 @@
+const e=require(`./purry-3_3M-Pet.cjs`);function t(...t){return e.t(n,t)}function n(e,t){let n=e.findIndex(t);return n===-1?[[...e],[]]:[e.slice(0,n),e.slice(n)]}exports.splitWhen=t;
+//# sourceMappingURL=splitWhen.cjs.map

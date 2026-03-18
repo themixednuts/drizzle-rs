@@ -1,0 +1,2 @@
+const e=require(`./purry-3_3M-Pet.cjs`);function t(...t){return e.t(n,t)}function n(e,t,n){let r={};for(let[i,a]of e.entries()){let o=t(a,i,e);r[o]=n(a,i,e)}return r}exports.pullObject=t;
+//# sourceMappingURL=pullObject.cjs.map

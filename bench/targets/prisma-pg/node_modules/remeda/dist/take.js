@@ -1,0 +1,2 @@
+import{t as e}from"./purry-GjwKKIlp.js";import{n as t}from"./utilityEvaluators-D7O7U3FY.js";function n(...t){return e(r,t,i)}const r=(e,t)=>t<0?[]:e.slice(0,t);function i(e){if(e<=0)return t;let n=e;return e=>(--n,{done:n<=0,hasNext:!0,next:e})}export{n as take};
+//# sourceMappingURL=take.js.map

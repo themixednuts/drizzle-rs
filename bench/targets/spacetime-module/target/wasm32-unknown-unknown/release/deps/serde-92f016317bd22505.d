@@ -1,0 +1,14 @@
+/mnt/e/Projects/drizzle-rs/bench/targets/spacetime-module/target/wasm32-unknown-unknown/release/deps/serde-92f016317bd22505.d: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /mnt/e/Projects/drizzle-rs/bench/targets/spacetime-module/target/wasm32-unknown-unknown/release/build/serde-fd2514afbee43164/out/private.rs
+
+/mnt/e/Projects/drizzle-rs/bench/targets/spacetime-module/target/wasm32-unknown-unknown/release/deps/libserde-92f016317bd22505.rlib: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /mnt/e/Projects/drizzle-rs/bench/targets/spacetime-module/target/wasm32-unknown-unknown/release/build/serde-fd2514afbee43164/out/private.rs
+
+/mnt/e/Projects/drizzle-rs/bench/targets/spacetime-module/target/wasm32-unknown-unknown/release/deps/libserde-92f016317bd22505.rmeta: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /mnt/e/Projects/drizzle-rs/bench/targets/spacetime-module/target/wasm32-unknown-unknown/release/build/serde-fd2514afbee43164/out/private.rs
+
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/mnt/e/Projects/drizzle-rs/bench/targets/spacetime-module/target/wasm32-unknown-unknown/release/build/serde-fd2514afbee43164/out/private.rs:
+
+# env-dep:OUT_DIR=/mnt/e/Projects/drizzle-rs/bench/targets/spacetime-module/target/wasm32-unknown-unknown/release/build/serde-fd2514afbee43164/out

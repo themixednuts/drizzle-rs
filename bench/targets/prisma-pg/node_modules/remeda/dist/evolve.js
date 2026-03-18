@@ -1,0 +1,2 @@
+import{t as e}from"./purry-GjwKKIlp.js";function t(...t){return e(n,t)}function n(e,t){if(typeof e!=`object`||!e)return e;let r={...e};for(let[e,i]of Object.entries(t))e in r&&(r[e]=typeof i==`function`?i(r[e]):n(r[e],i));return r}export{t as evolve};
+//# sourceMappingURL=evolve.js.map

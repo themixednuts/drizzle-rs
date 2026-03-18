@@ -1,0 +1,2 @@
+const e=require(`./purry-3_3M-Pet.cjs`),t=require(`./toSingle-D6hV57e0.cjs`);function n(...n){return e.t(r,n,t.t(i))}const r=([e])=>e,i=()=>a,a=e=>({hasNext:!0,next:e,done:!0});exports.first=n;
+//# sourceMappingURL=first.cjs.map

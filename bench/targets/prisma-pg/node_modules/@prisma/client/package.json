@@ -1,0 +1,282 @@
+{
+  "name": "@prisma/client",
+  "version": "7.4.2",
+  "description": "Prisma Client is an auto-generated, type-safe and modern JavaScript/TypeScript ORM for Node.js that's tailored to your data. Supports PostgreSQL, CockroachDB, MySQL, MariaDB, SQL Server, SQLite & MongoDB databases.",
+  "keywords": [
+    "ORM",
+    "Prisma",
+    "prisma2",
+    "Prisma Client",
+    "client",
+    "query",
+    "query-builder",
+    "database",
+    "db",
+    "JavaScript",
+    "JS",
+    "TypeScript",
+    "TS",
+    "SQL",
+    "SQLite",
+    "pg",
+    "Postgres",
+    "PostgreSQL",
+    "CockroachDB",
+    "MySQL",
+    "MariaDB",
+    "MSSQL",
+    "SQL Server",
+    "SQLServer",
+    "MongoDB"
+  ],
+  "main": "default.js",
+  "types": "default.d.ts",
+  "browser": "index-browser.js",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "require": {
+        "types": "./default.d.ts",
+        "node": "./default.js",
+        "edge-light": "./default.js",
+        "workerd": "./default.js",
+        "worker": "./default.js",
+        "browser": "./index-browser.js"
+      },
+      "import": {
+        "types": "./default.d.ts",
+        "node": "./default.js",
+        "edge-light": "./default.js",
+        "workerd": "./default.js",
+        "worker": "./default.js",
+        "browser": "./index-browser.js"
+      },
+      "default": "./default.js"
+    },
+    "./extension": {
+      "types": "./extension.d.ts",
+      "require": "./extension.js",
+      "import": "./extension.js",
+      "default": "./extension.js"
+    },
+    "./index-browser": {
+      "types": "./index.d.ts",
+      "require": "./index-browser.js",
+      "import": "./index-browser.js",
+      "default": "./index-browser.js"
+    },
+    "./index": {
+      "types": "./index.d.ts",
+      "require": "./index.js",
+      "import": "./index.js",
+      "default": "./index.js"
+    },
+    "./edge": {
+      "types": "./edge.d.ts",
+      "require": "./edge.js",
+      "import": "./edge.js",
+      "default": "./edge.js"
+    },
+    "./runtime/client": {
+      "types": "./runtime/client.d.ts",
+      "node": {
+        "require": "./runtime/client.js",
+        "default": "./runtime/client.js"
+      },
+      "require": "./runtime/client.js",
+      "import": "./runtime/client.mjs",
+      "default": "./runtime/client.mjs"
+    },
+    "./runtime/wasm-compiler-edge": {
+      "types": "./runtime/wasm-compiler-edge.d.ts",
+      "require": "./runtime/wasm-compiler-edge.js",
+      "import": "./runtime/wasm-compiler-edge.mjs",
+      "default": "./runtime/wasm-compiler-edge.mjs"
+    },
+    "./runtime/index-browser": {
+      "types": "./runtime/index-browser.d.ts",
+      "require": "./runtime/index-browser.js",
+      "import": "./runtime/index-browser.mjs",
+      "default": "./runtime/index-browser.mjs"
+    },
+    "./generator-build": {
+      "require": "./generator-build/index.js",
+      "import": "./generator-build/index.js",
+      "default": "./generator-build/index.js"
+    },
+    "./sql": {
+      "require": {
+        "types": "./sql.d.ts",
+        "node": "./sql.js",
+        "default": "./sql.js"
+      },
+      "import": {
+        "types": "./sql.d.ts",
+        "node": "./sql.mjs",
+        "default": "./sql.mjs"
+      },
+      "default": "./sql.js"
+    },
+    "./*": "./*"
+  },
+  "license": "Apache-2.0",
+  "engines": {
+    "node": "^20.19 || ^22.12 || >=24.0"
+  },
+  "homepage": "https://www.prisma.io",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/prisma/prisma.git",
+    "directory": "packages/client"
+  },
+  "author": "Tim Suchanek <suchanek@prisma.io>",
+  "bugs": "https://github.com/prisma/prisma/issues",
+  "files": [
+    "README.md",
+    "runtime",
+    "scripts",
+    "generator-build",
+    "edge.js",
+    "edge.d.ts",
+    "index.js",
+    "index.d.ts",
+    "default.js",
+    "default.d.ts",
+    "index-browser.js",
+    "extension.js",
+    "extension.d.ts",
+    "sql.d.ts",
+    "sql.js",
+    "sql.mjs"
+  ],
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20251014.0",
+    "@codspeed/benchmark.js-plugin": "4.0.0",
+    "@faker-js/faker": "9.6.0",
+    "@fast-check/jest": "2.0.3",
+    "@hono/node-server": "1.19.0",
+    "@inquirer/prompts": "7.3.3",
+    "@jest/create-cache-key-function": "29.7.0",
+    "@jest/globals": "29.7.0",
+    "@jest/test-sequencer": "29.7.0",
+    "@libsql/client": "0.8.1",
+    "@neondatabase/serverless": "0.10.2",
+    "@opentelemetry/api": "1.9.0",
+    "@opentelemetry/context-async-hooks": "2.1.0",
+    "@opentelemetry/instrumentation": "0.206.0",
+    "@opentelemetry/resources": "2.1.0",
+    "@opentelemetry/sdk-trace-base": "2.1.0",
+    "@opentelemetry/semantic-conventions": "1.37.0",
+    "@planetscale/database": "1.19.0",
+    "@prisma/engines-version": "7.5.0-10.94a226be1cf2967af2541cca5529f0f7ba866919",
+    "@prisma/query-compiler-wasm": "7.5.0-10.94a226be1cf2967af2541cca5529f0f7ba866919",
+    "@snaplet/copycat": "6.0.0",
+    "@swc-node/register": "1.10.9",
+    "@swc/core": "1.11.5",
+    "@swc/jest": "0.2.37",
+    "@timsuchanek/copy": "1.4.5",
+    "@types/debug": "4.1.12",
+    "@types/fs-extra": "11.0.4",
+    "@types/jest": "29.5.14",
+    "@types/js-levenshtein": "1.1.3",
+    "@types/mssql": "9.1.8",
+    "@types/node": "~20.19.24",
+    "@types/pg": "8.11.11",
+    "arg": "5.0.2",
+    "benchmark": "2.1.4",
+    "cookie-es": "2.0.0",
+    "execa": "8.0.1",
+    "expect-type": "1.2.2",
+    "fs-extra": "11.3.0",
+    "get-stream": "6.0.1",
+    "globby": "11.1.0",
+    "indent-string": "4.0.0",
+    "jest": "29.7.0",
+    "jest-extended": "4.0.2",
+    "jest-junit": "16.0.0",
+    "jest-serializer-ansi-escapes": "4.0.0",
+    "jest-snapshot": "29.7.0",
+    "js-levenshtein": "1.1.6",
+    "kleur": "4.1.5",
+    "klona": "2.0.6",
+    "mariadb": "3.4.5",
+    "memfs": "4.17.2",
+    "mssql": "11.0.1",
+    "new-github-issue-url": "0.2.1",
+    "p-retry": "4.6.2",
+    "pg": "8.14.1",
+    "resolve": "1.22.10",
+    "simple-statistics": "7.8.8",
+    "sort-keys": "5.1.0",
+    "source-map-support": "0.5.21",
+    "stacktrace-parser": "0.1.11",
+    "strip-ansi": "7.1.0",
+    "strip-indent": "4.0.0",
+    "tempy": "3.0.0",
+    "ts-pattern": "5.6.2",
+    "tsd": "0.31.2",
+    "typescript": "5.4.5",
+    "undici": "7.4.0",
+    "zx": "8.4.1",
+    "@prisma/adapter-libsql": "7.4.2",
+    "@prisma/adapter-better-sqlite3": "7.4.2",
+    "@prisma/adapter-d1": "7.4.2",
+    "@prisma/adapter-mssql": "7.4.2",
+    "@prisma/adapter-mariadb": "7.4.2",
+    "@prisma/adapter-neon": "7.4.2",
+    "@prisma/adapter-pg": "7.4.2",
+    "@prisma/adapter-planetscale": "7.4.2",
+    "@prisma/client-common": "7.4.2",
+    "@prisma/client-engine-runtime": "7.4.2",
+    "@prisma/client-generator-ts": "7.4.2",
+    "@prisma/config": "7.4.2",
+    "@prisma/debug": "7.4.2",
+    "@prisma/client-generator-js": "7.4.2",
+    "@prisma/engines": "7.4.2",
+    "@prisma/dmmf": "7.4.2",
+    "@prisma/driver-adapter-utils": "7.4.2",
+    "@prisma/fetch-engine": "7.4.2",
+    "@prisma/generator": "7.4.2",
+    "@prisma/generator-helper": "7.4.2",
+    "@prisma/internals": "7.4.2",
+    "@prisma/instrumentation-contract": "7.4.2",
+    "@prisma/migrate": "7.4.2",
+    "@prisma/json-protocol": "7.4.2",
+    "@prisma/param-graph": "7.4.2",
+    "@prisma/get-platform": "7.4.2",
+    "@prisma/instrumentation": "7.4.2",
+    "@prisma/param-graph-builder": "7.4.2",
+    "@prisma/query-plan-executor": "7.4.2",
+    "@prisma/sqlcommenter-trace-context": "7.4.2",
+    "@prisma/sqlcommenter": "7.4.2",
+    "@prisma/ts-builders": "7.4.2"
+  },
+  "dependencies": {
+    "@prisma/client-runtime-utils": "7.4.2"
+  },
+  "peerDependencies": {
+    "prisma": "*",
+    "typescript": ">=5.4.0"
+  },
+  "peerDependenciesMeta": {
+    "prisma": {
+      "optional": true
+    },
+    "typescript": {
+      "optional": true
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "dev": "DEV=true tsx helpers/build.ts",
+    "build": "tsx helpers/build.ts",
+    "test": "dotenv -e ../../.db.env -- jest --silent",
+    "test:e2e": "dotenv -e ../../.db.env -- tsx tests/e2e/_utils/run.ts",
+    "test:functional": "dotenv -e ../../.db.env -- tsx helpers/functional-test/run-tests.ts",
+    "test:functional:client": "pnpm run test:functional --client-runtime client",
+    "test:functional:code": "dotenv -e ../../.db.env -- tsx helpers/functional-test/run-tests.ts --no-types",
+    "test:functional:types": "dotenv -e ../../.db.env -- tsx helpers/functional-test/run-tests.ts --types-only",
+    "test-notypes": "dotenv -e ../../.db.env -- jest --testPathIgnorePatterns src/__tests__/types/types.test.ts",
+    "new-test": "tsx ./helpers/new-test/new-test.ts"
+  }
+}

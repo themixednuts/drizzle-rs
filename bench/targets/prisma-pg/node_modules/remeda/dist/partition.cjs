@@ -1,0 +1,2 @@
+const e=require(`./purry-3_3M-Pet.cjs`);function t(...t){return e.t(n,t)}const n=(e,t)=>{let n=[[],[]];for(let[r,i]of e.entries())t(i,r,e)?n[0].push(i):n[1].push(i);return n};exports.partition=t;
+//# sourceMappingURL=partition.cjs.map
