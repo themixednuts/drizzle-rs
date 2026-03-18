@@ -1,0 +1,32 @@
+{
+  "name": "drizzle-bench-dashboard",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "cf:build": "vite build",
+    "cf:dev": "vite build && wrangler dev -c wrangler.toml -c wrangler.isr.jsonc",
+    "cf:deploy": "vite build && wrangler deploy -c wrangler.toml -c wrangler.isr.jsonc",
+    "cf:types": "wrangler types src/cloudflare.d.ts",
+    "api:types": "openapi-typescript ../../docs/benchmark-spec/openapi/bench-api.v1.yaml -o src/lib/api-types.d.ts"
+  },
+  "dependencies": {
+    "cloudflare-isr": "link:cloudflare-isr",
+    "valibot": "^1.2.0"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-cloudflare": "^7.2.8",
+    "@sveltejs/kit": "^2.53.4",
+    "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "openapi-typescript": "^7.13.0",
+    "svelte": "^5.53.7",
+    "svelte-check": "^4.4.5",
+    "typescript": "^5.7.0",
+    "vite": "^6.4.1",
+    "wrangler": "^4.0.0"
+  }
+}

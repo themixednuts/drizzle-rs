@@ -20,8 +20,9 @@ time = { workspace = true, features = ["std", "formatting"] }
 sha2 = { workspace = true }
 rand = { workspace = true }
 axum = { version = "0.6.20", default-features = false, features = ["http1", "json", "macros", "query", "tokio"] }
-drizzle = { workspace = true, features = ["postgres-sync", "tokio-postgres", "rusqlite", "turso"] }
-drizzle-seed = { workspace = true, default-features = false, features = ["sqlite"] }
+drizzle = { workspace = true, features = ["postgres-sync", "tokio-postgres", "rusqlite", "turso", "col32", "chrono"] }
+drizzle-seed = { workspace = true, default-features = false, features = ["sqlite", "postgres", "chrono"] }
+chrono = { workspace = true, features = ["serde"] }
 postgres = { workspace = true }
 tokio-postgres = { workspace = true }
 rusqlite = { workspace = true }

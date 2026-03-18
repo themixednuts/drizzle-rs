@@ -81,9 +81,12 @@ where
 }
 
 /// Helper function to create a RETURNING clause - SQLite specific
+///
+/// Uses unqualified column names (strips table prefixes) because
+/// libsql/turso parsers don't support table-qualified references in RETURNING.
 pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQL<'a, SQLiteValue<'a>>
 where
     I: ToSQL<'a, SQLiteValue<'a>>,
 {
-    SQL::from(Token::RETURNING).append(&columns)
+    SQL::from(Token::RETURNING).append(columns.to_sql().strip_table_qualifiers())
 }

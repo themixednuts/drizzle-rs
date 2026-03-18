@@ -1,11 +1,11 @@
 use crate::cli::{Class, Cli, Cmd, Run, Validate};
 use crate::code::{Code, Fail};
 use crate::model::{
-    Artifacts, AvgPeakDoc, CiDoc, Compat, Event, Exec, Gate, Gates, Headroom, LatencyDoc, Limits,
-    ManifestDoc, Point, PrimaryDoc, RangeDoc, RequestDoc, ResultDoc, Runner, SaturationDoc,
-    SpreadDoc, Status, SummaryDoc, Target, TimeseriesDoc, TrialMeta, Workload,
+    Artifacts, AvgPeakDoc, CiDoc, Compat, DatasetSummary, Event, Exec, Gate, Gates, Headroom,
+    LatencyDoc, Limits, LoadSummary, ManifestDoc, Point, PrimaryDoc, RangeDoc, RequestDoc,
+    ResultDoc, Runner, SaturationDoc, SpreadDoc, Status, SummaryDoc, Target, TimeseriesDoc,
+    TrialMeta, Workload,
 };
-use drizzle_seed::{GeneratorKind, SeedValue};
 use parquet::data_type::{ByteArray, ByteArrayType, DoubleType};
 use parquet::file::properties::WriterProperties;
 use parquet::file::writer::SerializedFileWriter;
@@ -80,7 +80,19 @@ fn run(args: Run) -> Result<Code, Fail> {
         &run_id,
     )?;
 
-    run_parity(&input.targets, seed, &mut events, args.json)?;
+    // Write seed metadata file (seed value + table counts) for external targets
+    let seed_meta = serde_json::json!({
+        "seed": seed,
+        "customers": crate::load::SEED_CUSTOMERS,
+        "employees": crate::load::SEED_EMPLOYEES,
+        "orders": crate::load::SEED_ORDERS,
+        "suppliers": crate::load::SEED_SUPPLIERS,
+        "products": crate::load::SEED_PRODUCTS,
+    });
+    let seed_file = run_dir.join("seed.v1.json");
+    write_json(seed_file.clone(), &seed_meta, Code::RunFail)?;
+
+    run_parity(&input.targets, seed, &seed_file, &mut events, args.json)?;
     run_warmup(&input.targets, &mut events, args.json)?;
     let points = run_trials(
         &run_dir,
@@ -90,6 +102,7 @@ fn run(args: Run) -> Result<Code, Fail> {
         args.json,
         input.trials,
         seed,
+        &seed_file,
         &args.workload,
         &run_dir.join("requests.generated.json"),
     )?;
@@ -105,14 +118,20 @@ fn run(args: Run) -> Result<Code, Fail> {
     )?;
     write_compare_report(&run_dir, &aggregate.summaries, baseline.as_ref())?;
     let end = now_tag();
+    let workload_for_manifest = load_json::<Workload>(&args.workload)?;
     write_manifest(
         &run_dir,
         &run_id,
         &input,
-        args.class,
-        &aggregate.headroom,
-        &start,
-        &end,
+        ManifestContext {
+            class: args.class,
+            headroom: &aggregate.headroom,
+            start: &start,
+            end: &end,
+            seed,
+            requests_count: requests.len(),
+            workload: &workload_for_manifest,
+        },
     )?;
     crate::schema::validate_run(&run_dir)?;
 
@@ -176,10 +195,21 @@ struct Aggregate {
     summaries: BTreeMap<String, PrimaryDoc>,
 }
 
+struct ManifestContext<'a> {
+    class: Class,
+    headroom: &'a Headroom,
+    start: &'a str,
+    end: &'a str,
+    seed: u64,
+    requests_count: usize,
+    workload: &'a Workload,
+}
+
 struct TargetArtifacts<'a> {
     run_id: &'a str,
     suite: &'a str,
     target_id: &'a str,
+    group: Option<&'a str>,
     points: &'a [Point],
     summary: &'a PrimaryDoc,
     spread: &'a SpreadDoc,
@@ -313,31 +343,159 @@ fn materialize_requests(
     hint: usize,
 ) -> Result<Vec<RequestDoc>, Fail> {
     let mut rng = StdRng::seed_from_u64(seed);
-    let city = GeneratorKind::City.into_generator();
-    let int = GeneratorKind::Int.into_generator();
-    let routes = [
-        "/customers",
-        "/customer-by-id",
-        "/orders-with-details",
-        "/orders",
-    ];
+
+    // Dataset sizes (micro) matching drizzle-benchmarks/src/seed.ts
+    let n_customers = crate::load::SEED_CUSTOMERS; // 10_000
+    let n_employees = crate::load::SEED_EMPLOYEES; // 200
+    let n_suppliers = crate::load::SEED_SUPPLIERS; // 1_000
+    let n_products = crate::load::SEED_PRODUCTS; // 5_000
+    let n_orders = crate::load::SEED_ORDERS; // 50_000
 
     let mut out = if input.is_empty() {
-        let count = hint.max(100);
-        (0..count)
-            .map(|i| {
-                let mut query = BTreeMap::new();
-                let id = as_int(int.generate(&mut rng, i, "INTEGER")).abs();
-                let q = as_text(city.generate(&mut rng, i, "TEXT"));
-                query.insert("id".to_string(), id.to_string());
-                query.insert("q".to_string(), q);
-                RequestDoc {
-                    method: "GET".to_string(),
-                    path: routes[i % routes.len()].to_string(),
-                    query,
-                }
-            })
-            .collect::<Vec<_>>()
+        let mut pool = Vec::with_capacity(hint.max(430_000));
+
+        // Helper to make a GET request
+        let req = |path: &str, query: BTreeMap<String, String>| RequestDoc {
+            method: "GET".to_string(),
+            path: path.to_string(),
+            query,
+        };
+
+        // 20k customer-by-id (IDs 1..=n_customers)
+        for i in 0..20_000_usize {
+            let id = (i % n_customers) + 1;
+            let mut q = BTreeMap::new();
+            q.insert("id".to_string(), id.to_string());
+            pool.push(req("/customer-by-id", q));
+        }
+
+        // 5k employee-with-recipient (IDs 1..=n_employees)
+        for i in 0..5_000_usize {
+            let id = (i % n_employees) + 1;
+            let mut q = BTreeMap::new();
+            q.insert("id".to_string(), id.to_string());
+            pool.push(req("/employee-with-recipient", q));
+        }
+
+        // 30k supplier-by-id (IDs 1..=n_suppliers)
+        for i in 0..30_000_usize {
+            let id = (i % n_suppliers) + 1;
+            let mut q = BTreeMap::new();
+            q.insert("id".to_string(), id.to_string());
+            pool.push(req("/supplier-by-id", q));
+        }
+
+        // 100k product-with-supplier (IDs 1..=n_products)
+        for i in 0..100_000_usize {
+            let id = (i % n_products) + 1;
+            let mut q = BTreeMap::new();
+            q.insert("id".to_string(), id.to_string());
+            pool.push(req("/product-with-supplier", q));
+        }
+
+        // 100k order-with-details (IDs 1..=n_orders)
+        for i in 0..100_000_usize {
+            let id = (i % n_orders) + 1;
+            let mut q = BTreeMap::new();
+            q.insert("id".to_string(), id.to_string());
+            pool.push(req("/order-with-details", q));
+        }
+
+        // 100k order-with-details-and-products (IDs 1..=n_orders)
+        for i in 0..100_000_usize {
+            let id = (i % n_orders) + 1;
+            let mut q = BTreeMap::new();
+            q.insert("id".to_string(), id.to_string());
+            pool.push(req("/order-with-details-and-products", q));
+        }
+
+        // 2k paginated customers (limit=50, random pages)
+        for _ in 0..2_000_usize {
+            let pages = n_customers / 50;
+            let page = 1 + (rng.random_range(0..pages as u64) as usize);
+            let offset = page * 50 - 50;
+            let mut q = BTreeMap::new();
+            q.insert("limit".to_string(), "50".to_string());
+            q.insert("offset".to_string(), offset.to_string());
+            pool.push(req("/customers", q));
+        }
+
+        // 1k paginated employees (limit=20, random pages)
+        for _ in 0..1_000_usize {
+            let pages = (n_employees / 20).max(1);
+            let page = 1 + (rng.random_range(0..pages as u64) as usize);
+            let offset = page * 20 - 20;
+            let mut q = BTreeMap::new();
+            q.insert("limit".to_string(), "20".to_string());
+            q.insert("offset".to_string(), offset.to_string());
+            pool.push(req("/employees", q));
+        }
+
+        // 1k paginated suppliers (limit=50, random pages)
+        for _ in 0..1_000_usize {
+            let pages = (n_suppliers / 50).max(1);
+            let page = 1 + (rng.random_range(0..pages as u64) as usize);
+            let offset = page * 50 - 50;
+            let mut q = BTreeMap::new();
+            q.insert("limit".to_string(), "50".to_string());
+            q.insert("offset".to_string(), offset.to_string());
+            pool.push(req("/suppliers", q));
+        }
+
+        // 3k paginated products (limit=50, random pages)
+        for _ in 0..3_000_usize {
+            let pages = (n_products / 50).max(1);
+            let page = 1 + (rng.random_range(0..pages as u64) as usize);
+            let offset = page * 50 - 50;
+            let mut q = BTreeMap::new();
+            q.insert("limit".to_string(), "50".to_string());
+            q.insert("offset".to_string(), offset.to_string());
+            pool.push(req("/products", q));
+        }
+
+        // 10k paginated orders-with-details (limit=50, random pages)
+        for _ in 0..10_000_usize {
+            let pages = (n_orders / 50).max(1);
+            let page = 1 + (rng.random_range(0..pages as u64) as usize);
+            let offset = page * 50 - 50;
+            let mut q = BTreeMap::new();
+            q.insert("limit".to_string(), "50".to_string());
+            q.insert("offset".to_string(), offset.to_string());
+            pool.push(req("/orders-with-details", q));
+        }
+
+        // 5k search-customer requests
+        let customer_searches = [
+            "ve", "ey", "or", "bb", "te", "ab", "ca", "ki", "ap", "be", "ct", "hi", "er", "pr",
+            "pi", "en", "au", "ra", "ti", "ke", "ou", "ur", "me", "ea", "op", "at", "ne", "na",
+            "os", "ri", "on", "ha", "il", "to", "as", "io", "di", "zy", "az", "la", "ko", "st",
+            "gh", "ug", "ac", "cc", "ch", "hu", "re", "an",
+        ];
+        for i in 0..5_000_usize {
+            let term = customer_searches[i % customer_searches.len()];
+            let mut q = BTreeMap::new();
+            q.insert("term".to_string(), term.to_string());
+            pool.push(req("/search-customer", q));
+        }
+
+        // 50k search-product requests (same search terms)
+        let product_searches = [
+            "ha", "ey", "or", "po", "te", "ab", "er", "ke", "ap", "be", "en", "au", "ra", "ti",
+            "su", "sa", "hi", "nu", "ge", "pi", "ou", "ur", "me", "ea", "tu", "at", "ne", "na",
+            "os", "ri", "on", "ka", "il", "to", "as", "io", "di", "za", "fa", "la", "ko", "st",
+            "gh", "ug", "ac", "cc", "ch", "pa", "re", "an",
+        ];
+        for i in 0..50_000_usize {
+            let term = product_searches[i % product_searches.len()];
+            let mut q = BTreeMap::new();
+            q.insert("term".to_string(), term.to_string());
+            pool.push(req("/search-product", q));
+        }
+
+        // Shuffle deterministically
+        use rand::seq::SliceRandom;
+        pool.shuffle(&mut rng);
+        pool
     } else {
         input
     };
@@ -350,7 +508,7 @@ fn materialize_requests(
             .entry("idx".to_string())
             .or_insert_with(|| idx.to_string());
         if req.path.is_empty() {
-            req.path = routes[idx % routes.len()].to_string();
+            req.path = "/customers".to_string();
         }
         if req.method.is_empty() {
             req.method = "GET".to_string();
@@ -417,6 +575,7 @@ fn write_env(
 fn run_parity(
     targets: &[Target],
     seed: u64,
+    seed_file: &Path,
     events: &mut BufWriter<File>,
     json: bool,
 ) -> Result<(), Fail> {
@@ -427,6 +586,10 @@ fn run_parity(
             env.insert("BENCH_TARGET_ID".to_string(), target.id.clone());
             env.insert("BENCH_SEED".to_string(), seed.to_string());
             env.insert("BENCH_TRIAL".to_string(), "1".to_string());
+            env.insert(
+                "BENCH_SEED_FILE".to_string(),
+                seed_file.to_string_lossy().to_string(),
+            );
             exec_cmd(spec, &target.id, "parity", Code::ParityFail, &env)?;
         }
         emit(
@@ -458,6 +621,7 @@ fn run_trials(
     json: bool,
     trials: u32,
     seed: u64,
+    seed_file: &Path,
     workload_path: &Path,
     requests_path: &Path,
 ) -> Result<BTreeMap<String, Vec<Point>>, Fail> {
@@ -483,6 +647,7 @@ fn run_trials(
                 trial,
                 seed,
                 idx,
+                seed_file,
                 workload_path,
                 requests_path,
             )?;
@@ -525,6 +690,7 @@ fn run_aggregate(
                 run_id,
                 suite: input.suite,
                 target_id: &target.id,
+                group: target.group.as_deref(),
                 points: values,
                 summary: &summary,
                 spread: &spread,
@@ -555,6 +721,7 @@ fn write_target_artifacts(run_dir: &Path, doc: TargetArtifacts<'_>) -> Result<()
         run_id: doc.run_id.to_string(),
         suite: doc.suite.to_string(),
         target_id: doc.target_id.to_string(),
+        group: doc.group.map(str::to_string),
         primary: doc.summary.clone(),
         spread: doc.spread.clone(),
         saturation: doc.saturation.clone(),
@@ -822,6 +989,7 @@ fn run_target_load(
     trial: u32,
     seed: u64,
     idx: usize,
+    seed_file: &Path,
     workload_path: &Path,
     requests_path: &Path,
 ) -> Result<Point, Fail> {
@@ -869,6 +1037,10 @@ fn run_target_load(
     env.insert("BENCH_TRIAL".to_string(), trial.to_string());
     env.insert("BENCH_SEED".to_string(), seed.to_string());
     env.insert(
+        "BENCH_SEED_FILE".to_string(),
+        seed_file.to_string_lossy().to_string(),
+    );
+    env.insert(
         "BENCH_WORKLOAD_FILE".to_string(),
         workload_path.to_string_lossy().to_string(),
     );
@@ -876,6 +1048,16 @@ fn run_target_load(
         "BENCH_REQUESTS_FILE".to_string(),
         requests_path.to_string_lossy().to_string(),
     );
+    if let Some(server) = &target.server {
+        let cmd_json = serde_json::to_string(&server.cmd).unwrap_or_default();
+        env.insert("BENCH_SERVER_CMD".to_string(), cmd_json);
+        if let Some(cwd) = &server.cwd {
+            env.insert("BENCH_SERVER_CWD".to_string(), cwd.clone());
+        }
+        for (k, v) in &server.env {
+            env.insert(k.clone(), v.clone());
+        }
+    }
 
     exec_cmd(spec, &target.id, "load", Code::RunFail, &env)?;
 
@@ -1088,6 +1270,7 @@ fn point_from_series(points: &[Point]) -> Point {
         .collect();
     let cpu: Vec<f64> = points.iter().map(|point| avg(&point.cpu)).collect();
 
+    let mem: Vec<f64> = points.iter().filter_map(|p| p.mem_mb).collect();
     Point {
         time,
         rps: median(&rps),
@@ -1099,6 +1282,11 @@ fn point_from_series(points: &[Point]) -> Point {
             p999: Some(median(&lat_p999)),
         },
         cpu: if cpu.is_empty() { vec![0.0] } else { cpu },
+        mem_mb: if mem.is_empty() {
+            None
+        } else {
+            Some(median(&mem))
+        },
     }
 }
 
@@ -1316,14 +1504,21 @@ fn write_manifest(
     run_dir: &Path,
     run_id: &str,
     input: &RunInput,
-    class: Class,
-    headroom: &Headroom,
-    start: &str,
-    end: &str,
+    ctx: ManifestContext<'_>,
 ) -> Result<(), Fail> {
     let sums = artifact_sums(run_dir)?;
     let mut sys = System::new_all();
     sys.refresh_memory();
+
+    let total_duration_s: u32 = ctx.workload.stages.iter().map(|s| s.sec).sum();
+    let max_vus = ctx
+        .workload
+        .stages
+        .iter()
+        .filter_map(|s| s.vus)
+        .max()
+        .unwrap_or(ctx.workload.load.concurrency);
+
     let manifest = ManifestDoc {
         version: "v1",
         run_id: run_id.to_string(),
@@ -1335,9 +1530,25 @@ fn write_manifest(
             .iter()
             .map(|target| target.id.clone())
             .collect(),
-        start: start.to_string(),
-        end: end.to_string(),
+        start: ctx.start.to_string(),
+        end: ctx.end.to_string(),
         status: Status::Success,
+        seed: ctx.seed,
+        load: LoadSummary {
+            executor: ctx.workload.load.executor.clone(),
+            stages: ctx.workload.stages.len() as u32,
+            duration_s: total_duration_s,
+            max_vus,
+            requests: ctx.requests_count,
+        },
+        dataset: DatasetSummary {
+            customers: crate::load::SEED_CUSTOMERS,
+            employees: crate::load::SEED_EMPLOYEES,
+            orders: crate::load::SEED_ORDERS,
+            suppliers: crate::load::SEED_SUPPLIERS,
+            products: crate::load::SEED_PRODUCTS,
+            details_per_order: 6,
+        },
         artifacts: Artifacts {
             base: ".".to_string(),
             summary: "targets/".to_string(),
@@ -1345,7 +1556,7 @@ fn write_manifest(
             sums,
         },
         runner: Runner {
-            class: class_name(class).to_string(),
+            class: class_name(ctx.class).to_string(),
             os: std::env::consts::OS.to_string(),
             cpu: std::env::consts::ARCH.to_string(),
             cores: std::thread::available_parallelism()
@@ -1353,8 +1564,8 @@ fn write_manifest(
                 .unwrap_or(1),
             mem_gb: memory_gb(&sys),
             headroom: Headroom {
-                cpu_peak: headroom.cpu_peak,
-                net_peak: headroom.net_peak,
+                cpu_peak: ctx.headroom.cpu_peak,
+                net_peak: ctx.headroom.net_peak,
             },
         },
         trials: TrialMeta {
@@ -1363,7 +1574,7 @@ fn write_manifest(
         },
         compat: Some(Compat {
             workload: input.workload_hash.clone(),
-            class: class_name(class).to_string(),
+            class: class_name(ctx.class).to_string(),
             targets: input
                 .targets
                 .iter()
@@ -1438,6 +1649,7 @@ fn compute_primary(points: &[Point]) -> PrimaryDoc {
         .collect();
     let cpu_avg: Vec<f64> = points.iter().map(|point| avg(&point.cpu)).collect();
     let cpu_peak: Vec<f64> = points.iter().map(|point| peak(&point.cpu)).collect();
+    let mem_vals: Vec<f64> = points.iter().filter_map(|p| p.mem_mb).collect();
 
     PrimaryDoc {
         rps: AvgPeakDoc {
@@ -1454,6 +1666,14 @@ fn compute_primary(points: &[Point]) -> PrimaryDoc {
         cpu: AvgPeakDoc {
             avg: median(&cpu_avg),
             peak: peak(&cpu_peak),
+        },
+        mem: if mem_vals.is_empty() {
+            None
+        } else {
+            Some(AvgPeakDoc {
+                avg: median(&mem_vals),
+                peak: peak(&mem_vals),
+            })
         },
         err: median(&err),
     }
@@ -1580,28 +1800,6 @@ fn gate_name(gate: &Gate) -> &'static str {
     }
 }
 
-fn as_int(value: SeedValue) -> i64 {
-    match value {
-        SeedValue::Integer(v) => v,
-        SeedValue::Float(v) => v as i64,
-        SeedValue::Bool(v) => i64::from(v),
-        SeedValue::Text(text) => text.bytes().map(i64::from).sum(),
-        SeedValue::Blob(bytes) => bytes.iter().map(|b| i64::from(*b)).sum(),
-        SeedValue::Default | SeedValue::Null | SeedValue::CurrentTime => 0,
-    }
-}
-
-fn as_text(value: SeedValue) -> String {
-    match value {
-        SeedValue::Text(text) => text,
-        SeedValue::Integer(v) => v.to_string(),
-        SeedValue::Float(v) => format!("{v:.2}"),
-        SeedValue::Bool(v) => v.to_string(),
-        SeedValue::Blob(_) => "blob".to_string(),
-        SeedValue::Default | SeedValue::Null | SeedValue::CurrentTime => "n/a".to_string(),
-    }
-}
-
 fn validate_targets(targets: &[Target]) -> Result<(), Fail> {
     let mut ids = BTreeSet::new();
     for target in targets {
@@ -1693,7 +1891,10 @@ fn validate_targets(targets: &[Target]) -> Result<(), Fail> {
                 format!("target {} db.profile must not be empty", target.id),
             ));
         }
-        if !matches!(target.wire.format.as_str(), "json") {
+        if !matches!(
+            target.wire.format.as_str(),
+            "json" | "text" | "binary" | "bsatn"
+        ) {
             return Err(Fail::new(
                 Code::InvalidInput,
                 format!(

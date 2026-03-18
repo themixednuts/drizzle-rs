@@ -328,6 +328,22 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     // ==================== output methods ====================
 
+    /// Converts `Column` chunks (table-qualified) to `Ident` chunks (column name only).
+    ///
+    /// Useful for RETURNING clauses where some SQL parsers (e.g. libsql/turso)
+    /// don't support table-qualified column references.
+    pub fn strip_table_qualifiers(self) -> Self {
+        let chunks = self
+            .chunks
+            .into_iter()
+            .map(|chunk| match chunk {
+                SQLChunk::Column(c) => SQLChunk::Ident(Cow::Borrowed(c.name)),
+                other => other,
+            })
+            .collect();
+        SQL { chunks }
+    }
+
     /// Maps parameter values from type `V` to type `U` using the provided function.
     ///
     /// Only `Param` chunks are affected; all other chunks pass through unchanged.

@@ -41,8 +41,8 @@ const_format = { workspace = true }
 
 [features]
 default = ["std"]
-std = ["drizzle-core/std", "drizzle-types/std", "thiserror/std", "compact_str/std"]
-alloc = ["drizzle-core/alloc", "drizzle-types/alloc"]
+std = ["drizzle-core/std", "drizzle-types/std", "thiserror/std", "compact_str/std", "chrono?/alloc"]
+alloc = ["drizzle-core/alloc", "drizzle-types/alloc", "chrono?/alloc"]
 
 rusqlite = ["std", "dep:rusqlite", "drizzle-core/rusqlite"]
 libsql = ["std", "dep:libsql", "drizzle-core/libsql"]

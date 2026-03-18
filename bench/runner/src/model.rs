@@ -21,6 +21,7 @@ pub struct Load {
     pub kind: String,
     pub executor: String,
     pub unit: String,
+    pub concurrency: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,6 +75,8 @@ pub struct Target {
     pub version: String,
     pub id: String,
     pub lang: String,
+    #[serde(default)]
+    pub group: Option<String>,
     pub runtime: NameVer,
     pub orm: NameVer,
     pub driver: Driver,
@@ -89,6 +92,8 @@ pub struct Target {
     pub warmup: Option<Exec>,
     #[serde(default)]
     pub load: Option<Exec>,
+    #[serde(default)]
+    pub server: Option<Exec>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -227,6 +232,8 @@ pub struct SummaryDoc {
     pub run_id: String,
     pub suite: String,
     pub target_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
     pub primary: PrimaryDoc,
     pub spread: SpreadDoc,
     pub saturation: SaturationDoc,
@@ -237,6 +244,8 @@ pub struct PrimaryDoc {
     pub rps: AvgPeakDoc,
     pub latency: LatencyDoc,
     pub cpu: AvgPeakDoc,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mem: Option<AvgPeakDoc>,
     pub err: f64,
 }
 
@@ -300,6 +309,8 @@ pub struct Point {
     pub err: f64,
     pub latency: Latency,
     pub cpu: Vec<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mem_mb: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -321,11 +332,33 @@ pub struct ManifestDoc {
     pub start: String,
     pub end: String,
     pub status: Status,
+    pub seed: u64,
+    pub load: LoadSummary,
+    pub dataset: DatasetSummary,
     pub artifacts: Artifacts,
     pub runner: Runner,
     pub trials: TrialMeta,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compat: Option<Compat>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LoadSummary {
+    pub executor: String,
+    pub stages: u32,
+    pub duration_s: u32,
+    pub max_vus: u32,
+    pub requests: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DatasetSummary {
+    pub customers: usize,
+    pub employees: usize,
+    pub orders: usize,
+    pub suppliers: usize,
+    pub products: usize,
+    pub details_per_order: usize,
 }
 
 #[derive(Debug, Serialize)]

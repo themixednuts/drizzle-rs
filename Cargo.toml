@@ -23,6 +23,10 @@ members = [
   "seed",
   "bench/runner",
 ]
+exclude = [
+  "bench/targets/spacetime-module",
+  "bench/targets/spacetime-native-rs",
+]
 
 [workspace.package]
 version = "0.1.5"
@@ -232,6 +236,13 @@ tracing = [
   "dep:tracing",
   "drizzle-core/tracing",
 ]
+
+# Column tuple arities (forwarded to drizzle-core)
+col16 = ["drizzle-core/col16"]
+col32 = ["drizzle-core/col32"]
+col64 = ["drizzle-core/col64"]
+col128 = ["drizzle-core/col128"]
+col200 = ["drizzle-core/col200"]
 
 # Relational Query API (db.query(table).with(...).find_many())
 query = [

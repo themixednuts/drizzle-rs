@@ -1,0 +1,13 @@
+[package]
+name = "spacetime-bench-module"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+spacetimedb = "2.0"

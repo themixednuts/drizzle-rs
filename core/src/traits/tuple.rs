@@ -58,6 +58,33 @@ macro_rules! with_dual_tuple_sizes {
 }
 
 // =============================================================================
+// Type-only size macros (no indices, for callbacks that take only type names)
+// =============================================================================
+
+/// Calls `$callback!(T0)`, ..., `$callback!(T0, ..., T7)` for arities 1..8.
+macro_rules! with_type_sizes_8 {
+    ($callback:ident) => {
+        seq_types!(@acc $callback [] T0 T1 T2 T3 T4 T5 T6 T7);
+    };
+}
+
+/// Calls `$callback!` for arities 9..=16 (continuing from 8).
+#[allow(unused_macros)]
+macro_rules! with_type_sizes_16 {
+    ($callback:ident) => {
+        seq_types!(@acc $callback [T0,T1,T2,T3,T4,T5,T6,T7] T8 T9 T10 T11 T12 T13 T14 T15);
+    };
+}
+
+/// Calls `$callback!` for arities 17..=32 (continuing from 16).
+#[allow(unused_macros)]
+macro_rules! with_type_sizes_32 {
+    ($callback:ident) => {
+        seq_types!(@acc $callback [T0,T1,T2,T3,T4,T5,T6,T7,T8,T9,T10,T11,T12,T13,T14,T15] T16 T17 T18 T19 T20 T21 T22 T23 T24 T25 T26 T27 T28 T29 T30 T31);
+    };
+}
+
+// =============================================================================
 // ToSQL tuple impls
 // =============================================================================
 

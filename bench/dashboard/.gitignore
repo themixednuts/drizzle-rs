@@ -1,0 +1,9 @@
+node_modules/
+.svelte-kit/
+.wrangler/
+build/
+dist/
+.env
+.env.*
+!.env.example
+cloudflare-isr

@@ -382,99 +382,77 @@ impl<Row: ?Sized, T> RowColumnList<Row> for Option<T> {
     type Columns = crate::Cons<Option<T>, crate::Nil>;
 }
 
-impl<Row: ?Sized, A> RowColumnList<Row> for (A,)
-where
-    A: RowColumnList<Row>,
-{
-    type Columns = <A as RowColumnList<Row>>::Columns;
+/// Helper: split last element from a type list and generate `RowColumnList` impl.
+/// Called by `impl_rcl_tuple` after separating first from rest.
+macro_rules! impl_rcl_body {
+    // 1-tuple: just delegate
+    ([$A:ident] []) => {
+        impl<Row: ?Sized, $A: RowColumnList<Row>> RowColumnList<Row> for ($A,) {
+            type Columns = <$A as RowColumnList<Row>>::Columns;
+        }
+    };
+    // N-tuple: delegate to (N-1)-tuple, concat last
+    ([$($all:ident),+] [$($prev:ident),+; $last:ident]) => {
+        impl<Row: ?Sized, $($all),+> RowColumnList<Row> for ($($all,)+)
+        where
+            $last: RowColumnList<Row>,
+            ($($prev,)+): RowColumnList<Row>,
+            <($($prev,)+) as RowColumnList<Row>>::Columns:
+                crate::Concat<<$last as RowColumnList<Row>>::Columns>,
+        {
+            type Columns = <<($($prev,)+) as RowColumnList<Row>>::Columns as crate::Concat<
+                <$last as RowColumnList<Row>>::Columns,
+            >>::Output;
+        }
+    };
 }
 
-impl<Row: ?Sized, A, B> RowColumnList<Row> for (A, B)
-where
-    A: RowColumnList<Row>,
-    B: RowColumnList<Row>,
-    <A as RowColumnList<Row>>::Columns: crate::Concat<<B as RowColumnList<Row>>::Columns>,
-{
-    type Columns = <<A as RowColumnList<Row>>::Columns as crate::Concat<
-        <B as RowColumnList<Row>>::Columns,
-    >>::Output;
+/// Callback for `with_type_sizes_*!`: receives all types, separates last via
+/// recursive accumulator, then delegates to `impl_rcl_body`.
+macro_rules! impl_rcl_tuple {
+    ($($T:ident),+) => {
+        impl_rcl_split!([$($T),+] [] $($T),+);
+    };
 }
 
-impl<Row: ?Sized, A, B, C> RowColumnList<Row> for (A, B, C)
-where
-    A: RowColumnList<Row>,
-    B: RowColumnList<Row>,
-    C: RowColumnList<Row>,
-    <A as RowColumnList<Row>>::Columns: crate::Concat<<B as RowColumnList<Row>>::Columns>,
-    <<A as RowColumnList<Row>>::Columns as crate::Concat<<B as RowColumnList<Row>>::Columns>>::Output:
-        crate::Concat<<C as RowColumnList<Row>>::Columns>,
-{
-    type Columns = <<<A as RowColumnList<Row>>::Columns as crate::Concat<
-        <B as RowColumnList<Row>>::Columns,
-    >>::Output as crate::Concat<<C as RowColumnList<Row>>::Columns>>::Output;
+/// Recursive accumulator to split `[all] [prev...] remaining...`
+macro_rules! impl_rcl_split {
+    // 1-tuple: no prev, single element
+    ([$A:ident] [] $only:ident) => {
+        impl_rcl_body!([$A] []);
+    };
+    // Base: one element left in remaining = it's the last
+    ([$($all:ident),+] [$($prev:ident),+] $last:ident) => {
+        impl_rcl_body!([$($all),+] [$($prev),+; $last]);
+    };
+    // Recurse from empty prev
+    ([$($all:ident),+] [] $head:ident, $($rest:ident),+) => {
+        impl_rcl_split!([$($all),+] [$head] $($rest),+);
+    };
+    // Recurse with non-empty prev
+    ([$($all:ident),+] [$($prev:ident),+] $head:ident, $($rest:ident),+) => {
+        impl_rcl_split!([$($all),+] [$($prev),+, $head] $($rest),+);
+    };
 }
 
-impl<Row: ?Sized, A, B, C, D> RowColumnList<Row> for (A, B, C, D)
-where
-    A: RowColumnList<Row>,
-    B: RowColumnList<Row>,
-    C: RowColumnList<Row>,
-    D: RowColumnList<Row>,
-    (A, B, C): RowColumnList<Row>,
-    <(A, B, C) as RowColumnList<Row>>::Columns: crate::Concat<<D as RowColumnList<Row>>::Columns>,
-{
-    type Columns = <<(A, B, C) as RowColumnList<Row>>::Columns as crate::Concat<
-        <D as RowColumnList<Row>>::Columns,
-    >>::Output;
-}
+with_type_sizes_8!(impl_rcl_tuple);
 
-impl<Row: ?Sized, A, B, C, D, E> RowColumnList<Row> for (A, B, C, D, E)
-where
-    E: RowColumnList<Row>,
-    (A, B, C, D): RowColumnList<Row>,
-    <(A, B, C, D) as RowColumnList<Row>>::Columns:
-        crate::Concat<<E as RowColumnList<Row>>::Columns>,
-{
-    type Columns = <<(A, B, C, D) as RowColumnList<Row>>::Columns as crate::Concat<
-        <E as RowColumnList<Row>>::Columns,
-    >>::Output;
-}
+#[cfg(any(
+    feature = "col16",
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_type_sizes_16!(impl_rcl_tuple);
 
-impl<Row: ?Sized, A, B, C, D, E, F> RowColumnList<Row> for (A, B, C, D, E, F)
-where
-    F: RowColumnList<Row>,
-    (A, B, C, D, E): RowColumnList<Row>,
-    <(A, B, C, D, E) as RowColumnList<Row>>::Columns:
-        crate::Concat<<F as RowColumnList<Row>>::Columns>,
-{
-    type Columns = <<(A, B, C, D, E) as RowColumnList<Row>>::Columns as crate::Concat<
-        <F as RowColumnList<Row>>::Columns,
-    >>::Output;
-}
-
-impl<Row: ?Sized, A, B, C, D, E, F, G> RowColumnList<Row> for (A, B, C, D, E, F, G)
-where
-    G: RowColumnList<Row>,
-    (A, B, C, D, E, F): RowColumnList<Row>,
-    <(A, B, C, D, E, F) as RowColumnList<Row>>::Columns:
-        crate::Concat<<G as RowColumnList<Row>>::Columns>,
-{
-    type Columns = <<(A, B, C, D, E, F) as RowColumnList<Row>>::Columns as crate::Concat<
-        <G as RowColumnList<Row>>::Columns,
-    >>::Output;
-}
-
-impl<Row: ?Sized, A, B, C, D, E, F, G, H> RowColumnList<Row> for (A, B, C, D, E, F, G, H)
-where
-    H: RowColumnList<Row>,
-    (A, B, C, D, E, F, G): RowColumnList<Row>,
-    <(A, B, C, D, E, F, G) as RowColumnList<Row>>::Columns:
-        crate::Concat<<H as RowColumnList<Row>>::Columns>,
-{
-    type Columns = <<(A, B, C, D, E, F, G) as RowColumnList<Row>>::Columns as crate::Concat<
-        <H as RowColumnList<Row>>::Columns,
-    >>::Output;
-}
+#[cfg(any(
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_type_sizes_32!(impl_rcl_tuple);
 
 /// Marker-level column-count compatibility check used by strict `.all()` / `.get()`.
 ///

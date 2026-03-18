@@ -2,6 +2,7 @@
   {
     "version": "v1",
     "id": "drizzle-rs-turso",
+    "group": "drizzle-rs",
     "lang": "rust",
     "runtime": {
       "name": "rust",

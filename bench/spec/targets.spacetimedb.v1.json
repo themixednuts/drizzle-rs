@@ -1,0 +1,157 @@
+[
+  {
+    "version": "v1",
+    "id": "spacetime-pgwire-rs",
+    "group": "spacetimedb",
+    "lang": "rust",
+    "runtime": {
+      "name": "rust",
+      "ver": "1.91"
+    },
+    "orm": {
+      "name": "none",
+      "ver": "0"
+    },
+    "driver": {
+      "name": "tokio-postgres-simple",
+      "ver": "0.7.15"
+    },
+    "proc": {
+      "mode": "single",
+      "workers": 1
+    },
+    "pool": {
+      "max": 1,
+      "min": 1,
+      "acquire_ms": 50
+    },
+    "db": {
+      "profile": "spacetimedb-pgwire",
+      "hash": "sha256:7bd4286ec47f86445e5ef9f6cc6357a27974cb8313766444fa5cbeff8eb83d43"
+    },
+    "wire": {
+      "format": "text"
+    },
+    "fair": {
+      "workers": 1,
+      "pool": 1,
+      "db": "spacetimedb",
+      "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
+      "contract": "v1"
+    },
+    "contract": {
+      "ver": "v1"
+    },
+    "load": {
+      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
+    }
+  },
+  {
+    "version": "v1",
+    "id": "spacetime-native-rs",
+    "group": "spacetimedb",
+    "lang": "rust",
+    "runtime": {
+      "name": "rust",
+      "ver": "1.91"
+    },
+    "orm": {
+      "name": "spacetimedb-sdk",
+      "ver": "2.0"
+    },
+    "driver": {
+      "name": "spacetimedb-websocket",
+      "ver": "2.0"
+    },
+    "proc": {
+      "mode": "single",
+      "workers": 1
+    },
+    "pool": {
+      "max": 1,
+      "min": 1,
+      "acquire_ms": 50
+    },
+    "db": {
+      "profile": "spacetimedb-native",
+      "hash": "sha256:7bd4286ec47f86445e5ef9f6cc6357a27974cb8313766444fa5cbeff8eb83d43"
+    },
+    "wire": {
+      "format": "bsatn"
+    },
+    "fair": {
+      "workers": 1,
+      "pool": 1,
+      "db": "spacetimedb",
+      "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
+      "contract": "v1"
+    },
+    "contract": {
+      "ver": "v1"
+    },
+    "server": {
+      "cmd": ["cargo", "run", "-q", "--manifest-path", "bench/targets/spacetime-native-rs/Cargo.toml"],
+      "env": {
+        "SPACETIME_URI": "ws://127.0.0.1:3000",
+        "SPACETIME_MODULE": "bench-module"
+      }
+    },
+    "load": {
+      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
+    }
+  },
+  {
+    "version": "v1",
+    "id": "spacetime-native-ts",
+    "group": "spacetimedb",
+    "lang": "ts",
+    "runtime": {
+      "name": "bun",
+      "ver": "1.3"
+    },
+    "orm": {
+      "name": "spacetimedb-sdk",
+      "ver": "2.0"
+    },
+    "driver": {
+      "name": "spacetimedb-websocket",
+      "ver": "2.0"
+    },
+    "proc": {
+      "mode": "single",
+      "workers": 1
+    },
+    "pool": {
+      "max": 1,
+      "min": 1,
+      "acquire_ms": 50
+    },
+    "db": {
+      "profile": "spacetimedb-native",
+      "hash": "sha256:7bd4286ec47f86445e5ef9f6cc6357a27974cb8313766444fa5cbeff8eb83d43"
+    },
+    "wire": {
+      "format": "bsatn"
+    },
+    "fair": {
+      "workers": 1,
+      "pool": 1,
+      "db": "spacetimedb",
+      "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
+      "contract": "v1"
+    },
+    "contract": {
+      "ver": "v1"
+    },
+    "server": {
+      "cmd": ["bun", "run", "bench/targets/spacetime-native-ts/server.ts"],
+      "env": {
+        "SPACETIME_URI": "ws://127.0.0.1:3000",
+        "SPACETIME_MODULE": "bench-module"
+      }
+    },
+    "load": {
+      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
+    }
+  }
+]

@@ -1,0 +1,279 @@
+openapi: 3.1.0
+info:
+  title: drizzle-rs Bench API
+  version: 1.0.0
+  description: |
+    Public read-only benchmark API.
+    Serves precomputed artifacts. Does not execute benchmarks.
+servers:
+  - url: https://bench.drizzle.rs/api/v1
+paths:
+  /runs/latest:
+    get:
+      operationId: get_latest_run
+      summary: Get latest run by suite
+      parameters:
+        - in: query
+          name: suite
+          required: true
+          schema:
+            type: string
+            enum: [throughput-http, mvcc-contention]
+      responses:
+        "200":
+          description: Latest run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/latest_run"
+        "404":
+          description: No run found
+  /runs/{run_id}/manifest:
+    get:
+      operationId: get_manifest
+      summary: Get run manifest
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Manifest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/manifest"
+        "404":
+          description: Run not found
+  /runs/{run_id}/summary:
+    get:
+      operationId: get_summary
+      summary: Get summaries
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: targets
+          required: false
+          description: Comma-separated target ids
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Summaries
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [run_id, items]
+                properties:
+                  run_id:
+                    type: string
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/summary"
+        "404":
+          description: Run not found
+  /runs/{run_id}/timeseries:
+    get:
+      operationId: get_timeseries
+      summary: Get timeseries
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: targets
+          required: false
+          description: Comma-separated target ids
+          schema:
+            type: string
+        - in: query
+          name: from
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Timeseries
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [run_id, items]
+                properties:
+                  run_id:
+                    type: string
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/series"
+        "404":
+          description: Run not found
+  /compare:
+    get:
+      operationId: compare
+      summary: Compare two runs by metric
+      parameters:
+        - in: query
+          name: base
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: head
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: metric
+          required: true
+          schema:
+            type: string
+            enum:
+              - rps.avg
+              - rps.peak
+              - latency.avg
+              - latency.p90
+              - latency.p95
+              - latency.p99
+              - latency.p999
+              - cpu.avg
+              - cpu.peak
+              - err
+      responses:
+        "200":
+          description: Compare result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/compare"
+        "400":
+          description: Invalid input
+        "404":
+          description: Run not found
+components:
+  schemas:
+    latest_run:
+      type: object
+      additionalProperties: false
+      required: [suite, run_id, start, end, status]
+      properties:
+        suite:
+          type: string
+        run_id:
+          type: string
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        status:
+          type: string
+    manifest:
+      type: object
+      additionalProperties: true
+      required: [version, run_id, suite, git, targets, start, end, status]
+      properties:
+        version:
+          type: string
+        run_id:
+          type: string
+        suite:
+          type: string
+        git:
+          type: string
+        targets:
+          type: array
+          items:
+            type: string
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        status:
+          type: string
+    summary:
+      type: object
+      additionalProperties: true
+      required: [version, run_id, suite, target_id, primary]
+      properties:
+        version:
+          type: string
+        run_id:
+          type: string
+        suite:
+          type: string
+        target_id:
+          type: string
+        primary:
+          type: object
+          additionalProperties: true
+    series:
+      type: object
+      additionalProperties: false
+      required: [version, run_id, suite, target_id, interval_s, points]
+      properties:
+        version:
+          type: string
+        run_id:
+          type: string
+        suite:
+          type: string
+        target_id:
+          type: string
+        interval_s:
+          type: integer
+        points:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    compare:
+      type: object
+      additionalProperties: false
+      required: [metric, base, head, items]
+      properties:
+        metric:
+          type: string
+        base:
+          type: string
+        head:
+          type: string
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [target_id, base_value, head_value, delta, delta_pct]
+            properties:
+              target_id:
+                type: string
+              base_value:
+                type: number
+              head_value:
+                type: number
+              delta:
+                type: number
+              delta_pct:
+                type: number
