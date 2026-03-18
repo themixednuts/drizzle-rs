@@ -1,5 +1,7 @@
+mod external;
 mod pg_sync;
 mod pg_tokio;
+mod spacetime_pg;
 mod sqlite;
 mod turso;
 
@@ -9,26 +11,51 @@ use crate::model::{Latency, Point, RequestDoc, Workload};
 use axum::Router;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read as _, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
-use sysinfo::System;
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use tokio::sync::oneshot;
 
+// ---------------------------------------------------------------------------
+// Northwind "micro" dataset sizes — shared by all benchmark targets.
+// Each driver uses SeedConfig with these counts + the seed value to generate
+// deterministic INSERT statements via drizzle-seed.
+// ---------------------------------------------------------------------------
+
+pub(crate) const SEED_CUSTOMERS: usize = 10_000;
+pub(crate) const SEED_EMPLOYEES: usize = 200;
+pub(crate) const SEED_ORDERS: usize = 50_000;
+pub(crate) const SEED_SUPPLIERS: usize = 1_000;
+pub(crate) const SEED_PRODUCTS: usize = 5_000;
+// Details per order: controlled via SeedConfig::relation() (~6 per order, matching upstream avg)
+
 /// Start the adapter server for the given target. Used by both `load` and `parity`.
-pub(crate) async fn serve_target(
-    target: &str,
-    seed: u64,
-    trial: u32,
-) -> Result<ServerHandle, Fail> {
+///
+/// Built-in targets dispatch to compiled Rust implementations.
+/// External targets (indicated by `BENCH_SERVER_CMD` env var) are spawned as
+/// child processes that must print `LISTENING port=<N>` to stdout.
+pub(crate) async fn serve_target(target: &str, seed: u64) -> Result<ServerHandle, Fail> {
+    // Check for external server command first
+    if let Ok(cmd_json) = std::env::var("BENCH_SERVER_CMD") {
+        let (mut handle, child) = external::serve(&cmd_json).await?;
+        handle.target_pid = Some(child.id());
+        handle.external_child = Some(child);
+        return Ok(handle);
+    }
+
     match target {
-        "drizzle-rs-sqlite" => sqlite::serve(seed, trial).await,
-        "drizzle-rs-pg-sync" => pg_sync::serve(seed, trial).await,
-        "drizzle-rs-pg-tokio" => pg_tokio::serve(seed, trial).await,
-        "drizzle-rs-turso" => turso::serve(seed, trial).await,
+        "drizzle-rs-sqlite" => sqlite::serve(seed).await,
+        "drizzle-rs-pg-sync" => pg_sync::serve(seed).await,
+        "drizzle-rs-pg-tokio" => pg_tokio::serve(seed).await,
+        "spacetime-pgwire-rs" => spacetime_pg::serve(seed).await,
+        "drizzle-rs-turso" => turso::serve(seed).await,
         other => Err(Fail::new(
             Code::InvalidCli,
             format!("unsupported target: {other}"),
@@ -101,8 +128,8 @@ pub(crate) fn send_get_body(port: u16, path: &str) -> Result<(u16, String), Stri
 pub async fn run(args: Load) -> Result<Code, Fail> {
     let out = resolve_path(args.out, "BENCH_TIMESERIES_OUT", "--out")?;
     let target = resolve_text(args.target, "BENCH_TARGET_ID", "--target")?;
-    let trial = resolve_num(args.trial, "BENCH_TRIAL", "--trial")?;
-    let seed = resolve_num(args.seed, "BENCH_SEED", "--seed")?;
+    let _trial: u32 = resolve_num(args.trial, "BENCH_TRIAL", "--trial")?;
+    let seed: u64 = resolve_num(args.seed, "BENCH_SEED", "--seed")?;
     let suite = resolve_suite(args.suite, "BENCH_SUITE")?;
     let workload_path = resolve_path(args.workload, "BENCH_WORKLOAD_FILE", "--workload")?;
     let requests_path = resolve_path(args.requests, "BENCH_REQUESTS_FILE", "--requests")?;
@@ -126,12 +153,14 @@ pub async fn run(args: Load) -> Result<Code, Fail> {
         ));
     }
 
-    let handle = serve_target(&target, seed, trial).await?;
+    let handle = serve_target(&target, seed).await?;
 
     let port = handle.port;
-    let points = tokio::task::spawn_blocking(move || measure(&workload, &requests, port))
-        .await
-        .map_err(|err| Fail::new(Code::RunFail, format!("measure panicked: {err}")))??;
+    let target_pid = handle.target_pid;
+    let points =
+        tokio::task::spawn_blocking(move || measure(&workload, &requests, port, target_pid))
+            .await
+            .map_err(|err| Fail::new(Code::RunFail, format!("measure panicked: {err}")))??;
 
     handle.shutdown().await?;
     write_json(out, &points)?;
@@ -147,10 +176,18 @@ pub(crate) struct ServerHandle {
     stop: Option<oneshot::Sender<()>>,
     task: Option<tokio::task::JoinHandle<Result<(), String>>>,
     workers: Vec<std::thread::JoinHandle<Result<(), String>>>,
+    pub(crate) external_child: Option<std::process::Child>,
+    pub(crate) target_pid: Option<u32>,
 }
 
 impl ServerHandle {
     pub(crate) async fn shutdown(mut self) -> Result<(), Fail> {
+        // Kill external child process first
+        if let Some(mut child) = self.external_child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+
         if let Some(tx) = self.stop.take() {
             let _ = tx.send(());
         }
@@ -209,46 +246,114 @@ async fn spawn_server(app: Router) -> Result<ServerHandle, Fail> {
         stop: Some(stop_tx),
         task: Some(task),
         workers: Vec::new(),
+        external_child: None,
+        target_pid: Some(std::process::id()),
     })
 }
 
 // ---------------------------------------------------------------------------
-// Measurement loop (sync, runs in spawn_blocking)
+// Measurement loop — concurrent workers, each with a keep-alive connection
 // ---------------------------------------------------------------------------
 
-fn measure(workload: &Workload, requests: &[RequestDoc], port: u16) -> Result<Vec<Point>, Fail> {
+/// Per-worker results for one sampling bucket.
+struct BucketResult {
+    latencies: Vec<f64>,
+    errors: u64,
+    total: u64,
+    first_err: Option<String>,
+}
+
+fn measure(
+    workload: &Workload,
+    requests: &[RequestDoc],
+    port: u16,
+    target_pid: Option<u32>,
+) -> Result<Vec<Point>, Fail> {
+    if workload.load.executor.contains("vus") {
+        measure_vus(workload, requests, port, target_pid)
+    } else {
+        measure_rps(workload, requests, port, target_pid)
+    }
+}
+
+fn measure_rps(
+    workload: &Workload,
+    requests: &[RequestDoc],
+    port: u16,
+    target_pid: Option<u32>,
+) -> Result<Vec<Point>, Fail> {
+    let concurrency = workload.load.concurrency.max(1) as usize;
     let total_s: u32 = workload.stages.iter().map(|s| s.sec).sum();
     let bucket_s = workload.sampling.bucket_s.max(1);
     let mut remaining = total_s;
-    let mut cursor = 0_usize;
     let mut points = Vec::new();
     let mut sys = System::new_all();
     sys.refresh_cpu_usage();
+    let pid = target_pid.map(Pid::from_u32);
+
+    // Pre-compute request paths once (avoid allocs in hot loop).
+    let paths: Arc<Vec<String>> = Arc::new(requests.iter().map(build_path).collect());
 
     while remaining > 0 {
         let sec = remaining.min(bucket_s);
         let window = Duration::from_secs(sec as u64);
+        let deadline = Instant::now() + window;
         let start = Instant::now();
-        let deadline = start + window;
+
+        // Spawn workers that fire requests until the deadline.
+        let handles: Vec<_> = (0..concurrency)
+            .map(|worker_id| {
+                let paths = Arc::clone(&paths);
+                std::thread::spawn(move || {
+                    let mut conn = HttpConn::new(port);
+                    let mut latencies = Vec::with_capacity(1024);
+                    let mut errors = 0_u64;
+                    let mut total = 0_u64;
+                    let mut first_err = None;
+                    // Each worker starts at a different offset to spread requests.
+                    let mut cursor = worker_id;
+
+                    while Instant::now() < deadline {
+                        let path = &paths[cursor % paths.len()];
+                        cursor += concurrency;
+                        let t0 = Instant::now();
+                        match conn.get(path) {
+                            Ok(()) => latencies.push(t0.elapsed().as_secs_f64() * 1000.0),
+                            Err(msg) => {
+                                errors += 1;
+                                if first_err.is_none() {
+                                    first_err = Some(msg);
+                                }
+                            }
+                        }
+                        total += 1;
+                    }
+
+                    BucketResult {
+                        latencies,
+                        errors,
+                        total,
+                        first_err,
+                    }
+                })
+            })
+            .collect();
+
+        // Merge worker results.
         let mut latencies = Vec::new();
         let mut errors = 0_u64;
         let mut total = 0_u64;
         let mut first_err = None;
-
-        while Instant::now() < deadline {
-            let item = &requests[cursor % requests.len()];
-            cursor += 1;
-            let t0 = Instant::now();
-            match send_request(port, item) {
-                Ok(()) => latencies.push(t0.elapsed().as_secs_f64() * 1000.0),
-                Err(msg) => {
-                    errors += 1;
-                    if first_err.is_none() {
-                        first_err = Some(msg);
-                    }
-                }
+        for handle in handles {
+            let result = handle
+                .join()
+                .map_err(|_| Fail::new(Code::RunFail, "worker thread panicked".to_string()))?;
+            latencies.extend(result.latencies);
+            errors += result.errors;
+            total += result.total;
+            if first_err.is_none() {
+                first_err = result.first_err;
             }
-            total += 1;
         }
 
         if total > 0 && errors == total {
@@ -259,6 +364,15 @@ fn measure(workload: &Workload, requests: &[RequestDoc], port: u16) -> Result<Ve
         }
 
         sys.refresh_cpu_usage();
+        let mem_mb = pid.and_then(|p| {
+            sys.refresh_processes_specifics(
+                ProcessesToUpdate::Some(&[p]),
+                true,
+                ProcessRefreshKind::nothing().with_memory(),
+            );
+            sys.process(p)
+                .map(|proc| proc.memory() as f64 / (1024.0 * 1024.0))
+        });
         let wall = start.elapsed().as_secs_f64().max(0.001);
         points.push(Point {
             time: now_rfc3339(),
@@ -270,6 +384,7 @@ fn measure(workload: &Workload, requests: &[RequestDoc], port: u16) -> Result<Ve
             },
             latency: summarize_latency(&latencies),
             cpu: cpu_usage(&sys),
+            mem_mb,
         });
         remaining -= sec;
     }
@@ -277,35 +392,270 @@ fn measure(workload: &Workload, requests: &[RequestDoc], port: u16) -> Result<Ve
     Ok(points)
 }
 
-fn send_request(port: u16, req: &RequestDoc) -> Result<(), String> {
-    send_get(port, &build_path(req))
+fn measure_vus(
+    workload: &Workload,
+    requests: &[RequestDoc],
+    port: u16,
+    target_pid: Option<u32>,
+) -> Result<Vec<Point>, Fail> {
+    let schedule = build_vu_schedule(&workload.stages);
+    if schedule.is_empty() {
+        return Err(Fail::new(Code::RunFail, "empty VU schedule"));
+    }
+    let bucket_s = workload.sampling.bucket_s.max(1) as usize;
+    let paths: Arc<Vec<String>> = Arc::new(requests.iter().map(build_path).collect());
+    let global_iter = Arc::new(AtomicU64::new(0));
+    let running = Arc::new(AtomicBool::new(true));
+    let (tx, rx) = mpsc::channel::<(bool, f64)>();
+
+    let mut workers: Vec<std::thread::JoinHandle<()>> = Vec::new();
+    let mut points = Vec::new();
+    let mut sys = System::new_all();
+    sys.refresh_cpu_usage();
+    let pid = target_pid.map(Pid::from_u32);
+
+    let mut sec_offset = 0;
+    while sec_offset < schedule.len() {
+        let chunk_end = (sec_offset + bucket_s).min(schedule.len());
+        let target_vus = *schedule[sec_offset..chunk_end].iter().max().unwrap_or(&0) as usize;
+
+        // Grow worker pool as VU count increases (ramping-vus only ramps up)
+        while workers.len() < target_vus {
+            let paths = Arc::clone(&paths);
+            let iter_counter = Arc::clone(&global_iter);
+            let is_running = Arc::clone(&running);
+            let sender = tx.clone();
+            workers.push(std::thread::spawn(move || {
+                let mut conn = HttpConn::new(port);
+                while is_running.load(Ordering::Relaxed) {
+                    let iter_num = iter_counter.fetch_add(1, Ordering::Relaxed);
+                    let path = &paths[iter_num as usize % paths.len()];
+
+                    let t0 = Instant::now();
+                    let ok = conn.get(path).is_ok();
+                    let lat = t0.elapsed().as_secs_f64() * 1000.0;
+
+                    if sender.send((ok, lat)).is_err() {
+                        break;
+                    }
+
+                    // k6-compatible sleep: sleep(0.1 * (iteration % 6))
+                    let sleep_ms = (iter_num % 6) * 100;
+                    if sleep_ms > 0 {
+                        std::thread::sleep(Duration::from_millis(sleep_ms));
+                    }
+                }
+            }));
+        }
+
+        let chunk_secs = (chunk_end - sec_offset) as u64;
+        let start = Instant::now();
+        std::thread::sleep(Duration::from_secs(chunk_secs));
+        let wall = start.elapsed().as_secs_f64().max(0.001);
+
+        // Drain results collected during this window
+        let mut latencies = Vec::new();
+        let mut errors = 0u64;
+        let mut total = 0u64;
+        while let Ok((ok, lat)) = rx.try_recv() {
+            total += 1;
+            if ok {
+                latencies.push(lat);
+            } else {
+                errors += 1;
+            }
+        }
+
+        sys.refresh_cpu_usage();
+        let mem_mb = pid.and_then(|p| {
+            sys.refresh_processes_specifics(
+                ProcessesToUpdate::Some(&[p]),
+                true,
+                ProcessRefreshKind::nothing().with_memory(),
+            );
+            sys.process(p)
+                .map(|proc| proc.memory() as f64 / (1024.0 * 1024.0))
+        });
+        points.push(Point {
+            time: now_rfc3339(),
+            rps: total as f64 / wall,
+            err: if total == 0 {
+                0.0
+            } else {
+                errors as f64 / total as f64
+            },
+            latency: summarize_latency(&latencies),
+            cpu: cpu_usage(&sys),
+            mem_mb,
+        });
+
+        sec_offset = chunk_end;
+    }
+
+    running.store(false, Ordering::Relaxed);
+    drop(tx);
+    for h in workers {
+        let _ = h.join();
+    }
+
+    Ok(points)
 }
 
-fn send_get(port: u16, path: &str) -> Result<(), String> {
-    let mut stream =
-        TcpStream::connect(("127.0.0.1", port)).map_err(|err| format!("connect failed: {err}"))?;
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .map_err(|err| format!("set_read_timeout failed: {err}"))?;
-    stream
-        .set_write_timeout(Some(Duration::from_secs(5)))
-        .map_err(|err| format!("set_write_timeout failed: {err}"))?;
+/// Build a per-second VU schedule from stages, linearly interpolating ramp stages.
+fn build_vu_schedule(stages: &[crate::model::Stage]) -> Vec<u32> {
+    let mut schedule = Vec::new();
+    let mut prev = 0u32;
+    for stage in stages {
+        let target = stage.vus.unwrap_or(prev);
+        if stage.sec == 0 {
+            continue;
+        }
+        if stage.sec == 1 {
+            schedule.push(target);
+        } else {
+            for i in 0..stage.sec {
+                let t = i as f64 / (stage.sec - 1) as f64;
+                let vus = prev as f64 + (target as f64 - prev as f64) * t;
+                schedule.push(vus.round() as u32);
+            }
+        }
+        prev = target;
+    }
+    schedule
+}
 
-    let raw = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
-    stream
-        .write_all(raw.as_bytes())
-        .map_err(|err| format!("write failed: {err}"))?;
+/// Persistent HTTP/1.1 connection with keep-alive. Reconnects on error.
+struct HttpConn {
+    port: u16,
+    reader: Option<BufReader<TcpStream>>,
+    header_buf: String,
+}
 
-    let mut reader = BufReader::new(stream);
-    let mut status_line = String::new();
-    reader
-        .read_line(&mut status_line)
-        .map_err(|err| format!("read failed: {err}"))?;
+impl HttpConn {
+    fn new(port: u16) -> Self {
+        Self {
+            port,
+            reader: None,
+            header_buf: String::new(),
+        }
+    }
 
-    if status_line.starts_with("HTTP/1.1 200") || status_line.starts_with("HTTP/1.1 204") {
+    fn connect(&mut self) -> Result<(), String> {
+        let stream = TcpStream::connect(("127.0.0.1", self.port))
+            .map_err(|err| format!("connect failed: {err}"))?;
+        stream
+            .set_read_timeout(Some(Duration::from_secs(30)))
+            .map_err(|err| format!("set_read_timeout: {err}"))?;
+        stream
+            .set_write_timeout(Some(Duration::from_secs(30)))
+            .map_err(|err| format!("set_write_timeout: {err}"))?;
+        stream
+            .set_nodelay(true)
+            .map_err(|err| format!("set_nodelay: {err}"))?;
+        self.reader = Some(BufReader::new(stream));
         Ok(())
-    } else {
-        Err(format!("request failed: {}", status_line.trim()))
+    }
+
+    fn get(&mut self, path: &str) -> Result<(), String> {
+        // Try on existing connection first, reconnect once on failure.
+        if self.reader.is_some() {
+            match self.send_and_read(path) {
+                Ok(()) => return Ok(()),
+                Err(_) => self.reader = None,
+            }
+        }
+        self.connect()?;
+        self.send_and_read(path)
+    }
+
+    fn send_and_read(&mut self, path: &str) -> Result<(), String> {
+        let reader = self.reader.as_mut().ok_or("no connection")?;
+        let raw =
+            format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive\r\n\r\n");
+        reader
+            .get_mut()
+            .write_all(raw.as_bytes())
+            .map_err(|err| format!("write failed: {err}"))?;
+
+        // Read status line
+        self.header_buf.clear();
+        reader
+            .read_line(&mut self.header_buf)
+            .map_err(|err| format!("read status: {err}"))?;
+        let ok = self.header_buf.starts_with("HTTP/1.1 200")
+            || self.header_buf.starts_with("HTTP/1.1 204");
+
+        // Read headers, extract Content-Length or detect chunked encoding
+        let mut content_length: Option<usize> = None;
+        let mut chunked = false;
+        loop {
+            self.header_buf.clear();
+            reader
+                .read_line(&mut self.header_buf)
+                .map_err(|err| format!("read header: {err}"))?;
+            let line = self.header_buf.trim();
+            if line.is_empty() {
+                break;
+            }
+            let lower = line.to_ascii_lowercase();
+            if let Some(val) = lower.strip_prefix("content-length:") {
+                content_length = val.trim().parse().ok();
+            } else if lower.starts_with("transfer-encoding:") && lower.contains("chunked") {
+                chunked = true;
+            }
+        }
+
+        // Drain body so the connection is ready for the next request
+        if let Some(len) = content_length {
+            let mut remaining = len;
+            let mut discard = [0u8; 8192];
+            while remaining > 0 {
+                let to_read = remaining.min(discard.len());
+                let n = reader
+                    .read(&mut discard[..to_read])
+                    .map_err(|err| format!("read body: {err}"))?;
+                if n == 0 {
+                    break;
+                }
+                remaining -= n;
+            }
+        } else if chunked {
+            // Read chunked transfer encoding
+            loop {
+                self.header_buf.clear();
+                reader
+                    .read_line(&mut self.header_buf)
+                    .map_err(|err| format!("read chunk size: {err}"))?;
+                let size = usize::from_str_radix(self.header_buf.trim(), 16).unwrap_or(0);
+                if size == 0 {
+                    // Read trailing \r\n after last chunk
+                    self.header_buf.clear();
+                    let _ = reader.read_line(&mut self.header_buf);
+                    break;
+                }
+                let mut remaining = size;
+                let mut discard = [0u8; 8192];
+                while remaining > 0 {
+                    let to_read = remaining.min(discard.len());
+                    let n = reader
+                        .read(&mut discard[..to_read])
+                        .map_err(|err| format!("read chunk: {err}"))?;
+                    if n == 0 {
+                        break;
+                    }
+                    remaining -= n;
+                }
+                // Read trailing \r\n after chunk data
+                self.header_buf.clear();
+                let _ = reader.read_line(&mut self.header_buf);
+            }
+        }
+
+        if ok {
+            Ok(())
+        } else {
+            Err(format!("request failed: {}", self.header_buf.trim()))
+        }
     }
 }
 
@@ -503,40 +853,26 @@ fn pg_url() -> String {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct QueryParams {
-    id: Option<i32>,
-    idx: Option<usize>,
+    pub(crate) id: Option<i32>,
+    pub(crate) limit: Option<usize>,
+    pub(crate) offset: Option<usize>,
     #[allow(dead_code)]
-    q: Option<String>,
+    pub(crate) q: Option<String>,
     #[allow(dead_code)]
-    seed: Option<u64>,
+    pub(crate) seed: Option<u64>,
+    pub(crate) term: Option<String>,
 }
 
 impl QueryParams {
-    pub(crate) fn page(&self) -> usize {
-        self.idx.map(|i| i % 64).unwrap_or(0)
+    pub(crate) fn limit_or(&self, default: usize) -> usize {
+        self.limit.unwrap_or(default)
+    }
+
+    pub(crate) fn offset(&self) -> usize {
+        self.offset.unwrap_or(0)
     }
 
     pub(crate) fn user_id(&self, n: i32) -> i32 {
         self.id.map(|i| i.rem_euclid(n).max(1)).unwrap_or(1)
     }
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct UserRow {
-    pub id: i32,
-    pub name: String,
-    pub email: String,
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct PostRow {
-    pub id: i32,
-    pub title: String,
-    pub author_id: i32,
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct DetailRow {
-    pub name: String,
-    pub title: String,
 }

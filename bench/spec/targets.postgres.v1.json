@@ -2,6 +2,7 @@
   {
     "version": "v1",
     "id": "drizzle-rs-pg-sync",
+    "group": "drizzle-rs",
     "lang": "rust",
     "runtime": {
       "name": "rust",
@@ -51,6 +52,7 @@
   {
     "version": "v1",
     "id": "drizzle-rs-pg-tokio",
+    "group": "drizzle-rs",
     "lang": "rust",
     "runtime": {
       "name": "rust",

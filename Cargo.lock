@@ -896,6 +896,7 @@ version = "0.1.5"
 dependencies = [
  "assert_cmd",
  "axum",
+ "chrono",
  "clap",
  "drizzle",
  "drizzle-seed",

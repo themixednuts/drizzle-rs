@@ -1,0 +1,152 @@
+[
+  {
+    "version": "v1",
+    "id": "bun-sql-pg",
+    "group": "bun-sql",
+    "lang": "ts",
+    "runtime": {
+      "name": "bun",
+      "ver": "1.3"
+    },
+    "orm": {
+      "name": "none",
+      "ver": "0"
+    },
+    "driver": {
+      "name": "bun:sql",
+      "ver": "1.3"
+    },
+    "proc": {
+      "mode": "single",
+      "workers": 1
+    },
+    "pool": {
+      "max": 8,
+      "min": 1,
+      "acquire_ms": 50
+    },
+    "db": {
+      "profile": "postgres",
+      "hash": "sha256:7bd4286ec47f86445e5ef9f6cc6357a27974cb8313766444fa5cbeff8eb83d43"
+    },
+    "wire": {
+      "format": "binary"
+    },
+    "fair": {
+      "workers": 1,
+      "pool": 8,
+      "db": "postgres",
+      "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
+      "contract": "v1"
+    },
+    "contract": {
+      "ver": "v1"
+    },
+    "server": {
+      "cmd": ["bun", "run", "bench/targets/bun-sql-pg/server.ts"]
+    },
+    "load": {
+      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
+    }
+  },
+  {
+    "version": "v1",
+    "id": "drizzle-ts-pg",
+    "group": "drizzle-orm",
+    "lang": "ts",
+    "runtime": {
+      "name": "bun",
+      "ver": "1.3"
+    },
+    "orm": {
+      "name": "drizzle-orm",
+      "ver": "0.45"
+    },
+    "driver": {
+      "name": "bun:sql",
+      "ver": "1.3"
+    },
+    "proc": {
+      "mode": "single",
+      "workers": 1
+    },
+    "pool": {
+      "max": 8,
+      "min": 1,
+      "acquire_ms": 50
+    },
+    "db": {
+      "profile": "postgres",
+      "hash": "sha256:7bd4286ec47f86445e5ef9f6cc6357a27974cb8313766444fa5cbeff8eb83d43"
+    },
+    "wire": {
+      "format": "binary"
+    },
+    "fair": {
+      "workers": 1,
+      "pool": 8,
+      "db": "postgres",
+      "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
+      "contract": "v1"
+    },
+    "contract": {
+      "ver": "v1"
+    },
+    "server": {
+      "cmd": ["bun", "run", "bench/targets/drizzle-ts-pg/server.ts"]
+    },
+    "load": {
+      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
+    }
+  },
+  {
+    "version": "v1",
+    "id": "prisma-pg",
+    "group": "prisma",
+    "lang": "ts",
+    "runtime": {
+      "name": "bun",
+      "ver": "1.3"
+    },
+    "orm": {
+      "name": "prisma",
+      "ver": "7.4"
+    },
+    "driver": {
+      "name": "@prisma/adapter-pg",
+      "ver": "7.4"
+    },
+    "proc": {
+      "mode": "single",
+      "workers": 1
+    },
+    "pool": {
+      "max": 8,
+      "min": 1,
+      "acquire_ms": 50
+    },
+    "db": {
+      "profile": "postgres",
+      "hash": "sha256:7bd4286ec47f86445e5ef9f6cc6357a27974cb8313766444fa5cbeff8eb83d43"
+    },
+    "wire": {
+      "format": "json"
+    },
+    "fair": {
+      "workers": 1,
+      "pool": 8,
+      "db": "postgres",
+      "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
+      "contract": "v1"
+    },
+    "contract": {
+      "ver": "v1"
+    },
+    "server": {
+      "cmd": ["bun", "run", "bench/targets/prisma-pg/server.ts"]
+    },
+    "load": {
+      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
+    }
+  }
+]

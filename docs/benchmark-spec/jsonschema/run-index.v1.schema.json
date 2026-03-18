@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bench.drizzle.rs/schema/run-index.v1.schema.json",
+  "title": "Run Index v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "runs"
+  ],
+  "properties": {
+    "version": {
+      "const": "v1"
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "run_id",
+          "suite",
+          "status",
+          "class",
+          "git",
+          "start",
+          "end",
+          "targets"
+        ],
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "pattern": "^[0-9]{8}T[0-9]{6}Z_[a-f0-9]{7,40}_[a-z0-9-]+$"
+          },
+          "suite": {
+            "type": "string",
+            "enum": [
+              "throughput-http",
+              "mvcc-contention"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failed",
+              "canceled",
+              "partial"
+            ]
+          },
+          "class": {
+            "type": "string",
+            "enum": [
+              "small",
+              "publish"
+            ]
+          },
+          "git": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{7,40}$"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "targets": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]*$"
+            }
+          }
+        }
+      }
+    }
+  }
+}

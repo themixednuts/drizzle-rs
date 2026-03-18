@@ -2,6 +2,7 @@
   {
     "version": "v1",
     "id": "drizzle-rs-sqlite",
+    "group": "drizzle-rs",
     "lang": "rust",
     "runtime": {
       "name": "rust",

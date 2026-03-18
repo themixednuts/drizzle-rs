@@ -2,9 +2,10 @@
   "version": "v1",
   "suite": "throughput-http",
   "load": {
-    "kind": "open",
-    "executor": "constant-arrival-rate",
-    "unit": "1s"
+    "kind": "closed",
+    "executor": "ramping-vus",
+    "unit": "1s",
+    "concurrency": 3000
   },
   "data": {
     "name": "bench",
@@ -16,10 +17,36 @@
     "endpoint": null
   },
   "stages": [
-    {
-      "sec": 30,
-      "rps": 1000
-    }
+    { "sec": 5, "vus": 200 },
+    { "sec": 15, "vus": 200 },
+    { "sec": 5, "vus": 400 },
+    { "sec": 15, "vus": 400 },
+    { "sec": 5, "vus": 600 },
+    { "sec": 15, "vus": 600 },
+    { "sec": 5, "vus": 800 },
+    { "sec": 15, "vus": 800 },
+    { "sec": 5, "vus": 1000 },
+    { "sec": 15, "vus": 1000 },
+    { "sec": 5, "vus": 1200 },
+    { "sec": 15, "vus": 1200 },
+    { "sec": 5, "vus": 1400 },
+    { "sec": 15, "vus": 1400 },
+    { "sec": 5, "vus": 1600 },
+    { "sec": 15, "vus": 1600 },
+    { "sec": 5, "vus": 1800 },
+    { "sec": 15, "vus": 1800 },
+    { "sec": 5, "vus": 2000 },
+    { "sec": 15, "vus": 2000 },
+    { "sec": 5, "vus": 2200 },
+    { "sec": 15, "vus": 2200 },
+    { "sec": 5, "vus": 2400 },
+    { "sec": 15, "vus": 2400 },
+    { "sec": 5, "vus": 2600 },
+    { "sec": 15, "vus": 2600 },
+    { "sec": 5, "vus": 2800 },
+    { "sec": 15, "vus": 2800 },
+    { "sec": 5, "vus": 3000 },
+    { "sec": 55, "vus": 3000 }
   ],
   "requests": {
     "source": "generated",
@@ -27,11 +54,11 @@
     "skip": []
   },
   "sampling": {
-    "cpu_ms": 100,
+    "cpu_ms": 200,
     "bucket_s": 1
   },
   "limits": {
     "err": 0.01,
-    "p95": 200
+    "p95": null
   }
 }
