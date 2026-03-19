@@ -70,7 +70,7 @@ smallvec = { version = "1.15", default-features = false, features = [
 thiserror = { version = "2.0", default-features = false }
 toml = { version = "0.9" }
 tokio = { version = "1.48" }
-turso = { version = "0.5.0", default-features = false }
+turso = { version = "0.6.0-pre.3", default-features = false }
 uuid = { version = "1.18", features = ["v4"] }
 chrono = { version = "0.4", default-features = false }
 puffin = { version = "0.19" }

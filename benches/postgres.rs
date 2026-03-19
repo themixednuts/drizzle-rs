@@ -1,4 +1,7 @@
-use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+use criterion::{BenchmarkId, Throughput};
+use criterion::{Criterion, criterion_group, criterion_main};
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 use std::hint::black_box;
 
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
@@ -625,6 +628,9 @@ fn bench_postgres(c: &mut Criterion) {
 
     #[cfg(feature = "tokio-postgres")]
     bench_tokio(c);
+
+    #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
+    let _ = c;
 }
 
 criterion_group!(postgres, bench_postgres);

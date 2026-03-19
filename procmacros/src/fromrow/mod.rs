@@ -94,7 +94,7 @@ fn collect_required_tables(
     tables
 }
 
-#[cfg(feature = "sqlite")]
+#[cfg(all(feature = "sqlite", any(feature = "rusqlite", feature = "libsql")))]
 fn should_decode_named_fields_by_name(
     fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
     is_tuple: bool,
@@ -327,6 +327,7 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
 
     let mut impl_blocks: Vec<TokenStream> = Vec::new();
     let field_count = fields.len();
+    #[cfg(any(feature = "rusqlite", feature = "libsql"))]
     let decode_named_by_name =
         should_decode_named_fields_by_name(fields, is_tuple, default_from.as_ref());
 
