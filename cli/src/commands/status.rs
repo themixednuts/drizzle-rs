@@ -8,8 +8,6 @@ use crate::output;
 
 /// Run the status command
 pub fn run(config: &Config, db_name: Option<&str>) -> Result<(), CliError> {
-    use drizzle_migrations::journal::Journal;
-
     let db = config.database(db_name)?;
 
     println!("{}", output::heading("Migration Status"));
@@ -31,28 +29,25 @@ pub fn run(config: &Config, db_name: Option<&str>) -> Result<(), CliError> {
         return Ok(());
     }
 
-    // Load journal
-    let journal = if journal_path.exists() {
-        Journal::load(&journal_path).map_err(|e| CliError::IoError(e.to_string()))?
-    } else {
-        println!("  {}", output::warning("No migrations journal found."));
-        println!("  Run 'drizzle generate' to create your first migration.");
-        return Ok(());
-    };
+    if journal_path.exists() {
+        println!(
+            "  {}",
+            output::warning("Legacy migration journal detected. Run 'drizzle upgrade' first.")
+        );
+        println!();
+    }
 
-    if journal.entries.is_empty() {
+    let entries = discover_migration_dirs(out_dir)?;
+    if entries.is_empty() {
         println!("  {}", output::warning("No migrations found."));
         return Ok(());
     }
 
     // Display migration entries
-    println!("  {} migration(s) in journal:\n", journal.entries.len());
+    println!("  {} migration folder(s):\n", entries.len());
 
-    for (i, entry) in journal.entries.iter().enumerate() {
+    for (i, (tag, migration_path, snapshot_path)) in entries.iter().enumerate() {
         // Migration is in {out}/{tag}/migration.sql
-        let migration_path = out_dir.join(&entry.tag).join("migration.sql");
-        let snapshot_path = out_dir.join(&entry.tag).join("snapshot.json");
-
         let sql_exists = migration_path.exists();
         let snapshot_exists = snapshot_path.exists();
 
@@ -65,7 +60,7 @@ pub fn run(config: &Config, db_name: Option<&str>) -> Result<(), CliError> {
         };
         let idx_display = output::muted(&format!("{:3}.", i + 1));
 
-        println!("  {} {} {}", idx_display, status_icon, entry.tag);
+        println!("  {} {} {}", idx_display, status_icon, tag);
 
         if !sql_exists {
             println!("      {}", output::error("Migration file missing!"));
@@ -88,4 +83,38 @@ pub fn run(config: &Config, db_name: Option<&str>) -> Result<(), CliError> {
     );
 
     Ok(())
+}
+
+fn discover_migration_dirs(
+    out_dir: &std::path::Path,
+) -> Result<Vec<(String, std::path::PathBuf, std::path::PathBuf)>, CliError> {
+    let mut entries = Vec::new();
+
+    for entry in std::fs::read_dir(out_dir).map_err(|e| CliError::IoError(e.to_string()))? {
+        let entry = entry.map_err(|e| CliError::IoError(e.to_string()))?;
+        if !entry
+            .file_type()
+            .map_err(|e| CliError::IoError(e.to_string()))?
+            .is_dir()
+        {
+            continue;
+        }
+
+        let tag = entry.file_name().to_string_lossy().to_string();
+        if tag == "meta" {
+            continue;
+        }
+
+        let path = entry.path();
+        let migration_path = path.join("migration.sql");
+        if !migration_path.exists() {
+            continue;
+        }
+
+        let snapshot_path = path.join("snapshot.json");
+        entries.push((tag, migration_path, snapshot_path));
+    }
+
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(entries)
 }

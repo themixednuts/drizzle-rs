@@ -1,8 +1,7 @@
-use crate::journal::Journal;
 use crate::migrator::{
     Migration, MigratorError, compute_hash, parse_timestamp_from_tag, split_statements,
 };
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Filesystem migration discovery.
 ///
@@ -19,26 +18,20 @@ impl MigrationDir {
     }
 
     /// Discover all migrations in this directory.
-    ///
-    /// V3 folder discovery is preferred.
-    /// If no V3 folders are found and `meta/_journal.json` exists, legacy journal
-    /// ordering is used as a fallback.
     pub fn discover(&self) -> Result<Vec<Migration>, MigratorError> {
         if !self.path.exists() {
             return Ok(Vec::new());
         }
 
-        let v3 = self.discover_v3()?;
-        if !v3.is_empty() {
-            return Ok(v3);
-        }
-
         let journal_path = self.path.join("meta").join("_journal.json");
         if journal_path.exists() {
-            self.discover_legacy(&journal_path)
-        } else {
-            Ok(v3)
+            return Err(MigratorError::JournalError(
+                "We detected old drizzle-kit migration folders. Upgrade them before loading migrations."
+                    .to_string(),
+            ));
         }
+
+        self.discover_v3()
     }
 
     fn discover_v3(&self) -> Result<Vec<Migration>, MigratorError> {
@@ -70,41 +63,6 @@ impl MigrationDir {
             let statements = split_statements(&sql_content);
 
             migrations.push(Migration::with_hash(tag, hash, created_at, statements));
-        }
-
-        Ok(migrations)
-    }
-
-    fn discover_legacy(&self, journal_path: &Path) -> Result<Vec<Migration>, MigratorError> {
-        use std::fs;
-
-        let journal =
-            Journal::load(journal_path).map_err(|e| MigratorError::JournalError(e.to_string()))?;
-        let mut migrations = Vec::with_capacity(journal.entries.len());
-
-        for entry in &journal.entries {
-            let folder_path = self.path.join(&entry.tag).join("migration.sql");
-            let flat_path = self.path.join(format!("{}.sql", entry.tag));
-
-            let sql_path = if folder_path.exists() {
-                folder_path
-            } else if flat_path.exists() {
-                flat_path
-            } else {
-                return Err(MigratorError::MissingMigration(entry.tag.clone()));
-            };
-
-            let sql_content =
-                fs::read_to_string(&sql_path).map_err(|e| MigratorError::IoError(e.to_string()))?;
-            let hash = compute_hash(&sql_content);
-            let statements = split_statements(&sql_content);
-
-            migrations.push(Migration::with_hash(
-                entry.tag.clone(),
-                hash,
-                entry.when as i64,
-                statements,
-            ));
         }
 
         Ok(migrations)

@@ -63,14 +63,26 @@ pub fn run(
     let journal_path = effective_out.join("meta").join("_journal.json");
     if dir.exists() {
         println!("{}", output::status_ok());
-        if journal_path.exists() {
-            println!("    Journal: {}", output::success("found"));
+        let migration_count = count_migration_dirs(dir)?;
+        if migration_count > 0 {
+            println!(
+                "    Folders: {}",
+                output::success(&migration_count.to_string())
+            );
         } else {
             println!(
-                "    Journal: {} (run generate first)",
+                "    Folders: {} (run generate first)",
                 output::warning("missing")
             );
-            warnings.push("No migration journal");
+            warnings.push("No migration folders");
+        }
+
+        if journal_path.exists() {
+            println!(
+                "    Legacy journal: {} (run upgrade)",
+                output::warning("found")
+            );
+            warnings.push("Legacy migration journal detected");
         }
     } else {
         println!("{}", output::status_warning("NOT CREATED"));
@@ -114,6 +126,31 @@ pub fn run(
         }
         Ok(())
     }
+}
+
+fn count_migration_dirs(dir: &Path) -> Result<usize, CliError> {
+    let mut count = 0usize;
+    for entry in std::fs::read_dir(dir).map_err(|e| CliError::IoError(e.to_string()))? {
+        let entry = entry.map_err(|e| CliError::IoError(e.to_string()))?;
+        if !entry
+            .file_type()
+            .map_err(|e| CliError::IoError(e.to_string()))?
+            .is_dir()
+        {
+            continue;
+        }
+
+        let tag = entry.file_name().to_string_lossy().to_string();
+        if tag == "meta" {
+            continue;
+        }
+
+        if entry.path().join("migration.sql").exists() {
+            count += 1;
+        }
+    }
+
+    Ok(count)
 }
 
 fn print_credentials(creds: &Credentials) {

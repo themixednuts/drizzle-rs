@@ -74,6 +74,21 @@ pub struct Migration {
     sql: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppliedMigrationMetadata {
+    pub id: Option<i64>,
+    pub hash: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MatchedMigrationMetadata {
+    pub id: Option<i64>,
+    pub hash: String,
+    pub created_at: i64,
+    pub name: String,
+}
+
 impl Migration {
     /// Create a new migration from embedded SQL
     ///
@@ -110,6 +125,12 @@ impl Migration {
     /// Get the migration tag (folder name)
     #[inline]
     pub fn tag(&self) -> &str {
+        &self.tag
+    }
+
+    /// Get the migration folder name used by drizzle-orm tracking metadata.
+    #[inline]
+    pub fn name(&self) -> &str {
         &self.tag
     }
 
@@ -228,6 +249,24 @@ impl Migrations {
         self.dialect
     }
 
+    /// Get the migrations tracking table name.
+    #[inline]
+    pub fn table_name(&self) -> &str {
+        &self.table
+    }
+
+    /// Get the migrations tracking schema, if any.
+    #[inline]
+    pub fn schema_name(&self) -> Option<&str> {
+        self.schema.as_deref()
+    }
+
+    /// Get the SQL table identifier used in queries.
+    #[inline]
+    pub fn table_ident_sql(&self) -> String {
+        self.table_ident()
+    }
+
     /// Get the full table identifier (with schema for PostgreSQL)
     fn table_ident(&self) -> String {
         match (&self.dialect, &self.schema) {
@@ -246,19 +285,21 @@ impl Migrations {
 
     /// Get the SQL to create the migrations tracking table
     ///
-    /// Table schema matches drizzle-orm:
-    /// - SQLite: id (INTEGER PK AUTOINCREMENT), hash (text), created_at (numeric)
-    /// - PostgreSQL: id (SERIAL PK), hash (TEXT), created_at (BIGINT)
-    /// - MySQL: id (SERIAL PK), hash (text), created_at (BIGINT)
+    /// Table schema matches current drizzle-orm:
+    /// - SQLite: id (INTEGER PK), hash, created_at, name, applied_at
+    /// - PostgreSQL: id (SERIAL PK), hash, created_at, name, applied_at
+    /// - MySQL: id (SERIAL PK), hash, created_at, name, applied_at
     pub fn create_table_sql(&self) -> String {
         let table = self.table_ident();
 
         match self.dialect {
             Dialect::SQLite => format!(
                 r#"CREATE TABLE IF NOT EXISTS {} (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     hash text NOT NULL,
-    created_at numeric
+    created_at numeric,
+    name text,
+    applied_at TEXT
 );"#,
                 table
             ),
@@ -266,7 +307,9 @@ impl Migrations {
                 r#"CREATE TABLE IF NOT EXISTS {} (
     id SERIAL PRIMARY KEY,
     hash TEXT NOT NULL,
-    created_at BIGINT
+    created_at BIGINT,
+    name TEXT,
+    applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );"#,
                 table
             ),
@@ -274,7 +317,9 @@ impl Migrations {
                 r#"CREATE TABLE IF NOT EXISTS {} (
     id SERIAL PRIMARY KEY,
     hash text NOT NULL,
-    created_at BIGINT
+    created_at BIGINT,
+    name text,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );"#,
                 table
             ),
@@ -282,23 +327,32 @@ impl Migrations {
     }
 
     /// Get the SQL to record a migration as applied.
-    pub fn record_sql(&self, hash: &str, created_at: i64) -> String {
+    pub fn record_migration_sql(&self, migration: &Migration) -> String {
         let table = self.table_ident();
+        let hash = escape_sql_string(migration.hash());
+        let name = escape_sql_string(migration.name());
+        let created_at = migration.created_at();
 
         match self.dialect {
             Dialect::SQLite | Dialect::PostgreSQL => {
                 format!(
-                    r#"INSERT INTO {} ("hash", "created_at") VALUES ('{}', {});"#,
-                    table, hash, created_at
+                    r#"INSERT INTO {} ("hash", "created_at", "name", "applied_at") VALUES ('{}', {}, '{}', CURRENT_TIMESTAMP);"#,
+                    table, hash, created_at, name
                 )
             }
             Dialect::MySQL => {
                 format!(
-                    r#"INSERT INTO {} (`hash`, `created_at`) VALUES ('{}', {});"#,
-                    table, hash, created_at
+                    r#"INSERT INTO {} (`hash`, `created_at`, `name`, `applied_at`) VALUES ('{}', {}, '{}', CURRENT_TIMESTAMP);"#,
+                    table, hash, created_at, name
                 )
             }
         }
+    }
+
+    /// Backward-compatible helper used by older callers.
+    pub fn record_sql(&self, hash: &str, created_at: i64) -> String {
+        let migration = Migration::with_hash("", hash, created_at, Vec::new());
+        self.record_migration_sql(&migration)
     }
 
     /// Get the SQL to query applied migrations (ordered by created_at DESC, limit 1)
@@ -587,6 +641,65 @@ fn split_on_semicolons(sql: &str) -> Vec<String> {
     statements
 }
 
+/// Match applied database rows to local migrations for migration-table upgrades.
+pub fn match_applied_migration_metadata(
+    local_migrations: &[Migration],
+    applied_rows: &[AppliedMigrationMetadata],
+) -> Result<Vec<MatchedMigrationMetadata>, MigratorError> {
+    use std::collections::HashMap;
+
+    let mut by_created_at = HashMap::<i64, Vec<&Migration>>::new();
+    let mut by_hash = HashMap::<&str, &Migration>::new();
+
+    for migration in local_migrations {
+        by_created_at
+            .entry(migration.created_at())
+            .or_default()
+            .push(migration);
+        by_hash.insert(migration.hash(), migration);
+    }
+
+    let mut matched = Vec::with_capacity(applied_rows.len());
+    let mut unmatched = Vec::new();
+
+    for row in applied_rows {
+        let migration = match by_created_at.get(&row.created_at) {
+            Some(candidates) if candidates.len() == 1 => Some(candidates[0]),
+            Some(candidates) if candidates.len() > 1 => {
+                candidates.iter().copied().find(|m| m.hash() == row.hash)
+            }
+            _ => by_hash.get(row.hash.as_str()).copied(),
+        };
+
+        if let Some(migration) = migration {
+            matched.push(MatchedMigrationMetadata {
+                id: row.id,
+                hash: row.hash.clone(),
+                created_at: row.created_at,
+                name: migration.name().to_string(),
+            });
+        } else {
+            unmatched.push(format!(
+                "[id: {:?}, created_at: {}, hash: {}]",
+                row.id, row.created_at, row.hash
+            ));
+        }
+    }
+
+    if unmatched.is_empty() {
+        Ok(matched)
+    } else {
+        Err(MigratorError::ExecutionError(format!(
+            "database contains applied migrations that do not match local migrations: {}",
+            unmatched.join(", ")
+        )))
+    }
+}
+
+fn escape_sql_string(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
 /// Parse a starting PostgreSQL dollar-quote delimiter at `pos`.
 ///
 /// Returns the full delimiter (e.g. "$$" or "$func$") when valid.
@@ -724,7 +837,10 @@ macro_rules! migrations {
 
 #[cfg(test)]
 mod tests {
-    use super::{Migrations, compute_hash, parse_timestamp_from_tag, split_on_semicolons};
+    use super::{
+        AppliedMigrationMetadata, Migrations, compute_hash, match_applied_migration_metadata,
+        parse_timestamp_from_tag, split_on_semicolons,
+    };
     use crate::dir::MigrationDir;
     use drizzle_types::Dialect;
 
@@ -839,6 +955,74 @@ mod tests {
     }
 
     #[test]
+    fn record_migration_sql_includes_name_and_applied_at() {
+        let migration = super::Migration::with_hash(
+            "20230331141203_test",
+            "abc123",
+            1_680_271_923_000,
+            vec!["CREATE TABLE users(id INTEGER PRIMARY KEY)".to_string()],
+        );
+        let set = Migrations::new(vec![migration.clone()], Dialect::SQLite);
+
+        let sql = set.record_migration_sql(&migration);
+        assert!(sql.contains("\"name\""));
+        assert!(sql.contains("\"applied_at\""));
+        assert!(sql.contains("20230331141203_test"));
+    }
+
+    #[test]
+    fn match_applied_metadata_prefers_hash_when_created_at_collides() {
+        let migrations = vec![
+            super::Migration::with_hash(
+                "20230331141203_alpha",
+                "hash_a",
+                1_680_271_923_000,
+                vec!["A".to_string()],
+            ),
+            super::Migration::with_hash(
+                "20230331141203_beta",
+                "hash_b",
+                1_680_271_923_000,
+                vec!["B".to_string()],
+            ),
+        ];
+
+        let matched = match_applied_migration_metadata(
+            &migrations,
+            &[AppliedMigrationMetadata {
+                id: Some(1),
+                hash: "hash_b".to_string(),
+                created_at: 1_680_271_923_000,
+            }],
+        )
+        .expect("match metadata");
+
+        assert_eq!(matched[0].name, "20230331141203_beta");
+    }
+
+    #[test]
+    fn match_applied_metadata_errors_for_unmatched_rows() {
+        let migrations = vec![super::Migration::with_hash(
+            "20230331141203_alpha",
+            "hash_a",
+            1_680_271_923_000,
+            vec!["A".to_string()],
+        )];
+
+        let err = match_applied_migration_metadata(
+            &migrations,
+            &[AppliedMigrationMetadata {
+                id: Some(9),
+                hash: "missing_hash".to_string(),
+                created_at: 1_680_271_924_000,
+            }],
+        )
+        .expect_err("should reject unmatched metadata");
+
+        assert!(err.to_string().contains("do not match local migrations"));
+    }
+
+    #[test]
     fn from_dir_discovers_v3_migration_without_snapshot_file() {
         let dir = tempfile::tempdir().expect("tempdir");
         let migration_dir = dir.path().join("20230331141203_test");
@@ -883,13 +1067,16 @@ mod tests {
 
         let migrations = MigrationDir::new(dir.path())
             .discover()
-            .expect("load migrations");
-        assert_eq!(migrations.len(), 1);
-        assert_eq!(migrations[0].tag(), "20240101010101_v3_extra");
+            .expect_err("legacy journal should be rejected");
+        assert!(
+            migrations
+                .to_string()
+                .contains("old drizzle-kit migration folders")
+        );
     }
 
     #[test]
-    fn from_dir_falls_back_to_legacy_journal_when_no_v3_dirs() {
+    fn from_dir_rejects_legacy_journal_when_no_v3_dirs() {
         let dir = tempfile::tempdir().expect("tempdir");
 
         let mut journal = crate::journal::Journal::new(Dialect::SQLite);
@@ -903,11 +1090,12 @@ mod tests {
             "CREATE TABLE from_journal(id INTEGER PRIMARY KEY);",
         )
         .expect("write legacy migration file");
-
-        let migrations = MigrationDir::new(dir.path())
+        let err = MigrationDir::new(dir.path())
             .discover()
-            .expect("load migrations");
-        assert_eq!(migrations.len(), 1);
-        assert_eq!(migrations[0].tag(), "0000_journal_first");
+            .expect_err("legacy journal should be rejected");
+        assert!(
+            err.to_string()
+                .contains("old drizzle-kit migration folders")
+        );
     }
 }

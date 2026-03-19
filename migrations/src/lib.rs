@@ -137,7 +137,10 @@ pub mod writer;
 pub use config::Tracking;
 pub use dir::MigrationDir;
 pub use journal::{Journal, JournalEntry};
-pub use migrator::{Migration, Migrations, MigratorError};
+pub use migrator::{
+    AppliedMigrationMetadata, MatchedMigrationMetadata, Migration, Migrations, MigratorError,
+    match_applied_migration_metadata,
+};
 pub use words::{PrefixMode, generate_migration_tag};
 pub use writer::{MigrationError, Writer};
 

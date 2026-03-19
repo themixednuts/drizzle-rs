@@ -442,7 +442,7 @@ impl<Schema> Drizzle<Schema> {
         if let Some(schema_sql) = set.create_schema_sql() {
             self.client.execute(&schema_sql, &[])?;
         }
-        self.client.execute(&set.create_table_sql(), &[])?;
+        ensure_postgres_migration_table(&mut self.client, &set)?;
         let rows = self.client.query(&set.applied_sql(), &[])?;
         let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
         let pending: Vec<_> = set.pending(&applied_created_at).collect();
@@ -459,16 +459,90 @@ impl<Schema> Drizzle<Schema> {
                     tx.execute(stmt, &[])?;
                 }
             }
-            tx.execute(
-                &set.record_sql(migration.hash(), migration.created_at()),
-                &[],
-            )?;
+            tx.execute(&set.record_migration_sql(migration), &[])?;
         }
 
         tx.commit()?;
 
         Ok(())
     }
+}
+
+fn ensure_postgres_migration_table(
+    client: &mut postgres::Client,
+    set: &drizzle_migrations::Migrations,
+) -> drizzle_core::error::Result<()> {
+    client.execute(&set.create_table_sql(), &[])?;
+
+    let schema = set.schema_name().unwrap_or("public");
+    let rows = client.query(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
+        &[&schema, &set.table_name()],
+    )?;
+    if rows
+        .iter()
+        .filter_map(|row| row.try_get::<_, String>(0).ok())
+        .any(|column| column == "name")
+    {
+        return Ok(());
+    }
+
+    let rows = client.query(
+        &format!(
+            "SELECT id, hash, created_at FROM {} ORDER BY id ASC",
+            set.table_ident_sql()
+        ),
+        &[],
+    )?;
+    let applied = rows
+        .iter()
+        .map(|row| {
+            Ok(drizzle_migrations::AppliedMigrationMetadata {
+                id: row.try_get::<_, Option<i64>>(0).ok().flatten(),
+                hash: row.try_get::<_, String>(1)?,
+                created_at: row.try_get::<_, i64>(2)?,
+            })
+        })
+        .collect::<Result<Vec<_>, postgres::Error>>()?;
+
+    let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
+        .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+
+    client.execute(
+        &format!(
+            "ALTER TABLE {} ADD COLUMN \"name\" TEXT",
+            set.table_ident_sql()
+        ),
+        &[],
+    )?;
+    client.execute(
+        &format!(
+            "ALTER TABLE {} ADD COLUMN \"applied_at\" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
+            set.table_ident_sql()
+        ),
+        &[],
+    )?;
+
+    for row in matched {
+        let where_clause = if let Some(id) = row.id {
+            format!("\"id\" = {id}")
+        } else {
+            format!(
+                "\"created_at\" = {} AND \"hash\" = '{}'",
+                row.created_at,
+                row.hash.replace('\'', "''")
+            )
+        };
+        let update_sql = format!(
+            "UPDATE {} SET \"name\" = '{}', \"applied_at\" = NULL WHERE {}",
+            set.table_ident_sql(),
+            row.name.replace('\'', "''"),
+            where_clause
+        );
+        client.execute(&update_sql, &[])?;
+    }
+
+    Ok(())
 }
 
 impl<Schema> Drizzle<Schema> {

@@ -438,6 +438,427 @@ fn verify_applied_migrations_consistency(
     Ok(())
 }
 
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+))]
+fn escape_sql_literal(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+#[cfg(feature = "rusqlite")]
+fn ensure_sqlite_tracking_table(
+    conn: &rusqlite::Connection,
+    set: &Migrations,
+) -> Result<(), CliError> {
+    conn.execute(&set.create_table_sql(), []).map_err(|e| {
+        CliError::MigrationError(format!("Failed to create migrations table: {}", e))
+    })?;
+
+    let pragma_sql = format!(
+        "SELECT name FROM pragma_table_info('{}')",
+        escape_sql_literal(set.table_name())
+    );
+    let mut stmt = conn
+        .prepare(&pragma_sql)
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| CliError::MigrationError(e.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    if columns.iter().any(|column| column == "name") {
+        return Ok(());
+    }
+
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT id, hash, created_at FROM {} ORDER BY id ASC",
+            set.table_ident_sql()
+        ))
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    let applied = stmt
+        .query_map([], |row| {
+            Ok(drizzle_migrations::AppliedMigrationMetadata {
+                id: row.get::<_, Option<i64>>(0)?,
+                hash: row.get::<_, String>(1)?,
+                created_at: row.get::<_, i64>(2)?,
+            })
+        })
+        .map_err(|e| CliError::MigrationError(e.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    conn.execute("BEGIN", [])
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    let result = (|| -> Result<(), CliError> {
+        conn.execute(
+            &format!(
+                "ALTER TABLE {} ADD COLUMN \"name\" text",
+                set.table_ident_sql()
+            ),
+            [],
+        )
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+        conn.execute(
+            &format!(
+                "ALTER TABLE {} ADD COLUMN \"applied_at\" TEXT",
+                set.table_ident_sql()
+            ),
+            [],
+        )
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+        for row in matched {
+            let where_clause = if let Some(id) = row.id {
+                format!("\"id\" = {id}")
+            } else {
+                format!(
+                    "\"created_at\" = {} AND \"hash\" = '{}'",
+                    row.created_at,
+                    escape_sql_literal(&row.hash)
+                )
+            };
+            conn.execute(
+                &format!(
+                    "UPDATE {} SET \"name\" = '{}', \"applied_at\" = NULL WHERE {}",
+                    set.table_ident_sql(),
+                    escape_sql_literal(&row.name),
+                    where_clause
+                ),
+                [],
+            )
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+        }
+
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => {
+            conn.execute("COMMIT", [])
+                .map_err(|e| CliError::MigrationError(e.to_string()))?;
+            Ok(())
+        }
+        Err(err) => {
+            let _ = conn.execute("ROLLBACK", []);
+            Err(err)
+        }
+    }
+}
+
+#[cfg(feature = "libsql")]
+async fn ensure_sqlite_tracking_table_libsql(
+    conn: &libsql::Connection,
+    set: &Migrations,
+) -> Result<(), CliError> {
+    conn.execute(&set.create_table_sql(), ())
+        .await
+        .map_err(|e| {
+            CliError::MigrationError(format!("Failed to create migrations table: {}", e))
+        })?;
+
+    let pragma_sql = format!(
+        "SELECT name FROM pragma_table_info('{}')",
+        escape_sql_literal(set.table_name())
+    );
+    let mut rows = conn
+        .query(&pragma_sql, ())
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    let mut has_name = false;
+    while let Ok(Some(row)) = rows.next().await {
+        if let Ok(name) = row.get::<String>(0)
+            && name == "name"
+        {
+            has_name = true;
+            break;
+        }
+    }
+    if has_name {
+        return Ok(());
+    }
+
+    let mut rows = conn
+        .query(
+            &format!(
+                "SELECT id, hash, created_at FROM {} ORDER BY id ASC",
+                set.table_ident_sql()
+            ),
+            (),
+        )
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    let mut applied = Vec::new();
+    while let Ok(Some(row)) = rows.next().await {
+        let hash = row
+            .get::<String>(1)
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+        let created_at = row
+            .get::<i64>(2)
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+        applied.push(drizzle_migrations::AppliedMigrationMetadata {
+            id: row.get::<Option<i64>>(0).ok().flatten(),
+            hash,
+            created_at,
+        });
+    }
+
+    let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    let tx = conn
+        .transaction()
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    tx.execute(
+        &format!(
+            "ALTER TABLE {} ADD COLUMN \"name\" text",
+            set.table_ident_sql()
+        ),
+        (),
+    )
+    .await
+    .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    tx.execute(
+        &format!(
+            "ALTER TABLE {} ADD COLUMN \"applied_at\" TEXT",
+            set.table_ident_sql()
+        ),
+        (),
+    )
+    .await
+    .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    for row in matched {
+        let where_clause = if let Some(id) = row.id {
+            format!("\"id\" = {id}")
+        } else {
+            format!(
+                "\"created_at\" = {} AND \"hash\" = '{}'",
+                row.created_at,
+                escape_sql_literal(&row.hash)
+            )
+        };
+        tx.execute(
+            &format!(
+                "UPDATE {} SET \"name\" = '{}', \"applied_at\" = NULL WHERE {}",
+                set.table_ident_sql(),
+                escape_sql_literal(&row.name),
+                where_clause
+            ),
+            (),
+        )
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    }
+
+    tx.commit()
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    Ok(())
+}
+
+#[cfg(feature = "postgres-sync")]
+fn ensure_postgres_tracking_table_sync(
+    client: &mut postgres::Client,
+    set: &Migrations,
+) -> Result<(), CliError> {
+    client.execute(&set.create_table_sql(), &[]).map_err(|e| {
+        CliError::MigrationError(format!("Failed to create migrations table: {}", e))
+    })?;
+
+    let schema = set.schema_name().unwrap_or("public");
+    let rows = client
+        .query(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
+            &[&schema, &set.table_name()],
+        )
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    if rows
+        .iter()
+        .filter_map(|row| row.try_get::<_, String>(0).ok())
+        .any(|column| column == "name")
+    {
+        return Ok(());
+    }
+
+    let rows = client
+        .query(
+            &format!(
+                "SELECT id, hash, created_at FROM {} ORDER BY id ASC",
+                set.table_ident_sql()
+            ),
+            &[],
+        )
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    let applied = rows
+        .iter()
+        .map(|row| {
+            Ok(drizzle_migrations::AppliedMigrationMetadata {
+                id: row.try_get::<_, Option<i64>>(0).ok().flatten(),
+                hash: row.try_get::<_, String>(1)?,
+                created_at: row.try_get::<_, i64>(2)?,
+            })
+        })
+        .collect::<Result<Vec<_>, postgres::Error>>()
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    client
+        .execute(
+            &format!(
+                "ALTER TABLE {} ADD COLUMN \"name\" TEXT",
+                set.table_ident_sql()
+            ),
+            &[],
+        )
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    client
+        .execute(
+            &format!(
+                "ALTER TABLE {} ADD COLUMN \"applied_at\" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
+                set.table_ident_sql()
+            ),
+            &[],
+        )
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    for row in matched {
+        let where_clause = if let Some(id) = row.id {
+            format!("\"id\" = {id}")
+        } else {
+            format!(
+                "\"created_at\" = {} AND \"hash\" = '{}'",
+                row.created_at,
+                escape_sql_literal(&row.hash)
+            )
+        };
+        client
+            .execute(
+                &format!(
+                    "UPDATE {} SET \"name\" = '{}', \"applied_at\" = NULL WHERE {}",
+                    set.table_ident_sql(),
+                    escape_sql_literal(&row.name),
+                    where_clause
+                ),
+                &[],
+            )
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "tokio-postgres")]
+async fn ensure_postgres_tracking_table_async(
+    client: &tokio_postgres::Client,
+    set: &Migrations,
+) -> Result<(), CliError> {
+    client
+        .execute(&set.create_table_sql(), &[])
+        .await
+        .map_err(|e| {
+            CliError::MigrationError(format!("Failed to create migrations table: {}", e))
+        })?;
+
+    let schema = set.schema_name().unwrap_or("public");
+    let rows = client
+        .query(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
+            &[&schema, &set.table_name()],
+        )
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    if rows
+        .iter()
+        .filter_map(|row| row.try_get::<_, String>(0).ok())
+        .any(|column| column == "name")
+    {
+        return Ok(());
+    }
+
+    let rows = client
+        .query(
+            &format!(
+                "SELECT id, hash, created_at FROM {} ORDER BY id ASC",
+                set.table_ident_sql()
+            ),
+            &[],
+        )
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    let applied = rows
+        .iter()
+        .map(|row| {
+            Ok(drizzle_migrations::AppliedMigrationMetadata {
+                id: row.try_get::<_, Option<i64>>(0).ok().flatten(),
+                hash: row.try_get::<_, String>(1)?,
+                created_at: row.try_get::<_, i64>(2)?,
+            })
+        })
+        .collect::<Result<Vec<_>, tokio_postgres::Error>>()
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    client
+        .execute(
+            &format!(
+                "ALTER TABLE {} ADD COLUMN \"name\" TEXT",
+                set.table_ident_sql()
+            ),
+            &[],
+        )
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    client
+        .execute(
+            &format!(
+                "ALTER TABLE {} ADD COLUMN \"applied_at\" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
+                set.table_ident_sql()
+            ),
+            &[],
+        )
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    for row in matched {
+        let where_clause = if let Some(id) = row.id {
+            format!("\"id\" = {id}")
+        } else {
+            format!(
+                "\"created_at\" = {} AND \"hash\" = '{}'",
+                row.created_at,
+                escape_sql_literal(&row.hash)
+            )
+        };
+        client
+            .execute(
+                &format!(
+                    "UPDATE {} SET \"name\" = '{}', \"applied_at\" = NULL WHERE {}",
+                    set.table_ident_sql(),
+                    escape_sql_literal(&row.name),
+                    where_clause
+                ),
+                &[],
+            )
+            .await
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    }
+
+    Ok(())
+}
+
 fn is_destructive_statement(sql: &str) -> bool {
     let s = sql.trim().to_uppercase();
     s.contains("DROP TABLE")
@@ -677,10 +1098,7 @@ fn run_sqlite_migrations(set: &Migrations, path: &str) -> Result<MigrationResult
         CliError::ConnectionError(format!("Failed to open SQLite database '{}': {}", path, e))
     })?;
 
-    // Create migrations table
-    conn.execute(&set.create_table_sql(), []).map_err(|e| {
-        CliError::MigrationError(format!("Failed to create migrations table: {}", e))
-    })?;
+    ensure_sqlite_tracking_table(&conn, set)?;
 
     // Query applied migrations by created_at
     let applied_created_at = query_applied_created_at_sqlite(&conn, set)?;
@@ -712,10 +1130,7 @@ fn run_sqlite_migrations(set: &Migrations, path: &str) -> Result<MigrationResult
                 )));
             }
         }
-        if let Err(e) = conn.execute(
-            &set.record_sql(migration.hash(), migration.created_at()),
-            [],
-        ) {
+        if let Err(e) = conn.execute(&set.record_migration_sql(migration), []) {
             let _ = conn.execute("ROLLBACK", []);
             return Err(CliError::MigrationError(e.to_string()));
         }
@@ -737,6 +1152,7 @@ fn inspect_sqlite_migrations(set: &Migrations, path: &str) -> Result<MigrationPl
         CliError::ConnectionError(format!("Failed to open SQLite database '{}': {}", path, e))
     })?;
 
+    ensure_sqlite_tracking_table(&conn, set)?;
     let applied = query_applied_records_sqlite(&conn, set)?;
     build_migration_plan(set, applied)
 }
@@ -853,10 +1269,7 @@ fn run_postgres_sync_migrations(
             .map_err(|e| CliError::MigrationError(e.to_string()))?;
     }
 
-    // Create migrations table
-    client
-        .execute(&set.create_table_sql(), &[])
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    ensure_postgres_tracking_table_sync(&mut client, set)?;
 
     // Query applied migrations by created_at
     let rows = client.query(&set.applied_sql(), &[]).unwrap_or_default();
@@ -891,10 +1304,7 @@ fn run_postgres_sync_migrations(
                 }
             }
             client
-                .execute(
-                    &set.record_sql(migration.hash(), migration.created_at()),
-                    &[],
-                )
+                .execute(&set.record_migration_sql(migration), &[])
                 .map_err(|e| CliError::MigrationError(e.to_string()))?;
             applied.push(migration.hash().to_string());
         }
@@ -923,11 +1333,8 @@ fn run_postgres_sync_migrations(
                 })?;
             }
         }
-        tx.execute(
-            &set.record_sql(migration.hash(), migration.created_at()),
-            &[],
-        )
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+        tx.execute(&set.record_migration_sql(migration), &[])
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
         applied.push(migration.hash().to_string());
     }
 
@@ -950,6 +1357,13 @@ fn inspect_postgres_sync_migrations(
         CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
     })?;
 
+    if let Some(schema_sql) = set.create_schema_sql() {
+        client
+            .execute(&schema_sql, &[])
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    }
+
+    ensure_postgres_tracking_table_sync(&mut client, set)?;
     let applied = query_applied_records_postgres_sync(&mut client, set);
     build_migration_plan(set, applied)
 }
@@ -1099,6 +1513,14 @@ async fn inspect_postgres_async_inner(
         }
     });
 
+    if let Some(schema_sql) = set.create_schema_sql() {
+        client
+            .execute(&schema_sql, &[])
+            .await
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    }
+
+    ensure_postgres_tracking_table_async(&client, set).await?;
     let applied = query_applied_records_postgres_async(&client, set).await;
     build_migration_plan(set, applied)
 }
@@ -1156,11 +1578,7 @@ async fn run_postgres_async_inner(
             .map_err(|e| CliError::MigrationError(e.to_string()))?;
     }
 
-    // Create migrations table
-    client
-        .execute(&set.create_table_sql(), &[])
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    ensure_postgres_tracking_table_async(&client, set).await?;
 
     // Query applied migrations by created_at
     let rows = client
@@ -1198,10 +1616,7 @@ async fn run_postgres_async_inner(
                 }
             }
             client
-                .execute(
-                    &set.record_sql(migration.hash(), migration.created_at()),
-                    &[],
-                )
+                .execute(&set.record_migration_sql(migration), &[])
                 .await
                 .map_err(|e| CliError::MigrationError(e.to_string()))?;
             applied.push(migration.hash().to_string());
@@ -1232,12 +1647,9 @@ async fn run_postgres_async_inner(
                 })?;
             }
         }
-        tx.execute(
-            &set.record_sql(migration.hash(), migration.created_at()),
-            &[],
-        )
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+        tx.execute(&set.record_migration_sql(migration), &[])
+            .await
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
         applied.push(migration.hash().to_string());
     }
 
@@ -1343,6 +1755,7 @@ async fn inspect_libsql_local_inner(
         .connect()
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
+    ensure_sqlite_tracking_table_libsql(&conn, set).await?;
     let applied = query_applied_records_libsql(&conn, set).await?;
     build_migration_plan(set, applied)
 }
@@ -1360,12 +1773,7 @@ async fn run_libsql_local_inner(set: &Migrations, path: &str) -> Result<Migratio
         .connect()
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
-    // Create migrations table
-    conn.execute(&set.create_table_sql(), ())
-        .await
-        .map_err(|e| {
-            CliError::MigrationError(format!("Failed to create migrations table: {}", e))
-        })?;
+    ensure_sqlite_tracking_table_libsql(&conn, set).await?;
 
     // Query applied migrations by created_at
     let applied_created_at = query_applied_created_at_libsql(&conn, set).await?;
@@ -1399,13 +1807,7 @@ async fn run_libsql_local_inner(set: &Migrations, path: &str) -> Result<Migratio
                 )));
             }
         }
-        if let Err(e) = tx
-            .execute(
-                &set.record_sql(migration.hash(), migration.created_at()),
-                (),
-            )
-            .await
-        {
+        if let Err(e) = tx.execute(&set.record_migration_sql(migration), ()).await {
             tx.rollback().await.ok();
             return Err(CliError::MigrationError(e.to_string()));
         }
@@ -1568,6 +1970,7 @@ async fn inspect_turso_inner(
         .connect()
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
+    ensure_sqlite_tracking_table_libsql(&conn, set).await?;
     let applied = query_applied_records_turso(&conn, set).await?;
     build_migration_plan(set, applied)
 }
@@ -1589,12 +1992,7 @@ async fn run_turso_inner(
         .connect()
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
-    // Create migrations table
-    conn.execute(&set.create_table_sql(), ())
-        .await
-        .map_err(|e| {
-            CliError::MigrationError(format!("Failed to create migrations table: {}", e))
-        })?;
+    ensure_sqlite_tracking_table_libsql(&conn, set).await?;
 
     // Query applied migrations by created_at
     let applied_created_at = query_applied_created_at_turso(&conn, set).await?;
@@ -1628,13 +2026,7 @@ async fn run_turso_inner(
                 )));
             }
         }
-        if let Err(e) = tx
-            .execute(
-                &set.record_sql(migration.hash(), migration.created_at()),
-                (),
-            )
-            .await
-        {
+        if let Err(e) = tx.execute(&set.record_migration_sql(migration), ()).await {
             tx.rollback().await.ok();
             return Err(CliError::MigrationError(e.to_string()));
         }
@@ -1729,7 +2121,6 @@ pub fn run_introspection(
     migrations_table: &str,
     migrations_schema: &str,
 ) -> Result<IntrospectResult, CliError> {
-    use drizzle_migrations::journal::Journal;
     use drizzle_migrations::words::generate_migration_tag;
 
     // Perform introspection
@@ -1758,20 +2149,13 @@ pub fn run_introspection(
         ))
     })?;
 
-    // Create meta directory for journal
-    let meta_dir = out_dir.join("meta");
-    std::fs::create_dir_all(&meta_dir).map_err(|e| {
-        CliError::Other(format!(
-            "Failed to create meta directory '{}': {}",
-            meta_dir.display(),
-            e
-        ))
-    })?;
-
-    // Load or create journal
-    let journal_path = meta_dir.join("_journal.json");
-    let mut journal = Journal::load_or_create(&journal_path, dialect.to_base())
-        .map_err(|e| CliError::Other(format!("Failed to load journal: {}", e)))?;
+    let journal_path = out_dir.join("meta").join("_journal.json");
+    if journal_path.exists() {
+        return Err(CliError::Other(
+            "Detected old drizzle-kit migration folders. Upgrade them before writing new migrations."
+                .to_string(),
+        ));
+    }
 
     // Generate migration tag (V3 format: timestamp-based)
     let tag = generate_migration_tag(None);
@@ -1815,12 +2199,6 @@ pub fn run_introspection(
 
     // Update result with path
     result.snapshot_path = snapshot_path;
-
-    // Update journal
-    journal.add_entry(tag.clone(), breakpoints);
-    journal
-        .save(&journal_path)
-        .map_err(|e| CliError::Other(format!("Failed to save journal: {}", e)))?;
 
     if init_metadata {
         apply_init_metadata(
@@ -1949,9 +2327,7 @@ fn init_sqlite_metadata(path: &str, set: &Migrations) -> Result<(), CliError> {
         CliError::ConnectionError(format!("Failed to open SQLite database '{}': {}", path, e))
     })?;
 
-    conn.execute(&set.create_table_sql(), []).map_err(|e| {
-        CliError::MigrationError(format!("Failed to create migrations table: {}", e))
-    })?;
+    ensure_sqlite_tracking_table(&conn, set)?;
 
     let applied_created_at = query_applied_created_at_sqlite(&conn, set)?;
     validate_init_metadata(&applied_created_at, set)?;
@@ -1960,7 +2336,7 @@ fn init_sqlite_metadata(path: &str, set: &Migrations) -> Result<(), CliError> {
         return Ok(());
     };
 
-    conn.execute(&set.record_sql(first.hash(), first.created_at()), [])
+    conn.execute(&set.record_migration_sql(first), [])
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     Ok(())
@@ -1989,11 +2365,7 @@ async fn init_libsql_local_metadata_inner(path: &str, set: &Migrations) -> Resul
         .connect()
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
-    conn.execute(&set.create_table_sql(), ())
-        .await
-        .map_err(|e| {
-            CliError::MigrationError(format!("Failed to create migrations table: {}", e))
-        })?;
+    ensure_sqlite_tracking_table_libsql(&conn, set).await?;
 
     let applied_created_at = query_applied_created_at_libsql(&conn, set).await?;
     validate_init_metadata(&applied_created_at, set)?;
@@ -2002,7 +2374,7 @@ async fn init_libsql_local_metadata_inner(path: &str, set: &Migrations) -> Resul
         return Ok(());
     };
 
-    conn.execute(&set.record_sql(first.hash(), first.created_at()), ())
+    conn.execute(&set.record_migration_sql(first), ())
         .await
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
@@ -2040,11 +2412,7 @@ async fn init_turso_metadata_inner(
         .connect()
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
-    conn.execute(&set.create_table_sql(), ())
-        .await
-        .map_err(|e| {
-            CliError::MigrationError(format!("Failed to create migrations table: {}", e))
-        })?;
+    ensure_sqlite_tracking_table_libsql(&conn, set).await?;
 
     let applied_created_at = query_applied_created_at_turso(&conn, set).await?;
     validate_init_metadata(&applied_created_at, set)?;
@@ -2053,7 +2421,7 @@ async fn init_turso_metadata_inner(
         return Ok(());
     };
 
-    conn.execute(&set.record_sql(first.hash(), first.created_at()), ())
+    conn.execute(&set.record_migration_sql(first), ())
         .await
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
@@ -2073,9 +2441,7 @@ fn init_postgres_sync_metadata(creds: &PostgresCreds, set: &Migrations) -> Resul
             .map_err(|e| CliError::MigrationError(e.to_string()))?;
     }
 
-    client
-        .execute(&set.create_table_sql(), &[])
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    ensure_postgres_tracking_table_sync(&mut client, set)?;
 
     let rows = client.query(&set.applied_sql(), &[]).unwrap_or_default();
     let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
@@ -2087,7 +2453,7 @@ fn init_postgres_sync_metadata(creds: &PostgresCreds, set: &Migrations) -> Resul
     };
 
     client
-        .execute(&set.record_sql(first.hash(), first.created_at()), &[])
+        .execute(&set.record_migration_sql(first), &[])
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     Ok(())
@@ -2131,10 +2497,7 @@ async fn init_postgres_async_inner(
             .map_err(|e| CliError::MigrationError(e.to_string()))?;
     }
 
-    client
-        .execute(&set.create_table_sql(), &[])
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    ensure_postgres_tracking_table_async(&client, set).await?;
 
     let rows = client
         .query(&set.applied_sql(), &[])
@@ -2149,7 +2512,7 @@ async fn init_postgres_async_inner(
     };
 
     client
-        .execute(&set.record_sql(first.hash(), first.created_at()), &[])
+        .execute(&set.record_migration_sql(first), &[])
         .await
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
@@ -4729,6 +5092,177 @@ pub struct Schema {
         ));
     }
 
+    #[cfg(feature = "postgres-sync")]
+    #[test]
+    fn postgres_sync_migrate_upgrades_legacy_tracking_table_and_applies_pending() {
+        use drizzle_migrations::{Migration, Migrations};
+        use drizzle_types::Dialect;
+
+        let creds = test_postgres_creds();
+        let url = creds.connection_url();
+        let mut client = postgres::Client::connect(&url, postgres::NoTls)
+            .expect("connect postgres for legacy tracking upgrade test");
+
+        let applied_table = unique_pg_name("cli_sync_applied");
+        let pending_table = unique_pg_name("cli_sync_pending");
+        let migration_schema = unique_pg_name("cli_sync_tracking");
+
+        client
+            .batch_execute(&format!(
+                "DROP TABLE IF EXISTS \"{applied_table}\" CASCADE; \
+                 DROP TABLE IF EXISTS \"{pending_table}\" CASCADE; \
+                 DROP SCHEMA IF EXISTS \"{migration_schema}\" CASCADE; \
+                 CREATE SCHEMA \"{migration_schema}\"; \
+                 CREATE TABLE \"{migration_schema}\".\"__drizzle_migrations\" (id SERIAL PRIMARY KEY, hash TEXT NOT NULL, created_at BIGINT); \
+                 CREATE TABLE \"{applied_table}\" (id integer primary key);"
+            ))
+            .expect("setup legacy postgres tracking metadata");
+
+        let first = Migration::new(
+            &format!("20230331141203_{applied_table}"),
+            &format!("CREATE TABLE \"{applied_table}\" (id integer primary key);"),
+        );
+        let second = Migration::new(
+            &format!("20230331141204_{pending_table}"),
+            &format!("CREATE TABLE \"{pending_table}\" (id integer primary key);"),
+        );
+        let set = Migrations::with_tracking(
+            vec![first.clone(), second.clone()],
+            Dialect::PostgreSQL,
+            drizzle_migrations::Tracking::POSTGRES.schema(migration_schema.clone()),
+        );
+
+        client
+            .execute(
+                &format!(
+                    "INSERT INTO \"{migration_schema}\".\"__drizzle_migrations\" (hash, created_at) VALUES ($1, $2)"
+                ),
+                &[&first.hash(), &first.created_at()],
+            )
+            .expect("insert legacy applied migration row");
+        drop(client);
+
+        let result = run_postgres_sync_migrations(&set, &creds)
+            .expect("sync migration upgrade should succeed");
+        assert_eq!(result.applied_count, 1);
+        assert_eq!(result.applied_migrations, vec![second.hash().to_string()]);
+
+        let mut verify_client =
+            postgres::Client::connect(&url, postgres::NoTls).expect("reconnect for verification");
+        let columns: Vec<String> = verify_client
+            .query(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = '__drizzle_migrations' ORDER BY ordinal_position",
+                &[&migration_schema],
+            )
+            .expect("query upgraded tracking columns")
+            .into_iter()
+            .map(|row| row.get(0))
+            .collect();
+        assert_eq!(
+            columns,
+            vec!["id", "hash", "created_at", "name", "applied_at"]
+        );
+
+        let rows: Vec<(String, i64, String, Option<String>)> = verify_client
+            .query(
+                &format!(
+                    "SELECT hash, created_at, name, applied_at::text FROM \"{migration_schema}\".\"__drizzle_migrations\" ORDER BY id ASC"
+                ),
+                &[],
+            )
+            .expect("query upgraded metadata rows")
+            .into_iter()
+            .map(|row| (row.get(0), row.get(1), row.get(2), row.get(3)))
+            .collect();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].0, first.hash());
+        assert_eq!(rows[0].1, first.created_at());
+        assert_eq!(rows[0].2, first.name());
+        assert_eq!(rows[0].3, None);
+        assert_eq!(rows[1].0, second.hash());
+        assert_eq!(rows[1].1, second.created_at());
+        assert_eq!(rows[1].2, second.name());
+        assert!(rows[1].3.is_some());
+
+        let pending_exists: i64 = verify_client
+            .query_one(
+                "SELECT COUNT(*)::bigint FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1",
+                &[&pending_table],
+            )
+            .expect("query pending table")
+            .get(0);
+        assert_eq!(pending_exists, 1);
+
+        let _ = verify_client.batch_execute(&format!(
+            "DROP TABLE IF EXISTS \"{applied_table}\" CASCADE; \
+             DROP TABLE IF EXISTS \"{pending_table}\" CASCADE; \
+             DROP SCHEMA IF EXISTS \"{migration_schema}\" CASCADE;"
+        ));
+    }
+
+    #[cfg(feature = "postgres-sync")]
+    #[test]
+    fn postgres_sync_migrate_upgrade_rejects_unmatched_legacy_rows() {
+        use drizzle_migrations::{Migration, Migrations};
+        use drizzle_types::Dialect;
+
+        let creds = test_postgres_creds();
+        let url = creds.connection_url();
+        let mut client = postgres::Client::connect(&url, postgres::NoTls)
+            .expect("connect postgres for unmatched legacy row test");
+
+        let migration_schema = unique_pg_name("cli_sync_tracking_unmatched");
+        client
+            .batch_execute(&format!(
+                "DROP SCHEMA IF EXISTS \"{migration_schema}\" CASCADE; \
+                 CREATE SCHEMA \"{migration_schema}\"; \
+                 CREATE TABLE \"{migration_schema}\".\"__drizzle_migrations\" (id SERIAL PRIMARY KEY, hash TEXT NOT NULL, created_at BIGINT);"
+            ))
+            .expect("setup unmatched legacy metadata");
+
+        let migration = Migration::new(
+            "20230331141203_cli_sync_first",
+            "CREATE TABLE \"cli_sync_unmatched_target\" (id integer primary key);",
+        );
+        let set = Migrations::with_tracking(
+            vec![migration],
+            Dialect::PostgreSQL,
+            drizzle_migrations::Tracking::POSTGRES.schema(migration_schema.clone()),
+        );
+
+        client
+            .execute(
+                &format!(
+                    "INSERT INTO \"{migration_schema}\".\"__drizzle_migrations\" (hash, created_at) VALUES ($1, $2)"
+                ),
+                &[&"unknown_hash", &1_680_271_924_000_i64],
+            )
+            .expect("insert unmatched legacy row");
+        drop(client);
+
+        let err = run_postgres_sync_migrations(&set, &creds)
+            .expect_err("unmatched legacy metadata should fail");
+        assert!(err.to_string().contains("do not match local migrations"));
+
+        let mut verify_client =
+            postgres::Client::connect(&url, postgres::NoTls).expect("reconnect for verification");
+        let columns: Vec<String> = verify_client
+            .query(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = '__drizzle_migrations' ORDER BY ordinal_position",
+                &[&migration_schema],
+            )
+            .expect("query legacy tracking columns")
+            .into_iter()
+            .map(|row| row.get(0))
+            .collect();
+        assert_eq!(columns, vec!["id", "hash", "created_at"]);
+
+        let _ = verify_client.batch_execute(&format!(
+            "DROP TABLE IF EXISTS \"cli_sync_unmatched_target\" CASCADE; \
+             DROP SCHEMA IF EXISTS \"{migration_schema}\" CASCADE;"
+        ));
+    }
+
     #[cfg(feature = "tokio-postgres")]
     #[test]
     fn tokio_postgres_migrate_applies_concurrent_index_without_transaction() {
@@ -4801,6 +5335,131 @@ pub struct Schema {
             let _ = client
                 .batch_execute(&format!(
                     "DROP TABLE IF EXISTS \"{table}\" CASCADE; \
+                     DROP SCHEMA IF EXISTS \"{migration_schema}\" CASCADE;"
+                ))
+                .await;
+        });
+    }
+
+    #[cfg(feature = "tokio-postgres")]
+    #[test]
+    fn tokio_postgres_migrate_upgrades_legacy_tracking_table_and_applies_pending() {
+        use drizzle_migrations::{Migration, Migrations};
+        use drizzle_types::Dialect;
+
+        let creds = test_postgres_creds();
+        let url = creds.connection_url();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("create tokio runtime");
+
+        rt.block_on(async {
+            let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
+                .await
+                .expect("connect tokio-postgres for legacy tracking upgrade test");
+
+            tokio::spawn(async move {
+                let _ = connection.await;
+            });
+
+            let applied_table = unique_pg_name("cli_async_applied");
+            let pending_table = unique_pg_name("cli_async_pending");
+            let migration_schema = unique_pg_name("cli_async_tracking");
+
+            client
+                .batch_execute(&format!(
+                    "DROP TABLE IF EXISTS \"{applied_table}\" CASCADE; \
+                     DROP TABLE IF EXISTS \"{pending_table}\" CASCADE; \
+                     DROP SCHEMA IF EXISTS \"{migration_schema}\" CASCADE; \
+                     CREATE SCHEMA \"{migration_schema}\"; \
+                     CREATE TABLE \"{migration_schema}\".\"__drizzle_migrations\" (id SERIAL PRIMARY KEY, hash TEXT NOT NULL, created_at BIGINT); \
+                     CREATE TABLE \"{applied_table}\" (id integer primary key);"
+                ))
+                .await
+                .expect("setup legacy postgres tracking metadata");
+
+            let first = Migration::new(
+                &format!("20230331141203_{applied_table}"),
+                &format!("CREATE TABLE \"{applied_table}\" (id integer primary key);"),
+            );
+            let second = Migration::new(
+                &format!("20230331141204_{pending_table}"),
+                &format!("CREATE TABLE \"{pending_table}\" (id integer primary key);"),
+            );
+            let set = Migrations::with_tracking(
+                vec![first.clone(), second.clone()],
+                Dialect::PostgreSQL,
+                drizzle_migrations::Tracking::POSTGRES.schema(migration_schema.clone()),
+            );
+
+            client
+                .execute(
+                    &format!(
+                        "INSERT INTO \"{migration_schema}\".\"__drizzle_migrations\" (hash, created_at) VALUES ($1, $2)"
+                    ),
+                    &[&first.hash(), &first.created_at()],
+                )
+                .await
+                .expect("insert legacy applied migration row");
+
+            let result = run_postgres_async_inner(&set, &creds)
+                .await
+                .expect("async migration upgrade should succeed");
+            assert_eq!(result.applied_count, 1);
+            assert_eq!(result.applied_migrations, vec![second.hash().to_string()]);
+
+            let columns: Vec<String> = client
+                .query(
+                    "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = '__drizzle_migrations' ORDER BY ordinal_position",
+                    &[&migration_schema],
+                )
+                .await
+                .expect("query upgraded tracking columns")
+                .into_iter()
+                .map(|row| row.get(0))
+                .collect();
+            assert_eq!(
+                columns,
+                vec!["id", "hash", "created_at", "name", "applied_at"]
+            );
+
+            let rows: Vec<(String, i64, String, Option<String>)> = client
+                .query(
+                    &format!(
+                        "SELECT hash, created_at, name, applied_at::text FROM \"{migration_schema}\".\"__drizzle_migrations\" ORDER BY id ASC"
+                    ),
+                    &[],
+                )
+                .await
+                .expect("query upgraded metadata rows")
+                .into_iter()
+                .map(|row| (row.get(0), row.get(1), row.get(2), row.get(3)))
+                .collect();
+            assert_eq!(rows.len(), 2);
+            assert_eq!(rows[0].0, first.hash());
+            assert_eq!(rows[0].1, first.created_at());
+            assert_eq!(rows[0].2, first.name());
+            assert_eq!(rows[0].3, None);
+            assert_eq!(rows[1].0, second.hash());
+            assert_eq!(rows[1].1, second.created_at());
+            assert_eq!(rows[1].2, second.name());
+            assert!(rows[1].3.is_some());
+
+            let pending_exists: i64 = client
+                .query_one(
+                    "SELECT COUNT(*)::bigint FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1",
+                    &[&pending_table],
+                )
+                .await
+                .expect("query pending table")
+                .get(0);
+            assert_eq!(pending_exists, 1);
+
+            let _ = client
+                .batch_execute(&format!(
+                    "DROP TABLE IF EXISTS \"{applied_table}\" CASCADE; \
+                     DROP TABLE IF EXISTS \"{pending_table}\" CASCADE; \
                      DROP SCHEMA IF EXISTS \"{migration_schema}\" CASCADE;"
                 ))
                 .await;

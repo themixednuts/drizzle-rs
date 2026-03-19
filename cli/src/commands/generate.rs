@@ -24,7 +24,6 @@ pub struct GenerateOptions {
 
 /// Run the generate command
 pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Result<(), CliError> {
-    use drizzle_migrations::journal::Journal;
     use drizzle_migrations::parser::SchemaParser;
     use drizzle_migrations::words::{PrefixMode, generate_migration_tag_with_mode};
 
@@ -39,8 +38,6 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
         .out
         .clone()
         .unwrap_or_else(|| db.migrations_dir().to_path_buf());
-    let meta_dir = out_dir.join("meta");
-    let journal_path = meta_dir.join("_journal.json");
 
     if !config.is_single_database() {
         let name = db_name.unwrap_or("(default)");
@@ -60,14 +57,19 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
 
     // Create output directories if they don't exist
     std::fs::create_dir_all(&out_dir).map_err(|e| CliError::IoError(e.to_string()))?;
-    std::fs::create_dir_all(&meta_dir).map_err(|e| CliError::IoError(e.to_string()))?;
+
+    let legacy_journal_path = out_dir.join("meta").join("_journal.json");
+    if legacy_journal_path.exists() {
+        return Err(CliError::Other(
+            "Detected old drizzle-kit migration folders. Upgrade them before generating new migrations."
+                .to_string(),
+        ));
+    }
 
     // Handle custom migration (empty migration file for manual SQL)
     if opts.custom {
         return generate_custom_migration(
             &out_dir,
-            &journal_path,
-            effective_dialect.to_base(),
             effective_breakpoints,
             db.migrations.as_ref().and_then(|m| m.prefix),
             opts.name,
@@ -121,7 +123,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
     let current_snapshot = parse_result_to_snapshot(&parse_result, dialect, effective_casing);
 
     // Load previous snapshot if exists
-    let prev_snapshot = load_previous_snapshot(&out_dir, &journal_path, dialect)?;
+    let prev_snapshot = load_previous_snapshot(&out_dir, dialect)?;
 
     // Generate diff
     let generated = generate_diff(&prev_snapshot, &current_snapshot)?;
@@ -137,10 +139,6 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
         generated.statements.len()
     );
 
-    // Load or create journal (needed for index-based prefixes)
-    let mut journal = Journal::load_or_create(&journal_path, dialect)
-        .map_err(|e| CliError::IoError(e.to_string()))?;
-
     let prefix_mode = db
         .migrations
         .as_ref()
@@ -148,8 +146,9 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
         .map(map_prefix_mode)
         .unwrap_or(PrefixMode::Timestamp);
 
+    let next_idx = next_migration_index(&out_dir)?;
     let migration_tag =
-        generate_migration_tag_with_mode(prefix_mode, journal.next_idx(), opts.name.as_deref());
+        generate_migration_tag_with_mode(prefix_mode, next_idx, opts.name.as_deref());
 
     // Create migration subdirectory: {out}/{tag}/
     let migration_dir = out_dir.join(&migration_tag);
@@ -172,12 +171,6 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
         .save(&snapshot_path)
         .map_err(|e| CliError::IoError(e.to_string()))?;
 
-    // Update journal
-    journal.add_entry(migration_tag.clone(), effective_breakpoints);
-    journal
-        .save(&journal_path)
-        .map_err(|e| CliError::IoError(e.to_string()))?;
-
     println!(
         "{}",
         output::success(&format!("Migration generated: {}", migration_tag))
@@ -190,23 +183,21 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
 /// Generate an empty custom migration for manual SQL
 fn generate_custom_migration(
     out_dir: &Path,
-    journal_path: &Path,
-    dialect: drizzle_types::Dialect,
-    breakpoints: bool,
+    _breakpoints: bool,
     prefix: Option<MigrationPrefix>,
     name: Option<String>,
 ) -> Result<(), CliError> {
-    use drizzle_migrations::journal::Journal;
     use drizzle_migrations::words::{PrefixMode, generate_migration_tag_with_mode};
 
     let custom_name = name.unwrap_or_else(|| "custom".to_string());
-    let mut journal = Journal::load_or_create(journal_path, dialect)
-        .map_err(|e| CliError::IoError(e.to_string()))?;
 
     let prefix_mode = prefix.map(map_prefix_mode).unwrap_or(PrefixMode::Timestamp);
 
-    let migration_tag =
-        generate_migration_tag_with_mode(prefix_mode, journal.next_idx(), Some(&custom_name));
+    let migration_tag = generate_migration_tag_with_mode(
+        prefix_mode,
+        next_migration_index(out_dir)?,
+        Some(&custom_name),
+    );
 
     // Create migration subdirectory: {out}/{tag}/
     let migration_dir = out_dir.join(&migration_tag);
@@ -216,12 +207,6 @@ fn generate_custom_migration(
     let migration_sql_path = migration_dir.join("migration.sql");
     let sql_content = "-- Custom SQL migration file, put your code below! --\n\n";
     std::fs::write(&migration_sql_path, sql_content)
-        .map_err(|e| CliError::IoError(e.to_string()))?;
-
-    // Update journal
-    journal.add_entry(migration_tag.clone(), breakpoints);
-    journal
-        .save(journal_path)
         .map_err(|e| CliError::IoError(e.to_string()))?;
 
     println!(
@@ -250,10 +235,8 @@ fn map_prefix_mode(p: MigrationPrefix) -> drizzle_migrations::PrefixMode {
 /// Load the previous snapshot from the migration directory
 fn load_previous_snapshot(
     out_dir: &Path,
-    journal_path: &Path,
     dialect: drizzle_types::Dialect,
 ) -> Result<drizzle_migrations::schema::Snapshot, CliError> {
-    use drizzle_migrations::journal::Journal;
     use drizzle_migrations::schema::Snapshot;
 
     if let Some(snapshot_path) = latest_v3_snapshot_path(out_dir)? {
@@ -261,21 +244,61 @@ fn load_previous_snapshot(
             .map_err(|e| CliError::IoError(e.to_string()));
     }
 
-    // Legacy fallback for projects that still have meta/_journal.json.
-    if journal_path.exists() {
-        let journal = Journal::load(journal_path).map_err(|e| CliError::IoError(e.to_string()))?;
-        if let Some(latest) = journal.entries.last() {
-            // Snapshot is in {out}/{tag}/snapshot.json
-            let snapshot_path = out_dir.join(&latest.tag).join("snapshot.json");
-            if snapshot_path.exists() {
-                return Snapshot::load(&snapshot_path, dialect)
-                    .map_err(|e| CliError::IoError(e.to_string()));
-            }
+    // No previous snapshot, return empty
+    Ok(Snapshot::empty(dialect))
+}
+
+fn next_migration_index(out_dir: &Path) -> Result<u32, CliError> {
+    let entries = collect_v3_migration_tags(out_dir)?;
+    let mut max_index: Option<u32> = None;
+
+    for tag in &entries {
+        let Some(prefix) = tag.split('_').next() else {
+            continue;
+        };
+
+        if prefix.len() > 10 || !prefix.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+
+        if let Ok(idx) = prefix.parse::<u32>() {
+            max_index = Some(max_index.map_or(idx, |curr| curr.max(idx)));
         }
     }
 
-    // No previous snapshot, return empty
-    Ok(Snapshot::empty(dialect))
+    Ok(max_index
+        .map(|idx| idx.saturating_add(1))
+        .unwrap_or(entries.len() as u32))
+}
+
+fn collect_v3_migration_tags(out_dir: &Path) -> Result<Vec<String>, CliError> {
+    if !out_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut tags = Vec::new();
+    for entry in std::fs::read_dir(out_dir).map_err(|e| CliError::IoError(e.to_string()))? {
+        let entry = entry.map_err(|e| CliError::IoError(e.to_string()))?;
+        if !entry
+            .file_type()
+            .map_err(|e| CliError::IoError(e.to_string()))?
+            .is_dir()
+        {
+            continue;
+        }
+
+        let tag = entry.file_name().to_string_lossy().to_string();
+        if tag == "meta" {
+            continue;
+        }
+
+        if entry.path().join("migration.sql").exists() {
+            tags.push(tag);
+        }
+    }
+
+    tags.sort();
+    Ok(tags)
 }
 
 fn latest_v3_snapshot_path(out_dir: &Path) -> Result<Option<std::path::PathBuf>, CliError> {

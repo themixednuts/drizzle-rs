@@ -321,7 +321,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             tracking,
         );
 
-        self.conn.execute(&set.create_table_sql(), [])?;
+        ensure_sqlite_migration_table(&self.conn, &set)?;
         let mut stmt = self.conn.prepare(&set.applied_sql())?;
         let rows = stmt.query_map([], |row| row.get::<_, Option<i64>>(0))?;
         let applied_created_at = rows.filter_map(Result::ok).flatten().collect::<Vec<_>>();
@@ -341,10 +341,8 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                         self.conn.execute(stmt, [])?;
                     }
                 }
-                self.conn.execute(
-                    &set.record_sql(migration.hash(), migration.created_at()),
-                    [],
-                )?;
+                self.conn
+                    .execute(&set.record_migration_sql(migration), [])?;
             }
             Ok(())
         })();
@@ -358,6 +356,92 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                 let _ = self.conn.execute("ROLLBACK", []);
                 Err(e)
             }
+        }
+    }
+}
+
+fn ensure_sqlite_migration_table(
+    conn: &rusqlite::Connection,
+    set: &drizzle_migrations::Migrations,
+) -> drizzle_core::error::Result<()> {
+    conn.execute(&set.create_table_sql(), [])?;
+
+    let table_name = set.table_name().replace('\'', "''");
+    let pragma_sql = format!("SELECT name FROM pragma_table_info('{}')", table_name);
+    let mut stmt = conn.prepare(&pragma_sql)?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if columns.iter().any(|column| column == "name") {
+        return Ok(());
+    }
+
+    let mut stmt = conn.prepare(&format!(
+        "SELECT id, hash, created_at FROM {} ORDER BY id ASC",
+        set.table_ident_sql()
+    ))?;
+    let applied = stmt
+        .query_map([], |row| {
+            Ok(drizzle_migrations::AppliedMigrationMetadata {
+                id: row.get::<_, Option<i64>>(0)?,
+                hash: row.get::<_, String>(1)?,
+                created_at: row.get::<_, i64>(2)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
+        .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+
+    conn.execute("BEGIN", [])?;
+    let result = (|| -> drizzle_core::error::Result<()> {
+        conn.execute(
+            &format!(
+                "ALTER TABLE {} ADD COLUMN \"name\" text",
+                set.table_ident_sql()
+            ),
+            [],
+        )?;
+        conn.execute(
+            &format!(
+                "ALTER TABLE {} ADD COLUMN \"applied_at\" TEXT",
+                set.table_ident_sql()
+            ),
+            [],
+        )?;
+
+        for row in matched {
+            let escaped_name = row.name.replace('\'', "''");
+            let where_clause = if let Some(id) = row.id {
+                format!("\"id\" = {id}")
+            } else {
+                format!(
+                    "\"created_at\" = {} AND \"hash\" = '{}'",
+                    row.created_at,
+                    row.hash.replace('\'', "''")
+                )
+            };
+            let update_sql = format!(
+                "UPDATE {} SET \"name\" = '{}', \"applied_at\" = NULL WHERE {}",
+                set.table_ident_sql(),
+                escaped_name,
+                where_clause
+            );
+            conn.execute(&update_sql, [])?;
+        }
+
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => {
+            conn.execute("COMMIT", [])?;
+            Ok(())
+        }
+        Err(err) => {
+            let _ = conn.execute("ROLLBACK", []);
+            Err(err)
         }
     }
 }

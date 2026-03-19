@@ -81,73 +81,39 @@ pub fn save_snapshot(snapshot: &PostgresSnapshot, path: &Path) -> SerializerResu
 
 /// Load the latest snapshot from a drizzle folder
 pub fn load_latest_snapshot(drizzle_folder: &Path) -> SerializerResult<Option<PostgresSnapshot>> {
-    let meta_folder = drizzle_folder.join("meta");
-    let journal_path = meta_folder.join("_journal.json");
-
-    if !journal_path.exists() {
-        return Ok(None);
+    let snapshots = find_snapshot_files(drizzle_folder)?;
+    match snapshots.last() {
+        Some(path) => load_snapshot(path).map(Some),
+        None => Ok(None),
     }
-
-    // Read journal to find latest snapshot
-    let journal_contents = std::fs::read_to_string(&journal_path).map_err(|e| SerializerError {
-        message: format!("Failed to read journal: {}", e),
-        path: Some(journal_path.display().to_string()),
-    })?;
-
-    let journal: serde_json::Value =
-        serde_json::from_str(&journal_contents).map_err(|e| SerializerError {
-            message: format!("Failed to parse journal: {}", e),
-            path: Some(journal_path.display().to_string()),
-        })?;
-
-    let entries = journal["entries"]
-        .as_array()
-        .ok_or_else(|| SerializerError {
-            message: "Invalid journal format: missing entries array".to_string(),
-            path: Some(journal_path.display().to_string()),
-        })?;
-
-    if entries.is_empty() {
-        return Ok(None);
-    }
-
-    // Get the last entry's tag
-    let last_entry = entries.last().unwrap();
-    let tag = last_entry["tag"].as_str().ok_or_else(|| SerializerError {
-        message: "Invalid journal entry: missing tag".to_string(),
-        path: Some(journal_path.display().to_string()),
-    })?;
-
-    let snapshot_path = meta_folder.join(format!("{}_snapshot.json", tag));
-    load_snapshot(&snapshot_path).map(Some)
 }
 
 /// Find all snapshot files in a drizzle folder
 pub fn find_snapshot_files(drizzle_folder: &Path) -> SerializerResult<Vec<std::path::PathBuf>> {
-    let meta_folder = drizzle_folder.join("meta");
-
-    if !meta_folder.exists() {
+    if !drizzle_folder.exists() {
         return Ok(Vec::new());
     }
 
     let mut snapshots = Vec::new();
 
-    let entries = std::fs::read_dir(&meta_folder).map_err(|e| SerializerError {
-        message: format!("Failed to read meta folder: {}", e),
-        path: Some(meta_folder.display().to_string()),
+    let entries = std::fs::read_dir(drizzle_folder).map_err(|e| SerializerError {
+        message: format!("Failed to read migrations folder: {}", e),
+        path: Some(drizzle_folder.display().to_string()),
     })?;
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if let Some(name) = path.file_name().and_then(|n| n.to_str())
-            && name.ends_with("_snapshot.json")
-            && name != "_journal.json"
-        {
-            snapshots.push(path);
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+
+        let snapshot_path = path.join("snapshot.json");
+        if snapshot_path.exists() {
+            snapshots.push(snapshot_path);
         }
     }
 
-    // Sort by filename (which includes timestamp)
+    // Sort by parent folder name (which includes timestamp)
     snapshots.sort();
 
     Ok(snapshots)
@@ -215,14 +181,16 @@ mod tests {
     #[test]
     fn test_find_snapshot_files() {
         let temp_dir = TempDir::new().unwrap();
-        let meta_dir = temp_dir.path().join("meta");
-        std::fs::create_dir_all(&meta_dir).unwrap();
+        let mig1 = temp_dir.path().join("0001_first");
+        let mig2 = temp_dir.path().join("0002_second");
+        std::fs::create_dir_all(&mig1).unwrap();
+        std::fs::create_dir_all(&mig2).unwrap();
 
         // Create some snapshot files
-        let mut f1 = std::fs::File::create(meta_dir.join("0001_snapshot.json")).unwrap();
+        let mut f1 = std::fs::File::create(mig1.join("snapshot.json")).unwrap();
         f1.write_all(b"{}").unwrap();
 
-        let mut f2 = std::fs::File::create(meta_dir.join("0002_snapshot.json")).unwrap();
+        let mut f2 = std::fs::File::create(mig2.join("snapshot.json")).unwrap();
         f2.write_all(b"{}").unwrap();
 
         let snapshots = find_snapshot_files(temp_dir.path()).unwrap();

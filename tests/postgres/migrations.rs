@@ -2,8 +2,14 @@
 use drizzle::postgres::prelude::*;
 #[cfg(feature = "postgres-sync")]
 use drizzle::postgres::sync::Drizzle;
+#[cfg(feature = "tokio-postgres")]
+use drizzle::postgres::tokio::Drizzle as TokioDrizzle;
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+use drizzle_migrations::{Migration, Tracking};
 #[cfg(feature = "postgres-sync")]
 use postgres::{Client, NoTls};
+#[cfg(feature = "tokio-postgres")]
+use tokio_postgres::NoTls as TokioNoTls;
 
 // ---------------------------------------------------------------------------
 // Each test gets its own schema so introspection doesn't see other tests'
@@ -101,6 +107,102 @@ fn connect(schema_name: &str) -> Client {
 }
 
 #[cfg(feature = "postgres-sync")]
+fn legacy_tracking_columns_sync(client: &mut Client, schema: &str, table: &str) -> Vec<String> {
+    client
+        .query(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position",
+            &[&schema, &table],
+        )
+        .expect("query information_schema.columns")
+        .into_iter()
+        .map(|row| row.get::<_, String>(0))
+        .collect()
+}
+
+#[cfg(feature = "postgres-sync")]
+fn create_legacy_tracking_table_sync(client: &mut Client, schema: &str, table: &str) {
+    client
+        .batch_execute(&format!(
+            "CREATE TABLE \"{schema}\".\"{table}\" (id SERIAL PRIMARY KEY, hash TEXT NOT NULL, created_at BIGINT)"
+        ))
+        .expect("create legacy tracking table");
+}
+
+#[cfg(feature = "tokio-postgres")]
+async fn connect_tokio(schema_name: &str) -> tokio_postgres::Client {
+    use std::process::Command;
+    use tokio::time::{Duration, sleep};
+
+    let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        "host=localhost user=postgres password=postgres dbname=drizzle_test".into()
+    });
+
+    let mut ready = tokio_postgres::connect(&url, TokioNoTls).await.ok();
+    if ready.is_none() {
+        let status = Command::new("docker")
+            .args(["compose", "up", "-d", "postgres"])
+            .status();
+        if let Ok(s) = status
+            && s.success()
+        {
+            for _ in 0..30 {
+                sleep(Duration::from_secs(1)).await;
+                if let Ok(conn) = tokio_postgres::connect(&url, TokioNoTls).await {
+                    ready = Some(conn);
+                    break;
+                }
+            }
+        }
+    }
+
+    let (client, connection) = ready.expect("connect tokio-postgres");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    client
+        .batch_execute(&format!(
+            "DROP SCHEMA IF EXISTS \"{}\" CASCADE; CREATE SCHEMA \"{}\"",
+            schema_name, schema_name
+        ))
+        .await
+        .expect("setup test schema");
+    client
+}
+
+#[cfg(feature = "tokio-postgres")]
+async fn legacy_tracking_columns_tokio(
+    client: &tokio_postgres::Client,
+    schema: &str,
+    table: &str,
+) -> Vec<String> {
+    client
+        .query(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position",
+            &[&schema, &table],
+        )
+        .await
+        .expect("query information_schema.columns")
+        .into_iter()
+        .map(|row| row.get::<_, String>(0))
+        .collect()
+}
+
+#[cfg(feature = "tokio-postgres")]
+async fn create_legacy_tracking_table_tokio(
+    client: &tokio_postgres::Client,
+    schema: &str,
+    table: &str,
+) {
+    client
+        .batch_execute(&format!(
+            "CREATE TABLE \"{schema}\".\"{table}\" (id SERIAL PRIMARY KEY, hash TEXT NOT NULL, created_at BIGINT)"
+        ))
+        .await
+        .expect("create legacy tracking table");
+}
+
+#[cfg(feature = "postgres-sync")]
 #[test]
 fn postgres_sync_push_creates_table() {
     let schema_name = "push_creates_test";
@@ -180,5 +282,268 @@ fn postgres_sync_push_table_is_usable() {
     // cleanup
     db.conn_mut()
         .batch_execute(&format!("DROP SCHEMA \"{}\" CASCADE", schema_name))
+        .unwrap();
+}
+
+#[cfg(feature = "postgres-sync")]
+#[test]
+fn postgres_sync_runtime_migrate_upgrades_legacy_tracking_table() {
+    let schema_name = "runtime_upgrade_sync_test";
+    let mut client = connect(schema_name);
+    create_legacy_tracking_table_sync(&mut client, schema_name, "__drizzle_migrations");
+    client
+        .execute(
+            &format!(
+                "INSERT INTO \"{}\".\"__drizzle_migrations\" (hash, created_at) VALUES ($1, $2)",
+                schema_name
+            ),
+            &[&"runtime_hash_a", &1_680_271_923_000_i64],
+        )
+        .expect("insert legacy migration row");
+
+    let (mut db, _) = Drizzle::new(client, ());
+    let migration = Migration::with_hash(
+        "20230331141203_runtime_first",
+        "runtime_hash_a",
+        1_680_271_923_000,
+        vec![format!(
+            "CREATE TABLE \"{}\".runtime_created_at_a (id INTEGER PRIMARY KEY)",
+            schema_name
+        )],
+    );
+
+    db.migrate(
+        &[migration],
+        Tracking::POSTGRES.schema(schema_name.to_string()),
+    )
+    .expect("upgrade legacy runtime metadata");
+
+    let columns = legacy_tracking_columns_sync(db.conn_mut(), schema_name, "__drizzle_migrations");
+    assert_eq!(
+        columns,
+        vec!["id", "hash", "created_at", "name", "applied_at"],
+        "tracking table should be upgraded in place"
+    );
+
+    let row = db
+        .conn_mut()
+        .query_one(
+            &format!(
+                "SELECT name, applied_at::text FROM \"{}\".\"__drizzle_migrations\" LIMIT 1",
+                schema_name
+            ),
+            &[],
+        )
+        .expect("select upgraded migration row");
+    let name: String = row.get(0);
+    let applied_at: Option<String> = row.get(1);
+    assert_eq!(name, "20230331141203_runtime_first");
+    assert_eq!(
+        applied_at, None,
+        "backfilled legacy rows keep NULL applied_at"
+    );
+
+    let migrated_table_exists: i64 = db
+        .conn_mut()
+        .query_one(
+            "SELECT COUNT(*)::bigint FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'runtime_created_at_a'",
+            &[&schema_name],
+        )
+        .expect("query information_schema.tables")
+        .get(0);
+    assert_eq!(
+        migrated_table_exists, 0,
+        "already-applied migration should not run again during metadata upgrade"
+    );
+
+    db.conn_mut()
+        .batch_execute(&format!("DROP SCHEMA \"{}\" CASCADE", schema_name))
+        .unwrap();
+}
+
+#[cfg(feature = "postgres-sync")]
+#[test]
+fn postgres_sync_runtime_migrate_upgrade_uses_hash_for_same_timestamp() {
+    let schema_name = "runtime_upgrade_collision_sync_test";
+    let mut client = connect(schema_name);
+    create_legacy_tracking_table_sync(&mut client, schema_name, "__drizzle_migrations");
+    client
+        .execute(
+            &format!(
+                "INSERT INTO \"{}\".\"__drizzle_migrations\" (hash, created_at) VALUES ($1, $2)",
+                schema_name
+            ),
+            &[&"runtime_hash_b", &1_680_271_923_000_i64],
+        )
+        .expect("insert legacy migration row");
+
+    let (mut db, _) = Drizzle::new(client, ());
+    let migrations = vec![
+        Migration::with_hash(
+            "20230331141203_runtime_alpha",
+            "runtime_hash_a",
+            1_680_271_923_000,
+            vec![format!(
+                "CREATE TABLE \"{}\".runtime_created_at_a (id INTEGER PRIMARY KEY)",
+                schema_name
+            )],
+        ),
+        Migration::with_hash(
+            "20230331141203_runtime_beta",
+            "runtime_hash_b",
+            1_680_271_923_000,
+            vec![format!(
+                "CREATE TABLE \"{}\".runtime_created_at_b (id INTEGER PRIMARY KEY)",
+                schema_name
+            )],
+        ),
+    ];
+
+    db.migrate(
+        &migrations,
+        Tracking::POSTGRES.schema(schema_name.to_string()),
+    )
+    .expect("upgrade legacy runtime metadata with timestamp collision");
+
+    let name: String = db
+        .conn_mut()
+        .query_one(
+            &format!(
+                "SELECT name FROM \"{}\".\"__drizzle_migrations\" LIMIT 1",
+                schema_name
+            ),
+            &[],
+        )
+        .expect("select upgraded migration name")
+        .get(0);
+    assert_eq!(name, "20230331141203_runtime_beta");
+
+    db.conn_mut()
+        .batch_execute(&format!("DROP SCHEMA \"{}\" CASCADE", schema_name))
+        .unwrap();
+}
+
+#[cfg(feature = "postgres-sync")]
+#[test]
+fn postgres_sync_runtime_migrate_upgrade_rejects_unmatched_legacy_rows() {
+    let schema_name = "runtime_upgrade_unmatched_sync_test";
+    let mut client = connect(schema_name);
+    create_legacy_tracking_table_sync(&mut client, schema_name, "__drizzle_migrations");
+    client
+        .execute(
+            &format!(
+                "INSERT INTO \"{}\".\"__drizzle_migrations\" (hash, created_at) VALUES ($1, $2)",
+                schema_name
+            ),
+            &[&"unknown_hash", &1_680_271_924_000_i64],
+        )
+        .expect("insert unmatched legacy row");
+
+    let (mut db, _) = Drizzle::new(client, ());
+    let migration = Migration::with_hash(
+        "20230331141203_runtime_first",
+        "runtime_hash_a",
+        1_680_271_923_000,
+        vec![format!(
+            "CREATE TABLE \"{}\".runtime_created_at_a (id INTEGER PRIMARY KEY)",
+            schema_name
+        )],
+    );
+
+    let err = db
+        .migrate(
+            &[migration],
+            Tracking::POSTGRES.schema(schema_name.to_string()),
+        )
+        .expect_err("unmatched legacy metadata should fail");
+    assert!(err.to_string().contains("do not match local migrations"));
+
+    let columns = legacy_tracking_columns_sync(db.conn_mut(), schema_name, "__drizzle_migrations");
+    assert_eq!(columns, vec!["id", "hash", "created_at"]);
+
+    db.conn_mut()
+        .batch_execute(&format!("DROP SCHEMA \"{}\" CASCADE", schema_name))
+        .unwrap();
+}
+
+#[cfg(feature = "tokio-postgres")]
+#[tokio::test]
+async fn tokio_postgres_runtime_migrate_upgrades_legacy_tracking_table() {
+    let schema_name = "runtime_upgrade_tokio_test";
+    let client = connect_tokio(schema_name).await;
+    create_legacy_tracking_table_tokio(&client, schema_name, "__drizzle_migrations").await;
+    client
+        .execute(
+            &format!(
+                "INSERT INTO \"{}\".\"__drizzle_migrations\" (hash, created_at) VALUES ($1, $2)",
+                schema_name
+            ),
+            &[&"runtime_hash_a", &1_680_271_923_000_i64],
+        )
+        .await
+        .expect("insert legacy migration row");
+
+    let (mut db, _) = TokioDrizzle::new(client, ());
+    let migration = Migration::with_hash(
+        "20230331141203_runtime_first",
+        "runtime_hash_a",
+        1_680_271_923_000,
+        vec![format!(
+            "CREATE TABLE \"{}\".runtime_created_at_a (id INTEGER PRIMARY KEY)",
+            schema_name
+        )],
+    );
+
+    db.migrate(
+        &[migration],
+        Tracking::POSTGRES.schema(schema_name.to_string()),
+    )
+    .await
+    .expect("upgrade legacy runtime metadata");
+
+    let columns =
+        legacy_tracking_columns_tokio(db.conn(), schema_name, "__drizzle_migrations").await;
+    assert_eq!(
+        columns,
+        vec!["id", "hash", "created_at", "name", "applied_at"],
+        "tracking table should be upgraded in place"
+    );
+
+    let row = db
+        .conn()
+        .query_one(
+            &format!(
+                "SELECT name, applied_at::text FROM \"{}\".\"__drizzle_migrations\" LIMIT 1",
+                schema_name
+            ),
+            &[],
+        )
+        .await
+        .expect("select upgraded migration row");
+    let name: String = row.get(0);
+    let applied_at: Option<String> = row.get(1);
+    assert_eq!(name, "20230331141203_runtime_first");
+    assert_eq!(
+        applied_at, None,
+        "backfilled legacy rows keep NULL applied_at"
+    );
+
+    let migrated_table_exists: i64 = db
+        .conn()
+        .query_one(
+            "SELECT COUNT(*)::bigint FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'runtime_created_at_a'",
+            &[&schema_name],
+        )
+        .await
+        .expect("query information_schema.tables")
+        .get(0);
+    assert_eq!(
+        migrated_table_exists, 0,
+        "already-applied migration should not run again during metadata upgrade"
+    );
+
+    db.conn()
+        .batch_execute(&format!("DROP SCHEMA \"{}\" CASCADE", schema_name))
+        .await
         .unwrap();
 }

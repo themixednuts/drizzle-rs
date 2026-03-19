@@ -30,7 +30,6 @@
 //! ```
 
 use crate::generate::diff;
-use crate::journal::Journal;
 use crate::parser::SchemaParser;
 use crate::schema::Snapshot;
 use crate::snapshot_builder::parse_result_to_snapshot;
@@ -204,8 +203,7 @@ pub fn run(config: &Config) -> Result<Output, BuildError> {
     }
 
     let current_snapshot = parse_result_to_snapshot(&parse_result, config.dialect, config.casing);
-    let journal_path = config.out_dir.join("meta").join("_journal.json");
-    let previous_snapshot = load_previous_snapshot(&config.out_dir, &journal_path, config.dialect)?;
+    let previous_snapshot = load_previous_snapshot(&config.out_dir, config.dialect)?;
     let generated = diff(&previous_snapshot, &current_snapshot)?;
 
     if generated.is_empty() {
@@ -254,27 +252,12 @@ fn parse_files(files: &[PathBuf]) -> Result<crate::parser::ParseResult, BuildErr
     Ok(SchemaParser::parse(&combined))
 }
 
-fn load_previous_snapshot(
-    out_dir: &Path,
-    journal_path: &Path,
-    dialect: Dialect,
-) -> Result<Snapshot, BuildError> {
+fn load_previous_snapshot(out_dir: &Path, dialect: Dialect) -> Result<Snapshot, BuildError> {
     let v3_entries = collect_v3_migration_dirs(out_dir)?;
     if let Some((_, migration_dir)) = v3_entries.last() {
         let snapshot_path = migration_dir.join("snapshot.json");
         if snapshot_path.exists() {
             return Snapshot::load(&snapshot_path, dialect).map_err(BuildError::from);
-        }
-    }
-
-    // Legacy fallback for pre-V3 folder formats.
-    if journal_path.exists() {
-        let journal = Journal::load(journal_path)?;
-        if let Some(latest) = journal.entries.last() {
-            let snapshot_path = out_dir.join(&latest.tag).join("snapshot.json");
-            if snapshot_path.exists() {
-                return Snapshot::load(&snapshot_path, dialect).map_err(BuildError::from);
-            }
         }
     }
 

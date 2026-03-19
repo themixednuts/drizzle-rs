@@ -58,34 +58,17 @@ fn resolve_sql_paths(
     dir: &Path,
     migrations: &[drizzle_migrations::Migration],
 ) -> syn::Result<Vec<PathBuf>> {
-    let journal_exists = dir.join("meta").join("_journal.json").exists();
     let mut paths = Vec::with_capacity(migrations.len());
 
     for migration in migrations {
         let tag = migration.tag();
-        let path = if journal_exists {
-            let folder_path = dir.join(tag).join("migration.sql");
-            let flat_path = dir.join(format!("{tag}.sql"));
-            if folder_path.exists() {
-                folder_path
-            } else if flat_path.exists() {
-                flat_path
-            } else {
-                return Err(syn::Error::new(
-                    Span::call_site(),
-                    format!("include_migrations!: missing migration file for tag '{tag}'"),
-                ));
-            }
-        } else {
-            let path = dir.join(tag).join("migration.sql");
-            if !path.exists() {
-                return Err(syn::Error::new(
-                    Span::call_site(),
-                    format!("include_migrations!: missing migration.sql for tag '{tag}'"),
-                ));
-            }
-            path
-        };
+        let path = dir.join(tag).join("migration.sql");
+        if !path.exists() {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                format!("include_migrations!: missing migration.sql for tag '{tag}'"),
+            ));
+        }
 
         paths.push(path);
     }

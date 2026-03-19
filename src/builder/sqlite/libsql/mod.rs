@@ -258,7 +258,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             tracking,
         );
 
-        self.conn.execute(&set.create_table_sql(), ()).await?;
+        ensure_sqlite_migration_table(&self.conn, &set).await?;
         let mut rows = self
             .conn
             .query(&set.applied_sql(), ())
@@ -296,12 +296,9 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                         .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
                 }
             }
-            tx.execute(
-                &set.record_sql(migration.hash(), migration.created_at()),
-                (),
-            )
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            tx.execute(&set.record_migration_sql(migration), ())
+                .await
+                .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
         }
 
         tx.commit()
@@ -310,6 +307,114 @@ impl<Schema> common::Drizzle<Connection, Schema> {
 
         Ok(())
     }
+}
+
+async fn ensure_sqlite_migration_table(
+    conn: &libsql::Connection,
+    set: &drizzle_migrations::Migrations,
+) -> drizzle_core::error::Result<()> {
+    conn.execute(&set.create_table_sql(), ()).await?;
+
+    let table_name = set.table_name().replace('\'', "''");
+    let pragma_sql = format!("SELECT name FROM pragma_table_info('{}')", table_name);
+    let mut rows = conn.query(&pragma_sql, ()).await?;
+    let mut has_name = false;
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|e| DrizzleError::Other(e.to_string().into()))?
+    {
+        if let Ok(name) = row.get::<String>(0)
+            && name == "name"
+        {
+            has_name = true;
+            break;
+        }
+    }
+    if has_name {
+        return Ok(());
+    }
+
+    let mut rows = conn
+        .query(
+            &format!(
+                "SELECT id, hash, created_at FROM {} ORDER BY id ASC",
+                set.table_ident_sql()
+            ),
+            (),
+        )
+        .await?;
+    let mut applied = Vec::new();
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|e| DrizzleError::Other(e.to_string().into()))?
+    {
+        applied.push(drizzle_migrations::AppliedMigrationMetadata {
+            id: row.get::<Option<i64>>(0).ok().flatten(),
+            hash: row
+                .get::<String>(1)
+                .map_err(|e| DrizzleError::Other(e.to_string().into()))?,
+            created_at: row
+                .get::<i64>(2)
+                .map_err(|e| DrizzleError::Other(e.to_string().into()))?,
+        });
+    }
+
+    let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
+        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+
+    let tx = conn
+        .transaction()
+        .await
+        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+    tx.execute(
+        &format!(
+            "ALTER TABLE {} ADD COLUMN \"name\" text",
+            set.table_ident_sql()
+        ),
+        (),
+    )
+    .await
+    .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+    tx.execute(
+        &format!(
+            "ALTER TABLE {} ADD COLUMN \"applied_at\" TEXT",
+            set.table_ident_sql()
+        ),
+        (),
+    )
+    .await
+    .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+
+    for row in matched {
+        let escaped_name = row.name.replace('\'', "''");
+        let where_clause = if let Some(id) = row.id {
+            format!("\"id\" = {id}")
+        } else {
+            format!(
+                "\"created_at\" = {} AND \"hash\" = '{}'",
+                row.created_at,
+                row.hash.replace('\'', "''")
+            )
+        };
+        tx.execute(
+            &format!(
+                "UPDATE {} SET \"name\" = '{}', \"applied_at\" = NULL WHERE {}",
+                set.table_ident_sql(),
+                escaped_name,
+                where_clause
+            ),
+            (),
+        )
+        .await
+        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+    }
+
+    tx.commit()
+        .await
+        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+    Ok(())
 }
 
 impl<Schema> common::Drizzle<Connection, Schema> {
