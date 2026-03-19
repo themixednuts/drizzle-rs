@@ -518,6 +518,59 @@ pub mod rusqlite_setup {
     use drizzle_migrations::{Migration, Tracking};
     use rusqlite::Connection;
 
+    pub fn setup_empty() -> TestDb<Drizzle<()>> {
+        let db_path = temp_db_path();
+        let conn = Connection::open(&db_path).expect("Failed to create database");
+        conn.execute_batch("PRAGMA foreign_keys = ON")
+            .expect("Failed to enable foreign keys");
+        let (db, _) = Drizzle::new(conn, ());
+        TestDb::new(db, "rusqlite", Vec::new()).with_db_path(db_path)
+    }
+
+    pub fn setup_empty_db<S: Copy + drizzle::core::SQLSchemaImpl>(
+        schema: S,
+    ) -> (TestDb<Drizzle<S>>, S) {
+        let db_path = temp_db_path();
+        let conn = Connection::open(&db_path).expect("Failed to create database");
+        conn.execute_batch("PRAGMA foreign_keys = ON")
+            .expect("Failed to enable foreign keys");
+        let schema_ddl: Vec<_> = schema
+            .create_statements()
+            .expect("create statements")
+            .collect();
+        let (db, schema) = Drizzle::new(conn, schema);
+        let test_db = TestDb::new(db, "rusqlite", schema_ddl).with_db_path(db_path);
+        (test_db, schema)
+    }
+
+    pub fn legacy_tracking_columns(conn: &Connection, table: &str) -> Vec<String> {
+        let pragma = format!("SELECT name FROM pragma_table_info('{table}') ORDER BY cid");
+        let mut stmt = conn.prepare(&pragma).expect("prepare pragma_table_info");
+        stmt.query_map([], |row| row.get::<_, String>(0))
+            .expect("query pragma_table_info")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect pragma columns")
+    }
+
+    pub fn create_legacy_tracking_table(conn: &Connection, table: &str) {
+        conn.execute(
+            &format!(
+                "CREATE TABLE \"{table}\" (id INTEGER PRIMARY KEY AUTOINCREMENT, hash text NOT NULL, created_at numeric)"
+            ),
+            [],
+        )
+        .expect("create legacy tracking table");
+    }
+
+    pub fn table_exists(conn: &Connection, table: &str) -> i64 {
+        conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?1",
+            [table],
+            |row| row.get(0),
+        )
+        .expect("query sqlite_master")
+    }
+
     pub fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>() -> (TestDb<Drizzle<S>>, S) {
         let db_path = temp_db_path();
         let conn = Connection::open(&db_path).expect("Failed to create database");
@@ -558,6 +611,87 @@ pub mod libsql_setup {
     use drizzle::sqlite::libsql::Drizzle;
     use drizzle_migrations::{Migration, Tracking};
     use libsql::Builder;
+
+    pub async fn setup_empty() -> TestDb<Drizzle<()>> {
+        let db_path = temp_db_path();
+        let db_path_str = db_path
+            .to_str()
+            .expect("temporary sqlite path must be valid UTF-8");
+        let db = Builder::new_local(db_path_str)
+            .build()
+            .await
+            .expect("build db");
+        let conn = db.connect().expect("connect to db");
+        conn.execute("PRAGMA foreign_keys = ON", libsql::params![])
+            .await
+            .expect("Failed to enable foreign keys");
+        let (db, _) = Drizzle::new(conn, ());
+        TestDb::new(db, "libsql", Vec::new()).with_db_path(db_path)
+    }
+
+    pub async fn setup_empty_db<S: Copy + drizzle::core::SQLSchemaImpl>(
+        schema: S,
+    ) -> (TestDb<Drizzle<S>>, S) {
+        let db_path = temp_db_path();
+        let db_path_str = db_path
+            .to_str()
+            .expect("temporary sqlite path must be valid UTF-8");
+        let db = Builder::new_local(db_path_str)
+            .build()
+            .await
+            .expect("build db");
+        let conn = db.connect().expect("connect to db");
+        conn.execute("PRAGMA foreign_keys = ON", libsql::params![])
+            .await
+            .expect("Failed to enable foreign keys");
+        let schema_ddl: Vec<_> = schema
+            .create_statements()
+            .expect("create statements")
+            .collect();
+        let (db, schema) = Drizzle::new(conn, schema);
+        let test_db = TestDb::new(db, "libsql", schema_ddl).with_db_path(db_path);
+        (test_db, schema)
+    }
+
+    pub async fn legacy_tracking_columns(conn: &libsql::Connection, table: &str) -> Vec<String> {
+        let pragma = format!("SELECT name FROM pragma_table_info('{table}') ORDER BY cid");
+        let mut rows = conn
+            .query(&pragma, ())
+            .await
+            .expect("query pragma_table_info");
+        let mut columns = Vec::new();
+        while let Some(row) = rows.next().await.expect("next pragma row") {
+            columns.push(row.get::<String>(0).expect("pragma column name"));
+        }
+        columns
+    }
+
+    pub async fn create_legacy_tracking_table(conn: &libsql::Connection, table: &str) {
+        conn.execute(
+            &format!(
+                "CREATE TABLE \"{table}\" (id INTEGER PRIMARY KEY AUTOINCREMENT, hash text NOT NULL, created_at numeric)"
+            ),
+            (),
+        )
+        .await
+        .expect("create legacy tracking table");
+    }
+
+    pub async fn table_exists(conn: &libsql::Connection, table: &str) -> i64 {
+        let mut rows = conn
+            .query(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?1",
+                libsql::params![table],
+            )
+            .await
+            .expect("query sqlite_master");
+        let row = rows
+            .next()
+            .await
+            .expect("next sqlite_master row")
+            .expect("sqlite_master row");
+        row.get::<i64>(0).expect("sqlite_master count")
+    }
 
     pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>()
     -> (TestDb<Drizzle<S>>, S) {
@@ -608,6 +742,87 @@ pub mod turso_setup {
     use drizzle::sqlite::turso::Drizzle;
     use drizzle_migrations::{Migration, Tracking};
     use turso::Builder;
+
+    pub async fn setup_empty() -> TestDb<Drizzle<()>> {
+        let db_path = temp_db_path();
+        let db_path_str = db_path
+            .to_str()
+            .expect("temporary sqlite path must be valid UTF-8");
+        let db = Builder::new_local(db_path_str)
+            .build()
+            .await
+            .expect("build db");
+        let conn = db.connect().expect("connect to db");
+        conn.execute("PRAGMA foreign_keys = ON", turso::params![])
+            .await
+            .expect("Failed to enable foreign keys");
+        let (db, _) = Drizzle::new(conn, ());
+        TestDb::new(db, "turso", Vec::new()).with_db_path(db_path)
+    }
+
+    pub async fn setup_empty_db<S: Copy + drizzle::core::SQLSchemaImpl>(
+        schema: S,
+    ) -> (TestDb<Drizzle<S>>, S) {
+        let db_path = temp_db_path();
+        let db_path_str = db_path
+            .to_str()
+            .expect("temporary sqlite path must be valid UTF-8");
+        let db = Builder::new_local(db_path_str)
+            .build()
+            .await
+            .expect("build db");
+        let conn = db.connect().expect("connect to db");
+        conn.execute("PRAGMA foreign_keys = ON", turso::params![])
+            .await
+            .expect("Failed to enable foreign keys");
+        let schema_ddl: Vec<_> = schema
+            .create_statements()
+            .expect("create statements")
+            .collect();
+        let (db, schema) = Drizzle::new(conn, schema);
+        let test_db = TestDb::new(db, "turso", schema_ddl).with_db_path(db_path);
+        (test_db, schema)
+    }
+
+    pub async fn legacy_tracking_columns(conn: &turso::Connection, table: &str) -> Vec<String> {
+        let pragma = format!("SELECT name FROM pragma_table_info('{table}') ORDER BY cid");
+        let mut rows = conn
+            .query(&pragma, ())
+            .await
+            .expect("query pragma_table_info");
+        let mut columns = Vec::new();
+        while let Some(row) = rows.next().await.expect("next pragma row") {
+            columns.push(row.get::<String>(0).expect("pragma column name"));
+        }
+        columns
+    }
+
+    pub async fn create_legacy_tracking_table(conn: &turso::Connection, table: &str) {
+        conn.execute(
+            &format!(
+                "CREATE TABLE \"{table}\" (id INTEGER PRIMARY KEY AUTOINCREMENT, hash text NOT NULL, created_at numeric)"
+            ),
+            (),
+        )
+        .await
+        .expect("create legacy tracking table");
+    }
+
+    pub async fn table_exists(conn: &turso::Connection, table: &str) -> i64 {
+        let mut rows = conn
+            .query(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?1",
+                turso::params![table],
+            )
+            .await
+            .expect("query sqlite_master");
+        let row = rows
+            .next()
+            .await
+            .expect("next sqlite_master row")
+            .expect("sqlite_master row");
+        row.get::<i64>(0).expect("sqlite_master count")
+    }
 
     pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>()
     -> (TestDb<Drizzle<S>>, S) {
@@ -747,6 +962,10 @@ pub mod postgres_sync_setup {
     }
 
     impl<S> TestDb<S> {
+        pub fn schema_name(&self) -> &str {
+            &self.schema_name
+        }
+
         pub fn record(&self, sql: impl Into<String>, error: Option<String>) {
             self.statements.borrow_mut().push(CapturedStatement {
                 sql: sql.into(),
@@ -818,6 +1037,94 @@ pub mod postgres_sync_setup {
                 }
             }
         }
+    }
+
+    pub fn setup_empty_named(schema_name: impl Into<String>) -> TestDb<()> {
+        ensure_postgres_running();
+
+        let database_url = get_database_url();
+        let schema_name = schema_name.into();
+
+        let mut client =
+            Client::connect(&database_url, NoTls).expect("Failed to connect to PostgreSQL");
+        let setup_sql = format!(
+            "DROP SCHEMA IF EXISTS \"{}\" CASCADE; CREATE SCHEMA \"{}\"",
+            schema_name, schema_name
+        );
+        client
+            .batch_execute(&setup_sql)
+            .expect("Failed to create test schema");
+
+        let (db, _) = Drizzle::new(client, ());
+        TestDb {
+            db,
+            schema_name,
+            schema_ddl: Vec::new(),
+            statements: RefCell::new(Vec::new()),
+        }
+    }
+
+    pub fn setup_empty_named_db<S: Copy + drizzle::core::SQLSchemaImpl>(
+        schema_name: impl Into<String>,
+        schema: S,
+    ) -> (TestDb<S>, S) {
+        ensure_postgres_running();
+
+        let database_url = get_database_url();
+        let schema_name = schema_name.into();
+
+        let mut client =
+            Client::connect(&database_url, NoTls).expect("Failed to connect to PostgreSQL");
+        let setup_sql = format!(
+            "DROP SCHEMA IF EXISTS \"{}\" CASCADE; CREATE SCHEMA \"{}\"",
+            schema_name, schema_name
+        );
+        client
+            .batch_execute(&setup_sql)
+            .expect("Failed to create test schema");
+
+        let schema_ddl: Vec<_> = schema
+            .create_statements()
+            .expect("create statements")
+            .collect();
+        let (db, schema) = Drizzle::new(client, schema);
+        let test_db = TestDb {
+            db,
+            schema_name,
+            schema_ddl,
+            statements: RefCell::new(Vec::new()),
+        };
+        (test_db, schema)
+    }
+
+    pub fn legacy_tracking_columns(client: &mut Client, schema: &str, table: &str) -> Vec<String> {
+        client
+            .query(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position",
+                &[&schema, &table],
+            )
+            .expect("query information_schema.columns")
+            .into_iter()
+            .map(|row| row.get::<_, String>(0))
+            .collect()
+    }
+
+    pub fn create_legacy_tracking_table(client: &mut Client, schema: &str, table: &str) {
+        client
+            .batch_execute(&format!(
+                "CREATE TABLE \"{schema}\".\"{table}\" (id SERIAL PRIMARY KEY, hash TEXT NOT NULL, created_at BIGINT)"
+            ))
+            .expect("create legacy tracking table");
+    }
+
+    pub fn table_exists(client: &mut Client, schema: &str, table: &str) -> i64 {
+        client
+            .query_one(
+                "SELECT COUNT(*)::bigint FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2",
+                &[&schema, &table],
+            )
+            .expect("query information_schema.tables")
+            .get(0)
     }
 
     pub fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>() -> (TestDb<S>, S) {
@@ -985,6 +1292,10 @@ pub mod tokio_postgres_setup {
     }
 
     impl<S> TestDb<S> {
+        pub fn schema_name(&self) -> &str {
+            &self.schema_name
+        }
+
         pub fn record(&self, sql: impl Into<String>, error: Option<String>) {
             self.statements.borrow_mut().push(CapturedStatement {
                 sql: sql.into(),
@@ -1072,6 +1383,123 @@ pub mod tokio_postgres_setup {
             })
             .join();
         }
+    }
+
+    pub async fn setup_empty_named(schema_name: impl Into<String>) -> TestDb<()> {
+        ensure_postgres_running();
+
+        let database_url = get_database_url();
+        let schema_name = schema_name.into();
+
+        let (client, connection) = tokio_postgres::connect(&database_url, NoTls)
+            .await
+            .expect("Failed to connect to PostgreSQL");
+
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("PostgreSQL connection error: {}", e);
+            }
+        });
+
+        let setup_sql = format!(
+            "DROP SCHEMA IF EXISTS \"{}\" CASCADE; CREATE SCHEMA \"{}\"",
+            schema_name, schema_name
+        );
+        client
+            .batch_execute(&setup_sql)
+            .await
+            .expect("Failed to create test schema");
+
+        let (db, _) = Drizzle::new(client, ());
+        TestDb {
+            db,
+            schema_name,
+            schema_ddl: Vec::new(),
+            statements: RefCell::new(Vec::new()),
+        }
+    }
+
+    pub async fn setup_empty_named_db<S: Copy + drizzle::core::SQLSchemaImpl>(
+        schema_name: impl Into<String>,
+        schema: S,
+    ) -> (TestDb<S>, S) {
+        ensure_postgres_running();
+
+        let database_url = get_database_url();
+        let schema_name = schema_name.into();
+
+        let (client, connection) = tokio_postgres::connect(&database_url, NoTls)
+            .await
+            .expect("Failed to connect to PostgreSQL");
+
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("PostgreSQL connection error: {}", e);
+            }
+        });
+
+        let setup_sql = format!(
+            "DROP SCHEMA IF EXISTS \"{}\" CASCADE; CREATE SCHEMA \"{}\"",
+            schema_name, schema_name
+        );
+        client
+            .batch_execute(&setup_sql)
+            .await
+            .expect("Failed to create test schema");
+
+        let schema_ddl: Vec<_> = schema
+            .create_statements()
+            .expect("create statements")
+            .collect();
+        let (db, schema) = Drizzle::new(client, schema);
+        let test_db = TestDb {
+            db,
+            schema_name,
+            schema_ddl,
+            statements: RefCell::new(Vec::new()),
+        };
+        (test_db, schema)
+    }
+
+    pub async fn legacy_tracking_columns(
+        client: &tokio_postgres::Client,
+        schema: &str,
+        table: &str,
+    ) -> Vec<String> {
+        client
+            .query(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position",
+                &[&schema, &table],
+            )
+            .await
+            .expect("query information_schema.columns")
+            .into_iter()
+            .map(|row| row.get::<_, String>(0))
+            .collect()
+    }
+
+    pub async fn create_legacy_tracking_table(
+        client: &tokio_postgres::Client,
+        schema: &str,
+        table: &str,
+    ) {
+        client
+            .batch_execute(&format!(
+                "CREATE TABLE \"{schema}\".\"{table}\" (id SERIAL PRIMARY KEY, hash TEXT NOT NULL, created_at BIGINT)"
+            ))
+            .await
+            .expect("create legacy tracking table");
+    }
+
+    pub async fn table_exists(client: &tokio_postgres::Client, schema: &str, table: &str) -> i64 {
+        client
+            .query_one(
+                "SELECT COUNT(*)::bigint FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2",
+                &[&schema, &table],
+            )
+            .await
+            .expect("query information_schema.tables")
+            .get(0)
     }
 
     pub async fn setup_db<S: Default + drizzle::core::SQLSchemaImpl + Copy>() -> (TestDb<S>, S) {
