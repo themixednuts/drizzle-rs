@@ -1,9 +1,7 @@
-node_modules/
 .svelte-kit/
 .wrangler/
-build/
-dist/
+node_modules/
+
+# local env for wrangler/dev
+.dev.vars
 .env
-.env.*
-!.env.example
-cloudflare-isr
