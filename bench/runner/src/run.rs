@@ -2312,3 +2312,21 @@ fn min(values: &[f64]) -> f64 {
 fn max(values: &[f64]) -> f64 {
     values.iter().copied().reduce(f64::max).unwrap_or(0.0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_seed;
+    use crate::cli::Class;
+
+    #[test]
+    fn publish_seed_ignores_cli_override() {
+        assert_eq!(resolve_seed(Class::Publish, Some(42), 17), 17);
+        assert_eq!(resolve_seed(Class::Publish, None, 17), 17);
+    }
+
+    #[test]
+    fn small_seed_prefers_cli_override() {
+        assert_eq!(resolve_seed(Class::Small, Some(42), 17), 42);
+        assert_eq!(resolve_seed(Class::Small, None, 17), 17);
+    }
+}
