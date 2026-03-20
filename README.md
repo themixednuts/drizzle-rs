@@ -74,16 +74,90 @@ pub struct Schema {
 
 Alternatively, use `drizzle new` for an interactive schema builder, or `drizzle introspect` to reverse-engineer a schema from an existing database.
 
-### 4. Migrate
+### 4. Migrations
+
+Pick one migration flow for applying changes:
+
+- Use the CLI during deploy or development.
+- Or apply the same migration files from your app at startup.
+
+You do not need both. Most projects pick one and stick with it.
+
+Generate migration files with the CLI:
 
 ```bash
-drizzle generate              # diff schema → SQL migration files
+drizzle generate              # diff schema -> SQL migration files
 drizzle generate --name init  # name the migration
-drizzle migrate               # apply pending migrations
-drizzle push                  # skip migration files, apply schema diff directly
 ```
 
-> `push` is useful during development. Use `generate` + `migrate` for production.
+Apply them with the CLI if you want migrations to run outside your app:
+
+```bash
+drizzle migrate
+```
+
+Or apply those same files from your app at startup:
+
+```rust
+use drizzle::migrations::Tracking;
+
+let migrations = drizzle::include_migrations!("./drizzle");
+db.migrate(&migrations, Tracking::SQLITE)?;
+```
+
+Use `Tracking::POSTGRES` for PostgreSQL, and override the tracking table or schema when needed:
+
+```rust
+db.migrate(
+    &migrations,
+    Tracking::POSTGRES
+        .schema("drizzle")
+        .table("__drizzle_migrations"),
+)?;
+```
+
+`migrate` creates the tracking schema/table if needed and skips migrations that have already been applied.
+
+If you do not want to run `drizzle generate` manually, you can keep `./drizzle` in sync from `build.rs` instead. This replaces the generation step above; it does not add another migration system.
+
+```toml
+[build-dependencies]
+drizzle-migrations = { git = "https://github.com/themixednuts/drizzle-rs" }
+drizzle-types = { git = "https://github.com/themixednuts/drizzle-rs" }
+```
+
+```rust
+use drizzle_migrations::build::{Config, Output, run};
+use drizzle_types::Dialect;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cfg = Config::new(Dialect::SQLite)
+        .file("src/schema.rs")
+        .out("./drizzle");
+
+    cfg.watch();
+
+    match run(&cfg)? {
+        Output::NoChanges => {}
+        Output::Generated { tag, path, .. } => {
+            println!("cargo:warning=generated migration {tag} at {}", path.display());
+        }
+    }
+
+    Ok(())
+}
+```
+
+If your schema is split across files, add each source file with another `.file(...)` call, for example `.file("src/schema/users.rs").file("src/schema/posts.rs")`.
+
+For development, `push` skips migration files entirely and applies the live schema diff directly:
+
+```rust
+let schema = Schema::new();
+db.push(&schema)?;
+```
+
+> Use `push` for rapid iteration. For production, use versioned migration files and choose either CLI `migrate` or runtime `db.migrate(...)`.
 
 ### 5. Connect & query
 
@@ -95,23 +169,6 @@ let (db, Schema { users, posts }) = Drizzle::new(conn, Schema::new());
 ```
 
 > See [`examples/rusqlite.rs`](examples/rusqlite.rs) for a full runnable example.
-
-## CLI Reference
-
-| Command | Description |
-|---------|-------------|
-| `drizzle init` | Create a new `drizzle.config.toml` |
-| `drizzle new` | Interactive schema builder (`--json` for JSON input) |
-| `drizzle generate` | Diff schema and emit SQL migration files (`--custom` for an empty migration) |
-| `drizzle migrate` | Apply pending migrations (`--plan` to preview, `--safe` to verify first) |
-| `drizzle push` | Apply schema diff directly without migration files (`--explain` for dry run) |
-| `drizzle introspect` | Reverse-engineer schema from a live database (`--init` to baseline) |
-| `drizzle status` | Show which migrations have been applied |
-| `drizzle check` | Validate your config file |
-| `drizzle export` | Print the schema as raw SQL (`--sql file.sql` to write to file) |
-| `drizzle up` | Upgrade migration snapshots to the latest format |
-
-> `drizzle pull` is an alias for `introspect`. All commands accept `-c <path>` to use a custom config file and `--db <name>` for multi-database configs.
 
 ## Generated Models
 
@@ -579,78 +636,29 @@ fn main() -> drizzle::Result<()> {
 
 > For async, use `drizzle::postgres::tokio::Drizzle` with `tokio_postgres::connect`.
 
-## Runtime Migrations
+## CLI Reference
 
-For app startup, embed your generated `./drizzle` folder at compile time and pass the resulting migrations into `db.migrate(...)`.
+Most projects only need these:
 
-```rust
-use drizzle::migrations::Tracking;
+| Command | Description |
+|---------|-------------|
+| `drizzle init` | Create `drizzle.config.toml` |
+| `drizzle generate` | Diff schema and emit SQL migration files |
+| `drizzle migrate` | Apply pending migrations |
+| `drizzle push` | Apply schema diff directly without migration files |
+| `drizzle introspect` | Reverse-engineer schema from a live database |
 
-let migrations = drizzle::include_migrations!("./drizzle");
-db.migrate(&migrations, Tracking::SQLITE)?;
-```
+Other useful commands:
 
-Use `Tracking::POSTGRES` for PostgreSQL, and override the tracking table or schema when needed:
+| Command | Description |
+|---------|-------------|
+| `drizzle new` | Interactive schema builder |
+| `drizzle status` | Show applied migrations |
+| `drizzle check` | Validate config |
+| `drizzle export` | Print schema as raw SQL |
+| `drizzle up` | Upgrade migration snapshots to the latest format |
 
-```rust
-db.migrate(
-    &migrations,
-    Tracking::POSTGRES
-        .schema("drizzle")
-        .table("__drizzle_migrations"),
-)?;
-```
-
-`migrate` creates the tracking schema/table if needed and skips migrations that have already been applied.
-
-## Build.rs Migrations
-
-If you want migration files generated during `cargo build`, you can keep `./drizzle` in sync from `build.rs` instead of running `drizzle generate` manually.
-
-Add the build-time crates:
-
-```toml
-[build-dependencies]
-drizzle-migrations = { git = "https://github.com/themixednuts/drizzle-rs" }
-drizzle-types = { git = "https://github.com/themixednuts/drizzle-rs" }
-```
-
-Create `build.rs`:
-
-```rust
-use drizzle_migrations::build::{Config, Output, run};
-use drizzle_types::Dialect;
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cfg = Config::new(Dialect::SQLite)
-        .file("src/schema.rs")
-        .out("./drizzle");
-
-    cfg.watch();
-
-    match run(&cfg)? {
-        Output::NoChanges => {}
-        Output::Generated { tag, path, .. } => {
-            println!("cargo:warning=generated migration {tag} at {}", path.display());
-        }
-    }
-
-    Ok(())
-}
-```
-
-If your schema is split across files, add each source file with another `.file(...)` call, for example `.file("src/schema/users.rs").file("src/schema/posts.rs")`. The build helper only uses the files you list; it does not follow Rust `mod` declarations automatically.
-
-### Push
-
-For development, `push` skips migration files entirely — it introspects the live database, diffs it against your schema, and applies the changes directly.
-
-```rust
-let schema = Schema::new();
-db.push(&schema)?;
-```
-
-> `push` is intended for rapid iteration. Use `migrate` with versioned migration files for production deployments.
+> `drizzle pull` is an alias for `introspect`. All commands accept `-c <path>` for a custom config file and `--db <name>` for multi-database configs.
 
 ## License
 
