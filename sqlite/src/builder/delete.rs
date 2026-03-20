@@ -142,7 +142,7 @@ impl ExecutableState for DeleteReturningSet {}
 ///     .returning((user.id, user.name));
 /// assert_eq!(
 ///     query.to_sql().sql(),
-///     r#"DELETE FROM "users" WHERE "users"."id" = ? RETURNING "id", "name""#
+///     r#"DELETE FROM "users" WHERE "users"."id" = ? RETURNING "users"."id", "users"."name""#
 /// );
 /// ```
 ///

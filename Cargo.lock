@@ -1789,6 +1789,7 @@ dependencies = [
 name = "drizzle-macros"
 version = "0.1.5"
 dependencies = [
+ "bytes",
  "const_format",
  "drizzle-core",
  "drizzle-migrations",
@@ -1799,6 +1800,7 @@ dependencies = [
  "libsql",
  "paste",
  "pluralizer",
+ "postgres",
  "proc-macro-crate",
  "proc-macro2",
  "quote",
@@ -1808,6 +1810,7 @@ dependencies = [
  "serde_json",
  "syn 2.0.117",
  "tokio",
+ "tokio-postgres",
  "toml 0.9.12+spec-1.1.0",
  "turso",
  "uuid",
