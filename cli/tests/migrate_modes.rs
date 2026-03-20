@@ -100,7 +100,13 @@ fn migrate_plan_is_dry_run() {
 
     let conn = rusqlite::Connection::open(&db_path).expect("open sqlite");
     assert_eq!(table_exists(&conn, "plan_only_table"), 0);
-    assert_eq!(table_exists(&conn, "__drizzle_migrations"), 0);
+    assert_eq!(table_exists(&conn, "__drizzle_migrations"), 1);
+    let applied_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM __drizzle_migrations", [], |row| {
+            row.get(0)
+        })
+        .expect("count metadata rows");
+    assert_eq!(applied_count, 0);
 }
 
 #[test]
