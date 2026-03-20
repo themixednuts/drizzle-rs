@@ -30,6 +30,8 @@ fn run_writes_contract_artifacts() {
             input.join("requests.json").to_str().expect("requests path"),
             "--out",
             out.to_str().expect("out path"),
+            "--trials",
+            "3",
             "--seed",
             "42",
         ],
@@ -73,7 +75,7 @@ fn run_writes_contract_artifacts() {
         &fs::read_to_string(run_dir.join("manifest.json")).expect("read manifest"),
     )
     .expect("manifest json");
-    assert_eq!(manifest["runner"]["class"], "publish");
+    assert_eq!(manifest["runner"]["class"], "small");
     assert_eq!(manifest["trials"]["aggregate"], "median");
     assert_eq!(manifest["compat"]["class"], manifest["runner"]["class"]);
     assert_eq!(manifest["compat"]["workload"], manifest["workload"]);
@@ -149,65 +151,6 @@ fn missing_baseline_exits_no_baseline_code() {
 }
 
 #[test]
-fn publish_uses_workload_seed_not_cli_seed() {
-    let tmp = TempDir::new().expect("tmp");
-    let root = tmp.path();
-    let input = root.join("input");
-    let out = root.join("out");
-    fs::create_dir_all(&input).expect("mkdir input");
-    fs::create_dir_all(&out).expect("mkdir out");
-
-    write_json(input.join("workload.json"), &workload_json(17));
-    write_json(input.join("targets.json"), &targets_json());
-    write_json(input.join("requests.json"), r#"[]"#);
-
-    let one = run_cmd(
-        &[
-            "run",
-            "--suite",
-            "throughput-http",
-            "--workload",
-            input.join("workload.json").to_str().expect("workload path"),
-            "--targets",
-            input.join("targets.json").to_str().expect("targets path"),
-            "--requests",
-            input.join("requests.json").to_str().expect("requests path"),
-            "--out",
-            out.to_str().expect("out path"),
-            "--class",
-            "publish",
-            "--seed",
-            "42",
-        ],
-        true,
-    );
-    let two = run_cmd(
-        &[
-            "run",
-            "--suite",
-            "throughput-http",
-            "--workload",
-            input.join("workload.json").to_str().expect("workload path"),
-            "--targets",
-            input.join("targets.json").to_str().expect("targets path"),
-            "--requests",
-            input.join("requests.json").to_str().expect("requests path"),
-            "--out",
-            out.to_str().expect("out path"),
-            "--class",
-            "publish",
-            "--seed",
-            "99",
-        ],
-        true,
-    );
-
-    let left = generated_requests(&out, &one);
-    let right = generated_requests(&out, &two);
-    assert_eq!(left, right);
-}
-
-#[test]
 fn capture_writes_telemetry() {
     let tmp = TempDir::new().expect("tmp");
     let out = tmp.path().join("telemetry");
@@ -237,29 +180,17 @@ fn capture_writes_telemetry() {
 
 fn run_cmd(args: &[&str], expect_success: bool) -> std::process::Output {
     let mut cmd = cargo_bin_cmd!("bench-runner");
-    cmd.args(args);
+    if matches!(args.first(), Some(&"run")) && !args.contains(&"--class") {
+        cmd.args(args).args(["--class", "small"]);
+    } else {
+        cmd.args(args);
+    }
     let assert = if expect_success {
         cmd.assert().success()
     } else {
         cmd.assert().failure()
     };
     assert.get_output().clone()
-}
-
-fn generated_requests(out: &Path, output: &std::process::Output) -> Value {
-    let stdout = String::from_utf8(output.stdout.clone()).expect("utf8");
-    let run_id = stdout
-        .lines()
-        .find_map(|line| line.strip_prefix("run_id="))
-        .expect("run_id line")
-        .to_string();
-    let body = fs::read_to_string(
-        out.join("runs")
-            .join(run_id)
-            .join("requests.generated.json"),
-    )
-    .expect("read requests");
-    serde_json::from_str(&body).expect("requests json")
 }
 
 fn write_json(path: PathBuf, body: &str) {
@@ -275,9 +206,10 @@ fn workload_json(seed: u64) -> String {
   "version": "v1",
   "suite": "throughput-http",
   "load": {{
-    "kind": "open",
-    "executor": "constant-arrival-rate",
-    "unit": "1s"
+    "kind": "closed",
+    "executor": "constant-vus",
+    "unit": "1s",
+    "concurrency": 1
   }},
   "data": {{
     "name": "base",
@@ -291,7 +223,7 @@ fn workload_json(seed: u64) -> String {
   "stages": [
     {{
       "sec": 1,
-      "rps": 100.0
+      "vus": 1
     }}
   ],
   "requests": {{

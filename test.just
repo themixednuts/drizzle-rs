@@ -14,8 +14,8 @@ _sqlite-ext := "uuid,serde,arrayvec,compact-str,bytes,smallvec-types"
 # Additive features shared across all PostgreSQL drivers
 _pg-ext := "uuid,serde,arrayvec,compact-str,bytes,smallvec-types,chrono,cidr,geo-types,bit-vec"
 
-# Run all test matrixes (SQLite + PostgreSQL)
-default: sqlite-matrix pg-matrix
+# Run all test matrixes (SQLite + PostgreSQL) plus bench-runner smoke tests
+default: sqlite-matrix pg-matrix bench-runner
 
 # ---------------------------------------------------------------------------
 # Quick runs — single feature set
@@ -23,7 +23,7 @@ default: sqlite-matrix pg-matrix
 
 # Run SQLite tests with the given features.
 sqlite features="rusqlite,uuid" *ARGS:
-    cargo test --workspace --features "{{features}}" {{ARGS}}
+    cargo test --workspace --exclude bench-runner --features "{{features}}" {{ARGS}}
 
 # Run PostgreSQL tests. Starts the container automatically.
 pg features="postgres-sync,tokio-postgres,uuid" *ARGS:
@@ -33,7 +33,11 @@ pg features="postgres-sync,tokio-postgres,uuid" *ARGS:
     echo "Waiting for PostgreSQL to be ready..."
     docker compose exec -T postgres sh -c 'until pg_isready -U postgres -d drizzle_test; do sleep 1; done'
     echo "PostgreSQL is ready!"
-    cargo test --workspace --features "{{features}}" {{ARGS}}
+    cargo test --workspace --exclude bench-runner --features "{{features}}" {{ARGS}}
+
+# Run bench-runner tests once outside feature-matrix unification
+bench-runner *ARGS:
+    cargo test -p bench-runner {{ARGS}}
 
 # ---------------------------------------------------------------------------
 # Full matrixes — bare driver + all additive features per driver
@@ -45,11 +49,11 @@ sqlite-matrix:
     set -euo pipefail
     echo "=== SQLite matrix ==="
     # rusqlite: bare then full
-    cargo test --workspace --features rusqlite
-    cargo test --workspace --features "rusqlite,{{_sqlite-ext}}"
+    cargo test --workspace --exclude bench-runner --features rusqlite
+    cargo test --workspace --exclude bench-runner --features "rusqlite,{{_sqlite-ext}}"
     # libsql: bare then full
-    cargo test --workspace --features libsql
-    cargo test --workspace --features "libsql,{{_sqlite-ext}}"
+    cargo test --workspace --exclude bench-runner --features libsql
+    cargo test --workspace --exclude bench-runner --features "libsql,{{_sqlite-ext}}"
 
 # Run full PostgreSQL matrix
 pg-matrix:
@@ -61,11 +65,11 @@ pg-matrix:
     echo "PostgreSQL is ready!"
     echo "=== PostgreSQL matrix ==="
     # postgres-sync: bare then full
-    cargo test --workspace --features postgres-sync
-    cargo test --workspace --features "postgres-sync,{{_pg-ext}}"
+    cargo test --workspace --exclude bench-runner --features postgres-sync
+    cargo test --workspace --exclude bench-runner --features "postgres-sync,{{_pg-ext}}"
     # tokio-postgres: bare then full
-    cargo test --workspace --features tokio-postgres
-    cargo test --workspace --features "tokio-postgres,{{_pg-ext}}"
+    cargo test --workspace --exclude bench-runner --features tokio-postgres
+    cargo test --workspace --exclude bench-runner --features "tokio-postgres,{{_pg-ext}}"
 
 # ---------------------------------------------------------------------------
 # CI helpers — output feature matrices as JSON for GitHub Actions
