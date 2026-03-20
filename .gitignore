@@ -9,3 +9,10 @@
 .env
 .act-artifacts/
 tmpclaude-*
+
+# benchmark and dashboard generated artifacts
+/bench-out/
+/bench/targets/**/target/
+/bench/dashboard/.svelte-kit/
+/bench/dashboard/.wrangler/
+/bench/dashboard/node_modules/
