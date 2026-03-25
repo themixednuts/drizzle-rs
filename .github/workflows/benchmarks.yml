@@ -42,13 +42,16 @@ jobs:
 
       - name: Fix cargo registry permissions (libsql-sqlite3-parser workaround)
         if: runner.os == 'Windows'
-        shell: bash
+        shell: pwsh
         run: |
           # libsql-sqlite3-parser build.rs uses MSVC's deprecated -o flag;
           # MSVC ignores it and writes lemon.obj next to the .c source in
-          # the read-only cargo registry. Fetch first, then make writable.
+          # the read-only cargo registry. Fetch first, then clear read-only.
           cargo fetch
-          chmod -R u+w "${CARGO_HOME:-$USERPROFILE/.cargo}/registry/src" 2>/dev/null || true
+          $src = Join-Path $env:CARGO_HOME "registry\src"
+          if (Test-Path $src) {
+            Get-ChildItem -Path $src -Recurse -File | ForEach-Object { $_.IsReadOnly = $false }
+          }
 
       - name: Restore Criterion baseline
         if: github.event_name == 'pull_request'
