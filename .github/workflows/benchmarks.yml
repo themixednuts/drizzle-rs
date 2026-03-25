@@ -14,14 +14,18 @@ jobs:
   benchmark-sqlite:
     name: Benchmark SQLite (${{ matrix.platform }})
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             platform: linux
+            features: "rusqlite,turso,libsql,uuid"
           - os: windows-latest
             platform: windows
+            features: "rusqlite,turso,libsql,uuid"
           - os: macos-latest
             platform: macos
+            features: "rusqlite,turso,libsql,uuid"
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -36,6 +40,16 @@ jobs:
           shared-key: bench-sqlite-${{ matrix.platform }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      - name: Fix cargo registry permissions (libsql-sqlite3-parser workaround)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          # libsql-sqlite3-parser build.rs uses MSVC's deprecated -o flag;
+          # MSVC ignores it and writes lemon.obj next to the .c source in
+          # the read-only cargo registry. Fetch first, then make writable.
+          cargo fetch
+          chmod -R u+w "${CARGO_HOME:-$USERPROFILE/.cargo}/registry/src" 2>/dev/null || true
+
       - name: Restore Criterion baseline
         if: github.event_name == 'pull_request'
         uses: actions/cache/restore@v4
@@ -49,7 +63,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
-          cargo bench --bench sqlite --features "rusqlite,turso,libsql,uuid" -- \
+          cargo bench --bench sqlite --features "${{ matrix.features }}" -- \
             --save-baseline main \
             --output-format bencher \
             --color never | tee bench_output.txt
@@ -58,7 +72,7 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: bash
         run: |
-          cargo bench --bench sqlite --features "rusqlite,turso,libsql,uuid" -- \
+          cargo bench --bench sqlite --features "${{ matrix.features }}" -- \
             --baseline-lenient main \
             --output-format bencher \
             --color never | tee bench_output.txt
