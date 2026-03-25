@@ -1,8 +1,8 @@
 // Shared schema, helpers, and macros for SQLite benchmarks.
-// Included by both `sqlite.rs` and `sqlite_libsql.rs` via `include!`.
+// Used by both `sqlite.rs` (rusqlite/turso) and `sqlite_libsql.rs`.
 
-use drizzle::core::expr::{count, eq};
-use drizzle::sqlite::prelude::*;
+pub use drizzle::core::expr::{count, eq};
+pub use drizzle::sqlite::prelude::*;
 
 #[SQLiteTable(name = "bench_users")]
 pub struct User {
@@ -32,16 +32,18 @@ pub struct BlogSchema {
     pub post: Post,
 }
 
+#[macro_export]
 macro_rules! users {
     ($n:expr) => {
-        (0..$n).map(|i| InsertUser::new(format!("User {}", i), format!("user{}@x.dev", i)))
+        (0..$n).map(|i| common::InsertUser::new(format!("User {}", i), format!("user{}@x.dev", i)))
     };
 }
 
+#[macro_export]
 macro_rules! posts {
     ($n:expr, $authors:expr) => {
         (0..$n).map(|i| {
-            InsertPost::new(
+            common::InsertPost::new(
                 format!("Post {}", i),
                 format!("Body {}", i),
                 (i % $authors) + 1,

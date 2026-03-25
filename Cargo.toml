@@ -8,7 +8,6 @@ description.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-autobenches = false
 
 [workspace]
 resolver = "3"

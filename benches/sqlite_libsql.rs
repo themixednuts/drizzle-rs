@@ -3,7 +3,8 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::hint::black_box;
 
-include!("sqlite_common.rs");
+mod common;
+use common::*;
 
 #[allow(dead_code)]
 async fn ls_raw() -> ::libsql::Connection {
