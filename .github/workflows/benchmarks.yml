@@ -60,7 +60,7 @@ jobs:
             criterion-sqlite-${{ matrix.platform }}-main-
 
       - name: Run SQLite benchmarks (save baseline on main)
-        if: github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           cargo bench --bench sqlite --features "${{ matrix.features }}" -- \
@@ -155,7 +155,7 @@ jobs:
             criterion-postgres-main-
 
       - name: Run PostgreSQL sync benchmarks (save baseline on main)
-        if: github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request'
         env:
           DATABASE_URL: "host=localhost user=postgres password=postgres dbname=drizzle_test"
         shell: bash
@@ -166,7 +166,7 @@ jobs:
             --color never | tee sync_output.txt
 
       - name: Run PostgreSQL tokio benchmarks (save baseline on main)
-        if: github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request'
         env:
           DATABASE_URL: "host=localhost user=postgres password=postgres dbname=drizzle_test"
         shell: bash
