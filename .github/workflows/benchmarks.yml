@@ -29,7 +29,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -52,7 +52,7 @@ jobs:
 
       - name: Restore Criterion baseline
         if: github.event_name == 'pull_request'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: target/criterion
           key: criterion-sqlite-${{ matrix.platform }}-main-
@@ -94,14 +94,14 @@ jobs:
           } > sqlite-${{ matrix.platform }}.md
 
       - name: Upload text report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: benchmark-sqlite-${{ matrix.platform }}
           path: sqlite-${{ matrix.platform }}.md
           retention-days: 30
 
       - name: Upload Criterion reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: criterion-sqlite-${{ matrix.platform }}
           path: target/criterion
@@ -109,7 +109,7 @@ jobs:
 
       - name: Save Criterion baseline
         if: github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: target/criterion
           key: criterion-sqlite-${{ matrix.platform }}-main-${{ github.sha }}
@@ -134,7 +134,7 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -147,7 +147,7 @@ jobs:
 
       - name: Restore Criterion baseline
         if: github.event_name == 'pull_request'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: target/criterion
           key: criterion-postgres-main-
@@ -223,14 +223,14 @@ jobs:
           } > postgres-linux.md
 
       - name: Upload text report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: benchmark-postgres-linux
           path: postgres-linux.md
           retention-days: 30
 
       - name: Upload Criterion reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: criterion-postgres-linux
           path: target/criterion
@@ -238,7 +238,7 @@ jobs:
 
       - name: Save Criterion baseline
         if: github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: target/criterion
           key: criterion-postgres-main-${{ github.sha }}
