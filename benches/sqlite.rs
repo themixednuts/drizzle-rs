@@ -989,14 +989,17 @@ fn bench_mvcc(c: &mut Criterion) {
 }
 
 fn bench_sqlite(c: &mut Criterion) {
+    // libsql must run before rusqlite: libsql asserts a specific sqlite
+    // threading mode (21) at init, while rusqlite is permissive. If rusqlite
+    // initializes sqlite first, it sets a different mode and libsql panics.
+    #[cfg(feature = "libsql")]
+    bench_libsql(c);
+
     #[cfg(feature = "rusqlite")]
     bench_rusqlite(c);
 
     #[cfg(feature = "turso")]
     bench_turso(c);
-
-    #[cfg(feature = "libsql")]
-    bench_libsql(c);
 
     #[cfg(all(feature = "rusqlite", feature = "turso"))]
     bench_mvcc(c);
