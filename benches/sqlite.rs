@@ -522,21 +522,22 @@ fn bench_turso(c: &mut Criterion) {
             })
         })
     });
-    write.bench_function("ret", |b| {
-        b.iter(|| {
-            rt.block_on(async {
-                let (db, user) = tu_db().await;
-                let out: Vec<(i32, String, String)> = db
-                    .insert(user)
-                    .values([InsertUser::new("ret", "ret@x.dev")])
-                    .returning((user.id, user.name, user.email))
-                    .all()
-                    .await
-                    .expect("ret");
-                black_box(out);
-            })
-        })
-    });
+    // FIXME: turso RETURNING is broken upstream — re-enable once fixed
+    // write.bench_function("ret", |b| {
+    //     b.iter(|| {
+    //         rt.block_on(async {
+    //             let (db, user) = tu_db().await;
+    //             let out: Vec<(i32, String, String)> = db
+    //                 .insert(user)
+    //                 .values([InsertUser::new("ret", "ret@x.dev")])
+    //                 .returning((user.id, user.name, user.email))
+    //                 .all()
+    //                 .await
+    //                 .expect("ret");
+    //             black_box(out);
+    //         })
+    //     })
+    // });
     write.finish();
 
     let mut query = c.benchmark_group("turso/query");
