@@ -68,6 +68,15 @@ jobs:
             --output-format bencher \
             --color never | tee bench_output.txt
 
+      - name: Run SQLite libsql benchmarks (save baseline on main)
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          cargo bench --bench sqlite_libsql --features "${{ matrix.features }}" -- \
+            --save-baseline main \
+            --output-format bencher \
+            --color never | tee -a bench_output.txt
+
       - name: Run SQLite benchmarks (compare on PR)
         if: github.event_name == 'pull_request'
         shell: bash
@@ -76,6 +85,15 @@ jobs:
             --baseline-lenient main \
             --output-format bencher \
             --color never | tee bench_output.txt
+
+      - name: Run SQLite libsql benchmarks (compare on PR)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          cargo bench --bench sqlite_libsql --features "${{ matrix.features }}" -- \
+            --baseline-lenient main \
+            --output-format bencher \
+            --color never | tee -a bench_output.txt
 
       - name: Create report
         shell: bash

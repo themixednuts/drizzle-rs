@@ -8,6 +8,7 @@ description.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+autobenches = false
 
 [workspace]
 resolver = "3"
@@ -122,6 +123,10 @@ bit-vec = { workspace = true }
 
 [[bench]]
 name = "sqlite"
+harness = false
+
+[[bench]]
+name = "sqlite_libsql"
 harness = false
 
 [[bench]]
