@@ -44,7 +44,7 @@ jobs:
           # libsql-sqlite3-parser build.rs uses MSVC's deprecated -o flag;
           # MSVC ignores it and writes lemon.obj next to the .c source in
           # the read-only cargo registry. Fetch first, then clear read-only.
-          cargo fetch --features "rusqlite,turso,libsql,uuid"
+          cargo fetch
           $src = Join-Path $env:CARGO_HOME "registry\src"
           if (Test-Path $src) {
             Get-ChildItem -Path $src -Recurse -File | ForEach-Object { $_.IsReadOnly = $false }
