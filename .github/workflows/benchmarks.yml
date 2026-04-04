@@ -18,10 +18,13 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
+            sqlite_features: "rusqlite,turso,libsql,uuid"
           - os: windows-latest
             platform: windows
+            sqlite_features: "rusqlite,uuid"
           - os: macos-latest
             platform: macos
+            sqlite_features: "rusqlite,turso,libsql,uuid"
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -49,7 +52,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
-          cargo bench --bench sqlite --features "rusqlite,turso,libsql,uuid" -- \
+          cargo bench --bench sqlite --features "${{ matrix.sqlite_features }}" -- \
             --save-baseline main \
             --output-format bencher \
             --color never | tee bench_output.txt
@@ -58,7 +61,7 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: bash
         run: |
-          cargo bench --bench sqlite --features "rusqlite,turso,libsql,uuid" -- \
+          cargo bench --bench sqlite --features "${{ matrix.sqlite_features }}" -- \
             --baseline-lenient main \
             --output-format bencher \
             --color never | tee bench_output.txt
@@ -72,6 +75,7 @@ jobs:
             echo "**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo "**Commit:** ${{ github.sha }}"
             echo "**Platform:** ${{ runner.os }} (${{ runner.arch }})"
+            echo "**Features:** ${{ matrix.sqlite_features }}"
             echo "**Mode:** ${{ github.event_name == 'pull_request' && 'baseline compare' || 'baseline save' }}"
             echo ""
             echo '```'
