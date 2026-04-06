@@ -18,7 +18,7 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            sqlite_features: "rusqlite,turso,libsql,uuid"
+            sqlite_features: "rusqlite,turso,uuid"
           - os: windows-latest
             platform: windows
             sqlite_features: "rusqlite,uuid"
