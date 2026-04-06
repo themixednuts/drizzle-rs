@@ -242,9 +242,23 @@ let user: SelectUsers = db
     .get()?;
 
 // Specific columns
-let names: Vec<(String,)> = db
-    .select((users.name,))
+let names: Vec<(i64, String)> = db
+    .select((users.id, users.name))
     .from(users)
+    .all()?;
+
+// Multiple conditions
+let active_adults: Vec<SelectUsers> = db
+    .select(())
+    .from(users)
+    .r#where(and(gt(users.age, 18), eq(users.name, "Alex Smith")))
+    .all()?;
+
+// Combine with operators
+let rows: Vec<SelectUsers> = db
+    .select(())
+    .from(users)
+    .r#where(eq(users.name, "Alice") | eq(users.name, "Bob"))
     .all()?;
 ```
 
@@ -361,8 +375,14 @@ let age = cast(user.age, drizzle::postgres::types::Int4);
 ```rust
 db.select((users.name, alias(count(users.id), "total")))
     .from(users)
-    .group_by([users.name])
+    .group_by(users.name)
     .having(gt(count(users.id), 1))
+    .all()?;
+
+// Multiple group columns
+db.select((users.name, users.age, alias(count(users.id), "total")))
+    .from(users)
+    .group_by((users.name, users.age))
     .all()?;
 ```
 
