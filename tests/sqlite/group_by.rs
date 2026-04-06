@@ -60,7 +60,7 @@ sqlite_test!(test_group_by_simple_count, SimpleSchema, {
             alias(count(simple.id), "count"),
         ))
         .from(simple)
-        .group_by([simple.name])
+        .group_by(simple.name)
         .order_by(asc(simple.name))
             => all
     );
@@ -91,7 +91,7 @@ sqlite_test!(test_group_by_with_sum, ComplexSchema, {
             alias(sum(complex.age), "total"),
         ))
         .from(complex)
-        .group_by([complex.active])
+        .group_by(complex.active)
         .order_by(asc(complex.active))
             => all
     );
@@ -123,7 +123,7 @@ sqlite_test!(test_group_by_with_avg, ComplexSchema, {
             alias(avg(complex.score), "avg_score"),
         ))
         .from(complex)
-        .group_by([complex.active])
+        .group_by(complex.active)
         .order_by(asc(complex.active))
             => all
     );
@@ -159,7 +159,7 @@ sqlite_test!(test_having_filters_groups, SimpleSchema, {
             alias(count(simple.id), "count"),
         ))
         .from(simple)
-        .group_by([simple.name])
+        .group_by(simple.name)
         .having(gt(count(simple.id), 2_i64))
             => all
     );
@@ -194,7 +194,7 @@ sqlite_test!(test_having_with_sum, SimpleSchema, {
             alias(sum(simple.id), "total"),
         ))
         .from(simple)
-        .group_by([simple.name])
+        .group_by(simple.name)
         .having(gt(sum(simple.id), 10))
             => all
     );
@@ -221,7 +221,7 @@ sqlite_test!(test_having_no_matching_groups, SimpleSchema, {
             alias(count(simple.id), "count"),
         ))
         .from(simple)
-        .group_by([simple.name])
+        .group_by(simple.name)
         .having(gt(count(simple.id), 10_i64))
             => all
     );
@@ -258,7 +258,7 @@ sqlite_test!(test_group_by_order_by_aggregate, SimpleSchema, {
             alias(sum(simple.id), "total"),
         ))
         .from(simple)
-        .group_by([simple.name])
+        .group_by(simple.name)
         .order_by(desc(sum(simple.id)))
             => all
     );
@@ -298,7 +298,7 @@ sqlite_test!(test_group_by_with_limit, SimpleSchema, {
             alias(count(simple.id), "count"),
         ))
         .from(simple)
-        .group_by([simple.name])
+        .group_by(simple.name)
         .order_by(desc(count(simple.id)))
         .limit(2)
             => all
@@ -330,7 +330,7 @@ sqlite_test!(test_group_by_limit_without_order, SimpleSchema, {
             alias(count(simple.id), "count"),
         ))
         .from(simple)
-        .group_by([simple.name])
+        .group_by(simple.name)
         .limit(2)
             => all
     );
@@ -389,7 +389,7 @@ sqlite_test!(test_group_by_empty_table, SimpleSchema, {
             alias(count(simple.id), "count"),
         ))
         .from(simple)
-        .group_by([simple.name])
+        .group_by(simple.name)
             => all
     );
 

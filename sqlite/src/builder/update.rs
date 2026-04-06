@@ -264,6 +264,7 @@ where
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -318,7 +319,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     /// let query = builder
     ///     .update(user)
     ///     .set(UpdateUser::default().with_name("Updated"))
-    ///     .r#where(and([gt(user.id, 10), eq(user.age, 25)]));
+    ///     .r#where(and(gt(user.id, 10), eq(user.age, 25)));
     /// ```
     #[inline]
     pub fn r#where<E>(self, condition: E) -> UpdateBuilder<'a, S, UpdateWhereSet, T>
@@ -334,6 +335,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -352,6 +354,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -376,6 +379,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateWhereSet, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }

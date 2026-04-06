@@ -925,8 +925,8 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
     }
 }
 
-impl<'a, 'b, S, Schema, State, Table, Mk, Rw>
-    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>
+impl<'a, 'b, S, Schema, State, Table, Mk, Rw, Grouped>
+    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw, Grouped>, State>
 where
     State: builder::ExecutableState,
 {
@@ -942,69 +942,14 @@ where
             .execute(&sql_str, params_from_iter(params))?)
     }
 
-    /// Runs the query and returns all matching rows, decoded as `R`.
-    pub fn all_as<R, C>(self) -> drizzle_core::error::Result<C>
-    where
-        R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
-        for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
-            Into<drizzle_core::error::DrizzleError>,
-        C: FromIterator<R>,
-    {
-        self.rows_as::<R>()?
-            .collect::<drizzle_core::error::Result<C>>()
-    }
-
-    /// Runs the query and returns a row cursor, decoded as `R`.
-    pub fn rows_as<R>(self) -> drizzle_core::error::Result<Rows<R>>
-    where
-        R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
-        for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
-            Into<drizzle_core::error::DrizzleError>,
-    {
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "builder.all");
-        let (sql_str, params) = self.builder.sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-
-        let mut stmt = self.drizzle.conn.prepare(&sql_str)?;
-        let mut rows = stmt.query_and_then(params_from_iter(params), |row| {
-            R::try_from(row).map_err(Into::into)
-        })?;
-
-        let (lower, _) = rows.size_hint();
-        let mut decoded = Vec::with_capacity(lower);
-        for row in rows {
-            decoded.push(row?);
-        }
-
-        Ok(Rows::new(decoded))
-    }
-
-    /// Runs the query and returns a single row, decoded as `R`.
-    pub fn get_as<R>(self) -> drizzle_core::error::Result<R>
-    where
-        R: for<'r> TryFrom<&'r rusqlite::Row<'r>>,
-        for<'r> <R as TryFrom<&'r rusqlite::Row<'r>>>::Error:
-            Into<drizzle_core::error::DrizzleError>,
-    {
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "builder.get");
-        let (sql_str, params) = self.builder.sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-
-        let mut stmt = self.drizzle.conn.prepare(&sql_str)?;
-        stmt.query_row(params_from_iter(params), |row| {
-            Ok(R::try_from(row).map_err(Into::into))
-        })?
-    }
-
     /// Runs the query and returns all matching rows using the builder's row type.
-    pub fn all<R, Proof>(self) -> drizzle_core::error::Result<Vec<R>>
+    pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R>,
+        Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "builder.all");
@@ -1030,16 +975,33 @@ where
         for<'r> <Rw as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
             Into<drizzle_core::error::DrizzleError>,
     {
-        self.rows_as()
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "builder.rows");
+        let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+
+        let mut stmt = self.drizzle.conn.prepare(&sql_str)?;
+        let mut rows = stmt.query_and_then(params_from_iter(params), |row| {
+            Rw::try_from(row).map_err(Into::into)
+        })?;
+
+        let (lower, _) = rows.size_hint();
+        let mut decoded = Vec::with_capacity(lower);
+        for row in rows {
+            decoded.push(row?);
+        }
+
+        Ok(Rows::new(decoded))
     }
 
     /// Runs the query and returns a single row using the builder's row type.
-    pub fn get<R, Proof>(self) -> drizzle_core::error::Result<R>
+    pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R>,
+        Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "builder.get");

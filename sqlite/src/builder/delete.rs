@@ -221,10 +221,10 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     /// // Delete with complex conditions
     /// let query = builder
     ///     .delete(user)
-    ///     .r#where(and([
+    ///     .r#where(and(
     ///         gt(user.id, 100),
-    ///         or([eq(user.name, "test"), eq(user.age, 0)])
-    ///     ]));
+    ///         or(eq(user.name, "test"), eq(user.age, 0))
+    ///     ));
     /// ```
     #[inline]
     pub fn r#where<E>(self, condition: E) -> DeleteBuilder<'a, S, DeleteWhereSet, T>
@@ -240,6 +240,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -257,6 +258,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -280,6 +282,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteWhereSet, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }

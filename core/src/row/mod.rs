@@ -12,7 +12,6 @@
 //! .from(table)     → R       (Marker + Table → row type via ResolveRow)
 //! .join(t2)        → R'      (Marker + R + JoinedTable → new R via AfterJoin)
 //! .all()           → Vec<R>  (R: FromDrizzleRow)
-//! .all_as::<T>()   → Vec<T>  (user override)
 //! # "####;
 //! ```
 
@@ -168,6 +167,297 @@ impl<M, Scope, Proof> MarkerScopeValidFor<Proof> for Scoped<M, Scope>
 where
     M: MarkerRequiredTables,
     Scope: ScopeSatisfies<<M as MarkerRequiredTables>::RequiredTables, Proof>,
+{
+}
+
+// =============================================================================
+// Aggregate status validation for SELECT lists
+// =============================================================================
+
+/// Fold the aggregate statuses of a tuple of expressions.
+///
+/// For a 1-tuple, returns the single element's status.
+/// For N-tuples, folds pairwise using `CombineAggStatus`.
+pub trait AggStatus {
+    type Status;
+}
+
+// 1-tuple base case
+impl<E: crate::expr::HasAggStatus> AggStatus for (E,) {
+    type Status = E::Status;
+}
+
+// Generate AggStatus for 2..N tuples.
+// The `with_col_sizes_*` macros call this incrementally as:
+//   callback!(T0; 0)  callback!(T0, T1; 0, 1)  callback!(T0, T1, T2; 0, 1, 2)  ...
+// We skip the 1-tuple (handled above) and implement 2+ tuples.
+macro_rules! impl_tuple_agg_status {
+    // 1-tuple: skip (already implemented above)
+    ($E0:ident; $i0:tt) => {};
+    // 2-tuple
+    ($E0:ident, $E1:ident; $i0:tt, $i1:tt) => {
+        impl<$E0, $E1> AggStatus for ($E0, $E1)
+        where
+            $E0: crate::expr::HasAggStatus,
+            $E1: crate::expr::HasAggStatus,
+            <$E0 as crate::expr::HasAggStatus>::Status:
+                crate::expr::CombineAggStatus<<$E1 as crate::expr::HasAggStatus>::Status>,
+        {
+            type Status = <<$E0 as crate::expr::HasAggStatus>::Status as
+                crate::expr::CombineAggStatus<<$E1 as crate::expr::HasAggStatus>::Status>>::Output;
+        }
+    };
+    // 3+ tuples: fold head element's status with the rest-tuple's status
+    ($E0:ident, $E1:ident, $($rest:ident),+; $i0:tt, $i1:tt, $($ri:tt),+) => {
+        impl<$E0, $E1, $($rest),+> AggStatus for ($E0, $E1, $($rest),+)
+        where
+            $E0: crate::expr::HasAggStatus,
+            ($E1, $($rest),+): AggStatus,
+            <$E0 as crate::expr::HasAggStatus>::Status:
+                crate::expr::CombineAggStatus<<($E1, $($rest),+) as AggStatus>::Status>,
+        {
+            type Status = <<$E0 as crate::expr::HasAggStatus>::Status as
+                crate::expr::CombineAggStatus<<($E1, $($rest),+) as AggStatus>::Status>>::Output;
+        }
+    };
+}
+
+with_col_sizes_8!(impl_tuple_agg_status);
+
+#[cfg(any(
+    feature = "col16",
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_16!(impl_tuple_agg_status);
+
+#[cfg(any(
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_32!(impl_tuple_agg_status);
+
+#[cfg(any(feature = "col64", feature = "col128", feature = "col200"))]
+with_col_sizes_64!(impl_tuple_agg_status);
+
+#[cfg(any(feature = "col128", feature = "col200"))]
+with_col_sizes_128!(impl_tuple_agg_status);
+
+#[cfg(feature = "col200")]
+with_col_sizes_200!(impl_tuple_agg_status);
+
+// =============================================================================
+// GROUP BY column tracking
+// =============================================================================
+
+/// Trait for types that can be passed to `.group_by()`.
+///
+/// Single columns and tuples of columns implement this.
+/// The `Columns` associated type is a `Cons<...>` list of column types
+/// for compile-time validation.
+pub trait IntoGroupBy<'a, V: crate::SQLParam + 'a>: crate::ToSQL<'a, V> {
+    /// Type-level list of grouped columns (e.g., `Cons<Col1, Cons<Col2, Nil>>`).
+    type Columns;
+}
+
+// Single column → Cons<Self, Nil>
+// (Implemented by proc macros for each column ZST)
+
+// Tuple impls: (Col1, Col2) → Cons<Col1, Cons<Col2, Nil>>
+macro_rules! impl_into_group_by_tuple {
+    // 1-tuple: skip (single column uses direct impl)
+    ($T0:ident; $i0:tt) => {};
+    // 2-tuple
+    ($T0:ident, $T1:ident; $i0:tt, $i1:tt) => {
+        impl<'a, V: crate::SQLParam + 'a, $T0, $T1> IntoGroupBy<'a, V> for ($T0, $T1)
+        where
+            $T0: crate::ToSQL<'a, V>,
+            $T1: crate::ToSQL<'a, V>,
+        {
+            type Columns = Cons<$T0, Cons<$T1, Nil>>;
+        }
+    };
+    // 3+ tuples
+    ($T0:ident, $T1:ident, $($rest:ident),+; $i0:tt, $i1:tt, $($ri:tt),+) => {
+        impl<'a, V: crate::SQLParam + 'a, $T0, $T1, $($rest),+> IntoGroupBy<'a, V> for ($T0, $T1, $($rest),+)
+        where
+            $T0: crate::ToSQL<'a, V>,
+            $T1: crate::ToSQL<'a, V>,
+            $($rest: crate::ToSQL<'a, V>,)+
+        {
+            type Columns = impl_into_group_by_tuple!(@cons $T0, $T1, $($rest),+);
+        }
+    };
+    // Helper: build nested Cons type
+    (@cons $T:ident) => { Cons<$T, Nil> };
+    (@cons $T:ident, $($rest:ident),+) => { Cons<$T, impl_into_group_by_tuple!(@cons $($rest),+)> };
+}
+
+with_col_sizes_8!(impl_into_group_by_tuple);
+
+#[cfg(any(
+    feature = "col16",
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_16!(impl_into_group_by_tuple);
+
+// =============================================================================
+// Scalar column validation against grouped columns
+// =============================================================================
+
+/// Checks that every scalar column in a SelectCols tuple is present in
+/// the Grouped column list. Aggregate columns are skipped.
+///
+/// `Proof` is a witness type inferred by the compiler (like `ScopeContains`).
+#[diagnostic::on_unimplemented(
+    message = "non-aggregate column in SELECT is not in GROUP BY",
+    label = "this column must appear in .group_by(...) or be wrapped in an aggregate function",
+    note = "when using GROUP BY, every non-aggregate column in SELECT must be listed in GROUP BY"
+)]
+pub trait ScalarColumnsIn<Grouped, Proof> {}
+
+/// Aggregate expressions always pass (they don't need to be in GROUP BY).
+pub struct AggSkip;
+
+/// Scalar expressions need a ScopeContains witness.
+pub struct ScalarCheck<W>(core::marker::PhantomData<W>);
+
+// 1-tuple
+impl<E, Grouped, Proof> ScalarColumnsIn<Grouped, (Proof,)> for (E,) where
+    E: SingleColGroupCheck<Grouped, Proof>
+{
+}
+
+/// Per-element check: either skip (Agg) or verify (Scalar).
+pub trait SingleColGroupCheck<Grouped, Proof> {}
+
+/// Extracts the "base column" identity from an expression for GROUP BY matching.
+///
+/// `AliasedExpr<Col>` → `Col`, bare column → `Self`.
+pub trait GroupByIdentity {
+    type Identity;
+}
+
+// Default: identity is self (bare column ZSTs)
+// (implemented by proc macros for each column ZST)
+
+// AliasedExpr unwraps to inner
+impl<E: GroupByIdentity> GroupByIdentity for crate::expr::AliasedExpr<E> {
+    type Identity = E::Identity;
+}
+
+// SQLExpr: identity is self (for aggregate expressions, this won't be checked anyway)
+impl<'a, V: crate::SQLParam, T, N, A> GroupByIdentity for crate::expr::SQLExpr<'a, V, T, N, A>
+where
+    T: crate::types::DataType,
+    N: crate::expr::Nullability,
+    A: crate::expr::AggregateKind,
+{
+    type Identity = Self;
+}
+
+// ColumnBinOp: identity is self (complex expressions won't match GROUP BY)
+impl<Lhs, Rhs, Op> GroupByIdentity for crate::expr::ColumnBinOp<Lhs, Rhs, Op> {
+    type Identity = Self;
+}
+
+// ColumnNeg: identity is self
+impl<T> GroupByIdentity for crate::expr::ColumnNeg<T> {
+    type Identity = Self;
+}
+
+// Aggregate expressions → always OK
+impl<E, Grouped> SingleColGroupCheck<Grouped, AggSkip> for E where
+    E: crate::expr::HasAggStatus<Status = crate::expr::AllAgg>
+{
+}
+
+// Scalar expressions → base column identity must be in Grouped list
+impl<E, Grouped, W> SingleColGroupCheck<Grouped, ScalarCheck<W>> for E
+where
+    E: crate::expr::HasAggStatus<Status = crate::expr::AllScalar> + GroupByIdentity,
+    Grouped: ScopeContains<E::Identity, W>,
+{
+}
+
+// N-tuple: check head element, recurse on tail
+// Uses (HeadProof, TailProof) witness structure, like ScopeSatisfies.
+
+// 2-tuple
+impl<T0, T1, Grouped, P0, P1> ScalarColumnsIn<Grouped, (P0, P1)> for (T0, T1)
+where
+    T0: SingleColGroupCheck<Grouped, P0>,
+    T1: SingleColGroupCheck<Grouped, P1>,
+{
+}
+
+// 3+ tuples: check head, recurse on (T1, T2, ...)
+macro_rules! impl_scalar_columns_in {
+    // 1-tuple: skip (handled above directly)
+    ($T0:ident; $i0:tt) => {};
+    // 2-tuple: skip (handled above directly)
+    ($T0:ident, $T1:ident; $i0:tt, $i1:tt) => {};
+    // 3+ tuples: head + tail recursion
+    ($T0:ident, $($rest:ident),+; $i0:tt, $($ri:tt),+) => {
+        impl<$T0, $($rest),+, Grouped, HeadProof, TailProof>
+            ScalarColumnsIn<Grouped, (HeadProof, TailProof)>
+            for ($T0, $($rest),+)
+        where
+            $T0: SingleColGroupCheck<Grouped, HeadProof>,
+            ($($rest,)+): ScalarColumnsIn<Grouped, TailProof>,
+        {}
+    };
+}
+
+with_col_sizes_8!(impl_scalar_columns_in);
+
+#[cfg(any(
+    feature = "col16",
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_16!(impl_scalar_columns_in);
+
+// =============================================================================
+// MarkerAggValidFor — top-level bound on terminal methods
+// =============================================================================
+
+/// Validates that the SELECT list is legal given the grouped column set.
+///
+/// - `Grouped = ()` (no GROUP BY): everything is valid
+/// - `Grouped = Cons<...>` (has GROUP BY): scalar columns must be in the list
+#[diagnostic::on_unimplemented(
+    message = "non-aggregate column in SELECT is not in GROUP BY",
+    label = "add this column to .group_by(...) or wrap it in an aggregate function"
+)]
+pub trait MarkerAggValidFor<Grouped, Proof = ()> {}
+
+// No GROUP BY (Grouped = ()) → always valid, any mix is fine
+impl<Mk> MarkerAggValidFor<()> for Mk {}
+
+// SelectStar with GROUP BY: can't check at compile time, always passes
+impl<Scope, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>> for Scoped<SelectStar, Scope> {}
+
+// SelectExpr with GROUP BY: can't check, always passes
+impl<Scope, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>> for Scoped<SelectExpr, Scope> {}
+
+// SelectAs with GROUP BY: user-specified type, always passes
+impl<Scope, R, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>> for Scoped<SelectAs<R>, Scope> {}
+
+// SelectCols with GROUP BY: check each scalar column is in the Grouped list
+impl<Scope, Cols, Head, Tail, Proof> MarkerAggValidFor<Cons<Head, Tail>, Proof>
+    for Scoped<SelectCols<Cols>, Scope>
+where
+    Cols: ScalarColumnsIn<Cons<Head, Tail>, Proof>,
 {
 }
 
@@ -482,7 +772,7 @@ where
 #[diagnostic::on_unimplemented(
     message = "selected shape does not match decode target `{Actual}`",
     label = "this decode target is not type-compatible with .select(...) output",
-    note = "use .all_as::<T>() for explicit remapping when selecting custom expressions"
+    note = "use typed expressions or derive FromRow for explicit remapping when selecting custom expressions"
 )]
 pub trait MarkerColumnCountValid<Row: ?Sized, Inferred, Actual> {}
 
@@ -490,11 +780,11 @@ pub trait MarkerColumnCountValid<Row: ?Sized, Inferred, Actual> {}
 ///
 /// Raw `SelectExpr` (`select(sql!(...))`) is intentionally excluded so strict
 /// decode requires either typed expressions (`raw_non_null`, `sql!(.., Type)`) or
-/// explicit remapping via `.all_as::<T>()`.
+/// explicit remapping via typed expressions or `FromRow` derive.
 #[diagnostic::on_unimplemented(
     message = "raw select expressions require explicit typing in strict decode",
     label = "`select(sql!(...)).all()/get()` is not allowed in strict mode",
-    note = "use typed wrappers like `raw_non_null`/`raw_nullable` or call `.all_as::<T>()` / `.get_as::<T>()`"
+    note = "use typed wrappers like `raw_non_null`/`raw_nullable` or derive FromRow"
 )]
 pub trait StrictDecodeMarker {}
 
@@ -609,7 +899,7 @@ where
 #[diagnostic::on_unimplemented(
     message = "cannot deserialize `{Self}` from a database row",
     label = "this type does not implement FromDrizzleRow",
-    note = "derive #[SQLiteFromRow] or #[PostgresFromRow], or use .all_as::<T>()"
+    note = "derive #[SQLiteFromRow] or #[PostgresFromRow]"
 )]
 pub trait FromDrizzleRow<Row: ?Sized>: Sized {
     /// Number of columns this type reads from the row.
@@ -707,7 +997,7 @@ with_col_sizes_200!(impl_from_drizzle_row_tuple);
 /// producing a compile error that guides the user.
 #[diagnostic::on_unimplemented(
     message = "SQL type `{Self}` has no default Rust mapping for dialect `{D}`",
-    label = "use .all_as::<T>() to specify the Rust type explicitly",
+    label = "this SQL type has no default Rust mapping for this dialect",
     note = "enable `chrono` for Date/Time/Timestamp/TimestampTz, `uuid` for Uuid, or `serde` for Json/Jsonb"
 )]
 pub trait SQLTypeToRust<D> {
@@ -971,10 +1261,10 @@ impl<T> WrapNullable<T> for crate::expr::Null {
 /// - `SQLExpr<T, N, A>` where `T: SQLTypeToRust<D>` and `N: WrapNullable`
 ///
 /// For `SQL<'a, V>` (raw SQL), `ValueType = ()` — the user must specify
-/// the concrete row type via turbofish (`.all::<T>()`) or `.all_as::<T>()`.
+/// the concrete row type via turbofish (`.all::<T>()`).
 #[diagnostic::on_unimplemented(
     message = "cannot infer Rust type for expression `{Self}`",
-    label = "use .all_as::<T>() to specify the Rust type",
+    label = "use typed expressions or derive FromRow to specify the Rust type",
     note = "raw SQL and JSON expressions require explicit type annotation"
 )]
 pub trait ExprValueType {

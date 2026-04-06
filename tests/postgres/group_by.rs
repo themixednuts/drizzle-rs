@@ -58,7 +58,7 @@ postgres_test!(test_group_by_with_count, ComplexSchema, {
             alias(count(complex.id), "total_age"),
         ))
         .from(complex)
-        .group_by([complex.active])
+        .group_by(complex.active)
         .order_by(asc(complex.active))
             => all
     );
@@ -92,7 +92,7 @@ postgres_test!(test_group_by_with_sum, ComplexSchema, {
             alias(sum(complex.age), "total_age"),
         ))
         .from(complex)
-        .group_by([complex.active])
+        .group_by(complex.active)
         .order_by(asc(complex.active))
             => all
     );
@@ -123,7 +123,7 @@ postgres_test!(test_group_by_with_avg, ComplexSchema, {
             alias(avg(complex.score), "avg_score"),
         ))
         .from(complex)
-        .group_by([complex.active])
+        .group_by(complex.active)
         .order_by(asc(complex.active))
             => all
     );
@@ -161,7 +161,7 @@ postgres_test!(test_having_filters_groups, ComplexSchema, {
             alias(count(complex.id), "total_age"),
         ))
         .from(complex)
-        .group_by([complex.active])
+        .group_by(complex.active)
         .having(gt(count(complex.id), 2_i64))
             => all
     );
@@ -191,7 +191,7 @@ postgres_test!(test_having_with_sum, ComplexSchema, {
             alias(sum(complex.age), "total_age"),
         ))
         .from(complex)
-        .group_by([complex.active])
+        .group_by(complex.active)
         .having(gt(sum(complex.age), 20_i64))
             => all
     );
@@ -219,7 +219,7 @@ postgres_test!(test_having_no_matching_groups, ComplexSchema, {
             alias(count(complex.id), "total_age"),
         ))
         .from(complex)
-        .group_by([complex.active])
+        .group_by(complex.active)
         .having(gt(count(complex.id), 10_i64))
             => all
     );
@@ -252,7 +252,7 @@ postgres_test!(test_group_by_order_by, ComplexSchema, {
             alias(sum(complex.age), "total_age"),
         ))
         .from(complex)
-        .group_by([complex.active])
+        .group_by(complex.active)
         .order_by(desc(sum(complex.age)))
             => all
     );
@@ -291,7 +291,7 @@ postgres_test!(test_group_by_with_limit, ComplexSchema, {
             alias(sum(complex.age), "total_age"),
         ))
         .from(complex)
-        .group_by([complex.active])
+        .group_by(complex.active)
         .order_by(desc(sum(complex.age)))
         .limit(1)
             => all
@@ -324,7 +324,7 @@ postgres_test!(test_group_by_limit_without_order, ComplexSchema, {
             alias(count(complex.id), "total_age"),
         ))
         .from(complex)
-        .group_by([complex.active])
+        .group_by(complex.active)
         .limit(1)
             => all
     );
@@ -348,7 +348,7 @@ postgres_test!(test_group_by_empty_table, ComplexSchema, {
             alias(count(complex.id), "total_age"),
         ))
         .from(complex)
-        .group_by([complex.active])
+        .group_by(complex.active)
             => all
     );
 

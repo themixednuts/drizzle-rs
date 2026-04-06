@@ -55,6 +55,10 @@ pub struct SelectSetOpSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectForSet;
 
+//------------------------------------------------------------------------------
+// Join macros (generates all join variants)
+//------------------------------------------------------------------------------
+
 #[doc(hidden)]
 macro_rules! join_impl {
     () => {
@@ -90,7 +94,7 @@ macro_rules! join_impl {
             pub fn [<$type _join>]<J: crate::helpers::JoinArg<'a, T>>(
                 self,
                 arg: J,
-            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow>
+            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>
             where
                 M: $join_trait<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
             {
@@ -102,6 +106,7 @@ macro_rules! join_impl {
                     table: PhantomData,
                     marker: PhantomData,
                     row: PhantomData,
+                    grouped: PhantomData,
                 }
             }
         }
@@ -122,6 +127,7 @@ macro_rules! join_using_impl {
             U,
             <M as drizzle_core::ScopePush<U>>::Out,
             <M as drizzle_core::AfterJoin<R, U>>::NewRow,
+            G,
         >
         where
             M: drizzle_core::AfterJoin<R, U> + drizzle_core::ScopePush<U>,
@@ -133,6 +139,7 @@ macro_rules! join_using_impl {
                 table: PhantomData,
                 marker: PhantomData,
                 row: PhantomData,
+                grouped: PhantomData,
             }
         }
     };
@@ -150,6 +157,7 @@ macro_rules! join_using_impl {
                 U,
                 <M as drizzle_core::ScopePush<U>>::Out,
                 <M as $join_trait<R, U>>::NewRow,
+                G,
             >
             where
                 M: $join_trait<R, U> + drizzle_core::ScopePush<U>,
@@ -161,13 +169,18 @@ macro_rules! join_using_impl {
                     table: PhantomData,
                     marker: PhantomData,
                     row: PhantomData,
+                    grouped: PhantomData,
                 }
             }
         }
     };
 }
 
-// Mark states that can execute queries as implementing the ExecutableState trait
+//------------------------------------------------------------------------------
+// Capability trait impls for each state
+//------------------------------------------------------------------------------
+
+// ExecutableState
 impl ExecutableState for SelectFromSet {}
 impl ExecutableState for SelectWhereSet {}
 impl ExecutableState for SelectLimitSet {}
@@ -177,6 +190,49 @@ impl ExecutableState for SelectGroupSet {}
 impl ExecutableState for SelectJoinSet {}
 impl ExecutableState for SelectSetOpSet {}
 impl ExecutableState for SelectForSet {}
+
+// WhereAllowed
+impl drizzle_core::WhereAllowed for SelectFromSet {}
+impl drizzle_core::WhereAllowed for SelectJoinSet {}
+
+// GroupByAllowed
+impl drizzle_core::GroupByAllowed for SelectFromSet {}
+impl drizzle_core::GroupByAllowed for SelectJoinSet {}
+impl drizzle_core::GroupByAllowed for SelectWhereSet {}
+
+// OrderByAllowed
+impl drizzle_core::OrderByAllowed for SelectFromSet {}
+impl drizzle_core::OrderByAllowed for SelectJoinSet {}
+impl drizzle_core::OrderByAllowed for SelectWhereSet {}
+impl drizzle_core::OrderByAllowed for SelectGroupSet {}
+impl drizzle_core::OrderByAllowed for SelectSetOpSet {}
+
+// LimitAllowed
+impl drizzle_core::LimitAllowed for SelectFromSet {}
+impl drizzle_core::LimitAllowed for SelectJoinSet {}
+impl drizzle_core::LimitAllowed for SelectWhereSet {}
+impl drizzle_core::LimitAllowed for SelectGroupSet {}
+impl drizzle_core::LimitAllowed for SelectOrderSet {}
+impl drizzle_core::LimitAllowed for SelectSetOpSet {}
+
+// OffsetAllowed
+impl drizzle_core::OffsetAllowed for SelectFromSet {}
+impl drizzle_core::OffsetAllowed for SelectLimitSet {}
+impl drizzle_core::OffsetAllowed for SelectSetOpSet {}
+
+// JoinAllowed
+impl drizzle_core::JoinAllowed for SelectFromSet {}
+impl drizzle_core::JoinAllowed for SelectJoinSet {}
+
+// HavingAllowed
+impl drizzle_core::HavingAllowed for SelectGroupSet {}
+
+// GroupByApplied (for aggregate/scalar mixing enforcement)
+impl drizzle_core::GroupByApplied for SelectGroupSet {}
+impl drizzle_core::GroupByApplied for SelectOrderSet {}
+impl drizzle_core::GroupByApplied for SelectLimitSet {}
+impl drizzle_core::GroupByApplied for SelectOffsetSet {}
+impl drizzle_core::GroupByApplied for SelectSetOpSet {}
 
 #[doc(hidden)]
 pub trait AsCteState {}
@@ -194,18 +250,15 @@ impl AsCteState for SelectOffsetSet {}
 //------------------------------------------------------------------------------
 
 /// Builds a SELECT query specifically for PostgreSQL
-pub type SelectBuilder<'a, Schema, State, Table = (), Marker = (), Row = ()> =
-    super::QueryBuilder<'a, Schema, State, Table, Marker, Row>;
+pub type SelectBuilder<'a, Schema, State, Table = (), Marker = (), Row = (), Grouped = ()> =
+    super::QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>;
 
 //------------------------------------------------------------------------------
-// Initial State Implementation
+// Initial State: .from()
 //------------------------------------------------------------------------------
 
 impl<'a, S, M> SelectBuilder<'a, S, SelectInitial, (), M> {
     /// Specifies the table to select FROM and transitions state.
-    ///
-    /// The row type `R` is resolved from the select marker `M` and the table `T`
-    /// via the `ResolveRow` trait.
     #[inline]
     #[allow(clippy::type_complexity)]
     pub fn from<T>(
@@ -230,16 +283,21 @@ impl<'a, S, M> SelectBuilder<'a, S, SelectInitial, (), M> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
 
 //------------------------------------------------------------------------------
-// Post-FROM State Implementation
+// Capability-gated methods (generic over State)
 //------------------------------------------------------------------------------
 
-impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectFromSet, T, M, R> {
-    /// Adds a JOIN clause to the query
+// JOIN (available from SelectFromSet and SelectJoinSet)
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: drizzle_core::JoinAllowed,
+{
+    /// Adds an INNER JOIN clause to the query.
     #[inline]
     #[allow(clippy::type_complexity)]
     pub fn join<J: crate::helpers::JoinArg<'a, T>>(
@@ -252,6 +310,7 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectFromSet, T, M, R> {
         J::JoinedTable,
         <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
         <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+        G,
     >
     where
         M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
@@ -264,13 +323,21 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectFromSet, T, M, R> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
     join_impl!();
+}
 
+// WHERE (available from SelectFromSet and SelectJoinSet)
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: drizzle_core::WhereAllowed,
+{
+    /// Adds a WHERE clause to filter query results.
     #[inline]
-    pub fn r#where<E>(self, condition: E) -> SelectBuilder<'a, S, SelectWhereSet, T, M, R>
+    pub fn r#where<E>(self, condition: E) -> SelectBuilder<'a, S, SelectWhereSet, T, M, R, G>
     where
         E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
@@ -282,197 +349,43 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectFromSet, T, M, R> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
-        }
-    }
-
-    /// Adds a GROUP BY clause to the query
-    pub fn group_by(
-        self,
-        expressions: impl IntoIterator<Item = impl ToSQL<'a, PostgresValue<'a>>>,
-    ) -> SelectBuilder<'a, S, SelectGroupSet, T, M, R> {
-        SelectBuilder {
-            sql: self.sql.append(helpers::group_by(expressions)),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-        }
-    }
-
-    /// Limits the number of rows returned
-    #[inline]
-    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R> {
-        SelectBuilder {
-            sql: self.sql.append(helpers::limit(limit)),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-        }
-    }
-
-    /// Sets the offset for the query results
-    #[inline]
-    pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R> {
-        SelectBuilder {
-            sql: self.sql.append(helpers::offset(offset)),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-        }
-    }
-
-    /// Sorts the query results
-    #[inline]
-    pub fn order_by<TOrderBy>(
-        self,
-        expressions: TOrderBy,
-    ) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R>
-    where
-        TOrderBy: ToSQL<'a, PostgresValue<'a>>,
-    {
-        SelectBuilder {
-            sql: self.sql.append(helpers::order_by(expressions)),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
 
-//------------------------------------------------------------------------------
-// Post-JOIN State Implementation
-//------------------------------------------------------------------------------
-
-impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectJoinSet, T, M, R> {
-    /// Adds a WHERE condition after a JOIN
-    #[inline]
-    pub fn r#where<E>(self, condition: E) -> SelectBuilder<'a, S, SelectWhereSet, T, M, R>
+// GROUP BY (available from SelectFromSet, SelectJoinSet, SelectWhereSet)
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: drizzle_core::GroupByAllowed,
+{
+    /// Adds a GROUP BY clause to the query.
+    pub fn group_by<Gr>(
+        self,
+        columns: Gr,
+    ) -> SelectBuilder<'a, S, SelectGroupSet, T, M, R, Gr::Columns>
     where
-        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
-        E::SQLType: drizzle_core::types::BooleanLike,
+        Gr: drizzle_core::IntoGroupBy<'a, PostgresValue<'a>>,
     {
         SelectBuilder {
-            sql: self.sql.append(crate::helpers::r#where(condition)),
+            sql: self.sql.append(helpers::group_by_expr(columns)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
-        }
-    }
-    /// Sorts the query results
-    #[inline]
-    pub fn order_by<TOrderBy>(
-        self,
-        expressions: TOrderBy,
-    ) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R>
-    where
-        TOrderBy: ToSQL<'a, PostgresValue<'a>>,
-    {
-        SelectBuilder {
-            sql: self.sql.append(helpers::order_by(expressions)),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-        }
-    }
-    /// Adds a JOIN clause to the query
-    #[inline]
-    #[allow(clippy::type_complexity)]
-    pub fn join<J: crate::helpers::JoinArg<'a, T>>(
-        self,
-        arg: J,
-    ) -> SelectBuilder<
-        'a,
-        S,
-        SelectJoinSet,
-        J::JoinedTable,
-        <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
-        <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
-    >
-    where
-        M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
-    {
-        use drizzle_core::Join;
-        SelectBuilder {
-            sql: self.sql.append(arg.into_join_sql(Join::new())),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-        }
-    }
-    join_impl!();
-}
-
-//------------------------------------------------------------------------------
-// Post-WHERE State Implementation
-//------------------------------------------------------------------------------
-
-impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectWhereSet, T, M, R> {
-    /// Adds a GROUP BY clause after a WHERE
-    pub fn group_by(
-        self,
-        expressions: impl IntoIterator<Item = impl ToSQL<'a, PostgresValue<'a>>>,
-    ) -> SelectBuilder<'a, S, SelectGroupSet, T, M, R> {
-        SelectBuilder {
-            sql: self.sql.append(helpers::group_by(expressions)),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-        }
-    }
-
-    /// Adds an ORDER BY clause after a WHERE
-    pub fn order_by<TOrderBy>(
-        self,
-        expressions: TOrderBy,
-    ) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R>
-    where
-        TOrderBy: ToSQL<'a, PostgresValue<'a>>,
-    {
-        SelectBuilder {
-            sql: self.sql.append(helpers::order_by(expressions)),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-        }
-    }
-
-    /// Adds a LIMIT clause after a WHERE
-    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R> {
-        SelectBuilder {
-            sql: self.sql.append(helpers::limit(limit)),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
 
-//------------------------------------------------------------------------------
-// Post-GROUP BY State Implementation
-//------------------------------------------------------------------------------
-
-impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectGroupSet, T, M, R> {
-    /// Adds a HAVING clause after GROUP BY
-    pub fn having<E>(self, condition: E) -> SelectBuilder<'a, S, SelectGroupSet, T, M, R>
+// HAVING (available only from SelectGroupSet)
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: drizzle_core::HavingAllowed,
+{
+    /// Adds a HAVING clause after GROUP BY.
+    pub fn having<E>(self, condition: E) -> SelectBuilder<'a, S, SelectGroupSet, T, M, R, G>
     where
         E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
@@ -484,14 +397,22 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectGroupSet, T, M, R> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
+}
 
-    /// Adds an ORDER BY clause after GROUP BY
+// ORDER BY (available from many states)
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: drizzle_core::OrderByAllowed,
+{
+    /// Sorts the query results.
+    #[inline]
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
-    ) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R>
+    ) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R, G>
     where
         TOrderBy: ToSQL<'a, PostgresValue<'a>>,
     {
@@ -502,11 +423,19 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectGroupSet, T, M, R> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
+}
 
-    /// Adds a LIMIT clause after GROUP BY
-    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R> {
+// LIMIT (available from many states)
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: drizzle_core::LimitAllowed,
+{
+    /// Limits the number of rows returned.
+    #[inline]
+    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G> {
         SelectBuilder {
             sql: self.sql.append(helpers::limit(limit)),
             schema: PhantomData,
@@ -514,35 +443,19 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectGroupSet, T, M, R> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
 
-//------------------------------------------------------------------------------
-// Post-ORDER BY State Implementation
-//------------------------------------------------------------------------------
-
-impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectOrderSet, T, M, R> {
-    /// Adds a LIMIT clause after ORDER BY
-    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R> {
-        SelectBuilder {
-            sql: self.sql.append(helpers::limit(limit)),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-        }
-    }
-}
-
-//------------------------------------------------------------------------------
-// Post-LIMIT State Implementation
-//------------------------------------------------------------------------------
-
-impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectLimitSet, T, M, R> {
-    /// Adds an OFFSET clause after LIMIT
-    pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R> {
+// OFFSET (available from SelectFromSet, SelectLimitSet, SelectSetOpSet)
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: drizzle_core::OffsetAllowed,
+{
+    /// Sets the offset for the query results.
+    #[inline]
+    pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G> {
         SelectBuilder {
             sql: self.sql.append(helpers::offset(offset)),
             schema: PhantomData,
@@ -550,11 +463,16 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectLimitSet, T, M, R> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
 
-impl<'a, S, State, T, M, R> SelectBuilder<'a, S, State, T, M, R>
+//------------------------------------------------------------------------------
+// CTE support
+//------------------------------------------------------------------------------
+
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: AsCteState,
     T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
@@ -581,7 +499,7 @@ where
 // Set operation support (UNION / INTERSECT / EXCEPT)
 //------------------------------------------------------------------------------
 
-impl<'a, S, State, T, M, R> SelectBuilder<'a, S, State, T, M, R>
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: ExecutableState,
 {
@@ -589,7 +507,7 @@ where
     pub fn union(
         self,
         other: impl IntoSelect<'a, S, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
         SelectBuilder {
             sql: helpers::union(self.sql, other.into_select()),
             schema: PhantomData,
@@ -597,6 +515,7 @@ where
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -604,7 +523,7 @@ where
     pub fn union_all(
         self,
         other: impl IntoSelect<'a, S, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
         SelectBuilder {
             sql: helpers::union_all(self.sql, other.into_select()),
             schema: PhantomData,
@@ -612,6 +531,7 @@ where
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -619,7 +539,7 @@ where
     pub fn intersect(
         self,
         other: impl IntoSelect<'a, S, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
         SelectBuilder {
             sql: helpers::intersect(self.sql, other.into_select()),
             schema: PhantomData,
@@ -627,6 +547,7 @@ where
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -634,7 +555,7 @@ where
     pub fn intersect_all(
         self,
         other: impl IntoSelect<'a, S, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
         SelectBuilder {
             sql: helpers::intersect_all(self.sql, other.into_select()),
             schema: PhantomData,
@@ -642,6 +563,7 @@ where
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -649,7 +571,7 @@ where
     pub fn except(
         self,
         other: impl IntoSelect<'a, S, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
         SelectBuilder {
             sql: helpers::except(self.sql, other.into_select()),
             schema: PhantomData,
@@ -657,6 +579,7 @@ where
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -664,7 +587,7 @@ where
     pub fn except_all(
         self,
         other: impl IntoSelect<'a, S, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
         SelectBuilder {
             sql: helpers::except_all(self.sql, other.into_select()),
             schema: PhantomData,
@@ -672,12 +595,17 @@ where
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
 
-impl<'a, S, State, T, M, R> drizzle_core::expr::Expr<'a, PostgresValue<'a>>
-    for SelectBuilder<'a, S, State, T, M, R>
+//------------------------------------------------------------------------------
+// Expr impl for subquery usage
+//------------------------------------------------------------------------------
+
+impl<'a, S, State, T, M, R, G> drizzle_core::expr::Expr<'a, PostgresValue<'a>>
+    for SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: ExecutableState,
     M: drizzle_core::expr::SubqueryType<'a, PostgresValue<'a>>,
@@ -699,56 +627,20 @@ pub trait IntoSelect<'a, S, M, R> {
     fn into_select(self) -> SelectBuilder<'a, S, Self::State, Self::Table, M, R>;
 }
 
-impl<'a, S, State: ExecutableState, T, M, R> IntoSelect<'a, S, M, R>
-    for SelectBuilder<'a, S, State, T, M, R>
+impl<'a, S, State: ExecutableState, T, M, R, G> IntoSelect<'a, S, M, R>
+    for SelectBuilder<'a, S, State, T, M, R, G>
 {
     type State = State;
     type Table = T;
-    fn into_select(self) -> Self {
-        self
-    }
-}
-
-impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
-    /// Sorts the results of a set operation.
-    pub fn order_by<TOrderBy>(
-        self,
-        expressions: TOrderBy,
-    ) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R>
-    where
-        TOrderBy: ToSQL<'a, PostgresValue<'a>>,
-    {
+    fn into_select(self) -> SelectBuilder<'a, S, State, T, M, R> {
         SelectBuilder {
-            sql: self.sql.append(helpers::order_by(expressions)),
+            sql: self.sql,
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
-        }
-    }
-
-    /// Limits the results of a set operation.
-    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R> {
-        SelectBuilder {
-            sql: self.sql.append(helpers::limit(limit)),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-        }
-    }
-
-    /// Offsets the results of a set operation.
-    pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R> {
-        SelectBuilder {
-            sql: self.sql.append(helpers::offset(offset)),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -758,7 +650,6 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectSetOpSet, T, M, R> {
 //------------------------------------------------------------------------------
 
 /// Trait for states that can have FOR UPDATE/SHARE clauses applied.
-/// This is a subset of executable states - specifically those after filtering/ordering.
 pub trait ForLockableState {}
 
 impl ForLockableState for SelectFromSet {}
@@ -769,24 +660,12 @@ impl ForLockableState for SelectOffsetSet {}
 impl ForLockableState for SelectJoinSet {}
 impl ForLockableState for SelectGroupSet {}
 
-impl<'a, S, State, T, M, R> SelectBuilder<'a, S, State, T, M, R>
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: ForLockableState,
 {
     /// Adds FOR UPDATE clause to lock selected rows for update.
-    ///
-    /// This prevents other transactions from modifying or locking the selected rows
-    /// until the current transaction ends.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// db.select(()).from(users).where(eq(users.id, 1)).for_update()
-    /// // SELECT ... FROM "users" WHERE "id" = $1 FOR UPDATE
-    /// # "####;
-    /// ```
-    pub fn for_update(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R> {
+    pub fn for_update(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
         SelectBuilder {
             sql: self.sql.append(helpers::for_update()),
             schema: PhantomData,
@@ -794,23 +673,12 @@ where
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
     /// Adds FOR SHARE clause to lock selected rows for shared access.
-    ///
-    /// This allows other transactions to read the rows but prevents them from
-    /// modifying or exclusively locking them.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// db.select(()).from(users).where(eq(users.id, 1)).for_share()
-    /// // SELECT ... FROM "users" WHERE "id" = $1 FOR SHARE
-    /// # "####;
-    /// ```
-    pub fn for_share(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R> {
+    pub fn for_share(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
         SelectBuilder {
             sql: self.sql.append(helpers::for_share()),
             schema: PhantomData,
@@ -818,22 +686,12 @@ where
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
     /// Adds FOR NO KEY UPDATE clause.
-    ///
-    /// Similar to FOR UPDATE but weaker - allows SELECT FOR KEY SHARE on the same rows.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// db.select(()).from(users).where(eq(users.id, 1)).for_no_key_update()
-    /// // SELECT ... FROM "users" WHERE "id" = $1 FOR NO KEY UPDATE
-    /// # "####;
-    /// ```
-    pub fn for_no_key_update(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R> {
+    pub fn for_no_key_update(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
         SelectBuilder {
             sql: self.sql.append(helpers::for_no_key_update()),
             schema: PhantomData,
@@ -841,22 +699,12 @@ where
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
     /// Adds FOR KEY SHARE clause.
-    ///
-    /// The weakest lock - only blocks SELECT FOR UPDATE.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// db.select(()).from(users).where(eq(users.id, 1)).for_key_share()
-    /// // SELECT ... FROM "users" WHERE "id" = $1 FOR KEY SHARE
-    /// # "####;
-    /// ```
-    pub fn for_key_share(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R> {
+    pub fn for_key_share(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
         SelectBuilder {
             sql: self.sql.append(helpers::for_key_share()),
             schema: PhantomData,
@@ -864,29 +712,15 @@ where
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
-    /// Adds FOR UPDATE OF table clause to lock only rows from a specific table.
-    ///
-    /// Useful in joins to specify which table's rows should be locked.
-    /// Note: Uses unqualified table name per PostgreSQL requirements.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// db.select(())
-    ///     .from(users)
-    ///     .join((orders, eq(users.id, orders.user_id)))
-    ///     .for_update_of(users)
-    /// // SELECT ... FOR UPDATE OF "users"
-    /// # "####;
-    /// ```
+    /// Adds FOR UPDATE OF table clause.
     pub fn for_update_of<U: PostgresTable<'a>>(
         self,
         table: U,
-    ) -> SelectBuilder<'a, S, SelectForSet, T, M, R> {
+    ) -> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
         SelectBuilder {
             sql: self.sql.append(helpers::for_update_of(table.name())),
             schema: PhantomData,
@@ -894,29 +728,15 @@ where
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
-    /// Adds FOR SHARE OF table clause to lock only rows from a specific table.
-    ///
-    /// Useful in joins to specify which table's rows should be locked.
-    /// Note: Uses unqualified table name per PostgreSQL requirements.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// db.select(())
-    ///     .from(users)
-    ///     .join((orders, eq(users.id, orders.user_id)))
-    ///     .for_share_of(users)
-    /// // SELECT ... FOR SHARE OF "users"
-    /// # "####;
-    /// ```
+    /// Adds FOR SHARE OF table clause.
     pub fn for_share_of<U: PostgresTable<'a>>(
         self,
         table: U,
-    ) -> SelectBuilder<'a, S, SelectForSet, T, M, R> {
+    ) -> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
         SelectBuilder {
             sql: self.sql.append(helpers::for_share_of(table.name())),
             schema: PhantomData,
@@ -924,6 +744,7 @@ where
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -932,21 +753,9 @@ where
 // Post-FOR State Implementation (NOWAIT / SKIP LOCKED)
 //------------------------------------------------------------------------------
 
-impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectForSet, T, M, R> {
+impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
     /// Adds NOWAIT option to fail immediately if rows are locked.
-    ///
-    /// Instead of waiting for locked rows to become available, the query
-    /// will fail with an error if any selected rows are currently locked.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// db.select(()).from(users).for_update().nowait()
-    /// // SELECT ... FOR UPDATE NOWAIT
-    /// # "####;
-    /// ```
-    pub fn nowait(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R> {
+    pub fn nowait(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
         SelectBuilder {
             sql: self.sql.append(helpers::nowait()),
             schema: PhantomData,
@@ -954,23 +763,12 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectForSet, T, M, R> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
     /// Adds SKIP LOCKED option to skip over locked rows.
-    ///
-    /// Instead of waiting for locked rows, the query will skip them and
-    /// only return/lock rows that are currently available.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// db.select(()).from(jobs).where(eq(jobs.status, "pending")).for_update().skip_locked()
-    /// // SELECT ... FOR UPDATE SKIP LOCKED
-    /// # "####;
-    /// ```
-    pub fn skip_locked(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R> {
+    pub fn skip_locked(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
         SelectBuilder {
             sql: self.sql.append(helpers::skip_locked()),
             schema: PhantomData,
@@ -978,6 +776,7 @@ impl<'a, S, T, M, R> SelectBuilder<'a, S, SelectForSet, T, M, R> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -996,6 +795,7 @@ mod tests {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         };
 
         assert_eq!(builder.to_sql().sql(), "SELECT *");

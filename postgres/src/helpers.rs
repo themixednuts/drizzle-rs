@@ -6,8 +6,8 @@ use drizzle_core::{ColumnRef, SQL, SQLTableInfo, ToSQL, Token, helpers, traits::
 
 // Re-export core helpers with PostgresValue type for convenience
 pub(crate) use helpers::{
-    delete, except, except_all, from, group_by, having, intersect, intersect_all, limit, offset,
-    order_by, select, select_distinct, set, union, union_all, update, r#where,
+    delete, except, except_all, from, group_by_expr, having, intersect, intersect_all, limit,
+    offset, order_by, select, select_distinct, set, union, union_all, update, r#where,
 };
 
 // Re-export Join from core

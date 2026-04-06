@@ -377,6 +377,12 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             impl #into_select_target for #zst_ident {
                 type Marker = #select_cols<(#zst_ident,)>;
             }
+            impl drizzle::core::expr::HasAggStatus for #zst_ident {
+                type Status = drizzle::core::expr::AllScalar;
+            }
+            impl drizzle::core::GroupByIdentity for #zst_ident {
+                type Identity = #zst_ident;
+            }
             #column_not_null_impl
 
             impl<'a> ToSQL<'a, PostgresValue<'a>> for #zst_ident {
@@ -386,6 +392,9 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                         #name,
                     ))
                 }
+            }
+            impl<'a> drizzle::core::IntoGroupBy<'a, PostgresValue<'a>> for #zst_ident {
+                type Columns = drizzle::core::Cons<#zst_ident, drizzle::core::Nil>;
             }
 
             // Expr trait implementation for type-safe expressions

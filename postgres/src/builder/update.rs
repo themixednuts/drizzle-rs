@@ -84,6 +84,7 @@ where
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -107,6 +108,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -125,6 +127,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -143,6 +146,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -167,6 +171,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateFromSet, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -185,6 +190,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateFromSet, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -209,6 +215,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateWhereSet, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -227,6 +234,7 @@ mod tests {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         };
 
         assert_eq!(builder.to_sql().sql(), "UPDATE test");

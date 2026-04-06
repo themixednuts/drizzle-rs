@@ -220,8 +220,8 @@ impl<Schema> Transaction<Schema> {
 }
 
 #[cfg(feature = "libsql")]
-impl<'a, S, Schema, State, Table, Mk, Rw>
-    TransactionBuilder<'a, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw>, State>
+impl<'a, S, Schema, State, Table, Mk, Rw, Grouped>
+    TransactionBuilder<'a, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw, Grouped>, State>
 where
     State: builder::ExecutableState,
 {
@@ -233,53 +233,14 @@ where
         Ok(self.transaction.tx.execute(&sql, params).await?)
     }
 
-    /// Runs the query and returns all matching rows, decoded as `R`.
-    pub async fn all_as<R>(self) -> drizzle_core::error::Result<Vec<R>>
-    where
-        R: for<'r> TryFrom<&'r Row>,
-        for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
-    {
-        self.rows_as::<R>().await?.collect().await
-    }
-
-    /// Runs the query and returns a row cursor, decoded as `R`.
-    pub async fn rows_as<R>(self) -> drizzle_core::error::Result<Rows<R>>
-    where
-        R: for<'r> TryFrom<&'r Row>,
-        for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
-    {
-        let (sql_str, params) = self.builder.sql.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
-
-        let rows = self.transaction.tx.query(&sql_str, params).await?;
-        Ok(Rows::new(rows))
-    }
-
-    /// Runs the query and returns a single row, decoded as `R`.
-    pub async fn get_as<R>(self) -> drizzle_core::error::Result<R>
-    where
-        R: for<'r> TryFrom<&'r Row>,
-        for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
-    {
-        let (sql_str, params) = self.builder.sql.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
-
-        let mut rows = self.transaction.tx.query(&sql_str, params).await?;
-
-        if let Some(row) = rows.next().await? {
-            R::try_from(&row).map_err(Into::into)
-        } else {
-            Err(DrizzleError::NotFound)
-        }
-    }
-
     /// Runs the query and returns all matching rows using the builder's row type.
-    pub async fn all<R, Proof>(self) -> drizzle_core::error::Result<Vec<R>>
+    pub async fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::libsql::Row, Rw, R>,
+        Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
@@ -300,16 +261,21 @@ where
         Rw: for<'r> TryFrom<&'r Row>,
         for<'r> <Rw as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
     {
-        self.rows_as().await
+        let (sql_str, params) = self.builder.sql.build();
+        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
+
+        let rows = self.transaction.tx.query(&sql_str, params).await?;
+        Ok(Rows::new(rows))
     }
 
     /// Runs the query and returns a single row using the builder's row type.
-    pub async fn get<R, Proof>(self) -> drizzle_core::error::Result<R>
+    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::libsql::Row, Rw, R>,
+        Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();

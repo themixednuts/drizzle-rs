@@ -139,6 +139,19 @@ where
     ))
 }
 
+/// Helper function to create a GROUP BY clause from a single `ToSQL` item.
+///
+/// Unlike [`group_by`], this takes a single expression (which may be a
+/// column ZST or a tuple of columns whose `ToSQL` impl already produces
+/// comma-separated SQL).
+pub fn group_by_expr<'a, V, T>(expr: T) -> SQL<'a, V>
+where
+    V: SQLParam + 'a,
+    T: ToSQL<'a, V>,
+{
+    SQL::from_iter([Token::GROUP, Token::BY]).append(expr.to_sql())
+}
+
 /// Helper function to create a HAVING clause
 pub fn having<'a, V, E>(condition: E) -> SQL<'a, V>
 where

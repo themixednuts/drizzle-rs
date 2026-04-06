@@ -665,436 +665,154 @@ impl<'d, 'a, Conn, Schema, M>
     }
 }
 
-impl<'d, 'a, Conn, Schema, T, M, R>
-    DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectFromSet, T, M, R>,
-        SelectFromSet,
-    >
-{
-    #[inline]
-    pub fn r#where<E>(
-        self,
-        condition: E,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
-        SelectWhereSet,
-    >
-    where
-        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
-        E::SQLType: drizzle_core::types::BooleanLike,
-    {
-        let builder = self.builder.r#where(condition);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
+/// Generates select-method impl blocks for each given state type, avoiding E0592
+/// overlap with insert/update/delete impls that share method names on the same
+/// generic `DrizzleBuilder` type.
+macro_rules! impl_select_methods {
+    ($($state:ty => [$($method:ident),* $(,)?]),+ $(,)?) => {
+        $(
+            impl<'d, 'a, Conn, Schema, T, M, R, G>
+                DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, $state, T, M, R, G>, $state>
+            {
+                $( impl_select_methods!(@method $method); )*
+            }
+        )+
+    };
 
-    #[inline]
-    pub fn limit(
-        self,
-        limit: usize,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
-        SelectLimitSet,
-    > {
-        let builder = self.builder.limit(limit);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
+    // ---- individual method expansions ----
 
-    pub fn offset(
-        self,
-        offset: usize,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R>,
-        SelectOffsetSet,
-    > {
-        let builder = self.builder.offset(offset);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
+    (@method r#where) => {
+        #[inline]
+        pub fn r#where<E>(
+            self,
+            condition: E,
+        ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T, M, R, G>, SelectWhereSet>
+        where
+            E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
+            E::SQLType: drizzle_core::types::BooleanLike,
+        {
+            let builder = self.builder.r#where(condition);
+            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
         }
-    }
+    };
 
-    pub fn order_by<TOrderBy>(
-        self,
-        expressions: TOrderBy,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
-        SelectOrderSet,
-    >
-    where
-        TOrderBy: drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
-    {
-        let builder = self.builder.order_by(expressions);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
+    (@method group_by) => {
+        pub fn group_by<Gr>(
+            self,
+            columns: Gr,
+        ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectGroupSet, T, M, R, Gr::Columns>, SelectGroupSet>
+        where
+            Gr: drizzle_core::IntoGroupBy<'a, SQLiteValue<'a>>,
+        {
+            let builder = self.builder.group_by(columns);
+            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
         }
-    }
+    };
 
-    pub fn group_by(
-        self,
-        expressions: impl IntoIterator<Item = impl ToSQL<'a, SQLiteValue<'a>>>,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectGroupSet, T, M, R>,
-        SelectGroupSet,
-    > {
-        let builder = self.builder.group_by(expressions);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
+    (@method having) => {
+        pub fn having<E>(
+            self,
+            condition: E,
+        ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectGroupSet, T, M, R, G>, SelectGroupSet>
+        where
+            E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
+            E::SQLType: drizzle_core::types::BooleanLike,
+        {
+            let builder = self.builder.having(condition);
+            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
         }
-    }
+    };
 
-    #[inline]
-    pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
-        self,
-        arg: J,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<
-            'a,
+    (@method order_by) => {
+        pub fn order_by<TOrderBy>(
+            self,
+            expressions: TOrderBy,
+        ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T, M, R, G>, SelectOrderSet>
+        where
+            TOrderBy: drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
+        {
+            let builder = self.builder.order_by(expressions);
+            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+        }
+    };
+
+    (@method limit) => {
+        pub fn limit(
+            self,
+            limit: usize,
+        ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T, M, R, G>, SelectLimitSet>
+        {
+            let builder = self.builder.limit(limit);
+            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+        }
+    };
+
+    (@method offset) => {
+        pub fn offset(
+            self,
+            offset: usize,
+        ) -> DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R, G>, SelectOffsetSet>
+        {
+            let builder = self.builder.offset(offset);
+            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+        }
+    };
+
+    (@method join) => {
+        #[inline]
+        pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
+            self,
+            arg: J,
+        ) -> DrizzleBuilder<
+            'd,
+            Conn,
             Schema,
+            SelectBuilder<
+                'a,
+                Schema,
+                SelectJoinSet,
+                J::JoinedTable,
+                <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
+                <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+                G,
+            >,
             SelectJoinSet,
-            J::JoinedTable,
-            <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
-            <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
-        >,
-        SelectJoinSet,
-    >
-    where
-        M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
-    {
-        let builder = self.builder.join(arg);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
+        >
+        where
+            M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
+        {
+            let builder = self.builder.join(arg);
+            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
         }
-    }
 
-    crate::drizzle_builder_join_impl!();
+        crate::drizzle_builder_join_impl!();
+    };
 }
 
-impl<'d, 'a, Conn, Schema, T, M, R>
-    DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectJoinSet, T, M, R>,
-        SelectJoinSet,
-    >
-{
-    pub fn r#where<E>(
-        self,
-        condition: E,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
-        SelectWhereSet,
-    >
-    where
-        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
-        E::SQLType: drizzle_core::types::BooleanLike,
-    {
-        let builder = self.builder.r#where(condition);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    pub fn order_by<TOrderBy>(
-        self,
-        expressions: TOrderBy,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
-        SelectOrderSet,
-    >
-    where
-        TOrderBy: drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
-    {
-        let builder = self.builder.order_by(expressions);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
-        self,
-        arg: J,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<
-            'a,
-            Schema,
-            SelectJoinSet,
-            J::JoinedTable,
-            <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
-            <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
-        >,
-        SelectJoinSet,
-    >
-    where
-        M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
-    {
-        let builder = self.builder.join(arg);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    crate::drizzle_builder_join_impl!();
-}
-
-impl<'d, 'a, Conn, Schema, T, M, R>
-    DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
-        SelectWhereSet,
-    >
-{
-    pub fn group_by(
-        self,
-        expressions: impl IntoIterator<Item = impl ToSQL<'a, SQLiteValue<'a>>>,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectGroupSet, T, M, R>,
-        SelectGroupSet,
-    > {
-        let builder = self.builder.group_by(expressions);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    pub fn limit(
-        self,
-        limit: usize,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
-        SelectLimitSet,
-    > {
-        let builder = self.builder.limit(limit);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    pub fn order_by<TOrderBy>(
-        self,
-        expressions: TOrderBy,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
-        SelectOrderSet,
-    >
-    where
-        TOrderBy: drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
-    {
-        let builder = self.builder.order_by(expressions);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-}
-
-impl<'d, 'a, Conn, Schema, T, M, R>
-    DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectGroupSet, T, M, R>,
-        SelectGroupSet,
-    >
-{
-    pub fn having<E>(
-        self,
-        condition: E,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectGroupSet, T, M, R>,
-        SelectGroupSet,
-    >
-    where
-        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
-        E::SQLType: drizzle_core::types::BooleanLike,
-    {
-        let builder = self.builder.having(condition);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    pub fn order_by<TOrderBy>(
-        self,
-        expressions: TOrderBy,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
-        SelectOrderSet,
-    >
-    where
-        TOrderBy: drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
-    {
-        let builder = self.builder.order_by(expressions);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    pub fn limit(
-        self,
-        limit: usize,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
-        SelectLimitSet,
-    > {
-        let builder = self.builder.limit(limit);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-}
-
-impl<'d, 'a, Conn, Schema, T, M, R>
-    DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
-        SelectLimitSet,
-    >
-{
-    pub fn offset(
-        self,
-        offset: usize,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R>,
-        SelectOffsetSet,
-    > {
-        let builder = self.builder.offset(offset);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-}
-
-impl<'d, 'a, Conn, Schema, T, M, R>
-    DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
-        SelectOrderSet,
-    >
-{
-    pub fn limit(
-        self,
-        limit: usize,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
-        SelectLimitSet,
-    > {
-        let builder = self.builder.limit(limit);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
+// Select method availability by state, mirroring capability trait impls:
+impl_select_methods! {
+    SelectFromSet  => [r#where, group_by, order_by, limit, offset, join],
+    SelectJoinSet  => [r#where, group_by, order_by, join],
+    SelectWhereSet => [group_by, order_by, limit],
+    SelectGroupSet => [having, order_by, limit],
+    SelectOrderSet => [limit],
+    SelectLimitSet => [offset],
+    SelectSetOpSet => [order_by, limit, offset],
 }
 
 //------------------------------------------------------------------------------
 // IntoSelect for DrizzleBuilder
 //------------------------------------------------------------------------------
 
-impl<'d, 'a, Conn, Schema, State, T, M, R> IntoSelect<'a, Schema, M, R>
-    for DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
+impl<'d, 'a, Conn, Schema, State, T, M, R, G> IntoSelect<'a, Schema, M, R>
+    for DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
 where
     State: drizzle_sqlite::builder::ExecutableState,
 {
     type State = State;
     type Table = T;
     fn into_select(self) -> SelectBuilder<'a, Schema, State, T, M, R> {
-        self.builder
+        self.builder.into_select()
     }
 }
 
@@ -1205,77 +923,6 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder: self.builder.except_all(other),
-            state: PhantomData,
-        }
-    }
-}
-
-//------------------------------------------------------------------------------
-// Post-SetOp state on DrizzleBuilder
-//------------------------------------------------------------------------------
-
-impl<'d, 'a, Conn, Schema, T, M, R>
-    DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
-        SelectSetOpSet,
-    >
-{
-    pub fn order_by<TOrderBy>(
-        self,
-        expressions: TOrderBy,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
-        SelectOrderSet,
-    >
-    where
-        TOrderBy: drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
-    {
-        let builder = self.builder.order_by(expressions);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    pub fn limit(
-        self,
-        limit: usize,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
-        SelectLimitSet,
-    > {
-        let builder = self.builder.limit(limit);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    pub fn offset(
-        self,
-        offset: usize,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R>,
-        SelectOffsetSet,
-    > {
-        let builder = self.builder.offset(offset);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
             state: PhantomData,
         }
     }

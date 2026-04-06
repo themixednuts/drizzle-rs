@@ -357,8 +357,8 @@ impl<'a, 'conn, Schema>
     }
 }
 
-impl<'a, 'conn, S, Schema, State, Table, Mk, Rw>
-    TransactionBuilder<'a, 'conn, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw>, State>
+impl<'a, 'conn, S, Schema, State, Table, Mk, Rw, Grouped>
+    TransactionBuilder<'a, 'conn, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw, Grouped>, State>
 where
     State: builder::ExecutableState,
 {
@@ -416,86 +416,14 @@ where
             .map_err(DrizzleError::from)?)
     }
 
-    /// Runs the query and returns all matching rows, decoded as the given type `R`.
-    pub fn all_as<R, C>(self) -> drizzle_core::error::Result<C>
-    where
-        R: for<'r> TryFrom<&'r Row>,
-        for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        C: FromIterator<R>,
-    {
-        self.rows_as::<R>()?
-            .collect::<drizzle_core::error::Result<C>>()
-    }
-
-    /// Runs the query and returns a lazy row cursor, decoded as the given type `R`.
-    pub fn rows_as<R>(self) -> drizzle_core::error::Result<Rows<R>>
-    where
-        R: for<'r> TryFrom<&'r Row>,
-        for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-    {
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.all");
-        let (sql_str, params) = self.builder.sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.all.param_refs");
-        let mut param_refs: SmallVec<[&(dyn postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params.len());
-        param_refs.extend(
-            params
-                .iter()
-                .map(|&p| p as &(dyn postgres::types::ToSql + Sync)),
-        );
-
-        let mut tx_ref = self.transaction.tx.borrow_mut();
-        let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
-
-        let rows = tx
-            .query(&sql_str, &param_refs[..])
-            .map_err(DrizzleError::from)?;
-
-        Ok(Rows::new(rows))
-    }
-
-    /// Runs the query and returns a single row, decoded as the given type `R`.
-    pub fn get_as<R>(self) -> drizzle_core::error::Result<R>
-    where
-        R: for<'r> TryFrom<&'r Row>,
-        for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-    {
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.get");
-        let (sql_str, params) = self.builder.sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.get.param_refs");
-        let mut param_refs: SmallVec<[&(dyn postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params.len());
-        param_refs.extend(
-            params
-                .iter()
-                .map(|&p| p as &(dyn postgres::types::ToSql + Sync)),
-        );
-
-        let mut tx_ref = self.transaction.tx.borrow_mut();
-        let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
-
-        let row = tx
-            .query_one(&sql_str, &param_refs[..])
-            .map_err(DrizzleError::from)?;
-
-        R::try_from(&row).map_err(Into::into)
-    }
-
     /// Runs the query and returns all matching rows using the builder's row type.
-    pub fn all<R, Proof>(self) -> drizzle_core::error::Result<Vec<R>>
+    pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::postgres::Row, Rw, R>,
+        Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.all");
@@ -534,16 +462,39 @@ where
         Rw: for<'r> TryFrom<&'r Row>,
         for<'r> <Rw as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
-        self.rows_as()
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.rows");
+        let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+
+        #[cfg(feature = "profiling")]
+        drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.rows.param_refs");
+        let mut param_refs: SmallVec<[&(dyn postgres::types::ToSql + Sync); 8]> =
+            SmallVec::with_capacity(params.len());
+        param_refs.extend(
+            params
+                .iter()
+                .map(|&p| p as &(dyn postgres::types::ToSql + Sync)),
+        );
+
+        let mut tx_ref = self.transaction.tx.borrow_mut();
+        let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
+
+        let rows = tx
+            .query(&sql_str, &param_refs[..])
+            .map_err(DrizzleError::from)?;
+
+        Ok(Rows::new(rows))
     }
 
     /// Runs the query and returns a single row using the builder's row type.
-    pub fn get<R, Proof>(self) -> drizzle_core::error::Result<R>
+    pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::postgres::Row, Rw, R>,
+        Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.get");

@@ -9,8 +9,8 @@ use drizzle_core::{
 
 // Re-export core helpers with SQLiteValue type for convenience
 pub(crate) use core_helpers::{
-    delete, except, except_all, from, group_by, having, insert, intersect, intersect_all, limit,
-    offset, order_by, select, select_distinct, set, union, union_all, update, r#where,
+    delete, except, except_all, from, group_by_expr, having, insert, intersect, intersect_all,
+    limit, offset, order_by, select, select_distinct, set, union, union_all, update, r#where,
 };
 
 // Re-export Join from core

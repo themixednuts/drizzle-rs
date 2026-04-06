@@ -514,7 +514,7 @@ sqlite_test!(test_multiple_aliases, SimpleSchema, {
         item_name: String,
         total: i64,
     }
-    // Test multiple aliases in same query
+    // Test multiple aliases in same query (GROUP BY required when mixing scalar + aggregate)
     let result: Vec<ResultRow> = drizzle_exec!(
         db.select((
             alias(simple.id, "identifier"),
@@ -522,12 +522,13 @@ sqlite_test!(test_multiple_aliases, SimpleSchema, {
             alias(count(simple.id), "total")
         ))
         .from(simple)
+        .group_by((simple.id, simple.name))
         => all
     );
 
     assert_eq!(result[0].identifier, 1);
     assert_eq!(result[0].item_name, "Item A");
-    assert_eq!(result[0].total, 2);
+    assert_eq!(result[0].total, 1);
 });
 
 // CTE tests have moved to use .into_cte() API - see test_cte_integration_* tests below

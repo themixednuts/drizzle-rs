@@ -76,7 +76,10 @@ pub mod types;
 
 // Re-export key types and traits
 pub use bind::{BindValue, NullableBindValue, ValueTypeForDialect};
-pub use builder::{BuilderInit, ExecutableState};
+pub use builder::{
+    BuilderInit, ExecutableState, GroupByAllowed, GroupByApplied, HavingAllowed, JoinAllowed,
+    LimitAllowed, OffsetAllowed, OrderByAllowed, WhereAllowed,
+};
 pub use dialect::{Dialect, DialectTypes, PostgresDialect, SQLiteDialect};
 pub use join::{Join, JoinType};
 pub use param::{OwnedParam, Param, ParamBind, ParamSet};
@@ -86,9 +89,10 @@ pub use relation::{CardWrap, Many, One, OptionalOne, RelationDef};
 pub use relation::{Joinable, Relation, SchemaHasTable};
 pub use row::{
     AfterFullJoin, AfterJoin, AfterLeftJoin, AfterRightJoin, DecodeSelectedRef, ExprValueType,
-    FromDrizzleRow, HasSelectModel, IntoSelectTarget, MarkerColumnCountValid, MarkerScopeValidFor,
-    NullProbeRow, ResolveRow, RowColumnList, SQLTypeToRust, ScopePush, Scoped, SelectAs,
-    SelectAsFrom, SelectCols, SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
+    FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy, IntoSelectTarget,
+    MarkerAggValidFor, MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, ResolveRow,
+    RowColumnList, SQLTypeToRust, ScopePush, Scoped, SelectAs, SelectAsFrom, SelectCols,
+    SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
 };
 pub use schema::{OrderBy, asc, desc};
 pub use sql::{

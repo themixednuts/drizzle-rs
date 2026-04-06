@@ -148,7 +148,7 @@ fn generate_rusqlite_test(
                         let __sql_obj = __builder.to_sql();
                         let __sql_str = __sql_obj.sql().to_string();
                         let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
-                        match __builder.all_as() {
+                        match __builder.all() {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -166,7 +166,7 @@ fn generate_rusqlite_test(
                         let __sql_obj = __builder.to_sql();
                         let __sql_str = __sql_obj.sql().to_string();
                         let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
-                        match __builder.get_as() {
+                        match __builder.get() {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -386,7 +386,7 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
                         let __sql_obj = __builder.to_sql();
                         let __sql_str = __sql_obj.sql().to_string();
                         let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
-                        match __builder.all_as().await {
+                        match __builder.all().await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -404,7 +404,7 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
                         let __sql_obj = __builder.to_sql();
                         let __sql_str = __sql_obj.sql().to_string();
                         let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
-                        match __builder.get_as().await {
+                        match __builder.get().await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -626,7 +626,7 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
                         let __sql_obj = __builder.to_sql();
                         let __sql_str = __sql_obj.sql().to_string();
                         let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
-                        match __builder.all_as().await {
+                        match __builder.all().await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -644,7 +644,7 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
                         let __sql_obj = __builder.to_sql();
                         let __sql_str = __sql_obj.sql().to_string();
                         let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
-                        match __builder.get_as().await {
+                        match __builder.get().await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -928,7 +928,7 @@ fn generate_postgres_sync_test(
                         let __sql_obj = __builder.to_sql();
                         let __sql_str = __sql_obj.sql().to_string();
                         let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
-                        match __builder.all_as() {
+                        match __builder.all() {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -946,7 +946,7 @@ fn generate_postgres_sync_test(
                         let __sql_obj = __builder.to_sql();
                         let __sql_str = __sql_obj.sql().to_string();
                         let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
-                        match __builder.get_as() {
+                        match __builder.get() {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -1175,7 +1175,7 @@ fn generate_tokio_postgres_test(
                         let __sql_obj = __builder.to_sql();
                         let __sql_str = __sql_obj.sql().to_string();
                         let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
-                        match __builder.all_as().await {
+                        match __builder.all().await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v
@@ -1193,7 +1193,7 @@ fn generate_tokio_postgres_test(
                         let __sql_obj = __builder.to_sql();
                         let __sql_str = __sql_obj.sql().to_string();
                         let __params_str = format!("{:?}", __sql_obj.params().collect::<Vec<_>>());
-                        match __builder.get_as().await {
+                        match __builder.get().await {
                             Ok(v) => {
                                 db.record_sql(__op_str, &__sql_str, &__params_str, None);
                                 v

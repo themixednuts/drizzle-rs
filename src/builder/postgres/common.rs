@@ -497,438 +497,155 @@ impl<'d, 'a, DrizzleRef, Schema, M>
     }
 }
 
-impl<'d, 'a, DrizzleRef, Schema, T, M, R>
-    DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectFromSet, T, M, R>,
-        SelectFromSet,
-    >
-{
-    #[inline]
-    pub fn r#where<E>(
-        self,
-        condition: E,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
-        SelectWhereSet,
-    >
-    where
-        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
-        E::SQLType: drizzle_core::types::BooleanLike,
-    {
-        let builder = self.builder.r#where(condition);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
+/// Generates select-method impl blocks for each given state type, avoiding E0592
+/// overlap with insert/update/delete impls that share method names on the same
+/// generic `DrizzleBuilder` type.
+macro_rules! impl_select_methods {
+    ($($state:ty => [$($method:ident),* $(,)?]),+ $(,)?) => {
+        $(
+            impl<'d, 'a, DrizzleRef, Schema, T, M, R, G>
+                DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, $state, T, M, R, G>, $state>
+            {
+                $( impl_select_methods!(@method $method); )*
+            }
+        )+
+    };
 
-    #[inline]
-    pub fn limit(
-        self,
-        limit: usize,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
-        SelectLimitSet,
-    > {
-        let builder = self.builder.limit(limit);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
+    // ---- individual method expansions ----
 
-    pub fn offset(
-        self,
-        offset: usize,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R>,
-        SelectOffsetSet,
-    > {
-        let builder = self.builder.offset(offset);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
+    (@method r#where) => {
+        #[inline]
+        pub fn r#where<E>(
+            self,
+            condition: E,
+        ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T, M, R, G>, SelectWhereSet>
+        where
+            E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+            E::SQLType: drizzle_core::types::BooleanLike,
+        {
+            let builder = self.builder.r#where(condition);
+            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
         }
-    }
+    };
 
-    pub fn order_by<TOrderBy>(
-        self,
-        expressions: TOrderBy,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
-        SelectOrderSet,
-    >
-    where
-        TOrderBy: drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
-    {
-        let builder = self.builder.order_by(expressions);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
+    (@method group_by) => {
+        pub fn group_by<Gr>(
+            self,
+            columns: Gr,
+        ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectGroupSet, T, M, R, Gr::Columns>, SelectGroupSet>
+        where
+            Gr: drizzle_core::IntoGroupBy<'a, PostgresValue<'a>>,
+        {
+            let builder = self.builder.group_by(columns);
+            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
         }
-    }
+    };
 
-    pub fn group_by(
-        self,
-        expressions: impl IntoIterator<Item = impl ToSQL<'a, PostgresValue<'a>>>,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectGroupSet, T, M, R>,
-        SelectGroupSet,
-    > {
-        let builder = self.builder.group_by(expressions);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
+    (@method having) => {
+        pub fn having<E>(
+            self,
+            condition: E,
+        ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectGroupSet, T, M, R, G>, SelectGroupSet>
+        where
+            E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+            E::SQLType: drizzle_core::types::BooleanLike,
+        {
+            let builder = self.builder.having(condition);
+            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
         }
-    }
+    };
 
-    #[inline]
-    pub fn join<J: drizzle_postgres::helpers::JoinArg<'a, T>>(
-        self,
-        arg: J,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<
-            'a,
+    (@method order_by) => {
+        pub fn order_by<TOrderBy>(
+            self,
+            expressions: TOrderBy,
+        ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T, M, R, G>, SelectOrderSet>
+        where
+            TOrderBy: drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
+        {
+            let builder = self.builder.order_by(expressions);
+            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+        }
+    };
+
+    (@method limit) => {
+        pub fn limit(
+            self,
+            limit: usize,
+        ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T, M, R, G>, SelectLimitSet>
+        {
+            let builder = self.builder.limit(limit);
+            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+        }
+    };
+
+    (@method offset) => {
+        pub fn offset(
+            self,
+            offset: usize,
+        ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R, G>, SelectOffsetSet>
+        {
+            let builder = self.builder.offset(offset);
+            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+        }
+    };
+
+    (@method join) => {
+        #[inline]
+        pub fn join<J: drizzle_postgres::helpers::JoinArg<'a, T>>(
+            self,
+            arg: J,
+        ) -> DrizzleBuilder<
+            'd,
+            DrizzleRef,
             Schema,
+            SelectBuilder<
+                'a,
+                Schema,
+                SelectJoinSet,
+                J::JoinedTable,
+                <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
+                <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+                G,
+            >,
             SelectJoinSet,
-            J::JoinedTable,
-            <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
-            <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
-        >,
-        SelectJoinSet,
-    >
-    where
-        M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
-    {
-        let builder = self.builder.join(arg);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
+        >
+        where
+            M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
+        {
+            let builder = self.builder.join(arg);
+            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
         }
-    }
 
-    crate::drizzle_pg_builder_join_impl!();
-    crate::drizzle_pg_builder_join_using_impl!();
+        crate::drizzle_pg_builder_join_impl!();
+        crate::drizzle_pg_builder_join_using_impl!();
+    };
 }
 
-impl<'d, 'a, DrizzleRef, Schema, T, M, R>
-    DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectJoinSet, T, M, R>,
-        SelectJoinSet,
-    >
-{
-    pub fn r#where<E>(
-        self,
-        condition: E,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
-        SelectWhereSet,
-    >
-    where
-        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
-        E::SQLType: drizzle_core::types::BooleanLike,
-    {
-        let builder = self.builder.r#where(condition);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    pub fn order_by<TOrderBy>(
-        self,
-        expressions: TOrderBy,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
-        SelectOrderSet,
-    >
-    where
-        TOrderBy: drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
-    {
-        let builder = self.builder.order_by(expressions);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    pub fn join<J: drizzle_postgres::helpers::JoinArg<'a, T>>(
-        self,
-        arg: J,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<
-            'a,
-            Schema,
-            SelectJoinSet,
-            J::JoinedTable,
-            <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
-            <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
-        >,
-        SelectJoinSet,
-    >
-    where
-        M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
-    {
-        let builder = self.builder.join(arg);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    crate::drizzle_pg_builder_join_impl!();
-    crate::drizzle_pg_builder_join_using_impl!();
-}
-
-impl<'d, 'a, DrizzleRef, Schema, T, M, R>
-    DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectWhereSet, T, M, R>,
-        SelectWhereSet,
-    >
-{
-    pub fn group_by(
-        self,
-        expressions: impl IntoIterator<Item = impl ToSQL<'a, PostgresValue<'a>>>,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectGroupSet, T, M, R>,
-        SelectGroupSet,
-    > {
-        let builder = self.builder.group_by(expressions);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    pub fn limit(
-        self,
-        limit: usize,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
-        SelectLimitSet,
-    > {
-        let builder = self.builder.limit(limit);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    pub fn order_by<TOrderBy>(
-        self,
-        expressions: TOrderBy,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
-        SelectOrderSet,
-    >
-    where
-        TOrderBy: drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
-    {
-        let builder = self.builder.order_by(expressions);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-}
-
-impl<'d, 'a, DrizzleRef, Schema, T, M, R>
-    DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectGroupSet, T, M, R>,
-        SelectGroupSet,
-    >
-{
-    pub fn having<E>(
-        self,
-        condition: E,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectGroupSet, T, M, R>,
-        SelectGroupSet,
-    >
-    where
-        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
-        E::SQLType: drizzle_core::types::BooleanLike,
-    {
-        let builder = self.builder.having(condition);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    pub fn order_by<TOrderBy>(
-        self,
-        expressions: TOrderBy,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
-        SelectOrderSet,
-    >
-    where
-        TOrderBy: drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
-    {
-        let builder = self.builder.order_by(expressions);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    pub fn limit(
-        self,
-        limit: usize,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
-        SelectLimitSet,
-    > {
-        let builder = self.builder.limit(limit);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-}
-
-impl<'d, 'a, DrizzleRef, Schema, T, M, R>
-    DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
-        SelectLimitSet,
-    >
-{
-    pub fn offset(
-        self,
-        offset: usize,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R>,
-        SelectOffsetSet,
-    > {
-        let builder = self.builder.offset(offset);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-}
-
-impl<'d, 'a, DrizzleRef, Schema, T, M, R>
-    DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
-        SelectOrderSet,
-    >
-{
-    pub fn limit(
-        self,
-        limit: usize,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
-        SelectLimitSet,
-    > {
-        let builder = self.builder.limit(limit);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
+// Select method availability by state, mirroring capability trait impls:
+impl_select_methods! {
+    SelectFromSet  => [r#where, group_by, order_by, limit, offset, join],
+    SelectJoinSet  => [r#where, group_by, order_by, join],
+    SelectWhereSet => [group_by, order_by, limit],
+    SelectGroupSet => [having, order_by, limit],
+    SelectOrderSet => [limit],
+    SelectLimitSet => [offset],
+    SelectSetOpSet => [order_by, limit, offset],
 }
 
 //------------------------------------------------------------------------------
 // IntoSelect for DrizzleBuilder
 //------------------------------------------------------------------------------
 
-impl<'d, 'a, DrizzleRef, Schema, State, T, M, R> IntoSelect<'a, Schema, M, R>
-    for DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
+impl<'d, 'a, DrizzleRef, Schema, State, T, M, R, G> IntoSelect<'a, Schema, M, R>
+    for DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
 where
     State: drizzle_postgres::builder::ExecutableState,
 {
     type State = State;
     type Table = T;
     fn into_select(self) -> SelectBuilder<'a, Schema, State, T, M, R> {
-        self.builder
+        self.builder.into_select()
     }
 }
 
@@ -1039,77 +756,6 @@ where
         DrizzleBuilder {
             drizzle: self.drizzle,
             builder: self.builder.except_all(other),
-            state: PhantomData,
-        }
-    }
-}
-
-//------------------------------------------------------------------------------
-// Post-SetOp state on DrizzleBuilder
-//------------------------------------------------------------------------------
-
-impl<'d, 'a, DrizzleRef, Schema, T, M, R>
-    DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
-        SelectSetOpSet,
-    >
-{
-    pub fn order_by<TOrderBy>(
-        self,
-        expressions: TOrderBy,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOrderSet, T, M, R>,
-        SelectOrderSet,
-    >
-    where
-        TOrderBy: drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
-    {
-        let builder = self.builder.order_by(expressions);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    pub fn limit(
-        self,
-        limit: usize,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectLimitSet, T, M, R>,
-        SelectLimitSet,
-    > {
-        let builder = self.builder.limit(limit);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    pub fn offset(
-        self,
-        offset: usize,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R>,
-        SelectOffsetSet,
-    > {
-        let builder = self.builder.offset(offset);
-        DrizzleBuilder {
-            drizzle: self.drizzle,
-            builder,
             state: PhantomData,
         }
     }
@@ -1686,139 +1332,61 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
 // FOR UPDATE/SHARE Row Locking (PostgreSQL-specific)
 //------------------------------------------------------------------------------
 
-/// Macro to implement FOR UPDATE/SHARE methods on DrizzleBuilder for a given state
 macro_rules! impl_for_update_methods {
-    ($state:ty) => {
-        impl<'d, 'a, DrizzleRef, Schema, T, M, R>
-            DrizzleBuilder<
-                'd,
-                DrizzleRef,
-                Schema,
-                SelectBuilder<'a, Schema, $state, T, M, R>,
-                $state,
-            >
-        {
-            /// Adds FOR UPDATE clause to lock selected rows for update.
-            pub fn for_update(
-                self,
-            ) -> DrizzleBuilder<
-                'd,
-                DrizzleRef,
-                Schema,
-                SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
-                SelectForSet,
-            > {
-                let builder = self.builder.for_update();
-                DrizzleBuilder {
-                    drizzle: self.drizzle,
-                    builder,
-                    state: PhantomData,
+    ($($state:ty),+ $(,)?) => {
+        $(
+            impl<'d, 'a, DrizzleRef, Schema, T, M, R>
+                DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, $state, T, M, R>, $state>
+            {
+                /// Adds FOR UPDATE clause to lock selected rows for update.
+                pub fn for_update(self) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
+                    let builder = self.builder.for_update();
+                    DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
                 }
-            }
 
-            /// Adds FOR SHARE clause to lock selected rows for shared access.
-            pub fn for_share(
-                self,
-            ) -> DrizzleBuilder<
-                'd,
-                DrizzleRef,
-                Schema,
-                SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
-                SelectForSet,
-            > {
-                let builder = self.builder.for_share();
-                DrizzleBuilder {
-                    drizzle: self.drizzle,
-                    builder,
-                    state: PhantomData,
+                /// Adds FOR SHARE clause to lock selected rows for shared access.
+                pub fn for_share(self) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
+                    let builder = self.builder.for_share();
+                    DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
                 }
-            }
 
-            /// Adds FOR NO KEY UPDATE clause.
-            pub fn for_no_key_update(
-                self,
-            ) -> DrizzleBuilder<
-                'd,
-                DrizzleRef,
-                Schema,
-                SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
-                SelectForSet,
-            > {
-                let builder = self.builder.for_no_key_update();
-                DrizzleBuilder {
-                    drizzle: self.drizzle,
-                    builder,
-                    state: PhantomData,
+                /// Adds FOR NO KEY UPDATE clause.
+                pub fn for_no_key_update(self) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
+                    let builder = self.builder.for_no_key_update();
+                    DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
                 }
-            }
 
-            /// Adds FOR KEY SHARE clause.
-            pub fn for_key_share(
-                self,
-            ) -> DrizzleBuilder<
-                'd,
-                DrizzleRef,
-                Schema,
-                SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
-                SelectForSet,
-            > {
-                let builder = self.builder.for_key_share();
-                DrizzleBuilder {
-                    drizzle: self.drizzle,
-                    builder,
-                    state: PhantomData,
+                /// Adds FOR KEY SHARE clause.
+                pub fn for_key_share(self) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
+                    let builder = self.builder.for_key_share();
+                    DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
                 }
-            }
 
-            /// Adds FOR UPDATE OF table clause to lock only rows from a specific table.
-            pub fn for_update_of<U: PostgresTable<'a>>(
-                self,
-                table: U,
-            ) -> DrizzleBuilder<
-                'd,
-                DrizzleRef,
-                Schema,
-                SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
-                SelectForSet,
-            > {
-                let builder = self.builder.for_update_of(table);
-                DrizzleBuilder {
-                    drizzle: self.drizzle,
-                    builder,
-                    state: PhantomData,
+                /// Adds FOR UPDATE OF table clause to lock only rows from a specific table.
+                pub fn for_update_of<U: PostgresTable<'a>>(self, table: U) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
+                    let builder = self.builder.for_update_of(table);
+                    DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
                 }
-            }
 
-            /// Adds FOR SHARE OF table clause to lock only rows from a specific table.
-            pub fn for_share_of<U: PostgresTable<'a>>(
-                self,
-                table: U,
-            ) -> DrizzleBuilder<
-                'd,
-                DrizzleRef,
-                Schema,
-                SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
-                SelectForSet,
-            > {
-                let builder = self.builder.for_share_of(table);
-                DrizzleBuilder {
-                    drizzle: self.drizzle,
-                    builder,
-                    state: PhantomData,
+                /// Adds FOR SHARE OF table clause to lock only rows from a specific table.
+                pub fn for_share_of<U: PostgresTable<'a>>(self, table: U) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
+                    let builder = self.builder.for_share_of(table);
+                    DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
                 }
             }
-        }
+        )+
     };
 }
 
-// Implement FOR UPDATE methods for all ForLockableState states
-impl_for_update_methods!(SelectFromSet);
-impl_for_update_methods!(SelectWhereSet);
-impl_for_update_methods!(SelectOrderSet);
-impl_for_update_methods!(SelectLimitSet);
-impl_for_update_methods!(SelectOffsetSet);
-impl_for_update_methods!(SelectJoinSet);
-impl_for_update_methods!(SelectGroupSet);
+impl_for_update_methods!(
+    SelectFromSet,
+    SelectWhereSet,
+    SelectOrderSet,
+    SelectLimitSet,
+    SelectOffsetSet,
+    SelectJoinSet,
+    SelectGroupSet,
+);
 
 // Implement NOWAIT and SKIP LOCKED on SelectForSet
 impl<'d, 'a, DrizzleRef, Schema, T, M, R>

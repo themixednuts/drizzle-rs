@@ -115,6 +115,7 @@ impl<'a, S, T> OnConflictBuilder<'a, S, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -144,6 +145,7 @@ impl<'a, S, T> OnConflictBuilder<'a, S, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -213,6 +215,7 @@ where
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -415,6 +418,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -433,6 +437,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -457,6 +462,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertOnConflictSet, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -482,6 +488,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -500,6 +507,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -518,6 +526,7 @@ mod tests {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         };
 
         assert_eq!(builder.to_sql().sql(), "INSERT INTO test");

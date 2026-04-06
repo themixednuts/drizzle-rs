@@ -26,7 +26,7 @@ macro_rules! drizzle_builder_join_impl {
                 'd,
                 Conn,
                 Schema,
-                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow>,
+                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>,
                 SelectJoinSet,
             >
             where
@@ -71,7 +71,7 @@ macro_rules! drizzle_pg_builder_join_impl {
                 'd,
                 DrizzleRef,
                 Schema,
-                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow>,
+                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>,
                 SelectJoinSet,
             >
             where
@@ -115,6 +115,7 @@ macro_rules! drizzle_pg_builder_join_using_impl {
                 U,
                 <M as drizzle_core::ScopePush<U>>::Out,
                 <M as drizzle_core::AfterJoin<R, U>>::NewRow,
+                G,
             >,
             SelectJoinSet,
         >
@@ -146,6 +147,7 @@ macro_rules! drizzle_pg_builder_join_using_impl {
                     U,
                     <M as drizzle_core::ScopePush<U>>::Out,
                     <M as $join_trait<R, U>>::NewRow,
+                    G,
                 >,
                 SelectJoinSet,
             >
@@ -190,7 +192,7 @@ macro_rules! transaction_builder_join_impl {
             ) -> TransactionBuilder<
                 $($lifetimes,)*
                 Schema,
-                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow>,
+                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>,
                 SelectJoinSet,
             >
             where

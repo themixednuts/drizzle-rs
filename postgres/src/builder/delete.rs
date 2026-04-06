@@ -72,6 +72,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -90,6 +91,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -114,6 +116,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteWhereSet, T> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -132,6 +135,7 @@ mod tests {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         };
 
         assert_eq!(builder.to_sql().sql(), "DELETE FROM test");

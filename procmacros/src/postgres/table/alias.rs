@@ -150,6 +150,15 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             impl drizzle::core::IntoSelectTarget for #aliased_field_type {
                 type Marker = drizzle::core::SelectCols<(#aliased_field_type,)>;
             }
+            impl drizzle::core::expr::HasAggStatus for #aliased_field_type {
+                type Status = drizzle::core::expr::AllScalar;
+            }
+            impl drizzle::core::GroupByIdentity for #aliased_field_type {
+                type Identity = #aliased_field_type;
+            }
+            impl<'a> drizzle::core::IntoGroupBy<'a, PostgresValue<'a>> for #aliased_field_type {
+                type Columns = drizzle::core::Cons<#aliased_field_type, drizzle::core::Nil>;
+            }
         }
     }).collect();
 

@@ -53,21 +53,30 @@ impl ExecutableState for CTEInit {}
 /// The `S` type parameter represents the schema type, which is used
 /// to ensure type safety when building queries.
 #[derive(Debug, Clone, Default)]
-pub struct QueryBuilder<'a, Schema = (), State = (), Table = (), Marker = (), Row = ()> {
+pub struct QueryBuilder<
+    'a,
+    Schema = (),
+    State = (),
+    Table = (),
+    Marker = (),
+    Row = (),
+    Grouped = (),
+> {
     pub sql: SQL<'a, PostgresValue<'a>>,
     schema: PhantomData<Schema>,
     state: PhantomData<State>,
     table: PhantomData<Table>,
     marker: PhantomData<Marker>,
     row: PhantomData<Row>,
+    grouped: PhantomData<Grouped>,
 }
 
 //------------------------------------------------------------------------------
 // QueryBuilder Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, Schema, State, Table, Marker, Row> ToSQL<'a, PostgresValue<'a>>
-    for QueryBuilder<'a, Schema, State, Table, Marker, Row>
+impl<'a, Schema, State, Table, Marker, Row, Grouped> ToSQL<'a, PostgresValue<'a>>
+    for QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>
 {
     fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
         self.sql.clone()
@@ -84,6 +93,7 @@ impl<'a> QueryBuilder<'a> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -107,6 +117,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -128,6 +139,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -152,6 +164,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -173,6 +186,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -195,6 +209,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -219,6 +234,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -239,6 +255,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -264,6 +281,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -289,6 +307,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -308,6 +327,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }
@@ -330,6 +350,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -350,6 +371,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -370,6 +392,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 
@@ -386,6 +409,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
             table: PhantomData,
             marker: PhantomData,
             row: PhantomData,
+            grouped: PhantomData,
         }
     }
 }

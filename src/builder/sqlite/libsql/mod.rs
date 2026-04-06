@@ -926,8 +926,8 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
 }
 
 #[cfg(feature = "libsql")]
-impl<'a, 'b, S, Schema, State, Table, Mk, Rw>
-    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw>, State>
+impl<'a, 'b, S, Schema, State, Table, Mk, Rw, Grouped>
+    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw, Grouped>, State>
 where
     State: builder::ExecutableState,
 {
@@ -938,53 +938,14 @@ where
         Ok(self.drizzle.conn.execute(&sql_str, params).await?)
     }
 
-    /// Runs the query and returns all matching rows, decoded as `R`.
-    pub async fn all_as<R, C>(self) -> drizzle_core::error::Result<C>
-    where
-        R: for<'r> TryFrom<&'r libsql::Row>,
-        for<'r> <R as TryFrom<&'r libsql::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        C: Default + Extend<R>,
-    {
-        self.rows_as::<R>().await?.collect().await
-    }
-
-    /// Runs the query and returns a row cursor, decoded as `R`.
-    pub async fn rows_as<R>(self) -> drizzle_core::error::Result<Rows<R>>
-    where
-        R: for<'r> TryFrom<&'r libsql::Row>,
-        for<'r> <R as TryFrom<&'r libsql::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-    {
-        let (sql_str, params) = self.builder.sql.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
-
-        let rows = self.drizzle.conn.query(&sql_str, params).await?;
-        Ok(Rows::new(rows))
-    }
-
-    /// Runs the query and returns a single row, decoded as `R`.
-    pub async fn get_as<R>(self) -> drizzle_core::error::Result<R>
-    where
-        R: for<'r> TryFrom<&'r libsql::Row>,
-        for<'r> <R as TryFrom<&'r libsql::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-    {
-        let (sql_str, params) = self.builder.sql.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
-
-        let mut rows = self.drizzle.conn.query(&sql_str, params).await?;
-        if let Some(row) = rows.next().await? {
-            R::try_from(&row).map_err(Into::into)
-        } else {
-            Err(drizzle_core::error::DrizzleError::NotFound)
-        }
-    }
-
     /// Runs the query and returns all matching rows using the builder's row type.
-    pub async fn all<R, Proof>(self) -> drizzle_core::error::Result<Vec<R>>
+    pub async fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::libsql::Row, Rw, R>,
+        Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
@@ -1005,16 +966,21 @@ where
         Rw: for<'r> TryFrom<&'r libsql::Row>,
         for<'r> <Rw as TryFrom<&'r libsql::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
-        self.rows_as().await
+        let (sql_str, params) = self.builder.sql.build();
+        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
+
+        let rows = self.drizzle.conn.query(&sql_str, params).await?;
+        Ok(Rows::new(rows))
     }
 
     /// Runs the query and returns a single row using the builder's row type.
-    pub async fn get<R, Proof>(self) -> drizzle_core::error::Result<R>
+    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::libsql::Row, Rw, R>,
+        Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
