@@ -24,7 +24,7 @@ jobs:
             sqlite_features: "rusqlite,uuid"
           - os: macos-latest
             platform: macos
-            sqlite_features: "rusqlite,turso,libsql,uuid"
+            sqlite_features: "rusqlite,turso,uuid"
     runs-on: ${{ matrix.os }}
 
     steps:
