@@ -19,7 +19,7 @@ impl<'tx, 'q, Schema, M>
         self,
         table: T,
     ) -> TransactionBuilder<
-        'tx,
+        'q,
         Schema,
         SelectBuilder<
             'q,
@@ -113,7 +113,7 @@ where
         self,
         other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'tx,
+        'q,
         Schema,
         SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
@@ -129,7 +129,7 @@ where
         self,
         other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'tx,
+        'q,
         Schema,
         SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
@@ -145,7 +145,7 @@ where
         self,
         other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'tx,
+        'q,
         Schema,
         SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
@@ -161,7 +161,7 @@ where
         self,
         other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'tx,
+        'q,
         Schema,
         SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
@@ -177,7 +177,7 @@ where
         self,
         other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'tx,
+        'q,
         Schema,
         SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
@@ -193,7 +193,7 @@ where
         self,
         other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'tx,
+        'q,
         Schema,
         SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
