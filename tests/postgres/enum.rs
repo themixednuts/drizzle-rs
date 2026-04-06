@@ -156,10 +156,10 @@ mod execution {
         drizzle_exec!(stmt => execute);
 
         // Filter by multiple enum values
-        let stmt = db.select(()).from(complex).r#where(or([
+        let stmt = db.select(()).from(complex).r#where(or(
             eq(complex.role, Role::Admin),
             eq(complex.role, Role::Moderator),
-        ]));
+        ));
         let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
         assert_eq!(results.len(), 2);

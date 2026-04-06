@@ -46,6 +46,10 @@ where
     type Aggregate = E::Aggregate;
 }
 
+impl<E: super::HasAggStatus> super::HasAggStatus for AliasedExpr<E> {
+    type Status = E::Status;
+}
+
 impl<E: crate::row::ExprValueType> crate::row::ExprValueType for AliasedExpr<E> {
     type ValueType = E::ValueType;
 }

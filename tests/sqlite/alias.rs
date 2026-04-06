@@ -91,7 +91,7 @@ sqlite_test!(table_alias_with_conditions, SimpleSchema, {
     let stmt = db
         .select((s_alias.id, s_alias.name))
         .from(s_alias)
-        .r#where(and([gt(s_alias.id, 1), neq(s_alias.name, "test3")]));
+        .r#where(and(gt(s_alias.id, 1), neq(s_alias.name, "test3")));
     let results: Vec<SimpleResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);

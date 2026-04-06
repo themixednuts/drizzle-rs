@@ -243,7 +243,7 @@ postgres_test!(condition_and, ComplexSchema, {
     let stmt = db
         .select(())
         .from(complex)
-        .r#where(and([eq(complex.active, true), lt(complex.age, 30)]));
+        .r#where(and(eq(complex.active, true), lt(complex.age, 30)));
     let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);
@@ -261,10 +261,10 @@ postgres_test!(condition_or, ComplexSchema, {
     ]);
     drizzle_exec!(stmt => execute);
 
-    let stmt = db.select(()).from(complex).r#where(or([
+    let stmt = db.select(()).from(complex).r#where(or(
         eq(complex.role, Role::Admin),
         eq(complex.role, Role::Moderator),
-    ]));
+    ));
     let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 2);
@@ -286,14 +286,13 @@ postgres_test!(condition_nested_and_or, ComplexSchema, {
     drizzle_exec!(stmt => execute);
 
     // (Admin OR Moderator) AND active AND age > 25
-    let stmt = db.select(()).from(complex).r#where(and([
-        or([
+    let stmt = db.select(()).from(complex).r#where(and(
+        or(
             eq(complex.role, Role::Admin),
             eq(complex.role, Role::Moderator),
-        ]),
-        eq(complex.active, true),
-        gt(complex.age, 25),
-    ]));
+        ),
+        and(eq(complex.active, true), gt(complex.age, 25)),
+    ));
     let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 1);

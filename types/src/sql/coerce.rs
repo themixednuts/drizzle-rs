@@ -14,6 +14,10 @@ pub trait Compatible<Rhs: DataType = Self>: DataType {}
 )]
 pub trait Assignable<Rhs: DataType = Self>: DataType {}
 
+// =============================================================================
+// Core macros
+// =============================================================================
+
 macro_rules! impl_reflexive_compat {
     ($($ty:ty),+ $(,)?) => {
         $(impl Compatible<$ty> for $ty {})+
@@ -26,10 +30,89 @@ macro_rules! impl_reflexive_assign {
     };
 }
 
+/// Generate mutual (bidirectional) `Compatible` impls for all unique cross-pairs in a group.
+/// Does NOT generate reflexive impls (those come from `impl_reflexive_compat!`).
+///
+/// `mutual_compat!(A, B, C)` expands to:
+///   Compatible<B> for A, Compatible<A> for B,
+///   Compatible<C> for A, Compatible<A> for C,
+///   Compatible<C> for B, Compatible<B> for C
+macro_rules! mutual_compat {
+    // Entry: dispatch to pair generation
+    ($($ty:ty),+ $(,)?) => {
+        mutual_compat!(@pairs [] $($ty),+);
+    };
+    // Base case: no more types to process
+    (@pairs [$($done:ty),*]) => {};
+    // Recursive case: take first type, pair it with all remaining
+    (@pairs [$($done:ty),*] $first:ty $(, $rest:ty)*) => {
+        $(
+            impl Compatible<$rest> for $first {}
+            impl Compatible<$first> for $rest {}
+        )*
+        mutual_compat!(@pairs [$($done,)* $first] $($rest),*);
+    };
+}
+
+/// Generate bidirectional `Compatible` impls between an "any" type and a list of types.
+macro_rules! any_compat {
+    ($any:ty; $($ty:ty),+ $(,)?) => {
+        $(
+            impl Compatible<$ty> for $any {}
+            impl Compatible<$any> for $ty {}
+        )+
+    };
+}
+
+macro_rules! impl_placeholder_compat {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl Compatible<crate::Placeholder> for $ty {}
+            impl Compatible<$ty> for crate::Placeholder {}
+        )+
+    };
+}
+
+/// Generate directional `Assignable` impls: each source can be assigned to the target.
+/// `assign_to!(Target; Src1, Src2)` → `Assignable<Src1> for Target`, `Assignable<Src2> for Target`
+macro_rules! assign_to {
+    ($target:ty; $($src:ty),+ $(,)?) => {
+        $(impl Assignable<$src> for $target {})+
+    };
+}
+
+/// Generate bidirectional `Assignable` for all cross-pairs in a group (mutual assignment).
+/// Does NOT generate reflexive impls (those come from `impl_reflexive_assign!`).
+macro_rules! mutual_assign {
+    ($($ty:ty),+ $(,)?) => {
+        mutual_assign!(@pairs [] $($ty),+);
+    };
+    (@pairs [$($done:ty),*]) => {};
+    (@pairs [$($done:ty),*] $first:ty $(, $rest:ty)*) => {
+        $(
+            impl Assignable<$rest> for $first {}
+            impl Assignable<$first> for $rest {}
+        )*
+        mutual_assign!(@pairs [$($done,)* $first] $($rest),*);
+    };
+}
+
+/// Generate `Assignable` from every source to a single "any" target.
+macro_rules! any_assign {
+    ($any:ty; $($ty:ty),+ $(,)?) => {
+        $(impl Assignable<$ty> for $any {})+
+    };
+}
+
+// =============================================================================
+// Generic impls
+// =============================================================================
+
 impl<T: DataType> Compatible<crate::Array<T>> for crate::Array<T> {}
 impl Compatible<crate::Placeholder> for crate::Placeholder {}
 impl<T: DataType> Assignable<crate::Array<T>> for crate::Array<T> {}
 
+// Reflexive compat & assign for all concrete types
 impl_reflexive_compat!(
     crate::sqlite::types::Integer,
     crate::sqlite::types::Text,
@@ -70,7 +153,7 @@ impl_reflexive_compat!(
     crate::postgres::types::LineSegment,
     crate::postgres::types::Polygon,
     crate::postgres::types::Circle,
-    crate::postgres::types::Enum
+    crate::postgres::types::Enum,
 );
 
 impl_reflexive_assign!(
@@ -113,47 +196,31 @@ impl_reflexive_assign!(
     crate::postgres::types::LineSegment,
     crate::postgres::types::Polygon,
     crate::postgres::types::Circle,
-    crate::postgres::types::Enum
+    crate::postgres::types::Enum,
 );
 
-macro_rules! impl_placeholder_compat {
-    ($($ty:ty),+ $(,)?) => {
-        $(
-            impl Compatible<crate::Placeholder> for $ty {}
-            impl Compatible<$ty> for crate::Placeholder {}
-        )+
-    };
-}
-
 // =============================================================================
-// SQLite compatibility
+// SQLite compatibility (category-based)
 // =============================================================================
 
-// Integer ↔ Real
-impl Compatible<crate::sqlite::types::Real> for crate::sqlite::types::Integer {}
-impl Compatible<crate::sqlite::types::Integer> for crate::sqlite::types::Real {}
-
-// Numeric ↔ Integer/Real
-impl Compatible<crate::sqlite::types::Integer> for crate::sqlite::types::Numeric {}
-impl Compatible<crate::sqlite::types::Real> for crate::sqlite::types::Numeric {}
-impl Compatible<crate::sqlite::types::Numeric> for crate::sqlite::types::Integer {}
-impl Compatible<crate::sqlite::types::Numeric> for crate::sqlite::types::Real {}
+// SQLite numeric family: Integer ↔ Real ↔ Numeric (all mutually compatible)
+mutual_compat!(
+    crate::sqlite::types::Integer,
+    crate::sqlite::types::Real,
+    crate::sqlite::types::Numeric
+);
 
 // Blob ↔ Text (SQLite stores UUIDs, etc. as either)
-impl Compatible<crate::sqlite::types::Text> for crate::sqlite::types::Blob {}
-impl Compatible<crate::sqlite::types::Blob> for crate::sqlite::types::Text {}
+mutual_compat!(crate::sqlite::types::Text, crate::sqlite::types::Blob);
 
 // Any ↔ all SQLite types
-impl Compatible<crate::sqlite::types::Integer> for crate::sqlite::types::Any {}
-impl Compatible<crate::sqlite::types::Text> for crate::sqlite::types::Any {}
-impl Compatible<crate::sqlite::types::Real> for crate::sqlite::types::Any {}
-impl Compatible<crate::sqlite::types::Blob> for crate::sqlite::types::Any {}
-impl Compatible<crate::sqlite::types::Numeric> for crate::sqlite::types::Any {}
-impl Compatible<crate::sqlite::types::Any> for crate::sqlite::types::Integer {}
-impl Compatible<crate::sqlite::types::Any> for crate::sqlite::types::Text {}
-impl Compatible<crate::sqlite::types::Any> for crate::sqlite::types::Real {}
-impl Compatible<crate::sqlite::types::Any> for crate::sqlite::types::Blob {}
-impl Compatible<crate::sqlite::types::Any> for crate::sqlite::types::Numeric {}
+any_compat!(crate::sqlite::types::Any;
+    crate::sqlite::types::Integer,
+    crate::sqlite::types::Text,
+    crate::sqlite::types::Real,
+    crate::sqlite::types::Blob,
+    crate::sqlite::types::Numeric
+);
 
 impl_placeholder_compat!(
     crate::sqlite::types::Integer,
@@ -165,159 +232,144 @@ impl_placeholder_compat!(
 );
 
 // =============================================================================
-// PostgreSQL compatibility
+// PostgreSQL compatibility (category-based)
 // =============================================================================
 
-// Integer widening: Int2 ↔ Int4 ↔ Int8
-impl Compatible<crate::postgres::types::Int4> for crate::postgres::types::Int2 {}
-impl Compatible<crate::postgres::types::Int8> for crate::postgres::types::Int2 {}
-impl Compatible<crate::postgres::types::Int2> for crate::postgres::types::Int4 {}
-impl Compatible<crate::postgres::types::Int8> for crate::postgres::types::Int4 {}
-impl Compatible<crate::postgres::types::Int2> for crate::postgres::types::Int8 {}
-impl Compatible<crate::postgres::types::Int4> for crate::postgres::types::Int8 {}
+// Integer family: Int2 ↔ Int4 ↔ Int8 (all mutually compatible)
+mutual_compat!(
+    crate::postgres::types::Int2,
+    crate::postgres::types::Int4,
+    crate::postgres::types::Int8
+);
 
-// Float widening: Float4 ↔ Float8
-impl Compatible<crate::postgres::types::Float8> for crate::postgres::types::Float4 {}
-impl Compatible<crate::postgres::types::Float4> for crate::postgres::types::Float8 {}
+// Float family: Float4 ↔ Float8
+mutual_compat!(
+    crate::postgres::types::Float4,
+    crate::postgres::types::Float8
+);
 
-// Int ↔ Float cross-compatibility
-impl Compatible<crate::postgres::types::Float4> for crate::postgres::types::Int2 {}
-impl Compatible<crate::postgres::types::Float8> for crate::postgres::types::Int2 {}
-impl Compatible<crate::postgres::types::Float4> for crate::postgres::types::Int4 {}
-impl Compatible<crate::postgres::types::Float8> for crate::postgres::types::Int4 {}
-impl Compatible<crate::postgres::types::Float4> for crate::postgres::types::Int8 {}
-impl Compatible<crate::postgres::types::Float8> for crate::postgres::types::Int8 {}
-impl Compatible<crate::postgres::types::Int2> for crate::postgres::types::Float4 {}
-impl Compatible<crate::postgres::types::Int4> for crate::postgres::types::Float4 {}
-impl Compatible<crate::postgres::types::Int8> for crate::postgres::types::Float4 {}
-impl Compatible<crate::postgres::types::Int2> for crate::postgres::types::Float8 {}
-impl Compatible<crate::postgres::types::Int4> for crate::postgres::types::Float8 {}
-impl Compatible<crate::postgres::types::Int8> for crate::postgres::types::Float8 {}
+// Cross-numeric: all integers ↔ all floats
+// (Int2, Int4, Int8) × (Float4, Float8)
+/// Generate cross-product `Compatible` impls between two groups of types.
+/// Every type in group A becomes compatible with every type in group B (bidirectional).
+macro_rules! cross_compat {
+    ([$first_a:ty $(, $rest_a:ty)* $(,)?], [$($b:ty),+ $(,)?]) => {
+        // Expand first_a × all B
+        $(
+            impl Compatible<$b> for $first_a {}
+            impl Compatible<$first_a> for $b {}
+        )+
+        // Recurse for remaining A types
+        cross_compat!([$($rest_a),*], [$($b),+]);
+    };
+    // Base case: empty A list
+    ([], [$($b:ty),+ $(,)?]) => {};
+}
 
-// Numeric ↔ all numeric types
-impl Compatible<crate::postgres::types::Numeric> for crate::postgres::types::Int2 {}
-impl Compatible<crate::postgres::types::Numeric> for crate::postgres::types::Int4 {}
-impl Compatible<crate::postgres::types::Numeric> for crate::postgres::types::Int8 {}
-impl Compatible<crate::postgres::types::Numeric> for crate::postgres::types::Float4 {}
-impl Compatible<crate::postgres::types::Numeric> for crate::postgres::types::Float8 {}
-impl Compatible<crate::postgres::types::Int2> for crate::postgres::types::Numeric {}
-impl Compatible<crate::postgres::types::Int4> for crate::postgres::types::Numeric {}
-impl Compatible<crate::postgres::types::Int8> for crate::postgres::types::Numeric {}
-impl Compatible<crate::postgres::types::Float4> for crate::postgres::types::Numeric {}
-impl Compatible<crate::postgres::types::Float8> for crate::postgres::types::Numeric {}
+cross_compat!(
+    [
+        crate::postgres::types::Int2,
+        crate::postgres::types::Int4,
+        crate::postgres::types::Int8
+    ],
+    [
+        crate::postgres::types::Float4,
+        crate::postgres::types::Float8
+    ]
+);
 
-// Text type cross-compatibility
-impl Compatible<crate::postgres::types::Varchar> for crate::postgres::types::Text {}
-impl Compatible<crate::postgres::types::Text> for crate::postgres::types::Varchar {}
-impl Compatible<crate::postgres::types::Char> for crate::postgres::types::Text {}
-impl Compatible<crate::postgres::types::Text> for crate::postgres::types::Char {}
-impl Compatible<crate::postgres::types::Varchar> for crate::postgres::types::Char {}
-impl Compatible<crate::postgres::types::Char> for crate::postgres::types::Varchar {}
+// Numeric ↔ all numeric types (Int2, Int4, Int8, Float4, Float8)
+any_compat!(crate::postgres::types::Numeric;
+    crate::postgres::types::Int2,
+    crate::postgres::types::Int4,
+    crate::postgres::types::Int8,
+    crate::postgres::types::Float4,
+    crate::postgres::types::Float8
+);
 
-// Temporal cross-compatibility
-impl Compatible<crate::postgres::types::Timestamp> for crate::postgres::types::Timestamptz {}
-impl Compatible<crate::postgres::types::Timestamptz> for crate::postgres::types::Timestamp {}
-impl Compatible<crate::postgres::types::Timetz> for crate::postgres::types::Time {}
-impl Compatible<crate::postgres::types::Time> for crate::postgres::types::Timetz {}
+// Text family: Text ↔ Varchar ↔ Char (all mutually compatible)
+mutual_compat!(
+    crate::postgres::types::Text,
+    crate::postgres::types::Varchar,
+    crate::postgres::types::Char
+);
+
+// Temporal cross-compatibility pairs
+mutual_compat!(
+    crate::postgres::types::Timestamptz,
+    crate::postgres::types::Timestamp
+);
+mutual_compat!(crate::postgres::types::Time, crate::postgres::types::Timetz);
 
 // JSON cross-compatibility
-impl Compatible<crate::postgres::types::Jsonb> for crate::postgres::types::Json {}
-impl Compatible<crate::postgres::types::Json> for crate::postgres::types::Jsonb {}
+mutual_compat!(crate::postgres::types::Json, crate::postgres::types::Jsonb);
 
 // Text ↔ Temporal (string comparisons with timestamps)
-impl Compatible<crate::postgres::types::Text> for crate::postgres::types::Timestamptz {}
-impl Compatible<crate::postgres::types::Text> for crate::postgres::types::Timestamp {}
-impl Compatible<crate::postgres::types::Text> for crate::postgres::types::Date {}
-impl Compatible<crate::postgres::types::Text> for crate::postgres::types::Time {}
-impl Compatible<crate::postgres::types::Timestamptz> for crate::postgres::types::Text {}
-impl Compatible<crate::postgres::types::Timestamp> for crate::postgres::types::Text {}
-impl Compatible<crate::postgres::types::Date> for crate::postgres::types::Text {}
-impl Compatible<crate::postgres::types::Time> for crate::postgres::types::Text {}
+cross_compat!(
+    [crate::postgres::types::Text],
+    [
+        crate::postgres::types::Timestamptz,
+        crate::postgres::types::Timestamp,
+        crate::postgres::types::Date,
+        crate::postgres::types::Time
+    ]
+);
 
-// Inet ↔ Cidr
-impl Compatible<crate::postgres::types::Cidr> for crate::postgres::types::Inet {}
-impl Compatible<crate::postgres::types::Inet> for crate::postgres::types::Cidr {}
+// Network types: Inet ↔ Cidr
+mutual_compat!(crate::postgres::types::Inet, crate::postgres::types::Cidr);
 
-// MacAddr ↔ MacAddr8
-impl Compatible<crate::postgres::types::MacAddr8> for crate::postgres::types::MacAddr {}
-impl Compatible<crate::postgres::types::MacAddr> for crate::postgres::types::MacAddr8 {}
+// MAC address types: MacAddr ↔ MacAddr8
+mutual_compat!(
+    crate::postgres::types::MacAddr,
+    crate::postgres::types::MacAddr8
+);
 
-// PostgreSQL enum textual compatibility
-impl Compatible<crate::postgres::types::Text> for crate::postgres::types::Enum {}
-impl Compatible<crate::postgres::types::Varchar> for crate::postgres::types::Enum {}
-impl Compatible<crate::postgres::types::Char> for crate::postgres::types::Enum {}
-impl Compatible<crate::postgres::types::Enum> for crate::postgres::types::Text {}
-impl Compatible<crate::postgres::types::Enum> for crate::postgres::types::Varchar {}
-impl Compatible<crate::postgres::types::Enum> for crate::postgres::types::Char {}
+// Enum ↔ Text family
+cross_compat!(
+    [crate::postgres::types::Enum],
+    [
+        crate::postgres::types::Text,
+        crate::postgres::types::Varchar,
+        crate::postgres::types::Char
+    ]
+);
 
 // Any ↔ all PostgreSQL types
-impl Compatible<crate::postgres::types::Int2> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Int4> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Int8> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Float4> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Float8> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Varchar> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Text> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Char> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Bytea> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Boolean> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Timestamptz> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Timestamp> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Date> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Time> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Timetz> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Numeric> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Uuid> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Json> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Jsonb> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Interval> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Inet> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Cidr> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::MacAddr> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::MacAddr8> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Point> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::LineString> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Rect> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::BitString> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Line> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::LineSegment> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Polygon> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Circle> for crate::postgres::types::Any {}
-impl Compatible<crate::postgres::types::Enum> for crate::postgres::types::Any {}
-
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Int2 {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Int4 {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Int8 {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Float4 {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Float8 {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Varchar {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Text {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Char {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Bytea {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Boolean {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Timestamptz {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Timestamp {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Date {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Time {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Timetz {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Numeric {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Uuid {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Json {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Jsonb {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Interval {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Inet {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Cidr {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::MacAddr {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::MacAddr8 {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Point {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::LineString {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Rect {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::BitString {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Line {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::LineSegment {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Polygon {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Circle {}
-impl Compatible<crate::postgres::types::Any> for crate::postgres::types::Enum {}
+any_compat!(crate::postgres::types::Any;
+    crate::postgres::types::Int2,
+    crate::postgres::types::Int4,
+    crate::postgres::types::Int8,
+    crate::postgres::types::Float4,
+    crate::postgres::types::Float8,
+    crate::postgres::types::Varchar,
+    crate::postgres::types::Text,
+    crate::postgres::types::Char,
+    crate::postgres::types::Bytea,
+    crate::postgres::types::Boolean,
+    crate::postgres::types::Timestamptz,
+    crate::postgres::types::Timestamp,
+    crate::postgres::types::Date,
+    crate::postgres::types::Time,
+    crate::postgres::types::Timetz,
+    crate::postgres::types::Numeric,
+    crate::postgres::types::Uuid,
+    crate::postgres::types::Json,
+    crate::postgres::types::Jsonb,
+    crate::postgres::types::Interval,
+    crate::postgres::types::Inet,
+    crate::postgres::types::Cidr,
+    crate::postgres::types::MacAddr,
+    crate::postgres::types::MacAddr8,
+    crate::postgres::types::Point,
+    crate::postgres::types::LineString,
+    crate::postgres::types::Rect,
+    crate::postgres::types::BitString,
+    crate::postgres::types::Line,
+    crate::postgres::types::LineSegment,
+    crate::postgres::types::Polygon,
+    crate::postgres::types::Circle,
+    crate::postgres::types::Enum
+);
 
 impl_placeholder_compat!(
     crate::postgres::types::Int2,
@@ -359,94 +411,101 @@ impl_placeholder_compat!(
 // =============================================================================
 // Assignment compatibility (bind-time)
 // =============================================================================
+// Assignment is stricter than comparison: only wider types accept narrower values.
 
 // SQLite assignment
-impl Assignable<crate::sqlite::types::Integer> for crate::sqlite::types::Real {}
-impl Assignable<crate::sqlite::types::Integer> for crate::sqlite::types::Numeric {}
-impl Assignable<crate::sqlite::types::Real> for crate::sqlite::types::Numeric {}
+assign_to!(crate::sqlite::types::Real; crate::sqlite::types::Integer);
+assign_to!(crate::sqlite::types::Numeric; crate::sqlite::types::Integer, crate::sqlite::types::Real);
+any_assign!(crate::sqlite::types::Any;
+    crate::sqlite::types::Integer,
+    crate::sqlite::types::Text,
+    crate::sqlite::types::Real,
+    crate::sqlite::types::Blob,
+    crate::sqlite::types::Numeric
+);
 
-impl Assignable<crate::sqlite::types::Integer> for crate::sqlite::types::Any {}
-impl Assignable<crate::sqlite::types::Text> for crate::sqlite::types::Any {}
-impl Assignable<crate::sqlite::types::Real> for crate::sqlite::types::Any {}
-impl Assignable<crate::sqlite::types::Blob> for crate::sqlite::types::Any {}
-impl Assignable<crate::sqlite::types::Numeric> for crate::sqlite::types::Any {}
+// PostgreSQL integer widening: Int2 → Int4 → Int8
+assign_to!(crate::postgres::types::Int4; crate::postgres::types::Int2);
+assign_to!(crate::postgres::types::Int8; crate::postgres::types::Int2, crate::postgres::types::Int4);
 
-// PostgreSQL assignment
-// Integer widening: Int2 -> Int4 -> Int8
-impl Assignable<crate::postgres::types::Int2> for crate::postgres::types::Int4 {}
-impl Assignable<crate::postgres::types::Int2> for crate::postgres::types::Int8 {}
-impl Assignable<crate::postgres::types::Int4> for crate::postgres::types::Int8 {}
+// Int → Float widening
+assign_to!(crate::postgres::types::Float4;
+    crate::postgres::types::Int2,
+    crate::postgres::types::Int4,
+    crate::postgres::types::Int8
+);
+assign_to!(crate::postgres::types::Float8;
+    crate::postgres::types::Int2,
+    crate::postgres::types::Int4,
+    crate::postgres::types::Int8,
+    crate::postgres::types::Float4
+);
 
-// Numeric widening and int -> float
-impl Assignable<crate::postgres::types::Int2> for crate::postgres::types::Float4 {}
-impl Assignable<crate::postgres::types::Int4> for crate::postgres::types::Float4 {}
-impl Assignable<crate::postgres::types::Int8> for crate::postgres::types::Float4 {}
-impl Assignable<crate::postgres::types::Int2> for crate::postgres::types::Float8 {}
-impl Assignable<crate::postgres::types::Int4> for crate::postgres::types::Float8 {}
-impl Assignable<crate::postgres::types::Int8> for crate::postgres::types::Float8 {}
-impl Assignable<crate::postgres::types::Float4> for crate::postgres::types::Float8 {}
+// Numeric accepts all numeric types
+assign_to!(crate::postgres::types::Numeric;
+    crate::postgres::types::Int2,
+    crate::postgres::types::Int4,
+    crate::postgres::types::Int8,
+    crate::postgres::types::Float4,
+    crate::postgres::types::Float8
+);
 
-impl Assignable<crate::postgres::types::Int2> for crate::postgres::types::Numeric {}
-impl Assignable<crate::postgres::types::Int4> for crate::postgres::types::Numeric {}
-impl Assignable<crate::postgres::types::Int8> for crate::postgres::types::Numeric {}
-impl Assignable<crate::postgres::types::Float4> for crate::postgres::types::Numeric {}
-impl Assignable<crate::postgres::types::Float8> for crate::postgres::types::Numeric {}
+// Text family: all mutually assignable
+mutual_assign!(
+    crate::postgres::types::Text,
+    crate::postgres::types::Varchar,
+    crate::postgres::types::Char
+);
 
-// Text-family assignment
-impl Assignable<crate::postgres::types::Text> for crate::postgres::types::Varchar {}
-impl Assignable<crate::postgres::types::Char> for crate::postgres::types::Varchar {}
-impl Assignable<crate::postgres::types::Enum> for crate::postgres::types::Varchar {}
-
-impl Assignable<crate::postgres::types::Varchar> for crate::postgres::types::Text {}
-impl Assignable<crate::postgres::types::Char> for crate::postgres::types::Text {}
-impl Assignable<crate::postgres::types::Enum> for crate::postgres::types::Text {}
-
-impl Assignable<crate::postgres::types::Text> for crate::postgres::types::Char {}
-impl Assignable<crate::postgres::types::Varchar> for crate::postgres::types::Char {}
-impl Assignable<crate::postgres::types::Enum> for crate::postgres::types::Char {}
+// Enum → Text family
+assign_to!(crate::postgres::types::Varchar; crate::postgres::types::Enum);
+assign_to!(crate::postgres::types::Text; crate::postgres::types::Enum);
+assign_to!(crate::postgres::types::Char; crate::postgres::types::Enum);
 
 // Temporal and JSON assignment
-impl Assignable<crate::postgres::types::Timestamp> for crate::postgres::types::Timestamptz {}
-impl Assignable<crate::postgres::types::Time> for crate::postgres::types::Timetz {}
-impl Assignable<crate::postgres::types::Json> for crate::postgres::types::Jsonb {}
+assign_to!(crate::postgres::types::Timestamptz; crate::postgres::types::Timestamp);
+assign_to!(crate::postgres::types::Timetz; crate::postgres::types::Time);
+assign_to!(crate::postgres::types::Jsonb; crate::postgres::types::Json);
 
 // Network assignment
-impl Assignable<crate::postgres::types::Inet> for crate::postgres::types::Cidr {}
+assign_to!(crate::postgres::types::Cidr; crate::postgres::types::Inet);
 
 // Any accepts all concrete PostgreSQL markers
-impl Assignable<crate::postgres::types::Int2> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Int4> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Int8> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Float4> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Float8> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Varchar> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Text> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Char> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Bytea> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Boolean> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Timestamptz> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Timestamp> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Date> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Time> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Timetz> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Numeric> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Uuid> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Json> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Jsonb> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Interval> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Inet> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Cidr> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::MacAddr> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::MacAddr8> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Point> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::LineString> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Rect> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::BitString> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Line> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::LineSegment> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Polygon> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Circle> for crate::postgres::types::Any {}
-impl Assignable<crate::postgres::types::Enum> for crate::postgres::types::Any {}
+any_assign!(crate::postgres::types::Any;
+    crate::postgres::types::Int2,
+    crate::postgres::types::Int4,
+    crate::postgres::types::Int8,
+    crate::postgres::types::Float4,
+    crate::postgres::types::Float8,
+    crate::postgres::types::Varchar,
+    crate::postgres::types::Text,
+    crate::postgres::types::Char,
+    crate::postgres::types::Bytea,
+    crate::postgres::types::Boolean,
+    crate::postgres::types::Timestamptz,
+    crate::postgres::types::Timestamp,
+    crate::postgres::types::Date,
+    crate::postgres::types::Time,
+    crate::postgres::types::Timetz,
+    crate::postgres::types::Numeric,
+    crate::postgres::types::Uuid,
+    crate::postgres::types::Json,
+    crate::postgres::types::Jsonb,
+    crate::postgres::types::Interval,
+    crate::postgres::types::Inet,
+    crate::postgres::types::Cidr,
+    crate::postgres::types::MacAddr,
+    crate::postgres::types::MacAddr8,
+    crate::postgres::types::Point,
+    crate::postgres::types::LineString,
+    crate::postgres::types::Rect,
+    crate::postgres::types::BitString,
+    crate::postgres::types::Line,
+    crate::postgres::types::LineSegment,
+    crate::postgres::types::Polygon,
+    crate::postgres::types::Circle,
+    crate::postgres::types::Enum
+);
 
 // =============================================================================
 // Tuple compatibility

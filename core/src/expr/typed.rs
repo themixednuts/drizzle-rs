@@ -8,7 +8,7 @@ use crate::sql::SQL;
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::DataType;
 
-use super::{Agg, AggregateKind, Expr, NonNull, Null, Nullability, Scalar};
+use super::{Agg, AggToStatus, AggregateKind, Expr, NonNull, Null, Nullability, Scalar};
 
 /// A SQL expression that carries type information.
 ///
@@ -174,6 +174,16 @@ where
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.sql, f)
     }
+}
+
+impl<'a, V, T, N, A> super::HasAggStatus for SQLExpr<'a, V, T, N, A>
+where
+    V: SQLParam,
+    T: DataType,
+    N: Nullability,
+    A: AggToStatus,
+{
+    type Status = A::Status;
 }
 
 // =============================================================================

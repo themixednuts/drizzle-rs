@@ -107,6 +107,10 @@ where
     type Aggregate = <Lhs::Aggregate as AggOr<Rhs::Aggregate>>::Output;
 }
 
+impl<Lhs: super::HasAggStatus, Rhs, Op> super::HasAggStatus for ColumnBinOp<Lhs, Rhs, Op> {
+    type Status = Lhs::Status;
+}
+
 impl<Lhs, Rhs, Op> crate::row::ExprValueType for ColumnBinOp<Lhs, Rhs, Op>
 where
     Lhs: crate::row::ExprValueType,
@@ -150,6 +154,10 @@ where
     type SQLType = T::SQLType;
     type Nullable = T::Nullable;
     type Aggregate = T::Aggregate;
+}
+
+impl<T: super::HasAggStatus> super::HasAggStatus for ColumnNeg<T> {
+    type Status = T::Status;
 }
 
 impl<T: crate::row::ExprValueType> crate::row::ExprValueType for ColumnNeg<T> {

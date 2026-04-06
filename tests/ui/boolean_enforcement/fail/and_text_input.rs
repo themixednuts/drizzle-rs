@@ -11,5 +11,5 @@ struct User {
 fn main() {
     let user = User::default();
     // Text column is not BooleanLike — and() should reject it
-    let _ = and([user.name]);
+    let _ = and(user.name, user.name);
 }

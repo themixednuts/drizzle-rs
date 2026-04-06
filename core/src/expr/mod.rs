@@ -149,6 +149,81 @@ impl AggOr<Agg> for Agg {
 }
 
 // =============================================================================
+// Aggregate Status (for SELECT list validation)
+// =============================================================================
+
+/// Status indicating all selected expressions are scalar (non-aggregate).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AllScalar;
+
+/// Status indicating all selected expressions are aggregate.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AllAgg;
+
+/// Status indicating a mix of scalar and aggregate expressions.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MixedAgg;
+
+/// Convert an `AggregateKind` to an initial `AggStatus`.
+pub trait AggToStatus: AggregateKind {
+    type Status;
+}
+
+impl AggToStatus for Scalar {
+    type Status = AllScalar;
+}
+
+impl AggToStatus for Agg {
+    type Status = AllAgg;
+}
+
+/// Combine two aggregate statuses.
+///
+/// | Left | Right | Output |
+/// |------|-------|--------|
+/// | AllScalar | AllScalar | AllScalar |
+/// | AllAgg | AllAgg | AllAgg |
+/// | anything else | _ | MixedAgg |
+pub trait CombineAggStatus<Rhs> {
+    type Output;
+}
+
+impl CombineAggStatus<AllScalar> for AllScalar {
+    type Output = AllScalar;
+}
+impl CombineAggStatus<AllAgg> for AllScalar {
+    type Output = MixedAgg;
+}
+impl CombineAggStatus<MixedAgg> for AllScalar {
+    type Output = MixedAgg;
+}
+impl CombineAggStatus<AllScalar> for AllAgg {
+    type Output = MixedAgg;
+}
+impl CombineAggStatus<AllAgg> for AllAgg {
+    type Output = AllAgg;
+}
+impl CombineAggStatus<MixedAgg> for AllAgg {
+    type Output = MixedAgg;
+}
+impl CombineAggStatus<AllScalar> for MixedAgg {
+    type Output = MixedAgg;
+}
+impl CombineAggStatus<AllAgg> for MixedAgg {
+    type Output = MixedAgg;
+}
+impl CombineAggStatus<MixedAgg> for MixedAgg {
+    type Output = MixedAgg;
+}
+
+/// Extract the aggregate status of a type that appears in a SELECT list.
+///
+/// Implemented for column ZSTs (always Scalar), `SQLExpr`, and expression wrappers.
+pub trait HasAggStatus {
+    type Status;
+}
+
+// =============================================================================
 // Core Expression Trait
 // =============================================================================
 

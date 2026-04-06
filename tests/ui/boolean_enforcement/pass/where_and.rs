@@ -18,9 +18,9 @@ fn main() {
     let qb = QueryBuilder::new::<Schema>();
     let Schema { user } = Schema::new();
 
-    // and([eq(...), gt(...)]) returns Boolean — should be accepted
+    // and(eq(...), gt(...)) returns Boolean — should be accepted
     let _ = qb
         .select(())
         .from(user)
-        .r#where(and([eq(user.id, 1), gt(user.age, 18)]));
+        .r#where(and(eq(user.id, 1), gt(user.age, 18)));
 }

@@ -569,10 +569,10 @@ postgres_test!(select_complex_where, ComplexSchema, {
     let stmt = db.insert(complex).values(vec![data1, data2, data3]);
     drizzle_exec!(stmt => execute);
 
-    let stmt = db.select(()).from(complex).r#where(and([
+    let stmt = db.select(()).from(complex).r#where(and(
         eq(complex.active, true),
-        or([eq(complex.role, Role::Admin), gt(complex.age, 21)]),
-    ]));
+        or(eq(complex.role, Role::Admin), gt(complex.age, 21)),
+    ));
 
     let sql = stmt.to_sql().sql();
 

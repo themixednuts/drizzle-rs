@@ -104,10 +104,9 @@ postgres_test!(delete_with_complex_where, ComplexSchema, {
     drizzle_exec!(stmt => execute);
 
     // Delete inactive users (not admins)
-    let stmt = db.delete(complex).r#where(and([
-        eq(complex.active, false),
-        eq(complex.role, Role::User),
-    ]));
+    let stmt = db
+        .delete(complex)
+        .r#where(and(eq(complex.active, false), eq(complex.role, Role::User)));
     drizzle_exec!(stmt => execute);
 
     // Verify correct deletion

@@ -128,7 +128,7 @@ sqlite_test!(complex_select_with_conditions, ComplexSchema, {
     let range_results: Vec<ComplexResult> = drizzle_exec!(
         db.select((complex.id, complex.name, complex.email, complex.age))
             .from(complex)
-            .r#where(and([gte(complex.age, 25), lt(complex.age, 45)]))
+            .r#where(and(gte(complex.age, 25), lt(complex.age, 45)))
             => all
     );
 

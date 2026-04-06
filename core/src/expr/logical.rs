@@ -5,14 +5,18 @@
 //! ```rust
 //! # let _ = r####"
 //! // Function style
-//! and2(condition1, condition2)
-//! or2(condition1, condition2)
+//! and(condition1, condition2)
+//! or(condition1, condition2)
 //! not(condition)
 //!
 //! // Operator style (via std::ops traits)
 //! condition1 & condition2   // BitAnd
 //! condition1 | condition2   // BitOr
 //! !condition                 // Not
+//!
+//! // Multiple conditions (iterator)
+//! and_all([condition1, condition2, condition3])
+//! or_all([condition1, condition2, condition3])
 //! # "####;
 //! ```
 
@@ -23,7 +27,7 @@ use crate::sql::{SQL, SQLChunk, Token};
 use crate::traits::SQLParam;
 use crate::types::BooleanLike;
 
-use super::{AggOr, AggregateKind, Expr, NonNull, Nullability, SQLExpr};
+use super::{AggOr, AggregateKind, Expr, NullOr, Nullability, SQLExpr};
 
 #[inline]
 fn operand_sql<'a, V, E>(value: E) -> SQL<'a, V>
@@ -60,11 +64,12 @@ where
 /// Negates a boolean expression.
 pub fn not<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     E::SQLType: BooleanLike,
+    E::Nullable: Nullability,
 {
     let expr_sql: SQL<'a, V> = expr.into_sql().parens_if_subquery();
     let needs_paren = expr_sql.chunks.len() > 1
@@ -88,58 +93,35 @@ where
 // AND
 // =============================================================================
 
-/// Logical AND of multiple conditions.
+/// Logical AND of two conditions.
 ///
-/// Returns a boolean expression that is true if all conditions are true.
-/// Accepts any iterable of items that implement ToSQL.
-pub fn and<'a, V, I, E>(
-    conditions: I,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
-where
-    V: SQLParam + 'a,
-    I: IntoIterator<Item = E>,
-    E: Expr<'a, V>,
-    E::SQLType: BooleanLike,
-{
-    let mut iter = conditions.into_iter();
-
-    let sql = match iter.next() {
-        None => SQL::empty(),
-        Some(first) => {
-            let first_sql = operand_sql(first);
-            let Some(second) = iter.next() else {
-                return SQLExpr::new(first_sql);
-            };
-            let all_conditions = core::iter::once(first_sql)
-                .chain(core::iter::once(operand_sql(second)))
-                .chain(iter.map(operand_sql));
-            SQL::from(Token::LPAREN)
-                .append(SQL::join(all_conditions, Token::AND))
-                .push(Token::RPAREN)
-        }
-    };
-    SQLExpr::new(sql)
-}
-
-/// Logical AND of two expressions.
+/// ```rust
+/// # let _ = r####"
+/// use drizzle_core::expr::{and, eq, gt};
+///
+/// and(eq(users.active, true), gt(users.age, 18))
+/// # "####;
+/// ```
 #[allow(clippy::type_complexity)]
-pub fn and2<'a, V, L, R>(
+pub fn and<'a, V, L, R>(
     left: L,
     right: R,
 ) -> SQLExpr<
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Bool,
-    NonNull,
+    <L::Nullable as NullOr<R::Nullable>>::Output,
     <L::Aggregate as AggOr<R::Aggregate>>::Output,
 >
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     L::SQLType: BooleanLike,
+    L::Nullable: NullOr<R::Nullable>,
     L::Aggregate: AggOr<R::Aggregate>,
     R: Expr<'a, V>,
     R::SQLType: BooleanLike,
+    R::Nullable: Nullability,
 {
     SQLExpr::new(binary_logical_op(left, Token::AND, right))
 }
@@ -148,58 +130,35 @@ where
 // OR
 // =============================================================================
 
-/// Logical OR of multiple conditions.
+/// Logical OR of two conditions.
 ///
-/// Returns a boolean expression that is true if any condition is true.
-/// Accepts any iterable of items that implement ToSQL.
-pub fn or<'a, V, I, E>(
-    conditions: I,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
-where
-    V: SQLParam + 'a,
-    I: IntoIterator<Item = E>,
-    E: Expr<'a, V>,
-    E::SQLType: BooleanLike,
-{
-    let mut iter = conditions.into_iter();
-
-    let sql = match iter.next() {
-        None => SQL::empty(),
-        Some(first) => {
-            let first_sql = operand_sql(first);
-            let Some(second) = iter.next() else {
-                return SQLExpr::new(first_sql);
-            };
-            let all_conditions = core::iter::once(first_sql)
-                .chain(core::iter::once(operand_sql(second)))
-                .chain(iter.map(operand_sql));
-            SQL::from(Token::LPAREN)
-                .append(SQL::join(all_conditions, Token::OR))
-                .push(Token::RPAREN)
-        }
-    };
-    SQLExpr::new(sql)
-}
-
-/// Logical OR of two expressions.
+/// ```rust
+/// # let _ = r####"
+/// use drizzle_core::expr::{or, eq};
+///
+/// or(eq(users.role, "admin"), eq(users.role, "moderator"))
+/// # "####;
+/// ```
 #[allow(clippy::type_complexity)]
-pub fn or2<'a, V, L, R>(
+pub fn or<'a, V, L, R>(
     left: L,
     right: R,
 ) -> SQLExpr<
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Bool,
-    NonNull,
+    <L::Nullable as NullOr<R::Nullable>>::Output,
     <L::Aggregate as AggOr<R::Aggregate>>::Output,
 >
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     L::SQLType: BooleanLike,
+    L::Nullable: NullOr<R::Nullable>,
     L::Aggregate: AggOr<R::Aggregate>,
     R: Expr<'a, V>,
     R::SQLType: BooleanLike,
+    R::Nullable: Nullability,
 {
     SQLExpr::new(binary_logical_op(left, Token::OR, right))
 }
@@ -225,7 +184,7 @@ where
     N: Nullability,
     A: AggregateKind,
 {
-    type Output = SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, A>;
+    type Output = SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, N, A>;
 
     fn not(self) -> Self::Output {
         not(self)
@@ -246,21 +205,22 @@ impl<'a, V, T, N, A, Rhs> BitAnd<Rhs> for SQLExpr<'a, V, T, N, A>
 where
     V: SQLParam + 'a,
     T: BooleanLike,
-    N: Nullability,
+    N: Nullability + NullOr<Rhs::Nullable>,
     A: AggOr<Rhs::Aggregate>,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: BooleanLike,
+    Rhs::Nullable: Nullability,
 {
     type Output = SQLExpr<
         'a,
         V,
         <V::DialectMarker as DialectTypes>::Bool,
-        NonNull,
+        <N as NullOr<Rhs::Nullable>>::Output,
         <A as AggOr<Rhs::Aggregate>>::Output,
     >;
 
     fn bitand(self, rhs: Rhs) -> Self::Output {
-        and2(self, rhs)
+        and(self, rhs)
     }
 }
 
@@ -278,20 +238,21 @@ impl<'a, V, T, N, A, Rhs> BitOr<Rhs> for SQLExpr<'a, V, T, N, A>
 where
     V: SQLParam + 'a,
     T: BooleanLike,
-    N: Nullability,
+    N: Nullability + NullOr<Rhs::Nullable>,
     A: AggOr<Rhs::Aggregate>,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: BooleanLike,
+    Rhs::Nullable: Nullability,
 {
     type Output = SQLExpr<
         'a,
         V,
         <V::DialectMarker as DialectTypes>::Bool,
-        NonNull,
+        <N as NullOr<Rhs::Nullable>>::Output,
         <A as AggOr<Rhs::Aggregate>>::Output,
     >;
 
     fn bitor(self, rhs: Rhs) -> Self::Output {
-        or2(self, rhs)
+        or(self, rhs)
     }
 }

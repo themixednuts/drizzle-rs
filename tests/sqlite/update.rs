@@ -171,7 +171,7 @@ sqlite_test!(update_with_complex_where, ComplexSchema, {
     let stmt = db
         .update(complex)
         .set(UpdateComplex::default().with_name("matched"))
-        .r#where(and([gte(complex.age, 18), lte(complex.age, 65)]));
+        .r#where(and(gte(complex.age, 18), lte(complex.age, 65)));
     drizzle_exec!(stmt => execute);
 
     let results: Vec<ComplexResult> = drizzle_exec!(

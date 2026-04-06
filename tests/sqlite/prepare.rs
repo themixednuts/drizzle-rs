@@ -27,7 +27,7 @@ sqlite_test!(test_prepare_with_placeholder, SimpleSchema, {
     let prepared = db
         .select(simple.name)
         .from(simple)
-        .r#where(and([eq(simple.name, name)]))
+        .r#where(eq(simple.name, name))
         .prepare();
 
     #[derive(SQLiteFromRow, Default)]

@@ -291,10 +291,10 @@ sqlite_test!(test_logical_conditions, ComplexSchema, {
     let result: Vec<SelectComplex> = drizzle_exec!(
         db.select(())
             .from(complex)
-            .r#where(and([
+            .r#where(and(
                 eq(complex.active, true),
                 eq(complex.role, Role::Admin)
-            ]))
+            ))
             => all
     );
     assert_eq!(result.len(), 1);
@@ -304,7 +304,7 @@ sqlite_test!(test_logical_conditions, ComplexSchema, {
     let result: Vec<SelectComplex> = drizzle_exec!(
         db.select(())
             .from(complex)
-            .r#where(or([eq(complex.role, Role::Admin), gt(complex.age, 30)]))
+            .r#where(or(eq(complex.role, Role::Admin), gt(complex.age, 30)))
             => all
     );
     assert_eq!(result.len(), 2);
@@ -322,10 +322,10 @@ sqlite_test!(test_logical_conditions, ComplexSchema, {
     let result: Vec<SelectComplex> = drizzle_exec!(
         db.select(())
             .from(complex)
-            .r#where(and([
-                or([eq(complex.role, Role::Admin), gt(complex.age, 23)]),
+            .r#where(and(
+                or(eq(complex.role, Role::Admin), gt(complex.age, 23)),
                 eq(complex.active, true)
-            ]))
+            ))
             => all
     );
     assert_eq!(result.len(), 2);
@@ -348,7 +348,7 @@ sqlite_test!(test_single_condition_logical_operations, SimpleSchema, {
     let result: Vec<SelectSimple> = drizzle_exec!(
         db.select(())
             .from(simple)
-            .r#where(and([eq(simple.name, "Test")]))
+            .r#where(eq(simple.name, "Test"))
             => all
     );
     assert_eq!(result.len(), 1);
@@ -358,7 +358,7 @@ sqlite_test!(test_single_condition_logical_operations, SimpleSchema, {
     let result: Vec<SelectSimple> = drizzle_exec!(
         db.select(())
             .from(simple)
-            .r#where(or([eq(simple.name, "Other")]))
+            .r#where(eq(simple.name, "Other"))
             => all
     );
     assert_eq!(result.len(), 1);
