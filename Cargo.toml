@@ -71,6 +71,9 @@ thiserror = { version = "2.0", default-features = false }
 toml = { version = "0.9" }
 tokio = { version = "1.48" }
 turso = { version = "0.6.0-pre.3", default-features = false }
+worker = { version = "0.8", default-features = false }
+wasm-bindgen = { version = "0.2" }
+js-sys = { version = "0.3" }
 uuid = { version = "1.18", features = ["v4"] }
 chrono = { version = "0.4", default-features = false }
 puffin = { version = "0.19" }
@@ -173,6 +176,21 @@ libsql = [
   "drizzle-core/libsql",
   "drizzle-macros/libsql",
   "drizzle-sqlite?/libsql",
+]
+# Cloudflare D1 (async, WASM-only) — enable when targeting wasm32-unknown-unknown
+# inside a Cloudflare Worker. Brings in `worker` crate with its `d1` feature.
+# Forwards `uuid/js` because drizzle-migrations pulls uuid and the v4 RNG on
+# wasm32 needs the browser `js` backend to link.
+d1 = [
+  "std",
+  "sqlite",
+  "serde",
+  "dep:worker",
+  "dep:wasm-bindgen",
+  "dep:js-sys",
+  "dep:uuid",
+  "uuid/js",
+  "drizzle-sqlite?/d1",
 ]
 serde = [
   "dep:serde_json",
@@ -278,6 +296,9 @@ arrayvec = { workspace = true, optional = true }
 
 libsql = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
+worker = { workspace = true, optional = true, features = ["d1"] }
+wasm-bindgen = { workspace = true, optional = true }
+js-sys = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 turso = { workspace = true, optional = true }
