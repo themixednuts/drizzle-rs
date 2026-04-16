@@ -101,3 +101,39 @@ fn test_sql_builder_pattern_no_std() {
         "SELECT \"id\", \"name\" FROM \"users\" WHERE \"active\" = 1"
     );
 }
+
+// ---- Identifier-injection hardening (CWE-89) ----
+//
+// Identifiers must escape embedded double-quote characters by doubling them
+// (`"` -> `""`), matching how both PostgreSQL and SQLite decode delimited
+// identifiers. Without this, a malicious identifier like `a" OR 1=1 --`
+// could close the quoted identifier and inject arbitrary SQL.
+
+#[test]
+fn test_ident_escapes_embedded_double_quote() {
+    let sql: SQL<'_, TestValue> = SQL::ident(r#"weird"name"#);
+    assert_eq!(sql.sql(), r#""weird""name""#);
+}
+
+#[test]
+fn test_ident_escapes_injection_attempt() {
+    // Classic identifier-injection payload: close the quote, inject, comment
+    // out the trailing quote. After escaping, the inner `"` must become `""`
+    // so the whole thing stays a single quoted identifier.
+    let sql: SQL<'_, TestValue> = SQL::ident(r#"a" OR 1=1; --"#);
+    assert_eq!(sql.sql(), r#""a"" OR 1=1; --""#);
+}
+
+#[test]
+fn test_ident_preserves_plain_names() {
+    // Fast path: no embedded quotes, output unchanged.
+    let sql: SQL<'_, TestValue> = SQL::ident("users");
+    assert_eq!(sql.sql(), r#""users""#);
+}
+
+#[test]
+fn test_alias_escapes_embedded_double_quote() {
+    // `SQL::alias` writes the alias as an ident chunk too.
+    let sql: SQL<'_, TestValue> = SQL::raw("1").alias(r#"evil" ignored"#);
+    assert_eq!(sql.sql(), r#"1 AS "evil"" ignored""#);
+}

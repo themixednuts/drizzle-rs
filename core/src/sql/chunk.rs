@@ -146,6 +146,33 @@ impl ColumnRef {
     }
 }
 
+// ==================== Identifier quoting ====================
+
+/// Writes a SQL identifier enclosed in double quotes, doubling any embedded
+/// `"` characters to prevent identifier-injection (CWE-89). Both PostgreSQL
+/// and SQLite accept `"..."` as a delimited identifier and treat `""` as an
+/// escaped double-quote character inside such an identifier.
+///
+/// Fast path: identifiers with no embedded `"` are written with three calls
+/// (open quote, name, close quote). Only identifiers containing a `"` take
+/// the character-by-character escaping path.
+#[inline]
+pub(crate) fn write_quoted_ident(buf: &mut impl core::fmt::Write, name: &str) {
+    let _ = buf.write_char('"');
+    if name.contains('"') {
+        for ch in name.chars() {
+            if ch == '"' {
+                let _ = buf.write_str("\"\"");
+            } else {
+                let _ = buf.write_char(ch);
+            }
+        }
+    } else {
+        let _ = buf.write_str(name);
+    }
+    let _ = buf.write_char('"');
+}
+
 // ==================== SQLChunk ====================
 
 /// A SQL chunk represents a part of an SQL statement.
@@ -273,9 +300,7 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
                 let _ = buf.write_str(token.as_str());
             }
             SQLChunk::Ident(name) => {
-                let _ = buf.write_char('"');
-                let _ = buf.write_str(name);
-                let _ = buf.write_char('"');
+                write_quoted_ident(buf, name);
             }
             SQLChunk::Raw(text) => {
                 let _ = buf.write_str(text);
@@ -287,16 +312,12 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
                 let _ = write!(buf, "{}", placeholder);
             }
             SQLChunk::Table(t) => {
-                let _ = buf.write_char('"');
-                let _ = buf.write_str(t.name);
-                let _ = buf.write_char('"');
+                write_quoted_ident(buf, t.name);
             }
             SQLChunk::Column(c) => {
-                let _ = buf.write_char('"');
-                let _ = buf.write_str(c.table);
-                let _ = buf.write_str("\".\"");
-                let _ = buf.write_str(c.name);
-                let _ = buf.write_char('"');
+                write_quoted_ident(buf, c.table);
+                let _ = buf.write_char('.');
+                write_quoted_ident(buf, c.name);
             }
         }
     }

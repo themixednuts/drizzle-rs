@@ -500,11 +500,9 @@ impl<'a, V: SQLParam> SQL<'a, V> {
             if i > 0 {
                 let _ = buf.write_str(", ");
             }
-            let _ = buf.write_char('"');
-            let _ = buf.write_str(table.name);
-            let _ = buf.write_str("\".\"");
-            let _ = buf.write_str(col_name);
-            let _ = buf.write_char('"');
+            chunk::write_quoted_ident(buf, table.name);
+            let _ = buf.write_char('.');
+            chunk::write_quoted_ident(buf, col_name);
         }
     }
 
