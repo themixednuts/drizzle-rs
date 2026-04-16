@@ -54,7 +54,7 @@ pub struct MigrationPlan {
 #[derive(Debug, Clone)]
 struct AppliedMigrationRecord {
     hash: String,
-    created_at: i64,
+    name: String,
 }
 
 /// Planned SQL changes for `drizzle push`
@@ -363,8 +363,8 @@ fn build_migration_plan(
 ) -> Result<MigrationPlan, CliError> {
     verify_applied_migrations_consistency(set, &applied)?;
 
-    let applied_created_at = applied.iter().map(|m| m.created_at).collect::<Vec<_>>();
-    let pending = set.pending(&applied_created_at).collect::<Vec<_>>();
+    let applied_names = applied.iter().map(|m| m.name.clone()).collect::<Vec<_>>();
+    let pending = set.pending(&applied_names).collect::<Vec<_>>();
 
     let pending_statements = pending
         .iter()
@@ -398,39 +398,39 @@ fn verify_applied_migrations_consistency(
 ) -> Result<(), CliError> {
     use std::collections::{HashMap, HashSet};
 
-    let mut local_by_created_at = HashMap::<i64, &str>::new();
+    let mut local_by_name = HashMap::<&str, &str>::new();
     for migration in set.all() {
-        if local_by_created_at
-            .insert(migration.created_at(), migration.hash())
+        if local_by_name
+            .insert(migration.name(), migration.hash())
             .is_some()
         {
             return Err(CliError::MigrationError(format!(
-                "Local migrations contain duplicate created_at value: {}",
-                migration.created_at()
+                "Local migrations contain duplicate name: {}",
+                migration.name()
             )));
         }
     }
 
-    let mut seen_db_created_at = HashSet::<i64>::new();
+    let mut seen_db_names = HashSet::<&str>::new();
     for applied_row in applied {
-        if !seen_db_created_at.insert(applied_row.created_at) {
+        if !seen_db_names.insert(applied_row.name.as_str()) {
             return Err(CliError::MigrationError(format!(
-                "Database migration metadata contains duplicate created_at value: {}",
-                applied_row.created_at
+                "Database migration metadata contains duplicate name: {}",
+                applied_row.name
             )));
         }
 
-        let Some(local_hash) = local_by_created_at.get(&applied_row.created_at) else {
+        let Some(local_hash) = local_by_name.get(applied_row.name.as_str()) else {
             return Err(CliError::MigrationError(format!(
-                "Database contains applied migration not found locally (created_at: {})",
-                applied_row.created_at
+                "Database contains applied migration not found locally (name: {})",
+                applied_row.name
             )));
         };
 
         if *local_hash != applied_row.hash {
             return Err(CliError::MigrationError(format!(
-                "Migration hash mismatch for created_at {}: database={}, local={}",
-                applied_row.created_at, applied_row.hash, local_hash
+                "Migration hash mismatch for {}: database={}, local={}",
+                applied_row.name, applied_row.hash, local_hash
             )));
         }
     }
@@ -1100,11 +1100,11 @@ fn run_sqlite_migrations(set: &Migrations, path: &str) -> Result<MigrationResult
 
     ensure_sqlite_tracking_table(&conn, set)?;
 
-    // Query applied migrations by created_at
-    let applied_created_at = query_applied_created_at_sqlite(&conn, set)?;
+    // Query applied migration names
+    let applied_names = query_applied_names_sqlite(&conn, set)?;
 
     // Get pending migrations
-    let pending: Vec<_> = set.pending(&applied_created_at).collect();
+    let pending: Vec<_> = set.pending(&applied_names).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
             applied_count: 0,
@@ -1162,7 +1162,11 @@ fn query_applied_records_sqlite(
     conn: &rusqlite::Connection,
     set: &Migrations,
 ) -> Result<Vec<AppliedMigrationRecord>, CliError> {
-    let mut stmt = match conn.prepare(&set.query_all_applied_sql()) {
+    let sql = format!(
+        r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
+        set.table_ident_sql()
+    );
+    let mut stmt = match conn.prepare(&sql) {
         Ok(s) => s,
         Err(_) => return Ok(vec![]), // Table might not exist yet
     };
@@ -1170,40 +1174,35 @@ fn query_applied_records_sqlite(
     let mut applied = Vec::new();
     let rows = stmt
         .query_map([], |row| {
-            Ok((
-                row.get::<_, Option<String>>(0)?,
-                row.get::<_, Option<i64>>(1)?,
-            ))
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     for row in rows {
-        let (hash, created_at) = row.map_err(|e| CliError::MigrationError(e.to_string()))?;
-        if let (Some(hash), Some(created_at)) = (hash, created_at) {
-            applied.push(AppliedMigrationRecord { hash, created_at });
-        }
+        let (hash, name) = row.map_err(|e| CliError::MigrationError(e.to_string()))?;
+        applied.push(AppliedMigrationRecord { hash, name });
     }
 
     Ok(applied)
 }
 
 #[cfg(feature = "rusqlite")]
-fn query_applied_created_at_sqlite(
+fn query_applied_names_sqlite(
     conn: &rusqlite::Connection,
     set: &Migrations,
-) -> Result<Vec<i64>, CliError> {
-    let mut stmt = match conn.prepare(&set.applied_sql()) {
+) -> Result<Vec<String>, CliError> {
+    let mut stmt = match conn.prepare(&set.applied_names_sql()) {
         Ok(s) => s,
         Err(_) => return Ok(vec![]), // Table might not exist yet
     };
 
-    let created_at = stmt
-        .query_map([], |row| row.get::<_, Option<i64>>(0))
+    let names = stmt
+        .query_map([], |row| row.get::<_, String>(0))
         .map_err(|e| CliError::MigrationError(e.to_string()))?
-        .filter_map(|row| row.ok().flatten())
+        .filter_map(Result::ok)
         .collect();
 
-    Ok(created_at)
+    Ok(names)
 }
 
 // ============================================================================
@@ -1271,12 +1270,14 @@ fn run_postgres_sync_migrations(
 
     ensure_postgres_tracking_table_sync(&mut client, set)?;
 
-    // Query applied migrations by created_at
-    let rows = client.query(&set.applied_sql(), &[]).unwrap_or_default();
-    let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
+    // Query applied migration names
+    let rows = client
+        .query(&set.applied_names_sql(), &[])
+        .unwrap_or_default();
+    let applied_names: Vec<String> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
 
     // Get pending migrations
-    let pending: Vec<_> = set.pending(&applied_created_at).collect();
+    let pending: Vec<_> = set.pending(&applied_names).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
             applied_count: 0,
@@ -1373,16 +1374,18 @@ fn query_applied_records_postgres_sync(
     client: &mut postgres::Client,
     set: &Migrations,
 ) -> Vec<AppliedMigrationRecord> {
-    let rows = client
-        .query(&set.query_all_applied_sql(), &[])
-        .unwrap_or_default();
+    let sql = format!(
+        r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
+        set.table_ident_sql()
+    );
+    let rows = client.query(&sql, &[]).unwrap_or_default();
 
     let mut applied = Vec::new();
     for row in rows {
         let hash = row.try_get::<_, Option<String>>(0).ok().flatten();
-        let created_at = row.try_get::<_, Option<i64>>(1).ok().flatten();
-        if let (Some(hash), Some(created_at)) = (hash, created_at) {
-            applied.push(AppliedMigrationRecord { hash, created_at });
+        let name = row.try_get::<_, Option<String>>(1).ok().flatten();
+        if let (Some(hash), Some(name)) = (hash, name) {
+            applied.push(AppliedMigrationRecord { hash, name });
         }
     }
 
@@ -1530,17 +1533,18 @@ async fn query_applied_records_postgres_async(
     client: &tokio_postgres::Client,
     set: &Migrations,
 ) -> Vec<AppliedMigrationRecord> {
-    let rows = client
-        .query(&set.query_all_applied_sql(), &[])
-        .await
-        .unwrap_or_default();
+    let sql = format!(
+        r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
+        set.table_ident_sql()
+    );
+    let rows = client.query(&sql, &[]).await.unwrap_or_default();
 
     let mut applied = Vec::new();
     for row in rows {
         let hash = row.try_get::<_, Option<String>>(0).ok().flatten();
-        let created_at = row.try_get::<_, Option<i64>>(1).ok().flatten();
-        if let (Some(hash), Some(created_at)) = (hash, created_at) {
-            applied.push(AppliedMigrationRecord { hash, created_at });
+        let name = row.try_get::<_, Option<String>>(1).ok().flatten();
+        if let (Some(hash), Some(name)) = (hash, name) {
+            applied.push(AppliedMigrationRecord { hash, name });
         }
     }
 
@@ -1580,15 +1584,15 @@ async fn run_postgres_async_inner(
 
     ensure_postgres_tracking_table_async(&client, set).await?;
 
-    // Query applied migrations by created_at
+    // Query applied migration names
     let rows = client
-        .query(&set.applied_sql(), &[])
+        .query(&set.applied_names_sql(), &[])
         .await
         .unwrap_or_default();
-    let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
+    let applied_names: Vec<String> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
 
     // Get pending migrations
-    let pending: Vec<_> = set.pending(&applied_created_at).collect();
+    let pending: Vec<_> = set.pending(&applied_names).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
             applied_count: 0,
@@ -1775,11 +1779,11 @@ async fn run_libsql_local_inner(set: &Migrations, path: &str) -> Result<Migratio
 
     ensure_sqlite_tracking_table_libsql(&conn, set).await?;
 
-    // Query applied migrations by created_at
-    let applied_created_at = query_applied_created_at_libsql(&conn, set).await?;
+    // Query applied migration names
+    let applied_names = query_applied_names_libsql(&conn, set).await?;
 
     // Get pending migrations
-    let pending: Vec<_> = set.pending(&applied_created_at).collect();
+    let pending: Vec<_> = set.pending(&applied_names).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
             applied_count: 0,
@@ -1825,23 +1829,23 @@ async fn run_libsql_local_inner(set: &Migrations, path: &str) -> Result<Migratio
 }
 
 #[cfg(feature = "libsql")]
-async fn query_applied_created_at_libsql(
+async fn query_applied_names_libsql(
     conn: &libsql::Connection,
     set: &Migrations,
-) -> Result<Vec<i64>, CliError> {
-    let mut rows = match conn.query(&set.applied_sql(), ()).await {
+) -> Result<Vec<String>, CliError> {
+    let mut rows = match conn.query(&set.applied_names_sql(), ()).await {
         Ok(r) => r,
         Err(_) => return Ok(vec![]), // Table might not exist yet
     };
 
-    let mut created_at = Vec::new();
+    let mut names = Vec::new();
     while let Ok(Some(row)) = rows.next().await {
-        if let Ok(millis) = row.get::<i64>(0) {
-            created_at.push(millis);
+        if let Ok(name) = row.get::<String>(0) {
+            names.push(name);
         }
     }
 
-    Ok(created_at)
+    Ok(names)
 }
 
 #[cfg(feature = "libsql")]
@@ -1849,15 +1853,19 @@ async fn query_applied_records_libsql(
     conn: &libsql::Connection,
     set: &Migrations,
 ) -> Result<Vec<AppliedMigrationRecord>, CliError> {
-    let mut rows = match conn.query(&set.query_all_applied_sql(), ()).await {
+    let sql = format!(
+        r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
+        set.table_ident_sql()
+    );
+    let mut rows = match conn.query(&sql, ()).await {
         Ok(r) => r,
         Err(_) => return Ok(vec![]), // Table might not exist yet
     };
 
     let mut applied = Vec::new();
     while let Ok(Some(row)) = rows.next().await {
-        if let (Ok(hash), Ok(created_at)) = (row.get::<String>(0), row.get::<i64>(1)) {
-            applied.push(AppliedMigrationRecord { hash, created_at });
+        if let (Ok(hash), Ok(name)) = (row.get::<String>(0), row.get::<String>(1)) {
+            applied.push(AppliedMigrationRecord { hash, name });
         }
     }
 
@@ -1994,11 +2002,11 @@ async fn run_turso_inner(
 
     ensure_sqlite_tracking_table_libsql(&conn, set).await?;
 
-    // Query applied migrations by created_at
-    let applied_created_at = query_applied_created_at_turso(&conn, set).await?;
+    // Query applied migration names
+    let applied_names = query_applied_names_turso(&conn, set).await?;
 
     // Get pending migrations
-    let pending: Vec<_> = set.pending(&applied_created_at).collect();
+    let pending: Vec<_> = set.pending(&applied_names).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
             applied_count: 0,
@@ -2044,23 +2052,23 @@ async fn run_turso_inner(
 }
 
 #[cfg(feature = "turso")]
-async fn query_applied_created_at_turso(
+async fn query_applied_names_turso(
     conn: &libsql::Connection,
     set: &Migrations,
-) -> Result<Vec<i64>, CliError> {
-    let mut rows = match conn.query(&set.applied_sql(), ()).await {
+) -> Result<Vec<String>, CliError> {
+    let mut rows = match conn.query(&set.applied_names_sql(), ()).await {
         Ok(r) => r,
         Err(_) => return Ok(vec![]), // Table might not exist yet
     };
 
-    let mut created_at = Vec::new();
+    let mut names = Vec::new();
     while let Ok(Some(row)) = rows.next().await {
-        if let Ok(millis) = row.get::<i64>(0) {
-            created_at.push(millis);
+        if let Ok(name) = row.get::<String>(0) {
+            names.push(name);
         }
     }
 
-    Ok(created_at)
+    Ok(names)
 }
 
 #[cfg(feature = "turso")]
@@ -2068,15 +2076,19 @@ async fn query_applied_records_turso(
     conn: &libsql::Connection,
     set: &Migrations,
 ) -> Result<Vec<AppliedMigrationRecord>, CliError> {
-    let mut rows = match conn.query(&set.query_all_applied_sql(), ()).await {
+    let sql = format!(
+        r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
+        set.table_ident_sql()
+    );
+    let mut rows = match conn.query(&sql, ()).await {
         Ok(r) => r,
         Err(_) => return Ok(vec![]), // Table might not exist yet
     };
 
     let mut applied = Vec::new();
     while let Ok(Some(row)) = rows.next().await {
-        if let (Ok(hash), Ok(created_at)) = (row.get::<String>(0), row.get::<i64>(1)) {
-            applied.push(AppliedMigrationRecord { hash, created_at });
+        if let (Ok(hash), Ok(name)) = (row.get::<String>(0), row.get::<String>(1)) {
+            applied.push(AppliedMigrationRecord { hash, name });
         }
     }
 
@@ -2301,8 +2313,8 @@ fn apply_init_metadata(
     feature = "postgres-sync",
     feature = "tokio-postgres"
 ))]
-fn validate_init_metadata(applied_created_at: &[i64], set: &Migrations) -> Result<(), CliError> {
-    if !applied_created_at.is_empty() {
+fn validate_init_metadata(applied_names: &[String], set: &Migrations) -> Result<(), CliError> {
+    if !applied_names.is_empty() {
         return Err(CliError::Other(
             "--init can't be used when database already has migrations set".into(),
         ));
@@ -2329,8 +2341,8 @@ fn init_sqlite_metadata(path: &str, set: &Migrations) -> Result<(), CliError> {
 
     ensure_sqlite_tracking_table(&conn, set)?;
 
-    let applied_created_at = query_applied_created_at_sqlite(&conn, set)?;
-    validate_init_metadata(&applied_created_at, set)?;
+    let applied_names = query_applied_names_sqlite(&conn, set)?;
+    validate_init_metadata(&applied_names, set)?;
 
     let Some(first) = set.all().first() else {
         return Ok(());
@@ -2367,8 +2379,8 @@ async fn init_libsql_local_metadata_inner(path: &str, set: &Migrations) -> Resul
 
     ensure_sqlite_tracking_table_libsql(&conn, set).await?;
 
-    let applied_created_at = query_applied_created_at_libsql(&conn, set).await?;
-    validate_init_metadata(&applied_created_at, set)?;
+    let applied_names = query_applied_names_libsql(&conn, set).await?;
+    validate_init_metadata(&applied_names, set)?;
 
     let Some(first) = set.all().first() else {
         return Ok(());
@@ -2414,8 +2426,8 @@ async fn init_turso_metadata_inner(
 
     ensure_sqlite_tracking_table_libsql(&conn, set).await?;
 
-    let applied_created_at = query_applied_created_at_turso(&conn, set).await?;
-    validate_init_metadata(&applied_created_at, set)?;
+    let applied_names = query_applied_names_turso(&conn, set).await?;
+    validate_init_metadata(&applied_names, set)?;
 
     let Some(first) = set.all().first() else {
         return Ok(());
@@ -2443,10 +2455,12 @@ fn init_postgres_sync_metadata(creds: &PostgresCreds, set: &Migrations) -> Resul
 
     ensure_postgres_tracking_table_sync(&mut client, set)?;
 
-    let rows = client.query(&set.applied_sql(), &[]).unwrap_or_default();
-    let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
+    let rows = client
+        .query(&set.applied_names_sql(), &[])
+        .unwrap_or_default();
+    let applied_names: Vec<String> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
 
-    validate_init_metadata(&applied_created_at, set)?;
+    validate_init_metadata(&applied_names, set)?;
 
     let Some(first) = set.all().first() else {
         return Ok(());
@@ -2500,12 +2514,12 @@ async fn init_postgres_async_inner(
     ensure_postgres_tracking_table_async(&client, set).await?;
 
     let rows = client
-        .query(&set.applied_sql(), &[])
+        .query(&set.applied_names_sql(), &[])
         .await
         .unwrap_or_default();
-    let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
+    let applied_names: Vec<String> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
 
-    validate_init_metadata(&applied_created_at, set)?;
+    validate_init_metadata(&applied_names, set)?;
 
     let Some(first) = set.all().first() else {
         return Ok(());
@@ -4346,7 +4360,10 @@ mod tests {
 
     #[cfg(feature = "rusqlite")]
     #[test]
-    fn sqlite_migrations_deduplicate_using_created_at() {
+    fn sqlite_migrations_run_both_when_created_at_collides() {
+        // Regression for drizzle-orm beta.19: migration identity is the folder
+        // name, not the `created_at` timestamp. Two migrations that share a
+        // wall-second must both apply.
         use drizzle_migrations::{Migration, Migrations};
 
         let dir = tempfile::tempdir().expect("tempdir");
@@ -4368,20 +4385,28 @@ mod tests {
         assert_eq!(first.applied_count, 1);
 
         let second_set = Migrations::new(
-            vec![Migration::with_hash(
-                "20230331141203_second",
-                "hash_two",
-                1_680_271_923_000,
-                vec!["CREATE TABLE created_at_dedupe_b (id INTEGER PRIMARY KEY)".to_string()],
-            )],
+            vec![
+                Migration::with_hash(
+                    "20230331141203_first",
+                    "hash_one",
+                    1_680_271_923_000,
+                    vec!["CREATE TABLE created_at_dedupe_a (id INTEGER PRIMARY KEY)".to_string()],
+                ),
+                Migration::with_hash(
+                    "20230331141203_second",
+                    "hash_two",
+                    1_680_271_923_000,
+                    vec!["CREATE TABLE created_at_dedupe_b (id INTEGER PRIMARY KEY)".to_string()],
+                ),
+            ],
             drizzle_types::Dialect::SQLite,
         );
 
         let second =
             run_sqlite_migrations(&second_set, &db_path_str).expect("second migrate succeeds");
         assert_eq!(
-            second.applied_count, 0,
-            "second migration with same created_at should be skipped"
+            second.applied_count, 1,
+            "only the second (newly introduced by name) migration should apply"
         );
 
         let conn = rusqlite::Connection::open(&db_path).expect("open sqlite");
@@ -4390,7 +4415,7 @@ mod tests {
                 row.get(0)
             })
             .expect("count migrations rows");
-        assert_eq!(rows, 1, "only one migration record should be stored");
+        assert_eq!(rows, 2, "both migration records should be stored");
 
         let table_b_exists: i64 = conn
             .query_row(
@@ -4400,8 +4425,8 @@ mod tests {
             )
             .expect("query sqlite_master");
         assert_eq!(
-            table_b_exists, 0,
-            "second migration SQL should not execute when created_at is already applied"
+            table_b_exists, 1,
+            "the new-name migration must execute even though created_at collides"
         );
     }
 
@@ -4488,7 +4513,7 @@ mod tests {
             "--init can't be used with existing migrations"
         );
 
-        let err = validate_init_metadata(&[1_680_271_923_000], &single)
+        let err = validate_init_metadata(&["20230331141203_init".to_string()], &single)
             .expect_err("existing db metadata should be rejected");
         assert_eq!(
             err.to_string(),
@@ -4512,14 +4537,14 @@ mod tests {
 
         let applied = vec![AppliedMigrationRecord {
             hash: "db_hash".to_string(),
-            created_at: 1_680_271_923_000,
+            name: "20230331141203_verify".to_string(),
         }];
 
         let err = verify_applied_migrations_consistency(&set, &applied)
             .expect_err("hash mismatch should fail verification");
         assert_eq!(
             err.to_string(),
-            "Migration failed: Migration hash mismatch for created_at 1680271923000: database=db_hash, local=local_hash"
+            "Migration failed: Migration hash mismatch for 20230331141203_verify: database=db_hash, local=local_hash"
         );
     }
 
@@ -4550,7 +4575,7 @@ mod tests {
 
         let applied = vec![AppliedMigrationRecord {
             hash: "hash_a".to_string(),
-            created_at: 1_680_271_923_000,
+            name: "20230331141203_first".to_string(),
         }];
 
         let plan = build_migration_plan(&set, applied).expect("build migration plan");

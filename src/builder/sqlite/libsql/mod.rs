@@ -261,22 +261,22 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         ensure_sqlite_migration_table(&self.conn, &set).await?;
         let mut rows = self
             .conn
-            .query(&set.applied_sql(), ())
+            .query(&set.applied_names_sql(), ())
             .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
-        let mut applied_created_at: Vec<i64> = Vec::new();
+        let mut applied_names: Vec<String> = Vec::new();
         while let Some(row) = rows
             .next()
             .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?
         {
-            if let Ok(created_at) = row.get::<i64>(0) {
-                applied_created_at.push(created_at);
+            if let Ok(name) = row.get::<String>(0) {
+                applied_names.push(name);
             }
         }
 
-        let pending: Vec<_> = set.pending(&applied_created_at).collect();
+        let pending: Vec<_> = set.pending(&applied_names).collect();
 
         if pending.is_empty() {
             return Ok(());

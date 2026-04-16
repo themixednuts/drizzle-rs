@@ -322,11 +322,11 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         );
 
         ensure_sqlite_migration_table(&self.conn, &set)?;
-        let mut stmt = self.conn.prepare(&set.applied_sql())?;
-        let rows = stmt.query_map([], |row| row.get::<_, Option<i64>>(0))?;
-        let applied_created_at = rows.filter_map(Result::ok).flatten().collect::<Vec<_>>();
+        let mut stmt = self.conn.prepare(&set.applied_names_sql())?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let applied_names = rows.filter_map(Result::ok).collect::<Vec<_>>();
 
-        let pending: Vec<_> = set.pending(&applied_created_at).collect();
+        let pending: Vec<_> = set.pending(&applied_names).collect();
 
         if pending.is_empty() {
             return Ok(());

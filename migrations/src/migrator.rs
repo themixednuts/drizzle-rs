@@ -27,15 +27,15 @@
 //!     // Ensure migrations table exists
 //!     db.execute(&set.create_table_sql()).await?;
 //!
-//!     // Get applied migration timestamps
-//!     let applied = db.query_column::<i64>(&set.applied_sql()).await?;
+//!     // Get applied migration names (matches drizzle-orm beta.19+ semantics).
+//!     let applied: Vec<String> = db.query_column::<String>(&set.applied_names_sql()).await?;
 //!
-//!     // Apply pending migrations
+//!     // Apply pending migrations by name set-difference
 //!     for migration in set.pending(&applied) {
 //!         for statement in migration.statements() {
 //!             db.execute(statement).await?;
 //!         }
-//!         db.execute(&set.record_sql(migration.hash(), migration.created_at())).await?;
+//!         db.execute(&set.record_migration_sql(migration)).await?;
 //!     }
 //!     Ok(())
 //! }
@@ -206,41 +206,33 @@ impl Migrations {
         &self.migrations
     }
 
-    /// Get migrations that haven't been applied yet, based on `created_at`.
+    /// Get migrations that haven't been applied yet, by set-difference on name.
     ///
-    /// This matches drizzle-orm behavior, where execution is tracked by migration
-    /// timestamp rather than migration hash.
-    pub fn pending<'a>(
-        &'a self,
-        applied_created_at: &[i64],
-    ) -> impl Iterator<Item = &'a Migration> {
-        self.migrations
-            .iter()
-            .filter(move |m| !applied_created_at.contains(&m.created_at))
+    /// Mirrors drizzle-orm's beta.19 `getMigrationsToRun`: a local migration is
+    /// pending iff its `name` (folder name) does not appear in the DB's
+    /// migrations table. This is resilient to same-second `created_at`
+    /// collisions and re-applies out-of-order migrations (e.g. after a
+    /// branch merge) instead of silently skipping them.
+    ///
+    /// `applied_names` should contain the non-null `name` column values from
+    /// the migrations tracking table, typically loaded via
+    /// [`Migrations::applied_names_sql`].
+    pub fn pending<'a, S>(&'a self, applied_names: &'a [S]) -> impl Iterator<Item = &'a Migration>
+    where
+        S: AsRef<str>,
+    {
+        self.migrations.iter().filter(move |m| {
+            let name = m.name();
+            name.is_empty() || !applied_names.iter().any(|applied| applied.as_ref() == name)
+        })
     }
 
-    /// Get migrations that haven't been applied yet, based on hash.
-    pub fn pending_by_hash<'a>(
-        &'a self,
-        applied_hashes: &[String],
-    ) -> impl Iterator<Item = &'a Migration> {
-        self.migrations
-            .iter()
-            .filter(move |m| !applied_hashes.contains(&m.hash))
-    }
-
-    /// Check if there are any pending migrations, based on `created_at`.
-    pub fn has_pending(&self, applied_created_at: &[i64]) -> bool {
-        self.migrations
-            .iter()
-            .any(|m| !applied_created_at.contains(&m.created_at))
-    }
-
-    /// Check if there are pending migrations based on hash.
-    pub fn has_pending_by_hash(&self, applied_hashes: &[String]) -> bool {
-        self.migrations
-            .iter()
-            .any(|m| !applied_hashes.contains(&m.hash))
+    /// Check if there are pending migrations, by name set-difference.
+    pub fn has_pending<S>(&self, applied_names: &[S]) -> bool
+    where
+        S: AsRef<str>,
+    {
+        self.pending(applied_names).next().is_some()
     }
 
     /// Get the dialect
@@ -349,50 +341,18 @@ impl Migrations {
         }
     }
 
-    /// Backward-compatible helper used by older callers.
-    pub fn record_sql(&self, hash: &str, created_at: i64) -> String {
-        let migration = Migration::with_hash("", hash, created_at, Vec::new());
-        self.record_migration_sql(&migration)
-    }
-
-    /// Get the SQL to query applied migrations (ordered by created_at DESC, limit 1)
+    /// Get the SQL to query applied migration names.
     ///
-    /// Returns: id, hash, created_at
-    pub fn query_last_applied_sql(&self) -> String {
+    /// Only rows with a non-null `name` are returned; rows written before the
+    /// v0 → v1 migrations-table upgrade (which backfills `name`) have
+    /// `NULL` in this column and are deliberately excluded. Pair with
+    /// [`Migrations::pending`].
+    pub fn applied_names_sql(&self) -> String {
         let table = self.table_ident();
-
-        match self.dialect {
-            Dialect::SQLite | Dialect::PostgreSQL => {
-                format!(
-                    r#"SELECT id, hash, created_at FROM {} ORDER BY created_at DESC LIMIT 1;"#,
-                    table
-                )
-            }
-            Dialect::MySQL => {
-                format!(
-                    r#"SELECT id, hash, created_at FROM {} ORDER BY created_at DESC LIMIT 1;"#,
-                    table
-                )
-            }
-        }
-    }
-
-    /// Get the SQL to query all applied migration hashes
-    pub fn query_all_hashes_sql(&self) -> String {
-        let table = self.table_ident();
-        format!(r#"SELECT hash FROM {} ORDER BY id;"#, table)
-    }
-
-    /// Get the SQL to query all applied migrations (`hash`, `created_at`)
-    pub fn query_all_applied_sql(&self) -> String {
-        let table = self.table_ident();
-        format!(r#"SELECT hash, created_at FROM {} ORDER BY id;"#, table)
-    }
-
-    /// Get the SQL to query applied migration timestamps (`created_at`).
-    pub fn applied_sql(&self) -> String {
-        let table = self.table_ident();
-        format!(r#"SELECT created_at FROM {} ORDER BY id;"#, table)
+        format!(
+            r#"SELECT "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
+            table
+        )
     }
 
     /// Get the SQL to check if migrations table exists
@@ -934,24 +894,90 @@ mod tests {
     }
 
     #[test]
-    fn pending_ignores_hash_mismatches() {
+    fn pending_is_set_difference_by_folder_name() {
+        // Mirrors drizzle-orm beta.19 `getMigrationsToRun`: two migrations in
+        // the same wall-second must both run if only one has been applied.
         let set = Migrations::new(
-            vec![super::Migration::with_hash(
-                "20230331141203_test",
-                "different_hash_than_db",
-                1_680_271_923_000,
-                vec!["CREATE TABLE users(id INTEGER PRIMARY KEY)".to_string()],
-            )],
+            vec![
+                super::Migration::with_hash(
+                    "20230331141203_alpha",
+                    "hash_a",
+                    1_680_271_923_000,
+                    vec!["A".into()],
+                ),
+                super::Migration::with_hash(
+                    "20230331141203_beta",
+                    "hash_b",
+                    1_680_271_923_000,
+                    vec!["B".into()],
+                ),
+                super::Migration::with_hash(
+                    "20230331141500_gamma",
+                    "hash_c",
+                    1_680_272_100_000,
+                    vec!["C".into()],
+                ),
+            ],
             Dialect::SQLite,
         );
 
-        let applied_created_at = vec![1_680_271_923_000];
-        assert!(!set.has_pending(&applied_created_at));
+        let applied_names = vec!["20230331141203_alpha".to_string()];
+        let pending: Vec<_> = set
+            .pending(&applied_names)
+            .map(|m| m.tag().to_string())
+            .collect();
+
         assert_eq!(
-            set.pending(&applied_created_at).count(),
-            0,
-            "migration should be considered applied by created_at"
+            pending,
+            vec![
+                "20230331141203_beta".to_string(),
+                "20230331141500_gamma".to_string()
+            ],
+            "beta shares a created_at with alpha but must still run"
         );
+        assert!(set.has_pending(&applied_names));
+    }
+
+    #[test]
+    fn pending_skips_already_applied_out_of_order() {
+        // Upstream behavior: a later migration being applied first (e.g. after
+        // a branch merge) does not cause earlier pending migrations to be
+        // skipped.
+        let set = Migrations::new(
+            vec![
+                super::Migration::with_hash(
+                    "20240101010101_feature_a",
+                    "hash_a",
+                    1_704_070_861_000,
+                    vec!["A".into()],
+                ),
+                super::Migration::with_hash(
+                    "20240102010101_feature_b",
+                    "hash_b",
+                    1_704_157_261_000,
+                    vec!["B".into()],
+                ),
+            ],
+            Dialect::SQLite,
+        );
+
+        let applied_names = vec!["20240102010101_feature_b".to_string()];
+        let pending: Vec<_> = set
+            .pending(&applied_names)
+            .map(|m| m.tag().to_string())
+            .collect();
+
+        assert_eq!(pending, vec!["20240101010101_feature_a".to_string()]);
+    }
+
+    #[test]
+    fn applied_names_sql_selects_only_non_null_rows() {
+        let set = Migrations::new(Vec::new(), Dialect::PostgreSQL);
+        let sql = set.applied_names_sql();
+        assert!(sql.contains("\"name\" IS NOT NULL"));
+        assert!(sql.contains("ORDER BY id"));
+        // PostgreSQL sets use schema-qualified identifiers by default.
+        assert!(sql.contains("\"drizzle\".\"__drizzle_migrations\""));
     }
 
     #[test]

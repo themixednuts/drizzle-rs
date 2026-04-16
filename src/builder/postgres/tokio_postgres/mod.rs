@@ -460,9 +460,9 @@ impl<Schema> Drizzle<Schema> {
             self.client.execute(&schema_sql, &[]).await?;
         }
         ensure_postgres_migration_table(&self.client, &set).await?;
-        let rows = self.client.query(&set.applied_sql(), &[]).await?;
-        let applied_created_at: Vec<i64> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
-        let pending: Vec<_> = set.pending(&applied_created_at).collect();
+        let rows = self.client.query(&set.applied_names_sql(), &[]).await?;
+        let applied_names: Vec<String> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
+        let pending: Vec<_> = set.pending(&applied_names).collect();
 
         if pending.is_empty() {
             return Ok(());

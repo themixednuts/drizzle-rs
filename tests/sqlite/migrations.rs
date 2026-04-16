@@ -20,7 +20,7 @@ struct PushSchema {
 
 #[cfg(feature = "rusqlite")]
 #[test]
-fn rusqlite_runtime_migrate_deduplicates_by_created_at() {
+fn rusqlite_runtime_migrate_runs_both_when_created_at_collides() {
     let db = crate::common::helpers::rusqlite_setup::setup_empty();
 
     let first = vec![Migration::with_hash(
@@ -32,14 +32,22 @@ fn rusqlite_runtime_migrate_deduplicates_by_created_at() {
     db.migrate(&first, Tracking::SQLITE)
         .expect("first runtime migration");
 
-    let second = vec![Migration::with_hash(
-        "20230331141203_runtime_second",
-        "runtime_hash_b",
-        1_680_271_923_000,
-        vec!["CREATE TABLE runtime_created_at_b (id INTEGER PRIMARY KEY)".to_string()],
-    )];
+    let second = vec![
+        Migration::with_hash(
+            "20230331141203_runtime_first",
+            "runtime_hash_a",
+            1_680_271_923_000,
+            vec!["CREATE TABLE runtime_created_at_a (id INTEGER PRIMARY KEY)".to_string()],
+        ),
+        Migration::with_hash(
+            "20230331141203_runtime_second",
+            "runtime_hash_b",
+            1_680_271_923_000,
+            vec!["CREATE TABLE runtime_created_at_b (id INTEGER PRIMARY KEY)".to_string()],
+        ),
+    ];
     db.migrate(&second, Tracking::SQLITE)
-        .expect("second runtime migration should no-op");
+        .expect("second runtime migration should apply the newly introduced name");
 
     let applied_rows: i64 = db
         .conn()
@@ -47,13 +55,17 @@ fn rusqlite_runtime_migrate_deduplicates_by_created_at() {
             row.get(0)
         })
         .expect("count migrations rows");
-    assert_eq!(applied_rows, 1);
+    assert_eq!(
+        applied_rows, 2,
+        "migration identity is by name, so the second entry must be tracked \
+         even though it shares created_at with the first"
+    );
 
     let second_table_exists =
         crate::common::helpers::rusqlite_setup::table_exists(db.conn(), "runtime_created_at_b");
     assert_eq!(
-        second_table_exists, 0,
-        "second migration SQL should not execute when created_at is already applied"
+        second_table_exists, 1,
+        "second migration SQL should execute because its name has not been applied yet"
     );
 }
 
