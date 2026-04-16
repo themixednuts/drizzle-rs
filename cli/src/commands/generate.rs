@@ -68,11 +68,17 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
 
     // Handle custom migration (empty migration file for manual SQL)
     if opts.custom {
+        let bundle = db
+            .migrations
+            .as_ref()
+            .and_then(|m| m.bundle)
+            .unwrap_or(false);
         return generate_custom_migration(
             &out_dir,
             effective_breakpoints,
             db.migrations.as_ref().and_then(|m| m.prefix),
             opts.name,
+            bundle,
         );
     }
 
@@ -171,6 +177,16 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
         .save(&snapshot_path)
         .map_err(|e| CliError::IoError(e.to_string()))?;
 
+    // Regenerate {out_dir}/migrations.js bundle index when enabled.
+    if db
+        .migrations
+        .as_ref()
+        .and_then(|m| m.bundle)
+        .unwrap_or(false)
+    {
+        write_migrations_js(&out_dir)?;
+    }
+
     println!(
         "{}",
         output::success(&format!("Migration generated: {}", migration_tag))
@@ -186,6 +202,7 @@ fn generate_custom_migration(
     _breakpoints: bool,
     prefix: Option<MigrationPrefix>,
     name: Option<String>,
+    bundle: bool,
 ) -> Result<(), CliError> {
     use drizzle_migrations::words::{PrefixMode, generate_migration_tag_with_mode};
 
@@ -208,6 +225,11 @@ fn generate_custom_migration(
     let sql_content = "-- Custom SQL migration file, put your code below! --\n\n";
     std::fs::write(&migration_sql_path, sql_content)
         .map_err(|e| CliError::IoError(e.to_string()))?;
+
+    // Regenerate {out_dir}/migrations.js bundle index when enabled.
+    if bundle {
+        write_migrations_js(out_dir)?;
+    }
 
     println!(
         "{}",
@@ -332,6 +354,42 @@ fn latest_v3_snapshot_path(out_dir: &Path) -> Result<Option<std::path::PathBuf>,
     Ok(tags.pop().map(|(_, path)| path))
 }
 
+/// Write a `migrations.js` bundle index at the root of the migrations output
+/// folder.
+///
+/// Mirrors `drizzle-kit`'s `bundle: true` output. JS bundlers (Metro for
+/// Expo/React Native, Cloudflare Workers' bundler for Durable Objects SQLite)
+/// require static `import` statements to embed SQL text into the final JS
+/// bundle; this file is the entry point.
+///
+/// Rust-only consumers can ignore it — our [`drizzle_migrations::MigrationDir`]
+/// loader reads the `migration.sql` files directly.
+pub fn write_migrations_js(out_dir: &Path) -> Result<(), CliError> {
+    let tags = collect_v3_migration_tags(out_dir)?;
+
+    let mut content = String::new();
+    for (idx, tag) in tags.iter().enumerate() {
+        let import_name = format!("m{:04}", idx);
+        // Forward slashes work in JS import specifiers on every platform,
+        // including Windows — they are URL-style paths, not filesystem paths.
+        content.push_str(&format!(
+            "import {} from './{}/migration.sql';\n",
+            import_name, tag
+        ));
+    }
+
+    content.push_str("\nexport default {\n  migrations: {\n");
+    for (idx, tag) in tags.iter().enumerate() {
+        content.push_str(&format!("    \"{}\": m{:04},\n", tag, idx));
+    }
+    content.push_str("  }\n};\n");
+
+    let migrations_js_path = out_dir.join("migrations.js");
+    std::fs::write(&migrations_js_path, content).map_err(|e| CliError::IoError(e.to_string()))?;
+
+    Ok(())
+}
+
 /// Generate diff between two snapshots
 fn generate_diff(
     prev: &drizzle_migrations::schema::Snapshot,
@@ -348,4 +406,103 @@ fn generate_diff(
             CliError::MigrationError(error.to_string())
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn touch_migration(out_dir: &Path, tag: &str) {
+        let dir = out_dir.join(tag);
+        std::fs::create_dir_all(&dir).expect("mkdir migration folder");
+        std::fs::write(dir.join("migration.sql"), "-- stub\n").expect("write migration.sql");
+    }
+
+    #[test]
+    fn migrations_js_contains_import_and_export_map_in_tag_order() {
+        let tmp = tempdir().expect("tempdir");
+        let out_dir = tmp.path();
+
+        touch_migration(out_dir, "20230331141203_first");
+        touch_migration(out_dir, "20230401091530_second");
+        touch_migration(out_dir, "20230501111111_third");
+
+        write_migrations_js(out_dir).expect("write migrations.js");
+
+        let contents =
+            std::fs::read_to_string(out_dir.join("migrations.js")).expect("read migrations.js");
+
+        assert!(
+            contents.contains("import m0000 from './20230331141203_first/migration.sql';"),
+            "first import present"
+        );
+        assert!(
+            contents.contains("import m0001 from './20230401091530_second/migration.sql';"),
+            "second import present"
+        );
+        assert!(
+            contents.contains("import m0002 from './20230501111111_third/migration.sql';"),
+            "third import present"
+        );
+        assert!(
+            contents.contains("\"20230331141203_first\": m0000,"),
+            "first map entry"
+        );
+        assert!(
+            contents.contains("\"20230401091530_second\": m0001,"),
+            "second map entry"
+        );
+        assert!(
+            contents.contains("\"20230501111111_third\": m0002,"),
+            "third map entry"
+        );
+        assert!(
+            contents.contains("export default {"),
+            "export default present"
+        );
+    }
+
+    #[test]
+    fn migrations_js_is_empty_shell_when_no_migrations_exist() {
+        let tmp = tempdir().expect("tempdir");
+        let out_dir = tmp.path();
+
+        write_migrations_js(out_dir).expect("write migrations.js");
+
+        let contents =
+            std::fs::read_to_string(out_dir.join("migrations.js")).expect("read migrations.js");
+
+        assert!(!contents.contains("import "), "no imports when empty");
+        assert!(
+            contents.contains("export default {"),
+            "export default still present"
+        );
+        assert!(
+            contents.contains("migrations: {"),
+            "migrations map still present"
+        );
+    }
+
+    #[test]
+    fn migrations_js_uses_forward_slashes_in_import_paths() {
+        // JS import specifiers use URL-style paths (always forward slashes),
+        // regardless of host filesystem separator. This guards against a
+        // Windows-specific regression that upstream shipped in beta.22.
+        let tmp = tempdir().expect("tempdir");
+        let out_dir = tmp.path();
+
+        touch_migration(out_dir, "20230331141203_first");
+
+        write_migrations_js(out_dir).expect("write migrations.js");
+
+        let contents =
+            std::fs::read_to_string(out_dir.join("migrations.js")).expect("read migrations.js");
+
+        assert!(
+            !contents.contains('\\'),
+            "import paths must use forward slashes even on Windows"
+        );
+        assert!(contents.contains("'./20230331141203_first/migration.sql'"));
+    }
 }

@@ -595,6 +595,14 @@ pub struct MigrationsOpts {
     pub table: Option<String>,
     pub schema: Option<String>,
     pub prefix: Option<MigrationPrefix>,
+    /// Emit a `migrations.js` index at the root of the migrations output folder.
+    ///
+    /// Matches drizzle-kit's `bundle: true` behavior. The file statically
+    /// `import`s each `migration.sql` so JS bundlers (Metro for Expo/React
+    /// Native, Cloudflare Workers for Durable Objects SQLite) can embed the
+    /// SQL text at build time. Harmless for Rust-only consumers.
+    #[serde(default)]
+    pub bundle: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
