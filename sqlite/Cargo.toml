@@ -60,5 +60,9 @@ turso = ["std", "dep:turso", "drizzle-core/turso"]
 # crate. This flag is here so dialect-specific codegen (e.g. FromRow impls for
 # D1 row objects) can be gated at the drizzle-sqlite level in a follow-up.
 d1 = ["std"]
+# Cloudflare Durable Objects SQL storage driver — WASM-only target.
+# Lives in the `drizzle` crate; this flag is a placeholder for future
+# dialect-specific codegen gated at the drizzle-sqlite level.
+durable = ["std"]
 profiling = ["std", "dep:puffin", "drizzle-core/profiling"]
 query = ["std", "dep:serde_json", "serde_json/alloc", "drizzle-core/query"]

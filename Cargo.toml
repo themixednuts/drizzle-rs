@@ -186,11 +186,27 @@ d1 = [
   "sqlite",
   "serde",
   "dep:worker",
+  "worker/d1",
   "dep:wasm-bindgen",
   "dep:js-sys",
   "dep:uuid",
   "uuid/js",
   "drizzle-sqlite?/d1",
+]
+# Cloudflare Durable Objects SQL storage (sync, WASM-only) — enable when
+# targeting wasm32-unknown-unknown inside a Durable Object. Wraps
+# `worker::SqlStorage` obtained from `state.storage().sql()`. Unlike D1, this
+# driver supports transactions (via BEGIN/COMMIT SQL) and savepoints.
+durable = [
+  "std",
+  "sqlite",
+  "serde",
+  "dep:worker",
+  "dep:wasm-bindgen",
+  "dep:js-sys",
+  "dep:uuid",
+  "uuid/js",
+  "drizzle-sqlite?/durable",
 ]
 serde = [
   "dep:serde_json",
@@ -296,7 +312,7 @@ arrayvec = { workspace = true, optional = true }
 
 libsql = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
-worker = { workspace = true, optional = true, features = ["d1"] }
+worker = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 js-sys = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
