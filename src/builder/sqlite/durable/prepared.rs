@@ -1,9 +1,6 @@
 //! Prepared statements for the Durable Objects SQL driver.
 //!
-//! Mirrors the shape of the other SQLite drivers (`drizzle_prepare_impl!`
-//! produces the outer `PreparedStatement` / `OwnedPreparedStatement` wrappers)
-//! but dispatches to synchronous `SqlStorage::exec_raw`. Like D1, rows come
-//! back as column-keyed JS objects, so `all`/`get` require
+//! Rows come back as column-keyed objects, so `all`/`get` require
 //! `T: serde::Deserialize`.
 
 use drizzle_core::{
@@ -17,29 +14,32 @@ use drizzle_core::{
 use drizzle_sqlite::values::{OwnedSQLiteValue, SQLiteValue};
 use std::borrow::Cow;
 
-use ::worker::SqlStorage;
+use ::worker::{SqlStorage, SqlStorageValue};
 
-use super::sqlite_value_to_js;
+use super::sqlite_value_to_storage;
 use drizzle_core::error::DrizzleError;
 
-/// Convert an iterator of borrowed SQLiteValue-bearing items into the JS param
-/// vector DO SQL requires.
-fn borrowed_values_to_js<'a, I>(bound: I) -> Vec<wasm_bindgen::JsValue>
+/// Convert an iterator of borrowed SQLiteValue-bearing items into the typed
+/// [`SqlStorageValue`] vector DO SQL requires.
+fn borrowed_values_to_storage<'a, I>(bound: I) -> Vec<SqlStorageValue>
 where
     I: IntoIterator<Item = SQLiteValue<'a>>,
 {
-    bound.into_iter().map(|v| sqlite_value_to_js(&v)).collect()
+    bound
+        .into_iter()
+        .map(|v| sqlite_value_to_storage(&v))
+        .collect()
 }
 
 /// Same, but for `OwnedSQLiteValue` — used by the `OwnedPreparedStatement`
 /// bind paths.
-fn owned_values_to_js<I>(bound: I) -> Vec<wasm_bindgen::JsValue>
+fn owned_values_to_storage<I>(bound: I) -> Vec<SqlStorageValue>
 where
     I: IntoIterator<Item = OwnedSQLiteValue>,
 {
     bound
         .into_iter()
-        .map(|v| sqlite_value_to_js(&SQLiteValue::from(v)))
+        .map(|v| sqlite_value_to_storage(&SQLiteValue::from(v)))
         .collect()
 }
 
@@ -109,7 +109,7 @@ impl<'a> PreparedStatement<'a> {
             N
         );
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = borrowed_values_to_js(bound);
+        let values = borrowed_values_to_storage(bound);
         run_execute(conn, sql_str, values)
     }
 
@@ -130,7 +130,7 @@ impl<'a> PreparedStatement<'a> {
             N
         );
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = borrowed_values_to_js(bound);
+        let values = borrowed_values_to_storage(bound);
         run_all::<T>(conn, sql_str, values)
     }
 
@@ -151,7 +151,7 @@ impl<'a> PreparedStatement<'a> {
             N
         );
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = borrowed_values_to_js(bound);
+        let values = borrowed_values_to_storage(bound);
         run_get::<T>(conn, sql_str, values)
     }
 }
@@ -171,7 +171,7 @@ impl OwnedPreparedStatement {
             N
         );
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = owned_values_to_js(bound);
+        let values = owned_values_to_storage(bound);
         run_execute(conn, sql_str, values)
     }
 
@@ -192,7 +192,7 @@ impl OwnedPreparedStatement {
             N
         );
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = owned_values_to_js(bound);
+        let values = owned_values_to_storage(bound);
         run_all::<T>(conn, sql_str, values)
     }
 
@@ -213,7 +213,7 @@ impl OwnedPreparedStatement {
             N
         );
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = owned_values_to_js(bound);
+        let values = owned_values_to_storage(bound);
         run_get::<T>(conn, sql_str, values)
     }
 }
@@ -221,10 +221,10 @@ impl OwnedPreparedStatement {
 fn run_execute(
     conn: &SqlStorage,
     sql: &str,
-    values: Vec<wasm_bindgen::JsValue>,
+    values: Vec<SqlStorageValue>,
 ) -> drizzle_core::error::Result<u64> {
     let cursor = conn
-        .exec_raw(sql, values)
+        .exec(sql, Some(values))
         .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
     // Drain so `rows_written` is populated.
     let _ = cursor
@@ -236,13 +236,13 @@ fn run_execute(
 fn run_all<T>(
     conn: &SqlStorage,
     sql: &str,
-    values: Vec<wasm_bindgen::JsValue>,
+    values: Vec<SqlStorageValue>,
 ) -> drizzle_core::error::Result<Vec<T>>
 where
     T: for<'de> serde::Deserialize<'de>,
 {
     let cursor = conn
-        .exec_raw(sql, values)
+        .exec(sql, Some(values))
         .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
     cursor
         .to_array::<T>()
@@ -252,13 +252,13 @@ where
 fn run_get<T>(
     conn: &SqlStorage,
     sql: &str,
-    values: Vec<wasm_bindgen::JsValue>,
+    values: Vec<SqlStorageValue>,
 ) -> drizzle_core::error::Result<T>
 where
     T: for<'de> serde::Deserialize<'de>,
 {
     let cursor = conn
-        .exec_raw(sql, values)
+        .exec(sql, Some(values))
         .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
     cursor
         .to_array::<T>()

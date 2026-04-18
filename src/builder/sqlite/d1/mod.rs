@@ -1,22 +1,33 @@
 //! Cloudflare D1 driver (async, WASM-only).
 //!
-//! D1 is Cloudflare's serverless SQL database built on SQLite. This driver
-//! wraps the [`worker`] crate's [`D1Database`](::worker::D1Database) binding
-//! and exposes it through the standard drizzle-rs SQLite builder API.
+//! D1 is Cloudflare's serverless SQL database built on SQLite.
 //!
 //! # Requirements
 //!
 //! - `target_arch = "wasm32"` — D1 bindings only link inside a Worker runtime.
-//! - `worker = "0.8"` with its `d1` feature, typically injected via the
-//!   [`worker::event`] macro in your Worker entrypoint.
+//! - The `worker` crate with its `d1` feature.
 //!
-//! Enable the `d1` feature on the `drizzle` crate when building your Worker:
+//! Enable the `d1` feature on `drizzle` in your Worker crate:
 //!
 //! ```toml
 //! [dependencies]
 //! drizzle = { version = "*", features = ["d1", "uuid"] }
-//! worker = { version = "0.8", features = ["d1"] }
+//! worker = { version = "*", features = ["d1"] }
 //! ```
+//!
+//! # Migrations
+//!
+//! Run migrations at deploy time with Wrangler, not from the Worker:
+//!
+//! ```bash
+//! wrangler d1 migrations apply <DB_NAME>
+//! ```
+//!
+//! pointed at the migrations directory drizzle-rs generated. The Worker
+//! assumes the schema is current and skips runtime migration entirely.
+//!
+//! [`Drizzle::migrate`] exists for the rare case where the Worker itself
+//! provisions a new D1 (e.g. tenant-per-database); see that method's docs.
 //!
 //! # Quick start
 //!
@@ -40,6 +51,7 @@
 //!
 //! #[event(fetch)]
 //! async fn fetch(_req: Request, env: Env, _ctx: Context) -> worker::Result<Response> {
+//!     // Schema is assumed current — applied out-of-band via wrangler.
 //!     let d1 = env.d1("DB")?;
 //!     let (db, AppSchema { user }) = Drizzle::new(d1, AppSchema::new());
 //!
@@ -51,15 +63,14 @@
 //! # "####;
 //! ```
 //!
-//! # Differences from other SQLite drivers
+//! # Notes
 //!
-//! - **No transactions.** D1 does not expose `BEGIN`/`COMMIT` to Workers. Use
-//!   [`Drizzle::batch`] to submit multiple statements as a single atomic unit
-//!   (D1 wraps them in an implicit transaction).
-//! - **Row decoding is serde-based.** D1 returns rows as JSON objects keyed by
-//!   column name, so `SelectX` models must implement `serde::Deserialize` (the
-//!   `SQLiteFromRow` macro emits this when the `serde` feature is enabled).
-//! - **No savepoints.** D1 has no savepoint primitive.
+//! - **No transactions or savepoints.** D1 does not expose `BEGIN`/`COMMIT`.
+//!   Use [`Drizzle::batch`] to submit multiple statements as a single atomic
+//!   unit — D1 wraps a batch in an implicit transaction.
+//! - **Row decoding is serde-based.** Rows come back as column-keyed objects,
+//!   so `SelectX` models must implement `serde::Deserialize`. `SQLiteFromRow`
+//!   derives this when the `serde` feature is enabled.
 
 mod prepared;
 
@@ -261,9 +272,23 @@ where
 impl<Schema> common::Drizzle<D1Database, Schema> {
     /// Apply pending migrations from an embedded migration slice.
     ///
-    /// Creates the migrations table if needed and runs pending migrations
-    /// through [`D1Database::batch`] so that a failure rolls back the whole
-    /// group atomically.
+    /// Creates the migrations table if needed and applies pending migrations
+    /// as a single atomic batch.
+    ///
+    /// # Prefer deploy-time migration
+    ///
+    /// For D1, running migrations at runtime is usually the wrong choice —
+    /// every cold start pays a round-trip to check the tracking table, and
+    /// concurrent cold starts on a fresh database can race. Apply migrations
+    /// from your deploy pipeline instead:
+    ///
+    /// ```bash
+    /// wrangler d1 migrations apply <DB_NAME>
+    /// ```
+    ///
+    /// Reach for this method only when the Worker itself provisions new
+    /// databases (e.g. tenant-per-database setups). Gate it so it runs at
+    /// most once per database rather than on every request.
     pub async fn migrate(
         &self,
         migrations: &[drizzle_migrations::Migration],

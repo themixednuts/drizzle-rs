@@ -1,29 +1,34 @@
 //! Cloudflare Durable Objects SQL storage driver (sync, WASM-only).
 //!
-//! Durable Objects expose a synchronous SQLite database at `state.storage().sql()`
-//! (see [`worker::SqlStorage`]). Unlike [D1](super::d1), the Durable Object
-//! SQL backend supports regular SQLite transactions via `BEGIN`/`COMMIT` and
-//! savepoints via `SAVEPOINT`/`RELEASE`/`ROLLBACK TO`.
+//! Each Durable Object has its own embedded SQLite database accessed through
+//! [`worker::SqlStorage`]. Unlike [D1](super::d1), it supports full
+//! transactions and savepoints.
 //!
 //! # Requirements
 //!
 //! - `target_arch = "wasm32"` — bindings only link inside a Worker runtime.
-//! - `worker = "0.8"` (no extra feature needed for Durable Objects SQL).
+//! - The `worker` crate (no extra feature needed for DO SQL).
 //!
-//! Enable the `durable` feature on the `drizzle` crate when building your DO:
+//! Enable the `durable` feature on `drizzle` in your Worker crate:
 //!
 //! ```toml
 //! [dependencies]
 //! drizzle = { version = "*", features = ["durable", "uuid"] }
-//! worker = { version = "0.8" }
+//! worker = "*"
 //! ```
 //!
 //! # Quick start
+//!
+//! Migrate inside `DurableObject::new` so the schema is current before any
+//! `fetch` / `alarm` / websocket event is dispatched. The constructor is
+//! synchronous and runs to completion before the runtime delivers the first
+//! request.
 //!
 //! ```rust
 //! # let _ = r####"
 //! use drizzle::sqlite::prelude::*;
 //! use drizzle::sqlite::durable::Drizzle;
+//! use drizzle_migrations::Tracking;
 //! use worker::{durable_object, DurableObject, Env, Request, Response, State};
 //!
 //! #[SQLiteTable]
@@ -34,19 +39,27 @@
 //! }
 //!
 //! #[derive(SQLiteSchema)]
-//! struct AppSchema {
-//!     user: User,
-//! }
+//! struct AppSchema { user: User }
+//!
+//! static MIGRATIONS: &[drizzle_migrations::Migration] =
+//!     drizzle::include_migrations!("./drizzle");
 //!
 //! #[durable_object]
 //! pub struct Counter { state: State, env: Env }
 //!
 //! impl DurableObject for Counter {
-//!     fn new(state: State, env: Env) -> Self { Self { state, env } }
-//!     async fn fetch(&mut self, _req: Request) -> worker::Result<Response> {
+//!     fn new(state: State, env: Env) -> Self {
+//!         // Runs once per DO instantiation (cold start / after eviction).
+//!         let sql = state.storage().sql();
+//!         let (db, _) = Drizzle::new(sql, AppSchema::new());
+//!         db.migrate(MIGRATIONS, Tracking::SQLITE)
+//!             .expect("durable migrations failed");
+//!         Self { state, env }
+//!     }
+//!
+//!     async fn fetch(&self, _req: Request) -> worker::Result<Response> {
 //!         let sql = self.state.storage().sql();
-//!         let (db, AppSchema { user, .. }) = Drizzle::new(sql, AppSchema::new());
-//!         db.create()?;
+//!         let (db, AppSchema { user }) = Drizzle::new(sql, AppSchema::new());
 //!         db.insert(user).values([InsertUser::new("Alice")]).execute()?;
 //!         let users: Vec<SelectUser> = db.select(()).from(user).all()?;
 //!         Response::ok(format!("{} users", users.len()))
@@ -55,16 +68,13 @@
 //! # "####;
 //! ```
 //!
-//! # Differences from other SQLite drivers
+//! # Notes
 //!
-//! - **Row decoding is serde-based.** The DO SQL API returns rows as JS
-//!   objects keyed by column name, so `SelectX` models must implement
-//!   `serde::Deserialize`. The `SQLiteFromRow` macro emits this when the
-//!   `serde` feature is enabled.
-//! - **Transactions use raw SQL.** `worker` 0.8 does not expose
-//!   `transactionSync`, so this driver issues `BEGIN`/`COMMIT`/`ROLLBACK` via
-//!   `SqlStorage::exec`. DO SQL is single-threaded inside the isolate, so
-//!   concurrency is not a concern.
+//! - **Row decoding is serde-based.** Rows come back as column-keyed objects,
+//!   so `SelectX` models must implement `serde::Deserialize`. `SQLiteFromRow`
+//!   derives this when the `serde` feature is enabled.
+//! - **Transactions and nested savepoints** are supported via
+//!   [`Drizzle::transaction`] and [`Transaction::savepoint`].
 
 mod prepared;
 
@@ -72,8 +82,6 @@ use ::worker::{SqlStorage, SqlStorageValue};
 use drizzle_core::error::DrizzleError;
 use drizzle_core::prepared::prepare_render;
 use drizzle_core::traits::ToSQL;
-use js_sys::Uint8Array;
-use wasm_bindgen::JsValue;
 
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
@@ -89,23 +97,8 @@ pub type Drizzle<Schema = ()> = common::Drizzle<SqlStorage, Schema>;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
     common::DrizzleBuilder<'a, SqlStorage, Schema, Builder, State>;
 
-/// Convert a drizzle SQLite value into a `JsValue` suitable for DO SQL
-/// parameter binding. Matches the D1 conversion: null, number, BigInt-as-f64,
-/// string, or Uint8Array.
-pub(crate) fn sqlite_value_to_js(value: &SQLiteValue<'_>) -> JsValue {
-    match value {
-        SQLiteValue::Null => JsValue::NULL,
-        SQLiteValue::Integer(i) => JsValue::from(*i as f64),
-        SQLiteValue::Real(r) => JsValue::from(*r),
-        SQLiteValue::Text(s) => JsValue::from_str(s.as_ref()),
-        SQLiteValue::Blob(b) => Uint8Array::from(b.as_ref()).into(),
-    }
-}
-
-/// Convert a drizzle SQLite value into a typed [`SqlStorageValue`].
-///
-/// Used by the prepared-statement path. Text/Blob require copying because
-/// `SqlStorageValue` is owned (`String` / `Vec<u8>`).
+/// Convert a drizzle SQLite value into a typed [`SqlStorageValue`] for
+/// parameter binding.
 pub(crate) fn sqlite_value_to_storage(value: &SQLiteValue<'_>) -> SqlStorageValue {
     match value {
         SQLiteValue::Null => SqlStorageValue::Null,
@@ -116,8 +109,6 @@ pub(crate) fn sqlite_value_to_storage(value: &SQLiteValue<'_>) -> SqlStorageValu
     }
 }
 
-/// Execute the given query via [`SqlStorage::exec_raw`] returning the raw
-/// cursor. This is the core path shared by `all`/`get`/`execute`.
 fn exec_query<'a, T>(
     conn: &SqlStorage,
     query: &T,
@@ -127,8 +118,8 @@ where
 {
     let sql = query.to_sql();
     let (sql_str, params) = sql.build();
-    let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
-    conn.exec_raw(&sql_str, values)
+    let values: Vec<SqlStorageValue> = params.into_iter().map(sqlite_value_to_storage).collect();
+    conn.exec(&sql_str, Some(values))
         .map_err(|e| DrizzleError::Other(e.to_string().into()))
 }
 
@@ -139,8 +130,7 @@ impl<Schema> common::Drizzle<SqlStorage, Schema> {
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
         let cursor = exec_query(&self.conn, &query)?;
-        // Drain the cursor so the statement fully executes; `rows_written`
-        // is only populated once the cursor has been consumed.
+        // Drain the cursor so `rows_written` is populated.
         let _ = cursor
             .to_array::<serde_json::Value>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
@@ -149,9 +139,8 @@ impl<Schema> common::Drizzle<SqlStorage, Schema> {
 
     /// Runs the query and returns all matching rows deserialized into `R`.
     ///
-    /// DO SQL returns rows as JS objects keyed by column name, so `R` must
-    /// implement [`serde::Deserialize`]. The `SQLiteFromRow` macro emits a
-    /// matching `Deserialize` impl when the `serde` feature is enabled.
+    /// `R` must implement [`serde::Deserialize`]. The `SQLiteFromRow` macro
+    /// derives a matching impl when the `serde` feature is enabled.
     pub fn all<'a, T, R, C>(&'a self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'de> serde::Deserialize<'de>,
@@ -184,78 +173,46 @@ impl<Schema> common::Drizzle<SqlStorage, Schema> {
 
     /// Executes a transaction with the given callback.
     ///
-    /// Returns the value produced by the callback on success. The
-    /// transaction is committed when the callback returns `Ok` and rolled
-    /// back on `Err`. The DO SQL backend is single-threaded within the
-    /// isolate, so nesting via savepoints is safe.
+    /// Commits when the callback returns `Ok` and rolls back on `Err` or a
+    /// panic, then returns the callback's value (or propagates the error or
+    /// panic).
     ///
-    /// `worker` 0.8 does not yet expose `transactionSync`, so this method
-    /// drives the transaction via raw `BEGIN`/`COMMIT`/`ROLLBACK`.
+    /// The callback receives a `&Transaction<Schema>` that supports the same
+    /// query-builder surface as `Drizzle` (select / insert / update / delete /
+    /// with) plus [`Transaction::savepoint`] for nested savepoints.
     pub fn transaction<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where
-        F: FnOnce(&Self) -> drizzle_core::error::Result<R>,
+        Schema: Copy,
+        F: FnOnce(
+            &crate::transaction::sqlite::durable::Transaction<Schema>,
+        ) -> drizzle_core::error::Result<R>,
     {
         self.conn
             .exec("BEGIN", None)
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-        let result = f(self);
+
+        let tx =
+            crate::transaction::sqlite::durable::Transaction::new(self.conn.clone(), self.schema);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&tx)));
+
         match result {
-            Ok(value) => {
+            Ok(Ok(value)) => {
                 self.conn
                     .exec("COMMIT", None)
                     .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
                 Ok(value)
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 // Best effort rollback — propagate the original error.
                 let _ = self.conn.exec("ROLLBACK", None);
                 Err(e)
             }
-        }
-    }
-
-    /// Executes a savepoint block. Nested savepoints use a counter-based
-    /// name so they don't collide. Failure rolls back to the savepoint
-    /// without aborting any enclosing transaction.
-    pub fn savepoint<F, R>(&self, name: &str, f: F) -> drizzle_core::error::Result<R>
-    where
-        F: FnOnce(&Self) -> drizzle_core::error::Result<R>,
-    {
-        let sp = format!("SAVEPOINT {}", quote_identifier(name));
-        let rel = format!("RELEASE {}", quote_identifier(name));
-        let roll = format!("ROLLBACK TO {}", quote_identifier(name));
-        self.conn
-            .exec(&sp, None)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-        let result = f(self);
-        match result {
-            Ok(value) => {
-                self.conn
-                    .exec(&rel, None)
-                    .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-                Ok(value)
-            }
-            Err(e) => {
-                let _ = self.conn.exec(&roll, None);
-                let _ = self.conn.exec(&rel, None);
-                Err(e)
+            Err(panic_payload) => {
+                let _ = self.conn.exec("ROLLBACK", None);
+                std::panic::resume_unwind(panic_payload);
             }
         }
     }
-}
-
-/// Quote a SQL identifier with double-quotes, doubling any embedded quotes.
-fn quote_identifier(name: &str) -> String {
-    let mut out = String::with_capacity(name.len() + 2);
-    out.push('"');
-    for ch in name.chars() {
-        if ch == '"' {
-            out.push('"');
-        }
-        out.push(ch);
-    }
-    out.push('"');
-    out
 }
 
 impl<Schema> Drizzle<Schema>
@@ -274,11 +231,44 @@ where
     }
 }
 
-impl<Schema> common::Drizzle<SqlStorage, Schema> {
+impl<Schema> common::Drizzle<SqlStorage, Schema>
+where
+    Schema: Copy,
+{
     /// Apply pending migrations from an embedded migration slice.
     ///
     /// Creates the migrations table if needed and runs pending migrations
     /// inside a single transaction for atomicity.
+    ///
+    /// # Call this from `DurableObject::new`, not `fetch`
+    ///
+    /// Each Durable Object has its own per-instance database, so migrations
+    /// must run at runtime. The right place is the constructor:
+    ///
+    /// ```rust
+    /// # let _ = r####"
+    /// impl DurableObject for Counter {
+    ///     fn new(state: State, env: Env) -> Self {
+    ///         let sql = state.storage().sql();
+    ///         let (db, _) = Drizzle::new(sql, AppSchema::new());
+    ///         db.migrate(MIGRATIONS, Tracking::SQLITE)
+    ///             .expect("durable migrations failed");
+    ///         Self { state, env }
+    ///     }
+    ///
+    ///     async fn fetch(&self, req: Request) -> Result<Response> {
+    ///         // hot path — no migration work
+    ///     }
+    /// }
+    /// # "####;
+    /// ```
+    ///
+    /// This runs once per instantiation (cold start or after eviction). The
+    /// runtime does not deliver events to an instance whose `new` has not
+    /// returned, so no request can observe a half-migrated database.
+    ///
+    /// Calling `migrate` from `fetch` instead pays a tracking-table
+    /// round-trip on every request and is almost always wrong.
     pub fn migrate(
         &self,
         migrations: &[drizzle_migrations::Migration],
@@ -310,16 +300,16 @@ impl<Schema> common::Drizzle<SqlStorage, Schema> {
             return Ok(());
         }
 
-        self.transaction(|db| {
+        self.transaction(|tx| {
             for migration in &pending {
                 for stmt in migration.statements() {
                     if !stmt.trim().is_empty() {
-                        db.conn
+                        tx.inner()
                             .exec(stmt, None)
                             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
                     }
                 }
-                db.conn
+                tx.inner()
                     .exec(&set.record_migration_sql(migration), None)
                     .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
             }
@@ -442,13 +432,7 @@ where
 {
     /// Runs the query and returns the number of rows written.
     pub fn execute(self) -> drizzle_core::error::Result<u64> {
-        let (sql_str, params) = self.builder.sql.build();
-        let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
-        let cursor = self
-            .drizzle
-            .conn
-            .exec_raw(&sql_str, values)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let cursor = exec_query(&self.drizzle.conn, &self.builder.sql)?;
         let _ = cursor
             .to_array::<serde_json::Value>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
@@ -460,13 +444,7 @@ where
     where
         R: for<'de> serde::Deserialize<'de>,
     {
-        let (sql_str, params) = self.builder.sql.build();
-        let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
-        let cursor = self
-            .drizzle
-            .conn
-            .exec_raw(&sql_str, values)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let cursor = exec_query(&self.drizzle.conn, &self.builder.sql)?;
         cursor
             .to_array::<R>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))
@@ -477,13 +455,7 @@ where
     where
         R: for<'de> serde::Deserialize<'de>,
     {
-        let (sql_str, params) = self.builder.sql.build();
-        let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
-        let cursor = self
-            .drizzle
-            .conn
-            .exec_raw(&sql_str, values)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let cursor = exec_query(&self.drizzle.conn, &self.builder.sql)?;
         cursor
             .to_array::<R>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?

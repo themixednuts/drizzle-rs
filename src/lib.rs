@@ -249,6 +249,24 @@ pub mod sqlite {
         pub use crate::transaction::sqlite::turso::Transaction;
     }
 
+    /// Cloudflare D1 driver (async, WASM-only).
+    #[cfg(all(feature = "d1", target_arch = "wasm32"))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "d1", target_arch = "wasm32"))))]
+    pub mod d1 {
+        #[doc(inline)]
+        pub use crate::builder::sqlite::d1::{Drizzle, DrizzleBuilder};
+    }
+
+    /// Cloudflare Durable Objects SQL storage driver (sync, WASM-only).
+    #[cfg(all(feature = "durable", target_arch = "wasm32"))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "durable", target_arch = "wasm32"))))]
+    pub mod durable {
+        #[doc(inline)]
+        pub use crate::builder::sqlite::durable::{Drizzle, DrizzleBuilder};
+        #[doc(inline)]
+        pub use crate::transaction::sqlite::durable::Transaction;
+    }
+
     /// SQLite prelude for schema declarations.
     pub mod prelude {
         // Core types and traits
