@@ -295,6 +295,49 @@ impl<'a, Schema, State, Table, Marker, Row, Grouped> ToSQL<'a, SQLiteValue<'a>>
     }
 }
 
+impl<'a, Schema, State, Table, Marker, Row, Grouped>
+    QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>
+where
+    State: ExecutableState,
+{
+    /// Attaches a [sqlcommenter](https://google.github.io/sqlcommenter/) comment
+    /// to the query.
+    ///
+    /// The comment is prepended to the generated SQL and wrapped in `/* ... */`.
+    /// Any `/*` or `*/` sequences in the input are sanitised so they can't
+    /// terminate the surrounding comment.
+    pub fn comment(mut self, text: impl AsRef<str>) -> Self {
+        let fragment = drizzle_core::sql::comment::<SQLiteValue<'a>>(text);
+        if fragment.chunks.is_empty() {
+            return self;
+        }
+        let existing = core::mem::replace(&mut self.sql, fragment);
+        self.sql.append_mut(existing);
+        self
+    }
+
+    /// Attaches a tag-style [sqlcommenter](https://google.github.io/sqlcommenter/)
+    /// comment to the query.
+    ///
+    /// Each `(key, value)` pair is URL-encoded, sorted alphabetically, joined
+    /// with `,`, and wrapped in `/* ... */`. Pairs with empty values are
+    /// skipped; an all-empty input is a no-op.
+    pub fn comment_tags<I, K, V>(mut self, pairs: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<str>,
+        V: AsRef<str>,
+    {
+        let fragment = drizzle_core::sql::comment_tags::<SQLiteValue<'a>, _, _, _>(pairs);
+        if fragment.chunks.is_empty() {
+            return self;
+        }
+        let existing = core::mem::replace(&mut self.sql, fragment);
+        self.sql.append_mut(existing);
+        self
+    }
+}
+
 impl<'a> QueryBuilder<'a> {
     /// Creates a new query builder for the given schema type.
     ///

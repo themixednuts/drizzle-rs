@@ -34,15 +34,16 @@ rust_decimal = { workspace = true, optional = true }
 cidr = { workspace = true, optional = true }
 geo-types = { workspace = true, optional = true }
 bit-vec = { workspace = true, optional = true }
+percent-encoding = { workspace = true }
 
 [features]
 default = ["std", "col16"]
 
 # Standard library support (enabled by default)
-std = ["compact_str/std", "smallvec/write", "thiserror/std", "drizzle-types/std"]
+std = ["compact_str/std", "smallvec/write", "thiserror/std", "drizzle-types/std", "percent-encoding/std"]
 
 # Allocator support for no_std environments (compact_str is no_std by default)
-alloc = ["drizzle-types/alloc"]
+alloc = ["drizzle-types/alloc", "percent-encoding/alloc"]
 
 # Serialization
 serde = ["dep:serde_json", "serde_json/alloc", "dep:serde"]

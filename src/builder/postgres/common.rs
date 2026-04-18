@@ -650,6 +650,47 @@ where
 }
 
 //------------------------------------------------------------------------------
+// sqlcommenter .comment() / .comment_tags() on DrizzleBuilder
+//------------------------------------------------------------------------------
+//
+// Forwards to the inner `QueryBuilder::comment` / `comment_tags`. Because every
+// select/insert/update/delete builder is a type alias for `QueryBuilder`, one
+// generic impl here covers all four operation kinds.
+
+impl<'d, 'a, DrizzleRef, Schema, State, T, M, R, G>
+    DrizzleBuilder<'d, DrizzleRef, Schema, QueryBuilder<'a, Schema, State, T, M, R, G>, State>
+where
+    State: drizzle_postgres::builder::ExecutableState,
+{
+    /// Attaches a free-form [sqlcommenter](https://google.github.io/sqlcommenter/)
+    /// comment to the query. See [`QueryBuilder::comment`] for details.
+    #[inline]
+    pub fn comment(self, text: impl AsRef<str>) -> Self {
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.comment(text),
+            state: PhantomData,
+        }
+    }
+
+    /// Attaches a tag-style [sqlcommenter](https://google.github.io/sqlcommenter/)
+    /// comment to the query. See [`QueryBuilder::comment_tags`] for details.
+    #[inline]
+    pub fn comment_tags<I, K, V>(self, pairs: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<str>,
+        V: AsRef<str>,
+    {
+        DrizzleBuilder {
+            drizzle: self.drizzle,
+            builder: self.builder.comment_tags(pairs),
+            state: PhantomData,
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
 // Set operations on DrizzleBuilder
 //------------------------------------------------------------------------------
 

@@ -94,6 +94,7 @@ geo-types = { version = "0.7" }
 bit-vec = { version = "0.8" }
 time = { version = "0.3", default-features = false, features = ["formatting", "parsing"] }
 const_format = { version = "0.2" }
+percent-encoding = { version = "2.3", default-features = false }
 
 # CLI-specific dependencies
 colored = { version = "3.0" }

@@ -1,4 +1,5 @@
 mod chunk;
+mod comment;
 mod cte;
 mod owned;
 mod tokens;
@@ -10,6 +11,7 @@ use crate::{
     traits::{SQLParam, ToSQL},
 };
 pub use chunk::*;
+pub use comment::{comment, comment_tags};
 use core::fmt::{Display, Write};
 pub use owned::*;
 use smallvec::SmallVec;

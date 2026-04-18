@@ -2,6 +2,7 @@ pub mod alias;
 pub mod arrayvec;
 pub mod async_edge_cases;
 pub mod attributes;
+pub mod comment;
 pub mod conditions;
 pub mod delete;
 pub mod r#enum;

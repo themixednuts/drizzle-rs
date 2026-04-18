@@ -6,6 +6,7 @@ pub mod array_ops;
 #[cfg(feature = "arrayvec")]
 pub mod arrayvec;
 pub mod async_edge_cases;
+pub mod comment;
 pub mod conditions;
 pub mod delete;
 pub mod r#enum;
