@@ -87,6 +87,12 @@ tokio-postgres = [
     "drizzle-core/tokio-postgres",
     "drizzle-postgres/tokio-postgres",
 ]
+# AWS Aurora Data API — toggles emission of `impl TryFrom<&AwsDataApiRow>` and
+# `FromDrizzleRow<AwsDataApiRow>` alongside the existing postgres impls.
+aws-data-api = [
+    "postgres",
+    "drizzle-postgres/aws-data-api",
+]
 # Relational query API code generation
 query = []
 

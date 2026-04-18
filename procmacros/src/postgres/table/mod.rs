@@ -1,5 +1,6 @@
 pub(crate) mod alias;
 pub(crate) mod attributes;
+pub(crate) mod aws_data_api;
 pub(crate) mod column_definitions;
 pub(crate) mod context;
 mod ddl;
@@ -86,6 +87,10 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     // Generate TryFrom implementations for all enabled PostgreSQL drivers
     let driver_impls = drivers::generate_all_driver_impls(&ctx)?;
 
+    // Generate AWS Aurora Data API row conversion impls (gated on `aws-data-api`
+    // feature in drizzle-macros; emits empty TokenStream otherwise).
+    let aws_driver_impls = aws_data_api::generate_aws_data_api_impls(&ctx)?;
+
     // Generate TryInto<PostgresValue> implementations for custom JSON types
     let json_impls = json::generate_json_impls(&ctx)?;
 
@@ -142,6 +147,7 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
         #model_definitions
         #alias_definitions
         #driver_impls
+        #aws_driver_impls
         #json_impls
         #const_ddl
         #query_api_impls

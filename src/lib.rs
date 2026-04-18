@@ -308,6 +308,17 @@ pub mod postgres {
     #[doc(inline)]
     pub use drizzle_postgres::Row;
 
+    /// AWS Aurora Data API row + helpers (re-exported from drizzle-postgres).
+    ///
+    /// Required by the `#[PostgresTable]` macro when the `aws-data-api` feature
+    /// is enabled — macro-generated code refers to
+    /// `drizzle::postgres::aws_data_api::Row` and
+    /// `drizzle::postgres::aws_data_api::is_null_at`.
+    #[cfg(feature = "aws-data-api")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "aws-data-api")))]
+    #[doc(inline)]
+    pub use drizzle_postgres::aws_data_api;
+
     #[cfg(feature = "postgres-sync")]
     #[cfg_attr(docsrs, doc(cfg(feature = "postgres-sync")))]
     pub mod sync {
@@ -324,6 +335,16 @@ pub mod postgres {
         pub use crate::builder::postgres::tokio_postgres::{Drizzle, DrizzleBuilder};
         #[doc(inline)]
         pub use crate::transaction::postgres::tokio_postgres::Transaction;
+    }
+
+    /// AWS Aurora Serverless Data API driver (HTTP-based, async).
+    #[cfg(feature = "aws-data-api")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "aws-data-api")))]
+    pub mod aws {
+        #[doc(inline)]
+        pub use crate::builder::postgres::aws_data_api::{Drizzle, DrizzleBuilder, Rows};
+        #[doc(inline)]
+        pub use crate::transaction::postgres::aws_data_api::{Transaction, TransactionBuilder};
     }
 
     /// PostgreSQL prelude for schema declarations.

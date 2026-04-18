@@ -15,7 +15,7 @@ drizzle-types = { workspace = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
-chrono = { workspace = true, optional = true, features = ["serde"] }
+chrono = { workspace = true, optional = true, features = ["serde", "alloc"] }
 time = { workspace = true, optional = true }
 cidr = { workspace = true, optional = true, features = ["serde"] }
 geo-types = { workspace = true, optional = true, features = ["serde"] }
@@ -27,6 +27,8 @@ compact_str = { workspace = true, optional = true }
 paste = { workspace = true }
 postgres = { workspace = true, optional = true }
 tokio-postgres = { workspace = true, optional = true }
+aws-sdk-rdsdata = { workspace = true, optional = true }
+aws-config = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 bytes = { version = "1.11", optional = true }
 
@@ -95,4 +97,14 @@ tokio-postgres = [
     "dep:tokio",
     "dep:bytes",
     "drizzle-core/tokio-postgres",
+]
+# AWS Aurora Data API (RDS Data Service). Uses the aws-sdk-rdsdata crate
+# (HTTP-based, not wire-protocol). Row decoding goes through a dedicated
+# `AwsDataApiRow` type — the `Field` variants returned by the Data API are
+# pre-decoded, so we don't share `postgres-types::FromSql` impls.
+aws-data-api = [
+    "std",
+    "dep:aws-sdk-rdsdata",
+    "dep:aws-config",
+    "dep:tokio",
 ]

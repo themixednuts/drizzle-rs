@@ -33,6 +33,8 @@ pub(crate) mod prelude {
 }
 
 pub mod attrs;
+#[cfg(feature = "aws-data-api")]
+pub mod aws_data_api;
 pub mod builder;
 pub mod common;
 pub mod expr;
