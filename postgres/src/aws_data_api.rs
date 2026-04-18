@@ -512,6 +512,337 @@ mod chrono_impls {
             <DateTime<Utc> as FromDrizzleRow<Row>>::from_row_at(row, offset).map(Some)
         }
     }
+
+    use chrono::FixedOffset;
+
+    impl FromDrizzleRow<Row> for DateTime<FixedOffset> {
+        const COLUMN_COUNT: usize = 1;
+        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+            let s = expect_string(field_at(row, offset)?)?;
+            if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+                return Ok(dt);
+            }
+            // Postgres can return "YYYY-MM-DD HH:MM:SS[.fff]+HH" — try common forms.
+            for fmt in &[
+                "%Y-%m-%d %H:%M:%S%.f%:z",
+                "%Y-%m-%d %H:%M:%S%.f%z",
+                "%Y-%m-%d %H:%M:%S%:z",
+                "%Y-%m-%d %H:%M:%S%z",
+            ] {
+                if let Ok(dt) = DateTime::parse_from_str(s, fmt) {
+                    return Ok(dt);
+                }
+            }
+            // Tz-less fallback → assume UTC (mirrors tokio-postgres behaviour).
+            if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f") {
+                return Ok(naive.and_utc().fixed_offset());
+            }
+            Err(DrizzleError::ConversionError(
+                format!("AWS Data API timestamptz: unparseable {s:?}").into(),
+            ))
+        }
+    }
+
+    impl FromDrizzleRow<Row> for Option<DateTime<FixedOffset>> {
+        const COLUMN_COUNT: usize = 1;
+        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+            let field = field_at(row, offset)?;
+            if field_is_null(field) {
+                return Ok(None);
+            }
+            <DateTime<FixedOffset> as FromDrizzleRow<Row>>::from_row_at(row, offset).map(Some)
+        }
+    }
+
+    impl FromDrizzleRow<Row> for chrono::Duration {
+        const COLUMN_COUNT: usize = 1;
+        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+            let s = expect_string(field_at(row, offset)?)?;
+            parse_interval_seconds(s).map(chrono::Duration::seconds)
+        }
+    }
+
+    impl FromDrizzleRow<Row> for Option<chrono::Duration> {
+        const COLUMN_COUNT: usize = 1;
+        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+            let field = field_at(row, offset)?;
+            if field_is_null(field) {
+                return Ok(None);
+            }
+            let s = expect_string(field)?;
+            parse_interval_seconds(s)
+                .map(chrono::Duration::seconds)
+                .map(Some)
+        }
+    }
+}
+
+/// Parse a Postgres INTERVAL string into total seconds.
+///
+/// Accepts the canonical `{n} seconds` form we emit in [`encode_field`], plus
+/// the `HH:MM:SS[.fff]` / `DD HH:MM:SS` / `N days HH:MM:SS` shapes that Aurora
+/// returns through the Data API. Years/months are rejected (ambiguous length)
+/// — users needing full interval parsing should decode as `String`.
+#[cfg(any(feature = "chrono", feature = "time"))]
+fn parse_interval_seconds(s: &str) -> Result<i64, DrizzleError> {
+    let s = s.trim();
+    // Fast path: "{n} seconds" / "{n} second"
+    if let Some(rest) = s
+        .strip_suffix(" seconds")
+        .or_else(|| s.strip_suffix(" second"))
+    {
+        return rest.trim().parse::<i64>().map_err(|e| {
+            DrizzleError::ConversionError(format!("AWS Data API interval: {e}").into())
+        });
+    }
+
+    let mut total: i64 = 0;
+    let mut rest = s;
+    // Handle "N days [HH:MM:SS]"
+    if let Some(idx) = rest.find(" day") {
+        let (days_part, after) = rest.split_at(idx);
+        let days: i64 = days_part.trim().parse().map_err(|e| {
+            DrizzleError::ConversionError(format!("AWS Data API interval days: {e}").into())
+        })?;
+        total += days * 86_400;
+        rest = after
+            .trim_start_matches(" days")
+            .trim_start_matches(" day")
+            .trim();
+    }
+    if rest.is_empty() {
+        return Ok(total);
+    }
+    // Remaining must be HH:MM:SS[.fff], with optional leading '-'
+    let (sign, body): (i64, &str) = match rest.strip_prefix('-') {
+        Some(r) => (-1, r),
+        None => (1, rest),
+    };
+    let mut parts = body.split(':');
+    let h: i64 = parts
+        .next()
+        .ok_or_else(|| DrizzleError::ConversionError("interval: missing hours".into()))?
+        .parse()
+        .map_err(|e| DrizzleError::ConversionError(format!("interval hours: {e}").into()))?;
+    let m: i64 = parts
+        .next()
+        .ok_or_else(|| DrizzleError::ConversionError("interval: missing minutes".into()))?
+        .parse()
+        .map_err(|e| DrizzleError::ConversionError(format!("interval minutes: {e}").into()))?;
+    let sec_field = parts
+        .next()
+        .ok_or_else(|| DrizzleError::ConversionError("interval: missing seconds".into()))?;
+    // Drop any fractional part — we return whole seconds.
+    let sec_int = sec_field.split('.').next().unwrap_or("0");
+    let sec: i64 = sec_int
+        .parse()
+        .map_err(|e| DrizzleError::ConversionError(format!("interval seconds: {e}").into()))?;
+    total += sign * (h * 3600 + m * 60 + sec);
+    Ok(total)
+}
+
+#[cfg(feature = "time")]
+mod time_impls {
+    //! Hand-rolled parsers for `time` types. We intentionally avoid
+    //! `time::macros::format_description!` so we don't have to depend on the
+    //! optional `macros` feature of the `time` crate — the workspace only
+    //! enables `formatting` + `parsing`. The formats AWS emits are simple
+    //! enough that manual digit-splitting is fine.
+    use super::*;
+    use time::format_description::well_known::Rfc3339;
+    use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time};
+
+    fn digits<T>(s: &str, kind: &'static str) -> Result<T, DrizzleError>
+    where
+        T: core::str::FromStr,
+        T::Err: core::fmt::Display,
+    {
+        s.parse::<T>()
+            .map_err(|e| DrizzleError::ConversionError(format!("AWS Data API {kind}: {e}").into()))
+    }
+
+    fn month_from_u8(m: u8) -> Result<Month, DrizzleError> {
+        Month::try_from(m)
+            .map_err(|e| DrizzleError::ConversionError(format!("AWS Data API month: {e}").into()))
+    }
+
+    /// Parse `YYYY-MM-DD`.
+    fn parse_date(s: &str) -> Result<Date, DrizzleError> {
+        let mut parts = s.splitn(3, '-');
+        let y = digits::<i32>(
+            parts
+                .next()
+                .ok_or_else(|| DrizzleError::ConversionError("date: empty".into()))?,
+            "date year",
+        )?;
+        let m = digits::<u8>(
+            parts
+                .next()
+                .ok_or_else(|| DrizzleError::ConversionError("date: missing month".into()))?,
+            "date month",
+        )?;
+        let d = digits::<u8>(
+            parts
+                .next()
+                .ok_or_else(|| DrizzleError::ConversionError("date: missing day".into()))?,
+            "date day",
+        )?;
+        Date::from_calendar_date(y, month_from_u8(m)?, d)
+            .map_err(|e| DrizzleError::ConversionError(format!("AWS Data API date: {e}").into()))
+    }
+
+    /// Parse `HH:MM:SS[.fff]`.
+    fn parse_time(s: &str) -> Result<Time, DrizzleError> {
+        let mut parts = s.splitn(3, ':');
+        let h = digits::<u8>(
+            parts
+                .next()
+                .ok_or_else(|| DrizzleError::ConversionError("time: empty".into()))?,
+            "time hour",
+        )?;
+        let m = digits::<u8>(
+            parts
+                .next()
+                .ok_or_else(|| DrizzleError::ConversionError("time: missing minute".into()))?,
+            "time minute",
+        )?;
+        let sec_field = parts
+            .next()
+            .ok_or_else(|| DrizzleError::ConversionError("time: missing second".into()))?;
+        let (sec_str, nanos) = match sec_field.split_once('.') {
+            Some((sec, frac)) => {
+                // Pad/truncate fractional to 9 digits (nanoseconds).
+                let mut buf = [b'0'; 9];
+                for (i, b) in frac.bytes().take(9).enumerate() {
+                    buf[i] = b;
+                }
+                let nanos: u32 = core::str::from_utf8(&buf)
+                    .map_err(|e| {
+                        DrizzleError::ConversionError(format!("time frac utf8: {e}").into())
+                    })?
+                    .parse()
+                    .map_err(|e: core::num::ParseIntError| {
+                        DrizzleError::ConversionError(format!("time frac: {e}").into())
+                    })?;
+                (sec, nanos)
+            }
+            None => (sec_field, 0u32),
+        };
+        let sec = digits::<u8>(sec_str, "time second")?;
+        Time::from_hms_nano(h, m, sec, nanos)
+            .map_err(|e| DrizzleError::ConversionError(format!("AWS Data API time: {e}").into()))
+    }
+
+    /// Parse `YYYY-MM-DD HH:MM:SS[.fff]`.
+    fn parse_primitive(s: &str) -> Result<PrimitiveDateTime, DrizzleError> {
+        let (date, time) = s.split_once(' ').ok_or_else(|| {
+            DrizzleError::ConversionError(format!("timestamp: missing space in {s:?}").into())
+        })?;
+        Ok(PrimitiveDateTime::new(parse_date(date)?, parse_time(time)?))
+    }
+
+    impl FromDrizzleRow<Row> for Date {
+        const COLUMN_COUNT: usize = 1;
+        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+            parse_date(expect_string(field_at(row, offset)?)?)
+        }
+    }
+
+    impl FromDrizzleRow<Row> for Option<Date> {
+        const COLUMN_COUNT: usize = 1;
+        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+            let field = field_at(row, offset)?;
+            if field_is_null(field) {
+                return Ok(None);
+            }
+            parse_date(expect_string(field)?).map(Some)
+        }
+    }
+
+    impl FromDrizzleRow<Row> for Time {
+        const COLUMN_COUNT: usize = 1;
+        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+            parse_time(expect_string(field_at(row, offset)?)?)
+        }
+    }
+
+    impl FromDrizzleRow<Row> for Option<Time> {
+        const COLUMN_COUNT: usize = 1;
+        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+            let field = field_at(row, offset)?;
+            if field_is_null(field) {
+                return Ok(None);
+            }
+            parse_time(expect_string(field)?).map(Some)
+        }
+    }
+
+    impl FromDrizzleRow<Row> for PrimitiveDateTime {
+        const COLUMN_COUNT: usize = 1;
+        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+            parse_primitive(expect_string(field_at(row, offset)?)?)
+        }
+    }
+
+    impl FromDrizzleRow<Row> for Option<PrimitiveDateTime> {
+        const COLUMN_COUNT: usize = 1;
+        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+            let field = field_at(row, offset)?;
+            if field_is_null(field) {
+                return Ok(None);
+            }
+            parse_primitive(expect_string(field)?).map(Some)
+        }
+    }
+
+    impl FromDrizzleRow<Row> for OffsetDateTime {
+        const COLUMN_COUNT: usize = 1;
+        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+            let s = expect_string(field_at(row, offset)?)?;
+            if let Ok(dt) = OffsetDateTime::parse(s, &Rfc3339) {
+                return Ok(dt);
+            }
+            // No TZ → assume UTC, mirroring tokio-postgres behaviour.
+            if let Ok(naive) = parse_primitive(s) {
+                return Ok(naive.assume_utc());
+            }
+            Err(DrizzleError::ConversionError(
+                format!("AWS Data API timestamptz: unparseable {s:?}").into(),
+            ))
+        }
+    }
+
+    impl FromDrizzleRow<Row> for Option<OffsetDateTime> {
+        const COLUMN_COUNT: usize = 1;
+        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+            let field = field_at(row, offset)?;
+            if field_is_null(field) {
+                return Ok(None);
+            }
+            <OffsetDateTime as FromDrizzleRow<Row>>::from_row_at(row, offset).map(Some)
+        }
+    }
+
+    impl FromDrizzleRow<Row> for time::Duration {
+        const COLUMN_COUNT: usize = 1;
+        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+            let s = expect_string(field_at(row, offset)?)?;
+            parse_interval_seconds(s).map(time::Duration::seconds)
+        }
+    }
+
+    impl FromDrizzleRow<Row> for Option<time::Duration> {
+        const COLUMN_COUNT: usize = 1;
+        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+            let field = field_at(row, offset)?;
+            if field_is_null(field) {
+                return Ok(None);
+            }
+            parse_interval_seconds(expect_string(field)?)
+                .map(time::Duration::seconds)
+                .map(Some)
+        }
+    }
 }
 
 #[cfg(feature = "rust-decimal")]
