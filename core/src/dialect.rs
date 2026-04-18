@@ -90,16 +90,60 @@ impl DialectTypes for PostgresDialect {
     type Any = drizzle_types::postgres::types::Any;
 }
 
-/// Writes a dialect-appropriate placeholder directly to a buffer.
-#[inline]
-pub fn write_placeholder(dialect: Dialect, index: usize, buf: &mut impl core::fmt::Write) {
-    match dialect {
-        Dialect::PostgreSQL => {
-            let _ = buf.write_char('$');
-            let _ = write!(buf, "{}", index);
-        }
-        Dialect::SQLite | Dialect::MySQL => {
-            let _ = buf.write_char('?');
+/// Parameter placeholder rendering style.
+///
+/// Decouples placeholder syntax from [`Dialect`] so drivers that speak a
+/// given SQL dialect but bind parameters differently (e.g. AWS Aurora Data
+/// API — Postgres SQL, named `:N` parameters) can request a non-default
+/// style without duplicating the whole dialect plumbing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParamStyle {
+    /// `$1, $2, ...` — PostgreSQL native wire protocol.
+    DollarNumbered,
+    /// `?` — SQLite / MySQL positional.
+    Question,
+    /// `:1, :2, ...` — AWS Aurora Data API (and drizzle-orm TS driver).
+    ///
+    /// Names are stringified 1-indexed ordinals, matching the
+    /// `SqlParameter { name: "1", ... }` encoding the Data API expects.
+    ColonNumbered,
+}
+
+impl ParamStyle {
+    /// Default placeholder style for a given dialect when the driver hasn't
+    /// overridden it.
+    #[inline]
+    pub const fn for_dialect(dialect: Dialect) -> Self {
+        match dialect {
+            Dialect::PostgreSQL => ParamStyle::DollarNumbered,
+            Dialect::SQLite | Dialect::MySQL => ParamStyle::Question,
         }
     }
+
+    /// Write the placeholder for `index` (1-indexed) to the buffer.
+    #[inline]
+    pub fn write(self, index: usize, buf: &mut impl core::fmt::Write) {
+        match self {
+            ParamStyle::DollarNumbered => {
+                let _ = buf.write_char('$');
+                let _ = write!(buf, "{}", index);
+            }
+            ParamStyle::ColonNumbered => {
+                let _ = buf.write_char(':');
+                let _ = write!(buf, "{}", index);
+            }
+            ParamStyle::Question => {
+                let _ = buf.write_char('?');
+            }
+        }
+    }
+}
+
+/// Writes a dialect-appropriate placeholder directly to a buffer.
+///
+/// Equivalent to `ParamStyle::for_dialect(dialect).write(index, buf)`. Kept
+/// as a free function for existing call sites that don't need a style override.
+#[inline]
+pub fn write_placeholder(dialect: Dialect, index: usize, buf: &mut impl core::fmt::Write) {
+    ParamStyle::for_dialect(dialect).write(index, buf)
 }

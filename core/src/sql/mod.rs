@@ -376,9 +376,17 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     /// This is the preferred method for driver execution paths since it avoids
     /// iterating the chunk list twice (once for `sql()`, once for `params()`).
     pub fn build(&self) -> (String, SmallVec<[&V; 8]>) {
+        self.build_with(crate::dialect::ParamStyle::for_dialect(V::DIALECT))
+    }
+
+    /// Same as [`build`](Self::build) but lets the caller override the
+    /// placeholder style. Drivers that speak the dialect but bind parameters
+    /// differently (e.g. AWS Data API on Postgres) use this to emit
+    /// `:1, :2, ...` instead of `$1, $2, ...` without any post-hoc rewriting.
+    pub fn build_with(&self, style: crate::dialect::ParamStyle) -> (String, SmallVec<[&V; 8]>) {
         #[cfg(feature = "profiling")]
         crate::drizzle_profile_scope!("sql_render", "build");
-        use crate::dialect::{Dialect, write_placeholder};
+        use crate::dialect::Dialect;
         #[cfg(feature = "profiling")]
         crate::drizzle_profile_scope!("sql_render", "build.estimate");
         let sql_cap = self.chunks.len().saturating_mul(8).max(128);
@@ -402,7 +410,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
                         let _ = buf.write_char(':');
                         let _ = buf.write_str(name);
                     } else {
-                        write_placeholder(V::DIALECT, param_index, &mut buf);
+                        style.write(param_index, &mut buf);
                     }
                     param_index += 1;
                     if let Some(value) = &param.value {
@@ -423,9 +431,19 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     /// Write SQL to a buffer with dialect-appropriate placeholders.
     /// Uses `$1, $2, ...` for PostgreSQL, `?` or `:name` for SQLite, `?` for MySQL.
     pub fn write_to(&self, buf: &mut impl core::fmt::Write) {
+        self.write_to_with(buf, crate::dialect::ParamStyle::for_dialect(V::DIALECT));
+    }
+
+    /// Same as [`write_to`](Self::write_to) but with a caller-chosen
+    /// placeholder style.
+    pub fn write_to_with(
+        &self,
+        buf: &mut impl core::fmt::Write,
+        style: crate::dialect::ParamStyle,
+    ) {
         #[cfg(feature = "profiling")]
         crate::drizzle_profile_scope!("sql_render", "write_to");
-        use crate::dialect::{Dialect, write_placeholder};
+        use crate::dialect::Dialect;
         let mut param_index = 1usize;
         for (i, chunk) in self.chunks.iter().enumerate() {
             match chunk {
@@ -440,7 +458,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
                         let _ = buf.write_char(':');
                         let _ = buf.write_str(name);
                     } else {
-                        write_placeholder(V::DIALECT, param_index, buf);
+                        style.write(param_index, buf);
                     }
                     param_index += 1;
                 }
