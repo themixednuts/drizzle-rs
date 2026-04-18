@@ -38,6 +38,18 @@ pub enum CliError {
         feature: &'static str,
     },
 
+    /// Operation not supported for this driver.
+    ///
+    /// Used for codegen-only drivers (e.g. `durable-sqlite` — no way to reach
+    /// a running DO from the CLI) and for remote drivers the CLI hasn't been
+    /// wired to yet (e.g. `d1-http`).
+    #[error("{operation} is not supported for driver '{driver}'. {hint}")]
+    UnsupportedForDriver {
+        operation: &'static str,
+        driver: &'static str,
+        hint: &'static str,
+    },
+
     /// Other errors
     #[error("{0}")]
     Other(String),

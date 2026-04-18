@@ -2,7 +2,7 @@
 //!
 //! Runs pending migrations against the database.
 
-use crate::config::Config;
+use crate::config::{Config, Driver};
 use crate::error::CliError;
 use crate::output;
 
@@ -51,6 +51,28 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Resu
     if !out_dir.exists() {
         println!("  {}", output::warning("No migrations directory found."));
         println!("  Run 'drizzle generate' to create your first migration.");
+        return Ok(());
+    }
+
+    // Codegen-only drivers (e.g. durable-sqlite) have no remote endpoint for the
+    // CLI to reach — migrations execute inside the DO runtime. Short-circuit
+    // with a pointed message instead of the generic "no credentials" fallback.
+    if matches!(db.driver, Some(Driver::DurableSqlite)) {
+        println!(
+            "{}",
+            output::warning("Durable Objects SQLite runs inside the Workers runtime.")
+        );
+        println!();
+        println!("  The CLI can't apply migrations to a DO from outside.");
+        println!(
+            "  Apply them at `DurableObject` init time by importing `{}/migrations.js`",
+            out_dir.display()
+        );
+        println!("  and running each statement against `state.storage().sql()`.");
+        println!();
+        println!(
+            "  (This command only generates the SQL + JS bundle — run `drizzle generate` for that.)"
+        );
         return Ok(());
     }
 

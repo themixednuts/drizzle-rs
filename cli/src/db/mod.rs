@@ -17,9 +17,13 @@ use crate::output;
     feature = "turso",
     feature = "postgres-sync",
     feature = "tokio-postgres",
+    feature = "d1-http",
 ))]
 use drizzle_migrations::Migrations;
 use drizzle_migrations::schema::Snapshot;
+
+#[cfg(feature = "d1-http")]
+mod d1_http;
 
 /// Result of a migration run
 #[derive(Debug)]
@@ -50,11 +54,12 @@ pub struct MigrationPlan {
     feature = "turso",
     feature = "postgres-sync",
     feature = "tokio-postgres",
+    feature = "d1-http",
 ))]
 #[derive(Debug, Clone)]
-struct AppliedMigrationRecord {
-    hash: String,
-    name: String,
+pub(crate) struct AppliedMigrationRecord {
+    pub(crate) hash: String,
+    pub(crate) name: String,
 }
 
 /// Planned SQL changes for `drizzle push`
@@ -138,6 +143,7 @@ pub fn plan_migrations(
         feature = "turso",
         feature = "postgres-sync",
         feature = "tokio-postgres",
+        feature = "d1-http",
     ))]
     let set = load_migration_set(dialect, migrations_dir, migrations_table, migrations_schema)?;
 
@@ -198,6 +204,27 @@ pub fn plan_migrations(
             dialect: "PostgreSQL",
             feature: "postgres-sync or tokio-postgres",
         }),
+
+        #[cfg(feature = "d1-http")]
+        Credentials::D1 {
+            account_id,
+            database_id,
+            token,
+        } => d1_http::inspect_migrations(&set, account_id, database_id, token),
+
+        #[cfg(not(feature = "d1-http"))]
+        Credentials::D1 { .. } => Err(CliError::MissingDriver {
+            dialect: "Cloudflare D1 (HTTP)",
+            feature: "d1-http",
+        }),
+
+        Credentials::AwsDataApi { .. } => Err(CliError::UnsupportedForDriver {
+            operation: "Migration planning against AWS Data API",
+            driver: "aws-data-api",
+            hint: "AWS RDS Data API schema ops are not yet wired into this CLI. For now, \
+                   run the generated SQL with `aws rds-data execute-statement --sql=...` \
+                   (or use tokio-postgres with a temporary direct connection).",
+        }),
     }
 }
 
@@ -231,6 +258,7 @@ pub fn run_migrations(
         feature = "turso",
         feature = "postgres-sync",
         feature = "tokio-postgres",
+        feature = "d1-http",
     ))]
     let set = load_migration_set(dialect, migrations_dir, migrations_table, migrations_schema)?;
 
@@ -292,6 +320,27 @@ pub fn run_migrations(
             dialect: "PostgreSQL",
             feature: "postgres-sync or tokio-postgres",
         }),
+
+        #[cfg(feature = "d1-http")]
+        Credentials::D1 {
+            account_id,
+            database_id,
+            token,
+        } => d1_http::run_migrations(&set, account_id, database_id, token),
+
+        #[cfg(not(feature = "d1-http"))]
+        Credentials::D1 { .. } => Err(CliError::MissingDriver {
+            dialect: "Cloudflare D1 (HTTP)",
+            feature: "d1-http",
+        }),
+
+        Credentials::AwsDataApi { .. } => Err(CliError::UnsupportedForDriver {
+            operation: "Running migrations against AWS Data API",
+            driver: "aws-data-api",
+            hint: "AWS RDS Data API migrations are not yet wired into this CLI. Run the \
+                   generated SQL via `aws rds-data execute-statement` or connect directly \
+                   with tokio-postgres.",
+        }),
     }
 }
 
@@ -301,6 +350,7 @@ pub fn run_migrations(
     feature = "turso",
     feature = "postgres-sync",
     feature = "tokio-postgres",
+    feature = "d1-http",
 ))]
 fn load_migration_set(
     dialect: Dialect,
@@ -327,6 +377,7 @@ fn load_migration_set(
     feature = "turso",
     feature = "postgres-sync",
     feature = "tokio-postgres",
+    feature = "d1-http",
 ))]
 fn migration_tracking(
     dialect: Dialect,
@@ -356,8 +407,9 @@ fn migration_tracking(
     feature = "turso",
     feature = "postgres-sync",
     feature = "tokio-postgres",
+    feature = "d1-http",
 ))]
-fn build_migration_plan(
+pub(crate) fn build_migration_plan(
     set: &Migrations,
     applied: Vec<AppliedMigrationRecord>,
 ) -> Result<MigrationPlan, CliError> {
@@ -391,6 +443,7 @@ fn build_migration_plan(
     feature = "turso",
     feature = "postgres-sync",
     feature = "tokio-postgres",
+    feature = "d1-http",
 ))]
 fn verify_applied_migrations_consistency(
     set: &Migrations,
@@ -1008,6 +1061,27 @@ fn execute_statements(
         Credentials::Postgres(_) => Err(CliError::MissingDriver {
             dialect: "PostgreSQL",
             feature: "postgres-sync or tokio-postgres",
+        }),
+
+        #[cfg(feature = "d1-http")]
+        Credentials::D1 {
+            account_id,
+            database_id,
+            token,
+        } => d1_http::execute_statements(account_id, database_id, token, statements),
+
+        #[cfg(not(feature = "d1-http"))]
+        Credentials::D1 { .. } => Err(CliError::MissingDriver {
+            dialect: "Cloudflare D1 (HTTP)",
+            feature: "d1-http",
+        }),
+
+        Credentials::AwsDataApi { .. } => Err(CliError::UnsupportedForDriver {
+            operation: "Direct SQL execution against AWS Data API",
+            driver: "aws-data-api",
+            hint: "Use `aws rds-data execute-statement --sql=\"...\"` with the matching \
+                   --resource-arn / --secret-arn / --database, or connect directly via \
+                   tokio-postgres.",
         }),
     }
 }
@@ -2243,6 +2317,7 @@ fn apply_init_metadata(
         feature = "turso",
         feature = "postgres-sync",
         feature = "tokio-postgres",
+        feature = "d1-http",
     ))]
     let set = load_migration_set(dialect, out_dir, migrations_table, migrations_schema)?;
 
@@ -2303,6 +2378,27 @@ fn apply_init_metadata(
             dialect: "PostgreSQL",
             feature: "postgres-sync or tokio-postgres",
         }),
+
+        #[cfg(feature = "d1-http")]
+        Credentials::D1 {
+            account_id,
+            database_id,
+            token,
+        } => d1_http::init_metadata(&set, account_id, database_id, token),
+
+        #[cfg(not(feature = "d1-http"))]
+        Credentials::D1 { .. } => Err(CliError::MissingDriver {
+            dialect: "Cloudflare D1 (HTTP)",
+            feature: "d1-http",
+        }),
+
+        Credentials::AwsDataApi { .. } => Err(CliError::UnsupportedForDriver {
+            operation: "Migration metadata init against AWS Data API",
+            driver: "aws-data-api",
+            hint: "AWS RDS Data API schema ops are not yet wired into this CLI. Seed the \
+                   migrations table manually via `aws rds-data execute-statement` or \
+                   tokio-postgres.",
+        }),
     }
 }
 
@@ -2311,9 +2407,13 @@ fn apply_init_metadata(
     feature = "libsql",
     feature = "turso",
     feature = "postgres-sync",
-    feature = "tokio-postgres"
+    feature = "tokio-postgres",
+    feature = "d1-http",
 ))]
-fn validate_init_metadata(applied_names: &[String], set: &Migrations) -> Result<(), CliError> {
+pub(crate) fn validate_init_metadata(
+    applied_names: &[String],
+    set: &Migrations,
+) -> Result<(), CliError> {
     if !applied_names.is_empty() {
         return Err(CliError::Other(
             "--init can't be used when database already has migrations set".into(),

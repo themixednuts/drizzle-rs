@@ -184,6 +184,22 @@ fn print_credentials(creds: &Credentials) {
                 }
             }
         },
+        Credentials::D1 {
+            account_id,
+            database_id,
+            ..
+        } => {
+            // Mask the token (never print it) and show just the IDs.
+            println!("    {}: {account_id}/{database_id}", output::label("D1"));
+            println!("    Token: ****");
+        }
+        Credentials::AwsDataApi { database, .. } => {
+            // Mask both ARNs — drizzle-kit flags both secretArn and resourceArn
+            // as secrets. The database name is fine to show.
+            println!("    {}: {database}", output::label("AWS Data API"));
+            println!("    SecretArn:   ****");
+            println!("    ResourceArn: ****");
+        }
     }
 }
 

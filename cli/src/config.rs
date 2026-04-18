@@ -404,6 +404,36 @@ pub enum Driver {
     PostgresSync,
     /// tokio-postgres - async PostgreSQL driver
     TokioPostgres,
+    /// d1-http - Cloudflare D1 over the HTTP API
+    ///
+    /// Targets a remote D1 database via the Cloudflare REST API. Requires
+    /// `accountId`, `databaseId`, and `token` in `dbCredentials`. For deploying
+    /// to a Worker binding at runtime use the `d1` driver feature on the
+    /// drizzle crate itself — this CLI driver is for schema ops (generate /
+    /// push / pull / migrate) against a live D1 instance from your dev box.
+    D1Http,
+    /// durable-sqlite - Cloudflare Durable Objects SQLite storage
+    ///
+    /// DOs run SQLite embedded inside the Worker runtime. There's no remote
+    /// endpoint to push to from the CLI, so this driver is schema-only:
+    /// `generate` produces SQL migrations and a bundled `migrations.js` index
+    /// (like drizzle-kit's `bundle: true`) that the Worker imports at build
+    /// time to apply migrations inside `DurableObject::new()`.
+    DurableSqlite,
+    /// aws-data-api - AWS RDS Data API (Aurora Serverless PostgreSQL)
+    ///
+    /// Runs SQL through the AWS RDS Data API instead of a direct TCP
+    /// connection. Requires `database`, `secretArn` (AWS Secrets Manager ARN
+    /// holding the DB password), and `resourceArn` (Aurora cluster ARN) in
+    /// `dbCredentials`. The AWS region comes from the standard SDK chain
+    /// (env vars, `~/.aws/config`, EC2/ECS metadata) — drizzle-kit takes no
+    /// region field and we match that.
+    ///
+    /// At the Rust layer this would route through the `aws-sdk-rdsdata` crate,
+    /// which isn't yet wired into drizzle-rs — this driver is currently
+    /// recognized by the CLI for config parity, but operations return a
+    /// pointed `UnsupportedForDriver` error.
+    AwsDataApi,
 }
 
 impl Driver {
@@ -413,6 +443,9 @@ impl Driver {
         "turso",
         "postgres-sync",
         "tokio-postgres",
+        "d1-http",
+        "durable-sqlite",
+        "aws-data-api",
     ];
 
     #[inline]
@@ -423,14 +456,20 @@ impl Driver {
             Self::Turso => "turso",
             Self::PostgresSync => "postgres-sync",
             Self::TokioPostgres => "tokio-postgres",
+            Self::D1Http => "d1-http",
+            Self::DurableSqlite => "durable-sqlite",
+            Self::AwsDataApi => "aws-data-api",
         }
     }
 
     pub const fn valid_for(dialect: Dialect) -> &'static [Driver] {
         match dialect {
-            Dialect::Sqlite => &[Self::Rusqlite],
+            // D1 and Durable Objects are both SQLite-dialect — they only differ
+            // in how you reach the database at runtime, so the generator/parser
+            // path is identical to plain rusqlite.
+            Dialect::Sqlite => &[Self::Rusqlite, Self::D1Http, Self::DurableSqlite],
             Dialect::Turso => &[Self::Libsql, Self::Turso],
-            Dialect::Postgresql => &[Self::PostgresSync, Self::TokioPostgres],
+            Dialect::Postgresql => &[Self::PostgresSync, Self::TokioPostgres, Self::AwsDataApi],
         }
     }
 
@@ -438,13 +477,23 @@ impl Driver {
     pub const fn is_valid_for(self, dialect: Dialect) -> bool {
         matches!(
             (self, dialect),
-            (Self::Rusqlite, Dialect::Sqlite)
-                | (Self::Libsql | Self::Turso, Dialect::Turso)
+            (
+                Self::Rusqlite | Self::D1Http | Self::DurableSqlite,
+                Dialect::Sqlite
+            ) | (Self::Libsql | Self::Turso, Dialect::Turso)
                 | (
-                    Self::PostgresSync | Self::TokioPostgres,
+                    Self::PostgresSync | Self::TokioPostgres | Self::AwsDataApi,
                     Dialect::Postgresql
                 )
         )
+    }
+
+    /// True for drivers that only make sense as schema/codegen targets — i.e.
+    /// drivers where the CLI has no way to connect to a live DB from the dev
+    /// machine (e.g. Durable Objects SQLite runs inside the Workers runtime).
+    #[inline]
+    pub const fn is_codegen_only(self) -> bool {
+        matches!(self, Self::DurableSqlite)
     }
 }
 
@@ -464,6 +513,9 @@ impl std::str::FromStr for Driver {
             "turso" => Ok(Self::Turso),
             "postgres-sync" => Ok(Self::PostgresSync),
             "tokio-postgres" => Ok(Self::TokioPostgres),
+            "d1-http" => Ok(Self::D1Http),
+            "durable-sqlite" => Ok(Self::DurableSqlite),
+            "aws-data-api" => Ok(Self::AwsDataApi),
             _ => Err(format!(
                 "invalid driver '{}', expected one of: {}",
                 s,
@@ -505,6 +557,28 @@ pub enum Credentials {
 
     /// PostgreSQL
     Postgres(PostgresCreds),
+
+    /// Cloudflare D1 over the HTTP API.
+    ///
+    /// Used by the CLI to hit the Cloudflare REST endpoint for schema ops
+    /// (push/pull/migrate). The drizzle runtime itself uses the worker
+    /// `D1Database` binding — not these credentials.
+    D1 {
+        account_id: Box<str>,
+        database_id: Box<str>,
+        token: Box<str>,
+    },
+
+    /// AWS RDS Data API (Aurora Serverless PostgreSQL).
+    ///
+    /// The region isn't stored here — the AWS SDK pulls it from the standard
+    /// credential chain (env vars, `~/.aws/config`, instance metadata). This
+    /// matches drizzle-kit's TypeScript config exactly.
+    AwsDataApi {
+        database: Box<str>,
+        secret_arn: Box<str>,
+        resource_arn: Box<str>,
+    },
 }
 
 /// PostgreSQL credentials
@@ -622,6 +696,32 @@ pub enum MigrationPrefix {
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(untagged)]
 enum RawCreds {
+    /// Cloudflare D1 HTTP API credentials — `{ accountId, databaseId, token }`.
+    ///
+    /// Listed before the more generic `Url` / `Host` variants so that serde's
+    /// untagged matching prefers the fully-specified D1 shape when all three
+    /// fields are present. (Untagged enums try variants top-to-bottom and pick
+    /// the first that deserializes cleanly.)
+    D1 {
+        #[serde(rename = "accountId")]
+        account_id: EnvOr,
+        #[serde(rename = "databaseId")]
+        database_id: EnvOr,
+        token: EnvOr,
+    },
+    /// AWS RDS Data API credentials — `{ database, secretArn, resourceArn }`.
+    ///
+    /// Also listed before `Url`/`Host` so the fully-specified shape wins in the
+    /// untagged match. Note that `database` is also a field name on the Host
+    /// shape, but the combination with `secretArn` + `resourceArn` uniquely
+    /// identifies this variant.
+    AwsDataApi {
+        database: EnvOr,
+        #[serde(rename = "secretArn")]
+        secret_arn: EnvOr,
+        #[serde(rename = "resourceArn")]
+        resource_arn: EnvOr,
+    },
     Url {
         url: EnvOr,
         #[serde(default, rename = "authToken")]
@@ -820,6 +920,54 @@ impl DatabaseConfig {
             _ => {}
         }
 
+        // D1-specific shape requires dialect=sqlite AND driver=d1-http. Paired
+        // together so users can't accidentally point a rusqlite driver at D1
+        // credentials (or vice versa).
+        if let RawCreds::D1 { .. } = raw {
+            if self.dialect != Dialect::Sqlite {
+                return Err(err(
+                    "D1 dbCredentials (accountId/databaseId/token) require dialect = \"sqlite\"",
+                ));
+            }
+            if self.driver != Some(Driver::D1Http) {
+                return Err(err(
+                    "D1 dbCredentials (accountId/databaseId/token) require driver = \"d1-http\"",
+                ));
+            }
+        }
+
+        // Conversely, if the user picked driver = d1-http but didn't supply the
+        // D1 shape, flag it early — otherwise `credentials()` would silently
+        // return None and the CLI would fail much later with a confusing error.
+        if self.driver == Some(Driver::D1Http) && !matches!(raw, RawCreds::D1 { .. }) {
+            return Err(err(
+                "driver = \"d1-http\" requires dbCredentials with accountId, databaseId, and token",
+            ));
+        }
+
+        // AWS Data API shape requires dialect=postgresql AND driver=aws-data-api.
+        // Matches drizzle-kit's shape exactly: { database, secretArn, resourceArn }.
+        // Region isn't part of the config — the AWS SDK resolves it from env.
+        if let RawCreds::AwsDataApi { .. } = raw {
+            if self.dialect != Dialect::Postgresql {
+                return Err(err(
+                    "AWS Data API dbCredentials (database/secretArn/resourceArn) require dialect = \"postgresql\"",
+                ));
+            }
+            if self.driver != Some(Driver::AwsDataApi) {
+                return Err(err(
+                    "AWS Data API dbCredentials (database/secretArn/resourceArn) require driver = \"aws-data-api\"",
+                ));
+            }
+        }
+
+        // And the inverse — driver=aws-data-api must use the AwsDataApi shape.
+        if self.driver == Some(Driver::AwsDataApi) && !matches!(raw, RawCreds::AwsDataApi { .. }) {
+            return Err(err(
+                "driver = \"aws-data-api\" requires dbCredentials with database, secretArn, and resourceArn",
+            ));
+        }
+
         // Dialect-specific checks (only for direct values, not env var references)
         match (self.dialect, raw) {
             (
@@ -893,6 +1041,35 @@ impl DatabaseConfig {
         };
 
         let creds = match (self.dialect, raw) {
+            // Cloudflare D1 HTTP — only valid with dialect=sqlite (enforced by
+            // validate_creds). Keeps the driver field out of this arm since
+            // validate_creds already guaranteed driver = d1-http.
+            (
+                Dialect::Sqlite,
+                RawCreds::D1 {
+                    account_id,
+                    database_id,
+                    token,
+                },
+            ) => Credentials::D1 {
+                account_id: account_id.resolve()?.into_boxed_str(),
+                database_id: database_id.resolve()?.into_boxed_str(),
+                token: token.resolve()?.into_boxed_str(),
+            },
+            // AWS RDS Data API — only valid with dialect=postgresql (enforced
+            // by validate_creds).
+            (
+                Dialect::Postgresql,
+                RawCreds::AwsDataApi {
+                    database,
+                    secret_arn,
+                    resource_arn,
+                },
+            ) => Credentials::AwsDataApi {
+                database: database.resolve()?.into_boxed_str(),
+                secret_arn: secret_arn.resolve()?.into_boxed_str(),
+                resource_arn: resource_arn.resolve()?.into_boxed_str(),
+            },
             // SQLite
             (Dialect::Sqlite, RawCreds::Url { url, .. }) => Credentials::Sqlite {
                 path: url.resolve()?.into_boxed_str(),
@@ -1068,6 +1245,21 @@ impl DatabaseConfig {
             .as_ref()
             .and_then(|m| m.schema.as_deref())
             .unwrap_or("drizzle")
+    }
+
+    /// Should a bundled `migrations.js` index be emitted alongside `migration.sql`?
+    ///
+    /// Resolution order:
+    /// 1. Explicit `[migrations] bundle = true/false` in the config wins.
+    /// 2. Otherwise, auto-enable for `driver = "durable-sqlite"` since Durable
+    ///    Objects need the JS index to import migrations at Worker build time
+    ///    (there's no other way to ship SQL into a DO).
+    /// 3. Otherwise, default to `false`.
+    pub fn bundle_enabled(&self) -> bool {
+        if let Some(explicit) = self.migrations.as_ref().and_then(|m| m.bundle) {
+            return explicit;
+        }
+        matches!(self.driver, Some(Driver::DurableSqlite))
     }
 }
 
@@ -1657,6 +1849,369 @@ mod tests {
             err.to_string(),
             "invalid credentials: host-based dbCredentials are only supported for dialect = \"postgresql\""
         );
+    }
+
+    // ========================================================================
+    // Cloudflare: D1 HTTP and Durable Objects SQLite
+    // ========================================================================
+
+    #[test]
+    fn d1_http_credentials_parse() {
+        let cfg = Config::load_from_str(
+            r#"
+            dialect = "sqlite"
+            driver = "d1-http"
+            [dbCredentials]
+            accountId = "acc_abc"
+            databaseId = "db_xyz"
+            token = "tok_123"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+
+        let db = cfg.default_database().unwrap();
+        assert_eq!(db.driver, Some(Driver::D1Http));
+        match db.credentials().unwrap() {
+            Some(Credentials::D1 {
+                account_id,
+                database_id,
+                token,
+            }) => {
+                assert_eq!(&*account_id, "acc_abc");
+                assert_eq!(&*database_id, "db_xyz");
+                assert_eq!(&*token, "tok_123");
+            }
+            other => panic!("expected Credentials::D1, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn d1_http_credentials_resolve_from_env() {
+        // Unique env var names per-test so parallel tests don't collide.
+        unsafe {
+            std::env::set_var("TEST_D1_ACCT", "env_acct");
+            std::env::set_var("TEST_D1_DB", "env_db");
+            std::env::set_var("TEST_D1_TOKEN", "env_token");
+        }
+        let cfg = Config::load_from_str(
+            r#"
+            dialect = "sqlite"
+            driver = "d1-http"
+            [dbCredentials]
+            accountId = { env = "TEST_D1_ACCT" }
+            databaseId = { env = "TEST_D1_DB" }
+            token = { env = "TEST_D1_TOKEN" }
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+
+        match cfg.default_database().unwrap().credentials().unwrap() {
+            Some(Credentials::D1 {
+                account_id,
+                database_id,
+                token,
+            }) => {
+                assert_eq!(&*account_id, "env_acct");
+                assert_eq!(&*database_id, "env_db");
+                assert_eq!(&*token, "env_token");
+            }
+            other => panic!("expected Credentials::D1, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn d1_credentials_require_sqlite_dialect() {
+        let err = Config::load_from_str(
+            r#"
+            dialect = "postgresql"
+            [dbCredentials]
+            accountId = "acc"
+            databaseId = "db"
+            token = "tok"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("D1 dbCredentials"),
+            "expected D1-specific error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn d1_credentials_require_d1_http_driver() {
+        // Same SQLite dialect, but driver is rusqlite — should be rejected.
+        let err = Config::load_from_str(
+            r#"
+            dialect = "sqlite"
+            driver = "rusqlite"
+            [dbCredentials]
+            accountId = "acc"
+            databaseId = "db"
+            token = "tok"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("driver = \"d1-http\""),
+            "expected d1-http driver error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn d1_http_driver_requires_d1_credentials() {
+        // Driver is d1-http but creds are URL-shaped — should be rejected.
+        let err = Config::load_from_str(
+            r#"
+            dialect = "sqlite"
+            driver = "d1-http"
+            [dbCredentials]
+            url = "./dev.db"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("accountId, databaseId, and token"),
+            "expected d1-http creds-shape error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn durable_sqlite_no_credentials_ok() {
+        // Durable Objects don't need credentials — migrations are applied inside
+        // the Worker runtime. Loading without dbCredentials should succeed.
+        let cfg = Config::load_from_str(
+            r#"
+            dialect = "sqlite"
+            driver = "durable-sqlite"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+
+        let db = cfg.default_database().unwrap();
+        assert_eq!(db.driver, Some(Driver::DurableSqlite));
+        assert!(db.credentials().unwrap().is_none());
+        // Bundle should auto-enable so migrations.js gets emitted for the Worker.
+        assert!(
+            db.bundle_enabled(),
+            "durable-sqlite should auto-enable bundle"
+        );
+    }
+
+    #[test]
+    fn durable_sqlite_explicit_bundle_false_respected() {
+        // Explicit opt-out must override the durable-sqlite auto-enable.
+        let cfg = Config::load_from_str(
+            r#"
+            dialect = "sqlite"
+            driver = "durable-sqlite"
+            [migrations]
+            bundle = false
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+        assert!(!cfg.default_database().unwrap().bundle_enabled());
+    }
+
+    #[test]
+    fn durable_sqlite_rejects_non_sqlite_dialect() {
+        let err = Config::load_from_str(
+            r#"
+            dialect = "postgresql"
+            driver = "durable-sqlite"
+            [dbCredentials]
+            url = "postgres://localhost/db"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("invalid for postgresql"),
+            "expected dialect/driver mismatch error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn driver_valid_for_sqlite_includes_cloudflare() {
+        let drivers = Driver::valid_for(Dialect::Sqlite);
+        assert!(drivers.contains(&Driver::Rusqlite));
+        assert!(drivers.contains(&Driver::D1Http));
+        assert!(drivers.contains(&Driver::DurableSqlite));
+        // D1/DO must not leak into other dialects.
+        for drv in [Driver::D1Http, Driver::DurableSqlite] {
+            assert!(!drv.is_valid_for(Dialect::Postgresql));
+            assert!(!drv.is_valid_for(Dialect::Turso));
+        }
+    }
+
+    #[test]
+    fn driver_is_codegen_only_flag() {
+        assert!(Driver::DurableSqlite.is_codegen_only());
+        assert!(!Driver::D1Http.is_codegen_only());
+        assert!(!Driver::Rusqlite.is_codegen_only());
+        assert!(!Driver::AwsDataApi.is_codegen_only());
+    }
+
+    // ========================================================================
+    // AWS RDS Data API (Aurora Serverless PostgreSQL)
+    // ========================================================================
+
+    #[test]
+    fn aws_data_api_credentials_parse() {
+        let cfg = Config::load_from_str(
+            r#"
+            dialect = "postgresql"
+            driver = "aws-data-api"
+            [dbCredentials]
+            database = "mydb"
+            secretArn = "arn:aws:secretsmanager:us-east-1:123:secret:db-xyz"
+            resourceArn = "arn:aws:rds:us-east-1:123:cluster:my-aurora"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+
+        let db = cfg.default_database().unwrap();
+        assert_eq!(db.driver, Some(Driver::AwsDataApi));
+        match db.credentials().unwrap() {
+            Some(Credentials::AwsDataApi {
+                database,
+                secret_arn,
+                resource_arn,
+            }) => {
+                assert_eq!(&*database, "mydb");
+                assert!(secret_arn.starts_with("arn:aws:secretsmanager"));
+                assert!(resource_arn.starts_with("arn:aws:rds"));
+            }
+            other => panic!("expected Credentials::AwsDataApi, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn aws_data_api_credentials_resolve_from_env() {
+        unsafe {
+            std::env::set_var("TEST_AWS_DB", "envdb");
+            std::env::set_var("TEST_AWS_SECRET", "arn:env:secret");
+            std::env::set_var("TEST_AWS_RESOURCE", "arn:env:resource");
+        }
+        let cfg = Config::load_from_str(
+            r#"
+            dialect = "postgresql"
+            driver = "aws-data-api"
+            [dbCredentials]
+            database = { env = "TEST_AWS_DB" }
+            secretArn = { env = "TEST_AWS_SECRET" }
+            resourceArn = { env = "TEST_AWS_RESOURCE" }
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+
+        match cfg.default_database().unwrap().credentials().unwrap() {
+            Some(Credentials::AwsDataApi {
+                database,
+                secret_arn,
+                resource_arn,
+            }) => {
+                assert_eq!(&*database, "envdb");
+                assert_eq!(&*secret_arn, "arn:env:secret");
+                assert_eq!(&*resource_arn, "arn:env:resource");
+            }
+            other => panic!("expected Credentials::AwsDataApi, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn aws_data_api_requires_postgres_dialect() {
+        let err = Config::load_from_str(
+            r#"
+            dialect = "sqlite"
+            [dbCredentials]
+            database = "mydb"
+            secretArn = "arn:aws:secretsmanager:..."
+            resourceArn = "arn:aws:rds:..."
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("AWS Data API dbCredentials"),
+            "expected AWS-specific error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn aws_data_api_requires_aws_data_api_driver() {
+        // Same postgresql dialect, but driver is tokio-postgres — should be rejected.
+        let err = Config::load_from_str(
+            r#"
+            dialect = "postgresql"
+            driver = "tokio-postgres"
+            [dbCredentials]
+            database = "mydb"
+            secretArn = "arn:aws:secretsmanager:..."
+            resourceArn = "arn:aws:rds:..."
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("driver = \"aws-data-api\""),
+            "expected aws-data-api driver error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn aws_data_api_driver_requires_aws_credentials() {
+        // driver = aws-data-api but creds are URL-shaped — should be rejected.
+        let err = Config::load_from_str(
+            r#"
+            dialect = "postgresql"
+            driver = "aws-data-api"
+            [dbCredentials]
+            url = "postgres://localhost/db"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("database, secretArn, and resourceArn"),
+            "expected aws-data-api creds-shape error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn aws_data_api_rejected_for_non_postgres_dialect() {
+        let err = Config::load_from_str(
+            r#"
+            dialect = "sqlite"
+            driver = "aws-data-api"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("invalid for sqlite"),
+            "expected dialect/driver mismatch error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn driver_valid_for_postgres_includes_aws_data_api() {
+        let drivers = Driver::valid_for(Dialect::Postgresql);
+        assert!(drivers.contains(&Driver::PostgresSync));
+        assert!(drivers.contains(&Driver::TokioPostgres));
+        assert!(drivers.contains(&Driver::AwsDataApi));
+        // Must not leak into other dialects.
+        assert!(!Driver::AwsDataApi.is_valid_for(Dialect::Sqlite));
+        assert!(!Driver::AwsDataApi.is_valid_for(Dialect::Turso));
     }
 
     #[cfg(windows)]

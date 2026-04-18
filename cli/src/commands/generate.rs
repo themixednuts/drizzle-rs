@@ -68,11 +68,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
 
     // Handle custom migration (empty migration file for manual SQL)
     if opts.custom {
-        let bundle = db
-            .migrations
-            .as_ref()
-            .and_then(|m| m.bundle)
-            .unwrap_or(false);
+        let bundle = db.bundle_enabled();
         return generate_custom_migration(
             &out_dir,
             effective_breakpoints,
@@ -178,12 +174,8 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
         .map_err(|e| CliError::IoError(e.to_string()))?;
 
     // Regenerate {out_dir}/migrations.js bundle index when enabled.
-    if db
-        .migrations
-        .as_ref()
-        .and_then(|m| m.bundle)
-        .unwrap_or(false)
-    {
+    // Auto-enabled for driver = durable-sqlite (see `DatabaseConfig::bundle_enabled`).
+    if db.bundle_enabled() {
         write_migrations_js(&out_dir)?;
     }
 

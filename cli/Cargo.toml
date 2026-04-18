@@ -48,6 +48,10 @@ tokio = { workspace = true, optional = true, features = ["rt", "macros"] }
 libsql = { workspace = true, optional = true }
 turso = { workspace = true, optional = true }
 
+# HTTP client for d1-http driver (Cloudflare REST API).
+# rustls-tls avoids requiring a system openssl on Windows/macOS devs.
+reqwest = { version = "0.12", optional = true, default-features = false, features = ["json", "rustls-tls"] }
+
 [dev-dependencies]
 tempfile = { workspace = true }
 assert_cmd = { workspace = true }
@@ -65,6 +69,10 @@ turso = ["dep:turso", "dep:libsql", "dep:tokio", "dep:drizzle-seed", "drizzle-se
 postgres-sync = ["dep:postgres", "dep:drizzle-seed", "drizzle-seed/postgres"]
 tokio-postgres = ["dep:tokio-postgres", "dep:tokio", "dep:drizzle-seed", "drizzle-seed/postgres"]
 
+# Cloudflare D1 HTTP driver (CLI-only — runtime D1 uses the Worker binding via
+# the main `drizzle` crate's `d1` feature, not this).
+d1-http = ["dep:reqwest", "dep:tokio", "dep:drizzle-seed", "drizzle-seed/sqlite"]
+
 # Optional PostgreSQL value-type passthroughs for seed
 uuid = ["dep:drizzle-seed", "drizzle-seed/uuid"]
 serde = ["dep:drizzle-seed", "drizzle-seed/serde"]
@@ -74,5 +82,5 @@ geo-types = ["dep:drizzle-seed", "drizzle-seed/geo-types"]
 bit-vec = ["dep:drizzle-seed", "drizzle-seed/bit-vec"]
 
 # Convenience bundles
-sqlite-all = ["rusqlite", "libsql", "turso"]
+sqlite-all = ["rusqlite", "libsql", "turso", "d1-http"]
 postgres-all = ["postgres-sync", "tokio-postgres"]
