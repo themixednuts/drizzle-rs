@@ -1,4 +1,4 @@
-//! Shared constraint generation code for SQLite and PostgreSQL table macros.
+//! Shared constraint generation code for `SQLite` and `PostgreSQL` table macros.
 //!
 //! These functions generate primary key, unique, foreign key, constraint capability,
 //! and relation impls. They are generic over `ConstraintFieldInfo` and `ForeignKeyRef`
@@ -18,7 +18,7 @@ use syn::Result;
 ///
 /// Enables constraints to derive names at compile time using `concatcp!` and
 /// `SQLSchema::NAME` instead of baking string literals at macro expansion time.
-pub(crate) struct DialectTypes {
+pub struct DialectTypes {
     /// The `SQLSchema` trait path (e.g., `drizzle::core::SQLSchema`)
     pub sql_schema: TokenStream,
     /// The schema type marker (e.g., `drizzle::sqlite::common::SQLiteSchemaType`)
@@ -32,7 +32,7 @@ pub(crate) struct DialectTypes {
 // =============================================================================
 
 /// Minimal field interface for shared constraint generation.
-pub(crate) trait ConstraintFieldInfo {
+pub trait ConstraintFieldInfo {
     type ForeignKey: ForeignKeyRef;
 
     fn ident(&self) -> &Ident;
@@ -43,13 +43,13 @@ pub(crate) trait ConstraintFieldInfo {
 }
 
 /// Foreign key reference abstraction over dialect-specific FK types.
-pub(crate) trait ForeignKeyRef {
+pub trait ForeignKeyRef {
     fn ref_table(&self) -> &Ident;
     fn ref_column(&self) -> &Ident;
 }
 
 /// Composite foreign key abstraction.
-pub(crate) trait CompositeForeignKeyRef {
+pub trait CompositeForeignKeyRef {
     fn target_table(&self) -> &Ident;
     fn source_columns(&self) -> &[Ident];
     fn target_columns(&self) -> &[Ident];
@@ -109,7 +109,7 @@ fn constraint_name_with_col_concatcp(
 // Shared constraint generation functions
 // =============================================================================
 
-pub(crate) fn generate_primary_key<F: ConstraintFieldInfo>(
+pub fn generate_primary_key<F: ConstraintFieldInfo>(
     field_infos: &[F],
     _table_name: &str,
     struct_ident: &Ident,
@@ -171,6 +171,7 @@ pub(crate) fn generate_primary_key<F: ConstraintFieldInfo>(
     let pk_impl = quote! {
         #[doc(hidden)]
         #[allow(non_camel_case_types)]
+        #[derive(Clone, Copy)]
         #struct_vis struct #pk_zst_ident;
 
         #(#pk_not_null_asserts)*
@@ -213,7 +214,7 @@ pub(crate) fn generate_primary_key<F: ConstraintFieldInfo>(
     )
 }
 
-pub(crate) fn generate_unique_constraints<F: ConstraintFieldInfo>(
+pub fn generate_unique_constraints<F: ConstraintFieldInfo>(
     field_infos: &[F],
     _table_name: &str,
     struct_ident: &Ident,
@@ -241,6 +242,7 @@ pub(crate) fn generate_unique_constraints<F: ConstraintFieldInfo>(
         impls.push(quote! {
             #[doc(hidden)]
             #[allow(non_camel_case_types)]
+            #[derive(Clone, Copy)]
             #struct_vis struct #uq_ident;
 
             const _: () = {
@@ -271,7 +273,7 @@ pub(crate) fn generate_unique_constraints<F: ConstraintFieldInfo>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
+pub fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
     field_infos: &[F],
     composite_fks: &[C],
     _table_name: &str,
@@ -280,7 +282,7 @@ pub(crate) fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignK
     _sql_table_info: &TokenStream,
     _sql_column_info: &TokenStream,
     _dt: &DialectTypes,
-) -> Result<(TokenStream, TokenStream, TokenStream, Vec<Ident>)> {
+) -> (TokenStream, TokenStream, TokenStream, Vec<Ident>) {
     let sql_foreign_key = core_paths::sql_foreign_key();
     let sql_constraint = core_paths::sql_constraint();
     let foreign_key_kind = core_paths::foreign_key_kind();
@@ -293,7 +295,7 @@ pub(crate) fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignK
     let mut fk_impls = Vec::new();
     let mut fk_zst_idents = Vec::new();
 
-    for field in field_infos.iter() {
+    for field in field_infos {
         let Some(fk) = field.foreign_key() else {
             continue;
         };
@@ -452,10 +454,10 @@ pub(crate) fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignK
         quote! { (#(#fk_zst_idents,)*) }
     };
 
-    Ok((quote! { #(#fk_impls)* }, fk_list, fk_types, fk_zst_idents))
+    (quote! { #(#fk_impls)* }, fk_list, fk_types, fk_zst_idents)
 }
 
-pub(crate) fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
+pub fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
     field_infos: &[F],
     _table_name: &str,
     struct_ident: &Ident,
@@ -472,13 +474,13 @@ pub(crate) fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
     let named_constraint = core_paths::named_constraint();
 
     let pk_fields: Vec<_> = field_infos.iter().filter(|f| f.is_primary()).collect();
-    let has_pk = !pk_fields.is_empty();
-    let has_fk = field_infos.iter().any(|f| f.foreign_key().is_some()) || has_composite_fks;
+    let has_primary = !pk_fields.is_empty();
+    let has_foreign = field_infos.iter().any(|f| f.foreign_key().is_some()) || has_composite_fks;
     let has_unique = field_infos.iter().any(|f| f.is_unique() && !f.is_primary());
 
     let mut tokens = TokenStream::new();
 
-    if has_pk {
+    if has_primary {
         tokens.extend(quote! {
             impl #has_primary_key for #struct_ident {}
             impl #has_constraint<#primary_key_kind> for #struct_ident {}
@@ -519,7 +521,7 @@ pub(crate) fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
         }
     }
 
-    if has_fk {
+    if has_foreign {
         tokens.extend(quote! {
             impl #has_constraint<#foreign_key_kind> for #struct_ident {}
         });
@@ -565,7 +567,9 @@ pub(crate) fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
     tokens
 }
 
-pub(crate) fn generate_relations<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
+type FkTargetMap = HashMap<String, (Ident, Vec<(Vec<String>, Vec<String>)>)>;
+
+pub fn generate_relations<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
     field_infos: &[F],
     composite_fks: &[C],
     struct_ident: &Ident,
@@ -573,7 +577,6 @@ pub(crate) fn generate_relations<F: ConstraintFieldInfo, C: CompositeForeignKeyR
     let relation_marker = core_paths::relation_marker();
     let joinable_marker = core_paths::joinable_marker();
 
-    type FkTargetMap = HashMap<String, (Ident, Vec<(Vec<String>, Vec<String>)>)>;
     let mut target_map: FkTargetMap = HashMap::new();
 
     for field in field_infos {
@@ -609,8 +612,7 @@ pub(crate) fn generate_relations<F: ConstraintFieldInfo, C: CompositeForeignKeyR
                         syn::Error::new(
                             src.span(),
                             format!(
-                                "composite foreign key references field `{}` which does not exist on `{}`",
-                                src, struct_ident
+                                "composite foreign key references field `{src}` which does not exist on `{struct_ident}`"
                             ),
                         )
                     })
@@ -619,7 +621,7 @@ pub(crate) fn generate_relations<F: ConstraintFieldInfo, C: CompositeForeignKeyR
         let target_cols: Vec<String> = comp_fk
             .target_columns()
             .iter()
-            .map(|t| t.to_string())
+            .map(std::string::ToString::to_string)
             .collect();
 
         target_map

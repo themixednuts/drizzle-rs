@@ -42,7 +42,7 @@ pub enum ViewDefinition {
 
 impl Parse for ViewAttributes {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
-        let mut attrs = ViewAttributes::default();
+        let mut attrs = Self::default();
         let metas = input.parse_terminated(Meta::parse, syn::Token![,])?;
 
         for meta in metas {
@@ -132,11 +132,11 @@ impl Parse for ViewAttributes {
     }
 }
 
-pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<TokenStream> {
+pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<TokenStream> {
     let struct_ident = &input.ident;
     let struct_vis = &input.vis;
 
-    let fields = struct_fields(&input, "SQLiteView")?;
+    let fields = struct_fields(input, "SQLiteView")?;
 
     let primary_key_count = count_primary_keys(fields, |field| {
         Ok(FieldInfo::from_field(field, false)?.is_primary)
@@ -192,10 +192,10 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
 
     let (column_definitions, column_zst_idents) =
         column_definitions::generate_column_definitions(&ctx)?;
-    let column_fields = column_definitions::generate_column_fields(&ctx, &column_zst_idents)?;
-    let column_accessors = column_definitions::generate_column_accessors(&ctx, &column_zst_idents)?;
+    let column_fields = column_definitions::generate_column_fields(&ctx, &column_zst_idents);
+    let column_accessors = column_definitions::generate_column_accessors(&ctx, &column_zst_idents);
     let model_definitions =
-        models::generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern)?;
+        models::generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern);
     let alias_definitions = alias::generate_aliased_table(&ctx)?;
 
     // Generate FK ZSTs and relation impls (logical-only, no SQL constraints in views)
@@ -216,7 +216,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
             &sql_table_info_path,
             &sql_column_info_path,
             &dialect_types,
-        )?;
+        );
     let relations_impl = crate::common::constraints::generate_relations(
         ctx.field_infos,
         &ctx.attrs.composite_foreign_keys,
@@ -260,7 +260,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
             q,
             &field_names,
             view_query::Dialect::SQLite,
-        )?)
+        ))
     } else {
         None
     };
@@ -278,12 +278,9 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
 
     let definition_lit = syn::LitStr::new(&definition_sql, proc_macro2::Span::call_site());
     // The const for VIEW_DEFINITION_SQL: either a string literal or a concatcp! expression
-    let view_definition_sql_const: TokenStream =
-        if let Some(ref select_sql) = query_const_select_sql {
-            select_sql.clone()
-        } else {
-            quote! { #definition_lit }
-        };
+    let view_definition_sql_const: TokenStream = query_const_select_sql
+        .as_ref()
+        .map_or_else(|| quote! { #definition_lit }, Clone::clone);
     let has_definition_literal = matches!(attrs.definition, Some(ViewDefinition::Literal(_)));
     let is_existing = attrs.existing;
 
@@ -316,6 +313,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     // Generate TABLE_REF for view (minimal metadata)
     let table_ref_path = core_paths::table_ref();
     let column_ref_path = core_paths::column_ref();
+    let column_flags_path = core_paths::column_flags();
     let column_dialect_path = core_paths::column_dialect();
     let table_dialect_path = core_paths::table_dialect();
     let view_column_ref_literals: Vec<proc_macro2::TokenStream> = ctx
@@ -324,20 +322,26 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         .map(|f| {
             let col_name = &f.column_name;
             let sql_type = f.column_type.to_sql_type();
-            let not_null = !f.is_nullable;
-            let primary_key = f.is_primary;
-            let unique = f.is_unique;
-            let has_default = f.has_default;
+            let mut flag_bits: u8 = 0;
+            if !f.is_nullable {
+                flag_bits |= 1 << 0;
+            }
+            if f.is_primary {
+                flag_bits |= 1 << 1;
+            }
+            if f.is_unique {
+                flag_bits |= 1 << 2;
+            }
+            if f.has_default {
+                flag_bits |= 1 << 3;
+            }
             let autoincrement = f.is_autoincrement;
             quote! {
                 #column_ref_path {
                     table: Self::VIEW_NAME,
                     name: #col_name,
                     sql_type: #sql_type,
-                    not_null: #not_null,
-                    primary_key: #primary_key,
-                    unique: #unique,
-                    has_default: #has_default,
+                    flags: #column_flags_path::from_bits(#flag_bits),
                     dialect: #column_dialect_path::SQLite { autoincrement: #autoincrement },
                 }
             }
@@ -384,14 +388,15 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
         primary_key: quote! { #no_primary_key },
         constraints: quote! { #no_constraint },
     });
-    let sqlite_table_impl = generate_sqlite_table(struct_ident, quote! { false }, quote! { false });
+    let sqlite_table_impl =
+        generate_sqlite_table(struct_ident, &quote! { false }, &quote! { false });
     let view_const_sql = if has_definition_literal {
         // Literal definition: build the entire CREATE VIEW SQL at proc-macro time
-        let sql = format!("CREATE VIEW \"{}\" AS {}", view_name, definition_sql);
+        let sql = format!("CREATE VIEW \"{view_name}\" AS {definition_sql}");
         quote! { #sql }
     } else if let Some(ref select_sql) = query_const_select_sql {
         // Query DSL: build CREATE VIEW using concatcp! with the generated SELECT SQL
-        let create_prefix = format!("CREATE VIEW \"{}\" AS ", view_name);
+        let create_prefix = format!("CREATE VIEW \"{view_name}\" AS ");
         quote! {
             ::drizzle::const_format::concatcp!(#create_prefix, #select_sql)
         }
@@ -400,31 +405,30 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
     };
     let sql_schema_impl = generate_sql_schema(
         struct_ident,
-        quote! { Self::VIEW_NAME },
-        quote! {
+        &quote! { Self::VIEW_NAME },
+        &quote! {
             {
                 #[allow(non_upper_case_globals)]
                 static VIEW_INSTANCE: #struct_ident = #struct_ident::new();
                 #sqlite_schema_type::View(&VIEW_INSTANCE)
             }
         },
-        view_const_sql,
+        &view_const_sql,
     );
     let table_ref = core_paths::table_ref();
     let view_column_names: Vec<&String> = ctx.field_infos.iter().map(|f| &f.column_name).collect();
     let to_sql_impl = generate_to_sql(
         struct_ident,
-        quote! {
+        &quote! {
             #sql::table(#table_ref::sql(Self::VIEW_NAME, &[#(#view_column_names),*]))
         },
     );
 
-    let sql_view_definition = if let Some(definition_expr) = definition_expr.as_ref() {
-        quote! { #sql_to_sql::to_sql(&#definition_expr) }
-    } else {
+    let sql_view_definition = definition_expr.as_ref().map_or_else(
         // Both literal and query definitions use VIEW_DEFINITION_SQL (which is const)
-        quote! { #sql::raw(Self::VIEW_DEFINITION_SQL) }
-    };
+        || quote! { #sql::raw(Self::VIEW_DEFINITION_SQL) },
+        |definition_expr| quote! { #sql_to_sql::to_sql(&#definition_expr) },
+    );
     let sql_view_definition_sql = if definition_expr.is_some() {
         quote! {
             #std_cow::Owned(
@@ -461,7 +465,7 @@ pub fn view_attr_macro(input: DeriveInput, attrs: ViewAttributes) -> Result<Toke
 
     // Generate query API code (relation ZSTs, accessors, FromJsonValue)
     #[cfg(feature = "query")]
-    let query_api_impls = crate::sqlite::table::generate_query_api_impls(&ctx)?;
+    let query_api_impls = crate::sqlite::table::generate_query_api_impls(&ctx);
     #[cfg(not(feature = "query"))]
     let query_api_impls = quote!();
 

@@ -87,6 +87,7 @@ impl TableRef {
     ///
     /// Only `name` and `column_names` are populated; metadata fields use
     /// empty defaults. Use a full struct literal for metadata-carrying refs.
+    #[must_use]
     pub const fn sql(name: &'static str, column_names: &'static [&'static str]) -> Self {
         Self {
             name,
@@ -103,6 +104,68 @@ impl TableRef {
     }
 }
 
+/// Packed column metadata flags for [`ColumnRef`].
+///
+/// Encodes the nullability, primary-key, unique, and has-default bits in a
+/// single byte so that [`ColumnRef`] stays below the "too many bools" threshold
+/// while keeping each bit independently addressable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct ColumnFlags(u8);
+
+impl ColumnFlags {
+    /// Column is declared `NOT NULL`.
+    pub const NOT_NULL: Self = Self(1 << 0);
+    /// Column participates in the table's primary key.
+    pub const PRIMARY_KEY: Self = Self(1 << 1);
+    /// Column has a `UNIQUE` constraint.
+    pub const UNIQUE: Self = Self(1 << 2);
+    /// Column has a `DEFAULT` clause.
+    pub const HAS_DEFAULT: Self = Self(1 << 3);
+
+    /// Returns a flag set with no bits set.
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    /// Reconstructs a flag set from its raw byte representation.
+    #[must_use]
+    pub const fn from_bits(bits: u8) -> Self {
+        Self(bits)
+    }
+
+    /// Returns the raw byte representation.
+    #[must_use]
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+
+    /// Returns `true` when every bit in `other` is set in `self`.
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        (self.0 & other.0) == other.0
+    }
+
+    /// Returns the union of two flag sets.
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+impl core::ops::BitOr for ColumnFlags {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        self.union(rhs)
+    }
+}
+
+impl core::ops::BitOrAssign for ColumnFlags {
+    fn bitor_assign(&mut self, rhs: Self) {
+        *self = self.union(rhs);
+    }
+}
+
 /// Column reference with full schema metadata.
 ///
 /// Carries both the SQL rendering fields (`table`, `name`) and
@@ -116,10 +179,7 @@ pub struct ColumnRef {
 
     // Schema metadata
     pub sql_type: &'static str,
-    pub not_null: bool,
-    pub primary_key: bool,
-    pub unique: bool,
-    pub has_default: bool,
+    pub flags: ColumnFlags,
 
     // Dialect-specific
     pub dialect: ColumnDialect,
@@ -130,34 +190,58 @@ impl ColumnRef {
     ///
     /// Only `table` and `name` are populated; metadata fields
     /// use empty defaults. Use a full struct literal for metadata-carrying refs.
+    #[must_use]
     pub const fn sql(table: &'static str, name: &'static str) -> Self {
         Self {
             table,
             name,
             sql_type: "",
-            not_null: false,
-            primary_key: false,
-            unique: false,
-            has_default: false,
+            flags: ColumnFlags::empty(),
             dialect: ColumnDialect::SQLite {
                 autoincrement: false,
             },
         }
     }
+
+    /// Returns `true` if this column is declared `NOT NULL`.
+    #[must_use]
+    pub const fn not_null(&self) -> bool {
+        self.flags.contains(ColumnFlags::NOT_NULL)
+    }
+
+    /// Returns `true` if this column participates in the primary key.
+    #[must_use]
+    pub const fn primary_key(&self) -> bool {
+        self.flags.contains(ColumnFlags::PRIMARY_KEY)
+    }
+
+    /// Returns `true` if this column has a `UNIQUE` constraint.
+    #[must_use]
+    pub const fn unique(&self) -> bool {
+        self.flags.contains(ColumnFlags::UNIQUE)
+    }
+
+    /// Returns `true` if this column has a `DEFAULT` clause.
+    #[must_use]
+    pub const fn has_default(&self) -> bool {
+        self.flags.contains(ColumnFlags::HAS_DEFAULT)
+    }
 }
 
 // ==================== Identifier quoting ====================
 
-/// Writes a SQL identifier enclosed in double quotes, doubling any embedded
-/// `"` characters to prevent identifier-injection (CWE-89). Both PostgreSQL
-/// and SQLite accept `"..."` as a delimited identifier and treat `""` as an
-/// escaped double-quote character inside such an identifier.
+/// Writes a SQL identifier enclosed in double quotes.
+///
+/// Any embedded `"` characters are doubled to prevent identifier-injection
+/// (CWE-89). Both `PostgreSQL` and `SQLite` accept `"..."` as a delimited
+/// identifier and treat `""` as an escaped double-quote character inside
+/// such an identifier.
 ///
 /// Fast path: identifiers with no embedded `"` are written with three calls
 /// (open quote, name, close quote). Only identifiers containing a `"` take
 /// the character-by-character escaping path.
 #[inline]
-pub(crate) fn write_quoted_ident(buf: &mut impl core::fmt::Write, name: &str) {
+pub fn write_quoted_ident(buf: &mut impl core::fmt::Write, name: &str) {
     let _ = buf.write_char('"');
     if name.contains('"') {
         for ch in name.chars() {
@@ -179,7 +263,7 @@ pub(crate) fn write_quoted_ident(buf: &mut impl core::fmt::Write, name: &str) {
 ///
 /// Each variant has a clear semantic purpose:
 /// - `Token` - SQL keywords and operators (SELECT, FROM, =, etc.)
-/// - `Ident` - Quoted identifiers ("table_name", "column_name")
+/// - `Ident` - Quoted identifiers ("`table_name`", "`column_name`")
 /// - `Raw` - Unquoted raw SQL text (function names, expressions)
 /// - `Param` - Parameter placeholders with values
 /// - `Table` - Table reference via `TableRef`
@@ -211,12 +295,12 @@ pub enum SQLChunk<'a, V: SQLParam> {
     Param(Param<'a, V>),
 
     /// Table reference with static name and column names.
-    /// Renders as: "table_name"
+    /// Renders as: "`table_name`"
     /// Column names used for SELECT * expansion.
     Table(TableRef),
 
     /// Column reference with static table and column names.
-    /// Renders as: "table_name"."column_name"
+    /// Renders as: "`table_name"."column_name`"
     Column(ColumnRef),
 }
 
@@ -225,30 +309,35 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
 
     /// Creates a token chunk - const
     #[inline]
+    #[must_use]
     pub const fn token(t: Token) -> Self {
         Self::Token(t)
     }
 
     /// Creates a quoted identifier from a static string - const
     #[inline]
+    #[must_use]
     pub const fn ident_static(name: &'static str) -> Self {
         Self::Ident(Cow::Borrowed(name))
     }
 
     /// Creates raw SQL text from a static string - const
     #[inline]
+    #[must_use]
     pub const fn raw_static(text: &'static str) -> Self {
         Self::Raw(Cow::Borrowed(text))
     }
 
     /// Creates a table chunk - const
     #[inline]
+    #[must_use]
     pub const fn table(table: TableRef) -> Self {
         Self::Table(table)
     }
 
     /// Creates a column chunk - const
     #[inline]
+    #[must_use]
     pub const fn column(column: ColumnRef) -> Self {
         Self::Column(column)
     }
@@ -278,6 +367,7 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
 
     /// Creates an unsigned integer SQL literal chunk.
     #[inline]
+    #[must_use]
     pub const fn number(value: usize) -> Self {
         Self::Number(value)
     }
@@ -306,10 +396,10 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
                 let _ = buf.write_str(text);
             }
             SQLChunk::Number(value) => {
-                let _ = write!(buf, "{}", value);
+                let _ = write!(buf, "{value}");
             }
             SQLChunk::Param(Param { placeholder, .. }) => {
-                let _ = write!(buf, "{}", placeholder);
+                let _ = write!(buf, "{placeholder}");
             }
             SQLChunk::Table(t) => {
                 write_quoted_ident(buf, t.name);
@@ -337,7 +427,7 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
     }
 }
 
-impl<'a, V: SQLParam + core::fmt::Debug> core::fmt::Debug for SQLChunk<'a, V> {
+impl<V: SQLParam + core::fmt::Debug> core::fmt::Debug for SQLChunk<'_, V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             SQLChunk::Token(token) => f.debug_tuple("Token").field(token).finish(),
@@ -356,21 +446,21 @@ impl<'a, V: SQLParam + core::fmt::Debug> core::fmt::Debug for SQLChunk<'a, V> {
 
 // ==================== From implementations ====================
 
-impl<'a, V: SQLParam> From<Token> for SQLChunk<'a, V> {
+impl<V: SQLParam> From<Token> for SQLChunk<'_, V> {
     #[inline]
     fn from(value: Token) -> Self {
         Self::Token(value)
     }
 }
 
-impl<'a, V: SQLParam> From<TableRef> for SQLChunk<'a, V> {
+impl<V: SQLParam> From<TableRef> for SQLChunk<'_, V> {
     #[inline]
     fn from(value: TableRef) -> Self {
         Self::Table(value)
     }
 }
 
-impl<'a, V: SQLParam> From<ColumnRef> for SQLChunk<'a, V> {
+impl<V: SQLParam> From<ColumnRef> for SQLChunk<'_, V> {
     #[inline]
     fn from(value: ColumnRef) -> Self {
         Self::Column(value)

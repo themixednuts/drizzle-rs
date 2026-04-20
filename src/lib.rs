@@ -135,9 +135,9 @@ pub mod core {
     /// SQL building blocks.
     #[doc(inline)]
     pub use drizzle_core::{
-        ColumnDialect, ColumnRef, ConstraintRef, ForeignKeyRef, OrderBy, Param, ParamBind,
-        ParamSet, PrimaryKeyRef, SQL, SQLChunk, TableDialect, TableRef, Token, TypedPlaceholder,
-        asc, desc,
+        ColumnDialect, ColumnFlags, ColumnRef, ConstraintRef, ForeignKeyRef, OrderBy, Param,
+        ParamBind, ParamSet, PrimaryKeyRef, SQL, SQLChunk, TableDialect, TableRef, Token,
+        TypedPlaceholder, asc, desc,
     };
 
     /// Conversion trait for SQL generation.

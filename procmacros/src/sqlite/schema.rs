@@ -4,8 +4,8 @@ use quote::quote;
 use std::collections::HashSet;
 use syn::{Data, DeriveInput, Fields, Result};
 
-/// Generates the SQLite Schema derive implementation
-pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStream> {
+/// Generates the `SQLite` Schema derive implementation
+pub fn generate_sqlite_schema_derive_impl(input: &DeriveInput) -> Result<TokenStream> {
     let struct_name = &input.ident;
 
     // Get paths for fully-qualified types
@@ -23,14 +23,14 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
             Fields::Named(named_fields) => &named_fields.named,
             _ => {
                 return Err(syn::Error::new_spanned(
-                    &input,
+                    input,
                     "#[derive(SQLiteSchema)] requires a struct with named fields",
                 ));
             }
         },
         _ => {
             return Err(syn::Error::new_spanned(
-                &input,
+                input,
                 "#[derive(SQLiteSchema)] can only be applied to structs",
             ));
         }
@@ -188,7 +188,7 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
                                     col.name,
                                     col.sql_type,
                                 );
-                                if col.not_null {
+                                if col.not_null() {
                                     column = column.not_null();
                                 }
                                 if let drizzle::core::ColumnDialect::SQLite { autoincrement: true } = col.dialect {
@@ -197,7 +197,7 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
                                 snapshot.add_entity(MigEntity::Column(column));
 
                                 // Add primary key entity if this is a primary key column
-                                if col.primary_key {
+                                if col.primary_key() {
                                     snapshot.add_entity(MigEntity::PrimaryKey(MigPrimaryKey::from_strings(
                                         table_name.to_string(),
                                         ::std::format!("{}_pk", table_name),
@@ -206,7 +206,7 @@ pub fn generate_sqlite_schema_derive_impl(input: DeriveInput) -> Result<TokenStr
                                 }
 
                                 // Add unique constraint entity if this column is unique
-                                if col.unique {
+                                if col.unique() {
                                     snapshot.add_entity(MigEntity::UniqueConstraint(MigUniqueConstraint::from_strings(
                                         table_name.to_string(),
                                         ::std::format!("{}_{}_unique", table_name, col.name),
