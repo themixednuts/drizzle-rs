@@ -11,7 +11,7 @@ pub fn infer_generator(col: &ColumnRef) -> GeneratorKind {
     let sql_type = col.sql_type.to_uppercase();
 
     // Primary key auto-increment
-    if col.primary_key && is_integer_type(&sql_type) {
+    if col.primary_key() && is_integer_type(&sql_type) {
         return GeneratorKind::IntPrimaryKey;
     }
 

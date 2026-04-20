@@ -21,7 +21,7 @@ fn append_sql<'a>(
 // Type State Markers
 //------------------------------------------------------------------------------
 
-/// Marker for the initial state of UpdateBuilder
+/// Marker for the initial state of `UpdateBuilder`
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UpdateInitial;
 
@@ -46,7 +46,7 @@ impl ExecutableState for UpdateReturningSet {}
 // UpdateBuilder Definition
 //------------------------------------------------------------------------------
 
-/// Builds an UPDATE query specifically for SQLite.
+/// Builds an UPDATE query specifically for `SQLite`.
 ///
 /// `UpdateBuilder` provides a type-safe, fluent API for constructing UPDATE statements
 /// with support for conditional updates, returning clauses, and precise column targeting.
@@ -256,7 +256,8 @@ where
         self,
         values: Table::Update,
     ) -> UpdateBuilder<'a, Schema, UpdateSetClauseSet, Table> {
-        let sql = crate::helpers::set::<'a, Table, SQLiteSchemaType, SQLiteValue<'a>>(values);
+        let sql = crate::helpers::set::<Table, SQLiteSchemaType, SQLiteValue<'a>>(&values);
+        drop(values);
         UpdateBuilder {
             sql: append_sql(self.sql, sql),
             schema: PhantomData,
@@ -339,7 +340,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
         }
     }
 
-    /// Adds a RETURNING clause and transitions to the ReturningSet state
+    /// Adds a RETURNING clause and transitions to the `ReturningSet` state
     #[inline]
     pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
     where

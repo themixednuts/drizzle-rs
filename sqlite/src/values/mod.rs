@@ -1,4 +1,4 @@
-//! SQLite value types and conversions
+//! `SQLite` value types and conversions
 //!
 //! This module contains the core `SQLiteValue` type and all its conversions.
 
@@ -20,7 +20,7 @@ use drizzle_core::{dialect::Dialect, error::DrizzleError, sql::SQL, traits::SQLP
 // SQLiteValue Definition
 //------------------------------------------------------------------------------
 
-/// Represents a SQLite value
+/// Represents a `SQLite` value
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub enum SQLiteValue<'a> {
     /// Integer value (i64)
@@ -36,15 +36,17 @@ pub enum SQLiteValue<'a> {
     Null,
 }
 
-impl<'a> SQLiteValue<'a> {
+impl SQLiteValue<'_> {
     /// Returns true if this value is NULL.
     #[inline]
+    #[must_use]
     pub const fn is_null(&self) -> bool {
         matches!(self, SQLiteValue::Null)
     }
 
     /// Returns the integer value if this is an INTEGER.
     #[inline]
+    #[must_use]
     pub const fn as_i64(&self) -> Option<i64> {
         match self {
             SQLiteValue::Integer(value) => Some(*value),
@@ -54,6 +56,7 @@ impl<'a> SQLiteValue<'a> {
 
     /// Returns the real value if this is a REAL.
     #[inline]
+    #[must_use]
     pub const fn as_f64(&self) -> Option<f64> {
         match self {
             SQLiteValue::Real(value) => Some(*value),
@@ -63,6 +66,7 @@ impl<'a> SQLiteValue<'a> {
 
     /// Returns the text value if this is TEXT.
     #[inline]
+    #[must_use]
     pub fn as_str(&self) -> Option<&str> {
         match self {
             SQLiteValue::Text(value) => Some(value.as_ref()),
@@ -72,6 +76,7 @@ impl<'a> SQLiteValue<'a> {
 
     /// Returns the blob value if this is BLOB.
     #[inline]
+    #[must_use]
     pub fn as_bytes(&self) -> Option<&[u8]> {
         match self {
             SQLiteValue::Blob(value) => Some(value.as_ref()),
@@ -81,14 +86,20 @@ impl<'a> SQLiteValue<'a> {
 
     /// Converts this value into an owned representation.
     #[inline]
+    #[must_use]
     pub fn into_owned(self) -> OwnedSQLiteValue {
         self.into()
     }
 
-    /// Convert this SQLite value to a Rust type using the `FromSQLiteValue` trait.
+    /// Convert this `SQLite` value to a Rust type using the `FromSQLiteValue` trait.
     ///
     /// This provides a unified conversion interface for all types that implement
     /// `FromSQLiteValue`, including primitives and enum types.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ConversionError`] when the stored variant cannot
+    /// be decoded into `T`.
     ///
     /// # Example
     /// ```rust
@@ -107,7 +118,12 @@ impl<'a> SQLiteValue<'a> {
         }
     }
 
-    /// Convert a reference to this SQLite value to a Rust type.
+    /// Convert a reference to this `SQLite` value to a Rust type.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ConversionError`] when the stored variant cannot
+    /// be decoded into `T`.
     pub fn convert_ref<T: FromSQLiteValue>(&self) -> Result<T, DrizzleError> {
         match self {
             SQLiteValue::Integer(i) => T::from_sqlite_integer(*i),
@@ -119,7 +135,7 @@ impl<'a> SQLiteValue<'a> {
     }
 }
 
-impl<'a> core::fmt::Display for SQLiteValue<'a> {
+impl core::fmt::Display for SQLiteValue<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = match self {
             SQLiteValue::Integer(i) => i.to_string(),
@@ -133,7 +149,7 @@ impl<'a> core::fmt::Display for SQLiteValue<'a> {
 }
 
 // Implement core traits required by Drizzle
-impl<'a> SQLParam for SQLiteValue<'a> {
+impl SQLParam for SQLiteValue<'_> {
     const DIALECT: Dialect = Dialect::SQLite;
     type DialectMarker = drizzle_core::dialect::SQLiteDialect;
 }
@@ -144,7 +160,7 @@ impl<'a> From<SQLiteValue<'a>> for SQL<'a, SQLiteValue<'a>> {
     }
 }
 
-impl<'a> FromIterator<OwnedSQLiteValue> for Vec<SQLiteValue<'a>> {
+impl FromIterator<OwnedSQLiteValue> for Vec<SQLiteValue<'_>> {
     fn from_iter<T: IntoIterator<Item = OwnedSQLiteValue>>(iter: T) -> Self {
         iter.into_iter().map(SQLiteValue::from).collect()
     }

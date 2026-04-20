@@ -1,14 +1,14 @@
-//! libsql field assignment generation for FromRow derive.
+//! libsql field assignment generation for `FromRow` derive.
 //!
-//! Uses the shared DrizzleRow::get_column infrastructure for unified type conversion.
+//! Uses the shared `DrizzleRow::get_column` infrastructure for unified type conversion.
 
 use super::shared::{self, DriverJsonAccessor};
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Field, Result};
+use syn::Field;
 
 /// libsql-specific JSON accessor configuration
-pub(crate) struct LibsqlDriver;
+pub struct LibsqlDriver;
 
 impl DriverJsonAccessor for LibsqlDriver {
     fn json_accessor(idx: TokenStream) -> TokenStream {
@@ -30,19 +30,19 @@ impl DriverJsonAccessor for LibsqlDriver {
     }
 }
 
-/// Generate libsql field assignment for FromRow derive
-pub(crate) fn generate_field_assignment(
+/// Generate libsql field assignment for `FromRow` derive
+pub fn generate_field_assignment(
     idx: usize,
     field: &Field,
     field_name: Option<&syn::Ident>,
-) -> Result<TokenStream> {
+) -> TokenStream {
     shared::generate_field_assignment::<LibsqlDriver>(idx, field, field_name)
 }
 
-pub(crate) fn generate_field_assignment_with_index_expr(
+pub fn generate_field_assignment_with_index_expr(
     idx_expr: TokenStream,
     field: &Field,
     field_name: Option<&syn::Ident>,
-) -> Result<TokenStream> {
+) -> TokenStream {
     shared::generate_field_assignment_with_index::<LibsqlDriver>(idx_expr, field, field_name)
 }

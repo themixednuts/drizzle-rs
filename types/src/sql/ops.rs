@@ -25,8 +25,8 @@ pub trait ArithmeticOutput<Rhs: Numeric = Self>: Numeric {
 use crate::sqlite::types::{Integer, Numeric as SqliteNumeric, Real};
 
 // Integer op Integer → Integer
-impl ArithmeticOutput<Integer> for Integer {
-    type Output = Integer;
+impl ArithmeticOutput<Self> for Integer {
+    type Output = Self;
 }
 // Integer op Real → Real (widens to float)
 impl ArithmeticOutput<Real> for Integer {
@@ -39,44 +39,44 @@ impl ArithmeticOutput<SqliteNumeric> for Integer {
 
 // Real op Integer → Real
 impl ArithmeticOutput<Integer> for Real {
-    type Output = Real;
+    type Output = Self;
 }
 // Real op Real → Real
-impl ArithmeticOutput<Real> for Real {
-    type Output = Real;
+impl ArithmeticOutput<Self> for Real {
+    type Output = Self;
 }
 // Real op Numeric → Real
 impl ArithmeticOutput<SqliteNumeric> for Real {
-    type Output = Real;
+    type Output = Self;
 }
 
 // Numeric op Integer → Numeric
 impl ArithmeticOutput<Integer> for SqliteNumeric {
-    type Output = SqliteNumeric;
+    type Output = Self;
 }
 // Numeric op Real → Real (widens to float)
 impl ArithmeticOutput<Real> for SqliteNumeric {
     type Output = Real;
 }
 // Numeric op Numeric → Numeric
-impl ArithmeticOutput<SqliteNumeric> for SqliteNumeric {
-    type Output = SqliteNumeric;
+impl ArithmeticOutput<Self> for SqliteNumeric {
+    type Output = Self;
 }
 
 // SQLite Any ↔ all SQLite numeric types
 use crate::sqlite::types::Any as SqliteAny;
 
-impl ArithmeticOutput<SqliteAny> for SqliteAny {
-    type Output = SqliteAny;
+impl ArithmeticOutput<Self> for SqliteAny {
+    type Output = Self;
 }
 impl ArithmeticOutput<Integer> for SqliteAny {
-    type Output = SqliteAny;
+    type Output = Self;
 }
 impl ArithmeticOutput<Real> for SqliteAny {
-    type Output = SqliteAny;
+    type Output = Self;
 }
 impl ArithmeticOutput<SqliteNumeric> for SqliteAny {
-    type Output = SqliteAny;
+    type Output = Self;
 }
 impl ArithmeticOutput<SqliteAny> for Integer {
     type Output = SqliteAny;
@@ -101,7 +101,7 @@ impl ArithmeticOutput<SqliteAny> for SqliteNumeric {
 
 use crate::postgres::types::{Float4, Float8, Int2, Int4, Int8, Numeric as PgNumeric};
 
-/// Helper macro: generates ArithmeticOutput impls for a pair of PG types.
+/// Helper macro: generates `ArithmeticOutput` impls for a pair of PG types.
 /// `wider!(A, B => W)` means A op B → W.
 macro_rules! pg_arith {
     ($lhs:ty, $rhs:ty => $out:ty) => {

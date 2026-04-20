@@ -24,7 +24,7 @@ pub trait NullableBindValue<'a, V: SQLParam, Expected: DataType>: Sized {
     fn into_nullable_bind_value(self) -> V;
 }
 
-impl<'a, V, Expected, T> BindValue<'a, V, Expected> for T
+impl<V, Expected, T> BindValue<'_, V, Expected> for T
 where
     V: SQLParam + From<T>,
     Expected: DataType + Assignable<<T as ValueTypeForDialect<V::DialectMarker>>::SQLType>,
@@ -35,9 +35,9 @@ where
     }
 }
 
-impl<'a, V, Expected, T> NullableBindValue<'a, V, Expected> for Option<T>
+impl<V, Expected, T> NullableBindValue<'_, V, Expected> for Option<T>
 where
-    V: SQLParam + From<Option<T>>,
+    V: SQLParam + From<Self>,
     Expected: DataType + Assignable<<T as ValueTypeForDialect<V::DialectMarker>>::SQLType>,
     T: ValueTypeForDialect<V::DialectMarker>,
 {
@@ -71,7 +71,7 @@ impl ValueTypeForDialect<SQLiteDialect> for &str {
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl<'a> ValueTypeForDialect<SQLiteDialect> for Cow<'a, str> {
+impl ValueTypeForDialect<SQLiteDialect> for Cow<'_, str> {
     type SQLType = drizzle_types::sqlite::types::Text;
 }
 
@@ -124,7 +124,7 @@ impl ValueTypeForDialect<SQLiteDialect> for &[u8] {
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl<'a> ValueTypeForDialect<SQLiteDialect> for Cow<'a, [u8]> {
+impl ValueTypeForDialect<SQLiteDialect> for Cow<'_, [u8]> {
     type SQLType = drizzle_types::sqlite::types::Blob;
 }
 
@@ -235,7 +235,7 @@ impl ValueTypeForDialect<PostgresDialect> for &str {
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl<'a> ValueTypeForDialect<PostgresDialect> for Cow<'a, str> {
+impl ValueTypeForDialect<PostgresDialect> for Cow<'_, str> {
     type SQLType = drizzle_types::postgres::types::Text;
 }
 
@@ -289,7 +289,7 @@ impl ValueTypeForDialect<PostgresDialect> for &[u8] {
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl<'a> ValueTypeForDialect<PostgresDialect> for Cow<'a, [u8]> {
+impl ValueTypeForDialect<PostgresDialect> for Cow<'_, [u8]> {
     type SQLType = drizzle_types::postgres::types::Bytea;
 }
 

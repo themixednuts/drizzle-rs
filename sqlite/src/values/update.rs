@@ -1,4 +1,4 @@
-//! Update value types for SQLite.
+//! Update value types for `SQLite`.
 //!
 //! Each field in an UPDATE operation can be skipped (left unchanged),
 //! set to NULL, or set to a value or expression.
@@ -23,9 +23,9 @@ pub enum SQLiteUpdateValue<'a, V: SQLParam, T> {
     Value(ValueWrapper<'a, V, T>),
 }
 
-impl<'a, V: SQLParam, T> SQLiteUpdateValue<'a, V, T> {
+impl<V: SQLParam, T> SQLiteUpdateValue<'_, V, T> {
     /// Returns true if this is `Skip`
-    pub fn is_skip(&self) -> bool {
+    pub const fn is_skip(&self) -> bool {
         matches!(self, Self::Skip)
     }
 }
@@ -33,15 +33,16 @@ impl<'a, V: SQLParam, T> SQLiteUpdateValue<'a, V, T> {
 // Generic conversion from any type T that can convert to SQLiteValue
 impl<'a, T, U> From<T> for SQLiteUpdateValue<'a, SQLiteValue<'a>, U>
 where
-    T: TryInto<SQLiteValue<'a>>,
-    T: TryInto<U>,
+    T: TryInto<SQLiteValue<'a>> + TryInto<U>,
     U: TryInto<SQLiteValue<'a>>,
 {
     fn from(value: T) -> Self {
         let sql = TryInto::<U>::try_into(value)
             .map(|v| v.try_into().unwrap_or_default())
-            .map(|v: SQLiteValue<'a>| SQL::from(v))
-            .unwrap_or_else(|_| SQL::from(SQLiteValue::Null));
+            .map_or_else(
+                |_| SQL::from(SQLiteValue::Null),
+                |v: SQLiteValue<'a>| SQL::from(v),
+            );
         SQLiteUpdateValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(sql))
     }
 }

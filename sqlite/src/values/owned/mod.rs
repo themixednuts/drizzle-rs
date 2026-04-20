@@ -1,4 +1,4 @@
-//! Owned SQLite value type and implementations
+//! Owned `SQLite` value type and implementations
 
 mod conversions;
 mod drivers;
@@ -8,7 +8,7 @@ use crate::prelude::*;
 use crate::traits::FromSQLiteValue;
 use drizzle_core::{error::DrizzleError, sql::SQL, traits::SQLParam};
 
-/// Represents a SQLite value (owned version)
+/// Represents a `SQLite` value (owned version)
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub enum OwnedSQLiteValue {
     /// Integer value (i64)
@@ -27,80 +27,96 @@ pub enum OwnedSQLiteValue {
 impl OwnedSQLiteValue {
     /// Returns true if this value is NULL.
     #[inline]
+    #[must_use]
     pub const fn is_null(&self) -> bool {
-        matches!(self, OwnedSQLiteValue::Null)
+        matches!(self, Self::Null)
     }
 
     /// Returns the integer value if this is an INTEGER.
     #[inline]
+    #[must_use]
     pub const fn as_i64(&self) -> Option<i64> {
         match self {
-            OwnedSQLiteValue::Integer(value) => Some(*value),
+            Self::Integer(value) => Some(*value),
             _ => None,
         }
     }
 
     /// Returns the real value if this is a REAL.
     #[inline]
+    #[must_use]
     pub const fn as_f64(&self) -> Option<f64> {
         match self {
-            OwnedSQLiteValue::Real(value) => Some(*value),
+            Self::Real(value) => Some(*value),
             _ => None,
         }
     }
 
     /// Returns the text value if this is TEXT.
     #[inline]
-    pub fn as_str(&self) -> Option<&str> {
+    #[must_use]
+    pub const fn as_str(&self) -> Option<&str> {
         match self {
-            OwnedSQLiteValue::Text(value) => Some(value.as_str()),
+            Self::Text(value) => Some(value.as_str()),
             _ => None,
         }
     }
 
     /// Returns the blob value if this is BLOB.
     #[inline]
+    #[must_use]
     pub fn as_bytes(&self) -> Option<&[u8]> {
         match self {
-            OwnedSQLiteValue::Blob(value) => Some(value.as_ref()),
+            Self::Blob(value) => Some(value.as_ref()),
             _ => None,
         }
     }
 
-    /// Returns a borrowed SQLiteValue view of this owned value.
+    /// Returns a borrowed `SQLiteValue` view of this owned value.
     #[inline]
+    #[must_use]
     pub fn as_value(&self) -> SQLiteValue<'_> {
         match self {
-            OwnedSQLiteValue::Integer(value) => SQLiteValue::Integer(*value),
-            OwnedSQLiteValue::Real(value) => SQLiteValue::Real(*value),
-            OwnedSQLiteValue::Text(value) => SQLiteValue::Text(Cow::Borrowed(value)),
-            OwnedSQLiteValue::Blob(value) => SQLiteValue::Blob(Cow::Borrowed(value)),
-            OwnedSQLiteValue::Null => SQLiteValue::Null,
+            Self::Integer(value) => SQLiteValue::Integer(*value),
+            Self::Real(value) => SQLiteValue::Real(*value),
+            Self::Text(value) => SQLiteValue::Text(Cow::Borrowed(value)),
+            Self::Blob(value) => SQLiteValue::Blob(Cow::Borrowed(value)),
+            Self::Null => SQLiteValue::Null,
         }
     }
 
-    /// Convert this SQLite value to a Rust type using the `FromSQLiteValue` trait.
+    /// Convert this `SQLite` value to a Rust type using the `FromSQLiteValue` trait.
     ///
     /// This provides a unified conversion interface for all types that implement
     /// `FromSQLiteValue`, including primitives and enum types.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ConversionError`] when the stored variant cannot
+    /// be decoded into `T`.
     pub fn convert<T: FromSQLiteValue>(self) -> Result<T, DrizzleError> {
         match self {
-            OwnedSQLiteValue::Integer(i) => T::from_sqlite_integer(i),
-            OwnedSQLiteValue::Text(s) => T::from_sqlite_text(&s),
-            OwnedSQLiteValue::Real(r) => T::from_sqlite_real(r),
-            OwnedSQLiteValue::Blob(b) => T::from_sqlite_blob(&b),
-            OwnedSQLiteValue::Null => T::from_sqlite_null(),
+            Self::Integer(i) => T::from_sqlite_integer(i),
+            Self::Text(s) => T::from_sqlite_text(&s),
+            Self::Real(r) => T::from_sqlite_real(r),
+            Self::Blob(b) => T::from_sqlite_blob(&b),
+            Self::Null => T::from_sqlite_null(),
         }
     }
 
-    /// Convert a reference to this SQLite value to a Rust type.
+    /// Convert a reference to this `SQLite` value to a Rust type.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ConversionError`] when the stored variant cannot
+    /// be decoded into `T`.
     pub fn convert_ref<T: FromSQLiteValue>(&self) -> Result<T, DrizzleError> {
         match self {
-            OwnedSQLiteValue::Integer(i) => T::from_sqlite_integer(*i),
-            OwnedSQLiteValue::Text(s) => T::from_sqlite_text(s),
-            OwnedSQLiteValue::Real(r) => T::from_sqlite_real(*r),
-            OwnedSQLiteValue::Blob(b) => T::from_sqlite_blob(b),
-            OwnedSQLiteValue::Null => T::from_sqlite_null(),
+            Self::Integer(i) => T::from_sqlite_integer(*i),
+            Self::Text(s) => T::from_sqlite_text(s),
+            Self::Real(r) => T::from_sqlite_real(*r),
+            Self::Blob(b) => T::from_sqlite_blob(b),
+            Self::Null => T::from_sqlite_null(),
         }
     }
 }
@@ -108,11 +124,11 @@ impl OwnedSQLiteValue {
 impl core::fmt::Display for OwnedSQLiteValue {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = match self {
-            OwnedSQLiteValue::Integer(i) => i.to_string(),
-            OwnedSQLiteValue::Real(r) => r.to_string(),
-            OwnedSQLiteValue::Text(s) => s.clone(),
-            OwnedSQLiteValue::Blob(b) => String::from_utf8_lossy(b).to_string(),
-            OwnedSQLiteValue::Null => String::new(),
+            Self::Integer(i) => i.to_string(),
+            Self::Real(r) => r.to_string(),
+            Self::Text(s) => s.clone(),
+            Self::Blob(b) => String::from_utf8_lossy(b).to_string(),
+            Self::Null => String::new(),
         };
         write!(f, "{value}")
     }
@@ -155,7 +171,7 @@ impl SQLParam for OwnedSQLiteValue {
     type DialectMarker = drizzle_core::dialect::SQLiteDialect;
 }
 
-impl<'a> From<OwnedSQLiteValue> for SQL<'a, OwnedSQLiteValue> {
+impl From<OwnedSQLiteValue> for SQL<'_, OwnedSQLiteValue> {
     fn from(value: OwnedSQLiteValue) -> Self {
         SQL::param(value)
     }

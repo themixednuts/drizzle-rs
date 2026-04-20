@@ -57,11 +57,11 @@ use drizzle_postgres::values::{OwnedPostgresValue, PostgresValue};
 // Dialect marker types — encode the target database in the type system
 // ---------------------------------------------------------------------------
 
-/// SQLite dialect marker for type-safe seeder configuration.
+/// `SQLite` dialect marker for type-safe seeder configuration.
 #[cfg(feature = "sqlite")]
 pub struct Sqlite;
 
-/// PostgreSQL dialect marker for type-safe seeder configuration.
+/// `PostgreSQL` dialect marker for type-safe seeder configuration.
 #[cfg(feature = "postgres")]
 pub struct Postgres;
 
@@ -71,7 +71,10 @@ pub struct Postgres;
 
 mod statement {
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
-    use super::*;
+    use super::{
+        Cow, OwnedPostgresValue, OwnedSQL, OwnedSQLiteValue, Param, PostgresValue, SQL, SQLChunk,
+        SQLiteValue, ToSQL,
+    };
 
     // Generic OwnedSQL → SQL conversion (borrowing)
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
@@ -217,7 +220,7 @@ impl<'a, D, S> Seeder<'a, D, S>
 where
     S: drizzle_core::SQLSchemaImpl,
 {
-    fn new(config: &'a SeedConfig<'a, D, S>) -> Self {
+    const fn new(config: &'a SeedConfig<'a, D, S>) -> Self {
         Self { config }
     }
 
@@ -273,7 +276,7 @@ where
                     row.push(val);
                 }
 
-                self.apply_many_to_one_relations(
+                Self::apply_many_to_one_relations(
                     &mut row,
                     &col_index_map,
                     &relation_specs,
@@ -367,7 +370,7 @@ where
                     return kind.into_generator();
                 }
 
-                if col.has_default && !col.primary_key {
+                if col.has_default() && !col.primary_key() {
                     return Box::new(DefaultGen);
                 }
 
@@ -399,7 +402,6 @@ where
     }
 
     fn apply_many_to_one_relations(
-        &self,
         row: &mut [SeedValue],
         col_index_map: &HashMap<&str, usize>,
         relation_specs: &[RelationSpec],
@@ -417,7 +419,7 @@ where
                 .and_then(|first_ref| {
                     generated_values
                         .get(&(rel.target_table, first_ref))
-                        .map(|vals| vals.len())
+                        .map(std::vec::Vec::len)
                 })
                 .unwrap_or(0);
 
@@ -563,11 +565,7 @@ fn seed_value_to_sqlite_sql(value: &SeedValue) -> SQL<'static, OwnedSQLiteValue>
         SeedValue::Integer(v) => SQL::param(Cow::Owned(OwnedSQLiteValue::Integer(*v))),
         SeedValue::Float(v) => SQL::param(Cow::Owned(OwnedSQLiteValue::Real(*v))),
         SeedValue::Text(v) => SQL::param(Cow::Owned(OwnedSQLiteValue::Text(v.clone()))),
-        SeedValue::Bool(v) => SQL::param(Cow::Owned(OwnedSQLiteValue::Integer(if *v {
-            1
-        } else {
-            0
-        }))),
+        SeedValue::Bool(v) => SQL::param(Cow::Owned(OwnedSQLiteValue::Integer(i64::from(*v)))),
         SeedValue::Blob(v) => SQL::param(Cow::Owned(OwnedSQLiteValue::Blob(
             v.clone().into_boxed_slice(),
         ))),
@@ -599,9 +597,13 @@ fn seed_value_to_postgres_sql(
         SeedValue::Integer(v) => {
             let ty = normalize_pg_type(col.sql_type);
             let owned = if ty.contains("SMALLINT") {
-                OwnedPostgresValue::Smallint((*v).clamp(i16::MIN as i64, i16::MAX as i64) as i16)
+                let clamped = (*v).clamp(i64::from(i16::MIN), i64::from(i16::MAX));
+                // Clamp guarantees the value fits in i16, so try_from cannot fail.
+                OwnedPostgresValue::Smallint(i16::try_from(clamped).unwrap_or(0))
             } else if ty.contains("INT") || ty.contains("SERIAL") {
-                OwnedPostgresValue::Integer((*v).clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+                let clamped = (*v).clamp(i64::from(i32::MIN), i64::from(i32::MAX));
+                // Clamp guarantees the value fits in i32, so try_from cannot fail.
+                OwnedPostgresValue::Integer(i32::try_from(clamped).unwrap_or(0))
             } else {
                 OwnedPostgresValue::Bigint(*v)
             };
@@ -708,14 +710,18 @@ where
         sql_type: &str,
     ) -> SeedValue {
         // Create a temporary ColumnRef for inference
+        let mut flags = drizzle_core::ColumnFlags::empty();
+        if self.is_primary_key() {
+            flags |= drizzle_core::ColumnFlags::PRIMARY_KEY;
+        }
+        if self.has_default() {
+            flags |= drizzle_core::ColumnFlags::HAS_DEFAULT;
+        }
         let col_ref = ColumnRef {
             table: "",
             name: self.name(),
             sql_type: self.r#type(),
-            not_null: false,
-            primary_key: self.is_primary_key(),
-            unique: false,
-            has_default: self.has_default(),
+            flags,
             dialect: drizzle_core::ColumnDialect::SQLite {
                 autoincrement: false,
             },

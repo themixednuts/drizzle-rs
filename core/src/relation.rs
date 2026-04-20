@@ -48,6 +48,7 @@ pub trait RelationDef: private::Sealed + 'static {
     /// Returns `None` for direct FK relations. When `Some`, the SQL generator
     /// emits an `INNER JOIN` through the junction table instead of a direct
     /// FK correlation.
+    #[must_use]
     fn junction() -> Option<JunctionMeta> {
         None
     }
@@ -77,11 +78,11 @@ pub struct OptionalOne;
 #[cfg(feature = "query")]
 #[derive(Debug, Clone, Copy)]
 pub struct JunctionMeta {
-    /// Junction table name (e.g., "post_categories").
+    /// Junction table name (e.g., "`post_categories`").
     pub table_name: &'static str,
-    /// (junction_col, source_col) — WHERE correlation with parent row.
+    /// (`junction_col`, `source_col`) — WHERE correlation with parent row.
     pub source_fk: &'static [(&'static str, &'static str)],
-    /// (junction_col, target_col) — INNER JOIN with target table.
+    /// (`junction_col`, `target_col`) — INNER JOIN with target table.
     pub target_fk: &'static [(&'static str, &'static str)],
 }
 

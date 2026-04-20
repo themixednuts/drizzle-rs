@@ -1,4 +1,4 @@
-//! SQLite DDL collection - entity storage and management
+//! `SQLite` DDL collection - entity storage and management
 //!
 //! This implements the DDL collection pattern from drizzle-kit beta,
 //! providing typed access to schema entities with push/list/one/update/delete operations.
@@ -33,7 +33,8 @@ impl<T> Default for EntityCollection<T> {
 
 impl<T> EntityCollection<T> {
     /// Create empty collection
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             entities: Vec::new(),
         }
@@ -46,28 +47,32 @@ impl<T> EntityCollection<T> {
     }
 
     /// List all entities matching filter
+    #[must_use]
     pub fn list(&self) -> &[T] {
         &self.entities
     }
 
     /// Get mutable access to entities
-    pub fn list_mut(&mut self) -> &mut Vec<T> {
+    pub const fn list_mut(&mut self) -> &mut Vec<T> {
         &mut self.entities
     }
 
     /// Check if empty
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.entities.is_empty()
     }
 
     /// Get count
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.entities.len()
     }
 }
 
 impl<T: Clone> EntityCollection<T> {
     /// Convert to Vec
+    #[must_use]
     pub fn into_vec(self) -> Vec<T> {
         self.entities
     }
@@ -78,7 +83,7 @@ impl<T: Clone> EntityCollection<T> {
         F: FnMut(&mut T),
         P: Fn(&T) -> bool,
     {
-        for entity in self.entities.iter_mut() {
+        for entity in &mut self.entities {
             if predicate(entity) {
                 transform(entity);
             }
@@ -90,7 +95,7 @@ impl<T: Clone> EntityCollection<T> {
     where
         F: FnMut(&mut T),
     {
-        for entity in self.entities.iter_mut() {
+        for entity in &mut self.entities {
             transform(entity);
         }
     }
@@ -99,6 +104,7 @@ impl<T: Clone> EntityCollection<T> {
 // Table-specific operations
 impl EntityCollection<Table> {
     /// Find a table by name
+    #[must_use]
     pub fn one(&self, name: &str) -> Option<&Table> {
         self.entities.iter().find(|t| t.name == name)
     }
@@ -116,6 +122,7 @@ impl EntityCollection<Table> {
 // Column-specific operations
 impl EntityCollection<Column> {
     /// Find a column by table and name
+    #[must_use]
     pub fn one(&self, table: &str, name: &str) -> Option<&Column> {
         self.entities
             .iter()
@@ -123,6 +130,7 @@ impl EntityCollection<Column> {
     }
 
     /// List columns for a table
+    #[must_use]
     pub fn for_table(&self, table: &str) -> Vec<&Column> {
         self.entities.iter().filter(|c| c.table == table).collect()
     }
@@ -144,11 +152,13 @@ impl EntityCollection<Column> {
 // Index-specific operations
 impl EntityCollection<Index> {
     /// Find an index by name
+    #[must_use]
     pub fn one(&self, name: &str) -> Option<&Index> {
         self.entities.iter().find(|i| i.name == name)
     }
 
     /// List indexes for a table
+    #[must_use]
     pub fn for_table(&self, table: &str) -> Vec<&Index> {
         self.entities.iter().filter(|i| i.table == table).collect()
     }
@@ -157,11 +167,13 @@ impl EntityCollection<Index> {
 // ForeignKey-specific operations
 impl EntityCollection<ForeignKey> {
     /// Find a foreign key by name
+    #[must_use]
     pub fn one(&self, name: &str) -> Option<&ForeignKey> {
         self.entities.iter().find(|f| f.name == name)
     }
 
     /// List foreign keys for a table
+    #[must_use]
     pub fn for_table(&self, table: &str) -> Vec<&ForeignKey> {
         self.entities.iter().filter(|f| f.table == table).collect()
     }
@@ -170,6 +182,7 @@ impl EntityCollection<ForeignKey> {
 // PrimaryKey-specific operations
 impl EntityCollection<PrimaryKey> {
     /// Find a primary key by table
+    #[must_use]
     pub fn for_table(&self, table: &str) -> Option<&PrimaryKey> {
         self.entities.iter().find(|p| p.table == table)
     }
@@ -178,11 +191,13 @@ impl EntityCollection<PrimaryKey> {
 // UniqueConstraint-specific operations
 impl EntityCollection<UniqueConstraint> {
     /// Find by name
+    #[must_use]
     pub fn one(&self, name: &str) -> Option<&UniqueConstraint> {
         self.entities.iter().find(|u| u.name == name)
     }
 
     /// List for a table
+    #[must_use]
     pub fn for_table(&self, table: &str) -> Vec<&UniqueConstraint> {
         self.entities.iter().filter(|u| u.table == table).collect()
     }
@@ -191,11 +206,13 @@ impl EntityCollection<UniqueConstraint> {
 // CheckConstraint-specific operations
 impl EntityCollection<CheckConstraint> {
     /// Find by name
+    #[must_use]
     pub fn one(&self, name: &str) -> Option<&CheckConstraint> {
         self.entities.iter().find(|c| c.name == name)
     }
 
     /// List for a table
+    #[must_use]
     pub fn for_table(&self, table: &str) -> Vec<&CheckConstraint> {
         self.entities.iter().filter(|c| c.table == table).collect()
     }
@@ -204,6 +221,7 @@ impl EntityCollection<CheckConstraint> {
 // View-specific operations
 impl EntityCollection<View> {
     /// Find a view by name
+    #[must_use]
     pub fn one(&self, name: &str) -> Option<&View> {
         self.entities.iter().find(|v| v.name == name)
     }
@@ -213,7 +231,7 @@ impl EntityCollection<View> {
 // SQLite DDL - Main Collection Type
 // =============================================================================
 
-/// SQLite DDL collection - stores all schema entities
+/// `SQLite` DDL collection - stores all schema entities
 ///
 /// This is the main type for working with DDL entities.
 /// It provides typed access to each entity type with collection operations.
@@ -231,11 +249,13 @@ pub struct SQLiteDDL {
 
 impl SQLiteDDL {
     /// Create a new empty DDL collection
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Create DDL from a list of entities
+    #[must_use]
     pub fn from_entities(entities: Vec<SqliteEntity>) -> Self {
         let mut ddl = Self::new();
         for entity in entities {
@@ -259,6 +279,7 @@ impl SQLiteDDL {
     }
 
     /// Convert to entity array for snapshot serialization
+    #[must_use]
     pub fn to_entities(&self) -> Vec<SqliteEntity> {
         let mut entities = Vec::new();
 
@@ -294,7 +315,8 @@ impl SQLiteDDL {
     }
 
     /// Check if DDL is empty
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.tables.is_empty()
             && self.columns.is_empty()
             && self.indexes.is_empty()
@@ -306,6 +328,7 @@ impl SQLiteDDL {
     }
 
     /// Get all entities for a specific table
+    #[must_use]
     pub fn table_entities<'a>(&'a self, table_name: &str) -> TableEntities<'a> {
         TableEntities {
             columns: self.columns.for_table(table_name),
@@ -351,6 +374,7 @@ pub struct EntityDiff {
 }
 
 /// Compute diff between two DDL collections
+#[must_use]
 pub fn diff_ddl(left: &SQLiteDDL, right: &SQLiteDDL) -> Vec<EntityDiff> {
     let mut diffs = Vec::new();
 

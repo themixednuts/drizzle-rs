@@ -1,4 +1,4 @@
-//! Database driver implementations for SQLiteValue
+//! Database driver implementations for `SQLiteValue`
 //!
 //! Contains implementations for rusqlite, turso, and libsql drivers.
 
@@ -17,7 +17,7 @@ use turso::IntoValue;
 //------------------------------------------------------------------------------
 
 #[cfg(feature = "rusqlite")]
-impl<'a> rusqlite::ToSql for SQLiteValue<'a> {
+impl rusqlite::ToSql for SQLiteValue<'_> {
     fn to_sql(&self) -> ::rusqlite::Result<::rusqlite::types::ToSqlOutput<'_>> {
         match self {
             SQLiteValue::Null => Ok(rusqlite::types::ToSqlOutput::Owned(
@@ -40,7 +40,7 @@ impl<'a> rusqlite::ToSql for SQLiteValue<'a> {
 }
 
 #[cfg(feature = "rusqlite")]
-impl<'a> FromSql for SQLiteValue<'a> {
+impl FromSql for SQLiteValue<'_> {
     fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
         let result = match value {
             rusqlite::types::ValueRef::Null => SQLiteValue::Null,
@@ -56,7 +56,7 @@ impl<'a> FromSql for SQLiteValue<'a> {
 }
 
 #[cfg(feature = "rusqlite")]
-impl<'a> From<rusqlite::types::Value> for SQLiteValue<'a> {
+impl From<rusqlite::types::Value> for SQLiteValue<'_> {
     fn from(value: rusqlite::types::Value) -> Self {
         match value {
             rusqlite::types::Value::Null => SQLiteValue::Null,
@@ -76,10 +76,10 @@ impl<'a> From<rusqlite::types::ValueRef<'a>> for SQLiteValue<'a> {
             rusqlite::types::ValueRef::Integer(i) => SQLiteValue::Integer(i),
             rusqlite::types::ValueRef::Real(r) => SQLiteValue::Real(r),
             // Zero-copy: borrow if valid UTF-8, otherwise allocate for lossy conversion
-            rusqlite::types::ValueRef::Text(items) => match std::str::from_utf8(items) {
-                Ok(s) => SQLiteValue::Text(Cow::Borrowed(s)),
-                Err(_) => SQLiteValue::Text(String::from_utf8_lossy(items).into_owned().into()),
-            },
+            rusqlite::types::ValueRef::Text(items) => std::str::from_utf8(items).map_or_else(
+                |_| SQLiteValue::Text(String::from_utf8_lossy(items).into_owned().into()),
+                |s| SQLiteValue::Text(Cow::Borrowed(s)),
+            ),
             // Zero-copy: borrow the blob slice directly
             rusqlite::types::ValueRef::Blob(items) => SQLiteValue::Blob(Cow::Borrowed(items)),
         }
@@ -91,14 +91,14 @@ impl<'a> From<rusqlite::types::ValueRef<'a>> for SQLiteValue<'a> {
 //------------------------------------------------------------------------------
 
 #[cfg(feature = "turso")]
-impl<'a> IntoValue for SQLiteValue<'a> {
+impl IntoValue for SQLiteValue<'_> {
     fn into_value(self) -> turso::Result<turso::Value> {
         Ok(turso::Value::from(self))
     }
 }
 
 #[cfg(feature = "turso")]
-impl<'a> IntoValue for &SQLiteValue<'a> {
+impl IntoValue for &SQLiteValue<'_> {
     fn into_value(self) -> turso::Result<turso::Value> {
         Ok(turso::Value::from(self))
     }
@@ -108,11 +108,11 @@ impl<'a> IntoValue for &SQLiteValue<'a> {
 impl<'a> From<SQLiteValue<'a>> for turso::Value {
     fn from(value: SQLiteValue<'a>) -> Self {
         match value {
-            SQLiteValue::Integer(i) => turso::Value::Integer(i),
-            SQLiteValue::Real(r) => turso::Value::Real(r),
-            SQLiteValue::Text(cow) => turso::Value::Text(cow.into_owned()),
-            SQLiteValue::Blob(cow) => turso::Value::Blob(cow.into_owned()),
-            SQLiteValue::Null => turso::Value::Null,
+            SQLiteValue::Integer(i) => Self::Integer(i),
+            SQLiteValue::Real(r) => Self::Real(r),
+            SQLiteValue::Text(cow) => Self::Text(cow.into_owned()),
+            SQLiteValue::Blob(cow) => Self::Blob(cow.into_owned()),
+            SQLiteValue::Null => Self::Null,
         }
     }
 }
@@ -121,11 +121,11 @@ impl<'a> From<SQLiteValue<'a>> for turso::Value {
 impl<'a> From<&SQLiteValue<'a>> for turso::Value {
     fn from(value: &SQLiteValue<'a>) -> Self {
         match value {
-            SQLiteValue::Integer(i) => turso::Value::Integer(*i),
-            SQLiteValue::Real(r) => turso::Value::Real(*r),
-            SQLiteValue::Text(cow) => turso::Value::Text(cow.clone().into_owned()),
-            SQLiteValue::Blob(cow) => turso::Value::Blob(cow.clone().into_owned()),
-            SQLiteValue::Null => turso::Value::Null,
+            SQLiteValue::Integer(i) => Self::Integer(*i),
+            SQLiteValue::Real(r) => Self::Real(*r),
+            SQLiteValue::Text(cow) => Self::Text(cow.clone().into_owned()),
+            SQLiteValue::Blob(cow) => Self::Blob(cow.clone().into_owned()),
+            SQLiteValue::Null => Self::Null,
         }
     }
 }
@@ -138,11 +138,11 @@ impl<'a> From<&SQLiteValue<'a>> for turso::Value {
 impl<'a> From<SQLiteValue<'a>> for libsql::Value {
     fn from(value: SQLiteValue<'a>) -> Self {
         match value {
-            SQLiteValue::Integer(i) => libsql::Value::Integer(i),
-            SQLiteValue::Real(r) => libsql::Value::Real(r),
-            SQLiteValue::Text(cow) => libsql::Value::Text(cow.into_owned()),
-            SQLiteValue::Blob(cow) => libsql::Value::Blob(cow.into_owned()),
-            SQLiteValue::Null => libsql::Value::Null,
+            SQLiteValue::Integer(i) => Self::Integer(i),
+            SQLiteValue::Real(r) => Self::Real(r),
+            SQLiteValue::Text(cow) => Self::Text(cow.into_owned()),
+            SQLiteValue::Blob(cow) => Self::Blob(cow.into_owned()),
+            SQLiteValue::Null => Self::Null,
         }
     }
 }
@@ -151,11 +151,11 @@ impl<'a> From<SQLiteValue<'a>> for libsql::Value {
 impl<'a> From<&SQLiteValue<'a>> for libsql::Value {
     fn from(value: &SQLiteValue<'a>) -> Self {
         match value {
-            SQLiteValue::Integer(i) => libsql::Value::Integer(*i),
-            SQLiteValue::Real(r) => libsql::Value::Real(*r),
-            SQLiteValue::Text(cow) => libsql::Value::Text(cow.clone().into_owned()),
-            SQLiteValue::Blob(cow) => libsql::Value::Blob(cow.clone().into_owned()),
-            SQLiteValue::Null => libsql::Value::Null,
+            SQLiteValue::Integer(i) => Self::Integer(*i),
+            SQLiteValue::Real(r) => Self::Real(*r),
+            SQLiteValue::Text(cow) => Self::Text(cow.clone().into_owned()),
+            SQLiteValue::Blob(cow) => Self::Blob(cow.clone().into_owned()),
+            SQLiteValue::Null => Self::Null,
         }
     }
 }

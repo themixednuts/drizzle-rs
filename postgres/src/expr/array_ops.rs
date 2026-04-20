@@ -1,4 +1,4 @@
-//! PostgreSQL array operators.
+//! `PostgreSQL` array operators.
 //!
 //! This module provides PostgreSQL-specific array operators:
 //! - `@>` (contains)
@@ -24,7 +24,7 @@ use drizzle_core::expr::{Expr, NonNull, SQLExpr, Scalar};
 use drizzle_core::sql::{SQL, SQLChunk};
 use drizzle_types::postgres::types::Boolean;
 
-/// Wrapper for passing a `Vec<T>` as a single PostgreSQL array parameter.
+/// Wrapper for passing a `Vec<T>` as a single `PostgreSQL` array parameter.
 ///
 /// Without this wrapper, `Vec<T>` implements `ToSQL` by joining elements
 /// with commas (`$1, $2, $3`), which is correct for `IN (...)` clauses
@@ -53,7 +53,7 @@ where
     }
 }
 
-/// PostgreSQL `@>` operator - array contains.
+/// `PostgreSQL` `@>` operator - array contains.
 ///
 /// Returns true if the left array contains all elements of the right array.
 ///
@@ -83,7 +83,7 @@ where
     )
 }
 
-/// PostgreSQL `<@` operator - array is contained by.
+/// `PostgreSQL` `<@` operator - array is contained by.
 ///
 /// Returns true if the left array is contained by the right array
 /// (i.e., all elements of left are in right).
@@ -114,7 +114,7 @@ where
     )
 }
 
-/// PostgreSQL `&&` operator - arrays overlap.
+/// `PostgreSQL` `&&` operator - arrays overlap.
 ///
 /// Returns true if the arrays have any elements in common.
 ///
@@ -144,7 +144,7 @@ where
     )
 }
 
-/// Extension trait providing method-based array operators for PostgreSQL expressions.
+/// Extension trait providing method-based array operators for `PostgreSQL` expressions.
 ///
 /// This trait provides `.array_contains()`, `.array_contained()`, and `.array_overlaps()`
 /// methods on any expression type.
@@ -160,7 +160,7 @@ where
 /// assert!(condition.to_sql().sql().contains("@>"));
 /// ```
 pub trait ArrayExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
-    /// PostgreSQL `@>` operator - array contains.
+    /// `PostgreSQL` `@>` operator - array contains.
     ///
     /// Returns true if self contains all elements of the other array.
     fn array_contains<R>(self, other: R) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
@@ -170,7 +170,7 @@ pub trait ArrayExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         array_contains(self, other)
     }
 
-    /// PostgreSQL `<@` operator - array is contained by.
+    /// `PostgreSQL` `<@` operator - array is contained by.
     ///
     /// Returns true if self is contained by the other array.
     fn array_contained<R>(
@@ -183,7 +183,7 @@ pub trait ArrayExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         array_contained(self, other)
     }
 
-    /// PostgreSQL `&&` operator - arrays overlap.
+    /// `PostgreSQL` `&&` operator - arrays overlap.
     ///
     /// Returns true if self and the other array have any elements in common.
     fn array_overlaps<R>(self, other: R) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
@@ -194,5 +194,5 @@ pub trait ArrayExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     }
 }
 
-/// Blanket implementation for all PostgreSQL `Expr` types.
+/// Blanket implementation for all `PostgreSQL` `Expr` types.
 impl<'a, E: Expr<'a, PostgresValue<'a>>> ArrayExprExt<'a> for E {}

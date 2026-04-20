@@ -12,7 +12,13 @@ use drizzle_types::Dialect;
 use std::fs;
 use std::path::Path;
 
-/// Run the upgrade command
+/// Run the upgrade command.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if the database cannot be resolved, the migration
+/// directory is unreadable, the legacy journal cannot be parsed or migrated
+/// to the v3 format, or writing the upgraded snapshot files to disk fails.
 pub fn run(
     config: &Config,
     db_name: Option<&str>,
@@ -23,7 +29,7 @@ pub fn run(
 
     // CLI flags override config
     let dialect = dialect_override.unwrap_or(db.dialect).to_base();
-    let out_dir = out_override.unwrap_or(db.migrations_dir());
+    let out_dir = out_override.unwrap_or_else(|| db.migrations_dir());
 
     println!(
         "{}",
@@ -191,7 +197,7 @@ fn upgrade_snapshot_file(path: &Path, dialect: Dialect) -> Result<bool, CliError
 
     // Write back
     let upgraded_json = serde_json::to_string_pretty(&upgraded)
-        .map_err(|e| CliError::Other(format!("Failed to serialize upgraded snapshot: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to serialize upgraded snapshot: {e}")))?;
 
     fs::write(path, upgraded_json).map_err(|e| CliError::IoError(e.to_string()))?;
 

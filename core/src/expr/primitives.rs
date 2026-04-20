@@ -15,8 +15,7 @@ use super::{Expr, NonNull, Null, Nullability, Scalar};
 
 impl<'a, V> Expr<'a, V> for i8
 where
-    V: SQLParam + 'a + From<i8>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     type SQLType = <V::DialectMarker as DialectTypes>::SmallInt;
     type Nullable = NonNull;
@@ -25,8 +24,7 @@ where
 
 impl<'a, V> Expr<'a, V> for i16
 where
-    V: SQLParam + 'a + From<i16>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     type SQLType = <V::DialectMarker as DialectTypes>::SmallInt;
     type Nullable = NonNull;
@@ -35,8 +33,7 @@ where
 
 impl<'a, V> Expr<'a, V> for i32
 where
-    V: SQLParam + 'a + From<i32>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     type SQLType = <V::DialectMarker as DialectTypes>::Int;
     type Nullable = NonNull;
@@ -45,8 +42,7 @@ where
 
 impl<'a, V> Expr<'a, V> for i64
 where
-    V: SQLParam + 'a + From<i64>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     type SQLType = <V::DialectMarker as DialectTypes>::BigInt;
     type Nullable = NonNull;
@@ -55,8 +51,7 @@ where
 
 impl<'a, V> Expr<'a, V> for isize
 where
-    V: SQLParam + 'a + From<isize>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     type SQLType = <V::DialectMarker as DialectTypes>::BigInt;
     type Nullable = NonNull;
@@ -69,8 +64,7 @@ where
 
 impl<'a, V> Expr<'a, V> for u8
 where
-    V: SQLParam + 'a + From<u8>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     type SQLType = <V::DialectMarker as DialectTypes>::SmallInt;
     type Nullable = NonNull;
@@ -79,8 +73,7 @@ where
 
 impl<'a, V> Expr<'a, V> for u16
 where
-    V: SQLParam + 'a + From<u16>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     type SQLType = <V::DialectMarker as DialectTypes>::Int;
     type Nullable = NonNull;
@@ -89,8 +82,7 @@ where
 
 impl<'a, V> Expr<'a, V> for u32
 where
-    V: SQLParam + 'a + From<u32>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     type SQLType = <V::DialectMarker as DialectTypes>::BigInt;
     type Nullable = NonNull;
@@ -99,8 +91,7 @@ where
 
 impl<'a, V> Expr<'a, V> for u64
 where
-    V: SQLParam + 'a + From<u64>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     type SQLType = <V::DialectMarker as DialectTypes>::BigInt;
     type Nullable = NonNull;
@@ -109,8 +100,7 @@ where
 
 impl<'a, V> Expr<'a, V> for usize
 where
-    V: SQLParam + 'a + From<usize>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     type SQLType = <V::DialectMarker as DialectTypes>::BigInt;
     type Nullable = NonNull;
@@ -123,8 +113,7 @@ where
 
 impl<'a, V> Expr<'a, V> for f32
 where
-    V: SQLParam + 'a + From<f32>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     type SQLType = <V::DialectMarker as DialectTypes>::Float;
     type Nullable = NonNull;
@@ -133,8 +122,7 @@ where
 
 impl<'a, V> Expr<'a, V> for f64
 where
-    V: SQLParam + 'a + From<f64>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     type SQLType = <V::DialectMarker as DialectTypes>::Double;
     type Nullable = NonNull;
@@ -147,8 +135,7 @@ where
 
 impl<'a, V> Expr<'a, V> for bool
 where
-    V: SQLParam + 'a + From<bool>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     type SQLType = <V::DialectMarker as DialectTypes>::Bool;
     type Nullable = NonNull;
@@ -161,8 +148,7 @@ where
 
 impl<'a, V> Expr<'a, V> for &'a str
 where
-    V: SQLParam + 'a + From<&'a str>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<&'a str> + Into<Cow<'a, V>>,
 {
     type SQLType = <V::DialectMarker as DialectTypes>::Text;
     type Nullable = NonNull;
@@ -171,8 +157,7 @@ where
 
 impl<'a, V> Expr<'a, V> for String
 where
-    V: SQLParam + 'a + From<String>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     type SQLType = <V::DialectMarker as DialectTypes>::Text;
     type Nullable = NonNull;
@@ -216,8 +201,7 @@ where
 #[cfg(feature = "uuid")]
 impl<'a, V> Expr<'a, V> for uuid::Uuid
 where
-    V: SQLParam + 'a + From<uuid::Uuid>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     type SQLType = <V::DialectMarker as DialectTypes>::Uuid;
     type Nullable = NonNull;

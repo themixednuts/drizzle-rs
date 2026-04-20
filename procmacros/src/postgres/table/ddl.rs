@@ -1,6 +1,6 @@
-//! PostgreSQL const DDL generation
+//! `PostgreSQL` const DDL generation
 //!
-//! This module generates compile-time DDL entity definitions for PostgreSQL tables.
+//! This module generates compile-time DDL entity definitions for `PostgreSQL` tables.
 
 use super::context::MacroContext;
 use crate::paths::ddl::postgres as ddl_paths;
@@ -10,13 +10,14 @@ use drizzle_types::postgres::ddl::{Column, PrimaryKey, Table, UniqueConstraint, 
 use proc_macro2::TokenStream;
 use quote::quote;
 use std::borrow::Cow;
+use std::fmt::Write;
 use syn::Ident;
 
 /// Generate the CREATE TABLE SQL string from raw parameters.
 ///
-/// This is the core implementation that doesn't require a full MacroContext.
+/// This is the core implementation that doesn't require a full `MacroContext`.
 /// Use this before context is fully constructed.
-pub(crate) fn generate_create_table_sql_from_params(
+pub fn generate_create_table_sql_from_params(
     schema_name: &str,
     table_name: &str,
     field_infos: &[FieldInfo],
@@ -38,16 +39,16 @@ pub(crate) fn generate_create_table_sql_from_params(
         .map(|f| f.column_name.clone())
         .collect();
 
-    let primary_key = if !pk_columns.is_empty() {
-        let pk_name = format!("{}_pkey", table_name);
+    let primary_key = if pk_columns.is_empty() {
+        None
+    } else {
+        let pk_name = format!("{table_name}_pkey");
         Some(PrimaryKey::from_strings(
             schema_name.to_string(),
             table_name.to_string(),
             pk_name,
             pk_columns,
         ))
-    } else {
-        None
     };
 
     // Build UniqueConstraints (single-column only, non-primary)
@@ -79,7 +80,7 @@ pub(crate) fn generate_create_table_sql_from_params(
 /// is known at macro expansion time. Uses the same DDL types as runtime
 /// generation for consistency.
 #[allow(dead_code)]
-pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
+pub fn generate_create_table_sql(ctx: &MacroContext) -> String {
     let schema_name = ctx.attrs.schema.as_deref().unwrap_or("public");
     generate_create_table_sql_from_params(
         schema_name,
@@ -89,15 +90,13 @@ pub(crate) fn generate_create_table_sql(ctx: &MacroContext) -> String {
     )
 }
 
-/// Build a Column from FieldInfo
+/// Build a Column from `FieldInfo`
 fn build_column(
     schema_name: &str,
     table_name: &str,
     field: &FieldInfo,
-    is_composite_pk: bool,
+    _is_composite_pk: bool,
 ) -> Column {
-    let _is_single_pk = field.is_primary && !is_composite_pk;
-
     let mut col = Column::new(
         Cow::Owned(schema_name.to_string()),
         Cow::Owned(table_name.to_string()),
@@ -124,8 +123,7 @@ fn build_column(
         && let Some(ref default) = field.default
     {
         let default_str = match default {
-            PostgreSQLDefault::Literal(s) => s.clone(),
-            PostgreSQLDefault::Function(s) => s.clone(),
+            PostgreSQLDefault::Literal(s) | PostgreSQLDefault::Function(s) => s.clone(),
             PostgreSQLDefault::Expression(ts) => ts.to_string(),
         };
         col.default = Some(Cow::Owned(default_str));
@@ -137,7 +135,7 @@ fn build_column(
 /// Generate a compile-time `const SQL: &'static str` value for `SQLSchema`
 /// using `concatcp!` so that foreign key REFERENCES can resolve table names
 /// via `<OtherTable>::TABLE_NAME` at compile time.
-pub(crate) fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
+pub fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
     let table_name = &ctx.table_name;
     let schema_name = ctx.attrs.schema.as_deref().unwrap_or("public");
     let is_composite_pk = ctx.is_composite_pk;
@@ -156,10 +154,10 @@ pub(crate) fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
     let mut parts: Vec<TokenStream> = Vec::new();
 
     // CREATE TABLE ["schema".]"table" (\n
-    let header = if schema_name != "public" {
-        format!("CREATE TABLE \"{}\".\"{}\" (\n", schema_name, table_name)
+    let header = if schema_name == "public" {
+        format!("CREATE TABLE \"{table_name}\" (\n")
     } else {
-        format!("CREATE TABLE \"{}\" (\n", table_name)
+        format!("CREATE TABLE \"{schema_name}\".\"{table_name}\" (\n")
     };
     parts.push(quote! { #header });
 
@@ -171,7 +169,7 @@ pub(crate) fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
 
     for (i, col_line) in column_lines.iter().enumerate() {
         let line = if i > 0 {
-            format!(",\n{}", col_line)
+            format!(",\n{col_line}")
         } else {
             col_line.clone()
         };
@@ -189,7 +187,7 @@ pub(crate) fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
             ",\n\tPRIMARY KEY({})",
             pk_columns
                 .iter()
-                .map(|c| format!("\"{}\"", c))
+                .map(|c| format!("\"{c}\""))
                 .collect::<Vec<_>>()
                 .join(", ")
         );
@@ -224,18 +222,18 @@ pub(crate) fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
             parts.push(quote! { <#ref_table_ident>::TABLE_NAME });
 
             // FK suffix: "("ref_col")
-            let mut fk_suffix = format!("\"(\"{}\")", ref_column);
+            let mut fk_suffix = format!("\"(\"{ref_column}\")");
 
             if let Some(ref on_delete) = fk.on_delete {
                 let action = on_delete.to_uppercase();
                 if action != "NO ACTION" {
-                    fk_suffix.push_str(&format!(" ON DELETE {}", action));
+                    let _ = write!(fk_suffix, " ON DELETE {action}");
                 }
             }
             if let Some(ref on_update) = fk.on_update {
                 let action = on_update.to_uppercase();
                 if action != "NO ACTION" {
-                    fk_suffix.push_str(&format!(" ON UPDATE {}", action));
+                    let _ = write!(fk_suffix, " ON UPDATE {action}");
                 }
             }
 
@@ -253,44 +251,45 @@ pub(crate) fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
                 ctx.field_infos
                     .iter()
                     .find(|f| f.ident == *src)
-                    .map(|f| f.column_name.clone())
-                    .unwrap_or_else(|| src.to_string())
+                    .map_or_else(|| src.to_string(), |f| f.column_name.clone())
             })
             .collect();
-        let target_columns: Vec<String> = fk.target_columns.iter().map(|c| c.to_string()).collect();
+        let target_columns: Vec<String> = fk
+            .target_columns
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
 
         let fk_name = format!("{}_{}_fkey", table_name, source_columns.join("_"));
         let source_cols_str = source_columns
             .iter()
-            .map(|c| format!("\"{}\"", c))
+            .map(|c| format!("\"{c}\""))
             .collect::<Vec<_>>()
             .join(", ");
         let target_cols_str = target_columns
             .iter()
-            .map(|c| format!("\"{}\"", c))
+            .map(|c| format!("\"{c}\""))
             .collect::<Vec<_>>()
             .join(", ");
 
-        let fk_prefix = format!(
-            ",\n\tCONSTRAINT \"{}\" FOREIGN KEY ({}) REFERENCES \"",
-            fk_name, source_cols_str
-        );
+        let fk_prefix =
+            format!(",\n\tCONSTRAINT \"{fk_name}\" FOREIGN KEY ({source_cols_str}) REFERENCES \"");
         parts.push(quote! { #fk_prefix });
 
         parts.push(quote! { <#ref_table_ident>::TABLE_NAME });
 
-        let mut fk_suffix = format!("\"({})", target_cols_str);
+        let mut fk_suffix = format!("\"({target_cols_str})");
 
         if let Some(ref on_delete) = fk.on_delete {
             let action = on_delete.to_uppercase();
             if action != "NO ACTION" {
-                fk_suffix.push_str(&format!(" ON DELETE {}", action));
+                let _ = write!(fk_suffix, " ON DELETE {action}");
             }
         }
         if let Some(ref on_update) = fk.on_update {
             let action = on_update.to_uppercase();
             if action != "NO ACTION" {
-                fk_suffix.push_str(&format!(" ON UPDATE {}", action));
+                let _ = write!(fk_suffix, " ON UPDATE {action}");
             }
         }
 
@@ -301,7 +300,7 @@ pub(crate) fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
     for field in field_infos {
         if let Some(ref check) = field.check_constraint {
             let chk_name = format!("{}_{}_check", table_name, field.column_name);
-            let chk_str = format!(",\n\tCONSTRAINT \"{}\" CHECK ({})", chk_name, check);
+            let chk_str = format!(",\n\tCONSTRAINT \"{chk_name}\" CHECK ({check})");
             parts.push(quote! { #chk_str });
         }
     }
@@ -332,10 +331,11 @@ fn build_pg_column_sql(field: &FieldInfo, _is_composite_pk: bool) -> String {
         && let Some(ref default) = field.default
     {
         match default {
-            PostgreSQLDefault::Literal(s) => parts.push(format!("DEFAULT {}", s)),
-            PostgreSQLDefault::Function(s) => parts.push(format!("DEFAULT {}", s)),
+            PostgreSQLDefault::Literal(s) | PostgreSQLDefault::Function(s) => {
+                parts.push(format!("DEFAULT {s}"));
+            }
             PostgreSQLDefault::Expression(ts) => {
-                parts.push(format!("DEFAULT {}", ts));
+                parts.push(format!("DEFAULT {ts}"));
             }
         }
     }
@@ -346,20 +346,17 @@ fn build_pg_column_sql(field: &FieldInfo, _is_composite_pk: bool) -> String {
 /// Convert a referential action string to the corresponding enum variant token
 fn referential_action_token(action: &str, referential_action: &TokenStream) -> TokenStream {
     match action.to_uppercase().as_str() {
-        "NO ACTION" => quote! { #referential_action::NoAction },
         "RESTRICT" => quote! { #referential_action::Restrict },
         "CASCADE" => quote! { #referential_action::Cascade },
         "SET NULL" => quote! { #referential_action::SetNull },
         "SET DEFAULT" => quote! { #referential_action::SetDefault },
+        // "NO ACTION" and unknown values default to NoAction
         _ => quote! { #referential_action::NoAction },
     }
 }
 
-/// Generate const DDL entities for a PostgreSQL table
-pub(crate) fn generate_const_ddl(
-    ctx: &MacroContext,
-    _column_zst_idents: &[Ident],
-) -> Result<TokenStream, syn::Error> {
+/// Generate const DDL entities for a `PostgreSQL` table
+pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> TokenStream {
     let struct_ident = ctx.struct_ident;
     let table_name = &ctx.table_name;
     let schema_name = ctx.attrs.schema.as_deref().unwrap_or("public");
@@ -406,8 +403,7 @@ pub(crate) fn generate_const_ddl(
                 && let Some(ref default) = field.default
             {
                 let default_str = match default {
-                    PostgreSQLDefault::Literal(s) => s.clone(),
-                    PostgreSQLDefault::Function(s) => s.clone(),
+                    PostgreSQLDefault::Literal(s) | PostgreSQLDefault::Function(s) => s.clone(),
                     PostgreSQLDefault::Expression(ts) => ts.to_string(),
                 };
                 modifiers.push(quote! { .default_value(#default_str) });
@@ -428,8 +424,14 @@ pub(crate) fn generate_const_ddl(
         .map(|f| &f.column_name)
         .collect();
 
-    let pk_name = format!("{}_pkey", table_name);
-    let pk_def = if !pk_columns.is_empty() {
+    let pk_name = format!("{table_name}_pkey");
+    let pk_def = if pk_columns.is_empty() {
+        quote! {
+            /// Primary key definition (none)
+            pub const DDL_PRIMARY_KEY: ::std::option::Option<#primary_key_def> =
+                ::std::option::Option::None;
+        }
+    } else {
         let pk_col_cows: Vec<TokenStream> = pk_columns
             .iter()
             .map(|col| quote! { ::std::borrow::Cow::Borrowed(#col) })
@@ -440,12 +442,6 @@ pub(crate) fn generate_const_ddl(
                 const PK_COLS: &[::std::borrow::Cow<'static, str>] = &[#(#pk_col_cows),*];
                 ::std::option::Option::Some(#primary_key_def::new(#schema_name, #table_name, #pk_name).columns(PK_COLS))
             };
-        }
-    } else {
-        quote! {
-            /// Primary key definition (none)
-            pub const DDL_PRIMARY_KEY: ::std::option::Option<#primary_key_def> =
-                ::std::option::Option::None;
         }
     };
 
@@ -496,11 +492,14 @@ pub(crate) fn generate_const_ddl(
                 ctx.field_infos
                     .iter()
                     .find(|f| &f.ident == src)
-                    .map(|f| f.column_name.clone())
-                    .unwrap_or_else(|| src.to_string())
+                    .map_or_else(|| src.to_string(), |f| f.column_name.clone())
             })
             .collect();
-        let target_columns: Vec<String> = fk.target_columns.iter().map(|c| c.to_string()).collect();
+        let target_columns: Vec<String> = fk
+            .target_columns
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
 
         let fk_name = format!("{}_{}_fkey", table_name, source_columns.join("_"));
         let fk_cols: Vec<TokenStream> = source_columns
@@ -552,7 +551,7 @@ pub(crate) fn generate_const_ddl(
         })
         .collect();
 
-    Ok(quote! {
+    quote! {
         impl #struct_ident {
             /// Const DDL table definition for compile-time schema metadata.
             pub const DDL_TABLE: #table_def =
@@ -602,7 +601,7 @@ pub(crate) fn generate_const_ddl(
                 <Self as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL
             }
         }
-    })
+    }
 }
 
 #[cfg(test)]
@@ -679,9 +678,7 @@ mod tests {
             attrs: &attrs,
         };
 
-        let tokens = generate_const_ddl(&ctx, &[])
-            .expect("token generation")
-            .to_string();
+        let tokens = generate_const_ddl(&ctx, &[]).to_string();
         assert!(
             tokens.contains(":: DDL_TABLE . schema"),
             "expected FK references to use referenced table schema constant, got: {tokens}"

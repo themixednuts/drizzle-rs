@@ -214,7 +214,7 @@ where
     label = "use a primary key, unique column, or unique index/constraint from this table",
     note = "ON CONFLICT targets must be primary key columns, unique columns, or unique indexes"
 )]
-pub trait ConflictTarget<Table> {
+pub trait ConflictTarget<Table>: Copy {
     fn conflict_columns(&self) -> &'static [&'static str];
 }
 
@@ -224,6 +224,6 @@ pub trait ConflictTarget<Table> {
     message = "`{Self}` is not a named constraint on table `{Table}`",
     label = "ON CONSTRAINT requires a named unique index or unique constraint"
 )]
-pub trait NamedConstraint<Table> {
+pub trait NamedConstraint<Table>: Copy {
     fn constraint_name(&self) -> &'static str;
 }

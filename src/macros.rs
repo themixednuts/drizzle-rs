@@ -337,7 +337,7 @@ macro_rules! sqlite_transaction_constructors {
         #[cfg(feature = "sqlite")]
         pub fn with<'a, C>(
             &'a self,
-            cte: C,
+            cte: &C,
         ) -> TransactionBuilder<
             'a,
             $($conn_lt,)*
@@ -480,7 +480,7 @@ macro_rules! postgres_transaction_constructors {
         /// Creates a query with CTE (Common Table Expression) within the transaction
         pub fn with<'a, C>(
             &'a self,
-            cte: C,
+            cte: &C,
         ) -> TransactionBuilder<
             'a,
             'conn,

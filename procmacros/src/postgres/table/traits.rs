@@ -3,14 +3,17 @@ use crate::common::ref_gen::{self, ColumnRefInput, ConstraintRefInput, ForeignKe
 use crate::generators::{DrizzleTableConfig, generate_drizzle_table};
 use crate::paths::core as core_paths;
 use crate::paths::postgres as postgres_paths;
-use crate::postgres::generators::*;
+use crate::postgres::generators::{
+    SQLTableConfig, generate_postgres_table, generate_sql_schema, generate_sql_table,
+    generate_to_sql,
+};
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::collections::HashSet;
 use syn::{Ident, Result};
 
-/// Generate trait implementations for the PostgreSQL table
+/// Generate trait implementations for the `PostgreSQL` table
 pub(super) fn generate_table_impls(
     ctx: &MacroContext,
     column_zst_idents: &[Ident],
@@ -51,13 +54,13 @@ pub(super) fn generate_table_impls(
     // Use generator functions for consistent pattern with SQLite
     let sql_schema_impl = generate_sql_schema(
         struct_ident,
-        quote! { #table_name },
-        quote! {
+        &quote! { #table_name },
+        &quote! {
             {
                 #postgres_schema_type::Table(&<#struct_ident as drizzle::core::DrizzleTable>::TABLE_REF)
             }
         },
-        sql_const,
+        &sql_const,
     );
     let dialect_types = crate::common::constraints::DialectTypes {
         sql_schema: core_paths::sql_schema(),
@@ -74,7 +77,7 @@ pub(super) fn generate_table_impls(
             &sql_table_info,
             &sql_column_info,
             &dialect_types,
-        )?;
+        );
     let (primary_key_impls, _sql_primary_key, primary_key_type, pk_constraint_ident) =
         crate::common::constraints::generate_primary_key(
             ctx.field_infos,
@@ -145,7 +148,7 @@ pub(super) fn generate_table_impls(
         .collect();
     let _dependencies_len = dependencies.len();
     let schema_name = ctx.attrs.schema.as_deref().unwrap_or("public");
-    let qualified_name = format!("{}.{}", schema_name, table_name);
+    let qualified_name = format!("{schema_name}.{table_name}");
 
     // Build TABLE_REF const
     let column_dialect = core_paths::column_dialect();
@@ -175,13 +178,24 @@ pub(super) fn generate_table_impls(
                 .identity_mode
                 .as_ref()
                 .is_some_and(|m| matches!(m, crate::postgres::field::IdentityMode::Always));
+            let flags = crate::common::ref_gen::ColumnRefFlags::new()
+                .with(
+                    crate::common::ref_gen::ColumnRefFlags::NOT_NULL,
+                    !f.is_nullable,
+                )
+                .with(
+                    crate::common::ref_gen::ColumnRefFlags::PRIMARY_KEY,
+                    f.is_primary,
+                )
+                .with(crate::common::ref_gen::ColumnRefFlags::UNIQUE, f.is_unique)
+                .with(
+                    crate::common::ref_gen::ColumnRefFlags::HAS_DEFAULT,
+                    f.has_default,
+                );
             ColumnRefInput {
                 column_name: f.column_name.clone(),
                 sql_type: f.column_type.to_sql_type().to_string(),
-                not_null: !f.is_nullable,
-                primary_key: f.is_primary,
-                unique: f.is_unique,
-                has_default: f.has_default,
+                flags,
                 dialect: quote! {
                     #column_dialect::PostgreSQL {
                         postgres_type: #pg_type,
@@ -217,9 +231,17 @@ pub(super) fn generate_table_impls(
     for cfk in &ctx.attrs.composite_foreign_keys {
         let target_table = &cfk.target_table;
         table_ref_fks.push(ForeignKeyRefInput {
-            source_columns: cfk.source_columns.iter().map(|c| c.to_string()).collect(),
+            source_columns: cfk
+                .source_columns
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
             target_table: quote! { <#target_table as drizzle::core::DrizzleTable>::NAME },
-            target_columns: cfk.target_columns.iter().map(|c| c.to_string()).collect(),
+            target_columns: cfk
+                .target_columns
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
         });
     }
     let table_ref_constraints: Vec<ConstraintRefInput> = Vec::new(); // TODO: populate if needed
@@ -250,7 +272,7 @@ pub(super) fn generate_table_impls(
     });
 
     let postgres_table_impl = generate_postgres_table(struct_ident);
-    let to_sql_impl = generate_to_sql(struct_ident, to_sql_body);
+    let to_sql_impl = generate_to_sql(struct_ident, &to_sql_body);
 
     // Generate compile-time relation marker impls
     let relations_impl = crate::common::constraints::generate_relations(

@@ -36,7 +36,7 @@
 //! let generated = diff_schemas_with(
 //!     &V1,
 //!     &V2,
-//!     Options::new()
+//!     &Options::new()
 //!         .rename_table("users_old", "users")
 //!         .rename_column("users", "full_name", "name")
 //!         .strict_renames(true),
@@ -65,6 +65,7 @@ pub struct Plan {
 
 impl Plan {
     /// Returns true when there are no executable SQL statements.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.statements.is_empty()
             || self
@@ -74,11 +75,16 @@ impl Plan {
     }
 
     /// Format statements with `--> statement-breakpoint` markers.
+    #[must_use]
     pub fn to_sql(&self) -> String {
         self.statements.join("\n--> statement-breakpoint\n")
     }
 
     /// Write formatted migration SQL to a writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns the underlying [`io::Error`] if writing to `writer` fails.
     pub fn write(&self, writer: impl Write) -> io::Result<()> {
         let mut writer = writer;
         writer.write_all(self.to_sql().as_bytes())
@@ -162,7 +168,7 @@ impl RenameHints {
 /// Table rename hint.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TableRenameHint {
-    /// Optional schema (PostgreSQL only). If omitted, defaults to `public`.
+    /// Optional schema (`PostgreSQL` only). If omitted, defaults to `public`.
     pub schema: Option<String>,
     /// Current table name.
     pub from: String,
@@ -173,7 +179,7 @@ pub struct TableRenameHint {
 /// Column rename hint.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ColumnRenameHint {
-    /// Optional schema (PostgreSQL only). If omitted, defaults to `public`.
+    /// Optional schema (`PostgreSQL` only). If omitted, defaults to `public`.
     pub schema: Option<String>,
     /// Table containing the column.
     pub table: String,
@@ -205,7 +211,7 @@ impl Options {
     }
 
     #[must_use]
-    pub fn strict_renames(mut self, strict: bool) -> Self {
+    pub const fn strict_renames(mut self, strict: bool) -> Self {
         self.strict_renames = strict;
         self
     }
@@ -253,31 +259,43 @@ impl Options {
 
 /// Diff two snapshots and return the migration SQL statements.
 ///
-/// Both snapshots must be for the same dialect (e.g., both SQLite or both PostgreSQL).
+/// Both snapshots must be for the same dialect (e.g., both `SQLite` or both `PostgreSQL`).
 /// Returns `Ok(vec![])` if no changes are detected.
 ///
 /// This is a pure function — no file I/O, no side effects.
 ///
 /// For writing tagged migration directories (`./drizzle/<tag>/...`), prefer
 /// [`crate::build::run`].
+///
+/// # Errors
+///
+/// Returns [`MigrationError::DialectMismatch`] if the two snapshots use
+/// different dialects, or a [`MigrationError::ConfigError`] if applying
+/// rename hints fails under strict mode.
 pub fn diff(prev: &Snapshot, current: &Snapshot) -> Result<Plan, MigrationError> {
-    diff_with(prev, current, Options::default())
+    diff_with(prev, current, &Options::default())
 }
 
 /// Diff two snapshots with explicit generation options.
 ///
 /// Use this when you need rename hints (table/column renames) to avoid
 /// drop-and-recreate diffs.
+///
+/// # Errors
+///
+/// Returns [`MigrationError::DialectMismatch`] if the two snapshots use
+/// different dialects, or a [`MigrationError::ConfigError`] if applying
+/// rename hints fails under strict mode.
 pub fn diff_with(
     prev: &Snapshot,
     current: &Snapshot,
-    options: Options,
+    options: &Options,
 ) -> Result<Plan, MigrationError> {
     let statements = match (prev, current) {
         (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => {
             let mut prev_ddl = SQLiteDDL::from_entities(p.ddl.clone());
             let cur_ddl = crate::sqlite::collection::SQLiteDDL::from_entities(c.ddl.clone());
-            let mut statements = apply_sqlite_rename_hints(&mut prev_ddl, &cur_ddl, &options)?;
+            let mut statements = apply_sqlite_rename_hints(&mut prev_ddl, &cur_ddl, options)?;
             let diff = crate::sqlite::diff::compute_migration(&prev_ddl, &cur_ddl);
             statements.extend(diff.sql_statements);
             statements
@@ -285,7 +303,7 @@ pub fn diff_with(
         (Snapshot::Postgres(p), Snapshot::Postgres(c)) => {
             let mut prev_ddl = PostgresDDL::from_entities(p.ddl.clone());
             let cur_ddl = PostgresDDL::from_entities(c.ddl.clone());
-            let mut statements = apply_postgres_rename_hints(&mut prev_ddl, &cur_ddl, &options)?;
+            let mut statements = apply_postgres_rename_hints(&mut prev_ddl, &cur_ddl, options)?;
             let diff = crate::postgres::diff::compute_migration(&prev_ddl, &cur_ddl);
             statements.extend(diff.sql_statements);
             statements
@@ -302,6 +320,11 @@ pub fn diff_with(
 /// Generate migration SQL from two schema values implementing [`Schema`].
 ///
 /// This is usually the best runtime API when you already have two schema types.
+///
+/// # Errors
+///
+/// Returns [`MigrationError::DialectMismatch`] if the two schemas use
+/// different dialects.
 pub fn diff_schemas<From: Schema, To: Schema>(
     prev: &From,
     current: &To,
@@ -334,15 +357,21 @@ pub fn diff_schemas<From: Schema, To: Schema>(
 /// let migration = diff_schemas_with(
 ///     &FromSchema,
 ///     &ToSchema,
-///     Options::new().rename_column("users", "displayName", "display_name"),
+///     &Options::new().rename_column("users", "displayName", "display_name"),
 /// )?;
 /// # let _ = migration;
 /// # Ok::<(), drizzle_migrations::MigrationError>(())
 /// ```
+///
+/// # Errors
+///
+/// Returns [`MigrationError::DialectMismatch`] if the two schemas use
+/// different dialects, or a [`MigrationError::ConfigError`] if applying
+/// rename hints fails under strict mode.
 pub fn diff_schemas_with<From: Schema, To: Schema>(
     prev: &From,
     current: &To,
-    options: Options,
+    options: &Options,
 ) -> Result<Plan, MigrationError> {
     let prev = prev.to_snapshot();
     let current = current.to_snapshot();
@@ -911,7 +940,7 @@ mod tests {
             .rename_table("users", "accounts")
             .rename_column("accounts", "full_name", "display_name");
 
-        let migration = diff_with(&prev, &cur, options).unwrap();
+        let migration = diff_with(&prev, &cur, &options).unwrap();
         assert_eq!(
             migration.statements,
             vec![
@@ -929,7 +958,7 @@ mod tests {
             .strict_renames(true)
             .rename_table("missing_table", "users");
 
-        let result = diff_with(&prev, &cur, options);
+        let result = diff_with(&prev, &cur, &options);
         assert!(matches!(result, Err(MigrationError::ConfigError(_))));
     }
 }

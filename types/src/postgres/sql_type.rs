@@ -1,10 +1,10 @@
-//! PostgreSQL column type definitions
+//! `PostgreSQL` column type definitions
 //!
-//! Defines the core PostgreSQL data types for schema definition.
+//! Defines the core `PostgreSQL` data types for schema definition.
 
-/// Enum representing supported PostgreSQL column types.
+/// Enum representing supported `PostgreSQL` column types.
 ///
-/// These correspond to PostgreSQL data types.
+/// These correspond to `PostgreSQL` data types.
 /// See: <https://www.postgresql.org/docs/current/datatype.html>
 ///
 /// # Examples
@@ -21,205 +21,205 @@
 #[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PostgreSQLType {
-    /// PostgreSQL INTEGER type - 32-bit signed integer
+    /// `PostgreSQL` INTEGER type - 32-bit signed integer
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-INT>
     Integer,
 
-    /// PostgreSQL BIGINT type - 64-bit signed integer
+    /// `PostgreSQL` BIGINT type - 64-bit signed integer
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-INT>
     Bigint,
 
-    /// PostgreSQL SMALLINT type - 16-bit signed integer
+    /// `PostgreSQL` SMALLINT type - 16-bit signed integer
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-INT>
     Smallint,
 
-    /// PostgreSQL SERIAL type - auto-incrementing 32-bit integer
+    /// `PostgreSQL` SERIAL type - auto-incrementing 32-bit integer
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-SERIAL>
     Serial,
 
-    /// PostgreSQL SMALLSERIAL type - auto-incrementing 16-bit integer
+    /// `PostgreSQL` SMALLSERIAL type - auto-incrementing 16-bit integer
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-SERIAL>
     Smallserial,
 
-    /// PostgreSQL BIGSERIAL type - auto-incrementing 64-bit integer
+    /// `PostgreSQL` BIGSERIAL type - auto-incrementing 64-bit integer
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-SERIAL>
     Bigserial,
 
-    /// PostgreSQL TEXT type - variable-length character string
+    /// `PostgreSQL` TEXT type - variable-length character string
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-character.html>
     #[default]
     Text,
 
-    /// PostgreSQL VARCHAR type - variable-length character string with limit
+    /// `PostgreSQL` VARCHAR type - variable-length character string with limit
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-character.html>
     Varchar,
 
-    /// PostgreSQL CHAR type - fixed-length character string
+    /// `PostgreSQL` CHAR type - fixed-length character string
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-character.html>
     Char,
 
-    /// PostgreSQL REAL type - single precision floating-point number
+    /// `PostgreSQL` REAL type - single precision floating-point number
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-FLOAT>
     Real,
 
-    /// PostgreSQL DOUBLE PRECISION type - double precision floating-point number
+    /// `PostgreSQL` DOUBLE PRECISION type - double precision floating-point number
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-FLOAT>
     DoublePrecision,
 
-    /// PostgreSQL NUMERIC type - exact numeric with selectable precision
+    /// `PostgreSQL` NUMERIC type - exact numeric with selectable precision
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-NUMERIC-DECIMAL>
     Numeric,
 
-    /// PostgreSQL BOOLEAN type - true/false
+    /// `PostgreSQL` BOOLEAN type - true/false
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-boolean.html>
     Boolean,
 
-    /// PostgreSQL BYTEA type - binary data
+    /// `PostgreSQL` BYTEA type - binary data
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-binary.html>
     Bytea,
 
-    /// PostgreSQL UUID type - universally unique identifier
+    /// `PostgreSQL` UUID type - universally unique identifier
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-uuid.html>
     #[cfg(feature = "uuid")]
     Uuid,
 
-    /// PostgreSQL JSON type - JSON data
+    /// `PostgreSQL` JSON type - JSON data
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-json.html>
     #[cfg(feature = "serde")]
     Json,
 
-    /// PostgreSQL JSONB type - binary JSON data
+    /// `PostgreSQL` JSONB type - binary JSON data
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-json.html>
     #[cfg(feature = "serde")]
     Jsonb,
 
-    /// PostgreSQL TIMESTAMP type - date and time
+    /// `PostgreSQL` TIMESTAMP type - date and time
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
     Timestamp,
 
-    /// PostgreSQL TIMESTAMPTZ type - date and time with time zone
+    /// `PostgreSQL` TIMESTAMPTZ type - date and time with time zone
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
     Timestamptz,
 
-    /// PostgreSQL DATE type - calendar date
+    /// `PostgreSQL` DATE type - calendar date
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
     Date,
 
-    /// PostgreSQL TIME type - time of day
+    /// `PostgreSQL` TIME type - time of day
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
     Time,
 
-    /// PostgreSQL TIMETZ type - time of day with time zone
+    /// `PostgreSQL` TIMETZ type - time of day with time zone
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
     Timetz,
 
-    /// PostgreSQL INTERVAL type - time interval
+    /// `PostgreSQL` INTERVAL type - time interval
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
     #[cfg(feature = "chrono")]
     Interval,
 
-    /// PostgreSQL INET type - IPv4 or IPv6 host address
+    /// `PostgreSQL` INET type - IPv4 or IPv6 host address
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-net-types.html>
     #[cfg(feature = "cidr")]
     Inet,
 
-    /// PostgreSQL CIDR type - IPv4 or IPv6 network address
+    /// `PostgreSQL` CIDR type - IPv4 or IPv6 network address
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-net-types.html>
     #[cfg(feature = "cidr")]
     Cidr,
 
-    /// PostgreSQL MACADDR type - MAC address
+    /// `PostgreSQL` MACADDR type - MAC address
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-net-types.html>
     #[cfg(feature = "cidr")]
     MacAddr,
 
-    /// PostgreSQL MACADDR8 type - EUI-64 MAC address
+    /// `PostgreSQL` MACADDR8 type - EUI-64 MAC address
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-net-types.html>
     #[cfg(feature = "cidr")]
     MacAddr8,
 
-    /// PostgreSQL POINT type - geometric point
+    /// `PostgreSQL` POINT type - geometric point
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
     #[cfg(feature = "geo-types")]
     Point,
 
-    /// PostgreSQL LINE type - geometric line (infinite)
+    /// `PostgreSQL` LINE type - geometric line (infinite)
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
     #[cfg(feature = "geo-types")]
     Line,
 
-    /// PostgreSQL LSEG type - geometric line segment
+    /// `PostgreSQL` LSEG type - geometric line segment
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
     #[cfg(feature = "geo-types")]
     Lseg,
 
-    /// PostgreSQL BOX type - geometric box
+    /// `PostgreSQL` BOX type - geometric box
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
     #[cfg(feature = "geo-types")]
     Box,
 
-    /// PostgreSQL PATH type - geometric path
+    /// `PostgreSQL` PATH type - geometric path
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
     #[cfg(feature = "geo-types")]
     Path,
 
-    /// PostgreSQL POLYGON type - geometric polygon
+    /// `PostgreSQL` POLYGON type - geometric polygon
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
     #[cfg(feature = "geo-types")]
     Polygon,
 
-    /// PostgreSQL CIRCLE type - geometric circle
+    /// `PostgreSQL` CIRCLE type - geometric circle
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
     #[cfg(feature = "geo-types")]
     Circle,
 
-    /// PostgreSQL BIT type - fixed-length bit string
+    /// `PostgreSQL` BIT type - fixed-length bit string
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-bit.html>
     #[cfg(feature = "bit-vec")]
     Bit,
 
-    /// PostgreSQL BIT VARYING type - variable-length bit string
+    /// `PostgreSQL` BIT VARYING type - variable-length bit string
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-bit.html>
     #[cfg(feature = "bit-vec")]
     Varbit,
 
-    /// PostgreSQL custom ENUM type - user-defined enumerated type
+    /// `PostgreSQL` custom ENUM type - user-defined enumerated type
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-enum.html>
     #[cfg(feature = "serde")]
@@ -311,7 +311,7 @@ impl PostgreSQLType {
         }
     }
 
-    /// Create a native PostgreSQL enum type from enum attribute
+    /// Create a native `PostgreSQL` enum type from enum attribute
     ///
     /// Used for `#[enum(MyEnum)]` syntax.
     #[cfg(feature = "serde")]
@@ -322,7 +322,7 @@ impl PostgreSQLType {
 
     /// Get the SQL type string for this type
     #[must_use]
-    pub fn to_sql_type(&self) -> &str {
+    pub const fn to_sql_type(&self) -> &str {
         match self {
             Self::Integer => "INTEGER",
             Self::Bigint => "BIGINT",

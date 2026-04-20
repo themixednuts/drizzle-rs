@@ -24,10 +24,15 @@ pub struct PushOptions {
     pub connection: ConnectionOverrides,
 }
 
-/// Run the push command
-pub fn run(config: &Config, db_name: Option<&str>, opts: PushOptions) -> Result<(), CliError> {
-    use drizzle_migrations::parser::SchemaParser;
-
+/// Run the push command.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if the database cannot be resolved, credentials are
+/// missing or invalid, the schema files fail to parse, connecting or applying
+/// the diff to the database fails, or the user declines a destructive
+/// operation when `--force` is not set.
+pub fn run(config: &Config, db_name: Option<&str>, opts: &PushOptions) -> Result<(), CliError> {
     let db = config.database(db_name)?;
 
     // CLI flags override config
@@ -36,24 +41,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: PushOptions) -> Result<
     let effective_casing = opts.casing.or(db.casing);
     let effective_dialect = overrides::resolve_dialect(db, opts.dialect);
 
-    if effective_dialect != Dialect::Postgresql {
-        if opts.schema_filters.as_ref().is_some_and(|v| !v.is_empty()) {
-            println!(
-                "{}",
-                output::warning("Ignoring --schemaFilters: only supported for postgresql")
-            );
-        }
-        if opts
-            .extensions_filters
-            .as_ref()
-            .is_some_and(|v| !v.is_empty())
-        {
-            println!(
-                "{}",
-                output::warning("Ignoring --extensionsFilters: only supported for postgresql")
-            );
-        }
-    }
+    warn_unsupported_pg_filters(effective_dialect, opts);
 
     if !config.is_single_database() {
         let name = db_name.unwrap_or("(default)");
@@ -71,66 +59,13 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: PushOptions) -> Result<
 
     // Get credentials
     let credentials = overrides::resolve_credentials(db, effective_dialect, &opts.connection)?;
-    let credentials = match credentials {
-        Some(c) => c,
-        None => {
-            println!("{}", output::warning("No database credentials configured."));
-            println!();
-            println!("Add credentials to your drizzle.config.toml:");
-            println!();
-            println!("  {}", output::muted("[dbCredentials]"));
-            match effective_dialect.to_base() {
-                drizzle_types::Dialect::SQLite => {
-                    println!("  {}", output::muted("url = \"./dev.db\""));
-                }
-                drizzle_types::Dialect::PostgreSQL => {
-                    println!(
-                        "  {}",
-                        output::muted("url = \"postgres://user:pass@localhost:5432/db\"")
-                    );
-                }
-                drizzle_types::Dialect::MySQL => {
-                    // drizzle-cli doesn't currently support MySQL end-to-end, but the base
-                    // dialect type includes it, so keep the match exhaustive.
-                    println!(
-                        "  {}",
-                        output::muted("url = \"mysql://user:pass@localhost:3306/db\"")
-                    );
-                }
-            }
-            println!();
-            println!("Or use an environment variable:");
-            println!();
-            println!("  {}", output::muted("[dbCredentials]"));
-            println!("  {}", output::muted("url = { env = \"DATABASE_URL\" }"));
-            return Ok(());
-        }
+    let Some(credentials) = credentials else {
+        print_missing_credentials_help(effective_dialect);
+        return Ok(());
     };
 
     // Parse schema files
-    let schema_files = overrides::resolve_schema_files(db, opts.schema.as_deref())?;
-    if schema_files.is_empty() {
-        return Err(CliError::NoSchemaFiles(overrides::resolve_schema_display(
-            db,
-            opts.schema.as_deref(),
-        )));
-    }
-
-    println!(
-        "  {} {} schema file(s)",
-        output::label("Parsing"),
-        schema_files.len()
-    );
-
-    let mut combined_code = String::new();
-    for path in &schema_files {
-        let code = std::fs::read_to_string(path)
-            .map_err(|e| CliError::IoError(format!("Failed to read {}: {}", path.display(), e)))?;
-        combined_code.push_str(&code);
-        combined_code.push('\n');
-    }
-
-    let parse_result = SchemaParser::parse(&combined_code);
+    let parse_result = parse_schema_files(db, opts.schema.as_deref())?;
 
     if parse_result.tables.is_empty() && parse_result.indexes.is_empty() {
         println!(
@@ -217,4 +152,93 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: PushOptions) -> Result<
     println!("{}", output::success("Push complete!"));
 
     Ok(())
+}
+
+/// Emit warnings when `--schemaFilters` / `--extensionsFilters` are supplied
+/// against a non-postgres dialect (they'll be ignored).
+fn warn_unsupported_pg_filters(effective_dialect: Dialect, opts: &PushOptions) {
+    if effective_dialect == Dialect::Postgresql {
+        return;
+    }
+    if opts.schema_filters.as_ref().is_some_and(|v| !v.is_empty()) {
+        println!(
+            "{}",
+            output::warning("Ignoring --schemaFilters: only supported for postgresql")
+        );
+    }
+    if opts
+        .extensions_filters
+        .as_ref()
+        .is_some_and(|v| !v.is_empty())
+    {
+        println!(
+            "{}",
+            output::warning("Ignoring --extensionsFilters: only supported for postgresql")
+        );
+    }
+}
+
+/// Print a helpful message when no database credentials are configured.
+fn print_missing_credentials_help(effective_dialect: Dialect) {
+    println!("{}", output::warning("No database credentials configured."));
+    println!();
+    println!("Add credentials to your drizzle.config.toml:");
+    println!();
+    println!("  {}", output::muted("[dbCredentials]"));
+    match effective_dialect.to_base() {
+        drizzle_types::Dialect::SQLite => {
+            println!("  {}", output::muted("url = \"./dev.db\""));
+        }
+        drizzle_types::Dialect::PostgreSQL => {
+            println!(
+                "  {}",
+                output::muted("url = \"postgres://user:pass@localhost:5432/db\"")
+            );
+        }
+        drizzle_types::Dialect::MySQL => {
+            // drizzle-cli doesn't currently support MySQL end-to-end, but the base
+            // dialect type includes it, so keep the match exhaustive.
+            println!(
+                "  {}",
+                output::muted("url = \"mysql://user:pass@localhost:3306/db\"")
+            );
+        }
+    }
+    println!();
+    println!("Or use an environment variable:");
+    println!();
+    println!("  {}", output::muted("[dbCredentials]"));
+    println!("  {}", output::muted("url = { env = \"DATABASE_URL\" }"));
+}
+
+/// Resolve and parse schema files into a [`ParseResult`].
+fn parse_schema_files(
+    db: &crate::config::DatabaseConfig,
+    schema_override: Option<&[String]>,
+) -> Result<drizzle_migrations::parser::ParseResult, CliError> {
+    use drizzle_migrations::parser::SchemaParser;
+
+    let schema_files = overrides::resolve_schema_files(db, schema_override)?;
+    if schema_files.is_empty() {
+        return Err(CliError::NoSchemaFiles(overrides::resolve_schema_display(
+            db,
+            schema_override,
+        )));
+    }
+
+    println!(
+        "  {} {} schema file(s)",
+        output::label("Parsing"),
+        schema_files.len()
+    );
+
+    let mut combined_code = String::new();
+    for path in &schema_files {
+        let code = std::fs::read_to_string(path)
+            .map_err(|e| CliError::IoError(format!("Failed to read {}: {}", path.display(), e)))?;
+        combined_code.push_str(&code);
+        combined_code.push('\n');
+    }
+
+    Ok(SchemaParser::parse(&combined_code))
 }

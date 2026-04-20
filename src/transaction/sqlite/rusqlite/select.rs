@@ -228,8 +228,8 @@ where
 //------------------------------------------------------------------------------
 
 #[cfg(feature = "sqlite")]
-impl<'a, 'conn, Schema, State, T, M, R, G>
-    TransactionBuilder<'a, 'conn, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
+impl<'a, Schema, State, T, M, R, G>
+    TransactionBuilder<'a, '_, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
 where
     State: AsCteState,
     T: drizzle_core::traits::SQLTable<

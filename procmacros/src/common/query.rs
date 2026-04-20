@@ -1,4 +1,4 @@
-//! Shared query API code generation for both SQLite and PostgreSQL.
+//! Shared query API code generation for both `SQLite` and `PostgreSQL`.
 //!
 //! Generates relation ZSTs, `RelationDef` impls, inherent accessor methods,
 //! result accessor traits, type aliases, `FromJsonValue` impls, and column
@@ -7,11 +7,11 @@
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
-use syn::{Result, Visibility};
+use syn::Visibility;
 
 /// FK info extracted from field declarations.
-pub(crate) struct FkInfo {
-    /// Source column name (e.g., "author_id").
+pub struct FkInfo {
+    /// Source column name (e.g., "`author_id`").
     pub source_column: String,
     /// Target table ident (e.g., `User`).
     pub target_table_ident: Ident,
@@ -23,31 +23,41 @@ pub(crate) struct FkInfo {
 
 /// How an enum field is stored in the database.
 #[derive(Clone, Copy)]
-pub(crate) enum EnumStorage {
+pub enum EnumStorage {
     /// Stored as INTEGER — deserialize via `TryFrom<i64>`.
     Integer,
     /// Stored as TEXT — deserialize via `FromStr`.
     Text,
 }
 
-/// Info about a field for generating FromJsonValue.
-pub(crate) struct FieldJsonInfo {
+/// How a field should be read from a JSON value. These storage kinds are
+/// mutually exclusive and each takes a distinct read path in `FromJsonValue`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum FieldStorageKind {
+    /// Plain JSON-native value (number, string, array, object).
+    Plain,
+    /// UUID parsed from a string.
+    Uuid,
+    /// Boolean. `SQLite` stores booleans as integers (0/1) which appear as JSON
+    /// numbers inside `json_object()`.
+    Bool,
+    /// Raw blob (`Vec<u8>`).
+    Blob,
+}
+
+/// Info about a field for generating `FromJsonValue`.
+pub struct FieldJsonInfo {
     /// The field ident (e.g., `id`).
     pub ident: Ident,
     /// The column name in SQL (e.g., "id").
     pub column_name: String,
     /// Whether the field is nullable.
     pub is_nullable: bool,
-    /// Whether the field is a UUID type.
-    pub is_uuid: bool,
-    /// Whether the field is a raw blob type (Vec<u8>).
-    pub is_blob: bool,
-    /// Whether the field is a JSON/JSONB field.
+    /// Whether the field is a JSON/JSONB field (orthogonal to `storage`; a blob
+    /// field may carry JSON content).
     pub is_json: bool,
-    /// Whether the field is a boolean type.
-    /// SQLite stores booleans as integers (0/1) which appear as JSON numbers
-    /// inside `json_object()`. Requires special handling in `FromJsonValue`.
-    pub is_bool: bool,
+    /// How this field is stored and therefore how it should be read back.
+    pub storage: FieldStorageKind,
     /// If the field is an enum, how it is stored in the database.
     pub enum_storage: Option<EnumStorage>,
     /// The unwrapped base type (e.g., `i32` even if the field is `Option<i32>`).
@@ -58,13 +68,13 @@ pub(crate) struct FieldJsonInfo {
 ///
 /// Returns a `TokenStream` containing:
 /// - `QueryTable` impl for the table ZST
-/// - Forward relation items (ZST, RelationDef impl, accessor method, result accessor trait, type alias)
-/// - Reverse relation items (ZST, RelationDef impl, accessor method, result accessor trait, type alias)
+/// - Forward relation items (ZST, `RelationDef` impl, accessor method, result accessor trait, type alias)
+/// - Reverse relation items (ZST, `RelationDef` impl, accessor method, result accessor trait, type alias)
 /// - `FromJsonValue` impl for the select model
 /// - `FromJsonValue` impl for the partial select model
 /// - Column selector struct and `.columns()` method
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn generate_query_api(
+pub fn generate_query_api(
     struct_ident: &Ident,
     struct_vis: &Visibility,
     table_name: &str,
@@ -73,13 +83,13 @@ pub(crate) fn generate_query_api(
     fk_infos: &[FkInfo],
     field_json_infos: &[FieldJsonInfo],
     column_names: &[String],
-) -> Result<TokenStream> {
+) -> TokenStream {
     let mut tokens = TokenStream::new();
 
     // Collect blob column names (UUID and Vec<u8> types — stored as BLOB in SQLite).
     let blob_column_names: Vec<&str> = field_json_infos
         .iter()
-        .filter(|f| f.is_uuid || f.is_blob)
+        .filter(|f| matches!(f.storage, FieldStorageKind::Uuid | FieldStorageKind::Blob))
         .map(|f| f.column_name.as_str())
         .collect();
 
@@ -150,7 +160,7 @@ pub(crate) fn generate_query_api(
         field_json_infos,
     ));
 
-    Ok(tokens)
+    tokens
 }
 
 /// Generates `QueryTable` impl for the table ZST.
@@ -162,7 +172,10 @@ fn generate_query_table(
     column_names: &[String],
     blob_column_names: &[&str],
 ) -> TokenStream {
-    let column_name_literals: Vec<&str> = column_names.iter().map(|s| s.as_str()).collect();
+    let column_name_literals: Vec<&str> = column_names
+        .iter()
+        .map(std::string::String::as_str)
+        .collect();
 
     let blob_const = if blob_column_names.is_empty() {
         // Use default (empty slice) — no override needed
@@ -188,15 +201,16 @@ fn generate_query_table(
 /// Strips `_id` suffix: `author_id` -> `author`, `post_id` -> `post`.
 /// If no `_id` suffix, uses column name as-is: `invited_by` -> `invited_by`.
 fn forward_method_name(column_name: &str) -> String {
-    if let Some(stripped) = column_name.strip_suffix("_id") {
-        if stripped.is_empty() {
-            column_name.to_string()
-        } else {
-            stripped.to_string()
-        }
-    } else {
-        column_name.to_string()
-    }
+    column_name.strip_suffix("_id").map_or_else(
+        || column_name.to_string(),
+        |stripped| {
+            if stripped.is_empty() {
+                column_name.to_string()
+            } else {
+                stripped.to_string()
+            }
+        },
+    )
 }
 
 /// Derive the reverse method name from a source table name.
@@ -569,23 +583,18 @@ fn generate_from_json_value_impl(
             let col_name = &f.column_name;
             let is_nullable = nullable_all || f.is_nullable;
 
-            if f.is_uuid {
-                return generate_uuid_read(ident, col_name, is_nullable);
-            }
-
             if let Some(storage) = f.enum_storage {
                 return generate_enum_read(ident, col_name, &f.base_type, storage, is_nullable);
             }
 
-            if f.is_bool {
-                return generate_bool_read(ident, col_name, is_nullable);
+            match f.storage {
+                FieldStorageKind::Uuid => generate_uuid_read(ident, col_name, is_nullable),
+                FieldStorageKind::Bool => generate_bool_read(ident, col_name, is_nullable),
+                FieldStorageKind::Blob => {
+                    generate_blob_read(ident, col_name, &f.base_type, is_nullable, f.is_json)
+                }
+                FieldStorageKind::Plain => generate_serde_read(ident, col_name, is_nullable),
             }
-
-            if f.is_blob {
-                return generate_blob_read(ident, col_name, &f.base_type, is_nullable, f.is_json);
-            }
-
-            generate_serde_read(ident, col_name, is_nullable)
         })
         .collect();
 
@@ -717,7 +726,7 @@ fn generate_enum_read(
 
 /// Generates a boolean field read that handles both JSON booleans and integers.
 ///
-/// SQLite stores booleans as integers (0/1) which appear as JSON numbers inside
+/// `SQLite` stores booleans as integers (0/1) which appear as JSON numbers inside
 /// `json_object()`. This handler accepts both `true`/`false` and `0`/`1`.
 fn generate_bool_read(ident: &Ident, col_name: &str, is_nullable: bool) -> TokenStream {
     if is_nullable {
@@ -744,7 +753,7 @@ fn generate_bool_read(ident: &Ident, col_name: &str, is_nullable: bool) -> Token
 
 /// Generates a raw blob field read from a hex string.
 ///
-/// SQLite's `hex()` wrapping converts BLOBs to uppercase hex strings for
+/// `SQLite`'s `hex()` wrapping converts BLOBs to uppercase hex strings for
 /// `json_object()` compatibility. This handler decodes the hex string back
 /// to `Vec<u8>`.
 fn generate_blob_read(
@@ -877,7 +886,7 @@ fn enum_json_conversion(
     }
 }
 
-/// Convert a snake_case string to PascalCase.
+/// Convert a `snake_case` string to `PascalCase`.
 fn to_pascal(s: &str) -> String {
     s.to_upper_camel_case()
 }

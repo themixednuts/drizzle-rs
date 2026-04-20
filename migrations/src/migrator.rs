@@ -94,6 +94,7 @@ impl Migration {
     ///
     /// The hash is computed from the SQL content.
     /// SQL is split on `"--> statement-breakpoint"` markers.
+    #[must_use]
     pub fn new(tag: &str, sql: &str) -> Self {
         let hash = compute_hash(sql);
         let created_at = parse_timestamp_from_tag(tag);
@@ -124,36 +125,42 @@ impl Migration {
 
     /// Get the migration tag (folder name)
     #[inline]
+    #[must_use]
     pub fn tag(&self) -> &str {
         &self.tag
     }
 
     /// Get the migration folder name used by drizzle-orm tracking metadata.
     #[inline]
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.tag
     }
 
     /// Get the migration hash (used for tracking)
     #[inline]
+    #[must_use]
     pub fn hash(&self) -> &str {
         &self.hash
     }
 
     /// Get the creation timestamp
     #[inline]
-    pub fn created_at(&self) -> i64 {
+    #[must_use]
+    pub const fn created_at(&self) -> i64 {
         self.created_at
     }
 
     /// Get the SQL statements (already split)
     #[inline]
+    #[must_use]
     pub fn statements(&self) -> &[String] {
         &self.sql
     }
 
     /// Check if this migration is empty
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.sql.is_empty() || self.sql.iter().all(|s| s.trim().is_empty())
     }
@@ -163,20 +170,21 @@ impl Migration {
 #[derive(Debug, Clone)]
 pub struct Migrations {
     /// Ordered list of migrations
-    migrations: Vec<Migration>,
+    list: Vec<Migration>,
     /// Database dialect
     dialect: Dialect,
     /// Migrations table name
     table: String,
-    /// Migrations schema (PostgreSQL only)
+    /// Migrations schema (`PostgreSQL` only)
     schema: Option<String>,
 }
 
 impl Migrations {
     /// Create a new migration set from migrations
+    #[must_use]
     pub fn new(migrations: Vec<Migration>, dialect: Dialect) -> Self {
         Self {
-            migrations,
+            list: migrations,
             dialect,
             table: "__drizzle_migrations".to_string(),
             schema: match dialect {
@@ -188,7 +196,7 @@ impl Migrations {
 
     pub fn with_tracking(migrations: Vec<Migration>, dialect: Dialect, tracking: Tracking) -> Self {
         Self {
-            migrations,
+            list: migrations,
             dialect,
             table: tracking.table.into_owned(),
             schema: tracking.schema.map(std::borrow::Cow::into_owned),
@@ -196,14 +204,16 @@ impl Migrations {
     }
 
     /// Create an empty migration set
+    #[must_use]
     pub fn empty(dialect: Dialect) -> Self {
         Self::new(Vec::new(), dialect)
     }
 
     /// Get all migrations
     #[inline]
+    #[must_use]
     pub fn all(&self) -> &[Migration] {
-        &self.migrations
+        &self.list
     }
 
     /// Get migrations that haven't been applied yet, by set-difference on name.
@@ -221,7 +231,7 @@ impl Migrations {
     where
         S: AsRef<str>,
     {
-        self.migrations.iter().filter(move |m| {
+        self.list.iter().filter(move |m| {
             let name = m.name();
             name.is_empty() || !applied_names.iter().any(|applied| applied.as_ref() == name)
         })
@@ -237,29 +247,33 @@ impl Migrations {
 
     /// Get the dialect
     #[inline]
-    pub fn dialect(&self) -> Dialect {
+    #[must_use]
+    pub const fn dialect(&self) -> Dialect {
         self.dialect
     }
 
     /// Get the migrations tracking table name.
     #[inline]
+    #[must_use]
     pub fn table_name(&self) -> &str {
         &self.table
     }
 
     /// Get the migrations tracking schema, if any.
     #[inline]
+    #[must_use]
     pub fn schema_name(&self) -> Option<&str> {
         self.schema.as_deref()
     }
 
     /// Get the SQL table identifier used in queries.
     #[inline]
+    #[must_use]
     pub fn table_ident_sql(&self) -> String {
         self.table_ident()
     }
 
-    /// Get the full table identifier (with schema for PostgreSQL)
+    /// Get the full table identifier (with schema for `PostgreSQL`)
     fn table_ident(&self) -> String {
         match (&self.dialect, &self.schema) {
             (Dialect::PostgreSQL, Some(schema)) => format!("\"{}\".\"{}\"", schema, self.table),
@@ -268,57 +282,57 @@ impl Migrations {
         }
     }
 
-    /// Get the SQL to create the migrations schema (PostgreSQL only)
+    /// Get the SQL to create the migrations schema (`PostgreSQL` only)
+    #[must_use]
     pub fn create_schema_sql(&self) -> Option<String> {
         self.schema
             .as_ref()
-            .map(|schema| format!("CREATE SCHEMA IF NOT EXISTS \"{}\";", schema))
+            .map(|schema| format!("CREATE SCHEMA IF NOT EXISTS \"{schema}\";"))
     }
 
     /// Get the SQL to create the migrations tracking table
     ///
     /// Table schema matches current drizzle-orm:
-    /// - SQLite: id (INTEGER PK), hash, created_at, name, applied_at
-    /// - PostgreSQL: id (SERIAL PK), hash, created_at, name, applied_at
-    /// - MySQL: id (SERIAL PK), hash, created_at, name, applied_at
+    /// - `SQLite`: id (INTEGER PK), hash, `created_at`, name, `applied_at`
+    /// - `PostgreSQL`: id (SERIAL PK), hash, `created_at`, name, `applied_at`
+    /// - `MySQL`: id (SERIAL PK), hash, `created_at`, name, `applied_at`
+    #[must_use]
     pub fn create_table_sql(&self) -> String {
         let table = self.table_ident();
 
         match self.dialect {
             Dialect::SQLite => format!(
-                r#"CREATE TABLE IF NOT EXISTS {} (
+                r"CREATE TABLE IF NOT EXISTS {table} (
     id INTEGER PRIMARY KEY,
     hash text NOT NULL,
     created_at numeric,
     name text,
     applied_at TEXT
-);"#,
-                table
+);"
             ),
             Dialect::PostgreSQL => format!(
-                r#"CREATE TABLE IF NOT EXISTS {} (
+                r"CREATE TABLE IF NOT EXISTS {table} (
     id SERIAL PRIMARY KEY,
     hash TEXT NOT NULL,
     created_at BIGINT,
     name TEXT,
     applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);"#,
-                table
+);"
             ),
             Dialect::MySQL => format!(
-                r#"CREATE TABLE IF NOT EXISTS {} (
+                r"CREATE TABLE IF NOT EXISTS {table} (
     id SERIAL PRIMARY KEY,
     hash text NOT NULL,
     created_at BIGINT,
     name text,
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);"#,
-                table
+);"
             ),
         }
     }
 
     /// Get the SQL to record a migration as applied.
+    #[must_use]
     pub fn record_migration_sql(&self, migration: &Migration) -> String {
         let table = self.table_ident();
         let hash = escape_sql_string(migration.hash());
@@ -328,14 +342,12 @@ impl Migrations {
         match self.dialect {
             Dialect::SQLite | Dialect::PostgreSQL => {
                 format!(
-                    r#"INSERT INTO {} ("hash", "created_at", "name", "applied_at") VALUES ('{}', {}, '{}', CURRENT_TIMESTAMP);"#,
-                    table, hash, created_at, name
+                    r#"INSERT INTO {table} ("hash", "created_at", "name", "applied_at") VALUES ('{hash}', {created_at}, '{name}', CURRENT_TIMESTAMP);"#
                 )
             }
             Dialect::MySQL => {
                 format!(
-                    r#"INSERT INTO {} (`hash`, `created_at`, `name`, `applied_at`) VALUES ('{}', {}, '{}', CURRENT_TIMESTAMP);"#,
-                    table, hash, created_at, name
+                    r"INSERT INTO {table} (`hash`, `created_at`, `name`, `applied_at`) VALUES ('{hash}', {created_at}, '{name}', CURRENT_TIMESTAMP);"
                 )
             }
         }
@@ -347,34 +359,34 @@ impl Migrations {
     /// v0 → v1 migrations-table upgrade (which backfills `name`) have
     /// `NULL` in this column and are deliberately excluded. Pair with
     /// [`Migrations::pending`].
+    #[must_use]
     pub fn applied_names_sql(&self) -> String {
         let table = self.table_ident();
-        format!(
-            r#"SELECT "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
-            table
-        )
+        format!(r#"SELECT "name" FROM {table} WHERE "name" IS NOT NULL ORDER BY id;"#)
     }
 
     /// Get the SQL to check if migrations table exists
+    #[must_use]
     pub fn table_exists_sql(&self) -> String {
         match self.dialect {
             Dialect::SQLite => format!(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='{}';",
                 self.table
             ),
-            Dialect::PostgreSQL => {
-                if let Some(ref schema) = self.schema {
-                    format!(
-                        "SELECT table_name FROM information_schema.tables WHERE table_schema='{}' AND table_name='{}';",
-                        schema, self.table
-                    )
-                } else {
+            Dialect::PostgreSQL => self.schema.as_ref().map_or_else(
+                || {
                     format!(
                         "SELECT table_name FROM information_schema.tables WHERE table_name='{}';",
                         self.table
                     )
-                }
-            }
+                },
+                |schema| {
+                    format!(
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema='{}' AND table_name='{}';",
+                        schema, self.table
+                    )
+                },
+            ),
             Dialect::MySQL => format!(
                 "SELECT table_name FROM information_schema.tables WHERE table_name='{}';",
                 self.table
@@ -602,6 +614,11 @@ fn split_on_semicolons(sql: &str) -> Vec<String> {
 }
 
 /// Match applied database rows to local migrations for migration-table upgrades.
+///
+/// # Errors
+///
+/// Returns [`MigratorError::ExecutionError`] when one or more `applied_rows`
+/// cannot be matched to any local migration by `created_at` or `hash`.
 pub fn match_applied_migration_metadata(
     local_migrations: &[Migration],
     applied_rows: &[AppliedMigrationMetadata],
@@ -660,7 +677,7 @@ fn escape_sql_string(value: &str) -> String {
     value.replace('\'', "''")
 }
 
-/// Parse a starting PostgreSQL dollar-quote delimiter at `pos`.
+/// Parse a starting `PostgreSQL` dollar-quote delimiter at `pos`.
 ///
 /// Returns the full delimiter (e.g. "$$" or "$func$") when valid.
 fn parse_dollar_tag_start(sql: &str, pos: usize) -> Option<&str> {
@@ -672,7 +689,7 @@ fn parse_dollar_tag_start(sql: &str, pos: usize) -> Option<&str> {
     while i < sql.len() {
         let ch = sql[i..].chars().next()?;
         if ch == '$' {
-            return Some(&sql[pos..i + 1]);
+            return Some(&sql[pos..=i]);
         }
         if ch.is_ascii_alphanumeric() || ch == '_' {
             i += ch.len_utf8();
@@ -686,7 +703,7 @@ fn parse_dollar_tag_start(sql: &str, pos: usize) -> Option<&str> {
 
 /// Parse timestamp from migration tag
 ///
-/// Supports both V3 format (YYYYMMDDHHMMSS_name) and legacy format (0000_name)
+/// Supports both V3 format (`YYYYMMDDHHMMSS_name`) and legacy format (`0000_name`)
 pub(crate) fn parse_timestamp_from_tag(tag: &str) -> i64 {
     // Try to extract timestamp from beginning of tag (V3 format: YYYYMMDDHHMMSS)
     if tag.len() >= 14
@@ -706,8 +723,7 @@ pub(crate) fn parse_timestamp_from_tag(tag: &str) -> i64 {
     // Fallback: use current time
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
 /// Parse a `YYYYMMDDHHMMSS` timestamp prefix to UTC milliseconds.
@@ -745,7 +761,7 @@ fn days_from_civil(year: i32, month: u32, day: u32) -> Option<i64> {
     let m = i32::try_from(month).ok()?;
     let d = i32::try_from(day).ok()?;
 
-    let y = year - if m <= 2 { 1 } else { 0 };
+    let y = year - i32::from(m <= 2);
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = y - era * 400;
     let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
@@ -754,7 +770,7 @@ fn days_from_civil(year: i32, month: u32, day: u32) -> Option<i64> {
     Some(i64::from(era) * 146_097 + i64::from(doe) - 719_468)
 }
 
-fn days_in_month(year: i32, month: u32) -> u32 {
+const fn days_in_month(year: i32, month: u32) -> u32 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
@@ -764,7 +780,7 @@ fn days_in_month(year: i32, month: u32) -> u32 {
     }
 }
 
-fn is_leap_year(year: i32) -> bool {
+const fn is_leap_year(year: i32) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 

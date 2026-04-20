@@ -1,4 +1,4 @@
-//! Common Table Expression (CTE / `WITH`) support for SQLite.
+//! Common Table Expression (CTE / `WITH`) support for `SQLite`.
 
 use crate::values::SQLiteValue;
 

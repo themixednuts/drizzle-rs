@@ -80,7 +80,7 @@ where
     columns_sql.parens().push(Token::VALUES).append(values_sql)
 }
 
-/// Helper function to create a RETURNING clause - SQLite specific
+/// Helper function to create a RETURNING clause - `SQLite` specific
 pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQL<'a, SQLiteValue<'a>>
 where
     I: ToSQL<'a, SQLiteValue<'a>>,

@@ -13,7 +13,7 @@ use super::ExecutableState;
 // Type State Markers
 //------------------------------------------------------------------------------
 
-/// Marker for the initial state of InsertBuilder.
+/// Marker for the initial state of `InsertBuilder`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct InsertInitial;
 
@@ -48,11 +48,11 @@ impl ExecutableState for InsertDoUpdateSet {}
 enum ConflictTargetKind<'a> {
     /// ON CONFLICT (col1, col2)
     Columns(Box<SQL<'a, PostgresValue<'a>>>),
-    /// ON CONFLICT ON CONSTRAINT "constraint_name"
+    /// ON CONFLICT ON CONSTRAINT "`constraint_name`"
     Constraint(&'static str),
 }
 
-/// Intermediate builder for typed ON CONFLICT clause construction (PostgreSQL).
+/// Intermediate builder for typed ON CONFLICT clause construction (`PostgreSQL`).
 ///
 /// Created by [`InsertBuilder::on_conflict()`] or
 /// [`InsertBuilder::on_conflict_on_constraint()`].
@@ -74,6 +74,7 @@ impl<'a, S, T> OnConflictBuilder<'a, S, T> {
     ///
     /// Note: WHERE is only meaningful for column-based targets, not for
     /// `ON CONFLICT ON CONSTRAINT` targets.
+    #[must_use]
     pub fn r#where<E>(mut self, condition: E) -> Self
     where
         E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
@@ -106,6 +107,7 @@ impl<'a, S, T> OnConflictBuilder<'a, S, T> {
     /// Resolves the conflict by doing nothing (ignoring the conflicting row).
     ///
     /// Generates: `ON CONFLICT (col1, col2) DO NOTHING`
+    #[must_use]
     pub fn do_nothing(self) -> InsertBuilder<'a, S, InsertOnConflictSet, T> {
         let (sql, target) = self.into_parts();
         InsertBuilder {
@@ -154,7 +156,7 @@ impl<'a, S, T> OnConflictBuilder<'a, S, T> {
 // InsertBuilder Definition
 //------------------------------------------------------------------------------
 
-/// Builds an INSERT query specifically for PostgreSQL.
+/// Builds an INSERT query specifically for `PostgreSQL`.
 ///
 /// Provides a type-safe, fluent API for constructing INSERT statements
 /// with support for typed conflict resolution, batch inserts, and returning clauses.
@@ -409,6 +411,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// Shorthand for `ON CONFLICT DO NOTHING` without specifying a target.
     ///
     /// This matches any constraint violation.
+    #[must_use]
     pub fn on_conflict_do_nothing(self) -> InsertBuilder<'a, S, InsertOnConflictSet, T> {
         let conflict_sql = SQL::from_iter([Token::ON, Token::CONFLICT, Token::DO, Token::NOTHING]);
         InsertBuilder {
@@ -422,7 +425,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
         }
     }
 
-    /// Adds a RETURNING clause and transitions to ReturningSet state
+    /// Adds a RETURNING clause and transitions to `ReturningSet` state
     #[inline]
     pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
     where

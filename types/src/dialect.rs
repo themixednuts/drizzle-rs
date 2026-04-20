@@ -24,18 +24,18 @@
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 pub enum Dialect {
-    /// SQLite - uses `?` positional placeholders
+    /// `SQLite` - uses `?` positional placeholders
     ///
     /// Compatible with: rusqlite, libsql, turso
     #[default]
     SQLite,
 
-    /// PostgreSQL - uses `$1, $2, ...` numbered placeholders
+    /// `PostgreSQL` - uses `$1, $2, ...` numbered placeholders
     ///
     /// Compatible with: tokio-postgres, postgres
     PostgreSQL,
 
-    /// MySQL - uses `?` positional placeholders
+    /// `MySQL` - uses `?` positional placeholders
     ///
     /// Compatible with: mysql
     MySQL,
@@ -44,20 +44,20 @@ pub enum Dialect {
 impl Dialect {
     /// Returns `true` if this dialect uses numbered placeholders (`$1, $2, ...`)
     ///
-    /// Currently only PostgreSQL uses numbered placeholders.
-    /// SQLite and MySQL use positional `?` placeholders.
+    /// Currently only `PostgreSQL` uses numbered placeholders.
+    /// `SQLite` and `MySQL` use positional `?` placeholders.
     #[inline]
     #[must_use]
     pub const fn uses_numbered_placeholders(&self) -> bool {
-        matches!(self, Dialect::PostgreSQL)
+        matches!(self, Self::PostgreSQL)
     }
 
     /// Parse a dialect from a string (case-insensitive)
     ///
     /// Supports various common aliases:
-    /// - SQLite: `"sqlite"`, `"turso"`, `"libsql"`
-    /// - PostgreSQL: `"postgresql"`, `"postgres"`, `"pg"`
-    /// - MySQL: `"mysql"`
+    /// - `SQLite`: `"sqlite"`, `"turso"`, `"libsql"`
+    /// - `PostgreSQL`: `"postgresql"`, `"postgres"`, `"pg"`
+    /// - `MySQL`: `"mysql"`
     ///
     /// # Examples
     ///
@@ -70,20 +70,20 @@ impl Dialect {
     /// assert_eq!(Dialect::parse("unknown"), None);
     /// ```
     #[must_use]
-    pub fn parse(s: &str) -> Option<Self> {
+    pub const fn parse(s: &str) -> Option<Self> {
         // Use eq_ignore_ascii_case for no_std compatibility (no allocation)
         if s.eq_ignore_ascii_case("sqlite")
             || s.eq_ignore_ascii_case("turso")
             || s.eq_ignore_ascii_case("libsql")
         {
-            Some(Dialect::SQLite)
+            Some(Self::SQLite)
         } else if s.eq_ignore_ascii_case("postgresql")
             || s.eq_ignore_ascii_case("postgres")
             || s.eq_ignore_ascii_case("pg")
         {
-            Some(Dialect::PostgreSQL)
+            Some(Self::PostgreSQL)
         } else if s.eq_ignore_ascii_case("mysql") {
-            Some(Dialect::MySQL)
+            Some(Self::MySQL)
         } else {
             None
         }
@@ -95,9 +95,9 @@ impl Dialect {
     #[must_use]
     pub const fn table_prefix(&self) -> &'static str {
         match self {
-            Dialect::SQLite => "#[SQLiteTable",
-            Dialect::PostgreSQL => "#[PostgresTable",
-            Dialect::MySQL => "#[MySQLTable",
+            Self::SQLite => "#[SQLiteTable",
+            Self::PostgreSQL => "#[PostgresTable",
+            Self::MySQL => "#[MySQLTable",
         }
     }
 
@@ -105,9 +105,9 @@ impl Dialect {
     #[must_use]
     pub const fn index_prefix(&self) -> &'static str {
         match self {
-            Dialect::SQLite => "#[SQLiteIndex",
-            Dialect::PostgreSQL => "#[PostgresIndex",
-            Dialect::MySQL => "#[MySQLIndex",
+            Self::SQLite => "#[SQLiteIndex",
+            Self::PostgreSQL => "#[PostgresIndex",
+            Self::MySQL => "#[MySQLIndex",
         }
     }
 
@@ -115,9 +115,9 @@ impl Dialect {
     #[must_use]
     pub const fn schema_derive(&self) -> &'static str {
         match self {
-            Dialect::SQLite => "#[derive(SQLiteSchema)]",
-            Dialect::PostgreSQL => "#[derive(PostgresSchema)]",
-            Dialect::MySQL => "#[derive(MySQLSchema)]",
+            Self::SQLite => "#[derive(SQLiteSchema)]",
+            Self::PostgreSQL => "#[derive(PostgresSchema)]",
+            Self::MySQL => "#[derive(MySQLSchema)]",
         }
     }
 
@@ -125,9 +125,9 @@ impl Dialect {
     #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
-            Dialect::SQLite => "sqlite",
-            Dialect::PostgreSQL => "postgresql",
-            Dialect::MySQL => "mysql",
+            Self::SQLite => "sqlite",
+            Self::PostgreSQL => "postgresql",
+            Self::MySQL => "mysql",
         }
     }
 }
@@ -142,7 +142,7 @@ impl core::str::FromStr for Dialect {
     type Err = DialectParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Dialect::parse(s).ok_or(DialectParseError)
+        Self::parse(s).ok_or(DialectParseError)
     }
 }
 

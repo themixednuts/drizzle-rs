@@ -18,7 +18,13 @@ pub struct ExportOptions {
     pub schema: Option<Vec<String>>,
 }
 
-/// Run the export command
+/// Run the export command.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if the requested database cannot be resolved, the
+/// schema files cannot be read/parsed, the resolved snapshot cannot be
+/// generated, or if writing the output SQL file fails.
 pub fn run(config: &Config, db_name: Option<&str>, opts: ExportOptions) -> Result<(), CliError> {
     use drizzle_migrations::parser::SchemaParser;
 
@@ -84,7 +90,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: ExportOptions) -> Resul
     let snapshot = parse_result_to_snapshot(&parse_result, dialect, db.casing);
 
     // Generate SQL from snapshot (create statements for all entities)
-    let sql_statements = generate_create_sql(&snapshot, db.breakpoints)?;
+    let sql_statements = generate_create_sql(&snapshot, db.breakpoints);
 
     if sql_statements.is_empty() {
         println!("{}", output::warning("No SQL statements generated."));
@@ -94,29 +100,25 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: ExportOptions) -> Resul
     let sql_content = sql_statements.join("\n\n");
 
     // Output to file or stdout
-    match opts.output_path {
-        Some(path) => {
-            std::fs::write(&path, &sql_content).map_err(|e| {
-                CliError::IoError(format!("Failed to write {}: {}", path.display(), e))
-            })?;
-            println!();
-            println!(
-                "{}",
-                output::success(&format!(
-                    "Exported {} SQL statement(s) to {}",
-                    sql_statements.len(),
-                    path.display()
-                ))
-            );
-        }
-        None => {
-            println!();
-            println!("{}", output::muted("-- Generated SQL --"));
-            println!();
-            println!("{}", sql_content);
-            println!();
-            println!("{}", output::muted("-- End of SQL --"));
-        }
+    if let Some(path) = opts.output_path {
+        std::fs::write(&path, &sql_content)
+            .map_err(|e| CliError::IoError(format!("Failed to write {}: {}", path.display(), e)))?;
+        println!();
+        println!(
+            "{}",
+            output::success(&format!(
+                "Exported {} SQL statement(s) to {}",
+                sql_statements.len(),
+                path.display()
+            ))
+        );
+    } else {
+        println!();
+        println!("{}", output::muted("-- Generated SQL --"));
+        println!();
+        println!("{sql_content}");
+        println!();
+        println!("{}", output::muted("-- End of SQL --"));
     }
 
     Ok(())
@@ -126,7 +128,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: ExportOptions) -> Resul
 fn generate_create_sql(
     snapshot: &drizzle_migrations::schema::Snapshot,
     breakpoints: bool,
-) -> Result<Vec<String>, CliError> {
+) -> Vec<String> {
     use drizzle_migrations::schema::Snapshot;
 
     match snapshot {
@@ -139,7 +141,7 @@ fn generate_create_sql(
             let empty = SQLiteSnapshot::new();
             let diff = diff_snapshots(&empty, snap);
             let generator = SqliteGenerator::new().with_breakpoints(breakpoints);
-            Ok(generator.generate_migration(&diff))
+            generator.generate_migration(&diff)
         }
         Snapshot::Postgres(snap) => {
             use drizzle_migrations::postgres::PostgresSnapshot;
@@ -150,7 +152,7 @@ fn generate_create_sql(
             let empty = PostgresSnapshot::new();
             let diff = diff_full_snapshots(&empty, snap);
             let generator = PostgresGenerator::new().with_breakpoints(breakpoints);
-            Ok(generator.generate(&diff.diffs))
+            generator.generate(&diff.diffs)
         }
     }
 }

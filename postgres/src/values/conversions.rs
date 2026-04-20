@@ -1,4 +1,4 @@
-//! From<T> and TryFrom<PostgresValue> implementations
+//! From<T> and `TryFrom`<PostgresValue> implementations
 
 use super::PostgresValue;
 use crate::prelude::*;
@@ -34,20 +34,20 @@ use rust_decimal::Decimal;
 // --- Integer Types ---
 
 // i8 → SMALLINT (PostgreSQL doesn't have a native i8 type)
-impl<'a> From<i8> for PostgresValue<'a> {
+impl From<i8> for PostgresValue<'_> {
     fn from(value: i8) -> Self {
-        PostgresValue::Smallint(value as i16)
+        PostgresValue::Smallint(i16::from(value))
     }
 }
 
 impl<'a> From<&'a i8> for PostgresValue<'a> {
     fn from(value: &'a i8) -> Self {
-        PostgresValue::Smallint(*value as i16)
+        PostgresValue::Smallint(i16::from(*value))
     }
 }
 
 // i16 (SMALLINT)
-impl<'a> From<i16> for PostgresValue<'a> {
+impl From<i16> for PostgresValue<'_> {
     fn from(value: i16) -> Self {
         PostgresValue::Smallint(value)
     }
@@ -60,7 +60,7 @@ impl<'a> From<&'a i16> for PostgresValue<'a> {
 }
 
 // i32 (INTEGER)
-impl<'a> From<i32> for PostgresValue<'a> {
+impl From<i32> for PostgresValue<'_> {
     fn from(value: i32) -> Self {
         PostgresValue::Integer(value)
     }
@@ -73,7 +73,7 @@ impl<'a> From<&'a i32> for PostgresValue<'a> {
 }
 
 // i64 (BIGINT)
-impl<'a> From<i64> for PostgresValue<'a> {
+impl From<i64> for PostgresValue<'_> {
     fn from(value: i64) -> Self {
         PostgresValue::Bigint(value)
     }
@@ -86,59 +86,59 @@ impl<'a> From<&'a i64> for PostgresValue<'a> {
 }
 
 // u8 → SMALLINT (PostgreSQL doesn't have unsigned types)
-impl<'a> From<u8> for PostgresValue<'a> {
+impl From<u8> for PostgresValue<'_> {
     fn from(value: u8) -> Self {
-        PostgresValue::Smallint(value as i16)
+        PostgresValue::Smallint(i16::from(value))
     }
 }
 
 impl<'a> From<&'a u8> for PostgresValue<'a> {
     fn from(value: &'a u8) -> Self {
-        PostgresValue::Smallint(*value as i16)
+        PostgresValue::Smallint(i16::from(*value))
     }
 }
 
 // u16 → INTEGER (cast to larger signed type)
-impl<'a> From<u16> for PostgresValue<'a> {
+impl From<u16> for PostgresValue<'_> {
     fn from(value: u16) -> Self {
-        PostgresValue::Integer(value as i32)
+        PostgresValue::Integer(i32::from(value))
     }
 }
 
 impl<'a> From<&'a u16> for PostgresValue<'a> {
     fn from(value: &'a u16) -> Self {
-        PostgresValue::Integer(*value as i32)
+        PostgresValue::Integer(i32::from(*value))
     }
 }
 
 // u32 → BIGINT (cast to larger signed type since u32 max > i32 max)
-impl<'a> From<u32> for PostgresValue<'a> {
+impl From<u32> for PostgresValue<'_> {
     fn from(value: u32) -> Self {
-        PostgresValue::Bigint(value as i64)
+        PostgresValue::Bigint(i64::from(value))
     }
 }
 
 impl<'a> From<&'a u32> for PostgresValue<'a> {
     fn from(value: &'a u32) -> Self {
-        PostgresValue::Bigint(*value as i64)
+        PostgresValue::Bigint(i64::from(*value))
     }
 }
 
-// u64 → BIGINT (cast with potential overflow since u64 max > i64 max)
-impl<'a> From<u64> for PostgresValue<'a> {
+// u64 → BIGINT (saturating to i64::MAX since u64 max > i64 max)
+impl From<u64> for PostgresValue<'_> {
     fn from(value: u64) -> Self {
-        PostgresValue::Bigint(value as i64)
+        PostgresValue::Bigint(i64::try_from(value).unwrap_or(i64::MAX))
     }
 }
 
 impl<'a> From<&'a u64> for PostgresValue<'a> {
     fn from(value: &'a u64) -> Self {
-        PostgresValue::Bigint(*value as i64)
+        PostgresValue::Bigint(i64::try_from(*value).unwrap_or(i64::MAX))
     }
 }
 
 // isize → BIGINT (platform-dependent size)
-impl<'a> From<isize> for PostgresValue<'a> {
+impl From<isize> for PostgresValue<'_> {
     fn from(value: isize) -> Self {
         PostgresValue::Bigint(value as i64)
     }
@@ -150,23 +150,23 @@ impl<'a> From<&'a isize> for PostgresValue<'a> {
     }
 }
 
-// usize → BIGINT (platform-dependent size)
-impl<'a> From<usize> for PostgresValue<'a> {
+// usize → BIGINT (platform-dependent size; saturates to i64::MAX on 64-bit targets)
+impl From<usize> for PostgresValue<'_> {
     fn from(value: usize) -> Self {
-        PostgresValue::Bigint(value as i64)
+        PostgresValue::Bigint(i64::try_from(value).unwrap_or(i64::MAX))
     }
 }
 
 impl<'a> From<&'a usize> for PostgresValue<'a> {
     fn from(value: &'a usize) -> Self {
-        PostgresValue::Bigint(*value as i64)
+        PostgresValue::Bigint(i64::try_from(*value).unwrap_or(i64::MAX))
     }
 }
 
 // --- Floating Point Types ---
 
 // f32 (REAL)
-impl<'a> From<f32> for PostgresValue<'a> {
+impl From<f32> for PostgresValue<'_> {
     fn from(value: f32) -> Self {
         PostgresValue::Real(value)
     }
@@ -179,7 +179,7 @@ impl<'a> From<&'a f32> for PostgresValue<'a> {
 }
 
 // f64 (DOUBLE PRECISION)
-impl<'a> From<f64> for PostgresValue<'a> {
+impl From<f64> for PostgresValue<'_> {
     fn from(value: f64) -> Self {
         PostgresValue::DoublePrecision(value)
     }
@@ -192,7 +192,7 @@ impl<'a> From<&'a f64> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "rust-decimal")]
-impl<'a> From<Decimal> for PostgresValue<'a> {
+impl From<Decimal> for PostgresValue<'_> {
     fn from(value: Decimal) -> Self {
         PostgresValue::Numeric(value)
     }
@@ -207,7 +207,7 @@ impl<'a> From<&'a Decimal> for PostgresValue<'a> {
 
 // --- Boolean ---
 
-impl<'a> From<bool> for PostgresValue<'a> {
+impl From<bool> for PostgresValue<'_> {
     fn from(value: bool) -> Self {
         PostgresValue::Boolean(value)
     }
@@ -233,7 +233,7 @@ impl<'a> From<Cow<'a, str>> for PostgresValue<'a> {
     }
 }
 
-impl<'a> From<String> for PostgresValue<'a> {
+impl From<String> for PostgresValue<'_> {
     fn from(value: String) -> Self {
         PostgresValue::Text(Cow::Owned(value))
     }
@@ -245,7 +245,7 @@ impl<'a> From<&'a String> for PostgresValue<'a> {
     }
 }
 
-impl<'a> From<Box<String>> for PostgresValue<'a> {
+impl From<Box<String>> for PostgresValue<'_> {
     fn from(value: Box<String>) -> Self {
         PostgresValue::Text(Cow::Owned(*value))
     }
@@ -257,7 +257,7 @@ impl<'a> From<&'a Box<String>> for PostgresValue<'a> {
     }
 }
 
-impl<'a> From<Rc<String>> for PostgresValue<'a> {
+impl From<Rc<String>> for PostgresValue<'_> {
     fn from(value: Rc<String>) -> Self {
         PostgresValue::Text(Cow::Owned(value.as_ref().clone()))
     }
@@ -269,7 +269,7 @@ impl<'a> From<&'a Rc<String>> for PostgresValue<'a> {
     }
 }
 
-impl<'a> From<Arc<String>> for PostgresValue<'a> {
+impl From<Arc<String>> for PostgresValue<'_> {
     fn from(value: Arc<String>) -> Self {
         PostgresValue::Text(Cow::Owned(value.as_ref().clone()))
     }
@@ -281,7 +281,7 @@ impl<'a> From<&'a Arc<String>> for PostgresValue<'a> {
     }
 }
 
-impl<'a> From<Box<str>> for PostgresValue<'a> {
+impl From<Box<str>> for PostgresValue<'_> {
     fn from(value: Box<str>) -> Self {
         PostgresValue::Text(Cow::Owned(value.into()))
     }
@@ -293,7 +293,7 @@ impl<'a> From<&'a Box<str>> for PostgresValue<'a> {
     }
 }
 
-impl<'a> From<Rc<str>> for PostgresValue<'a> {
+impl From<Rc<str>> for PostgresValue<'_> {
     fn from(value: Rc<str>) -> Self {
         PostgresValue::Text(Cow::Owned(value.as_ref().to_string()))
     }
@@ -305,7 +305,7 @@ impl<'a> From<&'a Rc<str>> for PostgresValue<'a> {
     }
 }
 
-impl<'a> From<Arc<str>> for PostgresValue<'a> {
+impl From<Arc<str>> for PostgresValue<'_> {
     fn from(value: Arc<str>) -> Self {
         PostgresValue::Text(Cow::Owned(value.as_ref().to_string()))
     }
@@ -320,21 +320,21 @@ impl<'a> From<&'a Arc<str>> for PostgresValue<'a> {
 // --- ArrayString ---
 
 #[cfg(feature = "arrayvec")]
-impl<'a, const N: usize> From<arrayvec::ArrayString<N>> for PostgresValue<'a> {
+impl<const N: usize> From<arrayvec::ArrayString<N>> for PostgresValue<'_> {
     fn from(value: arrayvec::ArrayString<N>) -> Self {
         PostgresValue::Text(Cow::Owned(value.to_string()))
     }
 }
 
 #[cfg(feature = "arrayvec")]
-impl<'a, const N: usize> From<&arrayvec::ArrayString<N>> for PostgresValue<'a> {
+impl<const N: usize> From<&arrayvec::ArrayString<N>> for PostgresValue<'_> {
     fn from(value: &arrayvec::ArrayString<N>) -> Self {
         PostgresValue::Text(Cow::Owned(String::from(value.as_str())))
     }
 }
 
 #[cfg(feature = "compact-str")]
-impl<'a> From<compact_str::CompactString> for PostgresValue<'a> {
+impl From<compact_str::CompactString> for PostgresValue<'_> {
     fn from(value: compact_str::CompactString) -> Self {
         PostgresValue::Text(Cow::Owned(value.to_string()))
     }
@@ -361,13 +361,13 @@ impl<'a> From<Cow<'a, [u8]>> for PostgresValue<'a> {
     }
 }
 
-impl<'a> From<Vec<u8>> for PostgresValue<'a> {
+impl From<Vec<u8>> for PostgresValue<'_> {
     fn from(value: Vec<u8>) -> Self {
         PostgresValue::Bytea(Cow::Owned(value))
     }
 }
 
-impl<'a> From<Box<Vec<u8>>> for PostgresValue<'a> {
+impl From<Box<Vec<u8>>> for PostgresValue<'_> {
     fn from(value: Box<Vec<u8>>) -> Self {
         PostgresValue::Bytea(Cow::Owned(*value))
     }
@@ -379,7 +379,7 @@ impl<'a> From<&'a Box<Vec<u8>>> for PostgresValue<'a> {
     }
 }
 
-impl<'a> From<Rc<Vec<u8>>> for PostgresValue<'a> {
+impl From<Rc<Vec<u8>>> for PostgresValue<'_> {
     fn from(value: Rc<Vec<u8>>) -> Self {
         PostgresValue::Bytea(Cow::Owned(value.as_ref().clone()))
     }
@@ -391,7 +391,7 @@ impl<'a> From<&'a Rc<Vec<u8>>> for PostgresValue<'a> {
     }
 }
 
-impl<'a> From<Arc<Vec<u8>>> for PostgresValue<'a> {
+impl From<Arc<Vec<u8>>> for PostgresValue<'_> {
     fn from(value: Arc<Vec<u8>>) -> Self {
         PostgresValue::Bytea(Cow::Owned(value.as_ref().clone()))
     }
@@ -406,21 +406,21 @@ impl<'a> From<&'a Arc<Vec<u8>>> for PostgresValue<'a> {
 // --- ArrayVec<u8, N> ---
 
 #[cfg(feature = "arrayvec")]
-impl<'a, const N: usize> From<arrayvec::ArrayVec<u8, N>> for PostgresValue<'a> {
+impl<const N: usize> From<arrayvec::ArrayVec<u8, N>> for PostgresValue<'_> {
     fn from(value: arrayvec::ArrayVec<u8, N>) -> Self {
         PostgresValue::Bytea(Cow::Owned(value.to_vec()))
     }
 }
 
 #[cfg(feature = "arrayvec")]
-impl<'a, const N: usize> From<&arrayvec::ArrayVec<u8, N>> for PostgresValue<'a> {
+impl<const N: usize> From<&arrayvec::ArrayVec<u8, N>> for PostgresValue<'_> {
     fn from(value: &arrayvec::ArrayVec<u8, N>) -> Self {
         PostgresValue::Bytea(Cow::Owned(value.to_vec()))
     }
 }
 
 #[cfg(feature = "bytes")]
-impl<'a> From<bytes::Bytes> for PostgresValue<'a> {
+impl From<bytes::Bytes> for PostgresValue<'_> {
     fn from(value: bytes::Bytes) -> Self {
         PostgresValue::Bytea(Cow::Owned(value.to_vec()))
     }
@@ -434,7 +434,7 @@ impl<'a> From<&'a bytes::Bytes> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "bytes")]
-impl<'a> From<bytes::BytesMut> for PostgresValue<'a> {
+impl From<bytes::BytesMut> for PostgresValue<'_> {
     fn from(value: bytes::BytesMut) -> Self {
         PostgresValue::Bytea(Cow::Owned(value.to_vec()))
     }
@@ -448,14 +448,14 @@ impl<'a> From<&'a bytes::BytesMut> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "smallvec")]
-impl<'a, const N: usize> From<smallvec::SmallVec<[u8; N]>> for PostgresValue<'a> {
+impl<const N: usize> From<smallvec::SmallVec<[u8; N]>> for PostgresValue<'_> {
     fn from(value: smallvec::SmallVec<[u8; N]>) -> Self {
         PostgresValue::Bytea(Cow::Owned(value.into_vec()))
     }
 }
 
 #[cfg(feature = "smallvec")]
-impl<'a, const N: usize> From<&smallvec::SmallVec<[u8; N]>> for PostgresValue<'a> {
+impl<const N: usize> From<&smallvec::SmallVec<[u8; N]>> for PostgresValue<'_> {
     fn from(value: &smallvec::SmallVec<[u8; N]>) -> Self {
         PostgresValue::Bytea(Cow::Owned(value.to_vec()))
     }
@@ -464,7 +464,7 @@ impl<'a, const N: usize> From<&smallvec::SmallVec<[u8; N]>> for PostgresValue<'a
 // --- UUID ---
 
 #[cfg(feature = "uuid")]
-impl<'a> From<Uuid> for PostgresValue<'a> {
+impl From<Uuid> for PostgresValue<'_> {
     fn from(value: Uuid) -> Self {
         PostgresValue::Uuid(value)
     }
@@ -480,7 +480,7 @@ impl<'a> From<&'a Uuid> for PostgresValue<'a> {
 // --- JSON ---
 
 #[cfg(feature = "serde")]
-impl<'a> From<serde_json::Value> for PostgresValue<'a> {
+impl From<serde_json::Value> for PostgresValue<'_> {
     fn from(value: serde_json::Value) -> Self {
         PostgresValue::Json(value)
     }
@@ -496,7 +496,7 @@ impl<'a> From<&'a serde_json::Value> for PostgresValue<'a> {
 // --- Date/Time Types ---
 
 #[cfg(feature = "chrono")]
-impl<'a> From<NaiveDate> for PostgresValue<'a> {
+impl From<NaiveDate> for PostgresValue<'_> {
     fn from(value: NaiveDate) -> Self {
         PostgresValue::Date(value)
     }
@@ -510,7 +510,7 @@ impl<'a> From<&'a NaiveDate> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<NaiveTime> for PostgresValue<'a> {
+impl From<NaiveTime> for PostgresValue<'_> {
     fn from(value: NaiveTime) -> Self {
         PostgresValue::Time(value)
     }
@@ -524,7 +524,7 @@ impl<'a> From<&'a NaiveTime> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<NaiveDateTime> for PostgresValue<'a> {
+impl From<NaiveDateTime> for PostgresValue<'_> {
     fn from(value: NaiveDateTime) -> Self {
         PostgresValue::Timestamp(value)
     }
@@ -538,7 +538,7 @@ impl<'a> From<&'a NaiveDateTime> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<DateTime<FixedOffset>> for PostgresValue<'a> {
+impl From<DateTime<FixedOffset>> for PostgresValue<'_> {
     fn from(value: DateTime<FixedOffset>) -> Self {
         PostgresValue::TimestampTz(value)
     }
@@ -552,7 +552,7 @@ impl<'a> From<&'a DateTime<FixedOffset>> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<DateTime<Utc>> for PostgresValue<'a> {
+impl From<DateTime<Utc>> for PostgresValue<'_> {
     fn from(value: DateTime<Utc>) -> Self {
         PostgresValue::TimestampTz(value.into())
     }
@@ -566,7 +566,7 @@ impl<'a> From<&'a DateTime<Utc>> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<Duration> for PostgresValue<'a> {
+impl From<Duration> for PostgresValue<'_> {
     fn from(value: Duration) -> Self {
         PostgresValue::Interval(value)
     }
@@ -582,7 +582,7 @@ impl<'a> From<&'a Duration> for PostgresValue<'a> {
 // --- Date/Time Types (time crate) ---
 
 #[cfg(feature = "time")]
-impl<'a> From<TimeDate> for PostgresValue<'a> {
+impl From<TimeDate> for PostgresValue<'_> {
     fn from(value: TimeDate) -> Self {
         PostgresValue::TimeDate(value)
     }
@@ -596,7 +596,7 @@ impl<'a> From<&'a TimeDate> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "time")]
-impl<'a> From<TimeTime> for PostgresValue<'a> {
+impl From<TimeTime> for PostgresValue<'_> {
     fn from(value: TimeTime) -> Self {
         PostgresValue::TimeTime(value)
     }
@@ -610,7 +610,7 @@ impl<'a> From<&'a TimeTime> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "time")]
-impl<'a> From<PrimitiveDateTime> for PostgresValue<'a> {
+impl From<PrimitiveDateTime> for PostgresValue<'_> {
     fn from(value: PrimitiveDateTime) -> Self {
         PostgresValue::TimeTimestamp(value)
     }
@@ -624,7 +624,7 @@ impl<'a> From<&'a PrimitiveDateTime> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "time")]
-impl<'a> From<OffsetDateTime> for PostgresValue<'a> {
+impl From<OffsetDateTime> for PostgresValue<'_> {
     fn from(value: OffsetDateTime) -> Self {
         PostgresValue::TimeTimestampTz(value)
     }
@@ -638,7 +638,7 @@ impl<'a> From<&'a OffsetDateTime> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "time")]
-impl<'a> From<TimeDuration> for PostgresValue<'a> {
+impl From<TimeDuration> for PostgresValue<'_> {
     fn from(value: TimeDuration) -> Self {
         PostgresValue::TimeInterval(value)
     }
@@ -654,7 +654,7 @@ impl<'a> From<&'a TimeDuration> for PostgresValue<'a> {
 // --- Network Address Types ---
 
 #[cfg(feature = "cidr")]
-impl<'a> From<IpInet> for PostgresValue<'a> {
+impl From<IpInet> for PostgresValue<'_> {
     fn from(value: IpInet) -> Self {
         PostgresValue::Inet(value)
     }
@@ -668,7 +668,7 @@ impl<'a> From<&'a IpInet> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "cidr")]
-impl<'a> From<IpCidr> for PostgresValue<'a> {
+impl From<IpCidr> for PostgresValue<'_> {
     fn from(value: IpCidr) -> Self {
         PostgresValue::Cidr(value)
     }
@@ -682,7 +682,7 @@ impl<'a> From<&'a IpCidr> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "cidr")]
-impl<'a> From<[u8; 6]> for PostgresValue<'a> {
+impl From<[u8; 6]> for PostgresValue<'_> {
     fn from(value: [u8; 6]) -> Self {
         PostgresValue::MacAddr(value)
     }
@@ -696,7 +696,7 @@ impl<'a> From<&'a [u8; 6]> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "cidr")]
-impl<'a> From<[u8; 8]> for PostgresValue<'a> {
+impl From<[u8; 8]> for PostgresValue<'_> {
     fn from(value: [u8; 8]) -> Self {
         PostgresValue::MacAddr8(value)
     }
@@ -712,7 +712,7 @@ impl<'a> From<&'a [u8; 8]> for PostgresValue<'a> {
 // --- Geometric Types ---
 
 #[cfg(feature = "geo-types")]
-impl<'a> From<Point<f64>> for PostgresValue<'a> {
+impl From<Point<f64>> for PostgresValue<'_> {
     fn from(value: Point<f64>) -> Self {
         PostgresValue::Point(value)
     }
@@ -726,7 +726,7 @@ impl<'a> From<&'a Point<f64>> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "geo-types")]
-impl<'a> From<LineString<f64>> for PostgresValue<'a> {
+impl From<LineString<f64>> for PostgresValue<'_> {
     fn from(value: LineString<f64>) -> Self {
         PostgresValue::LineString(value)
     }
@@ -740,7 +740,7 @@ impl<'a> From<&'a LineString<f64>> for PostgresValue<'a> {
 }
 
 #[cfg(feature = "geo-types")]
-impl<'a> From<Rect<f64>> for PostgresValue<'a> {
+impl From<Rect<f64>> for PostgresValue<'_> {
     fn from(value: Rect<f64>) -> Self {
         PostgresValue::Rect(value)
     }
@@ -756,7 +756,7 @@ impl<'a> From<&'a Rect<f64>> for PostgresValue<'a> {
 // --- Bit String Types ---
 
 #[cfg(feature = "bit-vec")]
-impl<'a> From<BitVec> for PostgresValue<'a> {
+impl From<BitVec> for PostgresValue<'_> {
     fn from(value: BitVec) -> Self {
         PostgresValue::BitVec(value)
     }
@@ -771,19 +771,19 @@ impl<'a> From<&'a BitVec> for PostgresValue<'a> {
 
 // --- Array Types ---
 
-impl<'a> From<Vec<PostgresValue<'a>>> for PostgresValue<'a> {
-    fn from(value: Vec<PostgresValue<'a>>) -> Self {
+impl From<Vec<Self>> for PostgresValue<'_> {
+    fn from(value: Vec<Self>) -> Self {
         PostgresValue::Array(value)
     }
 }
 
-impl<'a> From<&'a [PostgresValue<'a>]> for PostgresValue<'a> {
-    fn from(value: &'a [PostgresValue<'a>]) -> Self {
+impl<'a> From<&'a [Self]> for PostgresValue<'a> {
+    fn from(value: &'a [Self]) -> Self {
         PostgresValue::Array(value.to_vec())
     }
 }
 
-impl<'a> From<Vec<String>> for PostgresValue<'a> {
+impl From<Vec<String>> for PostgresValue<'_> {
     fn from(value: Vec<String>) -> Self {
         PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
     }
@@ -795,37 +795,37 @@ impl<'a> From<Vec<&'a str>> for PostgresValue<'a> {
     }
 }
 
-impl<'a> From<Vec<i16>> for PostgresValue<'a> {
+impl From<Vec<i16>> for PostgresValue<'_> {
     fn from(value: Vec<i16>) -> Self {
         PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
     }
 }
 
-impl<'a> From<Vec<i32>> for PostgresValue<'a> {
+impl From<Vec<i32>> for PostgresValue<'_> {
     fn from(value: Vec<i32>) -> Self {
         PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
     }
 }
 
-impl<'a> From<Vec<i64>> for PostgresValue<'a> {
+impl From<Vec<i64>> for PostgresValue<'_> {
     fn from(value: Vec<i64>) -> Self {
         PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
     }
 }
 
-impl<'a> From<Vec<f32>> for PostgresValue<'a> {
+impl From<Vec<f32>> for PostgresValue<'_> {
     fn from(value: Vec<f32>) -> Self {
         PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
     }
 }
 
-impl<'a> From<Vec<f64>> for PostgresValue<'a> {
+impl From<Vec<f64>> for PostgresValue<'_> {
     fn from(value: Vec<f64>) -> Self {
         PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
     }
 }
 
-impl<'a> From<Vec<bool>> for PostgresValue<'a> {
+impl From<Vec<bool>> for PostgresValue<'_> {
     fn from(value: Vec<bool>) -> Self {
         PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
     }
@@ -834,57 +834,56 @@ impl<'a> From<Vec<bool>> for PostgresValue<'a> {
 // --- Extended Array Types ---
 
 #[cfg(feature = "uuid")]
-impl<'a> From<Vec<uuid::Uuid>> for PostgresValue<'a> {
+impl From<Vec<uuid::Uuid>> for PostgresValue<'_> {
     fn from(value: Vec<uuid::Uuid>) -> Self {
         PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
     }
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<Vec<NaiveDate>> for PostgresValue<'a> {
+impl From<Vec<NaiveDate>> for PostgresValue<'_> {
     fn from(value: Vec<NaiveDate>) -> Self {
         PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
     }
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<Vec<NaiveTime>> for PostgresValue<'a> {
+impl From<Vec<NaiveTime>> for PostgresValue<'_> {
     fn from(value: Vec<NaiveTime>) -> Self {
         PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
     }
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<Vec<NaiveDateTime>> for PostgresValue<'a> {
+impl From<Vec<NaiveDateTime>> for PostgresValue<'_> {
     fn from(value: Vec<NaiveDateTime>) -> Self {
         PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
     }
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<Vec<DateTime<Utc>>> for PostgresValue<'a> {
+impl From<Vec<DateTime<Utc>>> for PostgresValue<'_> {
     fn from(value: Vec<DateTime<Utc>>) -> Self {
         PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
     }
 }
 
 #[cfg(feature = "rust-decimal")]
-impl<'a> From<Vec<Decimal>> for PostgresValue<'a> {
+impl From<Vec<Decimal>> for PostgresValue<'_> {
     fn from(value: Vec<Decimal>) -> Self {
         PostgresValue::Array(value.into_iter().map(PostgresValue::from).collect())
     }
 }
 
 // --- Option Types ---
-impl<'a, T> From<Option<T>> for PostgresValue<'a>
+impl<T> From<Option<T>> for PostgresValue<'_>
 where
-    T: TryInto<PostgresValue<'a>>,
+    T: TryInto<Self>,
 {
     fn from(value: Option<T>) -> Self {
-        match value {
-            Some(value) => value.try_into().unwrap_or(PostgresValue::Null),
-            None => PostgresValue::Null,
-        }
+        value.map_or(PostgresValue::Null, |v| {
+            v.try_into().unwrap_or(PostgresValue::Null)
+        })
     }
 }
 
@@ -903,7 +902,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for i16 {
             PostgresValue::Integer(i) => Ok(i.try_into()?),
             PostgresValue::Bigint(i) => Ok(i.try_into()?),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to i16", value).into(),
+                format!("Cannot convert {value:?} to i16").into(),
             )),
         }
     }
@@ -918,7 +917,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for i32 {
             PostgresValue::Integer(i) => Ok(i),
             PostgresValue::Bigint(i) => Ok(i.try_into()?),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to i32", value).into(),
+                format!("Cannot convert {value:?} to i32").into(),
             )),
         }
     }
@@ -933,7 +932,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for i64 {
             PostgresValue::Integer(i) => Ok(i.into()),
             PostgresValue::Bigint(i) => Ok(i),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to i64", value).into(),
+                format!("Cannot convert {value:?} to i64").into(),
             )),
         }
     }
@@ -945,14 +944,21 @@ impl<'a> TryFrom<PostgresValue<'a>> for f32 {
     type Error = DrizzleError;
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        fn parse_float<N: core::fmt::Display>(value: N) -> Result<f32, DrizzleError> {
+            let s = format!("{value}");
+            s.parse::<f32>().map_err(|e| {
+                DrizzleError::ConversionError(format!("Failed to convert {s} to f32: {e}").into())
+            })
+        }
+
         match value {
             PostgresValue::Real(f) => Ok(f),
-            PostgresValue::DoublePrecision(f) => Ok(f as f32),
-            PostgresValue::Smallint(i) => Ok(i as f32),
-            PostgresValue::Integer(i) => Ok(i as f32),
-            PostgresValue::Bigint(i) => Ok(i as f32),
+            PostgresValue::DoublePrecision(f) => parse_float(f),
+            PostgresValue::Smallint(i) => Ok(Self::from(i)),
+            PostgresValue::Integer(i) => parse_float(i),
+            PostgresValue::Bigint(i) => parse_float(i),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to f32", value).into(),
+                format!("Cannot convert {value:?} to f32").into(),
             )),
         }
     }
@@ -963,13 +969,20 @@ impl<'a> TryFrom<PostgresValue<'a>> for f64 {
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
         match value {
-            PostgresValue::Real(f) => Ok(f as f64),
+            PostgresValue::Real(f) => Ok(Self::from(f)),
             PostgresValue::DoublePrecision(f) => Ok(f),
-            PostgresValue::Smallint(i) => Ok(i as f64),
-            PostgresValue::Integer(i) => Ok(i as f64),
-            PostgresValue::Bigint(i) => Ok(i as f64),
+            PostgresValue::Smallint(i) => Ok(Self::from(i)),
+            PostgresValue::Integer(i) => Ok(Self::from(i)),
+            PostgresValue::Bigint(i) => {
+                let s = format!("{i}");
+                s.parse::<Self>().map_err(|e| {
+                    DrizzleError::ConversionError(
+                        format!("Failed to convert {s} to f64: {e}").into(),
+                    )
+                })
+            }
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to f64", value).into(),
+                format!("Cannot convert {value:?} to f64").into(),
             )),
         }
     }
@@ -982,11 +995,11 @@ impl<'a> TryFrom<PostgresValue<'a>> for Decimal {
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
         match value {
             PostgresValue::Numeric(d) => Ok(d),
-            PostgresValue::Text(cow) => Decimal::from_str_exact(cow.as_ref()).map_err(|e| {
-                DrizzleError::ConversionError(format!("Failed to parse DECIMAL: {}", e).into())
+            PostgresValue::Text(cow) => Self::from_str_exact(cow.as_ref()).map_err(|e| {
+                DrizzleError::ConversionError(format!("Failed to parse DECIMAL: {e}").into())
             }),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Decimal", value).into(),
+                format!("Cannot convert {value:?} to Decimal").into(),
             )),
         }
     }
@@ -999,11 +1012,11 @@ impl<'a> TryFrom<&'a PostgresValue<'a>> for Decimal {
     fn try_from(value: &'a PostgresValue<'a>) -> Result<Self, Self::Error> {
         match value {
             PostgresValue::Numeric(d) => Ok(*d),
-            PostgresValue::Text(cow) => Decimal::from_str_exact(cow.as_ref()).map_err(|e| {
-                DrizzleError::ConversionError(format!("Failed to parse DECIMAL: {}", e).into())
+            PostgresValue::Text(cow) => Self::from_str_exact(cow.as_ref()).map_err(|e| {
+                DrizzleError::ConversionError(format!("Failed to parse DECIMAL: {e}").into())
             }),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Decimal", value).into(),
+                format!("Cannot convert {value:?} to Decimal").into(),
             )),
         }
     }
@@ -1018,7 +1031,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for bool {
         match value {
             PostgresValue::Boolean(b) => Ok(b),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to bool", value).into(),
+                format!("Cannot convert {value:?} to bool").into(),
             )),
         }
     }
@@ -1033,7 +1046,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for String {
         match value {
             PostgresValue::Text(cow) => Ok(cow.into_owned()),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to String", value).into(),
+                format!("Cannot convert {value:?} to String").into(),
             )),
         }
     }
@@ -1043,7 +1056,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for Box<String> {
     type Error = DrizzleError;
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
-        String::try_from(value).map(Box::new)
+        String::try_from(value).map(Self::new)
     }
 }
 
@@ -1051,7 +1064,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for Rc<String> {
     type Error = DrizzleError;
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
-        String::try_from(value).map(Rc::new)
+        String::try_from(value).map(Self::new)
     }
 }
 
@@ -1059,7 +1072,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for Arc<String> {
     type Error = DrizzleError;
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
-        String::try_from(value).map(Arc::new)
+        String::try_from(value).map(Self::new)
     }
 }
 
@@ -1070,7 +1083,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for Box<str> {
         match value {
             PostgresValue::Text(cow) => Ok(cow.into_owned().into_boxed_str()),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Box<str>", value).into(),
+                format!("Cannot convert {value:?} to Box<str>").into(),
             )),
         }
     }
@@ -1081,9 +1094,9 @@ impl<'a> TryFrom<PostgresValue<'a>> for Rc<str> {
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
         match value {
-            PostgresValue::Text(cow) => Ok(Rc::from(cow.into_owned())),
+            PostgresValue::Text(cow) => Ok(Self::from(cow.into_owned())),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Rc<str>", value).into(),
+                format!("Cannot convert {value:?} to Rc<str>").into(),
             )),
         }
     }
@@ -1094,9 +1107,9 @@ impl<'a> TryFrom<PostgresValue<'a>> for Arc<str> {
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
         match value {
-            PostgresValue::Text(cow) => Ok(Arc::from(cow.into_owned())),
+            PostgresValue::Text(cow) => Ok(Self::from(cow.into_owned())),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Arc<str>", value).into(),
+                format!("Cannot convert {value:?} to Arc<str>").into(),
             )),
         }
     }
@@ -1107,7 +1120,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for compact_str::CompactString {
     type Error = DrizzleError;
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
-        String::try_from(value).map(compact_str::CompactString::new)
+        String::try_from(value).map(Self::new)
     }
 }
 
@@ -1120,7 +1133,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for Vec<u8> {
         match value {
             PostgresValue::Bytea(cow) => Ok(cow.into_owned()),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Vec<u8>", value).into(),
+                format!("Cannot convert {value:?} to Vec<u8>").into(),
             )),
         }
     }
@@ -1130,7 +1143,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for Box<Vec<u8>> {
     type Error = DrizzleError;
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
-        Vec::<u8>::try_from(value).map(Box::new)
+        Vec::<u8>::try_from(value).map(Self::new)
     }
 }
 
@@ -1138,7 +1151,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for Rc<Vec<u8>> {
     type Error = DrizzleError;
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
-        Vec::<u8>::try_from(value).map(Rc::new)
+        Vec::<u8>::try_from(value).map(Self::new)
     }
 }
 
@@ -1146,7 +1159,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for Arc<Vec<u8>> {
     type Error = DrizzleError;
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
-        Vec::<u8>::try_from(value).map(Arc::new)
+        Vec::<u8>::try_from(value).map(Self::new)
     }
 }
 
@@ -1155,7 +1168,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for bytes::Bytes {
     type Error = DrizzleError;
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
-        Vec::<u8>::try_from(value).map(bytes::Bytes::from)
+        Vec::<u8>::try_from(value).map(Self::from)
     }
 }
 
@@ -1164,7 +1177,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for bytes::BytesMut {
     type Error = DrizzleError;
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
-        Vec::<u8>::try_from(value).map(|v| bytes::BytesMut::from(v.as_slice()))
+        Vec::<u8>::try_from(value).map(|v| Self::from(v.as_slice()))
     }
 }
 
@@ -1174,7 +1187,7 @@ impl<'a, const N: usize> TryFrom<PostgresValue<'a>> for smallvec::SmallVec<[u8; 
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
         Vec::<u8>::try_from(value).map(|v| {
-            let mut out = smallvec::SmallVec::<[u8; N]>::new();
+            let mut out = Self::new();
             out.extend_from_slice(&v);
             out
         })
@@ -1188,7 +1201,7 @@ impl<'a> TryFrom<&'a PostgresValue<'a>> for &'a str {
         match value {
             PostgresValue::Text(cow) => Ok(cow.as_ref()),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to &str", value).into(),
+                format!("Cannot convert {value:?} to &str").into(),
             )),
         }
     }
@@ -1201,7 +1214,7 @@ impl<'a> TryFrom<&'a PostgresValue<'a>> for &'a [u8] {
         match value {
             PostgresValue::Bytea(cow) => Ok(cow.as_ref()),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to &[u8]", value).into(),
+                format!("Cannot convert {value:?} to &[u8]").into(),
             )),
         }
     }
@@ -1216,11 +1229,11 @@ impl<'a> TryFrom<PostgresValue<'a>> for Uuid {
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
         match value {
             PostgresValue::Uuid(uuid) => Ok(uuid),
-            PostgresValue::Text(cow) => Uuid::parse_str(cow.as_ref()).map_err(|e| {
-                DrizzleError::ConversionError(format!("Failed to parse UUID: {}", e).into())
+            PostgresValue::Text(cow) => Self::parse_str(cow.as_ref()).map_err(|e| {
+                DrizzleError::ConversionError(format!("Failed to parse UUID: {e}").into())
             }),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to UUID", value).into(),
+                format!("Cannot convert {value:?} to UUID").into(),
             )),
         }
     }
@@ -1234,13 +1247,12 @@ impl<'a> TryFrom<PostgresValue<'a>> for serde_json::Value {
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
         match value {
-            PostgresValue::Json(json) => Ok(json),
-            PostgresValue::Jsonb(json) => Ok(json),
+            PostgresValue::Json(json) | PostgresValue::Jsonb(json) => Ok(json),
             PostgresValue::Text(cow) => serde_json::from_str(cow.as_ref()).map_err(|e| {
-                DrizzleError::ConversionError(format!("Failed to parse JSON: {}", e).into())
+                DrizzleError::ConversionError(format!("Failed to parse JSON: {e}").into())
             }),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to JSON", value).into(),
+                format!("Cannot convert {value:?} to JSON").into(),
             )),
         }
     }
@@ -1258,7 +1270,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for NaiveDate {
             PostgresValue::Timestamp(ts) => Ok(ts.date()),
             PostgresValue::TimestampTz(ts) => Ok(ts.date_naive()),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to NaiveDate", value).into(),
+                format!("Cannot convert {value:?} to NaiveDate").into(),
             )),
         }
     }
@@ -1274,7 +1286,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for NaiveTime {
             PostgresValue::Timestamp(ts) => Ok(ts.time()),
             PostgresValue::TimestampTz(ts) => Ok(ts.time()),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to NaiveTime", value).into(),
+                format!("Cannot convert {value:?} to NaiveTime").into(),
             )),
         }
     }
@@ -1289,7 +1301,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for NaiveDateTime {
             PostgresValue::Timestamp(ts) => Ok(ts),
             PostgresValue::TimestampTz(ts) => Ok(ts.naive_utc()),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to NaiveDateTime", value).into(),
+                format!("Cannot convert {value:?} to NaiveDateTime").into(),
             )),
         }
     }
@@ -1303,7 +1315,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for DateTime<FixedOffset> {
         match value {
             PostgresValue::TimestampTz(ts) => Ok(ts),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to DateTime<FixedOffset>", value).into(),
+                format!("Cannot convert {value:?} to DateTime<FixedOffset>").into(),
             )),
         }
     }
@@ -1317,7 +1329,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for DateTime<Utc> {
         match value {
             PostgresValue::TimestampTz(ts) => Ok(ts.with_timezone(&Utc)),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to DateTime<Utc>", value).into(),
+                format!("Cannot convert {value:?} to DateTime<Utc>").into(),
             )),
         }
     }
@@ -1331,7 +1343,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for Duration {
         match value {
             PostgresValue::Interval(duration) => Ok(duration),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Duration", value).into(),
+                format!("Cannot convert {value:?} to Duration").into(),
             )),
         }
     }
@@ -1349,7 +1361,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for TimeDate {
             PostgresValue::TimeTimestamp(ts) => Ok(ts.date()),
             PostgresValue::TimeTimestampTz(ts) => Ok(ts.date()),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to time::Date", value).into(),
+                format!("Cannot convert {value:?} to time::Date").into(),
             )),
         }
     }
@@ -1365,7 +1377,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for TimeTime {
             PostgresValue::TimeTimestamp(ts) => Ok(ts.time()),
             PostgresValue::TimeTimestampTz(ts) => Ok(ts.time()),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to time::Time", value).into(),
+                format!("Cannot convert {value:?} to time::Time").into(),
             )),
         }
     }
@@ -1379,7 +1391,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for PrimitiveDateTime {
         match value {
             PostgresValue::TimeTimestamp(ts) => Ok(ts),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to time::PrimitiveDateTime", value).into(),
+                format!("Cannot convert {value:?} to time::PrimitiveDateTime").into(),
             )),
         }
     }
@@ -1393,7 +1405,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for OffsetDateTime {
         match value {
             PostgresValue::TimeTimestampTz(ts) => Ok(ts),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to time::OffsetDateTime", value).into(),
+                format!("Cannot convert {value:?} to time::OffsetDateTime").into(),
             )),
         }
     }
@@ -1407,7 +1419,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for TimeDuration {
         match value {
             PostgresValue::TimeInterval(dur) => Ok(dur),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to time::Duration", value).into(),
+                format!("Cannot convert {value:?} to time::Duration").into(),
             )),
         }
     }
@@ -1423,7 +1435,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for IpInet {
         match value {
             PostgresValue::Inet(net) => Ok(net),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to IpInet", value).into(),
+                format!("Cannot convert {value:?} to IpInet").into(),
             )),
         }
     }
@@ -1437,7 +1449,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for IpCidr {
         match value {
             PostgresValue::Cidr(net) => Ok(net),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to IpCidr", value).into(),
+                format!("Cannot convert {value:?} to IpCidr").into(),
             )),
         }
     }
@@ -1451,7 +1463,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for [u8; 6] {
         match value {
             PostgresValue::MacAddr(mac) => Ok(mac),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to [u8; 6]", value).into(),
+                format!("Cannot convert {value:?} to [u8; 6]").into(),
             )),
         }
     }
@@ -1465,7 +1477,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for [u8; 8] {
         match value {
             PostgresValue::MacAddr8(mac) => Ok(mac),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to [u8; 8]", value).into(),
+                format!("Cannot convert {value:?} to [u8; 8]").into(),
             )),
         }
     }
@@ -1481,7 +1493,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for Point<f64> {
         match value {
             PostgresValue::Point(point) => Ok(point),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Point", value).into(),
+                format!("Cannot convert {value:?} to Point").into(),
             )),
         }
     }
@@ -1495,7 +1507,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for LineString<f64> {
         match value {
             PostgresValue::LineString(line) => Ok(line),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to LineString", value).into(),
+                format!("Cannot convert {value:?} to LineString").into(),
             )),
         }
     }
@@ -1509,7 +1521,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for Rect<f64> {
         match value {
             PostgresValue::Rect(rect) => Ok(rect),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Rect", value).into(),
+                format!("Cannot convert {value:?} to Rect").into(),
             )),
         }
     }
@@ -1525,7 +1537,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for BitVec {
         match value {
             PostgresValue::BitVec(bv) => Ok(bv),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to BitVec", value).into(),
+                format!("Cannot convert {value:?} to BitVec").into(),
             )),
         }
     }
@@ -1539,20 +1551,18 @@ impl<'a, const N: usize> TryFrom<PostgresValue<'a>> for arrayvec::ArrayString<N>
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
         match value {
-            PostgresValue::Text(cow_str) => {
-                arrayvec::ArrayString::from(cow_str.as_ref()).map_err(|_| {
-                    DrizzleError::ConversionError(
-                        format!(
-                            "Text length {} exceeds ArrayString capacity {}",
-                            cow_str.len(),
-                            N
-                        )
-                        .into(),
+            PostgresValue::Text(cow_str) => Self::from(cow_str.as_ref()).map_err(|_| {
+                DrizzleError::ConversionError(
+                    format!(
+                        "Text length {} exceeds ArrayString capacity {}",
+                        cow_str.len(),
+                        N
                     )
-                })
-            }
+                    .into(),
+                )
+            }),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to ArrayString", value).into(),
+                format!("Cannot convert {value:?} to ArrayString").into(),
             )),
         }
     }
@@ -1564,19 +1574,18 @@ impl<'a, const N: usize> TryFrom<PostgresValue<'a>> for arrayvec::ArrayVec<u8, N
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
         match value {
-            PostgresValue::Bytea(cow_bytes) => arrayvec::ArrayVec::try_from(cow_bytes.as_ref())
-                .map_err(|_| {
-                    DrizzleError::ConversionError(
-                        format!(
-                            "Bytea length {} exceeds ArrayVec capacity {}",
-                            cow_bytes.len(),
-                            N
-                        )
-                        .into(),
+            PostgresValue::Bytea(cow_bytes) => Self::try_from(cow_bytes.as_ref()).map_err(|_| {
+                DrizzleError::ConversionError(
+                    format!(
+                        "Bytea length {} exceeds ArrayVec capacity {}",
+                        cow_bytes.len(),
+                        N
                     )
-                }),
+                    .into(),
+                )
+            }),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to ArrayVec<u8>", value).into(),
+                format!("Cannot convert {value:?} to ArrayVec<u8>").into(),
             )),
         }
     }
@@ -1591,7 +1600,7 @@ impl<'a> TryFrom<PostgresValue<'a>> for Vec<PostgresValue<'a>> {
         match value {
             PostgresValue::Array(arr) => Ok(arr),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Vec<PostgresValue>", value).into(),
+                format!("Cannot convert {value:?} to Vec<PostgresValue>").into(),
             )),
         }
     }
@@ -1604,7 +1613,7 @@ impl<'a> TryFrom<&'a PostgresValue<'a>> for &'a [PostgresValue<'a>] {
         match value {
             PostgresValue::Array(arr) => Ok(arr),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to &[PostgresValue]", value).into(),
+                format!("Cannot convert {value:?} to &[PostgresValue]").into(),
             )),
         }
     }

@@ -21,7 +21,7 @@ fn append_sql<'a>(
 // Type State Markers
 //------------------------------------------------------------------------------
 
-/// Marker for the initial state of SelectBuilder.
+/// Marker for the initial state of `SelectBuilder`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectInitial;
 
@@ -177,7 +177,7 @@ impl AsCteState for SelectOffsetSet {}
 // SelectBuilder Definition
 //------------------------------------------------------------------------------
 
-/// Builds a SELECT query specifically for SQLite.
+/// Builds a SELECT query specifically for `SQLite`.
 ///
 /// `SelectBuilder` provides a type-safe, fluent API for constructing SELECT statements
 /// with compile-time verification of query structure and table relationships.
@@ -611,6 +611,7 @@ where
 {
     /// Limits the number of rows returned.
     #[inline]
+    #[must_use]
     pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G> {
         SelectBuilder {
             sql: append_sql(self.sql, helpers::limit(limit)),
@@ -631,6 +632,7 @@ where
 {
     /// Sets the offset for the query results.
     #[inline]
+    #[must_use]
     pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G> {
         SelectBuilder {
             sql: append_sql(self.sql, helpers::offset(offset)),
@@ -655,6 +657,7 @@ where
 {
     /// Converts this SELECT query into a typed CTE using alias tag name.
     #[inline]
+    #[must_use]
     pub fn into_cte<Tag: drizzle_core::Tag + 'static>(
         self,
     ) -> super::CTEView<
@@ -795,8 +798,8 @@ where
 // IntoSelect conversion trait
 //------------------------------------------------------------------------------
 
-/// Conversion trait for types that can become a SelectBuilder.
-/// Used by set operations to accept both raw SelectBuilder and DrizzleBuilder.
+/// Conversion trait for types that can become a `SelectBuilder`.
+/// Used by set operations to accept both raw `SelectBuilder` and `DrizzleBuilder`.
 pub trait IntoSelect<'a, S, M, R> {
     type State: ExecutableState;
     type Table;

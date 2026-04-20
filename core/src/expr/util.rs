@@ -58,7 +58,7 @@ impl<E> crate::row::IntoSelectTarget for AliasedExpr<E>
 where
     E: crate::row::ExprValueType,
 {
-    type Marker = crate::row::SelectCols<(AliasedExpr<E>,)>;
+    type Marker = crate::row::SelectCols<(Self,)>;
 }
 
 /// Extension trait providing `.alias()` method syntax on any expression.
@@ -89,7 +89,7 @@ impl<T: Sized> AliasExt for T {}
 /// let full_name = alias(string_concat(users.first_name, users.last_name), "full_name");
 /// # "####;
 /// ```
-pub fn alias<E>(expr: E, name: &'static str) -> AliasedExpr<E> {
+pub const fn alias<E>(expr: E, name: &'static str) -> AliasedExpr<E> {
     AliasedExpr { expr, name }
 }
 
@@ -280,13 +280,13 @@ pub trait CastTarget<'a, T: DataType, D> {
 )]
 pub trait CastTypePolicy<D, Source: DataType, Target: DataType> {}
 
-impl<Source: DataType, Target: DataType> CastTypePolicy<PostgresDialect, Source, Target> for () where
-    Source: Compatible<Target>
+impl<Source: DataType + Compatible<Target>, Target: DataType>
+    CastTypePolicy<PostgresDialect, Source, Target> for ()
 {
 }
 
-impl<Source: DataType, Target: DataType> CastTypePolicy<SQLiteDialect, Source, Target> for () where
-    Source: Compatible<Target>
+impl<Source: DataType + Compatible<Target>, Target: DataType>
+    CastTypePolicy<SQLiteDialect, Source, Target> for ()
 {
 }
 
@@ -353,7 +353,7 @@ where
 
 /// Concatenate two string expressions using || operator.
 ///
-/// Requires both operands to be `Textual` (Text or VarChar).
+/// Requires both operands to be `Textual` (Text or `VarChar`).
 /// Nullability follows SQL concatenation rules: nullable input -> nullable output.
 ///
 /// # Type Safety
@@ -429,6 +429,7 @@ where
 /// let expr = raw::<_, Int>("RANDOM()");
 /// # "####;
 /// ```
+#[must_use]
 pub fn raw<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, Null, Scalar>
 where
     V: SQLParam + 'a,
@@ -438,6 +439,7 @@ where
 }
 
 /// Create a raw SQL expression with explicit nullability.
+#[must_use]
 pub fn raw_non_null<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, NonNull, Scalar>
 where
     V: SQLParam + 'a,
@@ -472,7 +474,7 @@ pub struct Excluded<C> {
 /// // Generates: ... ON CONFLICT ("id") DO UPDATE SET "name" = EXCLUDED."name"
 /// # "####;
 /// ```
-pub fn excluded<C>(column: C) -> Excluded<C> {
+pub const fn excluded<C>(column: C) -> Excluded<C> {
     Excluded { column }
 }
 

@@ -1,4 +1,4 @@
-//! PostgreSQL snapshot types matching drizzle-kit format
+//! `PostgreSQL` snapshot types matching drizzle-kit format
 
 use crate::postgres::ddl::PostgresEntity;
 use crate::postgres::grammar::{extract_nextval_sequence, is_serial_expression};
@@ -6,7 +6,7 @@ use crate::version::{ORIGIN_UUID, POSTGRES_SNAPSHOT_VERSION};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-/// PostgreSQL schema snapshot (version 8 - drizzle-kit beta)
+/// `PostgreSQL` schema snapshot (version 8 - drizzle-kit beta)
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct PostgresSnapshot {
@@ -27,6 +27,7 @@ impl Default for PostgresSnapshot {
 }
 
 impl PostgresSnapshot {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             version: POSTGRES_SNAPSHOT_VERSION.to_string(),
@@ -38,6 +39,7 @@ impl PostgresSnapshot {
         }
     }
 
+    #[must_use]
     pub fn with_prev_ids(prev_ids: Vec<String>) -> Self {
         let mut snapshot = Self::new();
         snapshot.prev_ids = prev_ids;
@@ -48,14 +50,31 @@ impl PostgresSnapshot {
         self.ddl.push(entity);
     }
 
+    /// Load snapshot from JSON string.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`serde_json::Error`] if `json` is not a valid snapshot document.
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
 
+    /// Serialize snapshot to JSON string.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`serde_json::Error`] if the snapshot cannot be serialized.
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }
 
+    /// Load snapshot from file.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`std::io::Error`] if the file cannot be read, or
+    /// [`std::io::ErrorKind::InvalidData`] wrapping the underlying
+    /// [`serde_json::Error`] if the contents cannot be parsed.
     pub fn load(path: &std::path::Path) -> std::io::Result<Self> {
         let contents = std::fs::read_to_string(path)?;
         serde_json::from_str(&contents)
@@ -70,6 +89,7 @@ impl PostgresSnapshot {
     /// - Other global entities (Enum, Sequence, Role, View) pass through.
     ///
     /// The set contains `(schema, table_name)` pairs.
+    #[must_use]
     pub fn scoped_to_tables(&self, tables: &HashSet<(String, String)>) -> Self {
         // Derive the set of schema names referenced by desired tables
         let schemas: HashSet<&str> = tables.iter().map(|(s, _)| s.as_str()).collect();
@@ -149,7 +169,7 @@ impl PostgresSnapshot {
 
     /// Remove sequences that are owned by serial/bigserial columns.
     ///
-    /// Serial columns auto-create sequences in PostgreSQL. These should not
+    /// Serial columns auto-create sequences in `PostgreSQL`. These should not
     /// appear in snapshots used for diffing, otherwise the diff engine will
     /// try to DROP them (breaking the serial column) or CREATE duplicates.
     pub fn filter_serial_sequences(&mut self) {
@@ -216,6 +236,7 @@ impl PostgresSnapshot {
     }
 
     /// Extract the set of `(schema, table_name)` pairs in this snapshot.
+    #[must_use]
     pub fn table_names(&self) -> HashSet<(String, String)> {
         let mut tables = HashSet::new();
         for entity in &self.ddl {
@@ -227,6 +248,7 @@ impl PostgresSnapshot {
     }
 
     /// Extract the unique schema names referenced by tables in this snapshot.
+    #[must_use]
     pub fn schema_names(&self) -> Vec<String> {
         let mut names: Vec<String> = self
             .table_names()
@@ -243,8 +265,9 @@ impl PostgresSnapshot {
     ///
     /// Combines three normalization steps into a single call:
     /// 1. Scope to only tables present in `desired` (avoids DROP for unmanaged tables)
-    /// 2. Filter serial-owned sequences (they're auto-managed by PostgreSQL)
-    /// 3. Normalize columns (int4+nextval→SERIAL, strip ordinal_position)
+    /// 2. Filter serial-owned sequences (they're auto-managed by `PostgreSQL`)
+    /// 3. Normalize columns (int4+nextval→SERIAL, strip `ordinal_position`)
+    #[must_use]
     pub fn prepare_for_push(&self, desired: &Self) -> Self {
         let tables = desired.table_names();
         let mut scoped = self.scoped_to_tables(&tables);
@@ -253,6 +276,14 @@ impl PostgresSnapshot {
         scoped
     }
 
+    /// Save snapshot to file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`std::io::ErrorKind::InvalidData`] wrapping the underlying
+    /// [`serde_json::Error`] if serialization fails, or any other
+    /// [`std::io::Error`] produced while creating the parent directory or
+    /// writing the file.
     pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;

@@ -1,4 +1,4 @@
-//! SQLite DDL types - re-exports from drizzle_types plus parsing types
+//! `SQLite` DDL types - re-exports from `drizzle_types` plus parsing types
 
 // Re-export everything from drizzle_types::sqlite::ddl
 pub use drizzle_types::sqlite::ddl::*;
@@ -22,6 +22,7 @@ pub struct ParsedTable {
 ///
 /// This is a simple parser that extracts basic table options.
 /// For full constraint parsing, use the more complete introspection methods.
+#[must_use]
 pub fn parse_table_ddl(sql: &str) -> ParsedTable {
     let sql_upper = sql.to_uppercase();
     ParsedTable {
@@ -34,7 +35,7 @@ pub fn parse_table_ddl(sql: &str) -> ParsedTable {
 /// Parsed generated column information from CREATE TABLE SQL
 #[derive(Debug, Clone)]
 pub struct ParsedGenerated {
-    /// SQL expression for generation (e.g., "first_name || ' ' || last_name")
+    /// SQL expression for generation (e.g., "`first_name` || ' ' || `last_name`")
     pub expression: String,
     /// Generation type: stored or virtual
     pub gen_type: GeneratedType,

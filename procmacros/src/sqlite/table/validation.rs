@@ -3,7 +3,7 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use syn::Expr;
 
-pub(crate) fn validate_strict_affinity(field_infos: &[FieldInfo], strict: bool) -> syn::Result<()> {
+pub fn validate_strict_affinity(field_infos: &[FieldInfo], strict: bool) -> syn::Result<()> {
     let mut errors: Vec<syn::Error> = Vec::new();
 
     for info in field_infos {
@@ -40,7 +40,7 @@ pub(crate) fn validate_strict_affinity(field_infos: &[FieldInfo], strict: bool) 
 }
 
 /// Generates compile-time validation blocks for default literals
-pub(crate) fn generate_default_validations(field_infos: &[FieldInfo]) -> TokenStream {
+pub fn generate_default_validations(field_infos: &[FieldInfo]) -> TokenStream {
     let validations: Vec<TokenStream> = field_infos
         .iter()
         .filter_map(|info| {

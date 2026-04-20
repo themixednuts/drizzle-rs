@@ -1,4 +1,4 @@
-//! `FromDrizzleRow` leaf impls for PostgreSQL driver rows.
+//! `FromDrizzleRow` leaf impls for `PostgreSQL` driver rows.
 //!
 //! When `tokio-postgres` is enabled, we impl for `tokio_postgres::Row`.
 //! When only `postgres-sync` is enabled, we impl for `postgres::Row`.
@@ -41,7 +41,7 @@ macro_rules! impl_option_leaf_postgres {
 
 #[cfg(feature = "tokio-postgres")]
 mod tokio_pg {
-    use super::*;
+    use super::{DrizzleError, FromDrizzleRow, NullProbeRow};
 
     impl_leaf_postgres!(
         ::tokio_postgres::Row;
@@ -147,7 +147,7 @@ mod tokio_pg {
 
 #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 mod sync_pg {
-    use super::*;
+    use super::{DrizzleError, FromDrizzleRow, NullProbeRow};
 
     impl_leaf_postgres!(
         ::postgres::Row;

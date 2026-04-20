@@ -79,12 +79,17 @@ pub struct SnapshotFilters {
 }
 
 impl SnapshotFilters {
-    fn is_empty(&self) -> bool {
+    const fn is_empty(&self) -> bool {
         self.tables.is_none() && self.schemas.is_none() && self.extensions.is_none()
     }
 }
 
 /// Plan a push by introspecting the live database and diffing against the desired snapshot.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if introspecting the live database fails, if applying
+/// the given snapshot filters fails, or if generating the diff SQL fails.
 pub fn plan_push(
     credentials: &Credentials,
     dialect: Dialect,
@@ -105,6 +110,12 @@ pub fn plan_push(
 }
 
 /// Apply a previously planned push.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if the confirmation prompt for a destructive plan
+/// fails, or if executing the planned SQL statements against the database
+/// fails.
 pub fn apply_push(
     credentials: &Credentials,
     dialect: Dialect,
@@ -129,6 +140,12 @@ pub fn apply_push(
 ///
 /// This is the main entry point that dispatches to the appropriate driver
 /// based on the credentials type.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if no compiled driver matches the credentials, if
+/// connecting to the database fails, or if reading the migration tracking
+/// table or on-disk migration files fails.
 #[allow(unused_variables)] // params consumed inside feature-gated block
 pub fn plan_migrations(
     credentials: &Credentials,
@@ -159,7 +176,6 @@ pub fn plan_migrations(
 
         #[cfg(any(feature = "libsql", feature = "turso"))]
         Credentials::Turso { url, auth_token } => {
-            let _auth_token = auth_token.as_deref();
             if is_local_libsql(url) {
                 #[cfg(feature = "libsql")]
                 {
@@ -175,10 +191,11 @@ pub fn plan_migrations(
             } else {
                 #[cfg(feature = "turso")]
                 {
-                    inspect_turso_migrations(&set, url, _auth_token)
+                    inspect_turso_migrations(&set, url, auth_token.as_deref())
                 }
                 #[cfg(not(feature = "turso"))]
                 {
+                    let _ = auth_token;
                     Err(CliError::MissingDriver {
                         dialect: "Turso (remote)",
                         feature: "turso",
@@ -228,6 +245,13 @@ pub fn plan_migrations(
     }
 }
 
+/// Verify migrations by re-running the planning logic without applying
+/// anything, surfacing any inconsistencies between the on-disk migration
+/// files and the tracking table.
+///
+/// # Errors
+///
+/// Returns the same errors as [`plan_migrations`].
 pub fn verify_migrations(
     credentials: &Credentials,
     dialect: Dialect,
@@ -244,6 +268,14 @@ pub fn verify_migrations(
     )
 }
 
+/// Apply any pending migrations against the database referenced by
+/// `credentials`.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if no compiled driver matches, if connecting or
+/// starting a transaction fails, if executing a migration's SQL fails, or if
+/// writing to the tracking table fails.
 #[allow(unused_variables)] // params consumed inside feature-gated block
 pub fn run_migrations(
     credentials: &Credentials,
@@ -274,7 +306,6 @@ pub fn run_migrations(
 
         #[cfg(any(feature = "libsql", feature = "turso"))]
         Credentials::Turso { url, auth_token } => {
-            let _auth_token = auth_token.as_deref();
             if is_local_libsql(url) {
                 #[cfg(feature = "libsql")]
                 {
@@ -290,10 +321,11 @@ pub fn run_migrations(
             } else {
                 #[cfg(feature = "turso")]
                 {
-                    run_turso_migrations(&set, url, _auth_token)
+                    run_turso_migrations(&set, url, auth_token.as_deref())
                 }
                 #[cfg(not(feature = "turso"))]
                 {
+                    let _ = auth_token;
                     Err(CliError::MissingDriver {
                         dialect: "Turso (remote)",
                         feature: "turso",
@@ -363,7 +395,7 @@ fn load_migration_set(
     // Load migrations from filesystem
     let migrations = drizzle_migrations::MigrationDir::new(migrations_dir)
         .discover()
-        .map_err(|e| CliError::Other(format!("Failed to load migrations: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to load migrations: {e}")))?;
     Ok(Migrations::with_tracking(
         migrations,
         dialect.to_base(),
@@ -411,9 +443,9 @@ fn migration_tracking(
 ))]
 pub(crate) fn build_migration_plan(
     set: &Migrations,
-    applied: Vec<AppliedMigrationRecord>,
+    applied: &[AppliedMigrationRecord],
 ) -> Result<MigrationPlan, CliError> {
-    verify_applied_migrations_consistency(set, &applied)?;
+    verify_applied_migrations_consistency(set, applied)?;
 
     let applied_names = applied.iter().map(|m| m.name.clone()).collect::<Vec<_>>();
     let pending = set.pending(&applied_names).collect::<Vec<_>>();
@@ -507,9 +539,8 @@ fn ensure_sqlite_tracking_table(
     conn: &rusqlite::Connection,
     set: &Migrations,
 ) -> Result<(), CliError> {
-    conn.execute(&set.create_table_sql(), []).map_err(|e| {
-        CliError::MigrationError(format!("Failed to create migrations table: {}", e))
-    })?;
+    conn.execute(&set.create_table_sql(), [])
+        .map_err(|e| CliError::MigrationError(format!("Failed to create migrations table: {e}")))?;
 
     let pragma_sql = format!(
         "SELECT name FROM pragma_table_info('{}')",
@@ -613,9 +644,7 @@ async fn ensure_sqlite_tracking_table_libsql(
 ) -> Result<(), CliError> {
     conn.execute(&set.create_table_sql(), ())
         .await
-        .map_err(|e| {
-            CliError::MigrationError(format!("Failed to create migrations table: {}", e))
-        })?;
+        .map_err(|e| CliError::MigrationError(format!("Failed to create migrations table: {e}")))?;
 
     let pragma_sql = format!(
         "SELECT name FROM pragma_table_info('{}')",
@@ -723,9 +752,9 @@ fn ensure_postgres_tracking_table_sync(
     client: &mut postgres::Client,
     set: &Migrations,
 ) -> Result<(), CliError> {
-    client.execute(&set.create_table_sql(), &[]).map_err(|e| {
-        CliError::MigrationError(format!("Failed to create migrations table: {}", e))
-    })?;
+    client
+        .execute(&set.create_table_sql(), &[])
+        .map_err(|e| CliError::MigrationError(format!("Failed to create migrations table: {e}")))?;
 
     let schema = set.schema_name().unwrap_or("public");
     let rows = client
@@ -819,9 +848,7 @@ async fn ensure_postgres_tracking_table_async(
     client
         .execute(&set.create_table_sql(), &[])
         .await
-        .map_err(|e| {
-            CliError::MigrationError(format!("Failed to create migrations table: {}", e))
-        })?;
+        .map_err(|e| CliError::MigrationError(format!("Failed to create migrations table: {e}")))?;
 
     let schema = set.schema_name().unwrap_or("public");
     let rows = client
@@ -1017,7 +1044,6 @@ fn execute_statements(
 
         #[cfg(any(feature = "libsql", feature = "turso"))]
         Credentials::Turso { url, auth_token } => {
-            let _auth_token = auth_token.as_deref();
             if is_local_libsql(url) {
                 #[cfg(feature = "libsql")]
                 {
@@ -1033,10 +1059,11 @@ fn execute_statements(
             } else {
                 #[cfg(feature = "turso")]
                 {
-                    execute_turso_statements(url, _auth_token, statements)
+                    execute_turso_statements(url, auth_token.as_deref(), statements)
                 }
                 #[cfg(not(feature = "turso"))]
                 {
+                    let _ = auth_token;
                     Err(CliError::MissingDriver {
                         dialect: "Turso (remote)",
                         feature: "turso",
@@ -1091,7 +1118,7 @@ fn execute_statements(
 fn is_local_libsql(url: &str) -> bool {
     url.starts_with("file:")
         || url.starts_with("./")
-        || url.starts_with("/")
+        || url.starts_with('/')
         || !url.contains("://")
 }
 
@@ -1140,7 +1167,7 @@ fn process_sqlite_uniques_from_indexes(
 #[cfg(feature = "rusqlite")]
 fn execute_sqlite_statements(path: &str, statements: &[String]) -> Result<(), CliError> {
     let conn = rusqlite::Connection::open(path).map_err(|e| {
-        CliError::ConnectionError(format!("Failed to open SQLite database '{}': {}", path, e))
+        CliError::ConnectionError(format!("Failed to open SQLite database '{path}': {e}"))
     })?;
 
     conn.execute("BEGIN", [])
@@ -1154,8 +1181,7 @@ fn execute_sqlite_statements(path: &str, statements: &[String]) -> Result<(), Cl
         if let Err(e) = conn.execute(s, []) {
             let _ = conn.execute("ROLLBACK", []);
             return Err(CliError::MigrationError(format!(
-                "Statement failed: {}\n{}",
-                e, s
+                "Statement failed: {e}\n{s}"
             )));
         }
     }
@@ -1169,7 +1195,7 @@ fn execute_sqlite_statements(path: &str, statements: &[String]) -> Result<(), Cl
 #[cfg(feature = "rusqlite")]
 fn run_sqlite_migrations(set: &Migrations, path: &str) -> Result<MigrationResult, CliError> {
     let conn = rusqlite::Connection::open(path).map_err(|e| {
-        CliError::ConnectionError(format!("Failed to open SQLite database '{}': {}", path, e))
+        CliError::ConnectionError(format!("Failed to open SQLite database '{path}': {e}"))
     })?;
 
     ensure_sqlite_tracking_table(&conn, set)?;
@@ -1223,12 +1249,12 @@ fn run_sqlite_migrations(set: &Migrations, path: &str) -> Result<MigrationResult
 #[cfg(feature = "rusqlite")]
 fn inspect_sqlite_migrations(set: &Migrations, path: &str) -> Result<MigrationPlan, CliError> {
     let conn = rusqlite::Connection::open(path).map_err(|e| {
-        CliError::ConnectionError(format!("Failed to open SQLite database '{}': {}", path, e))
+        CliError::ConnectionError(format!("Failed to open SQLite database '{path}': {e}"))
     })?;
 
     ensure_sqlite_tracking_table(&conn, set)?;
     let applied = query_applied_records_sqlite(&conn, set)?;
-    build_migration_plan(set, applied)
+    build_migration_plan(set, &applied)
 }
 
 #[cfg(feature = "rusqlite")]
@@ -1240,9 +1266,8 @@ fn query_applied_records_sqlite(
         r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
         set.table_ident_sql()
     );
-    let mut stmt = match conn.prepare(&sql) {
-        Ok(s) => s,
-        Err(_) => return Ok(vec![]), // Table might not exist yet
+    let Ok(mut stmt) = conn.prepare(&sql) else {
+        return Ok(vec![]); // Table might not exist yet
     };
 
     let mut applied = Vec::new();
@@ -1265,9 +1290,8 @@ fn query_applied_names_sqlite(
     conn: &rusqlite::Connection,
     set: &Migrations,
 ) -> Result<Vec<String>, CliError> {
-    let mut stmt = match conn.prepare(&set.applied_names_sql()) {
-        Ok(s) => s,
-        Err(_) => return Ok(vec![]), // Table might not exist yet
+    let Ok(mut stmt) = conn.prepare(&set.applied_names_sql()) else {
+        return Ok(vec![]); // Table might not exist yet
     };
 
     let names = stmt
@@ -1289,9 +1313,8 @@ fn execute_postgres_sync_statements(
     statements: &[String],
 ) -> Result<(), CliError> {
     let url = creds.connection_url();
-    let mut client = postgres::Client::connect(&url, postgres::NoTls).map_err(|e| {
-        CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
-    })?;
+    let mut client = postgres::Client::connect(&url, postgres::NoTls)
+        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {e}")))?;
 
     if has_postgres_concurrent_index(statements) {
         // CREATE/DROP INDEX CONCURRENTLY cannot run inside a transaction block.
@@ -1302,7 +1325,7 @@ fn execute_postgres_sync_statements(
             }
             client
                 .execute(s, &[])
-                .map_err(|e| CliError::MigrationError(format!("Statement failed: {}\n{}", e, s)))?;
+                .map_err(|e| CliError::MigrationError(format!("Statement failed: {e}\n{s}")))?;
         }
     } else {
         let mut tx = client
@@ -1315,7 +1338,7 @@ fn execute_postgres_sync_statements(
                 continue;
             }
             tx.execute(s, &[])
-                .map_err(|e| CliError::MigrationError(format!("Statement failed: {}\n{}", e, s)))?;
+                .map_err(|e| CliError::MigrationError(format!("Statement failed: {e}\n{s}")))?;
         }
 
         tx.commit()
@@ -1331,9 +1354,8 @@ fn run_postgres_sync_migrations(
     creds: &PostgresCreds,
 ) -> Result<MigrationResult, CliError> {
     let url = creds.connection_url();
-    let mut client = postgres::Client::connect(&url, postgres::NoTls).map_err(|e| {
-        CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
-    })?;
+    let mut client = postgres::Client::connect(&url, postgres::NoTls)
+        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {e}")))?;
 
     // Create schema if needed
     if let Some(schema_sql) = set.create_schema_sql() {
@@ -1428,9 +1450,8 @@ fn inspect_postgres_sync_migrations(
     creds: &PostgresCreds,
 ) -> Result<MigrationPlan, CliError> {
     let url = creds.connection_url();
-    let mut client = postgres::Client::connect(&url, postgres::NoTls).map_err(|e| {
-        CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
-    })?;
+    let mut client = postgres::Client::connect(&url, postgres::NoTls)
+        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {e}")))?;
 
     if let Some(schema_sql) = set.create_schema_sql() {
         client
@@ -1440,7 +1461,7 @@ fn inspect_postgres_sync_migrations(
 
     ensure_postgres_tracking_table_sync(&mut client, set)?;
     let applied = query_applied_records_postgres_sync(&mut client, set);
-    build_migration_plan(set, applied)
+    build_migration_plan(set, &applied)
 }
 
 #[cfg(feature = "postgres-sync")]
@@ -1549,7 +1570,7 @@ fn run_postgres_async_migrations(
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
 
     rt.block_on(run_postgres_async_inner(set, creds))
 }
@@ -1563,7 +1584,7 @@ fn inspect_postgres_async_migrations(
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
 
     rt.block_on(inspect_postgres_async_inner(set, creds))
 }
@@ -1577,9 +1598,7 @@ async fn inspect_postgres_async_inner(
     let url = creds.connection_url();
     let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
         .await
-        .map_err(|e| {
-            CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
-        })?;
+        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {e}")))?;
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -1599,7 +1618,7 @@ async fn inspect_postgres_async_inner(
 
     ensure_postgres_tracking_table_async(&client, set).await?;
     let applied = query_applied_records_postgres_async(&client, set).await;
-    build_migration_plan(set, applied)
+    build_migration_plan(set, &applied)
 }
 
 #[cfg(feature = "tokio-postgres")]
@@ -1634,9 +1653,7 @@ async fn run_postgres_async_inner(
     let url = creds.connection_url();
     let (mut client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
         .await
-        .map_err(|e| {
-            CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
-        })?;
+        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {e}")))?;
 
     // Spawn connection handler
     tokio::spawn(async move {
@@ -1750,7 +1767,7 @@ fn execute_libsql_local_statements(path: &str, statements: &[String]) -> Result<
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
 
     rt.block_on(execute_libsql_local_inner(path, statements))
 }
@@ -1761,7 +1778,7 @@ async fn execute_libsql_local_inner(path: &str, statements: &[String]) -> Result
         .build()
         .await
         .map_err(|e| {
-            CliError::ConnectionError(format!("Failed to open LibSQL database '{}': {}", path, e))
+            CliError::ConnectionError(format!("Failed to open LibSQL database '{path}': {e}"))
         })?;
 
     let conn = db
@@ -1781,8 +1798,7 @@ async fn execute_libsql_local_inner(path: &str, statements: &[String]) -> Result
         if let Err(e) = tx.execute(s, ()).await {
             tx.rollback().await.ok();
             return Err(CliError::MigrationError(format!(
-                "Statement failed: {}\n{}",
-                e, s
+                "Statement failed: {e}\n{s}"
             )));
         }
     }
@@ -1799,7 +1815,7 @@ fn run_libsql_local_migrations(set: &Migrations, path: &str) -> Result<Migration
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
 
     rt.block_on(run_libsql_local_inner(set, path))
 }
@@ -1812,7 +1828,7 @@ fn inspect_libsql_local_migrations(
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
 
     rt.block_on(inspect_libsql_local_inner(set, path))
 }
@@ -1826,7 +1842,7 @@ async fn inspect_libsql_local_inner(
         .build()
         .await
         .map_err(|e| {
-            CliError::ConnectionError(format!("Failed to open LibSQL database '{}': {}", path, e))
+            CliError::ConnectionError(format!("Failed to open LibSQL database '{path}': {e}"))
         })?;
 
     let conn = db
@@ -1835,7 +1851,7 @@ async fn inspect_libsql_local_inner(
 
     ensure_sqlite_tracking_table_libsql(&conn, set).await?;
     let applied = query_applied_records_libsql(&conn, set).await?;
-    build_migration_plan(set, applied)
+    build_migration_plan(set, &applied)
 }
 
 #[cfg(feature = "libsql")]
@@ -1844,7 +1860,7 @@ async fn run_libsql_local_inner(set: &Migrations, path: &str) -> Result<Migratio
         .build()
         .await
         .map_err(|e| {
-            CliError::ConnectionError(format!("Failed to open LibSQL database '{}': {}", path, e))
+            CliError::ConnectionError(format!("Failed to open LibSQL database '{path}': {e}"))
         })?;
 
     let conn = db
@@ -1907,9 +1923,8 @@ async fn query_applied_names_libsql(
     conn: &libsql::Connection,
     set: &Migrations,
 ) -> Result<Vec<String>, CliError> {
-    let mut rows = match conn.query(&set.applied_names_sql(), ()).await {
-        Ok(r) => r,
-        Err(_) => return Ok(vec![]), // Table might not exist yet
+    let Ok(mut rows) = conn.query(&set.applied_names_sql(), ()).await else {
+        return Ok(vec![]); // Table might not exist yet
     };
 
     let mut names = Vec::new();
@@ -1931,9 +1946,8 @@ async fn query_applied_records_libsql(
         r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
         set.table_ident_sql()
     );
-    let mut rows = match conn.query(&sql, ()).await {
-        Ok(r) => r,
-        Err(_) => return Ok(vec![]), // Table might not exist yet
+    let Ok(mut rows) = conn.query(&sql, ()).await else {
+        return Ok(vec![]); // Table might not exist yet
     };
 
     let mut applied = Vec::new();
@@ -1959,7 +1973,7 @@ fn execute_turso_statements(
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
 
     rt.block_on(execute_turso_inner(url, auth_token, statements))
 }
@@ -1974,7 +1988,7 @@ async fn execute_turso_inner(
         libsql::Builder::new_remote(url.to_string(), auth_token.unwrap_or("").to_string());
 
     let db = builder.build().await.map_err(|e| {
-        CliError::ConnectionError(format!("Failed to connect to Turso '{}': {}", url, e))
+        CliError::ConnectionError(format!("Failed to connect to Turso '{url}': {e}"))
     })?;
 
     let conn = db
@@ -1994,8 +2008,7 @@ async fn execute_turso_inner(
         if let Err(e) = tx.execute(s, ()).await {
             tx.rollback().await.ok();
             return Err(CliError::MigrationError(format!(
-                "Statement failed: {}\n{}",
-                e, s
+                "Statement failed: {e}\n{s}"
             )));
         }
     }
@@ -2016,7 +2029,7 @@ fn run_turso_migrations(
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
 
     rt.block_on(run_turso_inner(set, url, auth_token))
 }
@@ -2030,7 +2043,7 @@ fn inspect_turso_migrations(
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
 
     rt.block_on(inspect_turso_inner(set, url, auth_token))
 }
@@ -2045,7 +2058,7 @@ async fn inspect_turso_inner(
         libsql::Builder::new_remote(url.to_string(), auth_token.unwrap_or("").to_string());
 
     let db = builder.build().await.map_err(|e| {
-        CliError::ConnectionError(format!("Failed to connect to Turso '{}': {}", url, e))
+        CliError::ConnectionError(format!("Failed to connect to Turso '{url}': {e}"))
     })?;
 
     let conn = db
@@ -2054,7 +2067,7 @@ async fn inspect_turso_inner(
 
     ensure_sqlite_tracking_table_libsql(&conn, set).await?;
     let applied = query_applied_records_turso(&conn, set).await?;
-    build_migration_plan(set, applied)
+    build_migration_plan(set, &applied)
 }
 
 #[cfg(feature = "turso")]
@@ -2067,7 +2080,7 @@ async fn run_turso_inner(
         libsql::Builder::new_remote(url.to_string(), auth_token.unwrap_or("").to_string());
 
     let db = builder.build().await.map_err(|e| {
-        CliError::ConnectionError(format!("Failed to connect to Turso '{}': {}", url, e))
+        CliError::ConnectionError(format!("Failed to connect to Turso '{url}': {e}"))
     })?;
 
     let conn = db
@@ -2130,9 +2143,8 @@ async fn query_applied_names_turso(
     conn: &libsql::Connection,
     set: &Migrations,
 ) -> Result<Vec<String>, CliError> {
-    let mut rows = match conn.query(&set.applied_names_sql(), ()).await {
-        Ok(r) => r,
-        Err(_) => return Ok(vec![]), // Table might not exist yet
+    let Ok(mut rows) = conn.query(&set.applied_names_sql(), ()).await else {
+        return Ok(vec![]); // Table might not exist yet
     };
 
     let mut names = Vec::new();
@@ -2154,9 +2166,8 @@ async fn query_applied_records_turso(
         r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
         set.table_ident_sql()
     );
-    let mut rows = match conn.query(&sql, ()).await {
-        Ok(r) => r,
-        Err(_) => return Ok(vec![]), // Table might not exist yet
+    let Ok(mut rows) = conn.query(&sql, ()).await else {
+        return Ok(vec![]); // Table might not exist yet
     };
 
     let mut applied = Vec::new();
@@ -2192,9 +2203,15 @@ pub struct IntrospectResult {
     pub snapshot_path: std::path::PathBuf,
 }
 
-/// Introspect a database and write schema/snapshot files
+/// Introspect a database and write schema/snapshot files.
 ///
 /// This is the main entry point for CLI introspection.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if connecting to the database fails, if querying the
+/// catalogs fails, if applying the configured snapshot filters fails, or if
+/// writing the generated schema and snapshot files to disk fails.
 #[allow(clippy::too_many_arguments)]
 pub fn run_introspection(
     credentials: &Credentials,
@@ -2333,7 +2350,6 @@ fn apply_init_metadata(
 
         #[cfg(any(feature = "libsql", feature = "turso"))]
         Credentials::Turso { url, auth_token } => {
-            let _auth_token = auth_token.as_deref();
             if is_local_libsql(url) {
                 #[cfg(feature = "libsql")]
                 {
@@ -2349,10 +2365,11 @@ fn apply_init_metadata(
             } else {
                 #[cfg(feature = "turso")]
                 {
-                    init_turso_metadata(url, _auth_token, &set)
+                    init_turso_metadata(url, auth_token.as_deref(), &set)
                 }
                 #[cfg(not(feature = "turso"))]
                 {
+                    let _ = auth_token;
                     Err(CliError::MissingDriver {
                         dialect: "Turso (remote)",
                         feature: "turso",
@@ -2436,7 +2453,7 @@ pub(crate) fn validate_init_metadata(
 #[cfg(feature = "rusqlite")]
 fn init_sqlite_metadata(path: &str, set: &Migrations) -> Result<(), CliError> {
     let conn = rusqlite::Connection::open(path).map_err(|e| {
-        CliError::ConnectionError(format!("Failed to open SQLite database '{}': {}", path, e))
+        CliError::ConnectionError(format!("Failed to open SQLite database '{path}': {e}"))
     })?;
 
     ensure_sqlite_tracking_table(&conn, set)?;
@@ -2459,7 +2476,7 @@ fn init_libsql_local_metadata(path: &str, set: &Migrations) -> Result<(), CliErr
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
 
     rt.block_on(init_libsql_local_metadata_inner(path, set))
 }
@@ -2470,7 +2487,7 @@ async fn init_libsql_local_metadata_inner(path: &str, set: &Migrations) -> Resul
         .build()
         .await
         .map_err(|e| {
-            CliError::ConnectionError(format!("Failed to open LibSQL database '{}': {}", path, e))
+            CliError::ConnectionError(format!("Failed to open LibSQL database '{path}': {e}"))
         })?;
 
     let conn = db
@@ -2502,7 +2519,7 @@ fn init_turso_metadata(
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
 
     rt.block_on(init_turso_metadata_inner(url, auth_token, set))
 }
@@ -2517,7 +2534,7 @@ async fn init_turso_metadata_inner(
         libsql::Builder::new_remote(url.to_string(), auth_token.unwrap_or("").to_string());
 
     let db = builder.build().await.map_err(|e| {
-        CliError::ConnectionError(format!("Failed to connect to Turso '{}': {}", url, e))
+        CliError::ConnectionError(format!("Failed to connect to Turso '{url}': {e}"))
     })?;
 
     let conn = db
@@ -2543,9 +2560,8 @@ async fn init_turso_metadata_inner(
 #[cfg(feature = "postgres-sync")]
 fn init_postgres_sync_metadata(creds: &PostgresCreds, set: &Migrations) -> Result<(), CliError> {
     let url = creds.connection_url();
-    let mut client = postgres::Client::connect(&url, postgres::NoTls).map_err(|e| {
-        CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
-    })?;
+    let mut client = postgres::Client::connect(&url, postgres::NoTls)
+        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {e}")))?;
 
     if let Some(schema_sql) = set.create_schema_sql() {
         client
@@ -2670,6 +2686,13 @@ fn format_migration_sql(sql_statements: &[String], breakpoints: bool) -> String 
     }
 }
 
+/// Apply the configured filters (tables, schemas, extensions) in-place on a
+/// snapshot, removing entities that do not match.
+///
+/// # Errors
+///
+/// Returns [`CliError::DialectMismatch`] if `dialect` does not agree with the
+/// variant of `snapshot`, or [`CliError`] if compiling a filter pattern fails.
 pub fn apply_snapshot_filters(
     snapshot: &mut Snapshot,
     dialect: Dialect,
@@ -2705,7 +2728,7 @@ fn apply_sqlite_snapshot_filters(
     let mut keep_tables: HashSet<String> = HashSet::new();
     for entity in &snapshot.ddl {
         if let SqliteEntity::Table(table) = entity
-            && matches_patterns(table.name.as_ref(), &table_patterns)
+            && matches_patterns(table.name.as_ref(), table_patterns.as_deref())
         {
             keep_tables.insert(table.name.to_string());
         }
@@ -2721,7 +2744,7 @@ fn apply_sqlite_snapshot_filters(
         SqliteEntity::PrimaryKey(pk) => keep_tables.contains(pk.table.as_ref()),
         SqliteEntity::UniqueConstraint(u) => keep_tables.contains(u.table.as_ref()),
         SqliteEntity::CheckConstraint(c) => keep_tables.contains(c.table.as_ref()),
-        SqliteEntity::View(v) => matches_patterns(v.name.as_ref(), &table_patterns),
+        SqliteEntity::View(v) => matches_patterns(v.name.as_ref(), table_patterns.as_deref()),
     });
 
     Ok(())
@@ -2739,14 +2762,13 @@ fn apply_postgres_snapshot_filters(
     let exclude_postgis = filters
         .extensions
         .as_ref()
-        .map(|v| v.contains(&Extension::Postgis))
-        .unwrap_or(false);
+        .is_some_and(|v| v.contains(&Extension::Postgis));
 
     let is_schema_allowed = |schema: &str| -> bool {
         if exclude_postgis && matches!(schema, "topology" | "tiger" | "tiger_data") {
             return false;
         }
-        matches_patterns(schema, &schema_patterns)
+        matches_patterns(schema, schema_patterns.as_deref())
     };
 
     let mut keep_tables: HashSet<(String, String)> = HashSet::new();
@@ -2770,7 +2792,7 @@ fn apply_postgres_snapshot_filters(
                 continue;
             }
 
-            if matches_patterns(name, &table_patterns) {
+            if matches_patterns(name, table_patterns.as_deref()) {
                 keep_tables.insert((schema.to_string(), name.to_string()));
             }
         }
@@ -2791,11 +2813,10 @@ fn apply_postgres_snapshot_filters(
         PostgresEntity::Schema(s) => keep_schemas.contains(s.name.as_ref()),
         PostgresEntity::Enum(e) => keep_schemas.contains(e.schema.as_ref()),
         PostgresEntity::Sequence(s) => keep_schemas.contains(s.schema.as_ref()),
-        PostgresEntity::Role(_) => true,
+        PostgresEntity::Role(_) | PostgresEntity::Privilege(_) => true,
         PostgresEntity::Policy(p) => {
             keep_tables.contains(&(p.schema.to_string(), p.table.to_string()))
         }
-        PostgresEntity::Privilege(_) => true,
         PostgresEntity::Table(t) => {
             keep_tables.contains(&(t.schema.to_string(), t.name.to_string()))
         }
@@ -2822,7 +2843,7 @@ fn apply_postgres_snapshot_filters(
             if !keep_schemas.contains(v.schema.as_ref()) {
                 return false;
             }
-            matches_patterns(v.name.as_ref(), &table_patterns)
+            matches_patterns(v.name.as_ref(), table_patterns.as_deref())
         }
     });
 
@@ -2846,28 +2867,25 @@ fn compile_patterns(patterns: Option<&[String]>) -> Result<Option<Vec<FilterPatt
     let mut compiled = Vec::with_capacity(patterns.len());
     for p in patterns {
         let raw = p.trim();
-        let (negated, source) = if let Some(stripped) = raw.strip_prefix('!') {
-            (true, stripped)
-        } else {
-            (false, raw)
-        };
+        let (negated, source) = raw
+            .strip_prefix('!')
+            .map_or((false, raw), |stripped| (true, stripped));
         if source.is_empty() {
             return Err(CliError::Other(format!(
-                "invalid filter pattern '{}': empty pattern",
-                p
+                "invalid filter pattern '{p}': empty pattern"
             )));
         }
 
         compiled.push(FilterPattern {
             pattern: glob::Pattern::new(source)
-                .map_err(|e| CliError::Other(format!("invalid filter pattern '{}': {}", p, e)))?,
+                .map_err(|e| CliError::Other(format!("invalid filter pattern '{p}': {e}")))?,
             negated,
         });
     }
     Ok(Some(compiled))
 }
 
-fn matches_patterns(value: &str, patterns: &Option<Vec<FilterPattern>>) -> bool {
+fn matches_patterns(value: &str, patterns: Option<&[FilterPattern]>) -> bool {
     match patterns {
         None => true,
         Some(v) => {
@@ -2984,7 +3002,6 @@ fn introspect_sqlite_dialect(credentials: &Credentials) -> Result<IntrospectResu
 
         #[cfg(any(feature = "libsql", feature = "turso"))]
         Credentials::Turso { url, auth_token } => {
-            let _auth_token = auth_token.as_deref();
             if is_local_libsql(url) {
                 #[cfg(feature = "libsql")]
                 {
@@ -3000,10 +3017,11 @@ fn introspect_sqlite_dialect(credentials: &Credentials) -> Result<IntrospectResu
             } else {
                 #[cfg(feature = "turso")]
                 {
-                    introspect_turso(url, _auth_token)
+                    introspect_turso(url, auth_token.as_deref())
                 }
                 #[cfg(not(feature = "turso"))]
                 {
+                    let _ = auth_token;
                     Err(CliError::MissingDriver {
                         dialect: "Turso (remote)",
                         feature: "turso",
@@ -3024,7 +3042,7 @@ fn introspect_sqlite_dialect(credentials: &Credentials) -> Result<IntrospectResu
     }
 }
 
-/// Introspect PostgreSQL databases
+/// Introspect `PostgreSQL` databases
 fn introspect_postgres_dialect(credentials: &Credentials) -> Result<IntrospectResult, CliError> {
     match credentials {
         #[cfg(feature = "postgres-sync")]
@@ -3049,45 +3067,52 @@ fn introspect_postgres_dialect(credentials: &Credentials) -> Result<IntrospectRe
 // SQLite Introspection (rusqlite)
 // ============================================================================
 
+#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
+struct SqliteRawData {
+    tables: Vec<(String, Option<String>)>,
+    raw_columns: Vec<drizzle_migrations::sqlite::introspect::RawColumnInfo>,
+    all_indexes: Vec<drizzle_migrations::sqlite::introspect::RawIndexInfo>,
+    all_index_columns: Vec<drizzle_migrations::sqlite::introspect::RawIndexColumn>,
+    all_fks: Vec<drizzle_migrations::sqlite::introspect::RawForeignKey>,
+    all_views: Vec<drizzle_migrations::sqlite::introspect::RawViewInfo>,
+}
+
+#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
+impl SqliteRawData {
+    const fn empty() -> Self {
+        Self {
+            tables: Vec::new(),
+            raw_columns: Vec::new(),
+            all_indexes: Vec::new(),
+            all_index_columns: Vec::new(),
+            all_fks: Vec::new(),
+            all_views: Vec::new(),
+        }
+    }
+}
+
 #[cfg(feature = "rusqlite")]
-fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
-    use drizzle_migrations::sqlite::{
-        SQLiteDDL, Table, View,
-        codegen::{CodegenOptions, generate_rust_schema},
-        introspect::{
-            RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo, RawViewInfo,
-            parse_generated_columns_from_table_sql, parse_view_sql, process_columns,
-            process_foreign_keys, process_indexes, queries,
-        },
-    };
-    use std::collections::{HashMap, HashSet};
+fn query_rusqlite_tables_and_columns(
+    conn: &rusqlite::Connection,
+    raw: &mut SqliteRawData,
+) -> Result<(), CliError> {
+    use drizzle_migrations::sqlite::introspect::{RawColumnInfo, queries};
 
-    let conn = rusqlite::Connection::open(path).map_err(|e| {
-        CliError::ConnectionError(format!("Failed to open SQLite database '{}': {}", path, e))
-    })?;
-
-    // Query tables
     let mut tables_stmt = conn
         .prepare(queries::TABLES_QUERY)
-        .map_err(|e| CliError::Other(format!("Failed to prepare tables query: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to prepare tables query: {e}")))?;
 
-    let tables: Vec<(String, Option<String>)> = tables_stmt
+    raw.tables = tables_stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
         .map_err(|e| CliError::Other(e.to_string()))?
         .filter_map(Result::ok)
         .collect();
 
-    let table_sql_map: HashMap<String, String> = tables
-        .iter()
-        .filter_map(|(name, sql)| sql.as_ref().map(|s| (name.clone(), s.clone())))
-        .collect();
-
-    // Query columns
     let mut columns_stmt = conn
         .prepare(queries::COLUMNS_QUERY)
-        .map_err(|e| CliError::Other(format!("Failed to prepare columns query: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to prepare columns query: {e}")))?;
 
-    let mut raw_columns: Vec<RawColumnInfo> = columns_stmt
+    raw.raw_columns = columns_stmt
         .query_map([], |row| {
             Ok(RawColumnInfo {
                 table: row.get(0)?,
@@ -3105,14 +3130,22 @@ fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
         .filter_map(Result::ok)
         .collect();
 
-    // Query indexes and foreign keys for each table
-    let mut all_indexes: Vec<RawIndexInfo> = Vec::new();
-    let mut all_index_columns: Vec<RawIndexColumn> = Vec::new();
-    let mut all_fks: Vec<RawForeignKey> = Vec::new();
-    let mut all_views: Vec<RawViewInfo> = Vec::new();
+    Ok(())
+}
 
-    for (table_name, _) in &tables {
-        // Indexes
+#[cfg(feature = "rusqlite")]
+fn query_rusqlite_per_table(
+    conn: &rusqlite::Connection,
+    raw: &mut SqliteRawData,
+) -> Result<(), CliError> {
+    use drizzle_migrations::sqlite::introspect::{
+        RawForeignKey, RawIndexColumn, RawIndexInfo, queries,
+    };
+
+    // Collect table names up-front so we can mutate other fields on `raw` while iterating.
+    let table_names: Vec<String> = raw.tables.iter().map(|(n, _)| n.clone()).collect();
+
+    for table_name in &table_names {
         if let Ok(mut idx_stmt) = conn.prepare(&queries::indexes_query(table_name)) {
             let indexes: Vec<RawIndexInfo> = idx_stmt
                 .query_map([], |row| {
@@ -3128,7 +3161,6 @@ fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
                 .filter_map(Result::ok)
                 .collect();
 
-            // Index columns
             for idx in &indexes {
                 if let Ok(mut col_stmt) = conn.prepare(&queries::index_info_query(&idx.name))
                     && let Ok(col_iter) = col_stmt.query_map([], |row| {
@@ -3143,13 +3175,13 @@ fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
                         })
                     })
                 {
-                    all_index_columns.extend(col_iter.filter_map(Result::ok));
+                    raw.all_index_columns
+                        .extend(col_iter.filter_map(Result::ok));
                 }
             }
-            all_indexes.extend(indexes);
+            raw.all_indexes.extend(indexes);
         }
 
-        // Foreign keys
         if let Ok(mut fk_stmt) = conn.prepare(&queries::foreign_keys_query(table_name))
             && let Ok(fk_iter) = fk_stmt.query_map([], |row| {
                 Ok(RawForeignKey {
@@ -3165,11 +3197,17 @@ fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
                 })
             })
         {
-            all_fks.extend(fk_iter.filter_map(Result::ok));
+            raw.all_fks.extend(fk_iter.filter_map(Result::ok));
         }
     }
 
-    // Views
+    Ok(())
+}
+
+#[cfg(feature = "rusqlite")]
+fn query_rusqlite_views_and_view_columns(conn: &rusqlite::Connection, raw: &mut SqliteRawData) {
+    use drizzle_migrations::sqlite::introspect::{RawColumnInfo, RawViewInfo, queries};
+
     if let Ok(mut views_stmt) = conn.prepare(queries::VIEWS_QUERY)
         && let Ok(view_iter) = views_stmt.query_map([], |row| {
             Ok(RawViewInfo {
@@ -3178,10 +3216,9 @@ fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
             })
         })
     {
-        all_views.extend(view_iter.filter_map(Result::ok));
+        raw.all_views.extend(view_iter.filter_map(Result::ok));
     }
 
-    // View columns (for codegen with column fields)
     if let Ok(mut view_cols_stmt) = conn.prepare(queries::VIEW_COLUMNS_QUERY)
         && let Ok(col_iter) = view_cols_stmt.query_map([], |row| {
             Ok(RawColumnInfo {
@@ -3197,34 +3234,58 @@ fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
             })
         })
     {
-        raw_columns.extend(col_iter.filter_map(Result::ok));
+        raw.raw_columns.extend(col_iter.filter_map(Result::ok));
     }
+}
 
-    // Process raw data into DDL entities
+#[cfg(feature = "rusqlite")]
+fn query_rusqlite_raw(conn: &rusqlite::Connection) -> Result<SqliteRawData, CliError> {
+    let mut raw = SqliteRawData::empty();
+    query_rusqlite_tables_and_columns(conn, &mut raw)?;
+    query_rusqlite_per_table(conn, &mut raw)?;
+    query_rusqlite_views_and_view_columns(conn, &mut raw);
+    Ok(raw)
+}
+
+#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
+fn build_sqlite_ddl(raw: SqliteRawData) -> drizzle_migrations::sqlite::SQLiteDDL {
+    use drizzle_migrations::sqlite::{
+        SQLiteDDL, Table, View,
+        introspect::{
+            parse_generated_columns_from_table_sql, parse_view_sql, process_columns,
+            process_foreign_keys, process_indexes,
+        },
+    };
+    use std::collections::{HashMap, HashSet};
+
+    let table_sql_map: HashMap<String, String> = raw
+        .tables
+        .iter()
+        .filter_map(|(name, sql)| sql.as_ref().map(|s| (name.clone(), s.clone())))
+        .collect();
+
     let mut generated_columns: HashMap<String, drizzle_migrations::sqlite::ddl::ParsedGenerated> =
         HashMap::new();
     for (table, sql) in &table_sql_map {
         generated_columns.extend(parse_generated_columns_from_table_sql(table, sql));
     }
-    let pk_columns: HashSet<(String, String)> = raw_columns
+    let pk_columns: HashSet<(String, String)> = raw
+        .raw_columns
         .iter()
         .filter(|c| c.pk > 0)
         .map(|c| (c.table.clone(), c.name.clone()))
         .collect();
 
-    let (columns, primary_keys) = process_columns(&raw_columns, &generated_columns, &pk_columns);
-    let indexes = process_indexes(&all_indexes, &all_index_columns, &table_sql_map);
-    let foreign_keys = process_foreign_keys(&all_fks);
+    let (columns, primary_keys) =
+        process_columns(&raw.raw_columns, &generated_columns, &pk_columns);
+    let indexes = process_indexes(&raw.all_indexes, &raw.all_index_columns, &table_sql_map);
+    let foreign_keys = process_foreign_keys(&raw.all_fks);
+    let uniques = process_sqlite_uniques_from_indexes(&raw.all_indexes, &raw.all_index_columns);
 
-    // Unique constraints (origin == 'u' indexes)
-    let uniques = process_sqlite_uniques_from_indexes(&all_indexes, &all_index_columns);
-
-    // Build DDL collection
     let mut ddl = SQLiteDDL::new();
 
-    for (table_name, table_sql) in &tables {
+    for (table_name, table_sql) in &raw.tables {
         let mut table = Table::new(table_name.clone());
-        // Parse table options from SQL if available
         if let Some(sql) = table_sql {
             let sql_upper = sql.to_uppercase();
             table.strict = sql_upper.contains(" STRICT");
@@ -3236,25 +3297,20 @@ fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
     for col in columns {
         ddl.columns.push(col);
     }
-
     for idx in indexes {
         ddl.indexes.push(idx);
     }
-
     for fk in foreign_keys {
         ddl.fks.push(fk);
     }
-
     for pk in primary_keys {
         ddl.pks.push(pk);
     }
-
     for u in uniques {
         ddl.uniques.push(u);
     }
 
-    // Views
-    for v in all_views {
+    for v in raw.all_views {
         let mut view = View::new(v.name);
         if let Some(def) = parse_view_sql(&v.sql) {
             view.definition = Some(def.into());
@@ -3264,18 +3320,30 @@ fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
         ddl.views.push(view);
     }
 
-    // Generate Rust code
+    ddl
+}
+
+#[cfg(feature = "rusqlite")]
+fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
+    use drizzle_migrations::sqlite::codegen::{CodegenOptions, FieldCasing, generate_rust_schema};
+
+    let conn = rusqlite::Connection::open(path).map_err(|e| {
+        CliError::ConnectionError(format!("Failed to open SQLite database '{path}': {e}"))
+    })?;
+
+    let raw = query_rusqlite_raw(&conn)?;
+    let ddl = build_sqlite_ddl(raw);
+
     let options = CodegenOptions {
-        module_doc: Some(format!("Schema introspected from {}", path)),
+        module_doc: Some(format!("Schema introspected from {path}")),
         include_schema: true,
         schema_name: "Schema".to_string(),
         use_pub: true,
-        field_casing: Default::default(),
+        field_casing: FieldCasing::default(),
     };
 
     let generated = generate_rust_schema(&ddl, &options);
 
-    // Create snapshot from DDL
     let mut sqlite_snapshot = drizzle_migrations::sqlite::SQLiteSnapshot::new();
     for entity in ddl.to_entities() {
         sqlite_snapshot.add_entity(entity);
@@ -3302,43 +3370,27 @@ fn introspect_libsql_local(path: &str) -> Result<IntrospectResult, CliError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
 
     rt.block_on(introspect_libsql_inner(path, None))
 }
 
-#[cfg(feature = "libsql")]
-async fn introspect_libsql_inner(
-    path: &str,
-    _auth_token: Option<&str>,
-) -> Result<IntrospectResult, CliError> {
-    use drizzle_migrations::sqlite::{
-        SQLiteDDL, Table, View,
-        codegen::{CodegenOptions, generate_rust_schema},
-        introspect::{
-            RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo, RawViewInfo,
-            parse_generated_columns_from_table_sql, parse_view_sql, process_columns,
-            process_foreign_keys, process_indexes, queries,
-        },
-    };
-    use std::collections::{HashMap, HashSet};
+#[cfg(any(feature = "libsql", feature = "turso"))]
+async fn query_libsql_tables_and_columns(
+    conn: &libsql::Connection,
+) -> Result<
+    (
+        Vec<(String, Option<String>)>,
+        Vec<drizzle_migrations::sqlite::introspect::RawColumnInfo>,
+    ),
+    CliError,
+> {
+    use drizzle_migrations::sqlite::introspect::{RawColumnInfo, queries};
 
-    let db = libsql::Builder::new_local(path)
-        .build()
-        .await
-        .map_err(|e| {
-            CliError::ConnectionError(format!("Failed to open LibSQL database '{}': {}", path, e))
-        })?;
-
-    let conn = db
-        .connect()
-        .map_err(|e| CliError::ConnectionError(e.to_string()))?;
-
-    // Query tables
     let mut tables_rows = conn
         .query(queries::TABLES_QUERY, ())
         .await
-        .map_err(|e| CliError::Other(format!("Failed to query tables: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to query tables: {e}")))?;
 
     let mut tables: Vec<(String, Option<String>)> = Vec::new();
     while let Ok(Some(row)) = tables_rows.next().await {
@@ -3347,16 +3399,10 @@ async fn introspect_libsql_inner(
         tables.push((name, sql));
     }
 
-    let table_sql_map: HashMap<String, String> = tables
-        .iter()
-        .filter_map(|(name, sql)| sql.as_ref().map(|s| (name.clone(), s.clone())))
-        .collect();
-
-    // Query columns
     let mut columns_rows = conn
         .query(queries::COLUMNS_QUERY, ())
         .await
-        .map_err(|e| CliError::Other(format!("Failed to query columns: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to query columns: {e}")))?;
 
     let mut raw_columns: Vec<RawColumnInfo> = Vec::new();
     while let Ok(Some(row)) = columns_rows.next().await {
@@ -3373,14 +3419,27 @@ async fn introspect_libsql_inner(
         });
     }
 
-    // Query indexes and foreign keys
+    Ok((tables, raw_columns))
+}
+
+#[cfg(any(feature = "libsql", feature = "turso"))]
+async fn query_libsql_per_table(
+    conn: &libsql::Connection,
+    tables: &[(String, Option<String>)],
+) -> (
+    Vec<drizzle_migrations::sqlite::introspect::RawIndexInfo>,
+    Vec<drizzle_migrations::sqlite::introspect::RawIndexColumn>,
+    Vec<drizzle_migrations::sqlite::introspect::RawForeignKey>,
+) {
+    use drizzle_migrations::sqlite::introspect::{
+        RawForeignKey, RawIndexColumn, RawIndexInfo, queries,
+    };
+
     let mut all_indexes: Vec<RawIndexInfo> = Vec::new();
     let mut all_index_columns: Vec<RawIndexColumn> = Vec::new();
     let mut all_fks: Vec<RawForeignKey> = Vec::new();
-    let mut all_views: Vec<RawViewInfo> = Vec::new();
 
-    for (table_name, _) in &tables {
-        // Indexes
+    for (table_name, _) in tables {
         if let Ok(mut idx_rows) = conn.query(&queries::indexes_query(table_name), ()).await {
             while let Ok(Some(row)) = idx_rows.next().await {
                 let idx = RawIndexInfo {
@@ -3391,7 +3450,6 @@ async fn introspect_libsql_inner(
                     partial: row.get::<i32>(4).unwrap_or(0) != 0,
                 };
 
-                // Index columns
                 if let Ok(mut col_rows) =
                     conn.query(&queries::index_info_query(&idx.name), ()).await
                 {
@@ -3412,7 +3470,6 @@ async fn introspect_libsql_inner(
             }
         }
 
-        // Foreign keys
         if let Ok(mut fk_rows) = conn
             .query(&queries::foreign_keys_query(table_name), ())
             .await
@@ -3433,7 +3490,17 @@ async fn introspect_libsql_inner(
         }
     }
 
-    // Views
+    (all_indexes, all_index_columns, all_fks)
+}
+
+#[cfg(any(feature = "libsql", feature = "turso"))]
+async fn query_libsql_views_and_view_columns(
+    conn: &libsql::Connection,
+    raw_columns: &mut Vec<drizzle_migrations::sqlite::introspect::RawColumnInfo>,
+) -> Vec<drizzle_migrations::sqlite::introspect::RawViewInfo> {
+    use drizzle_migrations::sqlite::introspect::{RawColumnInfo, RawViewInfo, queries};
+
+    let mut all_views: Vec<RawViewInfo> = Vec::new();
     if let Ok(mut views_rows) = conn.query(queries::VIEWS_QUERY, ()).await {
         while let Ok(Some(row)) = views_rows.next().await {
             let name: String = row.get(0).unwrap_or_default();
@@ -3442,7 +3509,6 @@ async fn introspect_libsql_inner(
         }
     }
 
-    // View columns (for codegen with column fields)
     if let Ok(mut view_cols_rows) = conn.query(queries::VIEW_COLUMNS_QUERY, ()).await {
         while let Ok(Some(row)) = view_cols_rows.next().await {
             raw_columns.push(RawColumnInfo {
@@ -3459,73 +3525,56 @@ async fn introspect_libsql_inner(
         }
     }
 
-    // Process into DDL
-    let mut generated_columns: HashMap<String, drizzle_migrations::sqlite::ddl::ParsedGenerated> =
-        HashMap::new();
-    for (table, sql) in &table_sql_map {
-        generated_columns.extend(parse_generated_columns_from_table_sql(table, sql));
-    }
-    let pk_columns: HashSet<(String, String)> = raw_columns
-        .iter()
-        .filter(|c| c.pk > 0)
-        .map(|c| (c.table.clone(), c.name.clone()))
-        .collect();
+    all_views
+}
 
-    let (columns, primary_keys) = process_columns(&raw_columns, &generated_columns, &pk_columns);
-    let indexes = process_indexes(&all_indexes, &all_index_columns, &table_sql_map);
-    let foreign_keys = process_foreign_keys(&all_fks);
-    let uniques = process_sqlite_uniques_from_indexes(&all_indexes, &all_index_columns);
+#[cfg(any(feature = "libsql", feature = "turso"))]
+async fn query_libsql_raw(conn: &libsql::Connection) -> Result<SqliteRawData, CliError> {
+    let (tables, mut raw_columns) = query_libsql_tables_and_columns(conn).await?;
+    let (all_indexes, all_index_columns, all_fks) = query_libsql_per_table(conn, &tables).await;
+    let all_views = query_libsql_views_and_view_columns(conn, &mut raw_columns).await;
 
-    let mut ddl = SQLiteDDL::new();
+    Ok(SqliteRawData {
+        tables,
+        raw_columns,
+        all_indexes,
+        all_index_columns,
+        all_fks,
+        all_views,
+    })
+}
 
-    for (table_name, table_sql) in &tables {
-        let mut table = Table::new(table_name.clone());
-        if let Some(sql) = table_sql {
-            let sql_upper = sql.to_uppercase();
-            table.strict = sql_upper.contains(" STRICT");
-            table.without_rowid = sql_upper.contains("WITHOUT ROWID");
-        }
-        ddl.tables.push(table);
-    }
+#[cfg(feature = "libsql")]
+async fn introspect_libsql_inner(
+    path: &str,
+    _auth_token: Option<&str>,
+) -> Result<IntrospectResult, CliError> {
+    use drizzle_migrations::sqlite::codegen::{CodegenOptions, FieldCasing, generate_rust_schema};
 
-    for col in columns {
-        ddl.columns.push(col);
-    }
-    for idx in indexes {
-        ddl.indexes.push(idx);
-    }
-    for fk in foreign_keys {
-        ddl.fks.push(fk);
-    }
-    for pk in primary_keys {
-        ddl.pks.push(pk);
-    }
+    let db = libsql::Builder::new_local(path)
+        .build()
+        .await
+        .map_err(|e| {
+            CliError::ConnectionError(format!("Failed to open LibSQL database '{path}': {e}"))
+        })?;
 
-    for u in uniques {
-        ddl.uniques.push(u);
-    }
+    let conn = db
+        .connect()
+        .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
-    for v in all_views {
-        let mut view = View::new(v.name);
-        if let Some(def) = parse_view_sql(&v.sql) {
-            view.definition = Some(def.into());
-        } else {
-            view.error = Some("Failed to parse view SQL".into());
-        }
-        ddl.views.push(view);
-    }
+    let raw = query_libsql_raw(&conn).await?;
+    let ddl = build_sqlite_ddl(raw);
 
     let options = CodegenOptions {
-        module_doc: Some(format!("Schema introspected from {}", path)),
+        module_doc: Some(format!("Schema introspected from {path}")),
         include_schema: true,
         schema_name: "Schema".to_string(),
         use_pub: true,
-        field_casing: Default::default(),
+        field_casing: FieldCasing::default(),
     };
 
     let generated = generate_rust_schema(&ddl, &options);
 
-    // Create snapshot from DDL
     let mut sqlite_snapshot = drizzle_migrations::sqlite::SQLiteSnapshot::new();
     for entity in ddl.to_entities() {
         sqlite_snapshot.add_entity(entity);
@@ -3552,7 +3601,7 @@ fn introspect_turso(url: &str, auth_token: Option<&str>) -> Result<IntrospectRes
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
 
     rt.block_on(introspect_turso_inner(url, auth_token))
 }
@@ -3562,220 +3611,32 @@ async fn introspect_turso_inner(
     url: &str,
     auth_token: Option<&str>,
 ) -> Result<IntrospectResult, CliError> {
-    use drizzle_migrations::sqlite::{
-        SQLiteDDL, Table, View,
-        codegen::{CodegenOptions, generate_rust_schema},
-        introspect::{
-            RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo, RawViewInfo,
-            parse_generated_columns_from_table_sql, parse_view_sql, process_columns,
-            process_foreign_keys, process_indexes, queries,
-        },
-    };
-    use std::collections::{HashMap, HashSet};
+    use drizzle_migrations::sqlite::codegen::{CodegenOptions, FieldCasing, generate_rust_schema};
 
     let builder =
         libsql::Builder::new_remote(url.to_string(), auth_token.unwrap_or("").to_string());
 
     let db = builder.build().await.map_err(|e| {
-        CliError::ConnectionError(format!("Failed to connect to Turso '{}': {}", url, e))
+        CliError::ConnectionError(format!("Failed to connect to Turso '{url}': {e}"))
     })?;
 
     let conn = db
         .connect()
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
-    // Query tables
-    let mut tables_rows = conn
-        .query(queries::TABLES_QUERY, ())
-        .await
-        .map_err(|e| CliError::Other(format!("Failed to query tables: {}", e)))?;
-
-    let mut tables: Vec<(String, Option<String>)> = Vec::new();
-    while let Ok(Some(row)) = tables_rows.next().await {
-        let name: String = row.get(0).unwrap_or_default();
-        let sql: Option<String> = row.get(1).ok();
-        tables.push((name, sql));
-    }
-
-    let table_sql_map: HashMap<String, String> = tables
-        .iter()
-        .filter_map(|(name, sql)| sql.as_ref().map(|s| (name.clone(), s.clone())))
-        .collect();
-
-    // Query columns
-    let mut columns_rows = conn
-        .query(queries::COLUMNS_QUERY, ())
-        .await
-        .map_err(|e| CliError::Other(format!("Failed to query columns: {}", e)))?;
-
-    let mut raw_columns: Vec<RawColumnInfo> = Vec::new();
-    while let Ok(Some(row)) = columns_rows.next().await {
-        raw_columns.push(RawColumnInfo {
-            table: row.get(0).unwrap_or_default(),
-            cid: row.get(1).unwrap_or(0),
-            name: row.get(2).unwrap_or_default(),
-            column_type: row.get(3).unwrap_or_default(),
-            not_null: row.get::<i32>(4).unwrap_or(0) != 0,
-            default_value: row.get(5).ok(),
-            pk: row.get(6).unwrap_or(0),
-            hidden: row.get(7).unwrap_or(0),
-            sql: row.get(8).ok(),
-        });
-    }
-
-    // Query indexes and foreign keys
-    let mut all_indexes: Vec<RawIndexInfo> = Vec::new();
-    let mut all_index_columns: Vec<RawIndexColumn> = Vec::new();
-    let mut all_fks: Vec<RawForeignKey> = Vec::new();
-    let mut all_views: Vec<RawViewInfo> = Vec::new();
-
-    for (table_name, _) in &tables {
-        // Indexes
-        if let Ok(mut idx_rows) = conn.query(&queries::indexes_query(table_name), ()).await {
-            while let Ok(Some(row)) = idx_rows.next().await {
-                let idx = RawIndexInfo {
-                    table: table_name.clone(),
-                    name: row.get(1).unwrap_or_default(),
-                    unique: row.get::<i32>(2).unwrap_or(0) != 0,
-                    origin: row.get(3).unwrap_or_default(),
-                    partial: row.get::<i32>(4).unwrap_or(0) != 0,
-                };
-
-                // Index columns
-                if let Ok(mut col_rows) =
-                    conn.query(&queries::index_info_query(&idx.name), ()).await
-                {
-                    while let Ok(Some(col_row)) = col_rows.next().await {
-                        all_index_columns.push(RawIndexColumn {
-                            index_name: idx.name.clone(),
-                            seqno: col_row.get(0).unwrap_or(0),
-                            cid: col_row.get(1).unwrap_or(0),
-                            name: col_row.get(2).ok(),
-                            desc: col_row.get::<i32>(3).unwrap_or(0) != 0,
-                            coll: col_row.get(4).unwrap_or_default(),
-                            key: col_row.get::<i32>(5).unwrap_or(0) != 0,
-                        });
-                    }
-                }
-
-                all_indexes.push(idx);
-            }
-        }
-
-        // Foreign keys
-        if let Ok(mut fk_rows) = conn
-            .query(&queries::foreign_keys_query(table_name), ())
-            .await
-        {
-            while let Ok(Some(row)) = fk_rows.next().await {
-                all_fks.push(RawForeignKey {
-                    table: table_name.clone(),
-                    id: row.get(0).unwrap_or(0),
-                    seq: row.get(1).unwrap_or(0),
-                    to_table: row.get(2).unwrap_or_default(),
-                    from_column: row.get(3).unwrap_or_default(),
-                    to_column: row.get(4).unwrap_or_default(),
-                    on_update: row.get(5).unwrap_or_default(),
-                    on_delete: row.get(6).unwrap_or_default(),
-                    r#match: row.get(7).unwrap_or_default(),
-                });
-            }
-        }
-    }
-
-    // Views
-    if let Ok(mut views_rows) = conn.query(queries::VIEWS_QUERY, ()).await {
-        while let Ok(Some(row)) = views_rows.next().await {
-            let name: String = row.get(0).unwrap_or_default();
-            let sql: String = row.get(1).unwrap_or_default();
-            all_views.push(RawViewInfo { name, sql });
-        }
-    }
-
-    // View columns (for codegen with column fields)
-    if let Ok(mut view_cols_rows) = conn.query(queries::VIEW_COLUMNS_QUERY, ()).await {
-        while let Ok(Some(row)) = view_cols_rows.next().await {
-            raw_columns.push(RawColumnInfo {
-                table: row.get(0).unwrap_or_default(),
-                cid: row.get(1).unwrap_or(0),
-                name: row.get(2).unwrap_or_default(),
-                column_type: row.get(3).unwrap_or_default(),
-                not_null: row.get::<i32>(4).unwrap_or(0) != 0,
-                default_value: row.get(5).ok(),
-                pk: row.get(6).unwrap_or(0),
-                hidden: row.get(7).unwrap_or(0),
-                sql: row.get(8).ok(),
-            });
-        }
-    }
-
-    // Process into DDL
-    let mut generated_columns: HashMap<String, drizzle_migrations::sqlite::ddl::ParsedGenerated> =
-        HashMap::new();
-    for (table, sql) in &table_sql_map {
-        generated_columns.extend(parse_generated_columns_from_table_sql(table, sql));
-    }
-    let pk_columns: HashSet<(String, String)> = raw_columns
-        .iter()
-        .filter(|c| c.pk > 0)
-        .map(|c| (c.table.clone(), c.name.clone()))
-        .collect();
-
-    let (columns, primary_keys) = process_columns(&raw_columns, &generated_columns, &pk_columns);
-    let indexes = process_indexes(&all_indexes, &all_index_columns, &table_sql_map);
-    let foreign_keys = process_foreign_keys(&all_fks);
-    let uniques = process_sqlite_uniques_from_indexes(&all_indexes, &all_index_columns);
-
-    let mut ddl = SQLiteDDL::new();
-
-    for (table_name, table_sql) in &tables {
-        let mut table = Table::new(table_name.clone());
-        if let Some(sql) = table_sql {
-            let sql_upper = sql.to_uppercase();
-            table.strict = sql_upper.contains(" STRICT");
-            table.without_rowid = sql_upper.contains("WITHOUT ROWID");
-        }
-        ddl.tables.push(table);
-    }
-
-    for col in columns {
-        ddl.columns.push(col);
-    }
-    for idx in indexes {
-        ddl.indexes.push(idx);
-    }
-    for fk in foreign_keys {
-        ddl.fks.push(fk);
-    }
-    for pk in primary_keys {
-        ddl.pks.push(pk);
-    }
-
-    for u in uniques {
-        ddl.uniques.push(u);
-    }
-
-    for v in all_views {
-        let mut view = View::new(v.name);
-        if let Some(def) = parse_view_sql(&v.sql) {
-            view.definition = Some(def.into());
-        } else {
-            view.error = Some("Failed to parse view SQL".into());
-        }
-        ddl.views.push(view);
-    }
+    let raw = query_libsql_raw(&conn).await?;
+    let ddl = build_sqlite_ddl(raw);
 
     let options = CodegenOptions {
-        module_doc: Some(format!("Schema introspected from Turso: {}", url)),
+        module_doc: Some(format!("Schema introspected from Turso: {url}")),
         include_schema: true,
         schema_name: "Schema".to_string(),
         use_pub: true,
-        field_casing: Default::default(),
+        field_casing: FieldCasing::default(),
     };
 
     let generated = generate_rust_schema(&ddl, &options);
 
-    // Create snapshot from DDL
     let mut sqlite_snapshot = drizzle_migrations::sqlite::SQLiteSnapshot::new();
     for entity in ddl.to_entities() {
         sqlite_snapshot.add_entity(entity);
@@ -3799,39 +3660,66 @@ async fn introspect_turso_inner(
 
 #[cfg(feature = "postgres-sync")]
 fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, CliError> {
-    use drizzle_migrations::postgres::{
-        PostgresDDL,
-        codegen::{CodegenOptions, generate_rust_schema},
-        ddl::Schema,
-        introspect::{
-            RawCheckInfo, RawColumnInfo, RawEnumInfo, RawForeignKeyInfo, RawIndexInfo,
-            RawPolicyInfo, RawPrimaryKeyInfo, RawRoleInfo, RawSequenceInfo, RawTableInfo,
-            RawUniqueInfo, RawViewInfo, parse_index_columns, pg_action_code_to_string,
-            process_check_constraints, process_columns, process_enums, process_foreign_keys,
-            process_indexes, process_policies, process_primary_keys, process_roles,
-            process_sequences, process_tables, process_unique_constraints, process_views, queries,
-        },
-    };
-
     let url = creds.connection_url();
-    let mut client = postgres::Client::connect(&url, postgres::NoTls).map_err(|e| {
-        CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
-    })?;
+    let mut client = postgres::Client::connect(&url, postgres::NoTls)
+        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {e}")))?;
 
-    // Schemas
-    let raw_schemas: Vec<RawSchemaInfo> = client
+    let raw = query_postgres_sync_raw(&mut client)?;
+    let ddl = build_postgres_ddl(raw);
+
+    Ok(finalize_postgres_introspection(&ddl, &url))
+}
+
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+impl PostgresRawData {
+    const fn empty() -> Self {
+        Self {
+            schemas: Vec::new(),
+            tables: Vec::new(),
+            columns: Vec::new(),
+            enums: Vec::new(),
+            sequences: Vec::new(),
+            views: Vec::new(),
+            indexes: Vec::new(),
+            foreign_keys: Vec::new(),
+            primary_keys: Vec::new(),
+            uniques: Vec::new(),
+            checks: Vec::new(),
+            roles: Vec::new(),
+            policies: Vec::new(),
+        }
+    }
+}
+
+#[cfg(feature = "postgres-sync")]
+fn query_postgres_sync_raw(client: &mut postgres::Client) -> Result<PostgresRawData, CliError> {
+    let mut raw = PostgresRawData::empty();
+    query_pg_sync_core(client, &mut raw)?;
+    query_pg_sync_codegen_meta(client, &mut raw)?;
+    query_pg_sync_constraints(client, &mut raw)?;
+    query_pg_sync_security(client, &mut raw)?;
+    Ok(raw)
+}
+
+#[cfg(feature = "postgres-sync")]
+fn query_pg_sync_core(
+    client: &mut postgres::Client,
+    raw: &mut PostgresRawData,
+) -> Result<(), CliError> {
+    use drizzle_migrations::postgres::introspect::{RawColumnInfo, RawTableInfo, queries};
+
+    raw.schemas = client
         .query(queries::SCHEMAS_QUERY, &[])
-        .map_err(|e| CliError::Other(format!("Failed to query schemas: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query schemas: {e}")))?
         .into_iter()
         .map(|row| RawSchemaInfo {
             name: row.get::<_, String>(0),
         })
         .collect();
 
-    // Tables
-    let raw_tables: Vec<RawTableInfo> = client
+    raw.tables = client
         .query(queries::TABLES_QUERY, &[])
-        .map_err(|e| CliError::Other(format!("Failed to query tables: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query tables: {e}")))?
         .into_iter()
         .map(|row| RawTableInfo {
             schema: row.get::<_, String>(0),
@@ -3840,10 +3728,9 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         })
         .collect();
 
-    // Columns
-    let raw_columns: Vec<RawColumnInfo> = client
+    raw.columns = client
         .query(queries::COLUMNS_QUERY, &[])
-        .map_err(|e| CliError::Other(format!("Failed to query columns: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query columns: {e}")))?
         .into_iter()
         .map(|row| RawColumnInfo {
             schema: row.get::<_, String>(0),
@@ -3861,10 +3748,21 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         })
         .collect();
 
-    // Enums
-    let raw_enums: Vec<RawEnumInfo> = client
+    Ok(())
+}
+
+#[cfg(feature = "postgres-sync")]
+fn query_pg_sync_codegen_meta(
+    client: &mut postgres::Client,
+    raw: &mut PostgresRawData,
+) -> Result<(), CliError> {
+    use drizzle_migrations::postgres::introspect::{
+        RawEnumInfo, RawSequenceInfo, RawViewInfo, queries,
+    };
+
+    raw.enums = client
         .query(queries::ENUMS_QUERY, &[])
-        .map_err(|e| CliError::Other(format!("Failed to query enums: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query enums: {e}")))?
         .into_iter()
         .map(|row| RawEnumInfo {
             schema: row.get::<_, String>(0),
@@ -3873,10 +3771,9 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         })
         .collect();
 
-    // Sequences
-    let raw_sequences: Vec<RawSequenceInfo> = client
+    raw.sequences = client
         .query(queries::SEQUENCES_QUERY, &[])
-        .map_err(|e| CliError::Other(format!("Failed to query sequences: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query sequences: {e}")))?
         .into_iter()
         .map(|row| RawSequenceInfo {
             schema: row.get::<_, String>(0),
@@ -3891,11 +3788,10 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         })
         .collect();
 
-    // Views
     let view_schema_filters: Option<Vec<String>> = None;
-    let raw_views: Vec<RawViewInfo> = client
+    raw.views = client
         .query(queries::VIEWS_QUERY, &[&view_schema_filters])
-        .map_err(|e| CliError::Other(format!("Failed to query views: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query views: {e}")))?
         .into_iter()
         .map(|row| RawViewInfo {
             schema: row.get::<_, String>(0),
@@ -3905,10 +3801,22 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         })
         .collect();
 
-    // Indexes
-    let raw_indexes: Vec<RawIndexInfo> = client
+    Ok(())
+}
+
+#[cfg(feature = "postgres-sync")]
+fn query_pg_sync_constraints(
+    client: &mut postgres::Client,
+    raw: &mut PostgresRawData,
+) -> Result<(), CliError> {
+    use drizzle_migrations::postgres::introspect::{
+        RawCheckInfo, RawForeignKeyInfo, RawIndexInfo, RawPrimaryKeyInfo, RawUniqueInfo,
+        parse_index_columns, pg_action_code_to_string, queries,
+    };
+
+    raw.indexes = client
         .query(queries::INDEXES_QUERY, &[])
-        .map_err(|e| CliError::Other(format!("Failed to query indexes: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query indexes: {e}")))?
         .into_iter()
         .map(|row| {
             let cols: Vec<String> = row.get(6);
@@ -3926,10 +3834,9 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         })
         .collect();
 
-    // Foreign keys
-    let raw_fks: Vec<RawForeignKeyInfo> = client
+    raw.foreign_keys = client
         .query(queries::FOREIGN_KEYS_QUERY, &[])
-        .map_err(|e| CliError::Other(format!("Failed to query foreign keys: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query foreign keys: {e}")))?
         .into_iter()
         .map(|row| RawForeignKeyInfo {
             schema: row.get::<_, String>(0),
@@ -3944,10 +3851,9 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         })
         .collect();
 
-    // Primary keys
-    let raw_pks: Vec<RawPrimaryKeyInfo> = client
+    raw.primary_keys = client
         .query(queries::PRIMARY_KEYS_QUERY, &[])
-        .map_err(|e| CliError::Other(format!("Failed to query primary keys: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query primary keys: {e}")))?
         .into_iter()
         .map(|row| RawPrimaryKeyInfo {
             schema: row.get::<_, String>(0),
@@ -3957,10 +3863,9 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         })
         .collect();
 
-    // Unique constraints
-    let raw_uniques: Vec<RawUniqueInfo> = client
+    raw.uniques = client
         .query(queries::UNIQUES_QUERY, &[])
-        .map_err(|e| CliError::Other(format!("Failed to query unique constraints: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query unique constraints: {e}")))?
         .into_iter()
         .map(|row| RawUniqueInfo {
             schema: row.get::<_, String>(0),
@@ -3971,10 +3876,9 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         })
         .collect();
 
-    // Check constraints
-    let raw_checks: Vec<RawCheckInfo> = client
+    raw.checks = client
         .query(queries::CHECKS_QUERY, &[])
-        .map_err(|e| CliError::Other(format!("Failed to query check constraints: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query check constraints: {e}")))?
         .into_iter()
         .map(|row| RawCheckInfo {
             schema: row.get::<_, String>(0),
@@ -3984,10 +3888,19 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         })
         .collect();
 
-    // Roles
-    let raw_roles: Vec<RawRoleInfo> = client
+    Ok(())
+}
+
+#[cfg(feature = "postgres-sync")]
+fn query_pg_sync_security(
+    client: &mut postgres::Client,
+    raw: &mut PostgresRawData,
+) -> Result<(), CliError> {
+    use drizzle_migrations::postgres::introspect::{RawPolicyInfo, RawRoleInfo, queries};
+
+    raw.roles = client
         .query(queries::ROLES_QUERY, &[])
-        .map_err(|e| CliError::Other(format!("Failed to query roles: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query roles: {e}")))?
         .into_iter()
         .map(|row| RawRoleInfo {
             name: row.get::<_, String>(0),
@@ -3997,10 +3910,9 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         })
         .collect();
 
-    // Policies
-    let raw_policies: Vec<RawPolicyInfo> = client
+    raw.policies = client
         .query(queries::POLICIES_QUERY, &[])
-        .map_err(|e| CliError::Other(format!("Failed to query policies: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query policies: {e}")))?
         .into_iter()
         .map(|row| RawPolicyInfo {
             schema: row.get::<_, String>(0),
@@ -4014,111 +3926,27 @@ fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, C
         })
         .collect();
 
-    // Process raw -> DDL entities
-    let mut ddl = PostgresDDL::new();
-
-    for s in raw_schemas.into_iter().map(|s| Schema::new(s.name)) {
-        ddl.schemas.push(s);
-    }
-    for e in process_enums(&raw_enums) {
-        ddl.enums.push(e);
-    }
-    for s in process_sequences(&raw_sequences) {
-        ddl.sequences.push(s);
-    }
-    for r in process_roles(&raw_roles) {
-        ddl.roles.push(r);
-    }
-    for p in process_policies(&raw_policies) {
-        ddl.policies.push(p);
-    }
-    for t in process_tables(&raw_tables) {
-        ddl.tables.push(t);
-    }
-    for c in process_columns(&raw_columns) {
-        ddl.columns.push(c);
-    }
-    for i in process_indexes(&raw_indexes) {
-        ddl.indexes.push(i);
-    }
-    for fk in process_foreign_keys(&raw_fks) {
-        ddl.fks.push(fk);
-    }
-    for pk in process_primary_keys(&raw_pks) {
-        ddl.pks.push(pk);
-    }
-    for u in process_unique_constraints(&raw_uniques) {
-        ddl.uniques.push(u);
-    }
-    for c in process_check_constraints(&raw_checks) {
-        ddl.checks.push(c);
-    }
-    for v in process_views(&raw_views) {
-        ddl.views.push(v);
-    }
-
-    // Generate Rust schema code
-    let options = CodegenOptions {
-        module_doc: Some(format!("Schema introspected from {}", mask_url(&url))),
-        include_schema: true,
-        schema_name: "Schema".to_string(),
-        use_pub: true,
-        field_casing: Default::default(),
-    };
-    let generated = generate_rust_schema(&ddl, &options);
-
-    // Build snapshot
-    let mut snap = drizzle_migrations::postgres::PostgresSnapshot::new();
-    for entity in ddl.to_entities() {
-        snap.add_entity(entity);
-    }
-
-    Ok(IntrospectResult {
-        schema_code: generated.code,
-        table_count: ddl.tables.list().len(),
-        index_count: ddl.indexes.list().len(),
-        view_count: ddl.views.list().len(),
-        warnings: generated.warnings,
-        snapshot: Snapshot::Postgres(snap),
-        snapshot_path: std::path::PathBuf::new(),
-    })
+    Ok(())
 }
 
-#[cfg(feature = "tokio-postgres")]
-#[allow(dead_code)]
+#[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
 fn introspect_postgres_async(creds: &PostgresCreds) -> Result<IntrospectResult, CliError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
 
     rt.block_on(introspect_postgres_async_inner(creds))
 }
 
-#[cfg(feature = "tokio-postgres")]
+#[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
 async fn introspect_postgres_async_inner(
     creds: &PostgresCreds,
 ) -> Result<IntrospectResult, CliError> {
-    use drizzle_migrations::postgres::{
-        PostgresDDL,
-        codegen::{CodegenOptions, generate_rust_schema},
-        ddl::Schema,
-        introspect::{
-            RawCheckInfo, RawColumnInfo, RawEnumInfo, RawForeignKeyInfo, RawIndexInfo,
-            RawPolicyInfo, RawPrimaryKeyInfo, RawRoleInfo, RawSequenceInfo, RawTableInfo,
-            RawUniqueInfo, RawViewInfo, parse_index_columns, pg_action_code_to_string,
-            process_check_constraints, process_columns, process_enums, process_foreign_keys,
-            process_indexes, process_policies, process_primary_keys, process_roles,
-            process_sequences, process_tables, process_unique_constraints, process_views, queries,
-        },
-    };
-
     let url = creds.connection_url();
     let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
         .await
-        .map_err(|e| {
-            CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
-        })?;
+        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {e}")))?;
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -4129,20 +3957,45 @@ async fn introspect_postgres_async_inner(
         }
     });
 
-    let raw_schemas: Vec<RawSchemaInfo> = client
+    let raw = query_postgres_async_raw(&client).await?;
+    let ddl = build_postgres_ddl(raw);
+
+    Ok(finalize_postgres_introspection(&ddl, &url))
+}
+
+#[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
+async fn query_postgres_async_raw(
+    client: &tokio_postgres::Client,
+) -> Result<PostgresRawData, CliError> {
+    let mut raw = PostgresRawData::empty();
+    query_pg_async_core(client, &mut raw).await?;
+    query_pg_async_codegen_meta(client, &mut raw).await?;
+    query_pg_async_constraints(client, &mut raw).await?;
+    query_pg_async_security(client, &mut raw).await?;
+    Ok(raw)
+}
+
+#[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
+async fn query_pg_async_core(
+    client: &tokio_postgres::Client,
+    raw: &mut PostgresRawData,
+) -> Result<(), CliError> {
+    use drizzle_migrations::postgres::introspect::{RawColumnInfo, RawTableInfo, queries};
+
+    raw.schemas = client
         .query(queries::SCHEMAS_QUERY, &[])
         .await
-        .map_err(|e| CliError::Other(format!("Failed to query schemas: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query schemas: {e}")))?
         .into_iter()
         .map(|row| RawSchemaInfo {
             name: row.get::<_, String>(0),
         })
         .collect();
 
-    let raw_tables: Vec<RawTableInfo> = client
+    raw.tables = client
         .query(queries::TABLES_QUERY, &[])
         .await
-        .map_err(|e| CliError::Other(format!("Failed to query tables: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query tables: {e}")))?
         .into_iter()
         .map(|row| RawTableInfo {
             schema: row.get::<_, String>(0),
@@ -4151,10 +4004,10 @@ async fn introspect_postgres_async_inner(
         })
         .collect();
 
-    let raw_columns: Vec<RawColumnInfo> = client
+    raw.columns = client
         .query(queries::COLUMNS_QUERY, &[])
         .await
-        .map_err(|e| CliError::Other(format!("Failed to query columns: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query columns: {e}")))?
         .into_iter()
         .map(|row| RawColumnInfo {
             schema: row.get::<_, String>(0),
@@ -4172,10 +4025,22 @@ async fn introspect_postgres_async_inner(
         })
         .collect();
 
-    let raw_enums: Vec<RawEnumInfo> = client
+    Ok(())
+}
+
+#[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
+async fn query_pg_async_codegen_meta(
+    client: &tokio_postgres::Client,
+    raw: &mut PostgresRawData,
+) -> Result<(), CliError> {
+    use drizzle_migrations::postgres::introspect::{
+        RawEnumInfo, RawSequenceInfo, RawViewInfo, queries,
+    };
+
+    raw.enums = client
         .query(queries::ENUMS_QUERY, &[])
         .await
-        .map_err(|e| CliError::Other(format!("Failed to query enums: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query enums: {e}")))?
         .into_iter()
         .map(|row| RawEnumInfo {
             schema: row.get::<_, String>(0),
@@ -4184,10 +4049,10 @@ async fn introspect_postgres_async_inner(
         })
         .collect();
 
-    let raw_sequences: Vec<RawSequenceInfo> = client
+    raw.sequences = client
         .query(queries::SEQUENCES_QUERY, &[])
         .await
-        .map_err(|e| CliError::Other(format!("Failed to query sequences: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query sequences: {e}")))?
         .into_iter()
         .map(|row| RawSequenceInfo {
             schema: row.get::<_, String>(0),
@@ -4203,10 +4068,10 @@ async fn introspect_postgres_async_inner(
         .collect();
 
     let view_schema_filters: Option<Vec<String>> = None;
-    let raw_views: Vec<RawViewInfo> = client
+    raw.views = client
         .query(queries::VIEWS_QUERY, &[&view_schema_filters])
         .await
-        .map_err(|e| CliError::Other(format!("Failed to query views: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query views: {e}")))?
         .into_iter()
         .map(|row| RawViewInfo {
             schema: row.get::<_, String>(0),
@@ -4216,10 +4081,23 @@ async fn introspect_postgres_async_inner(
         })
         .collect();
 
-    let raw_indexes: Vec<RawIndexInfo> = client
+    Ok(())
+}
+
+#[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
+async fn query_pg_async_constraints(
+    client: &tokio_postgres::Client,
+    raw: &mut PostgresRawData,
+) -> Result<(), CliError> {
+    use drizzle_migrations::postgres::introspect::{
+        RawCheckInfo, RawForeignKeyInfo, RawIndexInfo, RawPrimaryKeyInfo, RawUniqueInfo,
+        parse_index_columns, pg_action_code_to_string, queries,
+    };
+
+    raw.indexes = client
         .query(queries::INDEXES_QUERY, &[])
         .await
-        .map_err(|e| CliError::Other(format!("Failed to query indexes: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query indexes: {e}")))?
         .into_iter()
         .map(|row| {
             let cols: Vec<String> = row.get(6);
@@ -4237,10 +4115,10 @@ async fn introspect_postgres_async_inner(
         })
         .collect();
 
-    let raw_fks: Vec<RawForeignKeyInfo> = client
+    raw.foreign_keys = client
         .query(queries::FOREIGN_KEYS_QUERY, &[])
         .await
-        .map_err(|e| CliError::Other(format!("Failed to query foreign keys: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query foreign keys: {e}")))?
         .into_iter()
         .map(|row| RawForeignKeyInfo {
             schema: row.get::<_, String>(0),
@@ -4255,10 +4133,10 @@ async fn introspect_postgres_async_inner(
         })
         .collect();
 
-    let raw_pks: Vec<RawPrimaryKeyInfo> = client
+    raw.primary_keys = client
         .query(queries::PRIMARY_KEYS_QUERY, &[])
         .await
-        .map_err(|e| CliError::Other(format!("Failed to query primary keys: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query primary keys: {e}")))?
         .into_iter()
         .map(|row| RawPrimaryKeyInfo {
             schema: row.get::<_, String>(0),
@@ -4268,10 +4146,10 @@ async fn introspect_postgres_async_inner(
         })
         .collect();
 
-    let raw_uniques: Vec<RawUniqueInfo> = client
+    raw.uniques = client
         .query(queries::UNIQUES_QUERY, &[])
         .await
-        .map_err(|e| CliError::Other(format!("Failed to query unique constraints: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query unique constraints: {e}")))?
         .into_iter()
         .map(|row| RawUniqueInfo {
             schema: row.get::<_, String>(0),
@@ -4282,10 +4160,10 @@ async fn introspect_postgres_async_inner(
         })
         .collect();
 
-    let raw_checks: Vec<RawCheckInfo> = client
+    raw.checks = client
         .query(queries::CHECKS_QUERY, &[])
         .await
-        .map_err(|e| CliError::Other(format!("Failed to query check constraints: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query check constraints: {e}")))?
         .into_iter()
         .map(|row| RawCheckInfo {
             schema: row.get::<_, String>(0),
@@ -4295,10 +4173,20 @@ async fn introspect_postgres_async_inner(
         })
         .collect();
 
-    let raw_roles: Vec<RawRoleInfo> = client
+    Ok(())
+}
+
+#[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
+async fn query_pg_async_security(
+    client: &tokio_postgres::Client,
+    raw: &mut PostgresRawData,
+) -> Result<(), CliError> {
+    use drizzle_migrations::postgres::introspect::{RawPolicyInfo, RawRoleInfo, queries};
+
+    raw.roles = client
         .query(queries::ROLES_QUERY, &[])
         .await
-        .map_err(|e| CliError::Other(format!("Failed to query roles: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query roles: {e}")))?
         .into_iter()
         .map(|row| RawRoleInfo {
             name: row.get::<_, String>(0),
@@ -4308,10 +4196,10 @@ async fn introspect_postgres_async_inner(
         })
         .collect();
 
-    let raw_policies: Vec<RawPolicyInfo> = client
+    raw.policies = client
         .query(queries::POLICIES_QUERY, &[])
         .await
-        .map_err(|e| CliError::Other(format!("Failed to query policies: {}", e)))?
+        .map_err(|e| CliError::Other(format!("Failed to query policies: {e}")))?
         .into_iter()
         .map(|row| RawPolicyInfo {
             schema: row.get::<_, String>(0),
@@ -4325,70 +4213,7 @@ async fn introspect_postgres_async_inner(
         })
         .collect();
 
-    let mut ddl = PostgresDDL::new();
-    for s in raw_schemas.into_iter().map(|s| Schema::new(s.name)) {
-        ddl.schemas.push(s);
-    }
-    for e in process_enums(&raw_enums) {
-        ddl.enums.push(e);
-    }
-    for s in process_sequences(&raw_sequences) {
-        ddl.sequences.push(s);
-    }
-    for r in process_roles(&raw_roles) {
-        ddl.roles.push(r);
-    }
-    for p in process_policies(&raw_policies) {
-        ddl.policies.push(p);
-    }
-    for t in process_tables(&raw_tables) {
-        ddl.tables.push(t);
-    }
-    for c in process_columns(&raw_columns) {
-        ddl.columns.push(c);
-    }
-    for i in process_indexes(&raw_indexes) {
-        ddl.indexes.push(i);
-    }
-    for fk in process_foreign_keys(&raw_fks) {
-        ddl.fks.push(fk);
-    }
-    for pk in process_primary_keys(&raw_pks) {
-        ddl.pks.push(pk);
-    }
-    for u in process_unique_constraints(&raw_uniques) {
-        ddl.uniques.push(u);
-    }
-    for c in process_check_constraints(&raw_checks) {
-        ddl.checks.push(c);
-    }
-    for v in process_views(&raw_views) {
-        ddl.views.push(v);
-    }
-
-    let options = CodegenOptions {
-        module_doc: Some(format!("Schema introspected from {}", mask_url(&url))),
-        include_schema: true,
-        schema_name: "Schema".to_string(),
-        use_pub: true,
-        field_casing: Default::default(),
-    };
-    let generated = generate_rust_schema(&ddl, &options);
-
-    let mut snap = drizzle_migrations::postgres::PostgresSnapshot::new();
-    for entity in ddl.to_entities() {
-        snap.add_entity(entity);
-    }
-
-    Ok(IntrospectResult {
-        schema_code: generated.code,
-        table_count: ddl.tables.list().len(),
-        index_count: ddl.indexes.list().len(),
-        view_count: ddl.views.list().len(),
-        warnings: generated.warnings,
-        snapshot: Snapshot::Postgres(snap),
-        snapshot_path: std::path::PathBuf::new(),
-    })
+    Ok(())
 }
 
 /// Minimal schema list for snapshot
@@ -4398,14 +4223,131 @@ struct RawSchemaInfo {
     name: String,
 }
 
+/// Aggregated raw introspection data collected from a `PostgreSQL` database.
+///
+/// Shared between `postgres-sync` and `tokio-postgres` code paths — the
+/// collection phase differs (blocking vs async), but the downstream
+/// processing is identical.
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+struct PostgresRawData {
+    schemas: Vec<RawSchemaInfo>,
+    tables: Vec<drizzle_migrations::postgres::introspect::RawTableInfo>,
+    columns: Vec<drizzle_migrations::postgres::introspect::RawColumnInfo>,
+    enums: Vec<drizzle_migrations::postgres::introspect::RawEnumInfo>,
+    sequences: Vec<drizzle_migrations::postgres::introspect::RawSequenceInfo>,
+    views: Vec<drizzle_migrations::postgres::introspect::RawViewInfo>,
+    indexes: Vec<drizzle_migrations::postgres::introspect::RawIndexInfo>,
+    foreign_keys: Vec<drizzle_migrations::postgres::introspect::RawForeignKeyInfo>,
+    primary_keys: Vec<drizzle_migrations::postgres::introspect::RawPrimaryKeyInfo>,
+    uniques: Vec<drizzle_migrations::postgres::introspect::RawUniqueInfo>,
+    checks: Vec<drizzle_migrations::postgres::introspect::RawCheckInfo>,
+    roles: Vec<drizzle_migrations::postgres::introspect::RawRoleInfo>,
+    policies: Vec<drizzle_migrations::postgres::introspect::RawPolicyInfo>,
+}
+
+/// Build a [`PostgresDDL`] from raw introspection data.
+///
+/// Identical across the sync and async paths — only the query phase differs.
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+fn build_postgres_ddl(
+    raw: PostgresRawData,
+) -> drizzle_migrations::postgres::collection::PostgresDDL {
+    use drizzle_migrations::postgres::{
+        PostgresDDL,
+        ddl::Schema,
+        introspect::{
+            process_check_constraints, process_columns, process_enums, process_foreign_keys,
+            process_indexes, process_policies, process_primary_keys, process_roles,
+            process_sequences, process_tables, process_unique_constraints, process_views,
+        },
+    };
+
+    let mut ddl = PostgresDDL::new();
+    for s in raw.schemas.into_iter().map(|s| Schema::new(s.name)) {
+        ddl.schemas.push(s);
+    }
+    for e in process_enums(&raw.enums) {
+        ddl.enums.push(e);
+    }
+    for s in process_sequences(&raw.sequences) {
+        ddl.sequences.push(s);
+    }
+    for r in process_roles(&raw.roles) {
+        ddl.roles.push(r);
+    }
+    for p in process_policies(&raw.policies) {
+        ddl.policies.push(p);
+    }
+    for t in process_tables(&raw.tables) {
+        ddl.tables.push(t);
+    }
+    for c in process_columns(&raw.columns) {
+        ddl.columns.push(c);
+    }
+    for i in process_indexes(&raw.indexes) {
+        ddl.indexes.push(i);
+    }
+    for fk in process_foreign_keys(&raw.foreign_keys) {
+        ddl.fks.push(fk);
+    }
+    for pk in process_primary_keys(&raw.primary_keys) {
+        ddl.pks.push(pk);
+    }
+    for u in process_unique_constraints(&raw.uniques) {
+        ddl.uniques.push(u);
+    }
+    for c in process_check_constraints(&raw.checks) {
+        ddl.checks.push(c);
+    }
+    for v in process_views(&raw.views) {
+        ddl.views.push(v);
+    }
+    ddl
+}
+
+/// Package a generated DDL + generated code into an [`IntrospectResult`].
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+fn finalize_postgres_introspection(
+    ddl: &drizzle_migrations::postgres::collection::PostgresDDL,
+    url: &str,
+) -> IntrospectResult {
+    use drizzle_migrations::postgres::codegen::{
+        CodegenOptions, FieldCasing, generate_rust_schema,
+    };
+
+    let options = CodegenOptions {
+        module_doc: Some(format!("Schema introspected from {}", mask_url(url))),
+        include_schema: true,
+        schema_name: "Schema".to_string(),
+        use_pub: true,
+        field_casing: FieldCasing::default(),
+    };
+    let generated = generate_rust_schema(ddl, &options);
+
+    let mut snap = drizzle_migrations::postgres::PostgresSnapshot::new();
+    for entity in ddl.to_entities() {
+        snap.add_entity(entity);
+    }
+
+    IntrospectResult {
+        schema_code: generated.code,
+        table_count: ddl.tables.list().len(),
+        index_count: ddl.indexes.list().len(),
+        view_count: ddl.views.list().len(),
+        warnings: generated.warnings,
+        snapshot: Snapshot::Postgres(snap),
+        snapshot_path: std::path::PathBuf::new(),
+    }
+}
+
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 fn mask_url(url: &str) -> String {
     if let Some(at) = url.find('@')
         && let Some(colon) = url[..at].rfind(':')
     {
-        let scheme_end = url.find("://").map(|p| p + 3).unwrap_or(0);
+        let scheme_end = url.find("://").map_or(0, |p| p + 3);
         if colon > scheme_end {
-            return format!("{}****{}", &url[..colon + 1], &url[at..]);
+            return format!("{}****{}", &url[..=colon], &url[at..]);
         }
     }
     url.to_string()
@@ -4678,7 +4620,7 @@ mod tests {
             name: "20230331141203_first".to_string(),
         }];
 
-        let plan = build_migration_plan(&set, applied).expect("build migration plan");
+        let plan = build_migration_plan(&set, &applied).expect("build migration plan");
         assert_eq!(plan.applied_count, 1);
         assert_eq!(plan.pending_count, 1);
         assert_eq!(plan.pending_statements, 1);
@@ -4768,10 +4710,10 @@ pub struct UsersEmailIdx(Users::email);
         ];
         let patterns = compile_patterns(Some(&raw)).expect("compile patterns");
 
-        assert!(matches_patterns("users_1", &patterns));
-        assert!(!matches_patterns("users_4", &patterns));
-        assert!(!matches_patterns("admin", &patterns));
-        assert!(!matches_patterns("audit", &patterns));
+        assert!(matches_patterns("users_1", patterns.as_deref()));
+        assert!(!matches_patterns("users_4", patterns.as_deref()));
+        assert!(!matches_patterns("admin", patterns.as_deref()));
+        assert!(!matches_patterns("audit", patterns.as_deref()));
     }
 
     #[test]

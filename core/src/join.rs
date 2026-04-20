@@ -1,7 +1,7 @@
 //! Join types and helper macros for SQL JOIN operations
 //!
 //! This module provides shared JOIN functionality that can be used by
-//! dialect-specific implementations (SQLite, PostgreSQL, etc.)
+//! dialect-specific implementations (`SQLite`, `PostgreSQL`, etc.)
 
 use crate::{SQL, ToSQL, traits::SQLParam};
 
@@ -38,6 +38,7 @@ pub struct Join {
 
 impl Join {
     /// Creates a new Join with default settings (basic JOIN)
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             natural: false,
@@ -47,42 +48,49 @@ impl Join {
     }
 
     /// Makes this a NATURAL join
+    #[must_use]
     pub const fn natural(mut self) -> Self {
         self.natural = true;
         self
     }
 
     /// Makes this an INNER join
+    #[must_use]
     pub const fn inner(mut self) -> Self {
         self.join_type = JoinType::Inner;
         self
     }
 
     /// Makes this a LEFT join
+    #[must_use]
     pub const fn left(mut self) -> Self {
         self.join_type = JoinType::Left;
         self
     }
 
     /// Makes this a RIGHT join
+    #[must_use]
     pub const fn right(mut self) -> Self {
         self.join_type = JoinType::Right;
         self
     }
 
     /// Makes this a FULL join
+    #[must_use]
     pub const fn full(mut self) -> Self {
         self.join_type = JoinType::Full;
         self
     }
 
     /// Makes this a CROSS join
+    #[must_use]
     pub const fn cross(mut self) -> Self {
         self.join_type = JoinType::Cross;
         self
     }
 
     /// Makes this an OUTER join (LEFT OUTER, RIGHT OUTER, FULL OUTER)
+    #[must_use]
     pub const fn outer(mut self) -> Self {
         self.outer = true;
         self
@@ -124,8 +132,8 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Join {
 
 /// Macro to generate join helper functions for a specific dialect.
 ///
-/// This macro generates all the standard join helper functions (natural_join,
-/// left_join, etc.) that create SQL JOIN clauses. Each dialect invokes this
+/// This macro generates all the standard join helper functions (`natural_join`,
+/// `left_join`, etc.) that create SQL JOIN clauses. Each dialect invokes this
 /// macro with their specific table trait and SQL type.
 ///
 /// # Usage

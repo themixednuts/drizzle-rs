@@ -11,7 +11,7 @@ use super::ExecutableState;
 // Type State Markers
 //------------------------------------------------------------------------------
 
-/// Marker for the initial state of UpdateBuilder
+/// Marker for the initial state of `UpdateBuilder`
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UpdateInitial;
 
@@ -41,7 +41,7 @@ impl ExecutableState for UpdateReturningSet {}
 // UpdateBuilder Definition
 //------------------------------------------------------------------------------
 
-/// Builds an UPDATE query specifically for PostgreSQL
+/// Builds an UPDATE query specifically for `PostgreSQL`
 pub type UpdateBuilder<'a, Schema, State, Table, Marker = (), Row = ()> =
     super::QueryBuilder<'a, Schema, State, Table, Marker, Row>;
 
@@ -70,13 +70,14 @@ impl<'a, Schema, Table> UpdateBuilder<'a, Schema, UpdateInitial, Table>
 where
     Table: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
 {
-    /// Sets the values to update and transitions to the SetClauseSet state
+    /// Sets the values to update and transitions to the `SetClauseSet` state
     #[inline]
     pub fn set(
         self,
         values: Table::Update,
     ) -> UpdateBuilder<'a, Schema, UpdateSetClauseSet, Table> {
-        let sql = crate::helpers::set::<'a, Table, PostgresSchemaType, PostgresValue<'a>>(values);
+        let sql = crate::helpers::set::<Table, PostgresSchemaType, PostgresValue<'a>>(&values);
+        drop(values);
         UpdateBuilder {
             sql: self.sql.append(sql),
             schema: PhantomData,
@@ -94,7 +95,7 @@ where
 //------------------------------------------------------------------------------
 
 impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
-    /// Adds a FROM clause and transitions to the FromSet state
+    /// Adds a FROM clause and transitions to the `FromSet` state
     #[inline]
     pub fn from(
         self,
@@ -112,7 +113,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
         }
     }
 
-    /// Adds a WHERE condition and transitions to the WhereSet state
+    /// Adds a WHERE condition and transitions to the `WhereSet` state
     #[inline]
     pub fn r#where<E>(self, condition: E) -> UpdateBuilder<'a, S, UpdateWhereSet, T>
     where
@@ -131,7 +132,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
         }
     }
 
-    /// Adds a RETURNING clause and transitions to the ReturningSet state
+    /// Adds a RETURNING clause and transitions to the `ReturningSet` state
     #[inline]
     pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
     where

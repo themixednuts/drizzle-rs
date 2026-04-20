@@ -11,9 +11,9 @@ use drizzle_types::Dialect;
 /// Parsed table struct from generated code
 #[derive(Debug, Clone, Default)]
 pub struct ParsedTable {
-    /// Struct name (PascalCase)
+    /// Struct name (`PascalCase`)
     pub name: String,
-    /// Full table attribute (e.g., "#[SQLiteTable(strict)]" or "#[PostgresTable]")
+    /// Full table attribute (e.g., "#[SQLiteTable(strict)]" or "#[`PostgresTable`]")
     pub attr: String,
     /// Parsed fields
     pub fields: Vec<ParsedField>,
@@ -24,11 +24,11 @@ pub struct ParsedTable {
 /// Parsed index struct from generated code
 #[derive(Debug, Clone, Default)]
 pub struct ParsedIndex {
-    /// Struct name (PascalCase)
+    /// Struct name (`PascalCase`)
     pub name: String,
     /// Full index attribute (e.g., "#[SQLiteIndex(unique)]" or "#[PostgresIndex(unique)]")
     pub attr: String,
-    /// Column references (e.g., ["Users::id", "Users::name"])
+    /// Column references (e.g., `["Users::id", "Users::name"]`)
     pub columns: Vec<String>,
     /// Detected dialect
     pub dialect: Dialect,
@@ -37,9 +37,9 @@ pub struct ParsedIndex {
 /// Parsed schema struct from generated code
 #[derive(Debug, Clone, Default)]
 pub struct ParsedSchema {
-    /// Struct name (e.g., "AppSchema")
+    /// Struct name (e.g., "`AppSchema`")
     pub name: String,
-    /// Schema members (field_name -> type_name)
+    /// Schema members (`field_name` -> `type_name`)
     pub members: HashMap<String, String>,
     /// Detected dialect
     pub dialect: Dialect,
@@ -48,7 +48,7 @@ pub struct ParsedSchema {
 /// Parsed field from generated struct
 #[derive(Debug, Clone, Default)]
 pub struct ParsedField {
-    /// Field name (snake_case)
+    /// Field name (`snake_case`)
     pub name: String,
     /// Rust type (e.g., "i64", "Option<String>")
     pub ty: String,
@@ -75,37 +75,44 @@ pub struct ParseResult {
 
 impl ParsedTable {
     /// Get a field by name
+    #[must_use]
     pub fn field(&self, name: &str) -> Option<&ParsedField> {
         self.fields.iter().find(|f| f.name == name)
     }
 
-    /// Check if table has a specific attribute in its #[SQLiteTable(...)]
+    /// Check if table has a specific attribute in its #[`SQLiteTable`(...)]
+    #[must_use]
     pub fn has_table_attr(&self, attr: &str) -> bool {
         self.attr.contains(attr)
     }
 
     /// Get the value of a table attribute assignment (e.g. `schema = "auth"`).
+    #[must_use]
     pub fn attr_value(&self, key: &str) -> Option<String> {
         extract_attr_value_from_attr(&self.attr, key)
     }
 
-    /// Get the PostgreSQL schema name if set on `#[PostgresTable(...)]`.
+    /// Get the `PostgreSQL` schema name if set on `#[PostgresTable(...)]`.
+    #[must_use]
     pub fn schema_name(&self) -> Option<String> {
         self.attr_value("schema")
             .map(|v| trim_wrapping_quotes(v.trim()).to_string())
     }
 
-    /// Check if table is marked as SQLite STRICT.
+    /// Check if table is marked as `SQLite` STRICT.
+    #[must_use]
     pub fn is_strict(&self) -> bool {
         self.has_table_attr("strict")
     }
 
-    /// Check if table is marked as SQLite WITHOUT ROWID.
+    /// Check if table is marked as `SQLite` WITHOUT ROWID.
+    #[must_use]
     pub fn is_without_rowid(&self) -> bool {
         self.has_table_attr("without_rowid")
     }
 
     /// Get all field names
+    #[must_use]
     pub fn field_names(&self) -> Vec<&str> {
         self.fields.iter().map(|f| f.name.as_str()).collect()
     }
@@ -113,28 +120,33 @@ impl ParsedTable {
 
 impl ParsedIndex {
     /// Check if index is unique
+    #[must_use]
     pub fn is_unique(&self) -> bool {
         self.attr.contains("unique")
     }
 
-    /// Check if PostgreSQL index is created concurrently.
+    /// Check if `PostgreSQL` index is created concurrently.
+    #[must_use]
     pub fn is_concurrent(&self) -> bool {
         self.attr.contains("concurrent")
     }
 
-    /// Get PostgreSQL index method (e.g. `btree`, `gin`) if explicitly set.
+    /// Get `PostgreSQL` index method (e.g. `btree`, `gin`) if explicitly set.
+    #[must_use]
     pub fn method(&self) -> Option<String> {
         self.attr_value("method")
             .map(|v| trim_wrapping_quotes(v.trim()).to_string())
     }
 
-    /// Get PostgreSQL partial-index WHERE clause if explicitly set.
+    /// Get `PostgreSQL` partial-index WHERE clause if explicitly set.
+    #[must_use]
     pub fn where_clause(&self) -> Option<String> {
         self.attr_value("where")
             .map(|v| trim_wrapping_quotes(v.trim()).to_string())
     }
 
     /// Get the table name from the first column reference
+    #[must_use]
     pub fn table_name(&self) -> Option<&str> {
         self.columns.first().and_then(|c| c.split("::").next())
     }
@@ -147,11 +159,13 @@ impl ParsedIndex {
 
 impl ParsedField {
     /// Check if field has a specific attribute
+    #[must_use]
     pub fn has_attr(&self, attr: &str) -> bool {
         self.attrs.iter().any(|a| a.contains(attr))
     }
 
     /// Get the value of an attribute assignment (e.g., `default = 42` -> Some("42"))
+    #[must_use]
     pub fn attr_value(&self, key: &str) -> Option<String> {
         for attr in &self.attrs {
             if let Some(value) = Self::extract_attr_value(attr, key) {
@@ -161,7 +175,8 @@ impl ParsedField {
         None
     }
 
-    /// Get all attribute key-value pairs as a HashMap
+    /// Get all attribute key-value pairs as a `HashMap`
+    #[must_use]
     pub fn attr_values(&self) -> HashMap<String, String> {
         let mut result = HashMap::new();
         for attr in &self.attrs {
@@ -184,46 +199,55 @@ impl ParsedField {
     }
 
     /// Get the combined column attribute string
+    #[must_use]
     pub fn column_attr(&self) -> String {
         self.attrs.join(", ")
     }
 
     /// Check if field is nullable (Option<T>)
+    #[must_use]
     pub fn is_nullable(&self) -> bool {
         self.ty.starts_with("Option<")
     }
 
     /// Check if field is a primary key
+    #[must_use]
     pub fn is_primary_key(&self) -> bool {
         self.has_attr("primary")
     }
 
     /// Check if field has autoincrement
+    #[must_use]
     pub fn is_autoincrement(&self) -> bool {
         self.has_attr("autoincrement")
     }
 
     /// Check if field is unique
+    #[must_use]
     pub fn is_unique(&self) -> bool {
         self.has_attr("unique")
     }
 
     /// Get the default value if present
+    #[must_use]
     pub fn default_value(&self) -> Option<String> {
         self.attr_value("default")
     }
 
-    /// Get the references target if present (e.g., "Users::id")
+    /// Get the references target if present (e.g., "`Users::id`")
+    #[must_use]
     pub fn references(&self) -> Option<String> {
         self.attr_value("references")
     }
 
-    /// Get the on_delete action if present
+    /// Get the `on_delete` action if present
+    #[must_use]
     pub fn on_delete(&self) -> Option<String> {
         self.attr_value("on_delete")
     }
 
-    /// Get the on_update action if present
+    /// Get the `on_update` action if present
+    #[must_use]
     pub fn on_update(&self) -> Option<String> {
         self.attr_value("on_update")
     }
@@ -313,12 +337,14 @@ fn trim_wrapping_quotes(value: &str) -> &str {
 
 impl ParseResult {
     /// Get a table by name and dialect
+    #[must_use]
     pub fn table(&self, name: &str, dialect: Dialect) -> Option<&ParsedTable> {
         let key = format!("{}:{}", dialect_key(dialect), name);
         self.tables.get(&key)
     }
 
     /// Get an index by name and dialect
+    #[must_use]
     pub fn index(&self, name: &str, dialect: Dialect) -> Option<&ParsedIndex> {
         let key = format!("{}:{}", dialect_key(dialect), name);
         self.indexes.get(&key)
@@ -343,6 +369,7 @@ impl ParseResult {
     }
 
     /// Get all table names (without dialect prefix)
+    #[must_use]
     pub fn table_names(&self) -> Vec<&str> {
         self.tables
             .keys()
@@ -351,6 +378,7 @@ impl ParseResult {
     }
 
     /// Get all index names (without dialect prefix)
+    #[must_use]
     pub fn index_names(&self) -> Vec<&str> {
         self.indexes
             .keys()
@@ -360,7 +388,7 @@ impl ParseResult {
 }
 
 /// Get the key prefix for a dialect
-fn dialect_key(dialect: Dialect) -> &'static str {
+const fn dialect_key(dialect: Dialect) -> &'static str {
     match dialect {
         Dialect::SQLite => "sqlite",
         Dialect::PostgreSQL => "postgres",

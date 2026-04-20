@@ -1,43 +1,39 @@
-pub(crate) mod convenience;
-pub(crate) mod insert;
-pub(crate) mod select;
-pub(crate) mod update;
+pub mod convenience;
+pub mod insert;
+pub mod select;
+pub mod update;
 
 use super::context::MacroContext;
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
-use syn::Result;
 
 // Re-export convenience functions for internal use only
-pub(crate) use insert::generate_insert_model;
-pub(crate) use select::generate_select_model;
-pub(crate) use update::generate_update_model;
+pub use insert::generate_insert_model;
+pub use select::generate_select_model;
+pub use update::generate_update_model;
 
 /// Generates the `Select`, `Insert`, `Update` model structs and their impls.
-pub(crate) fn generate_model_definitions(
+pub fn generate_model_definitions(
     ctx: &MacroContext,
     column_zst_idents: &[Ident],
     required_fields_pattern: &[bool],
-) -> Result<TokenStream> {
-    let select_model = generate_select_model(ctx)?;
-    let insert_model = generate_insert_model(ctx, required_fields_pattern)?;
-    let update_model = generate_update_model(ctx)?;
-    let model_impls = generate_model_trait_impls(ctx, column_zst_idents)?;
+) -> TokenStream {
+    let select_model = generate_select_model(ctx);
+    let insert_model = generate_insert_model(ctx, required_fields_pattern);
+    let update_model = generate_update_model(ctx);
+    let model_impls = generate_model_trait_impls(ctx, column_zst_idents);
 
-    Ok(quote! {
+    quote! {
         #select_model
         #insert_model
         #update_model
         #model_impls
-    })
+    }
 }
 
-/// Generates SQLModel trait implementations for all model types
-fn generate_model_trait_impls(
-    ctx: &MacroContext,
-    _column_zst_idents: &[Ident],
-) -> Result<TokenStream> {
+/// Generates `SQLModel` trait implementations for all model types
+fn generate_model_trait_impls(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> TokenStream {
     #[allow(unused_variables)]
     let (select_model, select_model_partial, update_model) = (
         &ctx.select_model_ident,
@@ -78,7 +74,7 @@ fn generate_model_trait_impls(
         }
     };
 
-    Ok(quote! {
+    quote! {
         // SQLModel implementations
         impl<'a> #sql_model<'a, #sqlite_value<'a>> for #select_model {
             fn columns(&self) -> ::std::borrow::Cow<'static, [#column_ref]> {
@@ -115,5 +111,5 @@ fn generate_model_trait_impls(
 
         #partial_impl
 
-    })
+    }
 }

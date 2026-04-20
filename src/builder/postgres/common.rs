@@ -281,7 +281,7 @@ where
     }
 }
 
-/// Intermediate builder for typed ON CONFLICT within a PostgreSQL Drizzle wrapper.
+/// Intermediate builder for typed ON CONFLICT within a `PostgreSQL` Drizzle wrapper.
 pub struct DrizzleOnConflictBuilder<'a, 'b, DrizzleRef, Schema, Table> {
     drizzle: DrizzleRef,
     builder: OnConflictBuilder<'b, Schema, Table>,
@@ -337,8 +337,8 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     }
 }
 
-impl<'d, 'a, DrizzleRef, S, T, State> ToSQL<'a, PostgresValue<'a>>
-    for DrizzleBuilder<'d, DrizzleRef, S, T, State>
+impl<'a, DrizzleRef, S, T, State> ToSQL<'a, PostgresValue<'a>>
+    for DrizzleBuilder<'_, DrizzleRef, S, T, State>
 where
     T: ToSQL<'a, PostgresValue<'a>>,
 {
@@ -347,8 +347,8 @@ where
     }
 }
 
-impl<'d, 'a, DrizzleRef, S, T, State> drizzle_core::expr::Expr<'a, PostgresValue<'a>>
-    for DrizzleBuilder<'d, DrizzleRef, S, T, State>
+impl<'a, DrizzleRef, S, T, State> drizzle_core::expr::Expr<'a, PostgresValue<'a>>
+    for DrizzleBuilder<'_, DrizzleRef, S, T, State>
 where
     T: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
 {
@@ -435,16 +435,7 @@ impl<'d, 'a, DrizzleRef, Schema>
     }
 
     #[inline]
-    pub fn with<C>(
-        self,
-        cte: C,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        QueryBuilder<'a, Schema, builder::CTEInit>,
-        builder::CTEInit,
-    >
+    pub fn with<C>(self, cte: &C) -> Self
     where
         C: builder::CTEDefinition<'a>,
     {
@@ -637,8 +628,8 @@ impl_select_methods! {
 // IntoSelect for DrizzleBuilder
 //------------------------------------------------------------------------------
 
-impl<'d, 'a, DrizzleRef, Schema, State, T, M, R, G> IntoSelect<'a, Schema, M, R>
-    for DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
+impl<'a, DrizzleRef, Schema, State, T, M, R, G> IntoSelect<'a, Schema, M, R>
+    for DrizzleBuilder<'_, DrizzleRef, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
 where
     State: drizzle_postgres::builder::ExecutableState,
 {
@@ -657,8 +648,8 @@ where
 // select/insert/update/delete builder is a type alias for `QueryBuilder`, one
 // generic impl here covers all four operation kinds.
 
-impl<'d, 'a, DrizzleRef, Schema, State, T, M, R, G>
-    DrizzleBuilder<'d, DrizzleRef, Schema, QueryBuilder<'a, Schema, State, T, M, R, G>, State>
+impl<DrizzleRef, Schema, State, T, M, R, G>
+    DrizzleBuilder<'_, DrizzleRef, Schema, QueryBuilder<'_, Schema, State, T, M, R, G>, State>
 where
     State: drizzle_postgres::builder::ExecutableState,
 {
@@ -802,8 +793,8 @@ where
     }
 }
 
-impl<'d, 'a, DrizzleRef, Schema, State, T, M, R>
-    DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
+impl<'a, DrizzleRef, Schema, State, T, M, R>
+    DrizzleBuilder<'_, DrizzleRef, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
 where
     State: AsCteState,
     T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
@@ -1430,25 +1421,17 @@ impl_for_update_methods!(
 );
 
 // Implement NOWAIT and SKIP LOCKED on SelectForSet
-impl<'d, 'a, DrizzleRef, Schema, T, M, R>
+impl<DrizzleRef, Schema, T, M, R>
     DrizzleBuilder<
-        'd,
+        '_,
         DrizzleRef,
         Schema,
-        SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
+        SelectBuilder<'_, Schema, SelectForSet, T, M, R>,
         SelectForSet,
     >
 {
     /// Adds NOWAIT option to fail immediately if rows are locked.
-    pub fn nowait(
-        self,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
-        SelectForSet,
-    > {
+    pub fn nowait(self) -> Self {
         let builder = self.builder.nowait();
         DrizzleBuilder {
             drizzle: self.drizzle,
@@ -1458,15 +1441,7 @@ impl<'d, 'a, DrizzleRef, Schema, T, M, R>
     }
 
     /// Adds SKIP LOCKED option to skip over locked rows.
-    pub fn skip_locked(
-        self,
-    ) -> DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        SelectBuilder<'a, Schema, SelectForSet, T, M, R>,
-        SelectForSet,
-    > {
+    pub fn skip_locked(self) -> Self {
         let builder = self.builder.skip_locked();
         DrizzleBuilder {
             drizzle: self.drizzle,

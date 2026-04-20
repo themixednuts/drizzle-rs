@@ -98,13 +98,13 @@ where
 }
 
 /// Creates an INSERT INTO statement with the specified table
-pub fn insert<'a, Table, Type, Value>(table: Table) -> SQL<'a, Value>
+pub fn insert<'a, Table, Type, Value>(table: &Table) -> SQL<'a, Value>
 where
     Type: SQLSchemaType,
     Value: SQLParam,
     Table: SQLTable<'a, Type, Value>,
 {
-    SQL::from_iter([Token::INSERT, Token::INTO]).append(&table)
+    SQL::from_iter([Token::INSERT, Token::INTO]).append(table)
 }
 
 /// Helper function to create a FROM clause
@@ -172,6 +172,7 @@ where
 }
 
 /// Helper function to create a LIMIT clause
+#[must_use]
 pub fn limit<'a, V>(value: usize) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
@@ -180,6 +181,7 @@ where
 }
 
 /// Helper function to create an OFFSET clause
+#[must_use]
 pub fn offset<'a, V>(value: usize) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
@@ -188,17 +190,17 @@ where
 }
 
 /// Helper function to create an UPDATE statement
-pub fn update<'a, Table, Type, Value>(table: Table) -> SQL<'a, Value>
+pub fn update<'a, Table, Type, Value>(table: &Table) -> SQL<'a, Value>
 where
     Table: SQLTable<'a, Type, Value>,
     Type: SQLSchemaType,
     Value: SQLParam + 'a,
 {
-    SQL::from(Token::UPDATE).append(&table)
+    SQL::from(Token::UPDATE).append(table)
 }
 
 /// Helper function to create a SET clause for UPDATE
-pub fn set<'a, Table, Type, Value>(assignments: Table::Update) -> SQL<'a, Value>
+pub fn set<'a, Table, Type, Value>(assignments: &Table::Update) -> SQL<'a, Value>
 where
     Value: SQLParam + 'a,
     Table: SQLTable<'a, Type, Value>,
@@ -208,11 +210,11 @@ where
 }
 
 /// Helper function to create a DELETE FROM statement
-pub fn delete<'a, Table, Type, Value>(table: Table) -> SQL<'a, Value>
+pub fn delete<'a, Table, Type, Value>(table: &Table) -> SQL<'a, Value>
 where
     Table: SQLTable<'a, Type, Value>,
     Type: SQLSchemaType,
     Value: SQLParam + 'a,
 {
-    SQL::from_iter([Token::DELETE, Token::FROM]).append(&table)
+    SQL::from_iter([Token::DELETE, Token::FROM]).append(table)
 }

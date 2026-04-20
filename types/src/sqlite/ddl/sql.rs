@@ -1,9 +1,10 @@
-//! SQL generation for SQLite DDL types
+//! SQL generation for `SQLite` DDL types
 //!
 //! This module provides SQL generation methods for DDL types, enabling
 //! unified SQL output from both compile-time and runtime schema definitions.
 
 use crate::alloc_prelude::*;
+use std::fmt::Write;
 
 use super::{
     CheckConstraint, Column, ForeignKey, Generated, GeneratedType, Index, IndexColumnDef,
@@ -26,8 +27,9 @@ pub struct TableSql<'a> {
 }
 
 impl<'a> TableSql<'a> {
-    /// Create a new TableSql for SQL generation
-    pub fn new(table: &'a Table) -> Self {
+    /// Create a new `TableSql` for SQL generation
+    #[must_use]
+    pub const fn new(table: &'a Table) -> Self {
         Self {
             table,
             columns: &[],
@@ -39,36 +41,42 @@ impl<'a> TableSql<'a> {
     }
 
     /// Set columns
-    pub fn columns(mut self, columns: &'a [Column]) -> Self {
+    #[must_use]
+    pub const fn columns(mut self, columns: &'a [Column]) -> Self {
         self.columns = columns;
         self
     }
 
     /// Set primary key
-    pub fn primary_key(mut self, pk: Option<&'a PrimaryKey>) -> Self {
+    #[must_use]
+    pub const fn primary_key(mut self, pk: Option<&'a PrimaryKey>) -> Self {
         self.primary_key = pk;
         self
     }
 
     /// Set foreign keys
-    pub fn foreign_keys(mut self, fks: &'a [ForeignKey]) -> Self {
+    #[must_use]
+    pub const fn foreign_keys(mut self, fks: &'a [ForeignKey]) -> Self {
         self.foreign_keys = fks;
         self
     }
 
     /// Set unique constraints
-    pub fn unique_constraints(mut self, uniques: &'a [UniqueConstraint]) -> Self {
+    #[must_use]
+    pub const fn unique_constraints(mut self, uniques: &'a [UniqueConstraint]) -> Self {
         self.unique_constraints = uniques;
         self
     }
 
     /// Set check constraints
-    pub fn check_constraints(mut self, checks: &'a [CheckConstraint]) -> Self {
+    #[must_use]
+    pub const fn check_constraints(mut self, checks: &'a [CheckConstraint]) -> Self {
         self.check_constraints = checks;
         self
     }
 
     /// Generate CREATE TABLE SQL
+    #[must_use]
     pub fn create_table_sql(&self) -> String {
         let mut sql = format!("CREATE TABLE `{}` (\n", self.table.name());
 
@@ -101,7 +109,7 @@ impl<'a> TableSql<'a> {
             let cols = pk
                 .columns
                 .iter()
-                .map(|c| format!("`{}`", c))
+                .map(|c| format!("`{c}`"))
                 .collect::<Vec<_>>()
                 .join(", ");
             lines.push(format!(
@@ -125,7 +133,7 @@ impl<'a> TableSql<'a> {
             let cols = unique
                 .columns
                 .iter()
-                .map(|c| format!("`{}`", c))
+                .map(|c| format!("`{c}`"))
                 .collect::<Vec<_>>()
                 .join(", ");
             lines.push(format!("\tCONSTRAINT `{}` UNIQUE({})", unique.name(), cols));
@@ -156,6 +164,7 @@ impl<'a> TableSql<'a> {
     }
 
     /// Generate DROP TABLE SQL
+    #[must_use]
     pub fn drop_table_sql(&self) -> String {
         format!("DROP TABLE `{}`;", self.table.name())
     }
@@ -167,6 +176,7 @@ impl<'a> TableSql<'a> {
 
 impl Column {
     /// Generate the column definition SQL (without leading/trailing punctuation)
+    #[must_use]
     pub fn to_column_sql(&self, inline_pk: bool, inline_unique: bool) -> String {
         let mut sql = format!("`{}` {}", self.name(), self.sql_type().to_uppercase());
 
@@ -178,7 +188,7 @@ impl Column {
         }
 
         if let Some(default) = self.default.as_ref() {
-            sql.push_str(&format!(" DEFAULT {}", default));
+            let _ = write!(sql, " DEFAULT {default}");
         }
 
         if let Some(generated) = &self.generated {
@@ -198,6 +208,7 @@ impl Column {
     }
 
     /// Generate ADD COLUMN SQL
+    #[must_use]
     pub fn add_column_sql(&self) -> String {
         format!(
             "ALTER TABLE `{}` ADD COLUMN {};",
@@ -207,6 +218,7 @@ impl Column {
     }
 
     /// Generate DROP COLUMN SQL
+    #[must_use]
     pub fn drop_column_sql(&self) -> String {
         format!(
             "ALTER TABLE `{}` DROP COLUMN `{}`;",
@@ -222,6 +234,7 @@ impl Column {
 
 impl Generated {
     /// Generate the GENERATED clause SQL
+    #[must_use]
     pub fn to_sql(&self) -> String {
         let gen_type = match self.gen_type {
             GeneratedType::Stored => "STORED",
@@ -237,18 +250,19 @@ impl Generated {
 
 impl ForeignKey {
     /// Generate the CONSTRAINT ... FOREIGN KEY clause SQL
+    #[must_use]
     pub fn to_constraint_sql(&self) -> String {
         let from_cols = self
             .columns
             .iter()
-            .map(|c| format!("`{}`", c))
+            .map(|c| format!("`{c}`"))
             .collect::<Vec<_>>()
             .join(", ");
 
         let to_cols = self
             .columns_to
             .iter()
-            .map(|c| format!("`{}`", c))
+            .map(|c| format!("`{c}`"))
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -263,19 +277,20 @@ impl ForeignKey {
         if let Some(on_update) = self.on_update.as_ref()
             && on_update != "NO ACTION"
         {
-            sql.push_str(&format!(" ON UPDATE {}", on_update));
+            let _ = write!(sql, " ON UPDATE {on_update}");
         }
 
         if let Some(on_delete) = self.on_delete.as_ref()
             && on_delete != "NO ACTION"
         {
-            sql.push_str(&format!(" ON DELETE {}", on_delete));
+            let _ = write!(sql, " ON DELETE {on_delete}");
         }
 
         sql
     }
 
     /// Generate ADD FOREIGN KEY SQL (via new table constraint)
+    #[must_use]
     pub fn add_fk_sql(&self) -> String {
         // SQLite doesn't support ADD CONSTRAINT for foreign keys directly
         // This would require table recreation
@@ -286,7 +301,8 @@ impl ForeignKey {
         )
     }
 
-    /// Generate DROP FOREIGN KEY SQL (comment since SQLite doesn't support it)
+    /// Generate DROP FOREIGN KEY SQL (comment since `SQLite` doesn't support it)
+    #[must_use]
     pub fn drop_fk_sql(&self) -> String {
         format!(
             "-- SQLite requires table recreation to drop foreign keys\n-- FK: {} on `{}`",
@@ -302,13 +318,14 @@ impl ForeignKey {
 
 impl Index {
     /// Generate CREATE INDEX SQL
+    #[must_use]
     pub fn create_index_sql(&self) -> String {
         let unique = if self.is_unique { "UNIQUE " } else { "" };
 
         let columns = self
             .columns
             .iter()
-            .map(|c| c.to_sql())
+            .map(super::index::IndexColumn::to_sql)
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -323,13 +340,14 @@ impl Index {
         if let Some(where_clause) = self.where_clause.as_ref() {
             // Remove trailing semicolon to add WHERE
             sql.pop();
-            sql.push_str(&format!(" WHERE {};", where_clause));
+            let _ = write!(sql, " WHERE {where_clause};");
         }
 
         sql
     }
 
     /// Generate DROP INDEX SQL
+    #[must_use]
     pub fn drop_index_sql(&self) -> String {
         format!("DROP INDEX `{}`;", self.name())
     }
@@ -337,6 +355,7 @@ impl Index {
 
 impl IndexColumnDef {
     /// Generate the column reference for an index
+    #[must_use]
     pub fn to_sql(&self) -> String {
         if self.is_expression {
             self.value.to_string()
@@ -352,15 +371,16 @@ impl IndexColumnDef {
 
 impl View {
     /// Generate CREATE VIEW SQL
+    #[must_use]
     pub fn create_view_sql(&self) -> String {
-        if let Some(def) = self.definition.as_ref() {
-            format!("CREATE VIEW `{}` AS {};", self.name(), def)
-        } else {
-            format!("-- View `{}` has no definition", self.name())
-        }
+        self.definition.as_ref().map_or_else(
+            || format!("-- View `{}` has no definition", self.name()),
+            |def| format!("CREATE VIEW `{}` AS {};", self.name(), def),
+        )
     }
 
     /// Generate DROP VIEW SQL
+    #[must_use]
     pub fn drop_view_sql(&self) -> String {
         format!("DROP VIEW `{}`;", self.name())
     }
@@ -372,11 +392,13 @@ impl View {
 
 impl Table {
     /// Generate DROP TABLE SQL
+    #[must_use]
     pub fn drop_table_sql(&self) -> String {
         format!("DROP TABLE `{}`;", self.name())
     }
 
     /// Generate RENAME TABLE SQL
+    #[must_use]
     pub fn rename_table_sql(&self, new_name: &str) -> String {
         format!("ALTER TABLE `{}` RENAME TO `{}`;", self.name(), new_name)
     }
@@ -388,11 +410,12 @@ impl Table {
 
 impl PrimaryKey {
     /// Generate the PRIMARY KEY constraint clause
+    #[must_use]
     pub fn to_constraint_sql(&self) -> String {
         let cols = self
             .columns
             .iter()
-            .map(|c| format!("`{}`", c))
+            .map(|c| format!("`{c}`"))
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -406,11 +429,12 @@ impl PrimaryKey {
 
 impl UniqueConstraint {
     /// Generate the UNIQUE constraint clause
+    #[must_use]
     pub fn to_constraint_sql(&self) -> String {
         let cols = self
             .columns
             .iter()
-            .map(|c| format!("`{}`", c))
+            .map(|c| format!("`{c}`"))
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -424,6 +448,7 @@ impl UniqueConstraint {
 
 impl CheckConstraint {
     /// Generate the CHECK constraint clause
+    #[must_use]
     pub fn to_constraint_sql(&self) -> String {
         format!("CONSTRAINT `{}` CHECK({})", self.name(), &self.value)
     }

@@ -5,7 +5,7 @@
 
 use drizzle_types::Dialect;
 
-/// The origin UUID used for the first migration's prev_id
+/// The origin UUID used for the first migration's `prev_id`
 pub const ORIGIN_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
 /// Journal version - used in _journal.json
@@ -15,13 +15,13 @@ pub const JOURNAL_VERSION: &str = "7";
 /// SQLite/Turso/LibSQL snapshot version (current)
 pub const SQLITE_SNAPSHOT_VERSION: &str = "7";
 
-/// PostgreSQL snapshot version (current)
+/// `PostgreSQL` snapshot version (current)
 pub const POSTGRES_SNAPSHOT_VERSION: &str = "8";
 
-/// MySQL snapshot version (current)
+/// `MySQL` snapshot version (current)
 pub const MYSQL_SNAPSHOT_VERSION: &str = "6";
 
-/// SingleStore snapshot version (current)
+/// `SingleStore` snapshot version (current)
 pub const SINGLESTORE_SNAPSHOT_VERSION: &str = "1";
 
 /// Minimum supported versions for backwards compatibility
@@ -31,6 +31,7 @@ pub const POSTGRES_MIN_SUPPORTED_VERSION: u32 = 5;
 pub const MYSQL_MIN_SUPPORTED_VERSION: u32 = 5;
 
 /// Get the current snapshot version for a dialect
+#[must_use]
 pub const fn snapshot_version(dialect: Dialect) -> &'static str {
     match dialect {
         Dialect::SQLite => SQLITE_SNAPSHOT_VERSION,
@@ -40,6 +41,7 @@ pub const fn snapshot_version(dialect: Dialect) -> &'static str {
 }
 
 /// Check if a snapshot version is the latest for a given dialect
+#[must_use]
 pub const fn is_latest_version(dialect: Dialect, version: &str) -> bool {
     // Use const-compatible byte comparison since str::eq is not const
     let a = version.as_bytes();
@@ -61,9 +63,10 @@ pub const fn is_latest_version(dialect: Dialect, version: &str) -> bool {
 /// Older versions below the minimum need to be upgraded with `drizzle up`.
 ///
 /// Supported version ranges (matching drizzle-kit beta):
-/// - SQLite: 5-7 (v4 and below need upgrade)
-/// - PostgreSQL: 5-8 (v4 and below need upgrade)
-/// - MySQL: 5 (no older versions)
+/// - `SQLite`: 5-7 (v4 and below need upgrade)
+/// - `PostgreSQL`: 5-8 (v4 and below need upgrade)
+/// - `MySQL`: 5 (no older versions)
+#[must_use]
 pub fn is_supported_version(dialect: Dialect, version: &str) -> bool {
     let Ok(v) = version.parse::<u32>() else {
         return false;
@@ -79,6 +82,7 @@ pub fn is_supported_version(dialect: Dialect, version: &str) -> bool {
 }
 
 /// Check if a version needs to be upgraded to work with the current CLI
+#[must_use]
 pub fn needs_upgrade(dialect: Dialect, version: &str) -> bool {
     let Ok(v) = version.parse::<u32>() else {
         return true; // Unknown version, probably needs upgrade

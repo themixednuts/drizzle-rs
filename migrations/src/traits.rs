@@ -4,7 +4,7 @@
 //! - `Version` - Type-safe version markers with const NUMBER
 //! - `Upgradable` - Trait for upgrading snapshots between versions
 //! - `Entity` - Trait for DDL entities with const KIND
-//! - `EntityKind` - Enum replacing string entity_type discrimination
+//! - `EntityKind` - Enum replacing string `entity_type` discrimination
 
 use std::fmt;
 use std::hash::Hash;
@@ -30,6 +30,7 @@ pub trait Version: Copy + Clone + Default + 'static {
 }
 
 /// Helper to get version as string at runtime
+#[must_use]
 pub fn version_str<V: Version>() -> String {
     V::NUMBER.to_string()
 }
@@ -97,6 +98,12 @@ pub trait Upgradable<From: Version, To: Version> {
     type Error;
 
     /// Perform the upgrade transformation
+    ///
+    /// # Errors
+    ///
+    /// Returns the implementation's [`Self::Error`] if the upgrade
+    /// transformation fails (e.g., due to an unsupported input format or a
+    /// corrupted snapshot).
     fn upgrade(self) -> Result<Self::Output, Self::Error>;
 }
 
@@ -121,7 +128,7 @@ pub trait Upgradable<From: Version, To: Version> {
 /// # "####;
 /// ```
 #[inline]
-pub fn assert_can_upgrade<D, From, To>()
+pub const fn assert_can_upgrade<D, From, To>()
 where
     D: CanUpgrade<From, To>,
     From: Version,
@@ -164,6 +171,7 @@ pub enum EntityKind {
 
 impl EntityKind {
     /// Get the string representation for JSON serialization compatibility
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Schema => "schemas",
@@ -183,6 +191,7 @@ impl EntityKind {
     }
 
     /// Parse from string (for deserialization)
+    #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "schemas" => Some(Self::Schema),
@@ -224,7 +233,7 @@ pub enum EntityKey {
     Simple(String),
     /// Two-part key (e.g., table.column)
     Composite2(String, String),
-    /// Three-part key (e.g., schema.table.column for PostgreSQL)
+    /// Three-part key (e.g., schema.table.column for `PostgreSQL`)
     Composite3(String, String, String),
 }
 
@@ -277,7 +286,7 @@ pub struct Versioned<Data, V: Version> {
 
 impl<Data, V: Version> Versioned<Data, V> {
     /// Create a new versioned wrapper
-    pub fn new(data: Data) -> Self {
+    pub const fn new(data: Data) -> Self {
         Self {
             data,
             _version: PhantomData,
@@ -285,11 +294,13 @@ impl<Data, V: Version> Versioned<Data, V> {
     }
 
     /// Get the version number
-    pub fn version() -> u32 {
+    #[must_use]
+    pub const fn version() -> u32 {
         V::NUMBER
     }
 
     /// Get the version as a string
+    #[must_use]
     pub fn version_str() -> String {
         version_str::<V>()
     }
@@ -337,7 +348,7 @@ pub trait Dialect: Sized + 'static {
     /// Dialect-specific DDL collection type
     type DDL: Clone + Default + std::fmt::Debug;
 
-    /// Dialect-specific entity enum (e.g., SqliteEntity, PostgresEntity)
+    /// Dialect-specific entity enum (e.g., `SqliteEntity`, `PostgresEntity`)
     type Entity: Clone + std::fmt::Debug + PartialEq;
 
     /// Dialect-specific SQL generator
@@ -345,18 +356,21 @@ pub trait Dialect: Sized + 'static {
 
     /// Check if a version number is supported
     #[inline]
+    #[must_use]
     fn is_supported_version(version: u32) -> bool {
         version >= Self::MinVersion::NUMBER && version <= Self::LatestVersion::NUMBER
     }
 
     /// Check if a version is the latest
     #[inline]
+    #[must_use]
     fn is_latest_version(version: u32) -> bool {
         version == Self::LatestVersion::NUMBER
     }
 
     /// Check if a version needs upgrade
     #[inline]
+    #[must_use]
     fn needs_upgrade_from(version: u32) -> bool {
         version < Self::LatestVersion::NUMBER && version >= Self::MinVersion::NUMBER
     }
@@ -410,7 +424,8 @@ pub struct MigrationResult {
 
 impl MigrationResult {
     /// Create an empty result (no changes)
-    pub fn empty() -> Self {
+    #[must_use]
+    pub const fn empty() -> Self {
         Self {
             sql_statements: Vec::new(),
             has_changes: false,
@@ -418,7 +433,8 @@ impl MigrationResult {
     }
 
     /// Create a result with changes
-    pub fn with_changes(sql_statements: Vec<String>) -> Self {
+    #[must_use]
+    pub const fn with_changes(sql_statements: Vec<String>) -> Self {
         let has_changes = !sql_statements.is_empty();
         Self {
             sql_statements,
@@ -427,7 +443,7 @@ impl MigrationResult {
     }
 }
 
-/// SQLite dialect marker type
+/// `SQLite` dialect marker type
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Sqlite;
 
@@ -468,7 +484,7 @@ impl CanUpgrade<V6, V7> for Sqlite {}
 // Transitive: V5 -> V7 requires going through V6
 impl CanUpgrade<V5, V7> for Sqlite {}
 
-/// PostgreSQL dialect marker type
+/// `PostgreSQL` dialect marker type
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Postgres;
 
@@ -512,7 +528,7 @@ impl CanUpgrade<V5, V7> for Postgres {}
 impl CanUpgrade<V5, V8> for Postgres {}
 impl CanUpgrade<V6, V8> for Postgres {}
 
-/// MySQL dialect marker type
+/// `MySQL` dialect marker type
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Mysql;
 

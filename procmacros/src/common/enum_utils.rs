@@ -6,7 +6,7 @@ use syn::{Attribute, DataEnum, Expr, ExprLit, ExprUnary, Lit, UnOp, spanned::Spa
 ///
 /// Handles positive literals (`3`), negative literals (`-1`), and
 /// returns a compile error for anything else.
-pub(crate) fn parse_discriminant(expr: &Expr) -> syn::Result<i64> {
+pub fn parse_discriminant(expr: &Expr) -> syn::Result<i64> {
     match expr {
         // Simple positive literal like `3`
         Expr::Lit(ExprLit {
@@ -45,12 +45,12 @@ pub(crate) fn parse_discriminant(expr: &Expr) -> syn::Result<i64> {
 }
 
 /// Check if the enum has any variant with an explicit discriminant (`= N`).
-pub(crate) fn has_explicit_discriminants(data: &DataEnum) -> bool {
+pub fn has_explicit_discriminants(data: &DataEnum) -> bool {
     data.variants.iter().any(|v| v.discriminant.is_some())
 }
 
 /// Check if the type has a `#[repr(iN)]` or `#[repr(uN)]` attribute.
-pub(crate) fn has_integer_repr(attrs: &[Attribute]) -> bool {
+pub fn has_integer_repr(attrs: &[Attribute]) -> bool {
     attrs.iter().any(|attr| {
         if !attr.path().is_ident("repr") {
             return false;
@@ -69,7 +69,7 @@ pub(crate) fn has_integer_repr(attrs: &[Attribute]) -> bool {
 ///
 /// Returns a vector of `(variant_ident, discriminant_value)` pairs.
 /// Emits a compile error if any two variants share the same discriminant.
-pub(crate) fn resolve_discriminants(data: &DataEnum) -> syn::Result<Vec<(&syn::Ident, i64)>> {
+pub fn resolve_discriminants(data: &DataEnum) -> syn::Result<Vec<(&syn::Ident, i64)>> {
     let mut results = Vec::with_capacity(data.variants.len());
     // Track which value maps to which variant name (for error messages)
     let mut seen: HashMap<i64, &syn::Ident> = HashMap::new();

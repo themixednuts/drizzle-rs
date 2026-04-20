@@ -1,4 +1,4 @@
-//! Insert value types for PostgreSQL
+//! Insert value types for `PostgreSQL`
 
 use super::{OwnedPostgresValue, PostgresValue};
 use crate::prelude::*;
@@ -45,36 +45,30 @@ pub enum PostgresInsertValue<'a, V: SQLParam, T> {
 }
 
 impl<'a, T> PostgresInsertValue<'a, PostgresValue<'a>, T> {
-    /// Converts this InsertValue to an owned version with 'static lifetime
+    /// Converts this `InsertValue` to an owned version with 'static lifetime
+    #[must_use]
     pub fn into_owned(self) -> PostgresInsertValue<'static, PostgresValue<'static>, T> {
         match self {
             PostgresInsertValue::Omit => PostgresInsertValue::Omit,
             PostgresInsertValue::Null => PostgresInsertValue::Null,
             PostgresInsertValue::Value(wrapper) => {
                 // Convert PostgresValue parameters to owned values
-                if let Some(SQLChunk::Param(param)) = wrapper.value.chunks.first() {
-                    if let Some(ref postgres_val) = param.value {
-                        let postgres_val = postgres_val.as_ref();
-                        let owned_postgres_val = OwnedPostgresValue::from(postgres_val.clone());
-                        let static_postgres_val = PostgresValue::from(owned_postgres_val);
-                        let static_sql = SQL::param(static_postgres_val);
-                        PostgresInsertValue::Value(ValueWrapper::<PostgresValue<'static>, T>::new(
-                            static_sql,
-                        ))
-                    } else {
-                        // NULL parameter
-                        let static_sql = SQL::param(PostgresValue::Null);
-                        PostgresInsertValue::Value(ValueWrapper::<PostgresValue<'static>, T>::new(
-                            static_sql,
-                        ))
-                    }
-                } else {
+                let static_sql = match wrapper.value.chunks.first() {
+                    Some(SQLChunk::Param(param)) => param.value.as_ref().map_or_else(
+                        || SQL::param(PostgresValue::Null),
+                        |postgres_val| {
+                            let owned_postgres_val =
+                                OwnedPostgresValue::from(postgres_val.as_ref().clone());
+                            let static_postgres_val = PostgresValue::from(owned_postgres_val);
+                            SQL::param(static_postgres_val)
+                        },
+                    ),
                     // Non-parameter chunk, convert to NULL for simplicity
-                    let static_sql = SQL::param(PostgresValue::Null);
-                    PostgresInsertValue::Value(ValueWrapper::<PostgresValue<'static>, T>::new(
-                        static_sql,
-                    ))
-                }
+                    _ => SQL::param(PostgresValue::Null),
+                };
+                PostgresInsertValue::Value(ValueWrapper::<PostgresValue<'static>, T>::new(
+                    static_sql,
+                ))
             }
         }
     }
@@ -90,10 +84,10 @@ where
     T: TryInto<PostgresValue<'a>>,
 {
     fn from(value: T) -> Self {
-        let sql = value
-            .try_into()
-            .map(|v: PostgresValue<'a>| SQL::from(v))
-            .unwrap_or_else(|_| SQL::from(PostgresValue::Null));
+        let sql = value.try_into().map_or_else(
+            |_| SQL::from(PostgresValue::Null),
+            |v: PostgresValue<'a>| SQL::from(v),
+        );
         PostgresInsertValue::Value(ValueWrapper::<PostgresValue<'a>, T>::new(sql))
     }
 }
@@ -135,13 +129,9 @@ where
     T: ToSQL<'a, PostgresValue<'a>>,
 {
     fn from(value: Option<T>) -> Self {
-        match value {
-            Some(v) => {
-                let sql = v.to_sql();
-                PostgresInsertValue::Value(ValueWrapper::<PostgresValue<'a>, T>::new(sql))
-            }
-            None => PostgresInsertValue::Omit,
-        }
+        value.map_or(PostgresInsertValue::Omit, |v| {
+            PostgresInsertValue::Value(ValueWrapper::<PostgresValue<'a>, T>::new(v.to_sql()))
+        })
     }
 }
 

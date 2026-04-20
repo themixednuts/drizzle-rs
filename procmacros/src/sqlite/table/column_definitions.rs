@@ -6,7 +6,9 @@ use crate::common::{
 use crate::generators::{generate_impl, generate_sql_column_info};
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::field::FieldInfo;
-use crate::sqlite::generators::*;
+use crate::sqlite::generators::{
+    generate_sql_column, generate_sql_schema_field, generate_sqlite_column, generate_to_sql,
+};
 use heck::ToUpperCamelCase;
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
@@ -37,9 +39,7 @@ fn generate_marker_const(info: &FieldInfo, _zst_ident: &Ident) -> TokenStream {
 }
 
 /// Generates the column ZSTs and their `SQLColumn` implementations.
-pub(crate) fn generate_column_definitions<'a>(
-    ctx: &MacroContext<'a>,
-) -> Result<(TokenStream, Vec<Ident>)> {
+pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStream, Vec<Ident>)> {
     let mut all_column_code = TokenStream::new();
     let mut column_zst_idents = Vec::new();
     let MacroContext {
@@ -96,21 +96,22 @@ pub(crate) fn generate_column_definitions<'a>(
         let enum_impl = super::enum_impls::generate_enum_impls_for_field(info)?;
 
         // Generate foreign key reference implementation (kept for FK const validation)
-        let _foreign_key_impl = if let Some(ref fk) = info.foreign_key {
-            let table_ident = &fk.table_ident;
-            let column_ident = &fk.column_ident;
-            let column_pascal_case = column_ident.to_string().to_upper_camel_case();
-            let fk_zst_ident = format_ident!("{}{}", table_ident, column_pascal_case);
-            quote! {
-                // Const validation that the FK column exists and implements SQLColumnInfo
-                const _: () = { let _ = &#table_ident::#column_ident; };
-                #[allow(non_upper_case_globals)]
-                static FK_COLUMN: #fk_zst_ident = #fk_zst_ident::new();
-                ::std::option::Option::Some(&FK_COLUMN)
-            }
-        } else {
-            quote! { ::std::option::Option::None }
-        };
+        let _foreign_key_impl = info.foreign_key.as_ref().map_or_else(
+            || quote! { ::std::option::Option::None },
+            |fk| {
+                let table_ident = &fk.table_ident;
+                let column_ident = &fk.column_ident;
+                let column_pascal_case = column_ident.to_string().to_upper_camel_case();
+                let fk_zst_ident = format_ident!("{}{}", table_ident, column_pascal_case);
+                quote! {
+                    // Const validation that the FK column exists and implements SQLColumnInfo
+                    const _: () = { let _ = &#table_ident::#column_ident; };
+                    #[allow(non_upper_case_globals)]
+                    static FK_COLUMN: #fk_zst_ident = #fk_zst_ident::new();
+                    ::std::option::Option::Some(&FK_COLUMN)
+                }
+            },
+        );
 
         // Generate individual trait implementations using generators
         let struct_def = quote! {
@@ -121,7 +122,7 @@ pub(crate) fn generate_column_definitions<'a>(
 
         let impl_new = generate_impl(
             &zst_ident,
-            quote! {
+            &quote! {
                 pub const fn new() -> #zst_ident {
                     #zst_ident
                 }
@@ -146,31 +147,31 @@ pub(crate) fn generate_column_definitions<'a>(
         // Use generators for trait implementations
         let sql_schema_field_impl = generate_sql_schema_field(
             &zst_ident,
-            quote! {#name},
-            quote! {#col_type},
-            quote! {#sql_def},
+            &quote! {#name},
+            &quote! {#col_type},
+            &quote! {#sql_def},
         );
         let sql_column_info_impl = generate_sql_column_info(
             &zst_ident,
-            quote! {
+            &quote! {
                 <Self as #sql_schema<'_, &'static str, #sqlite_value<'_>>>::NAME
             },
-            quote! {
+            &quote! {
                 <Self as #sql_schema<'_, &'static str, #sqlite_value<'_>>>::TYPE
             },
-            quote! {
+            &quote! {
                 <Self as #sql_column<'_, #sqlite_value<'_>>>::PRIMARY_KEY
             },
-            quote! {
+            &quote! {
                 <Self as #sql_column<'_, #sqlite_value<'_>>>::NOT_NULL
             },
-            quote! {
+            &quote! {
                 <Self as #sql_column<'_, #sqlite_value<'_>>>::UNIQUE
             },
-            quote! {
+            &quote! {
                 #has_default
             },
-            quote! {
+            &quote! {
                 static TABLE: #struct_ident = #struct_ident::new();
                 &TABLE
             },
@@ -206,23 +207,23 @@ pub(crate) fn generate_column_definitions<'a>(
 
         let sql_column_impl = generate_sql_column(
             &zst_ident,
-            quote! {#struct_ident},
-            quote! {#sqlite_schema_type},
-            foreign_keys_type,
-            quote! {#rust_type},
-            quote! { #is_primary },
-            quote! { #is_not_null || #is_primary },
-            quote! { #is_unique },
-            quote! {#default_const},
-            quote! {#default_fn_body},
+            &quote! {#struct_ident},
+            &quote! {#sqlite_schema_type},
+            &foreign_keys_type,
+            &quote! {#rust_type},
+            &quote! { #is_primary },
+            &quote! { #is_not_null || #is_primary },
+            &quote! { #is_unique },
+            &quote! {#default_const},
+            &quote! {#default_fn_body},
         );
 
         // Generate Expr trait implementation for type-safe expressions
         let expr_impl = generate_expr_impl(
             &zst_ident,
-            sqlite_value.clone(),
-            sql_type_marker.clone(),
-            sql_nullable_marker.clone(),
+            &sqlite_value,
+            &sql_type_marker,
+            &sql_nullable_marker,
         );
 
         // Generate arithmetic operators for numeric columns
@@ -237,8 +238,8 @@ pub(crate) fn generate_column_definitions<'a>(
             quote! {}
         };
 
-        let sqlite_column_impl = generate_sqlite_column(&zst_ident, quote! { #is_autoincrement });
-        let to_sql_impl = generate_to_sql(&zst_ident, to_sql_body);
+        let sqlite_column_impl = generate_sqlite_column(&zst_ident, &quote! { #is_autoincrement });
+        let to_sql_impl = generate_to_sql(&zst_ident, &to_sql_body);
 
         // Generate marker const using original tokens for IDE documentation
         let marker_const = generate_marker_const(info, &zst_ident);
@@ -307,10 +308,7 @@ pub(crate) fn generate_column_definitions<'a>(
 
 /// Generates the `impl` block on the table struct for individual column access.
 /// E.g., `impl User { pub const id: UserId = UserId; }`
-pub(crate) fn generate_column_accessors(
-    ctx: &MacroContext,
-    column_zst_idents: &[Ident],
-) -> Result<TokenStream> {
+pub fn generate_column_accessors(ctx: &MacroContext, column_zst_idents: &[Ident]) -> TokenStream {
     let MacroContext {
         struct_ident,
         field_infos,
@@ -336,7 +334,7 @@ pub(crate) fn generate_column_accessors(
             }
         });
 
-    Ok(quote! {
+    quote! {
         #[allow(non_upper_case_globals)]
         impl #struct_ident {
             pub const fn new() -> Self {
@@ -346,14 +344,11 @@ pub(crate) fn generate_column_accessors(
             }
             #(#const_defs)*
         }
-    })
+    }
 }
 
 /// Generates the column fields for the table struct.
-pub(crate) fn generate_column_fields(
-    ctx: &MacroContext,
-    column_zst_idents: &[Ident],
-) -> Result<TokenStream> {
+pub fn generate_column_fields(ctx: &MacroContext, column_zst_idents: &[Ident]) -> TokenStream {
     let const_defs =
         ctx.field_infos
             .iter()
@@ -365,7 +360,7 @@ pub(crate) fn generate_column_fields(
                 }
             });
 
-    Ok(quote! {
+    quote! {
         #(#const_defs,)*
-    })
+    }
 }

@@ -7,17 +7,17 @@ pub use drizzle_types::Dialect;
 // Type-level dialect markers
 // =============================================================================
 
-/// Type-level marker for SQLite.
+/// Type-level marker for `SQLite`.
 ///
 /// Used by [`crate::row::SQLTypeToRust`] to provide SQLite-specific type mappings.
-/// SQLite stores dates, UUIDs, and JSON as TEXT, so String fallbacks are always available.
+/// `SQLite` stores dates, UUIDs, and JSON as TEXT, so String fallbacks are always available.
 #[derive(Debug, Clone, Copy)]
 pub struct SQLiteDialect;
 
-/// Type-level marker for PostgreSQL.
+/// Type-level marker for `PostgreSQL`.
 ///
 /// Used by [`crate::row::SQLTypeToRust`] to provide PostgreSQL-specific type mappings.
-/// PostgreSQL uses native binary formats for dates, UUIDs, and JSON, so the corresponding
+/// `PostgreSQL` uses native binary formats for dates, UUIDs, and JSON, so the corresponding
 /// feature flags (`chrono`, `uuid`, `serde`) must be enabled.
 #[derive(Debug, Clone, Copy)]
 pub struct PostgresDialect;
@@ -98,9 +98,9 @@ impl DialectTypes for PostgresDialect {
 /// style without duplicating the whole dialect plumbing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParamStyle {
-    /// `$1, $2, ...` — PostgreSQL native wire protocol.
+    /// `$1, $2, ...` — `PostgreSQL` native wire protocol.
     DollarNumbered,
-    /// `?` — SQLite / MySQL positional.
+    /// `?` — `SQLite` / `MySQL` positional.
     Question,
     /// `:1, :2, ...` — AWS Aurora Data API (and drizzle-orm TS driver).
     ///
@@ -113,10 +113,11 @@ impl ParamStyle {
     /// Default placeholder style for a given dialect when the driver hasn't
     /// overridden it.
     #[inline]
+    #[must_use]
     pub const fn for_dialect(dialect: Dialect) -> Self {
         match dialect {
-            Dialect::PostgreSQL => ParamStyle::DollarNumbered,
-            Dialect::SQLite | Dialect::MySQL => ParamStyle::Question,
+            Dialect::PostgreSQL => Self::DollarNumbered,
+            Dialect::SQLite | Dialect::MySQL => Self::Question,
         }
     }
 
@@ -124,15 +125,15 @@ impl ParamStyle {
     #[inline]
     pub fn write(self, index: usize, buf: &mut impl core::fmt::Write) {
         match self {
-            ParamStyle::DollarNumbered => {
+            Self::DollarNumbered => {
                 let _ = buf.write_char('$');
-                let _ = write!(buf, "{}", index);
+                let _ = write!(buf, "{index}");
             }
-            ParamStyle::ColonNumbered => {
+            Self::ColonNumbered => {
                 let _ = buf.write_char(':');
-                let _ = write!(buf, "{}", index);
+                let _ = write!(buf, "{index}");
             }
-            ParamStyle::Question => {
+            Self::Question => {
                 let _ = buf.write_char('?');
             }
         }
@@ -145,5 +146,5 @@ impl ParamStyle {
 /// as a free function for existing call sites that don't need a style override.
 #[inline]
 pub fn write_placeholder(dialect: Dialect, index: usize, buf: &mut impl core::fmt::Write) {
-    ParamStyle::for_dialect(dialect).write(index, buf)
+    ParamStyle::for_dialect(dialect).write(index, buf);
 }

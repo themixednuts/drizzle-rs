@@ -1,8 +1,8 @@
-//! SQLite PRAGMA statements for database configuration and introspection
+//! `SQLite` PRAGMA statements for database configuration and introspection
 //!
-//! This module provides type-safe, ergonomic access to SQLite's PRAGMA statements.
-//! PRAGMA statements are SQL extension specific to SQLite and are used to modify
-//! the operation of the SQLite library or to query the SQLite library for internal
+//! This module provides type-safe, ergonomic access to `SQLite`'s PRAGMA statements.
+//! PRAGMA statements are SQL extension specific to `SQLite` and are used to modify
+//! the operation of the `SQLite` library or to query the `SQLite` library for internal
 //! (non-table) data.
 //!
 //! [SQLite PRAGMA Documentation](https://sqlite.org/pragma.html)
@@ -11,8 +11,8 @@
 //!
 //! - **Type Safety**: Enums for all pragma values (no string literals needed)
 //! - **Ergonomic API**: Uses `&'static str` instead of `String` - no `.to_string()` calls
-//! - **Documentation Links**: Each pragma links to official SQLite documentation
-//! - **ToSQL Integration**: Seamless integration with the query builder
+//! - **Documentation Links**: Each pragma links to official `SQLite` documentation
+//! - **`ToSQL` Integration**: Seamless integration with the query builder
 //!
 //! ## Categories
 //!
@@ -48,10 +48,10 @@ use crate::prelude::*;
 use crate::values::SQLiteValue;
 use drizzle_core::{SQL, ToSQL};
 
-/// Auto-vacuum modes for SQLite databases
+/// Auto-vacuum modes for `SQLite` databases
 ///
 /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_auto_vacuum)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AutoVacuum {
     /// Disable auto-vacuum
     ///
@@ -84,10 +84,10 @@ pub enum AutoVacuum {
     Incremental,
 }
 
-/// Journal modes for SQLite databases
+/// Journal modes for `SQLite` databases
 ///
 /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_journal_mode)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JournalMode {
     /// Delete journal file after each transaction
     ///
@@ -150,10 +150,10 @@ pub enum JournalMode {
     Off,
 }
 
-/// Synchronous modes for SQLite databases
+/// Synchronous modes for `SQLite` databases
 ///
 /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_synchronous)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Synchronous {
     /// No syncing - fastest but least safe
     ///
@@ -199,7 +199,7 @@ pub enum Synchronous {
 /// Storage modes for temporary tables and indices
 ///
 /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_temp_store)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TempStore {
     /// Use default storage mode
     ///
@@ -235,7 +235,7 @@ pub enum TempStore {
 /// Database locking modes
 ///
 /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_locking_mode)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LockingMode {
     /// Normal locking mode - allows multiple readers
     ///
@@ -258,10 +258,10 @@ pub enum LockingMode {
     Exclusive,
 }
 
-/// Secure delete modes for SQLite
+/// Secure delete modes for `SQLite`
 ///
 /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_secure_delete)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SecureDelete {
     /// Disable secure delete
     ///
@@ -294,10 +294,10 @@ pub enum SecureDelete {
     Fast,
 }
 
-/// Encoding types for SQLite databases
+/// Encoding types for `SQLite` databases
 ///
 /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_encoding)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Encoding {
     /// UTF-8 encoding
     ///
@@ -330,10 +330,10 @@ pub enum Encoding {
     Utf16Be,
 }
 
-/// Cache spill settings for SQLite databases
+/// Cache spill settings for `SQLite` databases
 ///
 /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_cache_spill)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CacheSpill {
     /// Enable or disable cache spilling
     ///
@@ -361,7 +361,7 @@ pub enum CacheSpill {
 /// WAL checkpoint modes
 ///
 /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_wal_checkpoint)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WalCheckpointMode {
     /// Passive checkpoint
     Passive,
@@ -378,16 +378,16 @@ pub enum WalCheckpointMode {
 /// Writable schema modes (test-only)
 ///
 /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_writable_schema)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WritableSchema {
     /// Enable or disable writable schema mode
     Enabled(bool),
-    /// Reset the writable_schema setting
+    /// Reset the `writable_schema` setting
     Reset,
 }
 
-/// SQLite pragma statements for database configuration and introspection
-#[derive(Debug, Clone, PartialEq)]
+/// `SQLite` pragma statements for database configuration and introspection
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pragma {
     // Read/Write Configuration Pragmas
     /// Set or query the 32-bit signed big-endian application ID
@@ -471,7 +471,7 @@ pub enum Pragma {
     /// ```
     WalAutocheckpoint(i32),
 
-    /// Control how aggressively SQLite will write data
+    /// Control how aggressively `SQLite` will write data
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_synchronous)
     ///
@@ -608,7 +608,7 @@ pub enum Pragma {
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_cache_spill)
     CacheSpill(CacheSpill),
 
-    /// Query or set case_sensitive_like (deprecated)
+    /// Query or set `case_sensitive_like` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_case_sensitive_like)
     CaseSensitiveLike(bool),
@@ -623,32 +623,32 @@ pub enum Pragma {
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_checkpoint_fullfsync)
     CheckpointFullFsync(bool),
 
-    /// Query or set count_changes (deprecated)
+    /// Query or set `count_changes` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_count_changes)
     CountChanges(bool),
 
-    /// Query or set data_store_directory (deprecated)
+    /// Query or set `data_store_directory` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_data_store_directory)
     DataStoreDirectory(&'static str),
 
-    /// Query or set default_cache_size (deprecated)
+    /// Query or set `default_cache_size` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_default_cache_size)
     DefaultCacheSize(i32),
 
-    /// Query or set defer_foreign_keys
+    /// Query or set `defer_foreign_keys`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_defer_foreign_keys)
     DeferForeignKeys(bool),
 
-    /// Query or set empty_result_callbacks (deprecated)
+    /// Query or set `empty_result_callbacks` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_empty_result_callbacks)
     EmptyResultCallbacks(bool),
 
-    /// Query or set full_column_names (deprecated)
+    /// Query or set `full_column_names` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_full_column_names)
     FullColumnNames(bool),
@@ -658,67 +658,67 @@ pub enum Pragma {
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_fullfsync)
     FullFsync(bool),
 
-    /// Query or set hard_heap_limit
+    /// Query or set `hard_heap_limit`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_hard_heap_limit)
     HardHeapLimit(i64),
 
-    /// Query or set ignore_check_constraints
+    /// Query or set `ignore_check_constraints`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_ignore_check_constraints)
     IgnoreCheckConstraints(bool),
 
-    /// Query or set journal_size_limit
+    /// Query or set `journal_size_limit`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_journal_size_limit)
     JournalSizeLimit(i64),
 
-    /// Query or set legacy_alter_table
+    /// Query or set `legacy_alter_table`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_legacy_alter_table)
     LegacyAlterTable(bool),
 
-    /// Query legacy_file_format (deprecated)
+    /// Query `legacy_file_format` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_legacy_file_format)
     LegacyFileFormat,
 
-    /// Query or set max_page_count
+    /// Query or set `max_page_count`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_max_page_count)
     MaxPageCount(i32),
 
-    /// Query or set query_only
+    /// Query or set `query_only`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_query_only)
     QueryOnly(bool),
 
-    /// Query or set read_uncommitted
+    /// Query or set `read_uncommitted`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_read_uncommitted)
     ReadUncommitted(bool),
 
-    /// Query or set reverse_unordered_selects
+    /// Query or set `reverse_unordered_selects`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_reverse_unordered_selects)
     ReverseUnorderedSelects(bool),
 
-    /// Query or set schema_version (test-only)
+    /// Query or set `schema_version` (test-only)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_schema_version)
     SchemaVersion(i32),
 
-    /// Query or set short_column_names (deprecated)
+    /// Query or set `short_column_names` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_short_column_names)
     ShortColumnNames(bool),
 
-    /// Query or set soft_heap_limit
+    /// Query or set `soft_heap_limit`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_soft_heap_limit)
     SoftHeapLimit(i64),
 
-    /// Query or set temp_store_directory (deprecated)
+    /// Query or set `temp_store_directory` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_temp_store_directory)
     TempStoreDirectory(&'static str),
@@ -728,37 +728,37 @@ pub enum Pragma {
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_threads)
     Threads(i32),
 
-    /// Query or set trusted_schema
+    /// Query or set `trusted_schema`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_trusted_schema)
     TrustedSchema(bool),
 
-    /// Query or set writable_schema (test-only)
+    /// Query or set `writable_schema` (test-only)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_writable_schema)
     WritableSchema(WritableSchema),
 
-    /// Query or set parser_trace (requires SQLITE_DEBUG)
+    /// Query or set `parser_trace` (requires `SQLITE_DEBUG`)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_parser_trace)
     ParserTrace(bool),
 
-    /// Query or set vdbe_addoptrace (requires SQLITE_DEBUG)
+    /// Query or set `vdbe_addoptrace` (requires `SQLITE_DEBUG`)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_vdbe_addoptrace)
     VdbeAddoptrace(bool),
 
-    /// Query or set vdbe_debug (requires SQLITE_DEBUG)
+    /// Query or set `vdbe_debug` (requires `SQLITE_DEBUG`)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_vdbe_debug)
     VdbeDebug(bool),
 
-    /// Query or set vdbe_listing (requires SQLITE_DEBUG)
+    /// Query or set `vdbe_listing` (requires `SQLITE_DEBUG`)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_vdbe_listing)
     VdbeListing(bool),
 
-    /// Query or set vdbe_trace (requires SQLITE_DEBUG)
+    /// Query or set `vdbe_trace` (requires `SQLITE_DEBUG`)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_vdbe_trace)
     VdbeTrace(bool),
@@ -777,7 +777,7 @@ pub enum Pragma {
     /// ```
     CollationList,
 
-    /// Return compile-time options used when building SQLite
+    /// Return compile-time options used when building `SQLite`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_compile_options)
     ///
@@ -855,7 +855,7 @@ pub enum Pragma {
     /// ```
     ModuleList,
 
-    /// Return the data_version counter
+    /// Return the `data_version` counter
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_data_version)
     DataVersion,
@@ -1024,9 +1024,9 @@ pub enum Pragma {
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for AutoVacuum {
     fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
-            AutoVacuum::None => SQL::raw("NONE"),
-            AutoVacuum::Full => SQL::raw("FULL"),
-            AutoVacuum::Incremental => SQL::raw("INCREMENTAL"),
+            Self::None => SQL::raw("NONE"),
+            Self::Full => SQL::raw("FULL"),
+            Self::Incremental => SQL::raw("INCREMENTAL"),
         }
     }
 }
@@ -1034,12 +1034,12 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for AutoVacuum {
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for JournalMode {
     fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
-            JournalMode::Delete => SQL::raw("DELETE"),
-            JournalMode::Truncate => SQL::raw("TRUNCATE"),
-            JournalMode::Persist => SQL::raw("PERSIST"),
-            JournalMode::Memory => SQL::raw("MEMORY"),
-            JournalMode::Wal => SQL::raw("WAL"),
-            JournalMode::Off => SQL::raw("OFF"),
+            Self::Delete => SQL::raw("DELETE"),
+            Self::Truncate => SQL::raw("TRUNCATE"),
+            Self::Persist => SQL::raw("PERSIST"),
+            Self::Memory => SQL::raw("MEMORY"),
+            Self::Wal => SQL::raw("WAL"),
+            Self::Off => SQL::raw("OFF"),
         }
     }
 }
@@ -1047,10 +1047,10 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for JournalMode {
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for Synchronous {
     fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
-            Synchronous::Off => SQL::raw("OFF"),
-            Synchronous::Normal => SQL::raw("NORMAL"),
-            Synchronous::Full => SQL::raw("FULL"),
-            Synchronous::Extra => SQL::raw("EXTRA"),
+            Self::Off => SQL::raw("OFF"),
+            Self::Normal => SQL::raw("NORMAL"),
+            Self::Full => SQL::raw("FULL"),
+            Self::Extra => SQL::raw("EXTRA"),
         }
     }
 }
@@ -1058,9 +1058,9 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for Synchronous {
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for TempStore {
     fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
-            TempStore::Default => SQL::raw("DEFAULT"),
-            TempStore::File => SQL::raw("FILE"),
-            TempStore::Memory => SQL::raw("MEMORY"),
+            Self::Default => SQL::raw("DEFAULT"),
+            Self::File => SQL::raw("FILE"),
+            Self::Memory => SQL::raw("MEMORY"),
         }
     }
 }
@@ -1068,8 +1068,8 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for TempStore {
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for LockingMode {
     fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
-            LockingMode::Normal => SQL::raw("NORMAL"),
-            LockingMode::Exclusive => SQL::raw("EXCLUSIVE"),
+            Self::Normal => SQL::raw("NORMAL"),
+            Self::Exclusive => SQL::raw("EXCLUSIVE"),
         }
     }
 }
@@ -1077,9 +1077,9 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for LockingMode {
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for SecureDelete {
     fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
-            SecureDelete::Off => SQL::raw("OFF"),
-            SecureDelete::On => SQL::raw("ON"),
-            SecureDelete::Fast => SQL::raw("FAST"),
+            Self::Off => SQL::raw("OFF"),
+            Self::On => SQL::raw("ON"),
+            Self::Fast => SQL::raw("FAST"),
         }
     }
 }
@@ -1087,9 +1087,9 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for SecureDelete {
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for Encoding {
     fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
-            Encoding::Utf8 => SQL::raw("UTF-8"),
-            Encoding::Utf16Le => SQL::raw("UTF-16LE"),
-            Encoding::Utf16Be => SQL::raw("UTF-16BE"),
+            Self::Utf8 => SQL::raw("UTF-8"),
+            Self::Utf16Le => SQL::raw("UTF-16LE"),
+            Self::Utf16Be => SQL::raw("UTF-16BE"),
         }
     }
 }
@@ -1097,8 +1097,8 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for Encoding {
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for CacheSpill {
     fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
-            CacheSpill::Enabled(enabled) => SQL::raw(if *enabled { "ON" } else { "OFF" }),
-            CacheSpill::Pages(pages) => SQL::raw(format!("{}", pages)),
+            Self::Enabled(enabled) => SQL::raw(if *enabled { "ON" } else { "OFF" }),
+            Self::Pages(pages) => SQL::raw(format!("{pages}")),
         }
     }
 }
@@ -1106,11 +1106,11 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for CacheSpill {
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for WalCheckpointMode {
     fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
-            WalCheckpointMode::Passive => SQL::raw("PASSIVE"),
-            WalCheckpointMode::Full => SQL::raw("FULL"),
-            WalCheckpointMode::Restart => SQL::raw("RESTART"),
-            WalCheckpointMode::Truncate => SQL::raw("TRUNCATE"),
-            WalCheckpointMode::Noop => SQL::raw("NOOP"),
+            Self::Passive => SQL::raw("PASSIVE"),
+            Self::Full => SQL::raw("FULL"),
+            Self::Restart => SQL::raw("RESTART"),
+            Self::Truncate => SQL::raw("TRUNCATE"),
+            Self::Noop => SQL::raw("NOOP"),
         }
     }
 }
@@ -1118,224 +1118,218 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for WalCheckpointMode {
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for WritableSchema {
     fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
         match self {
-            WritableSchema::Enabled(enabled) => SQL::raw(if *enabled { "ON" } else { "OFF" }),
-            WritableSchema::Reset => SQL::raw("RESET"),
+            Self::Enabled(enabled) => SQL::raw(if *enabled { "ON" } else { "OFF" }),
+            Self::Reset => SQL::raw("RESET"),
         }
+    }
+}
+
+fn bool_pragma<'a>(name: &str, enabled: bool) -> SQL<'a, SQLiteValue<'a>> {
+    let suffix = if enabled { "ON" } else { "OFF" };
+    SQL::raw(format!("PRAGMA {name} = {suffix}"))
+}
+
+/// Handles the utility pragmas where the argument is `Option<T>`.
+fn utility_pragma<'a>(pragma: &Pragma) -> Option<SQL<'a, SQLiteValue<'a>>> {
+    match pragma {
+        Pragma::IncrementalVacuum(pages) => Some(pages.as_ref().map_or_else(
+            || SQL::raw("PRAGMA incremental_vacuum"),
+            |count| SQL::raw(format!("PRAGMA incremental_vacuum({count})")),
+        )),
+        Pragma::ShrinkMemory => Some(SQL::raw("PRAGMA shrink_memory")),
+        Pragma::WalCheckpoint(mode) => Some(mode.as_ref().map_or_else(
+            || SQL::raw("PRAGMA wal_checkpoint"),
+            |m| SQL::raw("PRAGMA wal_checkpoint = ").append(m.to_sql()),
+        )),
+        Pragma::IntegrityCheck(table) => Some(table.as_ref().map_or_else(
+            || SQL::raw("PRAGMA integrity_check"),
+            |t| SQL::raw(format!("PRAGMA integrity_check({t})")),
+        )),
+        Pragma::QuickCheck(table) => Some(table.as_ref().map_or_else(
+            || SQL::raw("PRAGMA quick_check"),
+            |t| SQL::raw(format!("PRAGMA quick_check({t})")),
+        )),
+        Pragma::Optimize(mask) => Some(mask.as_ref().map_or_else(
+            || SQL::raw("PRAGMA optimize"),
+            |m| SQL::raw(format!("PRAGMA optimize({m})")),
+        )),
+        Pragma::ForeignKeyCheck(table) => Some(table.as_ref().map_or_else(
+            || SQL::raw("PRAGMA foreign_key_check"),
+            |t| SQL::raw(format!("PRAGMA foreign_key_check({t})")),
+        )),
+        _ => None,
     }
 }
 
 impl<'a> ToSQL<'a, SQLiteValue<'a>> for Pragma {
     fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
+        if let Some(sql) = utility_pragma(self) {
+            return sql;
+        }
         match self {
             // Read/Write Configuration Pragmas
-            Pragma::ApplicationId(id) => SQL::raw(format!("PRAGMA application_id = {}", id)),
-            Pragma::AutoVacuum(mode) => SQL::raw("PRAGMA auto_vacuum = ").append(mode.to_sql()),
-            Pragma::CacheSize(size) => SQL::raw(format!("PRAGMA cache_size = {}", size)),
-            Pragma::ForeignKeys(enabled) => SQL::raw("PRAGMA foreign_keys = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::JournalMode(mode) => SQL::raw("PRAGMA journal_mode = ").append(mode.to_sql()),
-            Pragma::Synchronous(mode) => SQL::raw("PRAGMA synchronous = ").append(mode.to_sql()),
-            Pragma::WalAutocheckpoint(pages) => {
-                SQL::raw(format!("PRAGMA wal_autocheckpoint = {}", pages))
+            Self::ApplicationId(id) => SQL::raw(format!("PRAGMA application_id = {id}")),
+            Self::AutoVacuum(mode) => SQL::raw("PRAGMA auto_vacuum = ").append(mode.to_sql()),
+            Self::CacheSize(size) => SQL::raw(format!("PRAGMA cache_size = {size}")),
+            Self::ForeignKeys(enabled) => bool_pragma("foreign_keys", *enabled),
+            Self::JournalMode(mode) => SQL::raw("PRAGMA journal_mode = ").append(mode.to_sql()),
+            Self::Synchronous(mode) => SQL::raw("PRAGMA synchronous = ").append(mode.to_sql()),
+            Self::WalAutocheckpoint(pages) => {
+                SQL::raw(format!("PRAGMA wal_autocheckpoint = {pages}"))
             }
-            Pragma::TempStore(store) => SQL::raw("PRAGMA temp_store = ").append(store.to_sql()),
-            Pragma::LockingMode(mode) => SQL::raw("PRAGMA locking_mode = ").append(mode.to_sql()),
-            Pragma::SecureDelete(mode) => SQL::raw("PRAGMA secure_delete = ").append(mode.to_sql()),
-            Pragma::UserVersion(version) => SQL::raw(format!("PRAGMA user_version = {}", version)),
-            Pragma::Encoding(encoding) => SQL::raw("PRAGMA encoding = ").append(encoding.to_sql()),
-            Pragma::PageSize(size) => SQL::raw(format!("PRAGMA page_size = {}", size)),
-            Pragma::MmapSize(size) => SQL::raw(format!("PRAGMA mmap_size = {}", size)),
-            Pragma::RecursiveTriggers(enabled) => SQL::raw("PRAGMA recursive_triggers = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::AnalysisLimit(limit) => SQL::raw(format!("PRAGMA analysis_limit = {}", limit)),
-            Pragma::AutomaticIndex(enabled) => SQL::raw("PRAGMA automatic_index = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::BusyTimeout(timeout) => SQL::raw(format!("PRAGMA busy_timeout = {}", timeout)),
-            Pragma::CacheSpill(setting) => {
-                SQL::raw("PRAGMA cache_spill = ").append(setting.to_sql())
+            Self::TempStore(store) => SQL::raw("PRAGMA temp_store = ").append(store.to_sql()),
+            Self::LockingMode(mode) => SQL::raw("PRAGMA locking_mode = ").append(mode.to_sql()),
+            Self::SecureDelete(mode) => SQL::raw("PRAGMA secure_delete = ").append(mode.to_sql()),
+            Self::UserVersion(version) => SQL::raw(format!("PRAGMA user_version = {version}")),
+            Self::Encoding(encoding) => SQL::raw("PRAGMA encoding = ").append(encoding.to_sql()),
+            Self::PageSize(size) => SQL::raw(format!("PRAGMA page_size = {size}")),
+            Self::MmapSize(size) => SQL::raw(format!("PRAGMA mmap_size = {size}")),
+            Self::RecursiveTriggers(enabled) => bool_pragma("recursive_triggers", *enabled),
+            Self::AnalysisLimit(limit) => SQL::raw(format!("PRAGMA analysis_limit = {limit}")),
+            Self::AutomaticIndex(enabled) => bool_pragma("automatic_index", *enabled),
+            Self::BusyTimeout(timeout) => SQL::raw(format!("PRAGMA busy_timeout = {timeout}")),
+            Self::CacheSpill(setting) => SQL::raw("PRAGMA cache_spill = ").append(setting.to_sql()),
+            Self::CaseSensitiveLike(enabled) => bool_pragma("case_sensitive_like", *enabled),
+            Self::CellSizeCheck(enabled) => bool_pragma("cell_size_check", *enabled),
+            Self::CheckpointFullFsync(enabled) => bool_pragma("checkpoint_fullfsync", *enabled),
+            Self::CountChanges(enabled) => bool_pragma("count_changes", *enabled),
+            Self::DataStoreDirectory(directory) => {
+                SQL::raw(format!("PRAGMA data_store_directory = '{directory}'"))
             }
-            Pragma::CaseSensitiveLike(enabled) => SQL::raw("PRAGMA case_sensitive_like = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::CellSizeCheck(enabled) => SQL::raw("PRAGMA cell_size_check = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::CheckpointFullFsync(enabled) => SQL::raw("PRAGMA checkpoint_fullfsync = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::CountChanges(enabled) => SQL::raw("PRAGMA count_changes = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::DataStoreDirectory(directory) => {
-                SQL::raw(format!("PRAGMA data_store_directory = '{}'", directory))
+            Self::DefaultCacheSize(size) => SQL::raw(format!("PRAGMA default_cache_size = {size}")),
+            Self::DeferForeignKeys(enabled) => bool_pragma("defer_foreign_keys", *enabled),
+            Self::EmptyResultCallbacks(enabled) => bool_pragma("empty_result_callbacks", *enabled),
+            Self::FullColumnNames(enabled) => bool_pragma("full_column_names", *enabled),
+            Self::FullFsync(enabled) => bool_pragma("fullfsync", *enabled),
+            Self::HardHeapLimit(limit) => SQL::raw(format!("PRAGMA hard_heap_limit = {limit}")),
+            Self::IgnoreCheckConstraints(enabled) => {
+                bool_pragma("ignore_check_constraints", *enabled)
             }
-            Pragma::DefaultCacheSize(size) => {
-                SQL::raw(format!("PRAGMA default_cache_size = {}", size))
+            Self::JournalSizeLimit(limit) => {
+                SQL::raw(format!("PRAGMA journal_size_limit = {limit}"))
             }
-            Pragma::DeferForeignKeys(enabled) => SQL::raw("PRAGMA defer_foreign_keys = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::EmptyResultCallbacks(enabled) => SQL::raw("PRAGMA empty_result_callbacks = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::FullColumnNames(enabled) => SQL::raw("PRAGMA full_column_names = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::FullFsync(enabled) => SQL::raw("PRAGMA fullfsync = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::HardHeapLimit(limit) => SQL::raw(format!("PRAGMA hard_heap_limit = {}", limit)),
-            Pragma::IgnoreCheckConstraints(enabled) => {
-                SQL::raw("PRAGMA ignore_check_constraints = ").append(SQL::raw(if *enabled {
-                    "ON"
-                } else {
-                    "OFF"
-                }))
+            Self::LegacyAlterTable(enabled) => bool_pragma("legacy_alter_table", *enabled),
+            Self::LegacyFileFormat => SQL::raw("PRAGMA legacy_file_format"),
+            Self::MaxPageCount(count) => SQL::raw(format!("PRAGMA max_page_count = {count}")),
+            Self::QueryOnly(enabled) => bool_pragma("query_only", *enabled),
+            Self::ReadUncommitted(enabled) => bool_pragma("read_uncommitted", *enabled),
+            Self::ReverseUnorderedSelects(enabled) => {
+                bool_pragma("reverse_unordered_selects", *enabled)
             }
-            Pragma::JournalSizeLimit(limit) => {
-                SQL::raw(format!("PRAGMA journal_size_limit = {}", limit))
+            Self::SchemaVersion(version) => SQL::raw(format!("PRAGMA schema_version = {version}")),
+            Self::ShortColumnNames(enabled) => bool_pragma("short_column_names", *enabled),
+            Self::SoftHeapLimit(limit) => SQL::raw(format!("PRAGMA soft_heap_limit = {limit}")),
+            Self::TempStoreDirectory(directory) => {
+                SQL::raw(format!("PRAGMA temp_store_directory = '{directory}'"))
             }
-            Pragma::LegacyAlterTable(enabled) => SQL::raw("PRAGMA legacy_alter_table = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::LegacyFileFormat => SQL::raw("PRAGMA legacy_file_format"),
-            Pragma::MaxPageCount(count) => SQL::raw(format!("PRAGMA max_page_count = {}", count)),
-            Pragma::QueryOnly(enabled) => SQL::raw("PRAGMA query_only = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::ReadUncommitted(enabled) => SQL::raw("PRAGMA read_uncommitted = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::ReverseUnorderedSelects(enabled) => {
-                SQL::raw("PRAGMA reverse_unordered_selects = ").append(SQL::raw(if *enabled {
-                    "ON"
-                } else {
-                    "OFF"
-                }))
-            }
-            Pragma::SchemaVersion(version) => {
-                SQL::raw(format!("PRAGMA schema_version = {}", version))
-            }
-            Pragma::ShortColumnNames(enabled) => SQL::raw("PRAGMA short_column_names = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::SoftHeapLimit(limit) => SQL::raw(format!("PRAGMA soft_heap_limit = {}", limit)),
-            Pragma::TempStoreDirectory(directory) => {
-                SQL::raw(format!("PRAGMA temp_store_directory = '{}'", directory))
-            }
-            Pragma::Threads(threads) => SQL::raw(format!("PRAGMA threads = {}", threads)),
-            Pragma::TrustedSchema(enabled) => SQL::raw("PRAGMA trusted_schema = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::WritableSchema(mode) => {
+            Self::Threads(threads) => SQL::raw(format!("PRAGMA threads = {threads}")),
+            Self::TrustedSchema(enabled) => bool_pragma("trusted_schema", *enabled),
+            Self::WritableSchema(mode) => {
                 SQL::raw("PRAGMA writable_schema = ").append(mode.to_sql())
             }
-            Pragma::ParserTrace(enabled) => SQL::raw("PRAGMA parser_trace = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::VdbeAddoptrace(enabled) => SQL::raw("PRAGMA vdbe_addoptrace = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::VdbeDebug(enabled) => SQL::raw("PRAGMA vdbe_debug = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::VdbeListing(enabled) => SQL::raw("PRAGMA vdbe_listing = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
-            Pragma::VdbeTrace(enabled) => SQL::raw("PRAGMA vdbe_trace = ")
-                .append(SQL::raw(if *enabled { "ON" } else { "OFF" })),
+            Self::ParserTrace(enabled) => bool_pragma("parser_trace", *enabled),
+            Self::VdbeAddoptrace(enabled) => bool_pragma("vdbe_addoptrace", *enabled),
+            Self::VdbeDebug(enabled) => bool_pragma("vdbe_debug", *enabled),
+            Self::VdbeListing(enabled) => bool_pragma("vdbe_listing", *enabled),
+            Self::VdbeTrace(enabled) => bool_pragma("vdbe_trace", *enabled),
 
             // Read-Only Query Pragmas
-            Pragma::CollationList => SQL::raw("PRAGMA collation_list"),
-            Pragma::CompileOptions => SQL::raw("PRAGMA compile_options"),
-            Pragma::DatabaseList => SQL::raw("PRAGMA database_list"),
-            Pragma::FunctionList => SQL::raw("PRAGMA function_list"),
-            Pragma::TableList => SQL::raw("PRAGMA table_list"),
-            Pragma::TableXInfo(table) => SQL::raw(format!("PRAGMA table_xinfo({})", table)),
-            Pragma::ModuleList => SQL::raw("PRAGMA module_list"),
-            Pragma::DataVersion => SQL::raw("PRAGMA data_version"),
-            Pragma::FreelistCount => SQL::raw("PRAGMA freelist_count"),
-            Pragma::PageCount => SQL::raw("PRAGMA page_count"),
-            Pragma::PragmaList => SQL::raw("PRAGMA pragma_list"),
-            Pragma::Stats => SQL::raw("PRAGMA stats"),
+            Self::CollationList => SQL::raw("PRAGMA collation_list"),
+            Self::CompileOptions => SQL::raw("PRAGMA compile_options"),
+            Self::DatabaseList => SQL::raw("PRAGMA database_list"),
+            Self::FunctionList => SQL::raw("PRAGMA function_list"),
+            Self::TableList => SQL::raw("PRAGMA table_list"),
+            Self::TableXInfo(table) => SQL::raw(format!("PRAGMA table_xinfo({table})")),
+            Self::ModuleList => SQL::raw("PRAGMA module_list"),
+            Self::DataVersion => SQL::raw("PRAGMA data_version"),
+            Self::FreelistCount => SQL::raw("PRAGMA freelist_count"),
+            Self::PageCount => SQL::raw("PRAGMA page_count"),
+            Self::PragmaList => SQL::raw("PRAGMA pragma_list"),
+            Self::Stats => SQL::raw("PRAGMA stats"),
 
-            // Utility Pragmas
-            Pragma::IncrementalVacuum(pages) => match pages {
-                Some(count) => SQL::raw(format!("PRAGMA incremental_vacuum({})", count)),
-                None => SQL::raw("PRAGMA incremental_vacuum"),
-            },
-            Pragma::ShrinkMemory => SQL::raw("PRAGMA shrink_memory"),
-            Pragma::WalCheckpoint(mode) => match mode {
-                Some(checkpoint_mode) => {
-                    SQL::raw("PRAGMA wal_checkpoint = ").append(checkpoint_mode.to_sql())
-                }
-                None => SQL::raw("PRAGMA wal_checkpoint"),
-            },
-            Pragma::IntegrityCheck(table) => match table {
-                Some(t) => SQL::raw(format!("PRAGMA integrity_check({})", t)),
-                None => SQL::raw("PRAGMA integrity_check"),
-            },
-            Pragma::QuickCheck(table) => match table {
-                Some(t) => SQL::raw(format!("PRAGMA quick_check({})", t)),
-                None => SQL::raw("PRAGMA quick_check"),
-            },
-            Pragma::Optimize(mask) => match mask {
-                Some(m) => SQL::raw(format!("PRAGMA optimize({})", m)),
-                None => SQL::raw("PRAGMA optimize"),
-            },
-            Pragma::ForeignKeyCheck(table) => match table {
-                Some(t) => SQL::raw(format!("PRAGMA foreign_key_check({})", t)),
-                None => SQL::raw("PRAGMA foreign_key_check"),
-            },
+            // Utility Pragmas are routed through `utility_pragma` above.
+            Self::IncrementalVacuum(_)
+            | Self::ShrinkMemory
+            | Self::WalCheckpoint(_)
+            | Self::IntegrityCheck(_)
+            | Self::QuickCheck(_)
+            | Self::Optimize(_)
+            | Self::ForeignKeyCheck(_) => unreachable!("routed via utility_pragma"),
 
             // Table-specific Pragmas
-            Pragma::TableInfo(table) => SQL::raw(format!("PRAGMA table_info({})", table)),
-            Pragma::IndexList(table) => SQL::raw(format!("PRAGMA index_list({})", table)),
-            Pragma::IndexInfo(index) => SQL::raw(format!("PRAGMA index_info({})", index)),
-            Pragma::IndexXInfo(index) => SQL::raw(format!("PRAGMA index_xinfo({})", index)),
-            Pragma::ForeignKeyList(table) => {
-                SQL::raw(format!("PRAGMA foreign_key_list({})", table))
-            }
+            Self::TableInfo(table) => SQL::raw(format!("PRAGMA table_info({table})")),
+            Self::IndexList(table) => SQL::raw(format!("PRAGMA index_list({table})")),
+            Self::IndexInfo(index) => SQL::raw(format!("PRAGMA index_info({index})")),
+            Self::IndexXInfo(index) => SQL::raw(format!("PRAGMA index_xinfo({index})")),
+            Self::ForeignKeyList(table) => SQL::raw(format!("PRAGMA foreign_key_list({table})")),
         }
     }
 }
 
 impl Pragma {
     /// Create a PRAGMA query to get the current value (read-only operation)
+    #[must_use]
     pub fn query(pragma_name: &str) -> SQL<'static, SQLiteValue<'static>> {
-        SQL::raw(format!("PRAGMA {}", pragma_name))
+        SQL::raw(format!("PRAGMA {pragma_name}"))
     }
 
-    /// Convenience constructor for foreign_keys pragma
-    pub fn foreign_keys(enabled: bool) -> Self {
+    /// Convenience constructor for `foreign_keys` pragma
+    #[must_use]
+    pub const fn foreign_keys(enabled: bool) -> Self {
         Self::ForeignKeys(enabled)
     }
 
-    /// Convenience constructor for journal_mode pragma
-    pub fn journal_mode(mode: JournalMode) -> Self {
+    /// Convenience constructor for `journal_mode` pragma
+    #[must_use]
+    pub const fn journal_mode(mode: JournalMode) -> Self {
         Self::JournalMode(mode)
     }
 
-    /// Convenience constructor for wal_autocheckpoint pragma
-    pub fn wal_autocheckpoint(pages: i32) -> Self {
+    /// Convenience constructor for `wal_autocheckpoint` pragma
+    #[must_use]
+    pub const fn wal_autocheckpoint(pages: i32) -> Self {
         Self::WalAutocheckpoint(pages)
     }
 
-    /// Convenience constructor for table_info pragma
-    pub fn table_info(table: &'static str) -> Self {
+    /// Convenience constructor for `table_info` pragma
+    #[must_use]
+    pub const fn table_info(table: &'static str) -> Self {
         Self::TableInfo(table)
     }
 
-    /// Convenience constructor for index_list pragma
-    pub fn index_list(table: &'static str) -> Self {
+    /// Convenience constructor for `index_list` pragma
+    #[must_use]
+    pub const fn index_list(table: &'static str) -> Self {
         Self::IndexList(table)
     }
 
-    /// Convenience constructor for foreign_key_list pragma
-    pub fn foreign_key_list(table: &'static str) -> Self {
+    /// Convenience constructor for `foreign_key_list` pragma
+    #[must_use]
+    pub const fn foreign_key_list(table: &'static str) -> Self {
         Self::ForeignKeyList(table)
     }
 
-    /// Convenience constructor for integrity_check pragma
-    pub fn integrity_check(table: Option<&'static str>) -> Self {
+    /// Convenience constructor for `integrity_check` pragma
+    #[must_use]
+    pub const fn integrity_check(table: Option<&'static str>) -> Self {
         Self::IntegrityCheck(table)
     }
 
-    /// Convenience constructor for foreign_key_check pragma
-    pub fn foreign_key_check(table: Option<&'static str>) -> Self {
+    /// Convenience constructor for `foreign_key_check` pragma
+    #[must_use]
+    pub const fn foreign_key_check(table: Option<&'static str>) -> Self {
         Self::ForeignKeyCheck(table)
     }
 
-    /// Convenience constructor for table_xinfo pragma
-    pub fn table_xinfo(table: &'static str) -> Self {
+    /// Convenience constructor for `table_xinfo` pragma
+    #[must_use]
+    pub const fn table_xinfo(table: &'static str) -> Self {
         Self::TableXInfo(table)
     }
 
     /// Convenience constructor for encoding pragma
-    pub fn encoding(encoding: Encoding) -> Self {
+    #[must_use]
+    pub const fn encoding(encoding: Encoding) -> Self {
         Self::Encoding(encoding)
     }
 }

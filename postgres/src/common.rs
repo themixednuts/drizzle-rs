@@ -13,7 +13,7 @@ pub enum PostgresSchemaType {
     Index(&'static dyn SQLIndexInfo),
     /// A trigger
     Trigger,
-    /// A database enum type (PostgreSQL)
+    /// A database enum type (`PostgreSQL`)
     Enum(&'static dyn SQLEnumInfo),
 }
 
@@ -50,12 +50,12 @@ impl From<f64> for Number {
     }
 }
 
-/// PostgreSQL transaction isolation levels
+/// `PostgreSQL` transaction isolation levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PostgresTransactionType {
     /// READ UNCOMMITTED isolation level
     ReadUncommitted,
-    /// READ COMMITTED isolation level (PostgreSQL default)
+    /// READ COMMITTED isolation level (`PostgreSQL` default)
     #[default]
     ReadCommitted,
     /// REPEATABLE READ isolation level
@@ -67,12 +67,12 @@ pub enum PostgresTransactionType {
 impl core::fmt::Display for PostgresTransactionType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let level = match self {
-            PostgresTransactionType::ReadUncommitted => "READ UNCOMMITTED",
-            PostgresTransactionType::ReadCommitted => "READ COMMITTED",
-            PostgresTransactionType::RepeatableRead => "REPEATABLE READ",
-            PostgresTransactionType::Serializable => "SERIALIZABLE",
+            Self::ReadUncommitted => "READ UNCOMMITTED",
+            Self::ReadCommitted => "READ COMMITTED",
+            Self::RepeatableRead => "REPEATABLE READ",
+            Self::Serializable => "SERIALIZABLE",
         };
-        write!(f, "{}", level)
+        write!(f, "{level}")
     }
 }
 

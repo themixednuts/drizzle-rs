@@ -1,6 +1,6 @@
 //! SQLite-specific SQL expressions and JSON helpers.
 //!
-//! This module provides SQLite dialect functions and JSON expressions.
+//! This module provides `SQLite` dialect functions and JSON expressions.
 //! For standard SQL expressions, use `drizzle_core::expr`.
 
 #[cfg(not(feature = "std"))]
@@ -8,17 +8,17 @@ use crate::prelude::*;
 use crate::values::SQLiteValue;
 use drizzle_core::{SQL, ToSQL};
 
-/// Wraps a value with the SQLite `json()` function, validating and returning JSON text.
+/// Wraps a value with the `SQLite` `json()` function, validating and returning JSON text.
 pub fn json<'a>(value: impl ToSQL<'a, SQLiteValue<'a>>) -> SQL<'a, SQLiteValue<'a>> {
     SQL::func("json", value.to_sql())
 }
 
-/// Wraps a value with the SQLite `jsonb()` function, validating and returning JSON in binary format.
+/// Wraps a value with the `SQLite` `jsonb()` function, validating and returning JSON in binary format.
 pub fn jsonb<'a>(value: impl ToSQL<'a, SQLiteValue<'a>>) -> SQL<'a, SQLiteValue<'a>> {
     SQL::func("jsonb", value.to_sql())
 }
 
-/// Create a JSON field equality condition using SQLite ->> operator
+/// Create a JSON field equality condition using `SQLite` ->> operator
 ///
 /// # Example
 /// ```
@@ -34,11 +34,11 @@ pub fn jsonb<'a>(value: impl ToSQL<'a, SQLiteValue<'a>>) -> SQL<'a, SQLiteValue<
 pub fn json_eq<'a, L, R>(left: L, field: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
-    R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
+    R: Into<SQLiteValue<'a>>,
 {
     left.to_sql()
-        .append(SQL::raw(format!("->>'{}' = ", field)))
-        .append(value.to_sql())
+        .append(SQL::raw(format!("->>'{field}' = ")))
+        .append(SQL::param(value.into()))
 }
 
 /// Create a JSON field inequality condition
@@ -57,14 +57,14 @@ where
 pub fn json_ne<'a, L, R>(left: L, field: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
-    R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
+    R: Into<SQLiteValue<'a>>,
 {
     left.to_sql()
-        .append(SQL::raw(format!("->>'{}' != ", field)))
-        .append(value.to_sql())
+        .append(SQL::raw(format!("->>'{field}' != ")))
+        .append(SQL::param(value.into()))
 }
 
-/// Create a JSON field contains condition using json_extract
+/// Create a JSON field contains condition using `json_extract`
 ///
 /// # Example
 /// ```
@@ -80,15 +80,15 @@ where
 pub fn json_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
-    R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
+    R: Into<SQLiteValue<'a>>,
 {
     SQL::raw("json_extract(")
         .append(left.to_sql())
-        .append(SQL::raw(format!(", '{}') = ", path)))
-        .append(value.to_sql())
+        .append(SQL::raw(format!(", '{path}') = ")))
+        .append(SQL::param(value.into()))
 }
 
-/// Create a JSON field exists condition using json_type
+/// Create a JSON field exists condition using `json_type`
 ///
 /// # Example
 /// ```
@@ -107,7 +107,7 @@ where
 {
     SQL::raw("json_type(")
         .append(left.to_sql())
-        .append(SQL::raw(format!(", '{}') IS NOT NULL", path)))
+        .append(SQL::raw(format!(", '{path}') IS NOT NULL")))
 }
 
 /// Create a JSON field does not exist condition
@@ -129,7 +129,7 @@ where
 {
     SQL::raw("json_type(")
         .append(left.to_sql())
-        .append(SQL::raw(format!(", '{}') IS NULL", path)))
+        .append(SQL::raw(format!(", '{path}') IS NULL")))
 }
 
 /// Create a JSON array contains value condition
@@ -151,12 +151,12 @@ where
 pub fn json_array_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
-    R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
+    R: Into<SQLiteValue<'a>>,
 {
     SQL::raw("EXISTS(SELECT 1 FROM json_each(")
         .append(left.to_sql())
-        .append(SQL::raw(format!(", '{}') WHERE value = ", path)))
-        .append(value.to_sql())
+        .append(SQL::raw(format!(", '{path}') WHERE value = ")))
+        .append(SQL::param(value.into()))
         .append(SQL::raw(")"))
 }
 
@@ -182,14 +182,14 @@ where
     L: ToSQL<'a, SQLiteValue<'a>>,
 {
     let full_path = if path.ends_with('$') || path.is_empty() {
-        format!("$.{}", key)
+        format!("$.{key}")
     } else {
-        format!("{}.{}", path, key)
+        format!("{path}.{key}")
     };
 
     SQL::raw("json_type(")
         .append(left.to_sql())
-        .append(SQL::raw(format!(", '{}') IS NOT NULL", full_path)))
+        .append(SQL::raw(format!(", '{full_path}') IS NOT NULL")))
 }
 
 /// Create a JSON text search condition using case-insensitive matching
@@ -211,12 +211,12 @@ where
 pub fn json_text_contains<'a, L, R>(left: L, path: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
-    R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
+    R: Into<SQLiteValue<'a>>,
 {
     SQL::raw("instr(lower(json_extract(")
         .append(left.to_sql())
-        .append(SQL::raw(format!(", '{}')), lower(", path)))
-        .append(value.to_sql())
+        .append(SQL::raw(format!(", '{path}')), lower(")))
+        .append(SQL::param(value.into()))
         .append(SQL::raw(")) > 0"))
 }
 
@@ -234,12 +234,12 @@ where
 pub fn json_gt<'a, L, R>(left: L, path: &'a str, value: R) -> SQL<'a, SQLiteValue<'a>>
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
-    R: Into<SQLiteValue<'a>> + ToSQL<'a, SQLiteValue<'a>>,
+    R: Into<SQLiteValue<'a>>,
 {
     SQL::raw("CAST(json_extract(")
         .append(left.to_sql())
-        .append(SQL::raw(format!(", '{}') AS NUMERIC) > ", path)))
-        .append(value.to_sql())
+        .append(SQL::raw(format!(", '{path}') AS NUMERIC) > ")))
+        .append(SQL::param(value.into()))
 }
 
 /// Helper function for JSON extraction using ->> operator
@@ -280,5 +280,5 @@ pub fn json_extract_text<'a, L>(left: L, path: &'a str) -> SQL<'a, SQLiteValue<'
 where
     L: ToSQL<'a, SQLiteValue<'a>>,
 {
-    left.to_sql().append(SQL::raw(format!("->'{}'", path)))
+    left.to_sql().append(SQL::raw(format!("->'{path}'")))
 }

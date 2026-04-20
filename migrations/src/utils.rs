@@ -1,6 +1,6 @@
 //! Common utilities for schema diffing and migration generation
 //!
-//! This module provides shared utilities used across SQLite and PostgreSQL dialects.
+//! This module provides shared utilities used across `SQLite` and `PostgreSQL` dialects.
 
 use std::collections::HashMap;
 
@@ -11,15 +11,17 @@ use std::collections::HashMap;
 const DICTIONARY: &[u8; 62] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 /// Generate a hash string from input, used for naming constraints
+#[must_use]
 pub fn hash(input: &str, len: usize) -> String {
     let dict_len = DICTIONARY.len() as u128;
-    let combinations_count = dict_len.pow(len as u32);
+    let len_u32 = u32::try_from(len).unwrap_or(u32::MAX);
+    let combinations_count = dict_len.pow(len_u32);
     let p: u128 = 53;
     let mut power: u128 = 1;
     let mut hash_val: u128 = 0;
 
     for ch in input.chars() {
-        let code = ch as u128;
+        let code = u128::from(u32::from(ch));
         hash_val = (hash_val + (code * power)) % combinations_count;
         power = (power * p) % combinations_count;
     }
@@ -28,7 +30,7 @@ pub fn hash(input: &str, len: usize) -> String {
     let mut index = hash_val;
 
     for _ in 0..len {
-        let idx = (index % dict_len) as usize;
+        let idx = usize::try_from(index % dict_len).unwrap_or(0);
         result.push(DICTIONARY[idx] as char);
         index /= dict_len;
     }
@@ -41,11 +43,13 @@ pub fn hash(input: &str, len: usize) -> String {
 // =============================================================================
 
 /// Trim a specific character from both ends of a string
+#[must_use]
 pub fn trim_char(s: &str, c: char) -> String {
     s.trim_start_matches(c).trim_end_matches(c).to_string()
 }
 
 /// Trim multiple characters from both ends of a string
+#[must_use]
 pub fn trim_chars(s: &str, chars: &[char]) -> String {
     let mut result = s.to_string();
     for c in chars {
@@ -58,6 +62,7 @@ pub fn trim_chars(s: &str, chars: &[char]) -> String {
 }
 
 /// Escape a string for SQL default value
+#[must_use]
 pub fn escape_for_sql_default(input: &str, mode: EscapeMode) -> String {
     let mut value = input.replace('\\', "\\\\").replace('\'', "''");
     if matches!(mode, EscapeMode::PgArray) {
@@ -70,11 +75,13 @@ pub fn escape_for_sql_default(input: &str, mode: EscapeMode) -> String {
 ///
 /// This escapes backslashes first, then double quotes, to produce valid Rust.
 /// Used when generating Rust code that contains string literals.
+#[must_use]
 pub fn escape_for_rust_literal(input: &str) -> String {
     input.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 /// Unescape a string from SQL default value
+#[must_use]
 pub fn unescape_from_sql_default(input: &str, mode: EscapeMode) -> String {
     let mut res = input.replace("\\\"", "\"").replace("\\\\", "\\");
     if !matches!(mode, EscapeMode::Array) {
@@ -92,25 +99,32 @@ pub enum EscapeMode {
 }
 
 /// Escape a string for TypeScript literal
+#[must_use]
 pub fn escape_for_ts_literal(input: &str) -> String {
     // JSON.stringify equivalent
-    serde_json::to_string(input).unwrap_or_else(|_| format!("\"{}\"", input))
+    serde_json::to_string(input).unwrap_or_else(|_| format!("\"{input}\""))
 }
 
 /// Parse number for TypeScript representation
+#[must_use]
 pub fn number_for_ts(value: &str) -> (NumberMode, String) {
-    match value.parse::<f64>() {
-        Ok(num) => {
+    // `i64::MAX` is not exactly representable in f64 (it rounds up to 2^63),
+    // so use literal bounds directly to avoid lossy `as f64` casts.
+    const I64_MIN_F64: f64 = -9_223_372_036_854_775_808.0;
+    const I64_MAX_F64: f64 = 9_223_372_036_854_775_807.0;
+
+    value.parse::<f64>().map_or_else(
+        |_| (NumberMode::Number, format!("sql`{value}`")),
+        |num| {
             if num.is_nan() {
-                (NumberMode::Number, format!("sql`{}`", value))
-            } else if num >= i64::MIN as f64 && num <= i64::MAX as f64 {
+                (NumberMode::Number, format!("sql`{value}`"))
+            } else if (I64_MIN_F64..=I64_MAX_F64).contains(&num) {
                 (NumberMode::Number, value.to_string())
             } else {
-                (NumberMode::BigInt, format!("{}n", value))
+                (NumberMode::BigInt, format!("{value}n"))
             }
-        }
-        Err(_) => (NumberMode::Number, format!("sql`{}`", value)),
-    }
+        },
+    )
 }
 
 /// Number mode for TypeScript
@@ -121,6 +135,7 @@ pub enum NumberMode {
 }
 
 /// Parse type parameters from SQL type like "varchar(255)" or "numeric(10,2)"
+#[must_use]
 pub fn parse_params(type_str: &str) -> Vec<String> {
     if let Some(start) = type_str.find('(')
         && let Some(end) = type_str.find(')')
@@ -151,7 +166,8 @@ pub struct Rename<T> {
 }
 
 /// Simple resolver that doesn't detect renames (everything is create/delete)
-pub fn simple_resolver<T: Clone>(created: Vec<T>, deleted: Vec<T>) -> ResolverResult<T> {
+#[must_use]
+pub const fn simple_resolver<T: Clone>(created: Vec<T>, deleted: Vec<T>) -> ResolverResult<T> {
     ResolverResult {
         created,
         deleted,
@@ -164,16 +180,18 @@ pub fn simple_resolver<T: Clone>(created: Vec<T>, deleted: Vec<T>) -> ResolverRe
 // =============================================================================
 
 /// Inspect an object for debugging (simplified version)
-pub fn inspect<K, V>(map: &HashMap<K, V>) -> String
+#[must_use]
+pub fn inspect<K, V, S>(map: &HashMap<K, V, S>) -> String
 where
     K: std::fmt::Display,
     V: std::fmt::Display,
+    S: std::hash::BuildHasher,
 {
     if map.is_empty() {
         return String::new();
     }
 
-    let pairs: Vec<String> = map.iter().map(|(k, v)| format!("{}: '{}'", k, v)).collect();
+    let pairs: Vec<String> = map.iter().map(|(k, v)| format!("{k}: '{v}'")).collect();
 
     format!("{{ {} }}", pairs.join(", "))
 }
@@ -183,6 +201,7 @@ where
 // =============================================================================
 
 /// Prepare migration rename strings for storage
+#[must_use]
 pub fn prepare_migration_renames<T>(
     table_renames: &[(String, String)],
     column_renames: &[(String, String, String)], // (table, from, to)
@@ -190,11 +209,11 @@ pub fn prepare_migration_renames<T>(
     let mut renames = Vec::new();
 
     for (from, to) in table_renames {
-        renames.push(format!("table:{}:{}", from, to));
+        renames.push(format!("table:{from}:{to}"));
     }
 
     for (table, from, to) in column_renames {
-        renames.push(format!("column:{}:{}:{}", table, from, to));
+        renames.push(format!("column:{table}:{from}:{to}"));
     }
 
     renames

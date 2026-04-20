@@ -1,6 +1,6 @@
 //! Shared helpers for table macro pipelines.
 //!
-//! This module centralizes common setup steps used by SQLite and PostgreSQL
+//! This module centralizes common setup steps used by `SQLite` and `PostgreSQL`
 //! table macros to reduce duplication and keep behavior consistent.
 
 use heck::ToSnakeCase;
@@ -8,35 +8,29 @@ use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Fields, Result};
 
 /// Resolve the SQL table name from the struct ident and optional name override.
-pub(crate) fn table_name_from_attrs(
-    struct_ident: &syn::Ident,
-    name_override: Option<String>,
-) -> String {
+pub fn table_name_from_attrs(struct_ident: &syn::Ident, name_override: Option<String>) -> String {
     name_override.unwrap_or_else(|| struct_ident.to_string().to_snake_case())
 }
 
 /// Extract struct fields for table macros, returning a helpful error for non-struct inputs.
-pub(crate) fn struct_fields<'a>(input: &'a DeriveInput, macro_name: &str) -> Result<&'a Fields> {
+pub fn struct_fields<'a>(input: &'a DeriveInput, macro_name: &str) -> Result<&'a Fields> {
     match &input.data {
         Data::Struct(data) => match &data.fields {
             Fields::Named(_) => Ok(&data.fields),
             Fields::Unnamed(_) | Fields::Unit => Err(syn::Error::new(
                 input.span(),
-                format!(
-                    "#[derive({})] requires a struct with named fields",
-                    macro_name
-                ),
+                format!("#[derive({macro_name})] requires a struct with named fields"),
             )),
         },
         _ => Err(syn::Error::new(
             input.span(),
-            format!("#[derive({})] can only be applied to structs", macro_name),
+            format!("#[derive({macro_name})] can only be applied to structs"),
         )),
     }
 }
 
 /// Count primary keys using a caller-provided predicate.
-pub(crate) fn count_primary_keys<F>(fields: &Fields, mut is_primary: F) -> Result<usize>
+pub fn count_primary_keys<F>(fields: &Fields, mut is_primary: F) -> Result<usize>
 where
     F: FnMut(&syn::Field) -> Result<bool>,
 {
@@ -50,7 +44,7 @@ where
 }
 
 /// Build a required-fields pattern for insert model const generics.
-pub(crate) fn required_fields_pattern<T, F>(field_infos: &[T], mut is_optional: F) -> Vec<bool>
+pub fn required_fields_pattern<T, F>(field_infos: &[T], mut is_optional: F) -> Vec<bool>
 where
     F: FnMut(&T) -> bool,
 {

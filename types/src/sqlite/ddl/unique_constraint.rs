@@ -1,4 +1,4 @@
-//! SQLite Unique Constraint DDL types
+//! `SQLite` Unique Constraint DDL types
 
 #[cfg(feature = "std")]
 use std::borrow::Cow;
@@ -127,8 +127,8 @@ impl UniqueConstraint {
     /// Create a new unique constraint from owned strings (convenience for runtime construction)
     #[cfg(feature = "std")]
     #[must_use]
-    pub fn from_strings(table: String, name: String, columns: Vec<String>) -> UniqueConstraint {
-        UniqueConstraint {
+    pub fn from_strings(table: String, name: String, columns: Vec<String>) -> Self {
+        Self {
             table: Cow::Owned(table),
             name: Cow::Owned(name),
             columns: Cow::Owned(columns.into_iter().map(Cow::Owned).collect()),
@@ -169,7 +169,7 @@ impl From<UniqueConstraintDef> for UniqueConstraint {
 
 #[cfg(feature = "serde")]
 mod serde_impl {
-    use super::*;
+    use super::{Cow, UniqueConstraint};
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     impl Serialize for UniqueConstraint {
@@ -182,7 +182,11 @@ mod serde_impl {
             state.serialize_field("table", &*self.table)?;
             state.serialize_field("name", &*self.name)?;
             // Serialize columns as Vec<&str>
-            let cols: Vec<&str> = self.columns.iter().map(|c| c.as_ref()).collect();
+            let cols: Vec<&str> = self
+                .columns
+                .iter()
+                .map(std::convert::AsRef::as_ref)
+                .collect();
             state.serialize_field("columns", &cols)?;
             state.serialize_field("nameExplicit", &self.name_explicit)?;
             state.end()
@@ -206,7 +210,7 @@ mod serde_impl {
             }
 
             let helper = Helper::deserialize(deserializer)?;
-            Ok(UniqueConstraint {
+            Ok(Self {
                 table: Cow::Owned(helper.table),
                 name: Cow::Owned(helper.name),
                 columns: Cow::Owned(helper.columns.into_iter().map(Cow::Owned).collect()),

@@ -1,6 +1,6 @@
 //! Type-safe math functions.
 //!
-//! These functions require `Numeric` types (SmallInt, Int, BigInt, Float, Double)
+//! These functions require `Numeric` types (`SmallInt`, Int, `BigInt`, Float, Double)
 //! and provide compile-time enforcement of mathematical operations.
 //!
 //! # Type Safety
@@ -36,10 +36,10 @@ pub trait PostgresMathSupport {}
 impl SQLiteMathSupport for SQLiteDialect {}
 impl PostgresMathSupport for PostgresDialect {}
 
-/// Dialect-specific return type for RANDOM().
+/// Dialect-specific return type for `RANDOM()`.
 ///
-/// SQLite RANDOM() returns an integer in [-2^63, 2^63).
-/// PostgreSQL RANDOM() returns a float in [0, 1).
+/// `SQLite` `RANDOM()` returns an integer in [-2^63, 2^63).
+/// `PostgreSQL` `RANDOM()` returns a float in [0, 1).
 #[diagnostic::on_unimplemented(
     message = "no RANDOM return type defined for this dialect",
     label = "RANDOM result type is not configured for this dialect marker"
@@ -68,7 +68,7 @@ impl RoundingPolicy<SQLiteDialect> for SqliteInteger {
     type Output = SqliteReal;
 }
 impl RoundingPolicy<SQLiteDialect> for SqliteReal {
-    type Output = SqliteReal;
+    type Output = Self;
 }
 impl RoundingPolicy<SQLiteDialect> for SqliteNumeric {
     type Output = SqliteReal;
@@ -87,7 +87,7 @@ impl RoundingPolicy<PostgresDialect> for Float4 {
     type Output = Float8;
 }
 impl RoundingPolicy<PostgresDialect> for Float8 {
-    type Output = Float8;
+    type Output = Self;
 }
 impl RoundingPolicy<PostgresDialect> for PgNumeric {
     type Output = Float8;
@@ -522,7 +522,7 @@ where
 /// Returns the same type as the dividend. The result is nullable if either input is nullable.
 /// Named `mod_` to avoid conflict with Rust's `mod` keyword.
 ///
-/// Note: Uses the `%` operator which works on both SQLite and PostgreSQL.
+/// Note: Uses the `%` operator which works on both `SQLite` and `PostgreSQL`.
 ///
 /// # Example
 ///
@@ -567,7 +567,7 @@ where
 // CONSTANTS AND RANDOM
 // =============================================================================
 
-/// PI - returns the mathematical constant pi (PostgreSQL).
+/// PI - returns the mathematical constant pi (`PostgreSQL`).
 ///
 /// # Example
 ///
@@ -579,6 +579,7 @@ where
 /// let pi_val = pi::<PostgresValue>();
 /// # "####;
 /// ```
+#[must_use]
 pub fn pi<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, super::NonNull, Scalar>
 where
@@ -591,8 +592,8 @@ where
 /// RANDOM - returns a random value.
 ///
 /// Return type is dialect-aware:
-/// - SQLite: integer in [-2^63, 2^63)
-/// - PostgreSQL: float in [0, 1)
+/// - `SQLite`: integer in [-2^63, 2^63)
+/// - `PostgreSQL`: float in [0, 1)
 ///
 /// # Example
 ///
@@ -604,6 +605,7 @@ where
 /// let rnd = random::<SQLiteValue>();
 /// # "####;
 /// ```
+#[must_use]
 pub fn random<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as RandomPolicy>::Random, super::NonNull, Scalar>
 where
@@ -619,7 +621,7 @@ where
 
 /// LOG2 - returns the base-2 logarithm of a number.
 ///
-/// Available in SQLite when compiled with `SQLITE_ENABLE_MATH_FUNCTIONS`.
+/// Available in `SQLite` when compiled with `SQLITE_ENABLE_MATH_FUNCTIONS`.
 /// Returns a dialect-aware double type, preserves nullability.
 ///
 /// # Example

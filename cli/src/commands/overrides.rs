@@ -18,7 +18,8 @@ pub struct ConnectionOverrides {
 }
 
 impl ConnectionOverrides {
-    pub fn has_any(&self) -> bool {
+    #[must_use]
+    pub const fn has_any(&self) -> bool {
         self.url.is_some()
             || self.host.is_some()
             || self.port.is_some()
@@ -30,10 +31,19 @@ impl ConnectionOverrides {
     }
 }
 
+#[must_use]
 pub fn resolve_dialect(db: &DatabaseConfig, override_dialect: Option<Dialect>) -> Dialect {
     override_dialect.unwrap_or(db.dialect)
 }
 
+/// Resolve the effective driver by applying CLI overrides on top of the
+/// config's value, validating that the chosen driver is compatible with the
+/// resolved dialect.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if the override driver is set but is not valid for the
+/// given `dialect` (e.g. `rusqlite` selected with `postgresql`).
 pub fn resolve_driver(
     db: &DatabaseConfig,
     dialect: Dialect,
@@ -44,13 +54,20 @@ pub fn resolve_driver(
         && !driver.is_valid_for(dialect)
     {
         return Err(CliError::Other(format!(
-            "driver '{}' invalid for {} dialect",
-            driver, dialect
+            "driver '{driver}' invalid for {dialect} dialect"
         )));
     }
     Ok(driver)
 }
 
+/// Resolve database credentials from CLI overrides, falling back to the
+/// configured value when no override is set.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if an override is provided but is incompatible with
+/// the resolved dialect, or if resolving a config-provided credentials block
+/// fails (e.g. missing environment variables).
 pub fn resolve_credentials(
     db: &DatabaseConfig,
     dialect: Dialect,
@@ -59,8 +76,7 @@ pub fn resolve_credentials(
     if !overrides.has_any() {
         if dialect != db.dialect {
             return Err(CliError::Other(format!(
-                "--dialect={} requires matching credential flags (--url/--host/--database/etc)",
-                dialect
+                "--dialect={dialect} requires matching credential flags (--url/--host/--database/etc)"
             )));
         }
         return db.credentials().map_err(Into::into);
@@ -170,8 +186,7 @@ fn parse_ssl_override(ssl: Option<&str>) -> Result<Option<bool>, CliError> {
         "false" | "0" | "no" | "off" | "disable" => false,
         _ => {
             return Err(CliError::Other(format!(
-                "invalid --ssl value '{}'; expected one of: true,false,require,allow,prefer,verify-full,verify-ca,disable",
-                raw
+                "invalid --ssl value '{raw}'; expected one of: true,false,require,allow,prefer,verify-full,verify-ca,disable"
             )));
         }
     };
@@ -179,6 +194,7 @@ fn parse_ssl_override(ssl: Option<&str>) -> Result<Option<bool>, CliError> {
     Ok(Some(enabled))
 }
 
+#[must_use]
 pub fn resolve_filter_list(cli: Option<&[String]>, config: Option<&Filter>) -> Option<Vec<String>> {
     if let Some(values) = cli {
         if values.is_empty() {
@@ -190,6 +206,7 @@ pub fn resolve_filter_list(cli: Option<&[String]>, config: Option<&Filter>) -> O
     config.map(|f| f.iter().map(ToOwned::to_owned).collect())
 }
 
+#[must_use]
 pub fn resolve_schema_filters(
     dialect: Dialect,
     cli: Option<&[String]>,
@@ -207,6 +224,7 @@ pub fn resolve_schema_filters(
     }
 }
 
+#[must_use]
 pub fn resolve_extensions_filter(
     cli: Option<&[Extension]>,
     config: Option<&[Extension]>,
@@ -218,9 +236,10 @@ pub fn resolve_extensions_filter(
         return Some(values.to_vec());
     }
 
-    config.map(|v| v.to_vec())
+    config.map(<[Extension]>::to_vec)
 }
 
+#[must_use]
 pub fn resolve_schema_display(db: &DatabaseConfig, schema_override: Option<&[String]>) -> String {
     match schema_override {
         Some(v) if !v.is_empty() => v.join(", "),
@@ -228,6 +247,14 @@ pub fn resolve_schema_display(db: &DatabaseConfig, schema_override: Option<&[Str
     }
 }
 
+/// Resolve the schema file paths the current command will operate on, using
+/// the CLI override if provided or the configured value otherwise.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if a non-empty override resolves to zero files, if a
+/// glob pattern is invalid, or if expanding the configured schema patterns
+/// fails.
 pub fn resolve_schema_files(
     db: &DatabaseConfig,
     schema_override: Option<&[String]>,
@@ -256,7 +283,7 @@ pub fn resolve_schema_files(
 
         let pat_norm = pat.replace('\\', "/");
         let paths = glob::glob(&pat_norm)
-            .map_err(|e| CliError::Other(format!("invalid glob '{}': {}", pat, e)))?;
+            .map_err(|e| CliError::Other(format!("invalid glob '{pat}': {e}")))?;
         let matched: Vec<_> = paths.filter_map(Result::ok).collect();
 
         if matched.is_empty() && !is_glob {
@@ -277,7 +304,7 @@ pub fn resolve_schema_files(
         return Err(CliError::NoSchemaFiles(
             schema_patterns
                 .iter()
-                .map(|s| s.as_str())
+                .map(std::string::String::as_str)
                 .collect::<Vec<_>>()
                 .join(", "),
         ));

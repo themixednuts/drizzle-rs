@@ -26,7 +26,7 @@ pub struct JournalEntry {
     pub version: String,
     /// Unix timestamp in milliseconds when migration was created
     pub when: u64,
-    /// Migration tag/name (e.g., "0000_initial_migration")
+    /// Migration tag/name (e.g., "`0000_initial_migration`")
     pub tag: String,
     /// Whether SQL statement breakpoints are enabled
     pub breakpoints: bool,
@@ -34,6 +34,7 @@ pub struct JournalEntry {
 
 impl Journal {
     /// Create a new journal for the given dialect
+    #[must_use]
     pub fn new(dialect: Dialect) -> Self {
         Self {
             version: JOURNAL_VERSION.to_string(),
@@ -43,36 +44,48 @@ impl Journal {
     }
 
     /// Get the next migration index
+    #[must_use]
     pub fn next_idx(&self) -> u32 {
-        self.entries.len() as u32
+        u32::try_from(self.entries.len()).unwrap_or(u32::MAX)
     }
 
     /// Add a new entry to the journal
     pub fn add_entry(&mut self, tag: String, breakpoints: bool) -> &JournalEntry {
-        let idx = self.next_idx();
-        let entry_version = snapshot_version(self.dialect);
-        let entry = JournalEntry {
-            idx,
-            version: entry_version.to_string(),
+        self.entries.push(JournalEntry {
+            idx: self.next_idx(),
+            version: snapshot_version(self.dialect).to_string(),
             when: current_timestamp_ms(),
             tag,
             breakpoints,
-        };
-        self.entries.push(entry);
-        self.entries.last().unwrap()
+        });
+        let last_idx = self.entries.len() - 1;
+        &self.entries[last_idx]
     }
 
     /// Load journal from a JSON string
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string is not valid journal JSON.
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
 
     /// Serialize journal to JSON string
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if serialization fails (e.g., non-serializable data).
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }
 
     /// Load journal from file
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read or its contents are not
+    /// valid journal JSON.
     pub fn load(path: &std::path::Path) -> std::io::Result<Self> {
         let contents = std::fs::read_to_string(path)?;
         serde_json::from_str(&contents)
@@ -80,6 +93,11 @@ impl Journal {
     }
 
     /// Load journal from file, or create new if doesn't exist
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file exists but cannot be read or parsed as
+    /// valid journal JSON.
     pub fn load_or_create(path: &std::path::Path, dialect: Dialect) -> std::io::Result<Self> {
         if path.exists() {
             Self::load(path)
@@ -89,6 +107,11 @@ impl Journal {
     }
 
     /// Save journal to file
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if serialization fails, the parent directory cannot
+    /// be created, or the file cannot be written.
     pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -106,8 +129,7 @@ impl Journal {
 fn current_timestamp_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 #[cfg(test)]

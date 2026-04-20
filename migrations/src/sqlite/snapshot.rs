@@ -1,4 +1,4 @@
-//! SQLite snapshot types matching drizzle-kit format
+//! `SQLite` snapshot types matching drizzle-kit format
 //!
 //! Version 7 uses the DDL entity array format.
 
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 // V7 Snapshot Format (DDL Entity Array)
 // =============================================================================
 
-/// SQLite schema snapshot - matches drizzle-kit beta v7 format
+/// `SQLite` schema snapshot - matches drizzle-kit beta v7 format
 ///
 /// This uses the new DDL entity array format where all schema elements
 /// are stored as flat entities with `entityType` discriminators.
@@ -39,7 +39,8 @@ impl Default for SQLiteSnapshot {
 }
 
 impl SQLiteSnapshot {
-    /// Create a new empty SQLite snapshot
+    /// Create a new empty `SQLite` snapshot
+    #[must_use]
     pub fn new() -> Self {
         Self {
             version: SQLITE_SNAPSHOT_VERSION.to_string(),
@@ -52,6 +53,7 @@ impl SQLiteSnapshot {
     }
 
     /// Create a new snapshot with specific previous IDs
+    #[must_use]
     pub fn with_prev_ids(prev_ids: Vec<String>) -> Self {
         let mut snapshot = Self::new();
         snapshot.prev_ids = prev_ids;
@@ -64,16 +66,30 @@ impl SQLiteSnapshot {
     }
 
     /// Load snapshot from JSON string
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`serde_json::Error`] if `json` is not a valid v7 snapshot document.
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
 
     /// Serialize snapshot to JSON string
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`serde_json::Error`] if the snapshot cannot be serialized.
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }
 
     /// Load snapshot from file
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`std::io::Error`] if the file cannot be read, or
+    /// [`std::io::ErrorKind::InvalidData`] wrapping the underlying
+    /// [`serde_json::Error`] if the contents cannot be parsed as a v7 snapshot.
     pub fn load(path: &std::path::Path) -> std::io::Result<Self> {
         let contents = std::fs::read_to_string(path)?;
         serde_json::from_str(&contents)
@@ -81,6 +97,13 @@ impl SQLiteSnapshot {
     }
 
     /// Save snapshot to file
+    ///
+    /// # Errors
+    ///
+    /// Returns [`std::io::ErrorKind::InvalidData`] wrapping the underlying
+    /// [`serde_json::Error`] if serialization fails, or any other
+    /// [`std::io::Error`] produced while creating the parent directory or
+    /// writing the file.
     pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -94,7 +117,8 @@ impl SQLiteSnapshot {
     }
 
     /// Check if this snapshot is empty (no DDL entities)
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.ddl.is_empty()
     }
 }
@@ -109,10 +133,10 @@ use std::collections::HashMap;
 /// Schema metadata for tracking renames (legacy v6 format)
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Meta {
-    /// Table renames: old_name -> new_name
+    /// Table renames: `old_name` -> `new_name`
     #[serde(default)]
     pub tables: HashMap<String, String>,
-    /// Column renames: "table.old_column" -> "table.new_column"
+    /// Column renames: "`table.old_column`" -> "`table.new_column`"
     #[serde(default)]
     pub columns: HashMap<String, String>,
 }
@@ -142,7 +166,7 @@ pub struct ColumnInternal {
     pub is_expression: Option<bool>,
 }
 
-/// Legacy SQLite schema snapshot - v6 format (for reading old snapshots)
+/// Legacy `SQLite` schema snapshot - v6 format (for reading old snapshots)
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SQLiteSnapshotV6 {
@@ -159,9 +183,10 @@ pub struct SQLiteSnapshotV6 {
     /// Views in the schema
     #[serde(default)]
     pub views: HashMap<String, View>,
-    /// Enums (empty for SQLite, kept for compatibility)
+    /// Enums (empty for `SQLite`, kept for compatibility with drizzle-kit's
+    /// cross-dialect v6 format).
     #[serde(default)]
-    pub enums: HashMap<String, ()>,
+    pub enums: HashMap<String, serde_json::Value>,
     /// Metadata for tracking renames
     #[serde(rename = "_meta")]
     pub meta: Meta,

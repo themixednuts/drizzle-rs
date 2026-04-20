@@ -1,4 +1,4 @@
-//! PostgreSQL Check Constraint DDL types
+//! `PostgreSQL` Check Constraint DDL types
 
 #[cfg(feature = "std")]
 use std::borrow::Cow;

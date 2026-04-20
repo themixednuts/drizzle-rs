@@ -6,7 +6,13 @@ use crate::config::Config;
 use crate::error::CliError;
 use crate::output;
 
-/// Run the status command
+/// Run the status command.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if the database cannot be resolved, credentials are
+/// invalid, or connecting to the database to read the migration tracking
+/// table fails.
 pub fn run(config: &Config, db_name: Option<&str>) -> Result<(), CliError> {
     let db = config.database(db_name)?;
 
@@ -60,7 +66,7 @@ pub fn run(config: &Config, db_name: Option<&str>) -> Result<(), CliError> {
         };
         let idx_display = output::muted(&format!("{:3}.", i + 1));
 
-        println!("  {} {} {}", idx_display, status_icon, tag);
+        println!("  {idx_display} {status_icon} {tag}");
 
         if !sql_exists {
             println!("      {}", output::error("Migration file missing!"));

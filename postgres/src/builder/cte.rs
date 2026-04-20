@@ -1,4 +1,4 @@
-//! Common Table Expression (CTE / `WITH`) support for PostgreSQL.
+//! Common Table Expression (CTE / `WITH`) support for `PostgreSQL`.
 
 use crate::values::PostgresValue;
 

@@ -442,7 +442,7 @@ where
 /// - `NULL IS DISTINCT FROM 5` → true
 /// - `5 IS DISTINCT FROM NULL` → true
 ///
-/// Supported by both SQLite (3.39+) and PostgreSQL.
+/// Supported by both `SQLite` (3.39+) and `PostgreSQL`.
 #[allow(clippy::type_complexity)]
 pub fn is_distinct_from<'a, V, L, R>(
     left: L,
@@ -475,7 +475,7 @@ where
 /// - `NULL IS NOT DISTINCT FROM NULL` → true
 /// - `NULL IS NOT DISTINCT FROM 5` → false
 ///
-/// Supported by both SQLite (3.39+) and PostgreSQL.
+/// Supported by both `SQLite` (3.39+) and `PostgreSQL`.
 #[allow(clippy::type_complexity)]
 pub fn is_not_distinct_from<'a, V, L, R>(
     left: L,

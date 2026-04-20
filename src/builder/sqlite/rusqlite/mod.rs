@@ -1,4 +1,4 @@
-//! Synchronous SQLite driver using [`rusqlite`].
+//! Synchronous `SQLite` driver using [`rusqlite`].
 //!
 //! # Quick start
 //!
@@ -367,7 +367,7 @@ fn ensure_sqlite_migration_table(
     conn.execute(&set.create_table_sql(), [])?;
 
     let table_name = set.table_name().replace('\'', "''");
-    let pragma_sql = format!("SELECT name FROM pragma_table_info('{}')", table_name);
+    let pragma_sql = format!("SELECT name FROM pragma_table_info('{table_name}')");
     let mut stmt = conn.prepare(&pragma_sql)?;
     let columns = stmt
         .query_map([], |row| row.get::<_, String>(0))?
@@ -446,183 +446,228 @@ fn ensure_sqlite_migration_table(
     }
 }
 
+fn introspect_query_tables(
+    conn: &rusqlite::Connection,
+) -> drizzle_core::error::Result<Vec<(String, Option<String>)>> {
+    use drizzle_migrations::sqlite::introspect::queries;
+    let mut tables_stmt = conn.prepare(queries::TABLES_QUERY)?;
+    let tables: Vec<(String, Option<String>)> = tables_stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .filter_map(Result::ok)
+        .collect();
+    Ok(tables)
+}
+
+fn introspect_query_columns(
+    conn: &rusqlite::Connection,
+) -> drizzle_core::error::Result<Vec<drizzle_migrations::sqlite::introspect::RawColumnInfo>> {
+    use drizzle_migrations::sqlite::introspect::{RawColumnInfo, queries};
+    let mut columns_stmt = conn.prepare(queries::COLUMNS_QUERY)?;
+    let raw_columns: Vec<RawColumnInfo> = columns_stmt
+        .query_map([], |row| {
+            Ok(RawColumnInfo {
+                table: row.get(0)?,
+                cid: row.get(1)?,
+                name: row.get(2)?,
+                column_type: row.get(3)?,
+                not_null: row.get(4)?,
+                default_value: row.get(5)?,
+                pk: row.get(6)?,
+                hidden: row.get(7)?,
+                sql: row.get(8)?,
+            })
+        })?
+        .filter_map(Result::ok)
+        .collect();
+    Ok(raw_columns)
+}
+
+fn introspect_query_indexes_and_fks(
+    conn: &rusqlite::Connection,
+    tables: &[(String, Option<String>)],
+) -> drizzle_core::error::Result<(
+    Vec<drizzle_migrations::sqlite::introspect::RawIndexInfo>,
+    Vec<drizzle_migrations::sqlite::introspect::RawIndexColumn>,
+    Vec<drizzle_migrations::sqlite::introspect::RawForeignKey>,
+)> {
+    use drizzle_migrations::sqlite::introspect::{
+        RawForeignKey, RawIndexColumn, RawIndexInfo, queries,
+    };
+
+    let mut all_indexes: Vec<RawIndexInfo> = Vec::new();
+    let mut all_index_columns: Vec<RawIndexColumn> = Vec::new();
+    let mut all_fks: Vec<RawForeignKey> = Vec::new();
+
+    for (table_name, _) in tables {
+        if let Ok(mut idx_stmt) = conn.prepare(&queries::indexes_query(table_name)) {
+            let indexes: Vec<RawIndexInfo> = idx_stmt
+                .query_map([], |row| {
+                    Ok(RawIndexInfo {
+                        table: table_name.clone(),
+                        name: row.get(1)?,
+                        unique: row.get::<_, i32>(2)? != 0,
+                        origin: row.get(3)?,
+                        partial: row.get::<_, i32>(4)? != 0,
+                    })
+                })?
+                .filter_map(Result::ok)
+                .collect();
+
+            for idx in &indexes {
+                if let Ok(mut col_stmt) = conn.prepare(&queries::index_info_query(&idx.name))
+                    && let Ok(col_iter) = col_stmt.query_map([], |row| {
+                        Ok(RawIndexColumn {
+                            index_name: idx.name.clone(),
+                            seqno: row.get(0)?,
+                            cid: row.get(1)?,
+                            name: row.get(2)?,
+                            desc: row.get::<_, i32>(3)? != 0,
+                            coll: row.get(4)?,
+                            key: row.get::<_, i32>(5)? != 0,
+                        })
+                    })
+                {
+                    all_index_columns.extend(col_iter.filter_map(Result::ok));
+                }
+            }
+            all_indexes.extend(indexes);
+        }
+
+        if let Ok(mut fk_stmt) = conn.prepare(&queries::foreign_keys_query(table_name))
+            && let Ok(fk_iter) = fk_stmt.query_map([], |row| {
+                Ok(RawForeignKey {
+                    table: table_name.clone(),
+                    id: row.get(0)?,
+                    seq: row.get(1)?,
+                    to_table: row.get(2)?,
+                    from_column: row.get(3)?,
+                    to_column: row.get(4)?,
+                    on_update: row.get(5)?,
+                    on_delete: row.get(6)?,
+                    r#match: row.get(7)?,
+                })
+            })
+        {
+            all_fks.extend(fk_iter.filter_map(Result::ok));
+        }
+    }
+
+    Ok((all_indexes, all_index_columns, all_fks))
+}
+
+fn introspect_query_views(
+    conn: &rusqlite::Connection,
+) -> Vec<drizzle_migrations::sqlite::introspect::RawViewInfo> {
+    use drizzle_migrations::sqlite::introspect::{RawViewInfo, queries};
+
+    let mut all_views: Vec<RawViewInfo> = Vec::new();
+    if let Ok(mut views_stmt) = conn.prepare(queries::VIEWS_QUERY)
+        && let Ok(view_iter) = views_stmt.query_map([], |row| {
+            Ok(RawViewInfo {
+                name: row.get(0)?,
+                sql: row.get(1)?,
+            })
+        })
+    {
+        all_views.extend(view_iter.filter_map(Result::ok));
+    }
+    all_views
+}
+
+fn introspect_build_ddl(
+    tables: &[(String, Option<String>)],
+    raw_columns: &[drizzle_migrations::sqlite::introspect::RawColumnInfo],
+    all_indexes: &[drizzle_migrations::sqlite::introspect::RawIndexInfo],
+    all_index_columns: &[drizzle_migrations::sqlite::introspect::RawIndexColumn],
+    all_fks: &[drizzle_migrations::sqlite::introspect::RawForeignKey],
+    all_views: Vec<drizzle_migrations::sqlite::introspect::RawViewInfo>,
+) -> drizzle_migrations::sqlite::SQLiteDDL {
+    use drizzle_migrations::sqlite::{
+        SQLiteDDL, Table as SqliteTable, View,
+        introspect::{
+            parse_generated_columns_from_table_sql, parse_view_sql, process_columns,
+            process_foreign_keys, process_indexes, process_unique_constraints_from_indexes,
+        },
+    };
+    use std::collections::{HashMap, HashSet};
+
+    let table_sql_map: HashMap<String, String> = tables
+        .iter()
+        .filter_map(|(name, sql)| sql.as_ref().map(|s| (name.clone(), s.clone())))
+        .collect();
+
+    let mut generated_columns: HashMap<String, drizzle_migrations::sqlite::ddl::ParsedGenerated> =
+        HashMap::new();
+    for (table, sql) in &table_sql_map {
+        generated_columns.extend(parse_generated_columns_from_table_sql(table, sql));
+    }
+    let pk_columns: HashSet<(String, String)> = raw_columns
+        .iter()
+        .filter(|c| c.pk > 0)
+        .map(|c| (c.table.clone(), c.name.clone()))
+        .collect();
+
+    let (columns, primary_keys) = process_columns(raw_columns, &generated_columns, &pk_columns);
+    let indexes = process_indexes(all_indexes, all_index_columns, &table_sql_map);
+    let foreign_keys = process_foreign_keys(all_fks);
+    let uniques = process_unique_constraints_from_indexes(all_indexes, all_index_columns);
+
+    let mut ddl = SQLiteDDL::new();
+    for (table_name, table_sql) in tables {
+        let mut table = SqliteTable::new(table_name.clone());
+        if let Some(sql) = table_sql {
+            let sql_upper = sql.to_uppercase();
+            table.strict = sql_upper.contains(" STRICT");
+            table.without_rowid = sql_upper.contains("WITHOUT ROWID");
+        }
+        ddl.tables.push(table);
+    }
+    for col in columns {
+        ddl.columns.push(col);
+    }
+    for idx in indexes {
+        ddl.indexes.push(idx);
+    }
+    for fk in foreign_keys {
+        ddl.fks.push(fk);
+    }
+    for pk in primary_keys {
+        ddl.pks.push(pk);
+    }
+    for u in uniques {
+        ddl.uniques.push(u);
+    }
+    for v in all_views {
+        let mut view = View::new(v.name);
+        if let Some(def) = parse_view_sql(&v.sql) {
+            view.definition = Some(def.into());
+        }
+        ddl.views.push(view);
+    }
+    ddl
+}
+
 impl<Schema> common::Drizzle<Connection, Schema> {
     /// Introspect the live database and return a [`Snapshot`] of its current schema.
     ///
     /// This queries `sqlite_master` and the various PRAGMAs to reconstruct the
     /// full DDL state, then packages it as a `Snapshot::Sqlite(...)`.
     pub fn introspect(&self) -> drizzle_core::error::Result<drizzle_migrations::schema::Snapshot> {
-        use drizzle_migrations::sqlite::{
-            SQLiteDDL, Table as SqliteTable, View,
-            introspect::{
-                RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo, RawViewInfo,
-                parse_generated_columns_from_table_sql, parse_view_sql, process_columns,
-                process_foreign_keys, process_indexes, process_unique_constraints_from_indexes,
-                queries,
-            },
-        };
-        use std::collections::{HashMap, HashSet};
+        let tables = introspect_query_tables(&self.conn)?;
+        let raw_columns = introspect_query_columns(&self.conn)?;
+        let (all_indexes, all_index_columns, all_fks) =
+            introspect_query_indexes_and_fks(&self.conn, &tables)?;
+        let all_views = introspect_query_views(&self.conn);
 
-        // Tables
-        let mut tables_stmt = self.conn.prepare(queries::TABLES_QUERY)?;
-        let tables: Vec<(String, Option<String>)> = tables_stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .filter_map(Result::ok)
-            .collect();
+        let ddl = introspect_build_ddl(
+            &tables,
+            &raw_columns,
+            &all_indexes,
+            &all_index_columns,
+            &all_fks,
+            all_views,
+        );
 
-        let table_sql_map: HashMap<String, String> = tables
-            .iter()
-            .filter_map(|(name, sql)| sql.as_ref().map(|s| (name.clone(), s.clone())))
-            .collect();
-
-        // Columns
-        let mut columns_stmt = self.conn.prepare(queries::COLUMNS_QUERY)?;
-        let raw_columns: Vec<RawColumnInfo> = columns_stmt
-            .query_map([], |row| {
-                Ok(RawColumnInfo {
-                    table: row.get(0)?,
-                    cid: row.get(1)?,
-                    name: row.get(2)?,
-                    column_type: row.get(3)?,
-                    not_null: row.get(4)?,
-                    default_value: row.get(5)?,
-                    pk: row.get(6)?,
-                    hidden: row.get(7)?,
-                    sql: row.get(8)?,
-                })
-            })?
-            .filter_map(Result::ok)
-            .collect();
-
-        // Per-table indexes and foreign keys
-        let mut all_indexes: Vec<RawIndexInfo> = Vec::new();
-        let mut all_index_columns: Vec<RawIndexColumn> = Vec::new();
-        let mut all_fks: Vec<RawForeignKey> = Vec::new();
-
-        for (table_name, _) in &tables {
-            if let Ok(mut idx_stmt) = self.conn.prepare(&queries::indexes_query(table_name)) {
-                let indexes: Vec<RawIndexInfo> = idx_stmt
-                    .query_map([], |row| {
-                        Ok(RawIndexInfo {
-                            table: table_name.clone(),
-                            name: row.get(1)?,
-                            unique: row.get::<_, i32>(2)? != 0,
-                            origin: row.get(3)?,
-                            partial: row.get::<_, i32>(4)? != 0,
-                        })
-                    })?
-                    .filter_map(Result::ok)
-                    .collect();
-
-                for idx in &indexes {
-                    if let Ok(mut col_stmt) =
-                        self.conn.prepare(&queries::index_info_query(&idx.name))
-                        && let Ok(col_iter) = col_stmt.query_map([], |row| {
-                            Ok(RawIndexColumn {
-                                index_name: idx.name.clone(),
-                                seqno: row.get(0)?,
-                                cid: row.get(1)?,
-                                name: row.get(2)?,
-                                desc: row.get::<_, i32>(3)? != 0,
-                                coll: row.get(4)?,
-                                key: row.get::<_, i32>(5)? != 0,
-                            })
-                        })
-                    {
-                        all_index_columns.extend(col_iter.filter_map(Result::ok));
-                    }
-                }
-                all_indexes.extend(indexes);
-            }
-
-            if let Ok(mut fk_stmt) = self.conn.prepare(&queries::foreign_keys_query(table_name))
-                && let Ok(fk_iter) = fk_stmt.query_map([], |row| {
-                    Ok(RawForeignKey {
-                        table: table_name.clone(),
-                        id: row.get(0)?,
-                        seq: row.get(1)?,
-                        to_table: row.get(2)?,
-                        from_column: row.get(3)?,
-                        to_column: row.get(4)?,
-                        on_update: row.get(5)?,
-                        on_delete: row.get(6)?,
-                        r#match: row.get(7)?,
-                    })
-                })
-            {
-                all_fks.extend(fk_iter.filter_map(Result::ok));
-            }
-        }
-
-        // Views
-        let mut all_views: Vec<RawViewInfo> = Vec::new();
-        if let Ok(mut views_stmt) = self.conn.prepare(queries::VIEWS_QUERY)
-            && let Ok(view_iter) = views_stmt.query_map([], |row| {
-                Ok(RawViewInfo {
-                    name: row.get(0)?,
-                    sql: row.get(1)?,
-                })
-            })
-        {
-            all_views.extend(view_iter.filter_map(Result::ok));
-        }
-
-        // Process raw → DDL entities
-        let mut generated_columns: HashMap<
-            String,
-            drizzle_migrations::sqlite::ddl::ParsedGenerated,
-        > = HashMap::new();
-        for (table, sql) in &table_sql_map {
-            generated_columns.extend(parse_generated_columns_from_table_sql(table, sql));
-        }
-        let pk_columns: HashSet<(String, String)> = raw_columns
-            .iter()
-            .filter(|c| c.pk > 0)
-            .map(|c| (c.table.clone(), c.name.clone()))
-            .collect();
-
-        let (columns, primary_keys) =
-            process_columns(&raw_columns, &generated_columns, &pk_columns);
-        let indexes = process_indexes(&all_indexes, &all_index_columns, &table_sql_map);
-        let foreign_keys = process_foreign_keys(&all_fks);
-        let uniques = process_unique_constraints_from_indexes(&all_indexes, &all_index_columns);
-
-        // Build DDL collection
-        let mut ddl = SQLiteDDL::new();
-
-        for (table_name, table_sql) in &tables {
-            let mut table = SqliteTable::new(table_name.clone());
-            if let Some(sql) = table_sql {
-                let sql_upper = sql.to_uppercase();
-                table.strict = sql_upper.contains(" STRICT");
-                table.without_rowid = sql_upper.contains("WITHOUT ROWID");
-            }
-            ddl.tables.push(table);
-        }
-        for col in columns {
-            ddl.columns.push(col);
-        }
-        for idx in indexes {
-            ddl.indexes.push(idx);
-        }
-        for fk in foreign_keys {
-            ddl.fks.push(fk);
-        }
-        for pk in primary_keys {
-            ddl.pks.push(pk);
-        }
-        for u in uniques {
-            ddl.uniques.push(u);
-        }
-        for v in all_views {
-            let mut view = View::new(v.name);
-            if let Some(def) = parse_view_sql(&v.sql) {
-                view.definition = Some(def.into());
-            }
-            ddl.views.push(view);
-        }
-
-        // Build snapshot
         let mut snapshot = drizzle_migrations::sqlite::SQLiteSnapshot::new();
         for entity in ddl.to_entities() {
             snapshot.add_entity(entity);
@@ -665,9 +710,9 @@ use drizzle_core::serde_json;
 
 // AllColumns: read base from individual row columns via TryFrom<Row>
 #[cfg(feature = "query")]
-impl<'db, 'a, Schema, T, Rels, Cl>
+impl<'a, Schema, T, Rels, Cl>
     common::DrizzleQueryBuilder<
-        'db,
+        '_,
         'a,
         Connection,
         Schema,
@@ -755,9 +800,9 @@ impl<'db, 'a, Schema, T, Rels, Cl>
 
 // AllColumns find_first: requires no LIMIT set yet (internally adds LIMIT 1)
 #[cfg(feature = "query")]
-impl<'db, 'a, Schema, T, Rels, W, Ord>
+impl<'a, Schema, T, Rels, W, Ord>
     common::DrizzleQueryBuilder<
-        'db,
+        '_,
         'a,
         Connection,
         Schema,
@@ -793,9 +838,9 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
 
 // PartialColumns: read base from a single JSON "__base" column via FromJsonValue
 #[cfg(feature = "query")]
-impl<'db, 'a, Schema, T, Rels, Cl>
+impl<'a, Schema, T, Rels, Cl>
     common::DrizzleQueryBuilder<
-        'db,
+        '_,
         'a,
         Connection,
         Schema,
@@ -831,7 +876,7 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         builder.relations.render_into(&mut rendered);
         let num_rels = rendered.len();
 
-        let col_refs: Vec<&str> = column_names.to_vec();
+        let col_refs: Vec<&str> = column_names.clone();
         let (sql, bind_params) = drizzle_core::query::build_query_sql(
             T::TABLE_NAME,
             &col_refs,
@@ -891,9 +936,9 @@ impl<'db, 'a, Schema, T, Rels, Cl>
 
 // PartialColumns find_first: requires no LIMIT set yet
 #[cfg(feature = "query")]
-impl<'db, 'a, Schema, T, Rels, W, Ord>
+impl<'a, Schema, T, Rels, W, Ord>
     common::DrizzleQueryBuilder<
-        'db,
+        '_,
         'a,
         Connection,
         Schema,
@@ -925,8 +970,8 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
     }
 }
 
-impl<'a, 'b, S, Schema, State, Table, Mk, Rw, Grouped>
-    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw, Grouped>, State>
+impl<S, Schema, State, Table, Mk, Rw, Grouped>
+    DrizzleBuilder<'_, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>
 where
     State: builder::ExecutableState,
 {

@@ -169,12 +169,12 @@ where
 // Note: NATURAL JOINs don't use USING clause as they automatically match column names
 // CROSS JOIN also doesn't use USING clause as it produces Cartesian product
 
-/// Creates an INSERT INTO statement with the specified table - PostgreSQL specific
-pub(crate) fn insert<'a, Table>(table: Table) -> SQL<'a, PostgresValue<'a>>
+/// Creates an INSERT INTO statement with the specified table - `PostgreSQL` specific
+pub(crate) fn insert<'a, Table>(table: &Table) -> SQL<'a, PostgresValue<'a>>
 where
     Table: PostgresTable<'a>,
 {
-    SQL::from_iter([Token::INSERT, Token::INTO]).append(&table)
+    SQL::from_iter([Token::INSERT, Token::INTO]).append(table)
 }
 
 /// Creates a VALUES clause for INSERT statements.
@@ -214,7 +214,7 @@ where
     columns_sql.parens().push(Token::VALUES).append(values_sql)
 }
 
-/// Helper function to create a RETURNING clause - PostgreSQL specific
+/// Helper function to create a RETURNING clause - `PostgreSQL` specific
 pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQL<'a, PostgresValue<'a>>
 where
     I: ToSQL<'a, PostgresValue<'a>>,
@@ -247,14 +247,14 @@ pub(crate) fn for_key_share<'a>() -> SQL<'a, PostgresValue<'a>> {
 }
 
 /// Helper function to create a FOR UPDATE OF table clause.
-/// Uses unqualified table name as required by PostgreSQL.
+/// Uses unqualified table name as required by `PostgreSQL`.
 pub(crate) fn for_update_of<'a>(table_name: &str) -> SQL<'a, PostgresValue<'a>> {
     SQL::from_iter([Token::FOR, Token::UPDATE, Token::OF])
         .append(SQL::ident(String::from(table_name)))
 }
 
 /// Helper function to create a FOR SHARE OF table clause.
-/// Uses unqualified table name as required by PostgreSQL.
+/// Uses unqualified table name as required by `PostgreSQL`.
 pub(crate) fn for_share_of<'a>(table_name: &str) -> SQL<'a, PostgresValue<'a>> {
     SQL::from_iter([Token::FOR, Token::SHARE, Token::OF])
         .append(SQL::ident(String::from(table_name)))

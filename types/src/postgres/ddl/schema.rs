@@ -1,4 +1,4 @@
-//! PostgreSQL Schema DDL types
+//! `PostgreSQL` Schema DDL types
 //!
 //! This module provides two complementary types:
 //! - [`SchemaDef`] - A const-friendly definition type for compile-time schema definitions

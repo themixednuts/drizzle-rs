@@ -10,6 +10,10 @@ use crate::alloc_prelude::*;
 use serde::{Deserialize, Deserializer};
 
 /// Deserialize a String into Cow<'static, str>
+///
+/// # Errors
+///
+/// Returns an error if the deserializer fails to produce a `String`.
 #[cfg(feature = "serde")]
 pub fn cow_from_string<'de, D>(deserializer: D) -> Result<Cow<'static, str>, D::Error>
 where
@@ -20,6 +24,10 @@ where
 }
 
 /// Deserialize an Option<String> into Option<Cow<'static, str>>
+///
+/// # Errors
+///
+/// Returns an error if the deserializer fails to produce an `Option<String>`.
 #[cfg(feature = "serde")]
 pub fn cow_option_from_string<'de, D>(
     deserializer: D,
@@ -32,6 +40,10 @@ where
 }
 
 /// Deserialize `Vec<String>` into `Vec<Cow<'static, str>>`.
+///
+/// # Errors
+///
+/// Returns an error if the deserializer fails to produce a `Vec<String>`.
 #[cfg(feature = "serde")]
 pub fn cow_vec_from_strings<'de, D>(deserializer: D) -> Result<Vec<Cow<'static, str>>, D::Error>
 where
@@ -42,6 +54,10 @@ where
 }
 
 /// Deserialize `Option<Vec<String>>` into `Option<Vec<Cow<'static, str>>>`.
+///
+/// # Errors
+///
+/// Returns an error if the deserializer fails to produce an `Option<Vec<String>>`.
 #[cfg(feature = "serde")]
 pub fn cow_option_vec_from_strings<'de, D>(
     deserializer: D,

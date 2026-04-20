@@ -1,4 +1,4 @@
-//! PostgreSQL DDL collection - entity storage and management
+//! `PostgreSQL` DDL collection - entity storage and management
 //!
 //! This implements the DDL collection pattern from drizzle-kit beta,
 //! providing typed access to schema entities with push/list/one/update/delete operations.
@@ -30,7 +30,8 @@ impl<T> Default for EntityCollection<T> {
 
 impl<T> EntityCollection<T> {
     /// Create empty collection
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             entities: Vec::new(),
         }
@@ -43,28 +44,32 @@ impl<T> EntityCollection<T> {
     }
 
     /// List all entities matching filter
+    #[must_use]
     pub fn list(&self) -> &[T] {
         &self.entities
     }
 
     /// Get mutable access to entities
-    pub fn list_mut(&mut self) -> &mut Vec<T> {
+    pub const fn list_mut(&mut self) -> &mut Vec<T> {
         &mut self.entities
     }
 
     /// Check if empty
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.entities.is_empty()
     }
 
     /// Get count
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.entities.len()
     }
 }
 
 impl<T: Clone> EntityCollection<T> {
     /// Convert to Vec
+    #[must_use]
     pub fn into_vec(self) -> Vec<T> {
         self.entities
     }
@@ -72,6 +77,7 @@ impl<T: Clone> EntityCollection<T> {
 
 // Schema-specific operations
 impl EntityCollection<Schema> {
+    #[must_use]
     pub fn one(&self, name: &str) -> Option<&Schema> {
         self.entities.iter().find(|s| s.name == name)
     }
@@ -79,6 +85,7 @@ impl EntityCollection<Schema> {
 
 // Enum-specific operations
 impl EntityCollection<Enum> {
+    #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&Enum> {
         self.entities
             .iter()
@@ -88,6 +95,7 @@ impl EntityCollection<Enum> {
 
 // Sequence-specific operations
 impl EntityCollection<Sequence> {
+    #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&Sequence> {
         self.entities
             .iter()
@@ -97,6 +105,7 @@ impl EntityCollection<Sequence> {
 
 // Role-specific operations
 impl EntityCollection<Role> {
+    #[must_use]
     pub fn one(&self, name: &str) -> Option<&Role> {
         self.entities.iter().find(|r| r.name == name)
     }
@@ -104,11 +113,13 @@ impl EntityCollection<Role> {
 
 // Policy-specific operations
 impl EntityCollection<Policy> {
+    #[must_use]
     pub fn one(&self, schema: &str, table: &str, name: &str) -> Option<&Policy> {
         self.entities
             .iter()
             .find(|p| p.schema == schema && p.table == table && p.name == name)
     }
+    #[must_use]
     pub fn for_table(&self, schema: &str, table: &str) -> Vec<&Policy> {
         self.entities
             .iter()
@@ -119,6 +130,7 @@ impl EntityCollection<Policy> {
 
 // Table-specific operations
 impl EntityCollection<Table> {
+    #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&Table> {
         self.entities
             .iter()
@@ -128,11 +140,13 @@ impl EntityCollection<Table> {
 
 // Column-specific operations
 impl EntityCollection<Column> {
+    #[must_use]
     pub fn one(&self, schema: &str, table: &str, name: &str) -> Option<&Column> {
         self.entities
             .iter()
             .find(|c| c.schema == schema && c.table == table && c.name == name)
     }
+    #[must_use]
     pub fn for_table(&self, schema: &str, table: &str) -> Vec<&Column> {
         self.entities
             .iter()
@@ -143,11 +157,13 @@ impl EntityCollection<Column> {
 
 // Index-specific operations
 impl EntityCollection<Index> {
+    #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&Index> {
         self.entities
             .iter()
             .find(|i| i.schema == schema && i.name == name)
     }
+    #[must_use]
     pub fn for_table(&self, schema: &str, table: &str) -> Vec<&Index> {
         self.entities
             .iter()
@@ -158,11 +174,13 @@ impl EntityCollection<Index> {
 
 // ForeignKey-specific operations
 impl EntityCollection<ForeignKey> {
+    #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&ForeignKey> {
         self.entities
             .iter()
             .find(|f| f.schema == schema && f.name == name)
     }
+    #[must_use]
     pub fn for_table(&self, schema: &str, table: &str) -> Vec<&ForeignKey> {
         self.entities
             .iter()
@@ -173,11 +191,13 @@ impl EntityCollection<ForeignKey> {
 
 // PrimaryKey-specific operations
 impl EntityCollection<PrimaryKey> {
+    #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&PrimaryKey> {
         self.entities
             .iter()
             .find(|p| p.schema == schema && p.name == name)
     }
+    #[must_use]
     pub fn for_table(&self, schema: &str, table: &str) -> Option<&PrimaryKey> {
         self.entities
             .iter()
@@ -187,11 +207,13 @@ impl EntityCollection<PrimaryKey> {
 
 // UniqueConstraint-specific operations
 impl EntityCollection<UniqueConstraint> {
+    #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&UniqueConstraint> {
         self.entities
             .iter()
             .find(|u| u.schema == schema && u.name == name)
     }
+    #[must_use]
     pub fn for_table(&self, schema: &str, table: &str) -> Vec<&UniqueConstraint> {
         self.entities
             .iter()
@@ -202,11 +224,13 @@ impl EntityCollection<UniqueConstraint> {
 
 // CheckConstraint-specific operations
 impl EntityCollection<CheckConstraint> {
+    #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&CheckConstraint> {
         self.entities
             .iter()
             .find(|c| c.schema == schema && c.name == name)
     }
+    #[must_use]
     pub fn for_table(&self, schema: &str, table: &str) -> Vec<&CheckConstraint> {
         self.entities
             .iter()
@@ -217,6 +241,7 @@ impl EntityCollection<CheckConstraint> {
 
 // View-specific operations
 impl EntityCollection<View> {
+    #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&View> {
         self.entities
             .iter()
@@ -228,7 +253,7 @@ impl EntityCollection<View> {
 // PostgreSQL DDL - Main Collection Type
 // =============================================================================
 
-/// PostgreSQL DDL collection - stores all schema entities
+/// `PostgreSQL` DDL collection - stores all schema entities
 #[derive(Debug, Clone, Default)]
 pub struct PostgresDDL {
     pub schemas: EntityCollection<Schema>,
@@ -248,11 +273,13 @@ pub struct PostgresDDL {
 
 impl PostgresDDL {
     /// Create a new empty DDL collection
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Create DDL from a list of entities
+    #[must_use]
     pub fn from_entities(entities: Vec<PostgresEntity>) -> Self {
         let mut ddl = Self::new();
         for entity in entities {
@@ -282,6 +309,7 @@ impl PostgresDDL {
     }
 
     /// Convert to entity array for snapshot serialization
+    #[must_use]
     pub fn to_entities(&self) -> Vec<PostgresEntity> {
         let mut entities = Vec::new();
 
@@ -333,7 +361,8 @@ impl PostgresDDL {
     }
 
     /// Check if DDL is empty
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.tables.is_empty() && self.enums.is_empty() && self.views.is_empty()
     }
 }
@@ -359,88 +388,81 @@ pub struct EntityDiff {
     pub right: Option<PostgresEntity>,
 }
 
-/// Compute diff between two DDL collections
-pub fn diff_ddl(left: &PostgresDDL, right: &PostgresDDL) -> Vec<EntityDiff> {
-    let mut diffs = Vec::new();
-
-    // Schemas
+fn diff_top_level_entities(left: &PostgresDDL, right: &PostgresDDL, diffs: &mut Vec<EntityDiff>) {
     diff_entity_type(
         left.schemas.list(),
         right.schemas.list(),
         |e| e.name.to_string(),
         |e| PostgresEntity::Schema(e.clone()),
         EntityKind::Schema,
-        &mut diffs,
+        diffs,
     );
-
-    // Enums
     diff_entity_type(
         left.enums.list(),
         right.enums.list(),
         |e| format!("{}.{}", e.schema, e.name),
         |e| PostgresEntity::Enum(e.clone()),
         EntityKind::Enum,
-        &mut diffs,
+        diffs,
     );
-
-    // Sequences
     diff_entity_type(
         left.sequences.list(),
         right.sequences.list(),
         |e| format!("{}.{}", e.schema, e.name),
         |e| PostgresEntity::Sequence(e.clone()),
         EntityKind::Sequence,
-        &mut diffs,
+        diffs,
     );
-
-    // Roles
     diff_entity_type(
         left.roles.list(),
         right.roles.list(),
         |e| e.name.to_string(),
         |e| PostgresEntity::Role(e.clone()),
         EntityKind::Role,
-        &mut diffs,
+        diffs,
     );
-
-    // Tables
     diff_entity_type(
         left.tables.list(),
         right.tables.list(),
         |e| format!("{}.{}", e.schema, e.name),
         |e| PostgresEntity::Table(e.clone()),
         EntityKind::Table,
-        &mut diffs,
+        diffs,
     );
+    diff_entity_type(
+        left.views.list(),
+        right.views.list(),
+        |e| format!("{}.{}", e.schema, e.name),
+        |e| PostgresEntity::View(e.clone()),
+        EntityKind::View,
+        diffs,
+    );
+}
 
-    // Columns
+fn diff_table_entities(left: &PostgresDDL, right: &PostgresDDL, diffs: &mut Vec<EntityDiff>) {
     diff_entity_type(
         left.columns.list(),
         right.columns.list(),
         |e| format!("{}.{}.{}", e.schema, e.table, e.name),
         |e| PostgresEntity::Column(e.clone()),
         EntityKind::Column,
-        &mut diffs,
+        diffs,
     );
-
-    // Indexes
     diff_entity_type(
         left.indexes.list(),
         right.indexes.list(),
         |e| format!("{}.{}", e.schema, e.name),
         |e| PostgresEntity::Index(e.clone()),
         EntityKind::Index,
-        &mut diffs,
+        diffs,
     );
-
-    // Constraints
     diff_entity_type(
         left.fks.list(),
         right.fks.list(),
         |e| format!("{}.{}", e.schema, e.name),
         |e| PostgresEntity::ForeignKey(e.clone()),
         EntityKind::ForeignKey,
-        &mut diffs,
+        diffs,
     );
     diff_entity_type(
         left.pks.list(),
@@ -448,7 +470,7 @@ pub fn diff_ddl(left: &PostgresDDL, right: &PostgresDDL) -> Vec<EntityDiff> {
         |e| format!("{}.{}", e.schema, e.name),
         |e| PostgresEntity::PrimaryKey(e.clone()),
         EntityKind::PrimaryKey,
-        &mut diffs,
+        diffs,
     );
     diff_entity_type(
         left.uniques.list(),
@@ -456,7 +478,7 @@ pub fn diff_ddl(left: &PostgresDDL, right: &PostgresDDL) -> Vec<EntityDiff> {
         |e| format!("{}.{}", e.schema, e.name),
         |e| PostgresEntity::UniqueConstraint(e.clone()),
         EntityKind::UniqueConstraint,
-        &mut diffs,
+        diffs,
     );
     diff_entity_type(
         left.checks.list(),
@@ -464,29 +486,24 @@ pub fn diff_ddl(left: &PostgresDDL, right: &PostgresDDL) -> Vec<EntityDiff> {
         |e| format!("{}.{}", e.schema, e.name),
         |e| PostgresEntity::CheckConstraint(e.clone()),
         EntityKind::CheckConstraint,
-        &mut diffs,
+        diffs,
     );
-
-    // Policies
     diff_entity_type(
         left.policies.list(),
         right.policies.list(),
         |e| format!("{}.{}.{}", e.schema, e.table, e.name),
         |e| PostgresEntity::Policy(e.clone()),
         EntityKind::Policy,
-        &mut diffs,
+        diffs,
     );
+}
 
-    // Views
-    diff_entity_type(
-        left.views.list(),
-        right.views.list(),
-        |e| format!("{}.{}", e.schema, e.name),
-        |e| PostgresEntity::View(e.clone()),
-        EntityKind::View,
-        &mut diffs,
-    );
-
+/// Compute diff between two DDL collections
+#[must_use]
+pub fn diff_ddl(left: &PostgresDDL, right: &PostgresDDL) -> Vec<EntityDiff> {
+    let mut diffs = Vec::new();
+    diff_top_level_entities(left, right, &mut diffs);
+    diff_table_entities(left, right, &mut diffs);
     diffs
 }
 

@@ -1,4 +1,4 @@
-//! REFRESH MATERIALIZED VIEW query builder for PostgreSQL
+//! REFRESH MATERIALIZED VIEW query builder for `PostgreSQL`
 //!
 //! This module provides a builder for constructing `REFRESH MATERIALIZED VIEW` statements.
 //!
@@ -28,7 +28,7 @@ use drizzle_core::{SQL, ToSQL, Token};
 // Type State Markers
 //------------------------------------------------------------------------------
 
-/// Marker for the initial state of RefreshMaterializedView
+/// Marker for the initial state of `RefreshMaterializedView`
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RefreshInitial;
 
@@ -46,12 +46,12 @@ pub struct RefreshWithNoData;
 
 /// Builder for REFRESH MATERIALIZED VIEW statements
 ///
-/// PostgreSQL syntax:
+/// `PostgreSQL` syntax:
 /// ```sql
 /// REFRESH MATERIALIZED VIEW [ CONCURRENTLY ] view_name [ WITH [ NO ] DATA ]
 /// ```
 ///
-/// Note: CONCURRENTLY and WITH NO DATA are mutually exclusive in PostgreSQL.
+/// Note: CONCURRENTLY and WITH NO DATA are mutually exclusive in `PostgreSQL`.
 /// CONCURRENTLY requires the materialized view to have a unique index.
 #[derive(Debug, Clone)]
 pub struct RefreshMaterializedView<'a, State = RefreshInitial> {
@@ -151,9 +151,9 @@ impl<'a, State> ToSQL<'a, PostgresValue<'a>> for RefreshMaterializedView<'a, Sta
 //------------------------------------------------------------------------------
 
 /// Creates a REFRESH MATERIALIZED VIEW statement for the given view
-pub fn refresh_materialized_view<'a, V: SQLViewInfo>(
-    view: &'a V,
-) -> RefreshMaterializedView<'a, RefreshInitial> {
+pub fn refresh_materialized_view<V: SQLViewInfo>(
+    view: &V,
+) -> RefreshMaterializedView<'_, RefreshInitial> {
     RefreshMaterializedView::new(view)
 }
 

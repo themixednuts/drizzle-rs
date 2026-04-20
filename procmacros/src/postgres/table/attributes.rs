@@ -19,7 +19,7 @@ pub struct TableAttributes {
 }
 
 #[derive(Clone)]
-pub(crate) struct CompositeForeignKeyAttr {
+pub struct CompositeForeignKeyAttr {
     pub(crate) source_columns: Vec<Ident>,
     pub(crate) target_table: Ident,
     pub(crate) target_columns: Vec<Ident>,
@@ -148,7 +148,7 @@ impl Parse for CompositeForeignKeyAttr {
 
 impl Parse for TableAttributes {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
-        let mut attrs = TableAttributes::default();
+        let mut attrs = Self::default();
         let metas = input.parse_terminated(Meta::parse, syn::Token![,])?;
 
         for meta in metas {

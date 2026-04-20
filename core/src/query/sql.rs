@@ -1,7 +1,7 @@
 //! SQL generation for the relational Query API.
 //!
 //! Renders typed relation structures into SQL with JSON subqueries.
-//! Uses `V::DIALECT` to dispatch between SQLite and PostgreSQL syntax.
+//! Uses `V::DIALECT` to dispatch between `SQLite` and `PostgreSQL` syntax.
 
 use core::fmt::Write;
 
@@ -30,14 +30,14 @@ pub enum RelCardinality {
 pub struct RenderedRelation<V: SQLParam> {
     /// Target table name (e.g., "post").
     pub table_name: &'static str,
-    /// Target table columns for SELECT (e.g., ["id", "content", "author_id"]).
+    /// Target table columns for SELECT (e.g., `["id", "content", "author_id"]`).
     pub column_names: Vec<&'static str>,
     /// Column names that store BLOB data and need `hex()` wrapping in JSON.
     pub blob_columns: &'static [&'static str],
     /// FK column pairs for the join condition.
     /// Each pair `(a, b)` generates `target_alias."a" = parent_alias."b"`.
     pub fk_columns: &'static [(&'static str, &'static str)],
-    /// Cardinality (Many, One, OptionalOne).
+    /// Cardinality (Many, One, `OptionalOne`).
     pub cardinality: RelCardinality,
     /// Relation name for the JSON alias (e.g., "posts", "author").
     pub rel_name: &'static str,
@@ -52,7 +52,7 @@ pub struct RenderedRelation<V: SQLParam> {
     /// OFFSET value.
     pub offset: Option<u32>,
     /// Nested rendered relations.
-    pub nested: Vec<RenderedRelation<V>>,
+    pub nested: Vec<Self>,
     /// Junction table metadata for many-to-many relations.
     pub junction: Option<JunctionMeta>,
 }
@@ -250,15 +250,12 @@ pub fn build_query_sql<'p, V: SQLParam>(
     // SQLite/MySQL use positional `?` — params must match the textual
     // order in the SQL string. Relation subqueries appear in the SELECT
     // clause (before WHERE), so their params must come first.
-    match dialect {
-        Dialect::PostgreSQL => {
-            params.extend(where_params.iter());
-            params.extend(rel_params);
-        }
-        _ => {
-            params.extend(rel_params);
-            params.extend(where_params.iter());
-        }
+    if dialect == Dialect::PostgreSQL {
+        params.extend(where_params.iter());
+        params.extend(rel_params);
+    } else {
+        params.extend(rel_params);
+        params.extend(where_params.iter());
     }
 
     // LIMIT
@@ -276,6 +273,216 @@ pub fn build_query_sql<'p, V: SQLParam>(
     (sql, params)
 }
 
+/// Writes the inner-subquery prefix (`[LATERAL ](SELECT cols FROM "`) used when
+/// a Many relation needs a nested derived table (LIMIT/OFFSET/ORDER BY). The
+/// table/alias/junction/WHERE suffix is emitted by the caller and shared with
+/// the non-subquery path.
+fn write_inner_subquery_prelude<V: SQLParam>(
+    rel: &RenderedRelation<V>,
+    target_table: &str,
+    alias: &str,
+    target_columns: &[&'static str],
+    dialect: Dialect,
+    sql: &mut String,
+) {
+    let _ = target_table;
+    // When nested relations exist, their correlated subqueries reference FK
+    // columns via `alias`. Ensure those columns appear in the inner derived
+    // table even if the user excluded them via `.columns()` / `.omit()`.
+    let mut extra_cols: Vec<&str> = Vec::new();
+    for nested_rel in &rel.nested {
+        if let Some(junction) = &nested_rel.junction {
+            for (_, src_col) in junction.source_fk {
+                if !target_columns.contains(src_col) && !extra_cols.contains(src_col) {
+                    extra_cols.push(src_col);
+                }
+            }
+        } else {
+            for (_, tgt_col) in nested_rel.fk_columns {
+                if !target_columns.contains(tgt_col) && !extra_cols.contains(tgt_col) {
+                    extra_cols.push(tgt_col);
+                }
+            }
+        }
+    }
+
+    // PostgreSQL requires LATERAL for derived tables that reference columns
+    // from the outer query (the parent alias).
+    if dialect == Dialect::PostgreSQL {
+        sql.push_str("LATERAL ");
+    }
+    sql.push_str("(SELECT ");
+    for (i, c) in target_columns.iter().enumerate() {
+        if i > 0 {
+            sql.push_str(", ");
+        }
+        write_qualified_column(alias, c, sql);
+    }
+    for c in &extra_cols {
+        sql.push_str(", ");
+        write_qualified_column(alias, c, sql);
+    }
+    sql.push_str(" FROM \"");
+}
+
+/// Writes the `json_object(...)` / `json_build_object(...)` body: first the
+/// base columns with literal keys, then nested relations recursively rendered
+/// as named subqueries. Emits the trailing `)` that closes the object.
+fn write_json_object_body<'p, V: SQLParam>(
+    rel: &'p RenderedRelation<V>,
+    alias: &str,
+    target_columns: &[&'static str],
+    dialect: Dialect,
+    ctx: &mut SubqueryCtx<'_, 'p, V>,
+) {
+    write_json_object_open(dialect, ctx.sql);
+    let mut first_arg = true;
+    for c in target_columns {
+        if !first_arg {
+            ctx.sql.push_str(", ");
+        }
+        first_arg = false;
+        ctx.sql.push('\'');
+        ctx.sql.push_str(c);
+        ctx.sql.push_str("', ");
+        write_json_column(alias, c, rel.blob_columns, dialect, ctx.sql);
+    }
+
+    // Nested relation subqueries as additional json_object args
+    for nested_rel in &rel.nested {
+        if !first_arg {
+            ctx.sql.push_str(", ");
+        }
+        first_arg = false;
+        ctx.sql.push('\'');
+        ctx.sql.push_str(nested_rel.rel_name);
+        ctx.sql.push_str("', ");
+        write_relation_subquery::<V>(
+            nested_rel,
+            alias,
+            ctx.alias_counter,
+            ctx.param_counter,
+            ctx.sql,
+            ctx.params,
+        );
+    }
+
+    ctx.sql.push(')'); // close json_object / json_build_object
+}
+
+/// Allocates a fresh `"tN"`-style alias and increments the counter in place.
+fn alloc_alias(counter: &mut usize) -> String {
+    let num = *counter;
+    *counter += 1;
+    let mut buf = String::with_capacity(4);
+    buf.push('t');
+    let _ = write!(buf, "{num}");
+    buf
+}
+
+/// Mutable scratch state threaded through subquery emitters.
+struct SubqueryCtx<'s, 'p, V: SQLParam> {
+    alias_counter: &'s mut usize,
+    param_counter: &'s mut usize,
+    sql: &'s mut String,
+    params: &'s mut Vec<&'p V>,
+}
+
+/// Emits the additional WHERE predicates, trailing ORDER BY (when not already
+/// inlined in `json_agg`), and LIMIT/OFFSET clauses for a relation subquery.
+fn write_where_order_limit_offset<'p, V: SQLParam>(
+    rel: &'p RenderedRelation<V>,
+    target_table: &str,
+    alias: &str,
+    dialect: Dialect,
+    pg_order_in_agg: bool,
+    cardinality: RelCardinality,
+    ctx: &mut SubqueryCtx<'_, 'p, V>,
+) {
+    let has_trailing_order = !rel.order_by_sql.is_empty() && !pg_order_in_agg;
+    if !rel.where_sql.is_empty() || has_trailing_order {
+        let table_prefix = format!("\"{target_table}\".");
+        let alias_prefix = format!("\"{alias}\".");
+
+        if !rel.where_sql.is_empty() {
+            ctx.sql.push_str(" AND ");
+            let rewritten = rel.where_sql.replace(&table_prefix, &alias_prefix);
+            // For numbered placeholders ($1, $2, ...), offset to account for
+            // params already collected before this clause.
+            let rewritten = renumber_placeholders(dialect, &rewritten, *ctx.param_counter);
+            ctx.sql.push_str(&rewritten);
+            *ctx.param_counter += rel.where_params.len();
+            for p in &rel.where_params {
+                ctx.params.push(p);
+            }
+        }
+
+        if has_trailing_order {
+            ctx.sql.push_str(" ORDER BY ");
+            ctx.sql
+                .push_str(&rel.order_by_sql.replace(&table_prefix, &alias_prefix));
+        }
+    }
+
+    // LIMIT
+    match cardinality {
+        RelCardinality::One | RelCardinality::OptionalOne => {
+            ctx.sql.push_str(" LIMIT 1");
+        }
+        RelCardinality::Many => {
+            if let Some(n) = rel.limit {
+                ctx.sql.push_str(" LIMIT ");
+                let _ = write!(ctx.sql, "{n}");
+            }
+        }
+    }
+
+    if let Some(n) = rel.offset {
+        ctx.sql.push_str(" OFFSET ");
+        let _ = write!(ctx.sql, "{n}");
+    }
+}
+
+/// Writes the FK equality predicates that join a relation's rows against the
+/// parent row. If a junction table is present, the predicates are emitted
+/// between the junction alias and the parent alias; otherwise they join the
+/// relation's own alias to the parent.
+fn write_fk_join_conditions<V: SQLParam>(
+    rel: &RenderedRelation<V>,
+    alias: &str,
+    parent_alias: &str,
+    junction_alias: Option<&str>,
+    fk_columns: &[(&str, &str)],
+    sql: &mut String,
+) {
+    let push_pair = |a: &str, b: &str, ca: &str, cb: &str, sql: &mut String| {
+        sql.push('"');
+        sql.push_str(a);
+        sql.push_str("\".\"");
+        sql.push_str(ca);
+        sql.push_str("\" = \"");
+        sql.push_str(b);
+        sql.push_str("\".\"");
+        sql.push_str(cb);
+        sql.push('"');
+    };
+    if let (Some(junction), Some(junc_alias)) = (&rel.junction, junction_alias) {
+        for (i, (junc_col, src_col)) in junction.source_fk.iter().enumerate() {
+            if i > 0 {
+                sql.push_str(" AND ");
+            }
+            push_pair(junc_alias, parent_alias, junc_col, src_col, sql);
+        }
+    } else {
+        for (i, (src_col, tgt_col)) in fk_columns.iter().enumerate() {
+            if i > 0 {
+                sql.push_str(" AND ");
+            }
+            push_pair(alias, parent_alias, src_col, tgt_col, sql);
+        }
+    }
+}
+
 /// Writes a correlated subquery for a single relation directly into `sql`.
 fn write_relation_subquery<'p, V: SQLParam>(
     rel: &'p RenderedRelation<V>,
@@ -285,22 +492,11 @@ fn write_relation_subquery<'p, V: SQLParam>(
     sql: &mut String,
     params: &mut Vec<&'p V>,
 ) {
-    let alias_num = *alias_counter;
-    *alias_counter += 1;
-    let mut alias_buf = String::with_capacity(4);
-    alias_buf.push('t');
-    let _ = write!(alias_buf, "{alias_num}");
+    let alias_buf = alloc_alias(alias_counter);
     let alias = &alias_buf;
 
     // Allocate junction alias if this is a many-to-many relation.
-    let junction_alias = rel.junction.as_ref().map(|_| {
-        let num = *alias_counter;
-        *alias_counter += 1;
-        let mut buf = String::with_capacity(4);
-        buf.push('t');
-        let _ = write!(buf, "{num}");
-        buf
-    });
+    let junction_alias = rel.junction.as_ref().map(|_| alloc_alias(alias_counter));
 
     let target_table = rel.table_name;
     let target_columns = &rel.column_names;
@@ -333,33 +529,18 @@ fn write_relation_subquery<'p, V: SQLParam>(
         write_json_array_agg_open(dialect, sql);
     }
 
-    // json_object(...) / json_build_object(...)
-    write_json_object_open(dialect, sql);
-    let mut first_arg = true;
-    for c in target_columns {
-        if !first_arg {
-            sql.push_str(", ");
-        }
-        first_arg = false;
-        sql.push('\'');
-        sql.push_str(c);
-        sql.push_str("', ");
-        write_json_column(alias, c, rel.blob_columns, dialect, sql);
-    }
-
-    // Nested relation subqueries as additional json_object args
-    for nested_rel in &rel.nested {
-        if !first_arg {
-            sql.push_str(", ");
-        }
-        first_arg = false;
-        sql.push('\'');
-        sql.push_str(nested_rel.rel_name);
-        sql.push_str("', ");
-        write_relation_subquery::<V>(nested_rel, alias, alias_counter, param_counter, sql, params);
-    }
-
-    sql.push(')'); // close json_object / json_build_object
+    write_json_object_body::<V>(
+        rel,
+        alias,
+        target_columns,
+        dialect,
+        &mut SubqueryCtx {
+            alias_counter,
+            param_counter,
+            sql,
+            params,
+        },
+    );
 
     // PostgreSQL: ORDER BY inside json_agg — e.g. json_agg(expr ORDER BY "t1"."col" DESC)
     if pg_order_in_agg {
@@ -378,142 +559,44 @@ fn write_relation_subquery<'p, V: SQLParam>(
     sql.push_str(" FROM ");
 
     if needs_inner_subquery {
-        // Inner subquery: (SELECT cols FROM table AS alias WHERE ... ORDER BY ... LIMIT N)
-        //
-        // When nested relations exist, their correlated subqueries reference
-        // FK columns via `alias`. We must ensure those columns appear in the
-        // inner derived table even if the user excluded them via `.columns()`
-        // or `.omit()`.
-        let mut extra_cols: Vec<&str> = Vec::new();
-        for nested_rel in &rel.nested {
-            if let Some(junction) = &nested_rel.junction {
-                for (_, src_col) in junction.source_fk {
-                    if !target_columns.contains(src_col) && !extra_cols.contains(src_col) {
-                        extra_cols.push(src_col);
-                    }
-                }
-            } else {
-                for (_, tgt_col) in nested_rel.fk_columns {
-                    if !target_columns.contains(tgt_col) && !extra_cols.contains(tgt_col) {
-                        extra_cols.push(tgt_col);
-                    }
-                }
-            }
-        }
-
-        // PostgreSQL requires LATERAL for derived tables that reference
-        // columns from the outer query (the parent alias).
-        if dialect == Dialect::PostgreSQL {
-            sql.push_str("LATERAL ");
-        }
-        sql.push_str("(SELECT ");
-        for (i, c) in target_columns.iter().enumerate() {
-            if i > 0 {
-                sql.push_str(", ");
-            }
-            write_qualified_column(alias, c, sql);
-        }
-        for c in &extra_cols {
-            sql.push_str(", ");
-            write_qualified_column(alias, c, sql);
-        }
-        sql.push_str(" FROM \"");
-        sql.push_str(target_table);
-        sql.push_str("\" AS \"");
-        sql.push_str(alias);
-        sql.push('"');
-        if let (Some(junction), Some(junc_alias)) = (&rel.junction, &junction_alias) {
-            write_junction_join(junction, alias, junc_alias, sql);
-        }
-        sql.push_str(" WHERE ");
+        write_inner_subquery_prelude(rel, target_table, alias, target_columns, dialect, sql);
     } else {
         sql.push('"');
-        sql.push_str(target_table);
-        sql.push_str("\" AS \"");
-        sql.push_str(alias);
-        sql.push('"');
-        if let (Some(junction), Some(junc_alias)) = (&rel.junction, &junction_alias) {
-            write_junction_join(junction, alias, junc_alias, sql);
-        }
-        sql.push_str(" WHERE ");
     }
+    sql.push_str(target_table);
+    sql.push_str("\" AS \"");
+    sql.push_str(alias);
+    sql.push('"');
+    if let (Some(junction), Some(junc_alias)) = (&rel.junction, &junction_alias) {
+        write_junction_join(junction, alias, junc_alias, sql);
+    }
+    sql.push_str(" WHERE ");
 
     // FK join conditions — junction replaces direct FK with INNER JOIN + WHERE
-    if let (Some(junction), Some(junc_alias)) = (&rel.junction, &junction_alias) {
-        for (i, (junc_col, src_col)) in junction.source_fk.iter().enumerate() {
-            if i > 0 {
-                sql.push_str(" AND ");
-            }
-            sql.push('"');
-            sql.push_str(junc_alias);
-            sql.push_str("\".\"");
-            sql.push_str(junc_col);
-            sql.push_str("\" = \"");
-            sql.push_str(parent_alias);
-            sql.push_str("\".\"");
-            sql.push_str(src_col);
-            sql.push('"');
-        }
-    } else {
-        for (i, (src_col, tgt_col)) in fk_columns.iter().enumerate() {
-            if i > 0 {
-                sql.push_str(" AND ");
-            }
-            sql.push('"');
-            sql.push_str(alias);
-            sql.push_str("\".\"");
-            sql.push_str(src_col);
-            sql.push_str("\" = \"");
-            sql.push_str(parent_alias);
-            sql.push_str("\".\"");
-            sql.push_str(tgt_col);
-            sql.push('"');
-        }
-    }
+    write_fk_join_conditions(
+        rel,
+        alias,
+        parent_alias,
+        junction_alias.as_deref(),
+        fk_columns,
+        sql,
+    );
 
-    // Additional WHERE and ORDER BY (rewrite table references to alias).
-    // Skip ORDER BY here when it was already placed inside json_agg (pg_order_in_agg).
-    let has_trailing_order = !rel.order_by_sql.is_empty() && !pg_order_in_agg;
-    if !rel.where_sql.is_empty() || has_trailing_order {
-        let table_prefix = format!("\"{target_table}\".");
-        let alias_prefix = format!("\"{alias}\".");
-
-        if !rel.where_sql.is_empty() {
-            sql.push_str(" AND ");
-            let rewritten = rel.where_sql.replace(&table_prefix, &alias_prefix);
-            // For numbered placeholders ($1, $2, ...), offset to account for
-            // params already collected before this clause.
-            let rewritten = renumber_placeholders(dialect, &rewritten, *param_counter);
-            sql.push_str(&rewritten);
-            *param_counter += rel.where_params.len();
-            for p in &rel.where_params {
-                params.push(p);
-            }
-        }
-
-        if has_trailing_order {
-            sql.push_str(" ORDER BY ");
-            sql.push_str(&rel.order_by_sql.replace(&table_prefix, &alias_prefix));
-        }
-    }
-
-    // LIMIT / OFFSET
-    match cardinality {
-        RelCardinality::One | RelCardinality::OptionalOne => {
-            sql.push_str(" LIMIT 1");
-        }
-        RelCardinality::Many => {
-            if let Some(n) = rel.limit {
-                sql.push_str(" LIMIT ");
-                let _ = write!(sql, "{n}");
-            }
-        }
-    }
-
-    if let Some(n) = rel.offset {
-        sql.push_str(" OFFSET ");
-        let _ = write!(sql, "{n}");
-    }
+    // Additional WHERE and ORDER BY, then LIMIT/OFFSET per cardinality.
+    write_where_order_limit_offset(
+        rel,
+        target_table,
+        alias,
+        dialect,
+        pg_order_in_agg,
+        cardinality,
+        &mut SubqueryCtx {
+            alias_counter,
+            param_counter,
+            sql,
+            params,
+        },
+    );
 
     if needs_inner_subquery {
         sql.push_str(") AS \"");
@@ -569,14 +652,14 @@ fn write_junction_join(
 
 /// Writes a column reference for use inside `json_object()`.
 ///
-/// For BLOB columns on SQLite, wraps with a NULL-safe `hex()` expression:
+/// For BLOB columns on `SQLite`, wraps with a NULL-safe `hex()` expression:
 /// `CASE WHEN col IS NULL THEN NULL ELSE hex(col) END`.
 ///
 /// Plain `hex(NULL)` returns an empty string `""` rather than SQL NULL,
 /// which would cause `json_object()` to emit `"col":""` instead of
 /// `"col":null`. The CASE expression preserves NULLs correctly.
 ///
-/// PostgreSQL handles all types natively in `json_build_object()`, so no
+/// `PostgreSQL` handles all types natively in `json_build_object()`, so no
 /// wrapping is needed regardless of column type.
 fn write_json_column(
     alias: &str,
@@ -598,7 +681,7 @@ fn write_json_column(
 }
 
 /// Opens a JSON object constructor.
-/// SQLite: `json_object(`, PostgreSQL: `json_build_object(`
+/// `SQLite`: `json_object(`, `PostgreSQL`: `json_build_object(`
 fn write_json_object_open(dialect: Dialect, sql: &mut String) {
     match dialect {
         Dialect::SQLite | Dialect::MySQL => sql.push_str("json_object("),
@@ -607,7 +690,7 @@ fn write_json_object_open(dialect: Dialect, sql: &mut String) {
 }
 
 /// Opens a JSON array aggregation wrapper for Many relations.
-/// SQLite: `json_group_array(`, PostgreSQL: `COALESCE(json_agg(`
+/// `SQLite`: `json_group_array(`, `PostgreSQL`: `COALESCE(json_agg(`
 fn write_json_array_agg_open(dialect: Dialect, sql: &mut String) {
     match dialect {
         Dialect::SQLite | Dialect::MySQL => sql.push_str("json_group_array("),
@@ -616,7 +699,7 @@ fn write_json_array_agg_open(dialect: Dialect, sql: &mut String) {
 }
 
 /// Closes a JSON array aggregation wrapper for Many relations.
-/// SQLite: `)`, PostgreSQL: `), '[]'::json)`
+/// `SQLite`: `)`, `PostgreSQL`: `), '[]'::json)`
 fn write_json_array_agg_close(dialect: Dialect, sql: &mut String) {
     match dialect {
         Dialect::SQLite | Dialect::MySQL => sql.push(')'),
@@ -626,8 +709,8 @@ fn write_json_array_agg_close(dialect: Dialect, sql: &mut String) {
 
 /// Renumbers `$N` placeholders in a pre-built SQL fragment to start at `offset`.
 ///
-/// For SQLite (`?` placeholders), returns the input unchanged.
-/// For PostgreSQL, rewrites `$1` → `$offset`, `$2` → `$offset+1`, etc.
+/// For `SQLite` (`?` placeholders), returns the input unchanged.
+/// For `PostgreSQL`, rewrites `$1` → `$offset`, `$2` → `$offset+1`, etc.
 fn renumber_placeholders(dialect: Dialect, sql: &str, offset: usize) -> String {
     match dialect {
         Dialect::SQLite | Dialect::MySQL => sql.to_string(),
@@ -642,31 +725,27 @@ fn renumber_dollar_placeholders(sql: &str, offset: usize) -> String {
     let mut chars = sql.char_indices().peekable();
 
     while let Some((_i, ch)) = chars.next() {
-        if ch == '$' {
-            // Check if next char is a digit
-            if let Some(&(start, next_ch)) = chars.peek()
-                && next_ch.is_ascii_digit()
-            {
-                // Consume all digits
-                let mut end = start;
-                while let Some(&(j, d)) = chars.peek() {
-                    if d.is_ascii_digit() {
-                        end = j + d.len_utf8();
-                        chars.next();
-                    } else {
-                        break;
-                    }
+        if ch == '$'
+            && let Some(&(start, next_ch)) = chars.peek()
+            && next_ch.is_ascii_digit()
+        {
+            // Consume all digits
+            let mut end = start;
+            while let Some(&(j, d)) = chars.peek() {
+                if d.is_ascii_digit() {
+                    end = j + d.len_utf8();
+                    chars.next();
+                } else {
+                    break;
                 }
-                let orig: usize = sql[start..end].parse().unwrap_or(0);
-                let new_num = orig + offset - 1; // $1 -> $offset, $2 -> $offset+1
-                result.push('$');
-                let _ = write!(result, "{new_num}");
-                continue;
             }
-            result.push(ch);
-        } else {
-            result.push(ch);
+            let orig: usize = sql[start..end].parse().unwrap_or(0);
+            let new_num = orig + offset - 1; // $1 -> $offset, $2 -> $offset+1
+            result.push('$');
+            let _ = write!(result, "{new_num}");
+            continue;
         }
+        result.push(ch);
     }
 
     result

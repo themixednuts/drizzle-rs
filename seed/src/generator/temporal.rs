@@ -68,7 +68,7 @@ impl Generator for TimeTzGen {
     }
 }
 
-/// Generates simple PostgreSQL interval strings.
+/// Generates simple `PostgreSQL` interval strings.
 pub struct IntervalGen;
 
 impl Generator for IntervalGen {

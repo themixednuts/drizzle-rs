@@ -18,6 +18,14 @@ impl MigrationDir {
     }
 
     /// Discover all migrations in this directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MigratorError::JournalError`] if a legacy `meta/_journal.json`
+    /// is found (legacy drizzle-kit format is unsupported), or
+    /// [`MigratorError::IoError`] if reading the directory fails, or
+    /// [`MigratorError::MissingMigration`] if a migration folder lacks a
+    /// `migration.sql` file.
     pub fn discover(&self) -> Result<Vec<Migration>, MigratorError> {
         if !self.path.exists() {
             return Ok(Vec::new());
@@ -40,7 +48,7 @@ impl MigrationDir {
         let mut entries: Vec<_> = fs::read_dir(&self.path)
             .map_err(|e| MigratorError::IoError(e.to_string()))?
             .filter_map(Result::ok)
-            .filter(|entry| entry.file_type().map(|t| t.is_dir()).unwrap_or(false))
+            .filter(|entry| entry.file_type().is_ok_and(|t| t.is_dir()))
             .filter_map(|entry| {
                 let tag = entry.file_name().to_string_lossy().to_string();
                 let sql_path = entry.path().join("migration.sql");

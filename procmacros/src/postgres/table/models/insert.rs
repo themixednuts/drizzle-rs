@@ -1,6 +1,6 @@
 //! Insert model generation.
 //!
-//! Generates the InsertModel struct with type-safe field tracking using marker types.
+//! Generates the `InsertModel` struct with type-safe field tracking using marker types.
 
 use super::super::context::{MacroContext, ModelType};
 use super::convenience::generate_convenience_method;
@@ -8,13 +8,9 @@ use crate::postgres::field::{FieldInfo, TypeCategory};
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::Result;
 
 /// Generates the Insert model with convenience methods and constructor
-pub(crate) fn generate_insert_model(
-    ctx: &MacroContext,
-    required_fields_pattern: &[bool],
-) -> Result<TokenStream> {
+pub fn generate_insert_model(ctx: &MacroContext, required_fields_pattern: &[bool]) -> TokenStream {
     let insert_model = &ctx.insert_model_ident;
     let struct_ident = &ctx.struct_ident;
 
@@ -34,8 +30,8 @@ pub(crate) fn generate_insert_model(
 
     for (field_index, info) in ctx.field_infos.iter().enumerate() {
         let name = &info.ident;
-        let field_type = ctx.get_field_type_for_model(info, ModelType::Insert);
-        let is_optional = ctx.is_field_optional_in_insert(info);
+        let field_type = MacroContext::get_field_type_for_model(info, ModelType::Insert);
+        let is_optional = MacroContext::is_field_optional_in_insert(info);
 
         insert_fields.push(quote! { #name: #field_type });
         insert_default_fields.push(get_insert_default_value(info));
@@ -54,7 +50,7 @@ pub(crate) fn generate_insert_model(
     // Generate marker types for each field
     let field_marker_types = generate_marker_types(ctx);
 
-    Ok(quote! {
+    quote! {
         // Generate marker types for each field
         #(#field_marker_types)*
 
@@ -138,7 +134,7 @@ pub(crate) fn generate_insert_model(
                 SQL::join(sql_parts, Token::COMMA)
             }
         }
-    })
+    }
 }
 
 // =============================================================================

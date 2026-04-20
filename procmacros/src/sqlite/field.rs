@@ -1,6 +1,7 @@
 use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
 use quote::quote;
+use std::borrow::Cow;
 use std::{collections::HashSet, fmt::Display};
 use syn::{
     Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Meta, Result, Token, Type,
@@ -20,22 +21,22 @@ use crate::common::{
 // Re-export shared types from drizzle-types
 // =============================================================================
 
-/// Re-export TypeCategory from the shared types crate
-pub(crate) use drizzle_types::sqlite::TypeCategory;
+/// Re-export `TypeCategory` from the shared types crate
+pub use drizzle_types::sqlite::TypeCategory;
 
-/// Re-export SQLiteType from the shared types crate  
-pub(crate) use drizzle_types::sqlite::SQLiteType as SharedSQLiteType;
+/// Re-export `SQLiteType` from the shared types crate  
+pub use drizzle_types::sqlite::SQLiteType as SharedSQLiteType;
 
 // =============================================================================
 // Local SQLiteType wrapper with procmacro-specific functionality
 // =============================================================================
 
-/// Local wrapper around SharedSQLiteType with additional procmacro-specific methods.
+/// Local wrapper around `SharedSQLiteType` with additional procmacro-specific methods.
 ///
 /// This contains methods that are only needed during macro expansion,
 /// such as validation with detailed error messages.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SQLiteType {
+pub enum SQLiteType {
     Integer,
     Text,
     Blob,
@@ -48,12 +49,12 @@ pub(crate) enum SQLiteType {
 impl From<SharedSQLiteType> for SQLiteType {
     fn from(shared: SharedSQLiteType) -> Self {
         match shared {
-            SharedSQLiteType::Integer => SQLiteType::Integer,
-            SharedSQLiteType::Text => SQLiteType::Text,
-            SharedSQLiteType::Blob => SQLiteType::Blob,
-            SharedSQLiteType::Real => SQLiteType::Real,
-            SharedSQLiteType::Numeric => SQLiteType::Numeric,
-            SharedSQLiteType::Any => SQLiteType::Any,
+            SharedSQLiteType::Integer => Self::Integer,
+            SharedSQLiteType::Text => Self::Text,
+            SharedSQLiteType::Blob => Self::Blob,
+            SharedSQLiteType::Real => Self::Real,
+            SharedSQLiteType::Numeric => Self::Numeric,
+            SharedSQLiteType::Any => Self::Any,
         }
     }
 }
@@ -76,7 +77,7 @@ impl SQLiteType {
     }
 
     /// Get the SQL type string for this type
-    pub(crate) fn to_sql_type(&self) -> &'static str {
+    pub(crate) const fn to_sql_type(&self) -> &'static str {
         match self {
             Self::Integer => "INTEGER",
             Self::Text => "TEXT",
@@ -113,17 +114,17 @@ impl Display for SQLiteType {
 // TypeCategory helper functions for procmacros
 // =============================================================================
 
-/// Convert a TypeCategory to the local SQLiteType
+/// Convert a `TypeCategory` to the local `SQLiteType`
 ///
 /// This wraps the shared type's method and converts to our local type
-pub(crate) fn type_category_to_sqlite(cat: &TypeCategory) -> Option<SQLiteType> {
-    drizzle_types::sqlite::TypeCategory::to_sqlite_type(cat).map(Into::into)
+pub fn type_category_to_sqlite(cat: TypeCategory) -> Option<SQLiteType> {
+    drizzle_types::sqlite::TypeCategory::to_sqlite_type(&cat).map(Into::into)
 }
 
 impl SQLiteType {
-    /// Validate a flag for this column type, returning an error with SQLite docs link if invalid.
+    /// Validate a flag for this column type, returning an error with `SQLite` docs link if invalid.
     ///
-    /// Provides helpful error messages with links to relevant SQLite documentation
+    /// Provides helpful error messages with links to relevant `SQLite` documentation
     /// when incompatible flag/type combinations are used.
     pub(crate) fn validate_flag(&self, flag: &str, attr: &Attribute) -> Result<()> {
         if !self.is_valid_flag(flag) {
@@ -176,10 +177,10 @@ impl SQLiteType {
 
 /// Foreign key reference information
 #[derive(Debug, Clone)]
-pub(crate) struct ForeignKeyReference {
-    /// The referenced table identifier (e.g., "User" from User::id)
+pub struct ForeignKeyReference {
+    /// The referenced table identifier (e.g., "User" from `User::id`)
     pub(crate) table_ident: Ident,
-    /// The referenced column identifier (e.g., "id" from User::id)
+    /// The referenced column identifier (e.g., "id" from `User::id`)
     pub(crate) column_ident: Ident,
     /// ON DELETE action (e.g., "CASCADE", "SET NULL")
     pub(crate) on_delete: Option<String>,
@@ -187,9 +188,15 @@ pub(crate) struct ForeignKeyReference {
     pub(crate) on_update: Option<String>,
 }
 
-/// Comprehensive field information for code generation
+/// Comprehensive field information for code generation.
+///
+/// The many `bool` fields here each represent an independent SQL column
+/// property (primary, unique, nullable, JSON, enum, UUID, etc.) and are read
+/// at disparate points during code-gen. Bundling them into bitflags would
+/// obscure intent and bloat every access site.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone)]
-pub(crate) struct FieldInfo<'a> {
+pub struct FieldInfo<'a> {
     // Basic field identifiers and types
     pub(crate) ident: &'a Ident,
     /// The original field type (e.g., Option<String> or i32)
@@ -261,7 +268,7 @@ struct ParsedArgs {
     /// Original marker expressions for IDE hover documentation
     /// These preserve the original tokens so rust-analyzer can resolve them
     marker_exprs: Vec<syn::ExprPath>,
-    /// Explicit SQLite type override (e.g., from #[column(text)] or #[column(blob)])
+    /// Explicit `SQLite` type override (e.g., from #[column(text)] or #[column(blob)])
     explicit_type: Option<SQLiteType>,
 }
 
@@ -281,6 +288,10 @@ struct AttributeData {
     marker_exprs: Vec<syn::ExprPath>,
 }
 
+/// Intermediate column-constraint flags lifted straight from user attributes.
+/// Each bool is independently set from a distinct attribute or type check and
+/// is consumed later when populating [`FieldInfo`].
+#[allow(clippy::struct_excessive_bools)]
 struct FieldProperties {
     is_primary: bool,
     is_autoincrement: bool,
@@ -318,8 +329,7 @@ impl<'a> FieldInfo<'a> {
             _ => Err(Error::new_spanned(
                 action,
                 format!(
-                    "invalid referential action `{}`; expected one of: CASCADE, SET_NULL, SET_DEFAULT, RESTRICT, NO_ACTION",
-                    action_str
+                    "invalid referential action `{action_str}`; expected one of: CASCADE, SET_NULL, SET_DEFAULT, RESTRICT, NO_ACTION"
                 ),
             )),
         }
@@ -328,7 +338,7 @@ impl<'a> FieldInfo<'a> {
     /// Parse attribute arguments, extracting flags and named parameters.
     ///
     /// Supports:
-    /// - SQLite type overrides: `text`, `integer`, `blob`, `real`, `any`
+    /// - `SQLite` type overrides: `text`, `integer`, `blob`, `real`, `any`
     /// - Constraint flags: `primary`, `unique`, `autoincrement`, `json`, `enum`
     /// - Named parameters: `default = value`, `default_fn = func`, `references = Table::col`
     fn parse_args(input: ParseStream) -> Result<ParsedArgs> {
@@ -385,7 +395,7 @@ impl<'a> FieldInfo<'a> {
                             if let Some(sqlite_type) = SQLiteType::from_attribute_name(&ident_str) {
                                 args.explicit_type = Some(sqlite_type);
                             } else {
-                                args.flags.insert(ident_str.clone());
+                                args.flags.insert(ident_str);
                             }
                         }
                     }
@@ -476,7 +486,7 @@ impl<'a> FieldInfo<'a> {
     /// 1. Legacy: `#[text]`, `#[integer(primary)]`, etc. - type from attribute name
     /// 2. New: `#[column(primary)]`, `#[column(text, primary)]` - type inferred or explicit
     ///
-    /// For the new syntax, if no explicit type is provided, the SQLite type is
+    /// For the new syntax, if no explicit type is provided, the `SQLite` type is
     /// inferred from the Rust type using `TypeCategory::to_sqlite_type()`.
     fn parse_attributes(attrs: &[Attribute]) -> Result<AttributeData> {
         let mut data = AttributeData::default();
@@ -573,15 +583,14 @@ impl<'a> FieldInfo<'a> {
             // Use the first marker as span source for the error
             if let Some(marker) = data.marker_exprs.first() {
                 return Err(Error::new_spanned(marker, msg));
-            } else {
-                return Err(Error::new(proc_macro2::Span::call_site(), msg));
             }
+            return Err(Error::new(proc_macro2::Span::call_site(), msg));
         }
 
         Ok(data)
     }
 
-    /// Build FieldInfo from parsed components
+    /// Build `FieldInfo` from parsed components
     fn build(
         field_name: &'a Ident,
         field_type: &'a Type,
@@ -616,7 +625,7 @@ impl<'a> FieldInfo<'a> {
         let column_type = if attrs.has_explicit_type {
             // Use the explicit type from the attribute
             attrs.column_type.clone()
-        } else if let Some(sqlite_type) = type_category_to_sqlite(&type_category) {
+        } else if let Some(sqlite_type) = type_category_to_sqlite(type_category) {
             // Infer from Rust type
             sqlite_type
         } else {
@@ -629,19 +638,21 @@ impl<'a> FieldInfo<'a> {
         Self::validate_constraints(
             &column_type,
             &properties,
-            &attrs.default_value,
-            &attrs.default_fn,
+            attrs.default_value.as_ref(),
+            attrs.default_fn.as_ref(),
             field_name,
         )?;
 
         let sql_definition = build_sql_definition(
             &column_name,
             &column_type,
-            properties.is_primary && !is_part_of_composite_pk,
-            !is_nullable,
-            properties.is_unique,
-            properties.is_autoincrement,
-            &attrs.default_value,
+            SqlDefinitionFlags {
+                is_primary_single: properties.is_primary && !is_part_of_composite_pk,
+                is_not_null: !is_nullable,
+                is_unique: properties.is_unique,
+                is_autoincrement: properties.is_autoincrement,
+            },
+            attrs.default_value.as_ref(),
         );
 
         // Detect foreign key reference from the attributes (references = Table::column)
@@ -684,8 +695,8 @@ impl<'a> FieldInfo<'a> {
     fn validate_constraints(
         column_type: &SQLiteType,
         props: &FieldProperties,
-        default_value: &Option<Expr>,
-        default_fn: &Option<Expr>,
+        default_value: Option<&Expr>,
+        default_fn: Option<&Expr>,
         field_name: &Ident,
     ) -> Result<()> {
         let validations = [
@@ -724,33 +735,42 @@ impl<'a> FieldInfo<'a> {
     }
 }
 
-/// Build SQL column definition string
-fn build_sql_definition(
-    column_name: &str,
-    column_type: &SQLiteType,
+/// Flags controlling SQL column definition output. Each flag corresponds to
+/// an independent piece of the emitted column definition (PRIMARY KEY,
+/// NOT NULL, UNIQUE, AUTOINCREMENT) and is toggled independently.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, Copy)]
+struct SqlDefinitionFlags {
     is_primary_single: bool,
     is_not_null: bool,
     is_unique: bool,
     is_autoincrement: bool,
-    default_value: &Option<Expr>,
+}
+
+/// Build SQL column definition string
+fn build_sql_definition(
+    column_name: &str,
+    column_type: &SQLiteType,
+    flags: SqlDefinitionFlags,
+    default_value: Option<&Expr>,
 ) -> String {
     let mut sql = format!("\"{}\" {}", column_name, column_type.to_sql_type());
 
     // Handle primary key with potential autoincrement
-    if is_primary_single {
+    if flags.is_primary_single {
         sql.push_str(" PRIMARY KEY");
-        if is_autoincrement {
+        if flags.is_autoincrement {
             sql.push_str(" AUTOINCREMENT");
         }
     }
 
     // Add NOT NULL constraint
-    if is_not_null {
+    if flags.is_not_null {
         sql.push_str(" NOT NULL");
     }
 
     // Add UNIQUE constraint
-    if is_unique {
+    if flags.is_unique {
         sql.push_str(" UNIQUE");
     }
 
@@ -758,10 +778,10 @@ fn build_sql_definition(
         let default_val = match &expr_lit.lit {
             Lit::Int(i) => format!(" DEFAULT {i}"),
             Lit::Float(f) => format!(" DEFAULT {f}"),
-            Lit::Bool(b) => format!(" DEFAULT {}", b.value() as i64),
+            Lit::Bool(b) => format!(" DEFAULT {}", i64::from(b.value())),
             Lit::Str(s) => {
                 let escaped = s.value().replace('\'', "''");
-                format!(" DEFAULT '{}'", escaped)
+                format!(" DEFAULT '{escaped}'")
             }
             _ => String::new(),
         };
@@ -787,15 +807,15 @@ fn update_type(base_type: &Type) -> TokenStream {
     quote!(#sqlite_update_value<'a, #sqlite_value<'a>, #base_type>)
 }
 
-impl<'a> FieldInfo<'a> {
-    /// Get the model field type for this field in the SelectModel
+impl FieldInfo<'_> {
+    /// Get the model field type for this field in the `SelectModel`
     pub(crate) fn get_select_type(&self) -> TokenStream {
         self.select_type
             .clone()
             .unwrap_or_else(|| select_type(self.base_type, self.is_nullable, self.has_default))
     }
 
-    /// Get the model field type for this field in the UpdateModel
+    /// Get the model field type for this field in the `UpdateModel`
     #[allow(dead_code)]
     pub(crate) fn get_update_type(&self) -> TokenStream {
         self.update_type
@@ -826,7 +846,7 @@ impl<'a> FieldInfo<'a> {
         type_category_from_type(self.base_type)
     }
 
-    /// Get the inner type for SQLiteInsertValue wrapper.
+    /// Get the inner type for `SQLiteInsertValue` wrapper.
     ///
     /// For types that use `impl Into<...>` parameters, this returns the
     /// appropriate target type (e.g., String for text, Vec<u8> for blobs).
@@ -836,9 +856,10 @@ impl<'a> FieldInfo<'a> {
         match self.type_category() {
             TypeCategory::Uuid => {
                 // UUID uses String for TEXT columns, Uuid for BLOB columns
-                match self.column_type {
-                    SQLiteType::Text => quote!(::std::string::String),
-                    _ => quote!(::uuid::Uuid),
+                if self.column_type == SQLiteType::Text {
+                    quote!(::std::string::String)
+                } else {
+                    quote!(::uuid::Uuid)
                 }
             }
             TypeCategory::String => quote!(::std::string::String),
@@ -848,7 +869,7 @@ impl<'a> FieldInfo<'a> {
         }
     }
 
-    /// Generate the full SQLiteInsertValue<...> type for this field.
+    /// Generate the full `SQLiteInsertValue`<...> type for this field.
     #[allow(dead_code)]
     pub(crate) fn sqlite_insert_value_type(&self) -> TokenStream {
         let inner = self.insert_value_inner_type();
@@ -918,7 +939,7 @@ impl<'a> FieldInfo<'a> {
         col
     }
 
-    /// Convert this field to a drizzle-schema ForeignKey if it has a reference.
+    /// Convert this field to a drizzle-schema `ForeignKey` if it has a reference.
     pub(crate) fn to_foreign_key_meta(
         &self,
         table_name: &str,
@@ -926,17 +947,15 @@ impl<'a> FieldInfo<'a> {
         let fk_ref = self.foreign_key.as_ref()?;
 
         let table_to = fk_ref.table_ident.to_string();
-        let column_to = fk_ref.column_ident.to_string();
+        let target_column = fk_ref.column_ident.to_string();
         let fk_name = format!(
             "{}_{}_{}_{}_fk",
-            table_name, self.column_name, table_to, column_to
+            table_name, self.column_name, table_to, target_column
         );
-
-        use std::borrow::Cow;
 
         // Convert Vec<String> to Cow<'static, [Cow<'static, str>]>
         let columns: Vec<Cow<'static, str>> = vec![Cow::Owned(self.column_name.clone())];
-        let columns_to: Vec<Cow<'static, str>> = vec![Cow::Owned(column_to)];
+        let columns_to: Vec<Cow<'static, str>> = vec![Cow::Owned(target_column)];
 
         let fk = drizzle_types::sqlite::ddl::ForeignKey {
             table: Cow::Owned(table_name.to_string()),
@@ -960,7 +979,7 @@ impl<'a> FieldInfo<'a> {
 /// Generate the complete table metadata JSON for use in drizzle-kit compatible migrations.
 ///
 /// Uses the actual drizzle-schema types for type-safe construction and serde serialization.
-pub(crate) fn generate_table_meta_json(
+pub fn generate_table_meta_json(
     table_name: &str,
     field_infos: &[FieldInfo],
     is_composite_pk: bool,
@@ -994,7 +1013,7 @@ pub(crate) fn generate_table_meta_json(
             .collect();
 
         if pk_columns.len() > 1 {
-            let pk_name = format!("{}_pk", table_name);
+            let pk_name = format!("{table_name}_pk");
             let pk = PrimaryKey::from_strings(table_name.to_string(), pk_name, pk_columns);
             entities.push(SqliteEntity::PrimaryKey(pk));
         }
@@ -1060,9 +1079,9 @@ fn type_category_from_type(ty: &Type) -> TypeCategory {
     TypeCategory::Unknown
 }
 
-/// Detect if an ExprPath is a foreign key reference (Table::column syntax)
-/// Returns ForeignKeyReference with on_delete/on_update if the path matches the pattern
-pub(crate) fn detect_foreign_key_reference_from_path(
+/// Detect if an `ExprPath` is a foreign key reference (`Table::column` syntax)
+/// Returns `ForeignKeyReference` with `on_delete/on_update` if the path matches the pattern
+pub fn detect_foreign_key_reference_from_path(
     path: &ExprPath,
     on_delete: Option<String>,
     on_update: Option<String>,
@@ -1098,7 +1117,7 @@ impl crate::common::constraints::ForeignKeyRef for ForeignKeyReference {
     }
 }
 
-impl<'a> crate::common::constraints::ConstraintFieldInfo for FieldInfo<'a> {
+impl crate::common::constraints::ConstraintFieldInfo for FieldInfo<'_> {
     type ForeignKey = ForeignKeyReference;
 
     fn ident(&self) -> &Ident {

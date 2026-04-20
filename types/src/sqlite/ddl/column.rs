@@ -1,4 +1,4 @@
-//! SQLite Column DDL types
+//! `SQLite` Column DDL types
 //!
 //! This module provides two complementary types:
 //! - [`ColumnDef`] - A const-friendly definition type for compile-time schema definitions
@@ -87,6 +87,19 @@ pub struct Generated {
 // Const-friendly Definition Type
 // =============================================================================
 
+/// Primary-key variant for a [`ColumnDef`].
+///
+/// Represents the two `SQLite` primary-key forms: a plain `PRIMARY KEY` or
+/// `PRIMARY KEY AUTOINCREMENT`. Stored as `Option<PrimaryKeyKind>` so that
+/// `None` indicates the column is not a primary key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PrimaryKeyKind {
+    /// Plain `PRIMARY KEY`
+    Plain,
+    /// `PRIMARY KEY AUTOINCREMENT`
+    Autoincrement,
+}
+
 /// Const-friendly column definition for compile-time schema definitions.
 ///
 /// # Examples
@@ -114,10 +127,8 @@ pub struct ColumnDef {
     pub sql_type: &'static str,
     /// Is this column NOT NULL?
     pub not_null: bool,
-    /// Is this column AUTOINCREMENT?
-    pub autoincrement: bool,
-    /// Is this column a PRIMARY KEY?
-    pub primary_key: bool,
+    /// Primary-key variant (None if not a primary key)
+    pub primary_key: Option<PrimaryKeyKind>,
     /// Is this column UNIQUE?
     pub unique: bool,
     /// Default value as string (if any)
@@ -135,8 +146,7 @@ impl ColumnDef {
             name,
             sql_type,
             not_null: false,
-            autoincrement: false,
-            primary_key: false,
+            primary_key: None,
             unique: false,
             default: None,
             generated: None,
@@ -152,26 +162,31 @@ impl ColumnDef {
         }
     }
 
-    /// Set AUTOINCREMENT
+    /// Set AUTOINCREMENT (implies PRIMARY KEY and NOT NULL)
     #[must_use]
     pub const fn autoincrement(self) -> Self {
         Self {
-            autoincrement: true,
-            ..self
-        }
-    }
-
-    /// Set PRIMARY KEY (also sets NOT NULL)
-    #[must_use]
-    pub const fn primary_key(self) -> Self {
-        Self {
-            primary_key: true,
+            primary_key: Some(PrimaryKeyKind::Autoincrement),
             not_null: true,
             ..self
         }
     }
 
-    /// Alias for primary_key()
+    /// Set PRIMARY KEY (also sets NOT NULL). Preserves AUTOINCREMENT if already set.
+    #[must_use]
+    pub const fn primary_key(self) -> Self {
+        let primary_key = match self.primary_key {
+            Some(kind) => Some(kind),
+            None => Some(PrimaryKeyKind::Plain),
+        };
+        Self {
+            primary_key,
+            not_null: true,
+            ..self
+        }
+    }
+
+    /// Alias for `primary_key()`
     #[must_use]
     pub const fn primary(self) -> Self {
         self.primary_key()
@@ -221,8 +236,15 @@ impl ColumnDef {
             name: Cow::Borrowed(self.name),
             sql_type: Cow::Borrowed(self.sql_type),
             not_null: self.not_null,
-            autoincrement: if self.autoincrement { Some(true) } else { None },
-            primary_key: if self.primary_key { Some(true) } else { None },
+            autoincrement: match self.primary_key {
+                Some(PrimaryKeyKind::Autoincrement) => Some(true),
+                _ => None,
+            },
+            primary_key: if self.primary_key.is_some() {
+                Some(true)
+            } else {
+                None
+            },
             unique: if self.unique { Some(true) } else { None },
             default: match self.default {
                 Some(s) => Some(Cow::Borrowed(s)),
@@ -334,14 +356,14 @@ impl Column {
 
     /// Set NOT NULL
     #[must_use]
-    pub fn not_null(mut self) -> Self {
+    pub const fn not_null(mut self) -> Self {
         self.not_null = true;
         self
     }
 
     /// Set AUTOINCREMENT
     #[must_use]
-    pub fn autoincrement(mut self) -> Self {
+    pub const fn autoincrement(mut self) -> Self {
         self.autoincrement = Some(true);
         self
     }
@@ -430,10 +452,13 @@ mod tests {
             assert!(COL_DEF.not_null);
         }
         const {
-            assert!(COL_DEF.primary_key);
+            assert!(COL_DEF.primary_key.is_some());
         }
         const {
-            assert!(COL_DEF.autoincrement);
+            assert!(matches!(
+                COL_DEF.primary_key,
+                Some(PrimaryKeyKind::Autoincrement)
+            ));
         }
 
         let col: Column = COL_DEF.into_column();

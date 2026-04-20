@@ -1,4 +1,4 @@
-//! PostgreSQL schema serialization
+//! `PostgreSQL` schema serialization
 //!
 //! This module provides functionality to serialize Drizzle schema definitions
 //! into DDL entities and snapshots.
@@ -30,7 +30,7 @@ impl std::error::Error for SerializerError {}
 /// Result type for serialization
 pub type SerializerResult<T> = Result<T, SerializerError>;
 
-/// Result of preparing PostgreSQL snapshots for migration
+/// Result of preparing `PostgreSQL` snapshots for migration
 #[derive(Debug, Clone)]
 pub struct PreparedSnapshots {
     /// Previous DDL state
@@ -43,52 +43,68 @@ pub struct PreparedSnapshots {
     pub snapshot_prev: PostgresSnapshot,
 }
 
-/// Load a snapshot from a JSON file
+/// Load a snapshot from a JSON file.
+///
+/// # Errors
+///
+/// Returns a [`SerializerError`] if the file cannot be read or the contents
+/// cannot be parsed as a [`PostgresSnapshot`].
 pub fn load_snapshot(path: &Path) -> SerializerResult<PostgresSnapshot> {
     let contents = std::fs::read_to_string(path).map_err(|e| SerializerError {
-        message: format!("Failed to read snapshot file: {}", e),
+        message: format!("Failed to read snapshot file: {e}"),
         path: Some(path.display().to_string()),
     })?;
 
     serde_json::from_str::<PostgresSnapshot>(&contents).map_err(|e| SerializerError {
-        message: format!("Failed to parse snapshot: {}", e),
+        message: format!("Failed to parse snapshot: {e}"),
         path: Some(path.display().to_string()),
     })
 }
 
-/// Save a snapshot to a JSON file
+/// Save a snapshot to a JSON file.
+///
+/// # Errors
+///
+/// Returns a [`SerializerError`] if the parent directory cannot be created,
+/// the snapshot cannot be serialized, or the file cannot be written.
 pub fn save_snapshot(snapshot: &PostgresSnapshot, path: &Path) -> SerializerResult<()> {
     // Create parent directories if needed
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| SerializerError {
-            message: format!("Failed to create directory: {}", e),
+            message: format!("Failed to create directory: {e}"),
             path: Some(parent.display().to_string()),
         })?;
     }
 
     let json = serde_json::to_string_pretty(snapshot).map_err(|e| SerializerError {
-        message: format!("Failed to serialize snapshot: {}", e),
+        message: format!("Failed to serialize snapshot: {e}"),
         path: Some(path.display().to_string()),
     })?;
 
     std::fs::write(path, json).map_err(|e| SerializerError {
-        message: format!("Failed to write snapshot file: {}", e),
+        message: format!("Failed to write snapshot file: {e}"),
         path: Some(path.display().to_string()),
     })?;
 
     Ok(())
 }
 
-/// Load the latest snapshot from a drizzle folder
+/// Load the latest snapshot from a drizzle folder.
+///
+/// # Errors
+///
+/// Returns a [`SerializerError`] if the folder cannot be scanned or the
+/// latest snapshot file cannot be read/parsed.
 pub fn load_latest_snapshot(drizzle_folder: &Path) -> SerializerResult<Option<PostgresSnapshot>> {
     let snapshots = find_snapshot_files(drizzle_folder)?;
-    match snapshots.last() {
-        Some(path) => load_snapshot(path).map(Some),
-        None => Ok(None),
-    }
+    snapshots.last().map(|path| load_snapshot(path)).transpose()
 }
 
-/// Find all snapshot files in a drizzle folder
+/// Find all snapshot files in a drizzle folder.
+///
+/// # Errors
+///
+/// Returns a [`SerializerError`] if the folder exists but cannot be read.
 pub fn find_snapshot_files(drizzle_folder: &Path) -> SerializerResult<Vec<std::path::PathBuf>> {
     if !drizzle_folder.exists() {
         return Ok(Vec::new());
@@ -97,13 +113,13 @@ pub fn find_snapshot_files(drizzle_folder: &Path) -> SerializerResult<Vec<std::p
     let mut snapshots = Vec::new();
 
     let entries = std::fs::read_dir(drizzle_folder).map_err(|e| SerializerError {
-        message: format!("Failed to read migrations folder: {}", e),
+        message: format!("Failed to read migrations folder: {e}"),
         path: Some(drizzle_folder.display().to_string()),
     })?;
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+        if !entry.file_type().is_ok_and(|t| t.is_dir()) {
             continue;
         }
 
@@ -119,7 +135,12 @@ pub fn find_snapshot_files(drizzle_folder: &Path) -> SerializerResult<Vec<std::p
     Ok(snapshots)
 }
 
-/// Prepare snapshots for migration generation
+/// Prepare snapshots for migration generation.
+///
+/// # Errors
+///
+/// Returns a [`SerializerError`] if loading the previous snapshot from
+/// `drizzle_folder` fails.
 pub fn prepare_snapshots(
     drizzle_folder: &Path,
     current_ddl: PostgresDDL,
@@ -143,11 +164,13 @@ pub fn prepare_snapshots(
 }
 
 /// Create an empty/dry snapshot (for initial migrations)
+#[must_use]
 pub fn empty_snapshot() -> PostgresSnapshot {
     PostgresSnapshot::new()
 }
 
 /// Create a DDL from a list of entities
+#[must_use]
 pub fn ddl_from_entities(entities: Vec<PostgresEntity>) -> PostgresDDL {
     PostgresDDL::from_entities(entities)
 }

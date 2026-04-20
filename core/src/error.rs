@@ -75,7 +75,7 @@ pub enum DrizzleError {
     #[error("Turso error: {0}")]
     Turso(#[from] turso::Error),
 
-    /// LibSQL specific errors
+    /// `LibSQL` specific errors
     #[cfg(feature = "libsql")]
     #[error("LibSQL error: {0}")]
     LibSQL(#[from] libsql::Error),

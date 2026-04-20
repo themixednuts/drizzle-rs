@@ -23,7 +23,7 @@ use drizzle_sqlite::{
     values::SQLiteValue,
 };
 
-/// Shared SQLite drizzle builder wrapper for all SQLite drivers.
+/// Shared `SQLite` drizzle builder wrapper for all `SQLite` drivers.
 #[derive(Debug)]
 pub struct DrizzleBuilder<'a, Conn, Schema, Builder, State> {
     pub(crate) drizzle: &'a Drizzle<Conn, Schema>,
@@ -84,7 +84,7 @@ impl<'a, 'b, Conn, Schema, Table> DrizzleOnConflictBuilder<'a, 'b, Conn, Schema,
     }
 }
 
-/// Shared SQLite drizzle connection wrapper.
+/// Shared `SQLite` drizzle connection wrapper.
 #[derive(Debug)]
 pub struct Drizzle<Conn, Schema = ()> {
     pub(crate) conn: Conn,
@@ -94,7 +94,7 @@ pub struct Drizzle<Conn, Schema = ()> {
 impl<Conn: Clone, S: Clone> Clone for Drizzle<Conn, S> {
     #[inline]
     fn clone(&self) -> Self {
-        Drizzle {
+        Self {
             conn: self.conn.clone(),
             schema: self.schema.clone(),
         }
@@ -112,7 +112,7 @@ impl<Conn> Drizzle<Conn> {
     }
 }
 
-impl<Conn, S> AsRef<Drizzle<Conn, S>> for Drizzle<Conn, S> {
+impl<Conn, S> AsRef<Self> for Drizzle<Conn, S> {
     #[inline]
     fn as_ref(&self) -> &Self {
         self
@@ -122,19 +122,19 @@ impl<Conn, S> AsRef<Drizzle<Conn, S>> for Drizzle<Conn, S> {
 impl<Conn, Schema> Drizzle<Conn, Schema> {
     /// Gets a reference to the underlying connection.
     #[inline]
-    pub fn conn(&self) -> &Conn {
+    pub const fn conn(&self) -> &Conn {
         &self.conn
     }
 
     /// Gets a mutable reference to the underlying connection.
     #[inline]
-    pub fn conn_mut(&mut self) -> &mut Conn {
+    pub const fn conn_mut(&mut self) -> &mut Conn {
         &mut self.conn
     }
 
     /// Gets a reference to the schema.
     #[inline]
-    pub fn schema(&self) -> &Schema {
+    pub const fn schema(&self) -> &Schema {
         &self.schema
     }
 
@@ -258,7 +258,7 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
     #[cfg(feature = "sqlite")]
     pub fn with<'a, 'b, C>(
         &'a self,
-        cte: C,
+        cte: &C,
     ) -> DrizzleBuilder<
         'a,
         Conn,
@@ -542,7 +542,7 @@ where
     }
 }
 
-impl<'d, 'a, Conn, S, T, State> ToSQL<'a, SQLiteValue<'a>> for DrizzleBuilder<'d, Conn, S, T, State>
+impl<'a, Conn, S, T, State> ToSQL<'a, SQLiteValue<'a>> for DrizzleBuilder<'_, Conn, S, T, State>
 where
     T: ToSQL<'a, SQLiteValue<'a>>,
 {
@@ -551,8 +551,8 @@ where
     }
 }
 
-impl<'d, 'a, Conn, S, T, State> drizzle_core::expr::Expr<'a, SQLiteValue<'a>>
-    for DrizzleBuilder<'d, Conn, S, T, State>
+impl<'a, Conn, S, T, State> drizzle_core::expr::Expr<'a, SQLiteValue<'a>>
+    for DrizzleBuilder<'_, Conn, S, T, State>
 where
     T: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
 {
@@ -609,16 +609,7 @@ impl<'d, 'a, Conn, Schema>
     }
 
     #[inline]
-    pub fn with<C>(
-        self,
-        cte: C,
-    ) -> DrizzleBuilder<
-        'd,
-        Conn,
-        Schema,
-        QueryBuilder<'a, Schema, builder::CTEInit>,
-        builder::CTEInit,
-    >
+    pub fn with<C>(self, cte: &C) -> Self
     where
         C: builder::CTEDefinition<'a>,
     {
@@ -804,8 +795,8 @@ impl_select_methods! {
 // IntoSelect for DrizzleBuilder
 //------------------------------------------------------------------------------
 
-impl<'d, 'a, Conn, Schema, State, T, M, R, G> IntoSelect<'a, Schema, M, R>
-    for DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
+impl<'a, Conn, Schema, State, T, M, R, G> IntoSelect<'a, Schema, M, R>
+    for DrizzleBuilder<'_, Conn, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
 where
     State: drizzle_sqlite::builder::ExecutableState,
 {
@@ -936,8 +927,8 @@ where
 // select/insert/update/delete builder is a type alias for `QueryBuilder`, one
 // generic impl here covers all four operation kinds.
 
-impl<'d, 'a, Conn, Schema, State, T, M, R, G>
-    DrizzleBuilder<'d, Conn, Schema, QueryBuilder<'a, Schema, State, T, M, R, G>, State>
+impl<Conn, Schema, State, T, M, R, G>
+    DrizzleBuilder<'_, Conn, Schema, QueryBuilder<'_, Schema, State, T, M, R, G>, State>
 where
     State: drizzle_sqlite::builder::ExecutableState,
 {
@@ -969,8 +960,8 @@ where
     }
 }
 
-impl<'d, 'a, Conn, Schema, State, T, M, R>
-    DrizzleBuilder<'d, Conn, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
+impl<'a, Conn, Schema, State, T, M, R>
+    DrizzleBuilder<'_, Conn, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
 where
     State: AsCteState,
     T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,

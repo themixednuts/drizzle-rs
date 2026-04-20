@@ -1,4 +1,4 @@
-//! PostgreSQL schema types matching drizzle-kit format
+//! `PostgreSQL` schema types matching drizzle-kit format
 
 pub mod codegen;
 pub mod collection;

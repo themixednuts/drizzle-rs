@@ -1,4 +1,4 @@
-//! PostgreSQL support for drizzle-rs
+//! `PostgreSQL` support for drizzle-rs
 //!
 //! This crate provides PostgreSQL-specific types, query builders, and utilities.
 

@@ -2,6 +2,7 @@
 //!
 //! Generates migration files from schema changes.
 
+use std::fmt::Write;
 use std::path::Path;
 
 use crate::commands::overrides;
@@ -22,9 +23,14 @@ pub struct GenerateOptions {
     pub breakpoints: Option<bool>,
 }
 
-/// Run the generate command
+/// Run the generate command.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if the requested database cannot be resolved, the
+/// schema files fail to parse, snapshot/diff generation fails, or writing the
+/// new migration and journal files to disk fails.
 pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Result<(), CliError> {
-    use drizzle_migrations::parser::SchemaParser;
     use drizzle_migrations::words::{PrefixMode, generate_migration_tag_with_mode};
 
     let db = config.database(db_name)?;
@@ -79,29 +85,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
     }
 
     // Parse schema files
-    let schema_files = overrides::resolve_schema_files(db, opts.schema.as_deref())?;
-    if schema_files.is_empty() {
-        return Err(CliError::NoSchemaFiles(overrides::resolve_schema_display(
-            db,
-            opts.schema.as_deref(),
-        )));
-    }
-
-    println!(
-        "  {} {} schema file(s)",
-        output::label("Parsing"),
-        schema_files.len()
-    );
-
-    let mut combined_code = String::new();
-    for path in &schema_files {
-        let code = std::fs::read_to_string(path)
-            .map_err(|e| CliError::IoError(format!("Failed to read {}: {}", path.display(), e)))?;
-        combined_code.push_str(&code);
-        combined_code.push('\n');
-    }
-
-    let parse_result = SchemaParser::parse(&combined_code);
+    let parse_result = parse_schema_files(db, opts.schema.as_deref())?;
 
     if parse_result.tables.is_empty() && parse_result.indexes.is_empty() {
         println!(
@@ -145,33 +129,14 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
         .migrations
         .as_ref()
         .and_then(|m| m.prefix)
-        .map(map_prefix_mode)
-        .unwrap_or(PrefixMode::Timestamp);
+        .map_or(PrefixMode::Timestamp, map_prefix_mode);
 
     let next_idx = next_migration_index(&out_dir)?;
     let migration_tag =
         generate_migration_tag_with_mode(prefix_mode, next_idx, opts.name.as_deref());
 
-    // Create migration subdirectory: {out}/{tag}/
-    let migration_dir = out_dir.join(&migration_tag);
-    std::fs::create_dir_all(&migration_dir).map_err(|e| CliError::IoError(e.to_string()))?;
-
-    // Write {tag}/migration.sql
-    let migration_sql_path = migration_dir.join("migration.sql");
-    let sql_content = if effective_breakpoints {
-        generated.statements.join("\n--> statement-breakpoint\n")
-    } else {
-        generated.statements.join("\n\n")
-    };
-    std::fs::write(&migration_sql_path, &sql_content)
-        .map_err(|e| CliError::IoError(e.to_string()))?;
-
-    // Write {tag}/snapshot.json
-    let snapshot_path = migration_dir.join("snapshot.json");
-    generated
-        .snapshot
-        .save(&snapshot_path)
-        .map_err(|e| CliError::IoError(e.to_string()))?;
+    let migration_dir =
+        write_migration_files(&out_dir, &migration_tag, &generated, effective_breakpoints)?;
 
     // Regenerate {out_dir}/migrations.js bundle index when enabled.
     // Auto-enabled for driver = durable-sqlite (see `DatabaseConfig::bundle_enabled`).
@@ -181,11 +146,71 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
 
     println!(
         "{}",
-        output::success(&format!("Migration generated: {}", migration_tag))
+        output::success(&format!("Migration generated: {migration_tag}"))
     );
     println!("   {}", migration_dir.display());
 
     Ok(())
+}
+
+/// Resolve and parse schema files.
+fn parse_schema_files(
+    db: &crate::config::DatabaseConfig,
+    schema_override: Option<&[String]>,
+) -> Result<drizzle_migrations::parser::ParseResult, CliError> {
+    use drizzle_migrations::parser::SchemaParser;
+
+    let schema_files = overrides::resolve_schema_files(db, schema_override)?;
+    if schema_files.is_empty() {
+        return Err(CliError::NoSchemaFiles(overrides::resolve_schema_display(
+            db,
+            schema_override,
+        )));
+    }
+
+    println!(
+        "  {} {} schema file(s)",
+        output::label("Parsing"),
+        schema_files.len()
+    );
+
+    let mut combined_code = String::new();
+    for path in &schema_files {
+        let code = std::fs::read_to_string(path)
+            .map_err(|e| CliError::IoError(format!("Failed to read {}: {}", path.display(), e)))?;
+        combined_code.push_str(&code);
+        combined_code.push('\n');
+    }
+
+    Ok(SchemaParser::parse(&combined_code))
+}
+
+/// Write migration.sql and snapshot.json to `{out_dir}/{tag}/`.
+fn write_migration_files(
+    out_dir: &Path,
+    migration_tag: &str,
+    generated: &drizzle_migrations::Plan,
+    breakpoints: bool,
+) -> Result<std::path::PathBuf, CliError> {
+    let migration_dir = out_dir.join(migration_tag);
+    std::fs::create_dir_all(&migration_dir).map_err(|e| CliError::IoError(e.to_string()))?;
+
+    let migration_sql_path = migration_dir.join("migration.sql");
+    let sql_content = if breakpoints {
+        generated.statements.join("\n--> statement-breakpoint\n")
+    } else {
+        generated.statements.join("\n\n")
+    };
+    std::fs::write(&migration_sql_path, &sql_content)
+        .map_err(|e| CliError::IoError(e.to_string()))?;
+
+    let snapshot_path = migration_dir.join("snapshot.json");
+    generated
+        .snapshot
+        .save(&snapshot_path)
+        .map_err(|e| CliError::IoError(e.to_string()))?;
+
+    Ok(migration_dir)
 }
 
 /// Generate an empty custom migration for manual SQL
@@ -200,7 +225,7 @@ fn generate_custom_migration(
 
     let custom_name = name.unwrap_or_else(|| "custom".to_string());
 
-    let prefix_mode = prefix.map(map_prefix_mode).unwrap_or(PrefixMode::Timestamp);
+    let prefix_mode = prefix.map_or(PrefixMode::Timestamp, map_prefix_mode);
 
     let migration_tag = generate_migration_tag_with_mode(
         prefix_mode,
@@ -225,7 +250,7 @@ fn generate_custom_migration(
 
     println!(
         "{}",
-        output::success(&format!("Custom migration created: {}", migration_tag))
+        output::success(&format!("Custom migration created: {migration_tag}"))
     );
     println!("   {}", migration_dir.display());
     println!(
@@ -236,7 +261,7 @@ fn generate_custom_migration(
     Ok(())
 }
 
-fn map_prefix_mode(p: MigrationPrefix) -> drizzle_migrations::PrefixMode {
+const fn map_prefix_mode(p: MigrationPrefix) -> drizzle_migrations::PrefixMode {
     match p {
         MigrationPrefix::Index => drizzle_migrations::PrefixMode::Index,
         MigrationPrefix::Timestamp => drizzle_migrations::PrefixMode::Timestamp,
@@ -280,9 +305,10 @@ fn next_migration_index(out_dir: &Path) -> Result<u32, CliError> {
         }
     }
 
-    Ok(max_index
-        .map(|idx| idx.saturating_add(1))
-        .unwrap_or(entries.len() as u32))
+    Ok(max_index.map_or_else(
+        || u32::try_from(entries.len()).unwrap_or(u32::MAX),
+        |idx| idx.saturating_add(1),
+    ))
 }
 
 fn collect_v3_migration_tags(out_dir: &Path) -> Result<Vec<String>, CliError> {
@@ -350,29 +376,34 @@ fn latest_v3_snapshot_path(out_dir: &Path) -> Result<Option<std::path::PathBuf>,
 /// folder.
 ///
 /// Mirrors `drizzle-kit`'s `bundle: true` output. JS bundlers (Metro for
-/// Expo/React Native, Cloudflare Workers' bundler for Durable Objects SQLite)
+/// Expo/React Native, Cloudflare Workers' bundler for Durable Objects `SQLite`)
 /// require static `import` statements to embed SQL text into the final JS
 /// bundle; this file is the entry point.
 ///
 /// Rust-only consumers can ignore it — our [`drizzle_migrations::MigrationDir`]
 /// loader reads the `migration.sql` files directly.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if the migrations directory cannot be enumerated or if
+/// writing the `migrations.js` file fails.
 pub fn write_migrations_js(out_dir: &Path) -> Result<(), CliError> {
     let tags = collect_v3_migration_tags(out_dir)?;
 
     let mut content = String::new();
     for (idx, tag) in tags.iter().enumerate() {
-        let import_name = format!("m{:04}", idx);
+        let import_name = format!("m{idx:04}");
         // Forward slashes work in JS import specifiers on every platform,
         // including Windows — they are URL-style paths, not filesystem paths.
-        content.push_str(&format!(
-            "import {} from './{}/migration.sql';\n",
-            import_name, tag
-        ));
+        let _ = writeln!(
+            content,
+            "import {import_name} from './{tag}/migration.sql';"
+        );
     }
 
     content.push_str("\nexport default {\n  migrations: {\n");
     for (idx, tag) in tags.iter().enumerate() {
-        content.push_str(&format!("    \"{}\": m{:04},\n", tag, idx));
+        let _ = writeln!(content, "    \"{tag}\": m{idx:04},");
     }
     content.push_str("  }\n};\n");
 

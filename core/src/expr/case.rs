@@ -40,6 +40,7 @@ use super::{AggOr, AggregateKind, Expr, Null, Nullability, SQLExpr};
 ///
 /// Returns a `CaseInit` which requires at least one `.when()` call before
 /// it can be finished with `.end()` or `.r#else()`.
+#[must_use]
 pub fn case<'a, V: SQLParam>() -> CaseInit<'a, V> {
     CaseInit {
         sql: SQL::from(Token::CASE),

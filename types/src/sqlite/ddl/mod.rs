@@ -1,4 +1,4 @@
-//! SQLite DDL (Data Definition Language) entity types
+//! `SQLite` DDL (Data Definition Language) entity types
 //!
 //! This module provides two complementary types for each DDL entity:
 //!
@@ -124,10 +124,10 @@ pub const ENTITY_TYPE_VIEWS: &str = "views";
 // Unified Entity Enum
 // =============================================================================
 
-/// Unified SQLite DDL entity enum for serialization
+/// Unified `SQLite` DDL entity enum for serialization
 ///
 /// Uses internally-tagged enum representation where `entityType` discriminates variants.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "entityType"))]
 pub enum SqliteEntity {
@@ -174,7 +174,7 @@ pub fn name_for_unique(table: &str, columns: &[&str]) -> String {
 /// Generate a default name for a primary key constraint
 #[must_use]
 pub fn name_for_pk(table: &str) -> String {
-    format!("{}_pk", table)
+    format!("{table}_pk")
 }
 
 /// Generate a default name for an index
@@ -186,5 +186,5 @@ pub fn name_for_index(table: &str, columns: &[&str]) -> String {
 /// Generate a default name for a check constraint
 #[must_use]
 pub fn name_for_check(table: &str, index: usize) -> String {
-    format!("{}_check_{}", table, index)
+    format!("{table}_check_{index}")
 }

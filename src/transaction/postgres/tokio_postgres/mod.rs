@@ -41,7 +41,7 @@ pub struct Transaction<'conn, Schema = ()> {
     schema: Schema,
 }
 
-impl<'conn, Schema> std::fmt::Debug for Transaction<'conn, Schema> {
+impl<Schema> std::fmt::Debug for Transaction<'_, Schema> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Transaction")
             .field("tx_type", &self.tx_type)
@@ -52,7 +52,7 @@ impl<'conn, Schema> std::fmt::Debug for Transaction<'conn, Schema> {
 
 impl<'conn, Schema> Transaction<'conn, Schema> {
     /// Creates a new transaction wrapper
-    pub(crate) fn new(
+    pub(crate) const fn new(
         tx: TokioPgTransaction<'conn>,
         tx_type: PostgresTransactionType,
         schema: Schema,
@@ -67,13 +67,13 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
     /// Gets a reference to the schema.
     #[inline]
-    pub fn schema(&self) -> &Schema {
+    pub const fn schema(&self) -> &Schema {
         &self.schema
     }
 
     /// Gets the transaction type
     #[inline]
-    pub fn tx_type(&self) -> PostgresTransactionType {
+    pub const fn tx_type(&self) -> PostgresTransactionType {
         self.tx_type
     }
 
@@ -119,15 +119,19 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// }).await?;
     /// # Ok(()) }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the savepoint cannot be created/released, or the inner closure returns an error.
     pub async fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where
         F: AsyncFnOnce(&Self) -> drizzle_core::error::Result<R>,
     {
         let depth = self.savepoint_depth.load(Ordering::Relaxed);
-        let sp_name = format!("drizzle_sp_{}", depth);
+        let sp_name = format!("drizzle_sp_{depth}");
         self.savepoint_depth.store(depth + 1, Ordering::Relaxed);
 
-        self.execute_raw(&format!("SAVEPOINT {}", sp_name)).await?;
+        self.execute_raw(&format!("SAVEPOINT {sp_name}")).await?;
 
         let result = f(self).await;
 
@@ -135,16 +139,16 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
         match result {
             Ok(value) => {
-                self.execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name))
+                self.execute_raw(&format!("RELEASE SAVEPOINT {sp_name}"))
                     .await?;
                 Ok(value)
             }
             Err(e) => {
                 let _ = self
-                    .execute_raw(&format!("ROLLBACK TO SAVEPOINT {}", sp_name))
+                    .execute_raw(&format!("ROLLBACK TO SAVEPOINT {sp_name}"))
                     .await;
                 let _ = self
-                    .execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name))
+                    .execute_raw(&format!("RELEASE SAVEPOINT {sp_name}"))
                     .await;
                 Err(e)
             }
@@ -153,6 +157,11 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
     postgres_transaction_constructors!();
 
+    /// Execute a statement within the transaction and return the number of affected rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the database call fails or the SQL is invalid.
     pub async fn execute<'a, T>(&'a self, query: T) -> drizzle_core::error::Result<u64>
     where
         T: ToSQL<'a, PostgresValue<'a>>,
@@ -180,6 +189,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the query fails or row decoding fails.
     pub async fn all<'a, T, R, C>(&'a self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -218,6 +231,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Runs the query and returns a single row (for SELECT queries)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the query fails, no rows match, or decoding fails.
     pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -294,16 +311,7 @@ impl<'a, 'conn, Schema>
     }
 
     #[inline]
-    pub fn with<C>(
-        self,
-        cte: C,
-    ) -> TransactionBuilder<
-        'a,
-        'conn,
-        Schema,
-        QueryBuilder<'a, Schema, builder::CTEInit>,
-        builder::CTEInit,
-    >
+    pub fn with<C>(self, cte: &C) -> Self
     where
         C: builder::CTEDefinition<'a>,
     {
@@ -316,8 +324,8 @@ impl<'a, 'conn, Schema>
     }
 }
 
-impl<'a, 'conn, S, Schema, State, Table, Mk, Rw, Grouped>
-    TransactionBuilder<'a, 'conn, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw, Grouped>, State>
+impl<'a, S, Schema, State, Table, Mk, Rw, Grouped>
+    TransactionBuilder<'a, '_, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw, Grouped>, State>
 where
     State: builder::ExecutableState,
 {
@@ -417,8 +425,7 @@ where
     }
 }
 
-impl<'a, 'conn, S, T, State> ToSQL<'a, PostgresValue<'a>>
-    for TransactionBuilder<'a, 'conn, S, T, State>
+impl<'a, S, T, State> ToSQL<'a, PostgresValue<'a>> for TransactionBuilder<'a, '_, S, T, State>
 where
     T: ToSQL<'a, PostgresValue<'a>>,
 {

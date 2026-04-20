@@ -3,8 +3,9 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{DeriveInput, Error, Expr, Meta, Result, Token, Type, parse::Parse};
 
-/// Attributes for the SQLiteIndex attribute macro
-/// Syntax: #[SQLiteIndex] or #[SQLiteIndex(unique)]
+/// Attributes for the `SQLiteIndex` attribute macro
+/// Syntax: #[`SQLiteIndex`] or #[SQLiteIndex(unique)]
+#[derive(Copy, Clone)]
 pub struct IndexAttributes {
     pub unique: bool,
 }
@@ -14,7 +15,7 @@ impl Parse for IndexAttributes {
         let mut unique = false;
 
         if input.is_empty() {
-            return Ok(IndexAttributes { unique });
+            return Ok(Self { unique });
         }
 
         let metas = input.parse_terminated(Meta::parse, Token![,])?;
@@ -33,12 +34,12 @@ impl Parse for IndexAttributes {
             }
         }
 
-        Ok(IndexAttributes { unique })
+        Ok(Self { unique })
     }
 }
 
-/// Generates the SQLiteIndex implementation
-pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Result<TokenStream> {
+/// Generates the `SQLiteIndex` implementation
+pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Result<TokenStream> {
     let struct_ident = &input.ident;
     let struct_vis = &input.vis;
     let is_unique = attr.unique;
@@ -85,7 +86,7 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
                 }
                 _ => {
                     return Err(Error::new_spanned(
-                        &input,
+                        input,
                         "SQLiteIndex can only be applied to tuple structs like `struct UserEmailIdx(User::email);`",
                     ));
                 }
@@ -93,7 +94,7 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
         }
         _ => {
             return Err(Error::new_spanned(
-                &input,
+                input,
                 "SQLiteIndex can only be applied to structs",
             ));
         }
@@ -198,7 +199,7 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Res
         })
         .collect();
 
-    let create_index_prefix = format!("CREATE {}INDEX \"{}\" ON \"", unique_kw, index_name_lit);
+    let create_index_prefix = format!("CREATE {unique_kw}INDEX \"{index_name_lit}\" ON \"");
     let create_index_mid = "\" (";
     let create_index_suffix = ")";
 

@@ -40,7 +40,8 @@ pub struct RelationHandle<V: SQLParam, R: RelationDef, Nested = (), Cols = AllCo
 
 impl<V: SQLParam, R: RelationDef> RelationHandle<V, R> {
     /// Creates a new unconfigured `RelationHandle`.
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             where_clause: String::new(),
             where_params: Vec::new(),

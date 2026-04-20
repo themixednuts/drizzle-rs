@@ -15,12 +15,12 @@ pub struct Param<'a, V: SQLParam> {
 }
 
 impl<'a, V: SQLParam> Param<'a, V> {
-    pub fn new(placeholder: Placeholder, value: Option<Cow<'a, V>>) -> Self {
+    pub const fn new(placeholder: Placeholder, value: Option<Cow<'a, V>>) -> Self {
         Self { placeholder, value }
     }
 }
 
-impl<'a, V: SQLParam> From<OwnedParam<V>> for Param<'a, V> {
+impl<V: SQLParam> From<OwnedParam<V>> for Param<'_, V> {
     fn from(value: OwnedParam<V>) -> Self {
         Self {
             placeholder: value.placeholder,
@@ -38,7 +38,7 @@ impl<'a, V: SQLParam> From<&'a OwnedParam<V>> for Param<'a, V> {
     }
 }
 
-impl<'a, V: SQLParam> From<Placeholder> for Param<'a, V> {
+impl<V: SQLParam> From<Placeholder> for Param<'_, V> {
     fn from(value: Placeholder) -> Self {
         Self {
             placeholder: value,
@@ -47,7 +47,7 @@ impl<'a, V: SQLParam> From<Placeholder> for Param<'a, V> {
     }
 }
 
-impl<'a, T: SQLParam> Param<'a, T> {
+impl<T: SQLParam> Param<'_, T> {
     /// Creates a new parameter with a positional placeholder
     pub const fn positional(value: T) -> Self {
         Self {
@@ -57,6 +57,7 @@ impl<'a, T: SQLParam> Param<'a, T> {
     }
 
     /// Creates a new parameter with a specific placeholder and no value
+    #[must_use]
     pub const fn from_placeholder(placeholder: Placeholder) -> Self {
         Self {
             placeholder,

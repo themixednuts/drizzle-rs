@@ -19,7 +19,7 @@ pub struct RelEntry<Rel, Data, Rest> {
 
 impl<Rel, Data, Rest> RelEntry<Rel, Data, Rest> {
     /// Creates a new `RelEntry`.
-    pub(crate) fn new(data: Data, rest: Rest) -> Self {
+    pub(crate) const fn new(data: Data, rest: Rest) -> Self {
         Self {
             data,
             rest,

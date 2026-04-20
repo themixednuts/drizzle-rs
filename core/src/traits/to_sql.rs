@@ -1,4 +1,4 @@
-//! ToSQL trait for converting types to SQL fragments.
+//! `ToSQL` trait for converting types to SQL fragments.
 
 use crate::prelude::*;
 use crate::{
@@ -139,9 +139,7 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for ColumnRef {
 // Implement ToSQL for primitive types
 impl<'a, V> ToSQL<'a, V> for &'a str
 where
-    V: SQLParam + 'a,
-    V: From<&'a str>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<&'a str> + Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::param(V::from(self))
@@ -150,9 +148,7 @@ where
 
 impl<'a, V> ToSQL<'a, V> for Box<str>
 where
-    V: SQLParam + 'a,
-    V: From<String>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<String> + Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::param(V::from(self.to_string()))
@@ -166,9 +162,7 @@ where
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl<'a, V> ToSQL<'a, V> for Rc<str>
 where
-    V: SQLParam + 'a,
-    V: From<String>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<String> + Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::param(V::from(self.as_ref().to_string()))
@@ -178,9 +172,7 @@ where
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl<'a, V> ToSQL<'a, V> for Arc<str>
 where
-    V: SQLParam + 'a,
-    V: From<String>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<String> + Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::param(V::from(self.as_ref().to_string()))
@@ -221,9 +213,7 @@ where
 
 impl<'a, V> ToSQL<'a, V> for String
 where
-    V: SQLParam + 'a,
-    V: From<String>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::param(V::from(self.clone()))
@@ -236,10 +226,7 @@ where
 
 impl<'a, V> ToSQL<'a, V> for Cow<'a, str>
 where
-    V: SQLParam + 'a,
-    V: From<&'a str>,
-    V: From<String>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<&'a str> + From<String> + Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
         match self {
@@ -258,10 +245,7 @@ where
 
 impl<'a, V> ToSQL<'a, V> for Cow<'a, [u8]>
 where
-    V: SQLParam + 'a,
-    V: From<&'a [u8]>,
-    V: From<Vec<u8>>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<&'a [u8]> + From<Vec<u8>> + Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
         match self {
@@ -280,10 +264,7 @@ where
 
 impl<'a, V> ToSQL<'a, V> for SQLBytes<'a>
 where
-    V: SQLParam + 'a,
-    V: From<&'a [u8]>,
-    V: From<Vec<u8>>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<&'a [u8]> + From<Vec<u8>> + Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
         match &self.0 {
@@ -326,19 +307,15 @@ where
     T: ToSQL<'a, V>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        match self {
-            Some(value) => value.to_sql(),
-            None => SQLNull.to_sql(),
-        }
+        self.as_ref()
+            .map_or_else(|| SQLNull.to_sql(), ToSQL::to_sql)
     }
 }
 
 #[cfg(feature = "uuid")]
 impl<'a, V> ToSQL<'a, V> for Uuid
 where
-    V: SQLParam + 'a,
-    V: From<Uuid>,
-    V: Into<Cow<'a, V>>,
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::param(V::from(*self))

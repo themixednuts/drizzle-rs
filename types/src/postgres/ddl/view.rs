@@ -1,4 +1,4 @@
-//! PostgreSQL View DDL types
+//! `PostgreSQL` View DDL types
 //!
 //! This module provides two complementary types:
 //! - [`ViewDef`] - A const-friendly definition type for compile-time schema definitions
@@ -561,22 +561,13 @@ impl ViewDef {
         View {
             schema: Cow::Borrowed(self.schema),
             name: Cow::Borrowed(self.name),
-            definition: match self.definition {
-                Some(s) => Some(Cow::Borrowed(s)),
-                None => None,
-            },
+            definition: self.definition.map(Cow::Borrowed),
             materialized: self.materialized,
-            with: self.with.map(|w| w.into_view_with_option()),
+            with: self.with.map(ViewWithOptionDef::into_view_with_option),
             is_existing: self.is_existing,
             with_no_data: if self.with_no_data { Some(true) } else { None },
-            using: match self.using {
-                Some(s) => Some(Cow::Borrowed(s)),
-                None => None,
-            },
-            tablespace: match self.tablespace {
-                Some(s) => Some(Cow::Borrowed(s)),
-                None => None,
-            },
+            using: self.using.map(Cow::Borrowed),
+            tablespace: self.tablespace.map(Cow::Borrowed),
         }
     }
 }

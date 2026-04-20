@@ -37,10 +37,16 @@ impl<'r> FromDrizzleRow<::rusqlite::Row<'r>> for f32 {
     const COLUMN_COUNT: usize = 1;
     fn from_row_at(row: &::rusqlite::Row<'r>, offset: usize) -> Result<Self, DrizzleError> {
         let v = row.get::<_, f64>(offset)?;
-        let f = v as f32;
+        // Decimal-string round-trip matches IEEE-754 round-to-nearest semantics
+        // and avoids the lossy `as` cast.
+        let f: Self = format!("{v}")
+            .parse()
+            .map_err(|e: core::num::ParseFloatError| {
+                DrizzleError::ConversionError(e.to_string().into())
+            })?;
         if v.is_finite() && !f.is_finite() {
             return Err(DrizzleError::ConversionError(
-                format!("f64 value {} overflows f32", v).into(),
+                format!("f64 value {v} overflows f32").into(),
             ));
         }
         Ok(f)
@@ -55,7 +61,7 @@ impl<'r> FromDrizzleRow<::rusqlite::Row<'r>> for u64 {
 }
 
 impl<'r> FromDrizzleRow<::rusqlite::Row<'r>> for usize {
-    const COLUMN_COUNT: usize = 1;
+    const COLUMN_COUNT: Self = 1;
     fn from_row_at(row: &::rusqlite::Row<'r>, offset: usize) -> Result<Self, DrizzleError> {
         Ok(row.get::<_, i64>(offset)?.try_into()?)
     }
@@ -87,9 +93,9 @@ impl<'r> FromDrizzleRow<::rusqlite::Row<'r>> for uuid::Uuid {
             ::rusqlite::types::ValueRef::Text(bytes) => {
                 let s = core::str::from_utf8(bytes)
                     .map_err(|e| DrizzleError::ConversionError(e.to_string().into()))?;
-                uuid::Uuid::parse_str(s).map_err(Into::into)
+                Self::parse_str(s).map_err(Into::into)
             }
-            ::rusqlite::types::ValueRef::Blob(bytes) => uuid::Uuid::from_slice(bytes)
+            ::rusqlite::types::ValueRef::Blob(bytes) => Self::from_slice(bytes)
                 .map_err(|e| DrizzleError::ConversionError(e.to_string().into())),
             _ => Err(DrizzleError::ConversionError(
                 "expected TEXT or BLOB for UUID".into(),
@@ -137,10 +143,7 @@ impl<'r> FromDrizzleRow<::rusqlite::Row<'r>> for chrono::DateTime<chrono::Utc> {
         let ndt = s
             .parse::<chrono::NaiveDateTime>()
             .map_err(|e| DrizzleError::ConversionError(e.to_string().into()))?;
-        Ok(chrono::DateTime::from_naive_utc_and_offset(
-            ndt,
-            chrono::Utc,
-        ))
+        Ok(Self::from_naive_utc_and_offset(ndt, chrono::Utc))
     }
 }
 

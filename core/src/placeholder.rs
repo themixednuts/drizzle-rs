@@ -28,19 +28,22 @@ impl Placeholder {
     /// Creates a named placeholder.
     ///
     /// The name is used for binding; rendering is dialect-specific:
-    /// - PostgreSQL: `$1`, `$2`, ... (positional, name ignored in SQL)
-    /// - SQLite: `:name` for named placeholders
-    /// - MySQL: `?` (positional, name ignored in SQL)
+    /// - `PostgreSQL`: `$1`, `$2`, ... (positional, name ignored in SQL)
+    /// - `SQLite`: `:name` for named placeholders
+    /// - `MySQL`: `?` (positional, name ignored in SQL)
+    #[must_use]
     pub const fn named(name: &'static str) -> Self {
         Self { name: Some(name) }
     }
 
     /// Creates an anonymous placeholder (no name).
+    #[must_use]
     pub const fn anonymous() -> Self {
         Self { name: None }
     }
 
     /// Creates a typed named placeholder.
+    #[must_use]
     pub const fn typed<T: DataType>(name: &'static str) -> TypedPlaceholder<T, NonNull> {
         TypedPlaceholder {
             inner: Self::named(name),
@@ -49,6 +52,7 @@ impl Placeholder {
     }
 
     /// Creates a typed nullable named placeholder.
+    #[must_use]
     pub const fn typed_nullable<T: DataType>(name: &'static str) -> TypedPlaceholder<T, Null> {
         TypedPlaceholder {
             inner: Self::named(name),
@@ -59,6 +63,7 @@ impl Placeholder {
 
 impl<T: DataType, N: Nullability> TypedPlaceholder<T, N> {
     /// Creates a typed named placeholder.
+    #[must_use]
     pub const fn named(name: &'static str) -> Self {
         Self {
             inner: Placeholder::named(name),
@@ -79,11 +84,13 @@ impl<T: DataType, N: Nullability> TypedPlaceholder<T, N> {
     }
 
     /// Returns the placeholder name if present.
+    #[must_use]
     pub const fn name(self) -> Option<&'static str> {
         self.inner.name
     }
 
     /// Returns this typed placeholder as an untyped placeholder.
+    #[must_use]
     pub const fn into_placeholder(self) -> Placeholder {
         self.inner
     }
@@ -143,7 +150,7 @@ impl fmt::Display for Placeholder {
     /// Note: actual SQL rendering uses dialect-specific placeholders via `SQL::write_to`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.name {
-            Some(name) => write!(f, ":{}", name),
+            Some(name) => write!(f, ":{name}"),
             None => write!(f, "?"),
         }
     }

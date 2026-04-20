@@ -109,7 +109,7 @@ fn parse_field(input: &str) -> IResult<&str, ParsedField> {
         ParsedField {
             name: name.to_string(),
             ty: ty.to_string(),
-            attrs: attrs.iter().map(|s| s.to_string()).collect(),
+            attrs: attrs.iter().map(std::string::ToString::to_string).collect(),
         },
     ))
 }
@@ -118,7 +118,7 @@ fn parse_field(input: &str) -> IResult<&str, ParsedField> {
 // Table Parsing
 // =============================================================================
 
-/// Parse a table struct: #[SQLiteTable(...)] struct Name { fields... }
+/// Parse a table struct: #[`SQLiteTable`(...)] struct Name { fields... }
 pub fn parse_table_struct(input: &str) -> IResult<&str, ParsedTable> {
     // Parse the table attribute
     let (input, attr) = parse_attribute(input)?;
@@ -155,9 +155,8 @@ pub fn parse_table_struct(input: &str) -> IResult<&str, ParsedTable> {
             if let Some(nl) = trimmed.find('\n') {
                 remaining = &trimmed[nl + 1..];
                 continue;
-            } else {
-                break;
             }
+            break;
         }
 
         if trimmed.is_empty() {
@@ -195,7 +194,7 @@ pub fn parse_table_struct(input: &str) -> IResult<&str, ParsedTable> {
 // Index Parsing
 // =============================================================================
 
-/// Parse an index struct: #[SQLiteIndex(unique)] struct IdxName(Table::col1, Table::col2);
+/// Parse an index struct: #[SQLiteIndex(unique)] struct `IdxName(Table::col1`, `Table::col2`);
 pub fn parse_index_struct(input: &str) -> IResult<&str, ParsedIndex> {
     // Parse the index attribute
     let (input, attr) = parse_attribute(input)?;
@@ -279,10 +278,8 @@ pub fn parse_schema_struct(input: &str) -> IResult<&str, ParsedSchema> {
             continue;
         }
         if let Some(colon) = line.find(':') {
-            let name_part = line[..colon]
-                .trim()
-                .strip_prefix("pub ")
-                .unwrap_or(line[..colon].trim());
+            let trimmed = line[..colon].trim();
+            let name_part = trimmed.strip_prefix("pub ").unwrap_or(trimmed);
             let type_part = line[colon + 1..].trim();
             members.insert(name_part.to_string(), type_part.to_string());
         }

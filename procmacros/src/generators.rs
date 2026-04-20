@@ -9,16 +9,16 @@ use quote::quote;
 
 #[cfg(feature = "sqlite")]
 #[allow(clippy::too_many_arguments)]
-/// Generate SQLColumnInfo trait implementation
+/// Generate `SQLColumnInfo` trait implementation
 pub fn generate_sql_column_info(
     struct_ident: &Ident,
-    name: TokenStream,
-    r#type: TokenStream,
-    is_primary_key: TokenStream,
-    is_not_null: TokenStream,
-    is_unique: TokenStream,
-    has_default: TokenStream,
-    table: TokenStream,
+    name: &TokenStream,
+    r#type: &TokenStream,
+    is_primary_key: &TokenStream,
+    is_not_null: &TokenStream,
+    is_unique: &TokenStream,
+    has_default: &TokenStream,
+    table: &TokenStream,
 ) -> TokenStream {
     let sql_column_info = core_paths::sql_column_info();
     let sql_table_info = core_paths::sql_table_info();
@@ -57,11 +57,11 @@ pub struct DrizzleTableConfig<'a> {
     pub qualified_name: TokenStream,
     pub schema: TokenStream,
     pub dependency_names: TokenStream,
-    /// TokenStream for the `const TABLE_REF: TableRef = ...;` body.
+    /// `TokenStream` for the `const TABLE_REF: TableRef = ...;` body.
     pub table_ref_const: TokenStream,
 }
 
-/// Generate DrizzleTable trait implementation (blanket provides SQLTableInfo).
+/// Generate `DrizzleTable` trait implementation (blanket provides `SQLTableInfo`).
 pub fn generate_drizzle_table(config: DrizzleTableConfig<'_>) -> TokenStream {
     let drizzle_table = core_paths::drizzle_table();
 
@@ -88,7 +88,7 @@ pub fn generate_drizzle_table(config: DrizzleTableConfig<'_>) -> TokenStream {
 
 /// Generate basic impl block
 #[cfg(feature = "sqlite")]
-pub fn generate_impl(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+pub fn generate_impl(struct_ident: &Ident, body: &TokenStream) -> TokenStream {
     quote! {
         impl #struct_ident {
             #body

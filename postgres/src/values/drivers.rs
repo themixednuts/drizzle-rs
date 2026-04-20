@@ -1,4 +1,4 @@
-//! Database driver implementations for PostgresValue
+//! Database driver implementations for `PostgresValue`
 
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 use super::PostgresValue;
@@ -21,7 +21,7 @@ mod postgres_tosql_impl {
 
     use bytes::BytesMut;
 
-    impl<'a> ToSql for PostgresValue<'a> {
+    impl ToSql for PostgresValue<'_> {
         fn to_sql(
             &self,
             ty: &Type,
@@ -103,7 +103,7 @@ mod postgres_tosql_impl {
                             PostgresValue::Null => None,
                             PostgresValue::Text(s) => Some(s.to_string()),
                             PostgresValue::Integer(i) => Some(i.to_string()),
-                            _ => Some(format!("{:?}", v)),
+                            _ => Some(format!("{v:?}")),
                         })
                         .collect();
                     elements.to_sql(ty, out)

@@ -5,7 +5,7 @@
 //!
 //! # Type Safety
 //!
-//! - `sum`, `avg`: Require `Numeric` types (Int, BigInt, Float, Double)
+//! - `sum`, `avg`: Require `Numeric` types (Int, `BigInt`, Float, Double)
 //! - `count`: Works with any type
 //! - `min`, `max`: Work with any type (ordered types in SQL)
 
@@ -74,7 +74,7 @@ pub trait SQLiteAggregateSupport {}
     label = "COUNT result type is not configured for this dialect marker"
 )]
 pub trait CountPolicy {
-    /// The integer type returned by COUNT (e.g. Integer on SQLite, Int8 on PostgreSQL).
+    /// The integer type returned by COUNT (e.g. Integer on `SQLite`, Int8 on `PostgreSQL`).
     type Count: crate::types::DataType;
 }
 
@@ -92,7 +92,7 @@ impl CountPolicy for PostgresDialect {
 )]
 pub trait FloatPolicy {
     /// The floating-point type returned by distribution window functions
-    /// like PERCENT_RANK and CUME_DIST (Real on SQLite, Float8 on PostgreSQL).
+    /// like `PERCENT_RANK` and `CUME_DIST` (Real on `SQLite`, Float8 on `PostgreSQL`).
     type Float: crate::types::DataType;
 }
 
@@ -105,19 +105,19 @@ impl FloatPolicy for PostgresDialect {
 }
 
 impl AggregatePolicy<SQLiteDialect> for SqliteInteger {
-    type Sum = SqliteInteger;
+    type Sum = Self;
     type Avg = SqliteReal;
 }
 impl AggregatePolicy<SQLiteDialect> for SqliteReal {
-    type Sum = SqliteReal;
-    type Avg = SqliteReal;
+    type Sum = Self;
+    type Avg = Self;
 }
 impl AggregatePolicy<SQLiteDialect> for SqliteNumeric {
-    type Sum = SqliteNumeric;
+    type Sum = Self;
     type Avg = SqliteReal;
 }
 impl AggregatePolicy<SQLiteDialect> for drizzle_types::sqlite::types::Any {
-    type Sum = drizzle_types::sqlite::types::Any;
+    type Sum = Self;
     type Avg = SqliteReal;
 }
 
@@ -146,10 +146,10 @@ impl StatisticalAggregatePolicy<PostgresDialect> for Float4 {
     type VarSamp = Float8;
 }
 impl StatisticalAggregatePolicy<PostgresDialect> for Float8 {
-    type StddevPop = Float8;
-    type StddevSamp = Float8;
-    type VarPop = Float8;
-    type VarSamp = Float8;
+    type StddevPop = Self;
+    type StddevSamp = Self;
+    type VarPop = Self;
+    type VarSamp = Self;
 }
 impl StatisticalAggregatePolicy<PostgresDialect> for PgNumeric {
     type StddevPop = Float8;
@@ -172,7 +172,7 @@ impl AggregatePolicy<PostgresDialect> for Int4 {
     type Avg = Float8;
 }
 impl AggregatePolicy<PostgresDialect> for Int8 {
-    type Sum = Int8;
+    type Sum = Self;
     type Avg = Float8;
 }
 impl AggregatePolicy<PostgresDialect> for Float4 {
@@ -180,12 +180,12 @@ impl AggregatePolicy<PostgresDialect> for Float4 {
     type Avg = Float8;
 }
 impl AggregatePolicy<PostgresDialect> for Float8 {
-    type Sum = Float8;
-    type Avg = Float8;
+    type Sum = Self;
+    type Avg = Self;
 }
 impl AggregatePolicy<PostgresDialect> for PgNumeric {
-    type Sum = PgNumeric;
-    type Avg = PgNumeric;
+    type Sum = Self;
+    type Avg = Self;
 }
 
 // =============================================================================
@@ -194,7 +194,7 @@ impl AggregatePolicy<PostgresDialect> for PgNumeric {
 
 /// COUNT(*) - counts all rows.
 ///
-/// Returns a BigInt, NonNull (count is never NULL), Aggregate expression.
+/// Returns a `BigInt`, `NonNull` (count is never NULL), Aggregate expression.
 ///
 /// # Example
 ///
@@ -206,6 +206,7 @@ impl AggregatePolicy<PostgresDialect> for PgNumeric {
 /// // Generates: COUNT(*)
 /// # "####;
 /// ```
+#[must_use]
 pub fn count_all<'a, V>() -> SQLExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull, Agg>
 where
     V: SQLParam + 'a,
@@ -216,7 +217,7 @@ where
 
 /// COUNT(expr) - counts non-null values.
 ///
-/// Returns a BigInt, NonNull (count is never NULL), Aggregate expression.
+/// Returns a `BigInt`, `NonNull` (count is never NULL), Aggregate expression.
 /// Works with any expression type.
 ///
 /// # Example
@@ -242,7 +243,7 @@ where
 
 /// COUNT(DISTINCT expr) - counts distinct non-null values.
 ///
-/// Returns a BigInt, NonNull, Aggregate expression.
+/// Returns a `BigInt`, `NonNull`, Aggregate expression.
 /// Works with any expression type.
 pub fn count_distinct<'a, V, E>(
     expr: E,
@@ -264,7 +265,7 @@ where
 
 /// SUM(expr) - sums numeric values.
 ///
-/// Requires the expression to be `Numeric` (Int, BigInt, Float, Double).
+/// Requires the expression to be `Numeric` (Int, `BigInt`, Float, Double).
 /// Result type is dialect-aware.
 /// Returns a nullable expression (empty set returns NULL).
 ///
@@ -416,13 +417,13 @@ where
 // STATISTICAL FUNCTIONS
 // =============================================================================
 
-/// STDDEV_POP - population standard deviation.
+/// `STDDEV_POP` - population standard deviation.
 ///
 /// Calculates the population standard deviation of numeric values.
 /// Requires the expression to be `Numeric`.
 /// Returns Double, nullable (empty set returns NULL).
 ///
-/// Note: This function is available in PostgreSQL. SQLite does not have it built-in.
+/// Note: This function is available in `PostgreSQL`. `SQLite` does not have it built-in.
 ///
 /// # Example
 ///
@@ -451,13 +452,13 @@ where
     SQLExpr::new(SQL::func("STDDEV_POP", expr.into_sql()))
 }
 
-/// STDDEV_SAMP / STDDEV - sample standard deviation.
+/// `STDDEV_SAMP` / STDDEV - sample standard deviation.
 ///
 /// Calculates the sample standard deviation of numeric values.
 /// Requires the expression to be `Numeric`.
 /// Returns Double, nullable (empty set returns NULL).
 ///
-/// Note: This function is available in PostgreSQL. SQLite does not have it built-in.
+/// Note: This function is available in `PostgreSQL`. `SQLite` does not have it built-in.
 ///
 /// # Example
 ///
@@ -486,13 +487,13 @@ where
     SQLExpr::new(SQL::func("STDDEV_SAMP", expr.into_sql()))
 }
 
-/// VAR_POP - population variance.
+/// `VAR_POP` - population variance.
 ///
 /// Calculates the population variance of numeric values.
 /// Requires the expression to be `Numeric`.
 /// Returns Double, nullable (empty set returns NULL).
 ///
-/// Note: This function is available in PostgreSQL. SQLite does not have it built-in.
+/// Note: This function is available in `PostgreSQL`. `SQLite` does not have it built-in.
 ///
 /// # Example
 ///
@@ -515,13 +516,13 @@ where
     SQLExpr::new(SQL::func("VAR_POP", expr.into_sql()))
 }
 
-/// VAR_SAMP / VARIANCE - sample variance.
+/// `VAR_SAMP` / VARIANCE - sample variance.
 ///
 /// Calculates the sample variance of numeric values.
 /// Requires the expression to be `Numeric`.
 /// Returns Double, nullable (empty set returns NULL).
 ///
-/// Note: This function is available in PostgreSQL. SQLite does not have it built-in.
+/// Note: This function is available in `PostgreSQL`. `SQLite` does not have it built-in.
 ///
 /// # Example
 ///
@@ -544,7 +545,7 @@ where
     SQLExpr::new(SQL::func("VAR_SAMP", expr.into_sql()))
 }
 
-/// VARIANCE - PostgreSQL alias for sample variance (VAR_SAMP).
+/// VARIANCE - `PostgreSQL` alias for sample variance (`VAR_SAMP`).
 pub fn variance<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <E::SQLType as StatisticalAggregatePolicy<V::DialectMarker>>::VarSamp, Null, Agg>
@@ -556,7 +557,7 @@ where
     SQLExpr::new(SQL::func("VARIANCE", expr.into_sql()))
 }
 
-/// BOOL_AND - true if all non-null inputs are true (PostgreSQL).
+/// `BOOL_AND` - true if all non-null inputs are true (`PostgreSQL`).
 pub fn bool_and<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, Null, Agg>
@@ -569,7 +570,7 @@ where
     SQLExpr::new(SQL::func("BOOL_AND", expr.into_sql()))
 }
 
-/// BOOL_OR - true if any non-null input is true (PostgreSQL).
+/// `BOOL_OR` - true if any non-null input is true (`PostgreSQL`).
 pub fn bool_or<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, Null, Agg>
@@ -582,7 +583,7 @@ where
     SQLExpr::new(SQL::func("BOOL_OR", expr.into_sql()))
 }
 
-/// JSON_AGG - aggregates values into a JSON array (PostgreSQL).
+/// `JSON_AGG` - aggregates values into a JSON array (`PostgreSQL`).
 pub fn json_agg<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Json, Null, Agg>
@@ -594,7 +595,7 @@ where
     SQLExpr::new(SQL::func("JSON_AGG", expr.into_sql()))
 }
 
-/// JSONB_AGG - aggregates values into a JSONB array (PostgreSQL).
+/// `JSONB_AGG` - aggregates values into a JSONB array (`PostgreSQL`).
 pub fn jsonb_agg<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Jsonb, Null, Agg>
@@ -606,7 +607,7 @@ where
     SQLExpr::new(SQL::func("JSONB_AGG", expr.into_sql()))
 }
 
-/// ARRAY_AGG - aggregates values into a SQL array (PostgreSQL).
+/// `ARRAY_AGG` - aggregates values into a SQL array (`PostgreSQL`).
 pub fn array_agg<'a, V, E>(expr: E) -> SQLExpr<'a, V, Array<E::SQLType>, Null, Agg>
 where
     V: SQLParam + 'a,
@@ -620,7 +621,7 @@ where
 // TOTAL (SQLite)
 // =============================================================================
 
-/// TOTAL - sums numeric values, returning 0.0 for empty sets (SQLite).
+/// TOTAL - sums numeric values, returning 0.0 for empty sets (`SQLite`).
 ///
 /// Unlike `SUM`, which returns NULL for an empty result set,
 /// `TOTAL` always returns a floating-point value (0.0 for empty sets).
@@ -651,7 +652,7 @@ where
 // GROUP_CONCAT / STRING_AGG
 // =============================================================================
 
-/// GROUP_CONCAT - concatenates values into a string (SQLite).
+/// `GROUP_CONCAT` - concatenates values into a string (`SQLite`).
 ///
 /// Returns Text type, nullable.
 pub fn group_concat<'a, V, E>(
@@ -666,7 +667,7 @@ where
     SQLExpr::new(SQL::func("GROUP_CONCAT", expr.into_sql()))
 }
 
-/// STRING_AGG - concatenates text values using a delimiter (PostgreSQL).
+/// `STRING_AGG` - concatenates text values using a delimiter (`PostgreSQL`).
 pub fn string_agg<'a, V, E, D>(
     expr: E,
     delimiter: D,
@@ -691,9 +692,9 @@ where
 // PostgreSQL Aggregate Functions
 // =============================================================================
 
-/// EVERY - true if all non-null inputs are true (PostgreSQL).
+/// EVERY - true if all non-null inputs are true (`PostgreSQL`).
 ///
-/// SQL standard alias for BOOL_AND.
+/// SQL standard alias for `BOOL_AND`.
 ///
 /// # Example
 ///
@@ -717,7 +718,7 @@ where
     SQLExpr::new(SQL::func("EVERY", expr.into_sql()))
 }
 
-/// JSON_OBJECT_AGG - aggregates key/value pairs into a JSON object (PostgreSQL).
+/// `JSON_OBJECT_AGG` - aggregates key/value pairs into a JSON object (`PostgreSQL`).
 ///
 /// # Example
 ///
@@ -747,7 +748,7 @@ where
     ))
 }
 
-/// JSONB_OBJECT_AGG - aggregates key/value pairs into a JSONB object (PostgreSQL).
+/// `JSONB_OBJECT_AGG` - aggregates key/value pairs into a JSONB object (`PostgreSQL`).
 ///
 /// # Example
 ///

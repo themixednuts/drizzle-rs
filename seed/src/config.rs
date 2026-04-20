@@ -42,7 +42,7 @@ pub struct SeedConfig<'a, D, S> {
     pub(crate) column_generators: HashMap<(&'static str, &'static str), Arc<dyn Generator>>,
     /// Per-column generator kind overrides.
     pub(crate) column_kinds: HashMap<(&'static str, &'static str), GeneratorKind>,
-    /// Relation cardinality overrides. Key: (parent_table, child_table).
+    /// Relation cardinality overrides. Key: (`parent_table`, `child_table`).
     pub(crate) relation_counts: HashMap<(&'static str, &'static str), usize>,
     /// Optional override for maximum parameters per INSERT statement batch.
     pub(crate) max_params_per_batch: Option<usize>,
@@ -68,18 +68,26 @@ impl<'a, D, S> SeedConfig<'a, D, S> {
     }
 
     /// Set the random seed for deterministic generation.
-    pub fn seed(mut self, seed: u64) -> Self {
+    #[must_use]
+    pub const fn seed(mut self, seed: u64) -> Self {
         self.seed = seed;
         self
     }
 
     /// Set the default row count for all tables.
-    pub fn default_count(mut self, count: usize) -> Self {
+    #[must_use]
+    pub const fn default_count(mut self, count: usize) -> Self {
         self.default_count = count;
         self
     }
 
     /// Override the maximum number of bind parameters per INSERT statement batch.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `limit` is zero — every batch must be able to bind at least one
+    /// row, and a zero limit would produce infinite batching.
+    #[must_use]
     pub fn max_params(mut self, limit: usize) -> Self {
         assert!(limit > 0, "max_params must be > 0");
         self.max_params_per_batch = Some(limit);
@@ -94,7 +102,7 @@ impl<'a, D, S> SeedConfig<'a, D, S> {
     }
 }
 
-impl<'a, D, S> SeedConfig<'a, D, S>
+impl<D, S> SeedConfig<'_, D, S>
 where
     S: SQLSchemaImpl,
 {
@@ -108,8 +116,9 @@ where
     }
 }
 
-impl<'a, D, S> SeedConfig<'a, D, S> {
+impl<D, S> SeedConfig<'_, D, S> {
     /// Skip a table from seeding.
+    #[must_use]
     pub fn skip<T>(mut self, table: &T) -> Self
     where
         T: SQLTableInfo,
@@ -122,7 +131,7 @@ impl<'a, D, S> SeedConfig<'a, D, S> {
 
 #[cfg(feature = "sqlite")]
 impl<'a> SeedConfig<'a, Sqlite, ()> {
-    /// Create a SQLite seeder config from a derived schema.
+    /// Create a `SQLite` seeder config from a derived schema.
     pub fn sqlite<Schema>(schema: &'a Schema) -> SeedConfig<'a, Sqlite, Schema>
     where
         Schema: SQLSchemaImpl,
@@ -132,11 +141,12 @@ impl<'a> SeedConfig<'a, Sqlite, ()> {
 }
 
 #[cfg(feature = "sqlite")]
-impl<'a, S> SeedConfig<'a, Sqlite, S>
+impl<S> SeedConfig<'_, Sqlite, S>
 where
     S: SQLSchemaImpl,
 {
     /// Set the row count for a specific table.
+    #[must_use]
     pub fn count<T>(mut self, table: &T, count: usize) -> Self
     where
         T: SQLTableInfo,
@@ -147,6 +157,7 @@ where
     }
 
     /// Set how many child rows to generate per parent row for a relation.
+    #[must_use]
     pub fn relation<P, C>(mut self, parent: &P, child: &C, count: usize) -> Self
     where
         P: SQLTableInfo + SQLiteTable<'static>,
@@ -159,6 +170,7 @@ where
     }
 
     /// Override the generator kind for a specific column.
+    #[must_use]
     pub fn kind<C>(mut self, column: &C, kind: GeneratorKind) -> Self
     where
         C: SQLColumnInfo + SQLiteColumn<'static>,
@@ -170,6 +182,7 @@ where
     }
 
     /// Override the generator for a specific column.
+    #[must_use]
     pub fn generator<C>(mut self, column: &C, g: impl Generator + 'static) -> Self
     where
         C: SQLColumnInfo + SQLiteColumn<'static>,
@@ -181,6 +194,7 @@ where
     }
 
     /// Generate INSERT statements for the active table set.
+    #[must_use]
     pub fn generate(&self) -> Vec<crate::SQLiteSeedStatement> {
         crate::Seeder::new(self).generate_sqlite()
     }
@@ -188,7 +202,7 @@ where
 
 #[cfg(feature = "postgres")]
 impl<'a> SeedConfig<'a, Postgres, ()> {
-    /// Create a PostgreSQL seeder config from a derived schema.
+    /// Create a `PostgreSQL` seeder config from a derived schema.
     pub fn postgres<Schema>(schema: &'a Schema) -> SeedConfig<'a, Postgres, Schema>
     where
         Schema: SQLSchemaImpl,
@@ -198,11 +212,12 @@ impl<'a> SeedConfig<'a, Postgres, ()> {
 }
 
 #[cfg(feature = "postgres")]
-impl<'a, S> SeedConfig<'a, Postgres, S>
+impl<S> SeedConfig<'_, Postgres, S>
 where
     S: SQLSchemaImpl,
 {
     /// Set the row count for a specific table.
+    #[must_use]
     pub fn count<T>(mut self, table: &T, count: usize) -> Self
     where
         T: SQLTableInfo,
@@ -213,6 +228,7 @@ where
     }
 
     /// Set how many child rows to generate per parent row for a relation.
+    #[must_use]
     pub fn relation<P, C>(mut self, parent: &P, child: &C, count: usize) -> Self
     where
         P: SQLTableInfo + PostgresTable<'static>,
@@ -225,6 +241,7 @@ where
     }
 
     /// Override the generator kind for a specific column.
+    #[must_use]
     pub fn kind<C>(mut self, column: &C, kind: GeneratorKind) -> Self
     where
         C: SQLColumnInfo + PostgresColumn<'static>,
@@ -236,6 +253,7 @@ where
     }
 
     /// Override the generator for a specific column.
+    #[must_use]
     pub fn generator<C>(mut self, column: &C, g: impl Generator + 'static) -> Self
     where
         C: SQLColumnInfo + PostgresColumn<'static>,
@@ -247,6 +265,7 @@ where
     }
 
     /// Generate INSERT statements for the active table set.
+    #[must_use]
     pub fn generate(&self) -> Vec<crate::PostgresSeedStatement> {
         crate::Seeder::new(self).generate_postgres()
     }

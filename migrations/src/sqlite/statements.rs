@@ -1,13 +1,14 @@
-//! SQLite SQL statement types and generation (v7 DDL format)
+//! `SQLite` SQL statement types and generation (v7 DDL format)
 //!
 //! This implements the full statement generation from drizzle-kit beta.
-//! - JsonStatement enum represents migration operations
+//! - `JsonStatement` enum represents migration operations
 //! - Convertor functions convert statements to SQL strings
 
 use crate::sqlite::ddl::{
     CheckConstraint, Column, ForeignKey, GeneratedType, Index, PrimaryKey, UniqueConstraint, View,
 };
 use serde::{Deserialize, Serialize};
+use std::fmt::Write;
 
 /// SQL statement breakpoint marker (used by drizzle-kit)
 pub const BREAKPOINT: &str = "--> statement-breakpoint";
@@ -35,6 +36,7 @@ pub struct TableFull {
 }
 
 impl TableFull {
+    #[must_use]
     pub fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
@@ -70,6 +72,7 @@ pub enum JsonStatement {
 
 impl JsonStatement {
     /// Get the type name of this statement
+    #[must_use]
     pub const fn type_name(&self) -> &'static str {
         match self {
             Self::CreateTable(_) => "create_table",
@@ -179,6 +182,7 @@ pub struct RenameViewStatement {
 // =============================================================================
 
 /// Convert a JSON statement to SQL string(s)
+#[must_use]
 pub fn convert_statement(statement: &JsonStatement) -> Vec<String> {
     match statement {
         JsonStatement::CreateTable(st) => vec![convert_create_table(st)],
@@ -202,7 +206,7 @@ pub fn statements_to_sql(statements: &[JsonStatement], breakpoints: bool) -> Str
     let sql_statements: Vec<String> = statements.iter().flat_map(convert_statement).collect();
 
     if breakpoints {
-        sql_statements.join(&format!("\n{}\n", BREAKPOINT))
+        sql_statements.join(&format!("\n{BREAKPOINT}\n"))
     } else {
         sql_statements.join("\n")
     }
@@ -227,6 +231,7 @@ pub struct ConversionResult {
 }
 
 /// Convert JSON statements to SQL with grouping information
+#[must_use]
 pub fn from_json(statements: Vec<JsonStatement>) -> ConversionResult {
     let grouped: Vec<GroupedStatement> = statements
         .into_iter()
@@ -254,75 +259,61 @@ pub fn from_json(statements: Vec<JsonStatement>) -> ConversionResult {
 // Individual Convertors
 // =============================================================================
 
-fn convert_create_table(st: &CreateTableStatement) -> String {
-    let table = &st.table;
-    let mut sql = format!("CREATE TABLE `{}` (\n", table.name);
+fn format_column_def(column: &super::ddl::Column, table: &TableFull) -> String {
+    // Check if this column is the sole PK (inline PRIMARY KEY)
+    let is_column_pk = table.pk.as_ref().is_some_and(|pk| {
+        pk.columns.len() == 1 && pk.columns[0] == column.name && !pk.name_explicit
+    });
 
-    // Column definitions
-    for (i, column) in table.columns.iter().enumerate() {
-        // Check if this column is the sole PK (inline PRIMARY KEY)
-        let is_column_pk = table.pk.as_ref().is_some_and(|pk| {
-            pk.columns.len() == 1 && pk.columns[0] == column.name && !pk.name_explicit
-        });
+    // For INTEGER PRIMARY KEY, SQLite allows NULL unless NOT NULL is explicit
+    let omit_not_null = is_column_pk && column.sql_type.to_lowercase().starts_with("int");
 
-        // For INTEGER PRIMARY KEY, SQLite allows NULL unless NOT NULL is explicit
-        let omit_not_null = is_column_pk && column.sql_type.to_lowercase().starts_with("int");
+    let pk_statement = if is_column_pk { " PRIMARY KEY" } else { "" };
+    let not_null = if column.not_null && !omit_not_null {
+        " NOT NULL"
+    } else {
+        ""
+    };
 
-        let pk_statement = if is_column_pk { " PRIMARY KEY" } else { "" };
-        let not_null = if column.not_null && !omit_not_null {
-            " NOT NULL"
-        } else {
-            ""
-        };
+    // Check for single-column unique constraint
+    let unique = table
+        .uniques
+        .iter()
+        .find(|u| u.columns.len() == 1 && u.columns[0] == column.name && !u.name_explicit);
+    let unique_statement = if unique.is_some() { " UNIQUE" } else { "" };
 
-        // Check for single-column unique constraint
-        let unique = table
-            .uniques
-            .iter()
-            .find(|u| u.columns.len() == 1 && u.columns[0] == column.name && !u.name_explicit);
-        let unique_statement = if unique.is_some() { " UNIQUE" } else { "" };
+    let default = column
+        .default
+        .as_ref()
+        .map(|d| format!(" DEFAULT {d}"))
+        .unwrap_or_default();
 
-        let default = column
-            .default
-            .as_ref()
-            .map(|d| format!(" DEFAULT {}", d))
-            .unwrap_or_default();
+    let autoincrement = if column.autoincrement.unwrap_or(false) {
+        " AUTOINCREMENT"
+    } else {
+        ""
+    };
 
-        let autoincrement = if column.autoincrement.unwrap_or(false) {
-            " AUTOINCREMENT"
-        } else {
-            ""
-        };
+    let generated = column
+        .generated
+        .as_ref()
+        .map(|g| {
+            let gen_type = match g.gen_type {
+                GeneratedType::Stored => "STORED",
+                GeneratedType::Virtual => "VIRTUAL",
+            };
+            format!(" GENERATED ALWAYS AS {} {}", g.expression, gen_type)
+        })
+        .unwrap_or_default();
 
-        let generated = column
-            .generated
-            .as_ref()
-            .map(|g| {
-                let gen_type = match g.gen_type {
-                    GeneratedType::Stored => "STORED",
-                    GeneratedType::Virtual => "VIRTUAL",
-                };
-                format!(" GENERATED ALWAYS AS {} {}", g.expression, gen_type)
-            })
-            .unwrap_or_default();
+    format!(
+        "\t`{}` {}{pk_statement}{autoincrement}{default}{generated}{not_null}{unique_statement}",
+        column.name,
+        column.sql_type.to_uppercase(),
+    )
+}
 
-        sql.push_str(&format!(
-            "\t`{}` {}{}{}{}{}{}{}",
-            column.name,
-            column.sql_type.to_uppercase(),
-            pk_statement,
-            autoincrement,
-            default,
-            generated,
-            not_null,
-            unique_statement
-        ));
-
-        if i < table.columns.len() - 1 {
-            sql.push_str(",\n");
-        }
-    }
-
+fn append_table_constraints(sql: &mut String, table: &TableFull) {
     // Composite PK or explicit named PK
     if let Some(pk) = &table.pk
         && (pk.columns.len() > 1 || pk.name_explicit)
@@ -331,10 +322,10 @@ fn convert_create_table(st: &CreateTableStatement) -> String {
         let cols = pk
             .columns
             .iter()
-            .map(|c| format!("`{}`", c))
+            .map(|c| format!("`{c}`"))
             .collect::<Vec<_>>()
             .join(", ");
-        sql.push_str(&format!("CONSTRAINT `{}` PRIMARY KEY({})", pk.name, cols));
+        let _ = write!(sql, "CONSTRAINT `{}` PRIMARY KEY({})", pk.name, cols);
     }
 
     // Foreign keys
@@ -343,13 +334,13 @@ fn convert_create_table(st: &CreateTableStatement) -> String {
         let from_cols = fk
             .columns
             .iter()
-            .map(|c| format!("`{}`", c))
+            .map(|c| format!("`{c}`"))
             .collect::<Vec<_>>()
             .join(",");
         let to_cols = fk
             .columns_to
             .iter()
-            .map(|c| format!("`{}`", c))
+            .map(|c| format!("`{c}`"))
             .collect::<Vec<_>>()
             .join(",");
 
@@ -357,19 +348,20 @@ fn convert_create_table(st: &CreateTableStatement) -> String {
             .on_update
             .as_ref()
             .filter(|a| *a != "NO ACTION")
-            .map(|a| format!(" ON UPDATE {}", a))
+            .map(|a| format!(" ON UPDATE {a}"))
             .unwrap_or_default();
         let on_delete = fk
             .on_delete
             .as_ref()
             .filter(|a| *a != "NO ACTION")
-            .map(|a| format!(" ON DELETE {}", a))
+            .map(|a| format!(" ON DELETE {a}"))
             .unwrap_or_default();
 
-        sql.push_str(&format!(
+        let _ = write!(
+            sql,
             "CONSTRAINT `{}` FOREIGN KEY ({}) REFERENCES `{}`({}){}{}",
             fk.name, from_cols, fk.table_to, to_cols, on_update, on_delete
-        ));
+        );
     }
 
     // Multi-column unique constraints
@@ -378,20 +370,33 @@ fn convert_create_table(st: &CreateTableStatement) -> String {
         let cols = unique
             .columns
             .iter()
-            .map(|c| format!("`{}`", c))
+            .map(|c| format!("`{c}`"))
             .collect::<Vec<_>>()
             .join("`,`");
-        sql.push_str(&format!("CONSTRAINT `{}` UNIQUE(`{}`)", unique.name, cols));
+        let _ = write!(sql, "CONSTRAINT `{}` UNIQUE(`{}`)", unique.name, cols);
     }
 
     // Check constraints
     for check in &table.checks {
         sql.push_str(",\n\t");
-        sql.push_str(&format!(
-            "CONSTRAINT \"{}\" CHECK({})",
-            check.name, check.value
-        ));
+        let _ = write!(sql, "CONSTRAINT \"{}\" CHECK({})", check.name, check.value);
     }
+}
+
+fn convert_create_table(st: &CreateTableStatement) -> String {
+    let table = &st.table;
+    let mut sql = format!("CREATE TABLE `{}` (\n", table.name);
+
+    // Column definitions
+    let last_idx = table.columns.len().saturating_sub(1);
+    for (i, column) in table.columns.iter().enumerate() {
+        sql.push_str(&format_column_def(column, table));
+        if i < last_idx {
+            sql.push_str(",\n");
+        }
+    }
+
+    append_table_constraints(&mut sql, table);
 
     sql.push_str("\n)");
 
@@ -421,7 +426,7 @@ fn convert_add_column(st: &AddColumnStatement) -> String {
     let default = column
         .default
         .as_ref()
-        .map(|d| format!(" DEFAULT {}", d))
+        .map(|d| format!(" DEFAULT {d}"))
         .unwrap_or_default();
 
     let not_null = if column.not_null { " NOT NULL" } else { "" };
@@ -496,7 +501,7 @@ fn convert_recreate_column(st: &RecreateColumnStatement) -> Vec<String> {
 
 fn convert_recreate_table(st: &RecreateTableStatement) -> Vec<String> {
     let name = &st.to.name;
-    let new_table_name = format!("__new_{}", name);
+    let new_table_name = format!("__new_{name}");
 
     // Get columns to copy (non-generated columns that exist in both)
     let column_names: Vec<String> = st
@@ -522,7 +527,7 @@ fn convert_recreate_table(st: &RecreateTableStatement) -> Vec<String> {
 
     // 2. Create new table with temp name
     let mut tmp_table = st.to.clone();
-    tmp_table.name = new_table_name.clone();
+    tmp_table.name.clone_from(&new_table_name);
     // Update check constraint table references
     for check in &mut tmp_table.checks {
         check.table = new_table_name.clone().into();
@@ -533,17 +538,15 @@ fn convert_recreate_table(st: &RecreateTableStatement) -> Vec<String> {
 
     // 3. Copy data
     statements.push(format!(
-        "INSERT INTO `{}`({}) SELECT {} FROM `{}`;",
-        new_table_name, cols_str, cols_str, name
+        "INSERT INTO `{new_table_name}`({cols_str}) SELECT {cols_str} FROM `{name}`;"
     ));
 
     // 4. Drop old table
-    statements.push(format!("DROP TABLE `{}`;", name));
+    statements.push(format!("DROP TABLE `{name}`;"));
 
     // 5. Rename new table
     statements.push(format!(
-        "ALTER TABLE `{}` RENAME TO `{}`;",
-        new_table_name, name
+        "ALTER TABLE `{new_table_name}` RENAME TO `{name}`;"
     ));
 
     // 6. Re-enable foreign keys
@@ -572,7 +575,7 @@ fn convert_create_index(st: &CreateIndexStatement) -> String {
     let where_clause = index
         .where_clause
         .as_ref()
-        .map(|w| format!(" WHERE {}", w))
+        .map(|w| format!(" WHERE {w}"))
         .unwrap_or_default();
 
     format!(
@@ -614,6 +617,7 @@ fn convert_rename_view(st: &RenameViewStatement) -> String {
 // =============================================================================
 
 /// Prepare add column statements with FK associations
+#[must_use]
 pub fn prepare_add_columns(columns: &[Column], fks: &[ForeignKey]) -> Vec<AddColumnStatement> {
     columns
         .iter()
@@ -705,8 +709,7 @@ fn topological_sort_tables_for_create<'a>(
             .filter(|t| {
                 dependencies
                     .get(*t)
-                    .map(|deps| deps.iter().all(|d| satisfied.contains(d)))
-                    .unwrap_or(true)
+                    .is_none_or(|deps| deps.iter().all(|d| satisfied.contains(d)))
             })
             .cloned()
             .collect();
@@ -750,11 +753,189 @@ fn topological_sort_tables_for_drop<'a>(
     }
 }
 
+fn append_drop_table_stmts(statements: &mut Vec<String>, diff: &SchemaDiff) {
+    let dropped_tables = diff.dropped_tables();
+    let drop_result = topological_sort_tables_for_drop(&dropped_tables, diff);
+
+    // If there are circular dependencies in drops, wrap with PRAGMA
+    if drop_result.has_circular_deps && !drop_result.tables.is_empty() {
+        statements.push("PRAGMA foreign_keys=OFF;".to_string());
+    }
+
+    for entity_diff in &drop_result.tables {
+        if let Some(name) = entity_diff.name.split(':').next_back() {
+            statements.push(convert_drop_table(&DropTableStatement {
+                table_name: name.to_string(),
+            }));
+        }
+    }
+
+    if drop_result.has_circular_deps && !drop_result.tables.is_empty() {
+        statements.push("PRAGMA foreign_keys=ON;".to_string());
+    }
+}
+
+fn build_table_full(diff: &SchemaDiff, table: &crate::sqlite::ddl::Table) -> TableFull {
+    let columns_for_table: Vec<Column> = diff
+        .by_kind(EntityKind::Column)
+        .into_iter()
+        .filter(|d| d.diff_type == DiffType::Create)
+        .filter_map(|d| d.right.as_ref())
+        .filter_map(|e| match e {
+            crate::sqlite::ddl::SqliteEntity::Column(c) if c.table == table.name => Some(c.clone()),
+            _ => None,
+        })
+        .collect();
+
+    let pk = diff
+        .by_kind(EntityKind::PrimaryKey)
+        .into_iter()
+        .filter(|d| d.diff_type == DiffType::Create)
+        .filter_map(|d| d.right.as_ref())
+        .find_map(|e| match e {
+            crate::sqlite::ddl::SqliteEntity::PrimaryKey(p) if p.table == table.name => {
+                Some(p.clone())
+            }
+            _ => None,
+        });
+
+    let fks: Vec<ForeignKey> = diff
+        .by_kind(EntityKind::ForeignKey)
+        .into_iter()
+        .filter(|d| d.diff_type == DiffType::Create)
+        .filter_map(|d| d.right.as_ref())
+        .filter_map(|e| match e {
+            crate::sqlite::ddl::SqliteEntity::ForeignKey(fk) if fk.table == table.name => {
+                Some(fk.clone())
+            }
+            _ => None,
+        })
+        .collect();
+
+    let uniques: Vec<UniqueConstraint> = diff
+        .by_kind(EntityKind::UniqueConstraint)
+        .into_iter()
+        .filter(|d| d.diff_type == DiffType::Create)
+        .filter_map(|d| d.right.as_ref())
+        .filter_map(|e| match e {
+            crate::sqlite::ddl::SqliteEntity::UniqueConstraint(u) if u.table == table.name => {
+                Some(u.clone())
+            }
+            _ => None,
+        })
+        .collect();
+
+    let checks: Vec<CheckConstraint> = diff
+        .by_kind(EntityKind::CheckConstraint)
+        .into_iter()
+        .filter(|d| d.diff_type == DiffType::Create)
+        .filter_map(|d| d.right.as_ref())
+        .filter_map(|e| match e {
+            crate::sqlite::ddl::SqliteEntity::CheckConstraint(c) if c.table == table.name => {
+                Some(c.clone())
+            }
+            _ => None,
+        })
+        .collect();
+
+    TableFull {
+        name: table.name.to_string(),
+        columns: columns_for_table,
+        pk,
+        fks,
+        uniques,
+        checks,
+        strict: table.strict,
+        without_rowid: table.without_rowid,
+    }
+}
+
+fn append_create_table_stmts(statements: &mut Vec<String>, diff: &SchemaDiff) {
+    let created_tables = diff.created_tables();
+    let create_result = topological_sort_tables_for_create(&created_tables, diff);
+
+    // If there are circular dependencies, wrap creates with PRAGMA to allow out-of-order creation
+    if create_result.has_circular_deps && !create_result.tables.is_empty() {
+        statements.push("PRAGMA foreign_keys=OFF;".to_string());
+    }
+
+    for entity_diff in &create_result.tables {
+        if let Some(crate::sqlite::ddl::SqliteEntity::Table(table)) = entity_diff.right.as_ref() {
+            let table_full = build_table_full(diff, table);
+            statements.push(convert_create_table(&CreateTableStatement {
+                table: table_full,
+            }));
+        }
+    }
+
+    // Re-enable foreign keys if we disabled them for circular dependencies
+    if create_result.has_circular_deps && !create_result.tables.is_empty() {
+        statements.push("PRAGMA foreign_keys=ON;".to_string());
+    }
+}
+
+fn append_add_column_stmts(statements: &mut Vec<String>, diff: &SchemaDiff) {
+    for entity_diff in diff.by_kind(EntityKind::Column) {
+        if entity_diff.diff_type == DiffType::Create
+            && let Some(crate::sqlite::ddl::SqliteEntity::Column(col)) = entity_diff.right.as_ref()
+        {
+            let table_was_created = diff.created_tables().iter().any(|t| t.name == col.table);
+
+            if !table_was_created {
+                statements.push(convert_add_column(&AddColumnStatement {
+                    column: col.clone(),
+                    fk: None,
+                }));
+            }
+        }
+    }
+}
+
+fn append_index_stmts(statements: &mut Vec<String>, diff: &SchemaDiff) {
+    for entity_diff in diff.by_kind(EntityKind::Index) {
+        match entity_diff.diff_type {
+            DiffType::Drop => {
+                if let Some(crate::sqlite::ddl::SqliteEntity::Index(idx)) =
+                    entity_diff.left.as_ref()
+                {
+                    statements.push(convert_drop_index(&DropIndexStatement {
+                        index: idx.clone(),
+                    }));
+                }
+            }
+            DiffType::Create => {
+                if let Some(crate::sqlite::ddl::SqliteEntity::Index(idx)) =
+                    entity_diff.right.as_ref()
+                {
+                    statements.push(convert_create_index(&CreateIndexStatement {
+                        index: idx.clone(),
+                    }));
+                }
+            }
+            DiffType::Alter => {
+                // For index alter: drop old, create new
+                if let (
+                    Some(crate::sqlite::ddl::SqliteEntity::Index(old)),
+                    Some(crate::sqlite::ddl::SqliteEntity::Index(new)),
+                ) = (entity_diff.left.as_ref(), entity_diff.right.as_ref())
+                {
+                    statements.push(convert_drop_index(&DropIndexStatement {
+                        index: old.clone(),
+                    }));
+                    statements.push(convert_create_index(&CreateIndexStatement {
+                        index: new.clone(),
+                    }));
+                }
+            }
+        }
+    }
+}
+
 // =============================================================================
 // SQLite SQL Generator
 // =============================================================================
 
-/// SQLite SQL generator for migration diffs
+/// `SQLite` SQL generator for migration diffs
 ///
 /// Generates SQL statements from schema diffs with proper ordering:
 /// 1. Table drops (reverse dependency order)
@@ -773,230 +954,35 @@ impl Default for SqliteGenerator {
 }
 
 impl SqliteGenerator {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { breakpoints: true }
     }
 
-    pub fn with_breakpoints(mut self, breakpoints: bool) -> Self {
+    #[must_use]
+    pub const fn with_breakpoints(mut self, breakpoints: bool) -> Self {
         self.breakpoints = breakpoints;
         self
     }
 
     /// Generate SQL from a schema diff
+    #[must_use]
     pub fn generate_migration(&self, diff: &SchemaDiff) -> Vec<String> {
         let mut statements = Vec::new();
 
-        // Process table drops first (in reverse dependency order - tables with FKs first)
-        let dropped_tables = diff.dropped_tables();
-        let drop_result = topological_sort_tables_for_drop(&dropped_tables, diff);
-
-        // If there are circular dependencies in drops, wrap with PRAGMA
-        if drop_result.has_circular_deps && !drop_result.tables.is_empty() {
-            statements.push("PRAGMA foreign_keys=OFF;".to_string());
-        }
-
-        for entity_diff in &drop_result.tables {
-            if let Some(name) = entity_diff.name.split(':').next_back() {
-                statements.push(convert_drop_table(&DropTableStatement {
-                    table_name: name.to_string(),
-                }));
-            }
-        }
-
-        if drop_result.has_circular_deps && !drop_result.tables.is_empty() {
-            statements.push("PRAGMA foreign_keys=ON;".to_string());
-        }
-
-        // Process table creates (in dependency order - referenced tables first)
-        let created_tables = diff.created_tables();
-        let create_result = topological_sort_tables_for_create(&created_tables, diff);
-
-        // If there are circular dependencies, wrap creates with PRAGMA to allow out-of-order creation
-        if create_result.has_circular_deps && !create_result.tables.is_empty() {
-            statements.push("PRAGMA foreign_keys=OFF;".to_string());
-        }
-
-        for entity_diff in &create_result.tables {
-            if let Some(crate::sqlite::ddl::SqliteEntity::Table(table)) = entity_diff.right.as_ref()
-            {
-                // Extract columns for this table
-                let columns_for_table: Vec<Column> = diff
-                    .by_kind(EntityKind::Column)
-                    .into_iter()
-                    .filter(|d| d.diff_type == DiffType::Create)
-                    .filter_map(|d| d.right.as_ref())
-                    .filter_map(|e| {
-                        if let crate::sqlite::ddl::SqliteEntity::Column(c) = e {
-                            if c.table == table.name {
-                                Some(c.clone())
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
-                // Extract pk for this table
-                let pk = diff
-                    .by_kind(EntityKind::PrimaryKey)
-                    .into_iter()
-                    .filter(|d| d.diff_type == DiffType::Create)
-                    .filter_map(|d| d.right.as_ref())
-                    .find_map(|e| {
-                        if let crate::sqlite::ddl::SqliteEntity::PrimaryKey(p) = e {
-                            if p.table == table.name {
-                                Some(p.clone())
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    });
-
-                // Extract fks for this table
-                let fks: Vec<ForeignKey> = diff
-                    .by_kind(EntityKind::ForeignKey)
-                    .into_iter()
-                    .filter(|d| d.diff_type == DiffType::Create)
-                    .filter_map(|d| d.right.as_ref())
-                    .filter_map(|e| {
-                        if let crate::sqlite::ddl::SqliteEntity::ForeignKey(fk) = e {
-                            if fk.table == table.name {
-                                Some(fk.clone())
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
-                // Extract uniques for this table
-                let uniques: Vec<UniqueConstraint> = diff
-                    .by_kind(EntityKind::UniqueConstraint)
-                    .into_iter()
-                    .filter(|d| d.diff_type == DiffType::Create)
-                    .filter_map(|d| d.right.as_ref())
-                    .filter_map(|e| {
-                        if let crate::sqlite::ddl::SqliteEntity::UniqueConstraint(u) = e {
-                            if u.table == table.name {
-                                Some(u.clone())
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
-                // Extract checks for this table
-                let checks: Vec<CheckConstraint> = diff
-                    .by_kind(EntityKind::CheckConstraint)
-                    .into_iter()
-                    .filter(|d| d.diff_type == DiffType::Create)
-                    .filter_map(|d| d.right.as_ref())
-                    .filter_map(|e| {
-                        if let crate::sqlite::ddl::SqliteEntity::CheckConstraint(c) = e {
-                            if c.table == table.name {
-                                Some(c.clone())
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
-                let table_full = TableFull {
-                    name: table.name.to_string(),
-                    columns: columns_for_table,
-                    pk,
-                    fks,
-                    uniques,
-                    checks,
-                    strict: table.strict,
-                    without_rowid: table.without_rowid,
-                };
-                statements.push(convert_create_table(&CreateTableStatement {
-                    table: table_full,
-                }));
-            }
-        }
-
-        // Re-enable foreign keys if we disabled them for circular dependencies
-        if create_result.has_circular_deps && !create_result.tables.is_empty() {
-            statements.push("PRAGMA foreign_keys=ON;".to_string());
-        }
-
-        // Process column additions (for existing tables)
-        for entity_diff in diff.by_kind(EntityKind::Column) {
-            if entity_diff.diff_type == DiffType::Create
-                && let Some(crate::sqlite::ddl::SqliteEntity::Column(col)) =
-                    entity_diff.right.as_ref()
-            {
-                let table_was_created = diff.created_tables().iter().any(|t| t.name == col.table);
-
-                if !table_was_created {
-                    statements.push(convert_add_column(&AddColumnStatement {
-                        column: col.clone(),
-                        fk: None,
-                    }));
-                }
-            }
-        }
-
-        // Process index operations
-        for entity_diff in diff.by_kind(EntityKind::Index) {
-            match entity_diff.diff_type {
-                DiffType::Drop => {
-                    if let Some(crate::sqlite::ddl::SqliteEntity::Index(idx)) =
-                        entity_diff.left.as_ref()
-                    {
-                        statements.push(convert_drop_index(&DropIndexStatement {
-                            index: idx.clone(),
-                        }));
-                    }
-                }
-                DiffType::Create => {
-                    if let Some(crate::sqlite::ddl::SqliteEntity::Index(idx)) =
-                        entity_diff.right.as_ref()
-                    {
-                        statements.push(convert_create_index(&CreateIndexStatement {
-                            index: idx.clone(),
-                        }));
-                    }
-                }
-                DiffType::Alter => {
-                    // For index alter: drop old, create new
-                    if let (
-                        Some(crate::sqlite::ddl::SqliteEntity::Index(old)),
-                        Some(crate::sqlite::ddl::SqliteEntity::Index(new)),
-                    ) = (entity_diff.left.as_ref(), entity_diff.right.as_ref())
-                    {
-                        statements.push(convert_drop_index(&DropIndexStatement {
-                            index: old.clone(),
-                        }));
-                        statements.push(convert_create_index(&CreateIndexStatement {
-                            index: new.clone(),
-                        }));
-                    }
-                }
-            }
-        }
+        append_drop_table_stmts(&mut statements, diff);
+        append_create_table_stmts(&mut statements, diff);
+        append_add_column_stmts(&mut statements, diff);
+        append_index_stmts(&mut statements, diff);
 
         statements
     }
 
     /// Generate SQL from migration statements
+    #[must_use]
     pub fn statements_to_sql(&self, statements: &[String]) -> String {
         if self.breakpoints {
-            statements.join(&format!("\n{}\n", BREAKPOINT))
+            statements.join(&format!("\n{BREAKPOINT}\n"))
         } else {
             statements.join("\n")
         }

@@ -86,7 +86,7 @@ pub struct PreparedStatement<'a> {
     pub(crate) inner: CorePreparedStatement<'a, SQLiteValue<'a>>,
 }
 
-impl<'a> PreparedStatement<'a> {
+impl PreparedStatement<'_> {
     /// Converts this borrowed prepared statement into an owned one.
     ///
     /// This method clones all the internal data to create an `OwnedPreparedStatement`
@@ -119,6 +119,7 @@ impl<'a> PreparedStatement<'a> {
     /// // Now `owned` can be stored without lifetime constraints
     /// # }
     /// ```
+    #[must_use]
     pub fn into_owned(&self) -> OwnedPreparedStatement {
         let owned_params = self.inner.params.iter().map(|p| OwnedParam {
             placeholder: p.placeholder,
@@ -138,7 +139,7 @@ impl<'a> PreparedStatement<'a> {
     }
 }
 
-/// Owned SQLite prepared statement wrapper.
+/// Owned `SQLite` prepared statement wrapper.
 ///
 /// This is the owned counterpart to [`PreparedStatement`] that doesn't have any lifetime
 /// constraints. All data is owned by this struct, making it suitable for long-term storage,
@@ -243,7 +244,7 @@ impl From<OwnedPreparedStatement> for PreparedStatement<'_> {
 
 impl OwnedPreparedStatement {}
 
-impl<'a> core::fmt::Display for PreparedStatement<'a> {
+impl core::fmt::Display for PreparedStatement<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.inner)
     }
@@ -269,7 +270,7 @@ mod tests {
             .append(SQL::raw(" AND name = "))
             .append(drizzle_core::Placeholder::named("user_name").to_sql());
 
-        let prepared = prepare_render(sql);
+        let prepared = prepare_render(&sql);
 
         // Should have 3 text segments: before first param, between params, after last param
         assert_eq!(prepared.text_segments.len(), 3);
@@ -284,7 +285,7 @@ mod tests {
     fn test_prepare_with_no_parameters() {
         // Test preparing SQL with no parameters
         let sql: SQL<'_, SQLiteValue<'_>> = SQL::raw("SELECT COUNT(*) FROM users");
-        let prepared = prepare_render(sql);
+        let prepared = prepare_render(&sql);
 
         assert_eq!(prepared.text_segments.len(), 1);
         assert_eq!(prepared.params.len(), 0);
@@ -297,7 +298,7 @@ mod tests {
             .append(SQL::raw(" WHERE id = "))
             .append(drizzle_core::Placeholder::named("id").to_sql());
 
-        let prepared = prepare_render(sql);
+        let prepared = prepare_render(&sql);
         let display = format!("{}", prepared);
 
         assert!(display.contains("SELECT * FROM users"));
@@ -309,7 +310,7 @@ mod tests {
         let sql: SQL<'_, SQLiteValue<'_>> = SQL::raw("SELECT name FROM users WHERE id = ")
             .append(drizzle_core::Placeholder::named("id").to_sql());
 
-        let prepared = prepare_render(sql);
+        let prepared = prepare_render(&sql);
         let core_prepared = PreparedStatement { inner: prepared };
 
         // Convert to owned

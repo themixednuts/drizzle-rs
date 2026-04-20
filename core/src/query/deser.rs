@@ -10,10 +10,16 @@ use super::store::RelEntry;
 /// Deserializes a `RelEntry` chain from pre-parsed JSON values.
 pub trait DeserializeStore: Sized {
     /// Reads from consecutive pre-parsed JSON Values (top-level row columns).
+    ///
+    /// # Errors
+    /// Returns `DrizzleError` if a JSON column is missing or fails to decode.
     fn from_values(values: &[serde_json::Value], col: &mut usize) -> Result<Self, DrizzleError>;
 
     /// Reads from a parent JSON object's named fields (nested relations).
     /// Each relation is extracted by its `RelationDef::NAME` key.
+    ///
+    /// # Errors
+    /// Returns `DrizzleError` if a named relation field is missing or fails to decode.
     fn from_parent_json(parent: &serde_json::Value) -> Result<Self, DrizzleError>;
 }
 
@@ -43,7 +49,7 @@ where
         let data = Data::from_value(val)
             .map_err(|e| DrizzleError::Other(format!("relation '{}': {e}", Rel::NAME).into()))?;
         let rest = Rest::from_values(values, col)?;
-        Ok(RelEntry::new(data, rest))
+        Ok(Self::new(data, rest))
     }
 
     fn from_parent_json(parent: &serde_json::Value) -> Result<Self, DrizzleError> {
@@ -51,19 +57,23 @@ where
         let data = Data::from_value(nested_val)
             .map_err(|e| DrizzleError::Other(format!("relation '{}': {e}", Rel::NAME).into()))?;
         let rest = Rest::from_parent_json(parent)?;
-        Ok(RelEntry::new(data, rest))
+        Ok(Self::new(data, rest))
     }
 }
 
 /// Parses a relation's wrapped data from a pre-parsed JSON Value.
 ///
-/// Implemented for `Vec<T>` (Many), `Option<T>` (OptionalOne),
+/// Implemented for `Vec<T>` (Many), `Option<T>` (`OptionalOne`),
 /// and `QueryRow<Base, Store>` (One).
 pub trait FromJsonColumn: Sized {
     /// Converts a JSON value into this type.
     ///
     /// Receives the raw JSON column value from the query result.
     /// `Null` is valid for `Vec<T>` (empty) and `Option<T>` (None).
+    ///
+    /// # Errors
+    /// Returns `DrizzleError` when the JSON value does not match the expected
+    /// shape for this type.
     fn from_value(val: &serde_json::Value) -> Result<Self, DrizzleError>;
 }
 
@@ -73,7 +83,7 @@ pub trait FromJsonColumn: Sized {
 impl<T: FromJsonValue> FromJsonColumn for Vec<T> {
     fn from_value(val: &serde_json::Value) -> Result<Self, DrizzleError> {
         match val {
-            serde_json::Value::Null => Ok(Vec::new()),
+            serde_json::Value::Null => Ok(Self::new()),
             serde_json::Value::Array(arr) => arr
                 .iter()
                 .filter(|v| !v.is_null())
@@ -115,6 +125,10 @@ pub trait FromJsonValue: Sized {
     /// Deserializes this type from a JSON object value.
     ///
     /// The input `val` is a JSON object whose keys correspond to column names.
+    ///
+    /// # Errors
+    /// Returns `DrizzleError` when the JSON value is not an object or a field
+    /// fails to deserialize.
     fn from_json_value(val: &serde_json::Value) -> Result<Self, DrizzleError>;
 }
 
@@ -123,11 +137,15 @@ impl<Base: FromJsonValue, Store: DeserializeStore> FromJsonValue for QueryRow<Ba
     fn from_json_value(val: &serde_json::Value) -> Result<Self, DrizzleError> {
         let base = Base::from_json_value(val)?;
         let store = Store::from_parent_json(val)?;
-        Ok(QueryRow::new(base, store))
+        Ok(Self::new(base, store))
     }
 }
 
 /// Deserializes a single field from a `&serde_json::Value`.
+///
+/// # Errors
+/// Returns `DrizzleError::Other` if serde deserialization fails, including the
+/// field name in the message for diagnostics.
 #[inline]
 pub fn deserialize_field<T: serde::de::DeserializeOwned>(
     val: &serde_json::Value,

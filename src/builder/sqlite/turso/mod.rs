@@ -1,4 +1,4 @@
-//! Async SQLite driver using [`turso`].
+//! Async `SQLite` driver using [`turso`].
 //!
 //! # Quick start
 //!
@@ -226,15 +226,13 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
-        if let Some(row) = rows
-            .next()
+        rows.next()
             .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-        {
-            R::try_from(&row).map_err(Into::into)
-        } else {
-            Err(DrizzleError::NotFound)
-        }
+            .map_or_else(
+                || Err(DrizzleError::NotFound),
+                |row| R::try_from(&row).map_err(Into::into),
+            )
     }
 
     /// Executes a transaction with the given callback.
@@ -366,21 +364,16 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     }
 }
 
-async fn ensure_sqlite_migration_table(
-    conn: &mut turso::Connection,
+async fn migration_table_has_name_column(
+    conn: &turso::Connection,
     set: &drizzle_migrations::Migrations,
-) -> drizzle_core::error::Result<()> {
-    conn.execute(&set.create_table_sql(), ())
-        .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-
+) -> drizzle_core::error::Result<bool> {
     let table_name = set.table_name().replace('\'', "''");
-    let pragma_sql = format!("SELECT name FROM pragma_table_info('{}')", table_name);
+    let pragma_sql = format!("SELECT name FROM pragma_table_info('{table_name}')");
     let mut rows = conn
         .query(&pragma_sql, ())
         .await
         .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-    let mut has_name = false;
     while let Some(row) = rows
         .next()
         .await
@@ -389,14 +382,16 @@ async fn ensure_sqlite_migration_table(
         if let Ok(name) = row.get::<String>(0)
             && name == "name"
         {
-            has_name = true;
-            break;
+            return Ok(true);
         }
     }
-    if has_name {
-        return Ok(());
-    }
+    Ok(false)
+}
 
+async fn load_legacy_applied_migrations(
+    conn: &turso::Connection,
+    set: &drizzle_migrations::Migrations,
+) -> drizzle_core::error::Result<Vec<drizzle_migrations::AppliedMigrationMetadata>> {
     let mut rows = conn
         .query(
             &format!(
@@ -423,10 +418,14 @@ async fn ensure_sqlite_migration_table(
                 .map_err(|e| DrizzleError::Other(e.to_string().into()))?,
         });
     }
+    Ok(applied)
+}
 
-    let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-
+async fn backfill_migration_name_column(
+    conn: &mut turso::Connection,
+    set: &drizzle_migrations::Migrations,
+    matched: Vec<drizzle_migrations::MatchedMigrationMetadata>,
+) -> drizzle_core::error::Result<()> {
     let tx = conn
         .transaction()
         .await
@@ -480,188 +479,243 @@ async fn ensure_sqlite_migration_table(
     Ok(())
 }
 
+async fn ensure_sqlite_migration_table(
+    conn: &mut turso::Connection,
+    set: &drizzle_migrations::Migrations,
+) -> drizzle_core::error::Result<()> {
+    conn.execute(&set.create_table_sql(), ())
+        .await
+        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+
+    if migration_table_has_name_column(conn, set).await? {
+        return Ok(());
+    }
+
+    let applied = load_legacy_applied_migrations(conn, set).await?;
+    let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
+        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+
+    backfill_migration_name_column(conn, set, matched).await
+}
+
+async fn turso_introspect_query_tables(
+    conn: &turso::Connection,
+) -> drizzle_core::error::Result<Vec<(String, Option<String>)>> {
+    use drizzle_migrations::sqlite::introspect::queries;
+    let err = |e: turso::Error| DrizzleError::Other(e.to_string().into());
+
+    let mut tables_rows = conn.query(queries::TABLES_QUERY, ()).await.map_err(err)?;
+    let mut tables: Vec<(String, Option<String>)> = Vec::new();
+    while let Some(row) = tables_rows.next().await.map_err(err)? {
+        let name: String = row.get(0).unwrap_or_default();
+        let sql: Option<String> = row.get(1).ok();
+        tables.push((name, sql));
+    }
+    Ok(tables)
+}
+
+async fn turso_introspect_query_columns(
+    conn: &turso::Connection,
+) -> drizzle_core::error::Result<Vec<drizzle_migrations::sqlite::introspect::RawColumnInfo>> {
+    use drizzle_migrations::sqlite::introspect::{RawColumnInfo, queries};
+    let err = |e: turso::Error| DrizzleError::Other(e.to_string().into());
+
+    let mut columns_rows = conn.query(queries::COLUMNS_QUERY, ()).await.map_err(err)?;
+    let mut raw_columns: Vec<RawColumnInfo> = Vec::new();
+    while let Some(row) = columns_rows.next().await.map_err(err)? {
+        raw_columns.push(RawColumnInfo {
+            table: row.get(0).unwrap_or_default(),
+            cid: row.get(1).unwrap_or(0),
+            name: row.get(2).unwrap_or_default(),
+            column_type: row.get(3).unwrap_or_default(),
+            not_null: row.get::<i32>(4).unwrap_or(0) != 0,
+            default_value: row.get(5).ok(),
+            pk: row.get(6).unwrap_or(0),
+            hidden: row.get(7).unwrap_or(0),
+            sql: row.get(8).ok(),
+        });
+    }
+    Ok(raw_columns)
+}
+
+async fn turso_introspect_query_indexes_and_fks(
+    conn: &turso::Connection,
+    tables: &[(String, Option<String>)],
+) -> (
+    Vec<drizzle_migrations::sqlite::introspect::RawIndexInfo>,
+    Vec<drizzle_migrations::sqlite::introspect::RawIndexColumn>,
+    Vec<drizzle_migrations::sqlite::introspect::RawForeignKey>,
+) {
+    use drizzle_migrations::sqlite::introspect::{
+        RawForeignKey, RawIndexColumn, RawIndexInfo, queries,
+    };
+
+    let mut all_indexes: Vec<RawIndexInfo> = Vec::new();
+    let mut all_index_columns: Vec<RawIndexColumn> = Vec::new();
+    let mut all_fks: Vec<RawForeignKey> = Vec::new();
+
+    for (table_name, _) in tables {
+        if let Ok(mut idx_rows) = conn.query(&queries::indexes_query(table_name), ()).await {
+            while let Ok(Some(row)) = idx_rows.next().await {
+                let idx = RawIndexInfo {
+                    table: table_name.clone(),
+                    name: row.get(1).unwrap_or_default(),
+                    unique: row.get::<i32>(2).unwrap_or(0) != 0,
+                    origin: row.get(3).unwrap_or_default(),
+                    partial: row.get::<i32>(4).unwrap_or(0) != 0,
+                };
+
+                if let Ok(mut col_rows) =
+                    conn.query(&queries::index_info_query(&idx.name), ()).await
+                {
+                    while let Ok(Some(col_row)) = col_rows.next().await {
+                        all_index_columns.push(RawIndexColumn {
+                            index_name: idx.name.clone(),
+                            seqno: col_row.get(0).unwrap_or(0),
+                            cid: col_row.get(1).unwrap_or(0),
+                            name: col_row.get(2).ok(),
+                            desc: col_row.get::<i32>(3).unwrap_or(0) != 0,
+                            coll: col_row.get(4).unwrap_or_default(),
+                            key: col_row.get::<i32>(5).unwrap_or(0) != 0,
+                        });
+                    }
+                }
+
+                all_indexes.push(idx);
+            }
+        }
+
+        if let Ok(mut fk_rows) = conn
+            .query(&queries::foreign_keys_query(table_name), ())
+            .await
+        {
+            while let Ok(Some(row)) = fk_rows.next().await {
+                all_fks.push(RawForeignKey {
+                    table: table_name.clone(),
+                    id: row.get(0).unwrap_or(0),
+                    seq: row.get(1).unwrap_or(0),
+                    to_table: row.get(2).unwrap_or_default(),
+                    from_column: row.get(3).unwrap_or_default(),
+                    to_column: row.get(4).unwrap_or_default(),
+                    on_update: row.get(5).unwrap_or_default(),
+                    on_delete: row.get(6).unwrap_or_default(),
+                    r#match: row.get(7).unwrap_or_default(),
+                });
+            }
+        }
+    }
+
+    (all_indexes, all_index_columns, all_fks)
+}
+
+async fn turso_introspect_query_views(
+    conn: &turso::Connection,
+) -> Vec<drizzle_migrations::sqlite::introspect::RawViewInfo> {
+    use drizzle_migrations::sqlite::introspect::{RawViewInfo, queries};
+
+    let mut all_views: Vec<RawViewInfo> = Vec::new();
+    if let Ok(mut views_rows) = conn.query(queries::VIEWS_QUERY, ()).await {
+        while let Ok(Some(row)) = views_rows.next().await {
+            let name: String = row.get(0).unwrap_or_default();
+            let sql: String = row.get(1).unwrap_or_default();
+            all_views.push(RawViewInfo { name, sql });
+        }
+    }
+    all_views
+}
+
+fn turso_introspect_build_ddl(
+    tables: &[(String, Option<String>)],
+    raw_columns: &[drizzle_migrations::sqlite::introspect::RawColumnInfo],
+    all_indexes: &[drizzle_migrations::sqlite::introspect::RawIndexInfo],
+    all_index_columns: &[drizzle_migrations::sqlite::introspect::RawIndexColumn],
+    all_fks: &[drizzle_migrations::sqlite::introspect::RawForeignKey],
+    all_views: Vec<drizzle_migrations::sqlite::introspect::RawViewInfo>,
+) -> drizzle_migrations::sqlite::SQLiteDDL {
+    use drizzle_migrations::sqlite::{
+        SQLiteDDL, Table as SqliteTable, View,
+        introspect::{
+            parse_generated_columns_from_table_sql, parse_view_sql, process_columns,
+            process_foreign_keys, process_indexes, process_unique_constraints_from_indexes,
+        },
+    };
+    use std::collections::{HashMap, HashSet};
+
+    let table_sql_map: HashMap<String, String> = tables
+        .iter()
+        .filter_map(|(name, sql)| sql.as_ref().map(|s| (name.clone(), s.clone())))
+        .collect();
+
+    let mut generated_columns: HashMap<String, drizzle_migrations::sqlite::ddl::ParsedGenerated> =
+        HashMap::new();
+    for (table, sql) in &table_sql_map {
+        generated_columns.extend(parse_generated_columns_from_table_sql(table, sql));
+    }
+    let pk_columns: HashSet<(String, String)> = raw_columns
+        .iter()
+        .filter(|c| c.pk > 0)
+        .map(|c| (c.table.clone(), c.name.clone()))
+        .collect();
+
+    let (columns, primary_keys) = process_columns(raw_columns, &generated_columns, &pk_columns);
+    let indexes = process_indexes(all_indexes, all_index_columns, &table_sql_map);
+    let foreign_keys = process_foreign_keys(all_fks);
+    let uniques = process_unique_constraints_from_indexes(all_indexes, all_index_columns);
+
+    let mut ddl = SQLiteDDL::new();
+    for (table_name, table_sql) in tables {
+        let mut table = SqliteTable::new(table_name.clone());
+        if let Some(sql) = table_sql {
+            let sql_upper = sql.to_uppercase();
+            table.strict = sql_upper.contains(" STRICT");
+            table.without_rowid = sql_upper.contains("WITHOUT ROWID");
+        }
+        ddl.tables.push(table);
+    }
+    for col in columns {
+        ddl.columns.push(col);
+    }
+    for idx in indexes {
+        ddl.indexes.push(idx);
+    }
+    for fk in foreign_keys {
+        ddl.fks.push(fk);
+    }
+    for pk in primary_keys {
+        ddl.pks.push(pk);
+    }
+    for u in uniques {
+        ddl.uniques.push(u);
+    }
+    for v in all_views {
+        let mut view = View::new(v.name);
+        if let Some(def) = parse_view_sql(&v.sql) {
+            view.definition = Some(def.into());
+        }
+        ddl.views.push(view);
+    }
+    ddl
+}
+
 impl<Schema> common::Drizzle<Connection, Schema> {
     /// Introspect the live database and return a [`Snapshot`] of its current schema.
     pub async fn introspect(
         &self,
     ) -> drizzle_core::error::Result<drizzle_migrations::schema::Snapshot> {
-        use drizzle_migrations::sqlite::{
-            SQLiteDDL, Table as SqliteTable, View,
-            introspect::{
-                RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo, RawViewInfo,
-                parse_generated_columns_from_table_sql, parse_view_sql, process_columns,
-                process_foreign_keys, process_indexes, process_unique_constraints_from_indexes,
-                queries,
-            },
-        };
-        use std::collections::{HashMap, HashSet};
+        let tables = turso_introspect_query_tables(&self.conn).await?;
+        let raw_columns = turso_introspect_query_columns(&self.conn).await?;
+        let (all_indexes, all_index_columns, all_fks) =
+            turso_introspect_query_indexes_and_fks(&self.conn, &tables).await;
+        let all_views = turso_introspect_query_views(&self.conn).await;
 
-        let err = |e: turso::Error| DrizzleError::Other(e.to_string().into());
-
-        // Tables
-        let mut tables_rows = self
-            .conn
-            .query(queries::TABLES_QUERY, ())
-            .await
-            .map_err(err)?;
-        let mut tables: Vec<(String, Option<String>)> = Vec::new();
-        while let Some(row) = tables_rows.next().await.map_err(err)? {
-            let name: String = row.get(0).unwrap_or_default();
-            let sql: Option<String> = row.get(1).ok();
-            tables.push((name, sql));
-        }
-
-        let table_sql_map: HashMap<String, String> = tables
-            .iter()
-            .filter_map(|(name, sql)| sql.as_ref().map(|s| (name.clone(), s.clone())))
-            .collect();
-
-        // Columns
-        let mut columns_rows = self
-            .conn
-            .query(queries::COLUMNS_QUERY, ())
-            .await
-            .map_err(err)?;
-        let mut raw_columns: Vec<RawColumnInfo> = Vec::new();
-        while let Some(row) = columns_rows.next().await.map_err(err)? {
-            raw_columns.push(RawColumnInfo {
-                table: row.get(0).unwrap_or_default(),
-                cid: row.get(1).unwrap_or(0),
-                name: row.get(2).unwrap_or_default(),
-                column_type: row.get(3).unwrap_or_default(),
-                not_null: row.get::<i32>(4).unwrap_or(0) != 0,
-                default_value: row.get(5).ok(),
-                pk: row.get(6).unwrap_or(0),
-                hidden: row.get(7).unwrap_or(0),
-                sql: row.get(8).ok(),
-            });
-        }
-
-        // Per-table indexes and foreign keys
-        let mut all_indexes: Vec<RawIndexInfo> = Vec::new();
-        let mut all_index_columns: Vec<RawIndexColumn> = Vec::new();
-        let mut all_fks: Vec<RawForeignKey> = Vec::new();
-
-        for (table_name, _) in &tables {
-            if let Ok(mut idx_rows) = self
-                .conn
-                .query(&queries::indexes_query(table_name), ())
-                .await
-            {
-                while let Ok(Some(row)) = idx_rows.next().await {
-                    let idx = RawIndexInfo {
-                        table: table_name.clone(),
-                        name: row.get(1).unwrap_or_default(),
-                        unique: row.get::<i32>(2).unwrap_or(0) != 0,
-                        origin: row.get(3).unwrap_or_default(),
-                        partial: row.get::<i32>(4).unwrap_or(0) != 0,
-                    };
-
-                    if let Ok(mut col_rows) = self
-                        .conn
-                        .query(&queries::index_info_query(&idx.name), ())
-                        .await
-                    {
-                        while let Ok(Some(col_row)) = col_rows.next().await {
-                            all_index_columns.push(RawIndexColumn {
-                                index_name: idx.name.clone(),
-                                seqno: col_row.get(0).unwrap_or(0),
-                                cid: col_row.get(1).unwrap_or(0),
-                                name: col_row.get(2).ok(),
-                                desc: col_row.get::<i32>(3).unwrap_or(0) != 0,
-                                coll: col_row.get(4).unwrap_or_default(),
-                                key: col_row.get::<i32>(5).unwrap_or(0) != 0,
-                            });
-                        }
-                    }
-
-                    all_indexes.push(idx);
-                }
-            }
-
-            if let Ok(mut fk_rows) = self
-                .conn
-                .query(&queries::foreign_keys_query(table_name), ())
-                .await
-            {
-                while let Ok(Some(row)) = fk_rows.next().await {
-                    all_fks.push(RawForeignKey {
-                        table: table_name.clone(),
-                        id: row.get(0).unwrap_or(0),
-                        seq: row.get(1).unwrap_or(0),
-                        to_table: row.get(2).unwrap_or_default(),
-                        from_column: row.get(3).unwrap_or_default(),
-                        to_column: row.get(4).unwrap_or_default(),
-                        on_update: row.get(5).unwrap_or_default(),
-                        on_delete: row.get(6).unwrap_or_default(),
-                        r#match: row.get(7).unwrap_or_default(),
-                    });
-                }
-            }
-        }
-
-        // Views
-        let mut all_views: Vec<RawViewInfo> = Vec::new();
-        if let Ok(mut views_rows) = self.conn.query(queries::VIEWS_QUERY, ()).await {
-            while let Ok(Some(row)) = views_rows.next().await {
-                let name: String = row.get(0).unwrap_or_default();
-                let sql: String = row.get(1).unwrap_or_default();
-                all_views.push(RawViewInfo { name, sql });
-            }
-        }
-
-        // Process raw → DDL entities
-        let mut generated_columns: HashMap<
-            String,
-            drizzle_migrations::sqlite::ddl::ParsedGenerated,
-        > = HashMap::new();
-        for (table, sql) in &table_sql_map {
-            generated_columns.extend(parse_generated_columns_from_table_sql(table, sql));
-        }
-        let pk_columns: HashSet<(String, String)> = raw_columns
-            .iter()
-            .filter(|c| c.pk > 0)
-            .map(|c| (c.table.clone(), c.name.clone()))
-            .collect();
-
-        let (columns, primary_keys) =
-            process_columns(&raw_columns, &generated_columns, &pk_columns);
-        let indexes = process_indexes(&all_indexes, &all_index_columns, &table_sql_map);
-        let foreign_keys = process_foreign_keys(&all_fks);
-        let uniques = process_unique_constraints_from_indexes(&all_indexes, &all_index_columns);
-
-        let mut ddl = SQLiteDDL::new();
-        for (table_name, table_sql) in &tables {
-            let mut table = SqliteTable::new(table_name.clone());
-            if let Some(sql) = table_sql {
-                let sql_upper = sql.to_uppercase();
-                table.strict = sql_upper.contains(" STRICT");
-                table.without_rowid = sql_upper.contains("WITHOUT ROWID");
-            }
-            ddl.tables.push(table);
-        }
-        for col in columns {
-            ddl.columns.push(col);
-        }
-        for idx in indexes {
-            ddl.indexes.push(idx);
-        }
-        for fk in foreign_keys {
-            ddl.fks.push(fk);
-        }
-        for pk in primary_keys {
-            ddl.pks.push(pk);
-        }
-        for u in uniques {
-            ddl.uniques.push(u);
-        }
-        for v in all_views {
-            let mut view = View::new(v.name);
-            if let Some(def) = parse_view_sql(&v.sql) {
-                view.definition = Some(def.into());
-            }
-            ddl.views.push(view);
-        }
+        let ddl = turso_introspect_build_ddl(
+            &tables,
+            &raw_columns,
+            &all_indexes,
+            &all_index_columns,
+            &all_fks,
+            all_views,
+        );
 
         let mut snapshot = drizzle_migrations::sqlite::SQLiteSnapshot::new();
         for entity in ddl.to_entities() {
@@ -708,9 +762,9 @@ use drizzle_core::serde_json;
 
 // AllColumns: read base from individual row columns via TryFrom<Row>
 #[cfg(feature = "query")]
-impl<'db, 'a, Schema, T, Rels, Cl>
+impl<'a, Schema, T, Rels, Cl>
     common::DrizzleQueryBuilder<
-        'db,
+        '_,
         'a,
         Connection,
         Schema,
@@ -760,7 +814,10 @@ impl<'db, 'a, Schema, T, Rels, Cl>
             false,
         );
 
-        let params: Vec<turso::Value> = bind_params.into_iter().map(|p| p.into()).collect();
+        let params: Vec<turso::Value> = bind_params
+            .into_iter()
+            .map(std::convert::Into::into)
+            .collect();
         let mut raw_rows = self
             .drizzle
             .conn
@@ -807,9 +864,9 @@ impl<'db, 'a, Schema, T, Rels, Cl>
 
 // AllColumns find_first: requires no LIMIT set yet (internally adds LIMIT 1)
 #[cfg(feature = "query")]
-impl<'db, 'a, Schema, T, Rels, W, Ord>
+impl<'a, Schema, T, Rels, W, Ord>
     common::DrizzleQueryBuilder<
-        'db,
+        '_,
         'a,
         Connection,
         Schema,
@@ -845,9 +902,9 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
 
 // PartialColumns: read base from a single JSON "__base" column via FromJsonValue
 #[cfg(feature = "query")]
-impl<'db, 'a, Schema, T, Rels, Cl>
+impl<'a, Schema, T, Rels, Cl>
     common::DrizzleQueryBuilder<
-        'db,
+        '_,
         'a,
         Connection,
         Schema,
@@ -883,7 +940,7 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         builder.relations.render_into(&mut rendered);
         let num_rels = rendered.len();
 
-        let col_refs: Vec<&str> = column_names.to_vec();
+        let col_refs: Vec<&str> = column_names.clone();
         let (sql, bind_params) = drizzle_core::query::build_query_sql(
             T::TABLE_NAME,
             &col_refs,
@@ -897,7 +954,10 @@ impl<'db, 'a, Schema, T, Rels, Cl>
             true,
         );
 
-        let params: Vec<turso::Value> = bind_params.into_iter().map(|p| p.into()).collect();
+        let params: Vec<turso::Value> = bind_params
+            .into_iter()
+            .map(std::convert::Into::into)
+            .collect();
         let mut raw_rows = self
             .drizzle
             .conn
@@ -952,9 +1012,9 @@ impl<'db, 'a, Schema, T, Rels, Cl>
 
 // PartialColumns find_first: requires no LIMIT set yet
 #[cfg(feature = "query")]
-impl<'db, 'a, Schema, T, Rels, W, Ord>
+impl<'a, Schema, T, Rels, W, Ord>
     common::DrizzleQueryBuilder<
-        'db,
+        '_,
         'a,
         Connection,
         Schema,
@@ -986,22 +1046,22 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
     }
 }
 
-impl<'a, 'b, S, Schema, State, Table, Mk, Rw, Grouped>
-    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw, Grouped>, State>
+impl<S, Schema, State, Table, Mk, Rw, Grouped>
+    DrizzleBuilder<'_, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>
 where
     State: builder::ExecutableState,
 {
     /// Runs the query and returns the number of affected rows
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         let (sql_str, params) = self.builder.sql.build();
-        let params: Vec<turso::Value> = params.into_iter().map(|p| p.into()).collect();
+        let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
         self.drizzle
             .conn
             .execute(&sql_str, params)
             .await
             .map_err(|e| {
                 drizzle_core::error::DrizzleError::ExecutionError(
-                    format!("{}\n\nSQL: {}", e, sql_str).into(),
+                    format!("{e}\n\nSQL: {sql_str}").into(),
                 )
             })
     }
@@ -1016,7 +1076,7 @@ where
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = self.builder.sql.build();
-        let params: Vec<turso::Value> = params.into_iter().map(|p| p.into()).collect();
+        let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
         let mut rows = self
             .drizzle
             .conn
@@ -1024,13 +1084,13 @@ where
             .await
             .map_err(|e| {
                 drizzle_core::error::DrizzleError::ExecutionError(
-                    format!("{}\n\nSQL: {}", e, sql_str).into(),
+                    format!("{e}\n\nSQL: {sql_str}").into(),
                 )
             })?;
         let mut decoded = Vec::new();
         while let Some(row) = rows.next().await.map_err(|e| {
             drizzle_core::error::DrizzleError::ExecutionError(
-                format!("{}\n\nSQL: {}", e, sql_str).into(),
+                format!("{e}\n\nSQL: {sql_str}").into(),
             )
         })? {
             decoded.push(<Mk as drizzle_core::row::DecodeSelectedRef<
@@ -1048,7 +1108,7 @@ where
         for<'r> <Rw as TryFrom<&'r turso::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
         let (sql_str, params) = self.builder.sql.build();
-        let params: Vec<turso::Value> = params.into_iter().map(|p| p.into()).collect();
+        let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
         let rows = self
             .drizzle
@@ -1057,7 +1117,7 @@ where
             .await
             .map_err(|e| {
                 drizzle_core::error::DrizzleError::ExecutionError(
-                    format!("{}\n\nSQL: {}", e, sql_str).into(),
+                    format!("{e}\n\nSQL: {sql_str}").into(),
                 )
             })?;
         Ok(Rows::with_sql(rows, sql_str))
@@ -1073,7 +1133,7 @@ where
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = self.builder.sql.build();
-        let params: Vec<turso::Value> = params.into_iter().map(|p| p.into()).collect();
+        let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
         let mut rows = self
             .drizzle
             .conn
@@ -1081,17 +1141,19 @@ where
             .await
             .map_err(|e| {
                 drizzle_core::error::DrizzleError::ExecutionError(
-                    format!("{}\n\nSQL: {}", e, sql_str).into(),
+                    format!("{e}\n\nSQL: {sql_str}").into(),
                 )
             })?;
-        if let Some(row) = rows.next().await.map_err(|e| {
-            drizzle_core::error::DrizzleError::ExecutionError(
-                format!("{}\n\nSQL: {}", e, sql_str).into(),
+        rows.next()
+            .await
+            .map_err(|e| {
+                drizzle_core::error::DrizzleError::ExecutionError(
+                    format!("{e}\n\nSQL: {sql_str}").into(),
+                )
+            })?
+            .map_or_else(
+                || Err(drizzle_core::error::DrizzleError::NotFound),
+                |row| <Mk as drizzle_core::row::DecodeSelectedRef<&::turso::Row, R>>::decode(&row),
             )
-        })? {
-            <Mk as drizzle_core::row::DecodeSelectedRef<&::turso::Row, R>>::decode(&row)
-        } else {
-            Err(drizzle_core::error::DrizzleError::NotFound)
-        }
     }
 }

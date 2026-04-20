@@ -36,7 +36,7 @@ fn generate_marker_const(info: &FieldInfo, _zst_ident: &Ident) -> TokenStream {
 }
 
 /// Generate column type definitions and zero-sized types for each column
-pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, Vec<Ident>)> {
+pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, Vec<Ident>)> {
     let mut all_column_code = TokenStream::new();
     let mut column_zst_idents = Vec::new();
     let MacroContext {
@@ -93,7 +93,7 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
 
         let name = field_info.ident.to_string();
         let col_type = field_info.column_type.to_sql_type();
-        let sql = format!("{} {}", name, col_type); // Basic SQL definition
+        let sql = format!("{name} {col_type}"); // Basic SQL definition
 
         // Generate direct From implementations for all enum fields
         // Custom types (is_custom_type) already have these impls from their enum derive
@@ -101,7 +101,7 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
             quote! {}
         } else if field_info.is_enum {
             let (conversion, reference_conversion) = match field_info.column_type {
-                PostgreSQLType::Smallint => (
+                PostgreSQLType::Smallint | PostgreSQLType::Smallserial => (
                     quote! {
                         let smallint: i16 = value.into();
                         PostgresValue::Smallint(smallint)
@@ -111,17 +111,7 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                         PostgresValue::Smallint(smallint)
                     },
                 ),
-                PostgreSQLType::Smallserial => (
-                    quote! {
-                        let smallint: i16 = value.into();
-                        PostgresValue::Smallint(smallint)
-                    },
-                    quote! {
-                        let smallint: i16 = value.into();
-                        PostgresValue::Smallint(smallint)
-                    },
-                ),
-                PostgreSQLType::Integer => (
+                PostgreSQLType::Integer | PostgreSQLType::Serial => (
                     quote! {
                         let integer: i32 = value.into();
                         PostgresValue::Integer(integer)
@@ -131,27 +121,7 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
                         PostgresValue::Integer(integer)
                     },
                 ),
-                PostgreSQLType::Bigint => (
-                    quote! {
-                        let bigint: i64 = value.into();
-                        PostgresValue::Bigint(bigint)
-                    },
-                    quote! {
-                        let bigint: i64 = value.into();
-                        PostgresValue::Bigint(bigint)
-                    },
-                ),
-                PostgreSQLType::Serial => (
-                    quote! {
-                        let integer: i32 = value.into();
-                        PostgresValue::Integer(integer)
-                    },
-                    quote! {
-                        let integer: i32 = value.into();
-                        PostgresValue::Integer(integer)
-                    },
-                ),
-                PostgreSQLType::Bigserial => (
+                PostgreSQLType::Bigint | PostgreSQLType::Bigserial => (
                     quote! {
                         let bigint: i64 = value.into();
                         PostgresValue::Bigint(bigint)
@@ -243,14 +213,10 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
 
         // Only Serial/Bigserial columns have is_serial/is_bigserial fields - others are always false
         let (is_serial_expr, is_bigserial_expr) = match &field_info.column_type {
-            PostgreSQLType::Smallserial => (
-                quote! { true },  // Smallserial is serial-like
-                quote! { false }, // Smallserial is not bigserial
-            ),
-            PostgreSQLType::Serial => (
-                quote! { true },  // Serial is always serial
-                quote! { false }, // Serial is not bigserial
-            ),
+            // Smallserial and Serial are serial-like but not bigserial
+            PostgreSQLType::Smallserial | PostgreSQLType::Serial => {
+                (quote! { true }, quote! { false })
+            }
             PostgreSQLType::Bigserial => (
                 quote! { true }, // Bigserial is also serial (semantically)
                 quote! { true }, // Bigserial is bigserial
@@ -268,9 +234,9 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
         let postgres_value = postgres_paths::postgres_value();
         let expr_impl = generate_expr_impl(
             &zst_ident,
-            postgres_value.clone(),
-            sql_type_marker.clone(),
-            sql_nullable_marker.clone(),
+            &postgres_value,
+            &sql_type_marker,
+            &sql_nullable_marker,
         );
 
         // Generate arithmetic operators for numeric columns
@@ -412,10 +378,7 @@ pub(crate) fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenSt
 }
 
 /// Generate column field definitions for the main struct
-pub(crate) fn generate_column_fields(
-    ctx: &MacroContext,
-    column_zst_idents: &[Ident],
-) -> Result<TokenStream> {
+pub fn generate_column_fields(ctx: &MacroContext, column_zst_idents: &[Ident]) -> TokenStream {
     let mut field_definitions = Vec::new();
 
     for (field_info, column_ident) in ctx.field_infos.iter().zip(column_zst_idents) {
@@ -429,16 +392,13 @@ pub(crate) fn generate_column_fields(
         field_definitions.push(field_def);
     }
 
-    Ok(quote! {
+    quote! {
         #(#field_definitions)*
-    })
+    }
 }
 
 /// Generate column accessor methods and implementations
-pub(crate) fn generate_column_accessors(
-    ctx: &MacroContext,
-    column_zst_idents: &[Ident],
-) -> Result<TokenStream> {
+pub fn generate_column_accessors(ctx: &MacroContext, column_zst_idents: &[Ident]) -> TokenStream {
     let struct_ident = ctx.struct_ident;
     let accessor_impls: Vec<TokenStream> = Vec::new();
 
@@ -486,8 +446,8 @@ pub(crate) fn generate_column_accessors(
         }
     };
 
-    Ok(quote! {
+    quote! {
         #(#accessor_impls)*
         #table_impl
-    })
+    }
 }

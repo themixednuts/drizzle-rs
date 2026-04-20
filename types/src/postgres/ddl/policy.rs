@@ -1,4 +1,4 @@
-//! PostgreSQL Policy DDL types
+//! `PostgreSQL` Policy DDL types
 //!
 //! This module provides two complementary types:
 //! - [`PolicyDef`] - A const-friendly definition type for compile-time schema definitions
@@ -106,25 +106,13 @@ impl PolicyDef {
             schema: Cow::Borrowed(self.schema),
             table: Cow::Borrowed(self.table),
             name: Cow::Borrowed(self.name),
-            as_clause: match self.as_clause {
-                Some(s) => Some(Cow::Borrowed(s)),
-                None => None,
-            },
-            for_clause: match self.for_clause {
-                Some(s) => Some(Cow::Borrowed(s)),
-                None => None,
-            },
+            as_clause: self.as_clause.map(Cow::Borrowed),
+            for_clause: self.for_clause.map(Cow::Borrowed),
             to: self
                 .to
                 .map(|roles| roles.iter().copied().map(Cow::Borrowed).collect()),
-            using: match self.using {
-                Some(s) => Some(Cow::Borrowed(s)),
-                None => None,
-            },
-            with_check: match self.with_check {
-                Some(s) => Some(Cow::Borrowed(s)),
-                None => None,
-            },
+            using: self.using.map(Cow::Borrowed),
+            with_check: self.with_check.map(Cow::Borrowed),
         }
     }
 }

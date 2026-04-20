@@ -40,13 +40,9 @@ impl FromDrizzleRow<::turso::Row> for i64 {
                 "unexpected NULL for integer".into(),
             ));
         }
-        if let Some(i) = val.as_integer() {
-            Ok(*i)
-        } else {
-            Err(DrizzleError::ConversionError(
-                "expected integer value".into(),
-            ))
-        }
+        val.as_integer()
+            .copied()
+            .ok_or_else(|| DrizzleError::ConversionError("expected integer value".into()))
     }
 }
 
@@ -64,12 +60,17 @@ impl FromDrizzleRow<::turso::Row> for f64 {
             ));
         }
         if let Some(r) = val.as_real() {
-            Ok(*r)
-        } else if let Some(i) = val.as_integer() {
-            Ok(*i as f64)
-        } else {
-            Err(DrizzleError::ConversionError("expected real value".into()))
+            return Ok(*r);
         }
+        if let Some(i) = val.as_integer() {
+            // Convert via decimal-string round-trip: avoids lossy `as` cast and
+            // matches IEEE-754 round-to-nearest semantics for values beyond
+            // f64's 2^53 exact-representable range.
+            return format!("{i}")
+                .parse::<Self>()
+                .map_err(|e| DrizzleError::ConversionError(e.to_string().into()));
+        }
+        Err(DrizzleError::ConversionError("expected real value".into()))
     }
 }
 
@@ -77,10 +78,16 @@ impl FromDrizzleRow<::turso::Row> for f32 {
     const COLUMN_COUNT: usize = 1;
     fn from_row_at(row: &::turso::Row, offset: usize) -> Result<Self, DrizzleError> {
         let v = f64::from_row_at(row, offset)?;
-        let f = v as f32;
+        // Decimal-string round-trip matches IEEE-754 round-to-nearest semantics
+        // and avoids the lossy `as` cast.
+        let f: Self = format!("{v}")
+            .parse()
+            .map_err(|e: core::num::ParseFloatError| {
+                DrizzleError::ConversionError(e.to_string().into())
+            })?;
         if v.is_finite() && !f.is_finite() {
             return Err(DrizzleError::ConversionError(
-                format!("f64 value {} overflows f32", v).into(),
+                format!("f64 value {v} overflows f32").into(),
             ));
         }
         Ok(f)
@@ -100,13 +107,9 @@ impl FromDrizzleRow<::turso::Row> for bool {
                 "unexpected NULL for bool".into(),
             ));
         }
-        if let Some(i) = val.as_integer() {
-            Ok(*i != 0)
-        } else {
-            Err(DrizzleError::ConversionError(
-                "expected integer for bool".into(),
-            ))
-        }
+        val.as_integer()
+            .map(|i| *i != 0)
+            .ok_or_else(|| DrizzleError::ConversionError("expected integer for bool".into()))
     }
 }
 
@@ -123,11 +126,9 @@ impl FromDrizzleRow<::turso::Row> for String {
                 "unexpected NULL for string".into(),
             ));
         }
-        if let Some(s) = val.as_text() {
-            Ok(s.to_string())
-        } else {
-            Err(DrizzleError::ConversionError("expected text value".into()))
-        }
+        val.as_text()
+            .cloned()
+            .ok_or_else(|| DrizzleError::ConversionError("expected text value".into()))
     }
 }
 
@@ -144,11 +145,9 @@ impl FromDrizzleRow<::turso::Row> for Vec<u8> {
                 "unexpected NULL for blob".into(),
             ));
         }
-        if let Some(b) = val.as_blob() {
-            Ok(b.to_vec())
-        } else {
-            Err(DrizzleError::ConversionError("expected blob value".into()))
-        }
+        val.as_blob()
+            .cloned()
+            .ok_or_else(|| DrizzleError::ConversionError("expected blob value".into()))
     }
 }
 
@@ -178,15 +177,15 @@ impl FromDrizzleRow<::turso::Row> for uuid::Uuid {
             .get_value(offset)
             .map_err(|e| DrizzleError::ConversionError(e.to_string().into()))?;
         if let Some(s) = val.as_text() {
-            uuid::Uuid::parse_str(s).map_err(Into::into)
-        } else if let Some(b) = val.as_blob() {
-            uuid::Uuid::from_slice(b)
-                .map_err(|e| DrizzleError::ConversionError(e.to_string().into()))
-        } else {
-            Err(DrizzleError::ConversionError(
-                "expected TEXT or BLOB for UUID".into(),
-            ))
+            return Self::parse_str(s).map_err(Into::into);
         }
+        if let Some(b) = val.as_blob() {
+            return Self::from_slice(b)
+                .map_err(|e| DrizzleError::ConversionError(e.to_string().into()));
+        }
+        Err(DrizzleError::ConversionError(
+            "expected TEXT or BLOB for UUID".into(),
+        ))
     }
 }
 
@@ -228,10 +227,7 @@ impl FromDrizzleRow<::turso::Row> for chrono::DateTime<chrono::Utc> {
         let ndt: chrono::NaiveDateTime = s
             .parse()
             .map_err(|e: chrono::ParseError| DrizzleError::ConversionError(e.to_string().into()))?;
-        Ok(chrono::DateTime::from_naive_utc_and_offset(
-            ndt,
-            chrono::Utc,
-        ))
+        Ok(Self::from_naive_utc_and_offset(ndt, chrono::Utc))
     }
 }
 

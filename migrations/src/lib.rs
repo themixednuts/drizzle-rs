@@ -87,7 +87,7 @@
 //! let migration = diff_schemas_with(
 //!     &AppSchemaV1,
 //!     &AppSchemaV2,
-//!     Options::new()
+//!     &Options::new()
 //!         .rename_table("users_old", "users")
 //!         .rename_column("users", "full_name", "name")
 //!         .strict_renames(true),

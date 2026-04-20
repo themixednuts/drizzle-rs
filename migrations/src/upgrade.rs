@@ -8,15 +8,15 @@ use serde_json::{Map, Value};
 use crate::version::{POSTGRES_SNAPSHOT_VERSION, SQLITE_SNAPSHOT_VERSION};
 use drizzle_types::Dialect;
 
-/// Upgrade a SQLite snapshot from v5 to v6
+/// Upgrade a `SQLite` snapshot from v5 to v6
 ///
 /// Changes:
 /// - JSON object/array defaults are converted to escaped strings
 /// - Adds `views: {}` field
+#[must_use]
 pub fn upgrade_sqlite_v5_to_v6(mut json: Value) -> Value {
-    let obj = match json.as_object_mut() {
-        Some(o) => o,
-        None => return json,
+    let Some(obj) = json.as_object_mut() else {
+        return json;
     };
 
     // Transform table column defaults
@@ -51,15 +51,15 @@ pub fn upgrade_sqlite_v5_to_v6(mut json: Value) -> Value {
     json
 }
 
-/// Upgrade a PostgreSQL snapshot from v5 to v6
+/// Upgrade a `PostgreSQL` snapshot from v5 to v6
 ///
 /// Changes:
 /// - Table keys become `schema.tablename` format
 /// - Enum format changes to include schema and use array values
+#[must_use]
 pub fn upgrade_postgres_v5_to_v6(mut json: Value) -> Value {
-    let obj = match json.as_object_mut() {
-        Some(o) => o,
-        None => return json,
+    let Some(obj) = json.as_object_mut() else {
+        return json;
     };
 
     // Transform tables: key becomes "schema.name"
@@ -77,7 +77,7 @@ pub fn upgrade_postgres_v5_to_v6(mut json: Value) -> Value {
                     .get("name")
                     .and_then(|n| n.as_str())
                     .unwrap_or("unknown");
-                let new_key = format!("{}.{}", schema, name);
+                let new_key = format!("{schema}.{name}");
                 new_tables.insert(new_key, table.clone());
             }
         }
@@ -95,15 +95,16 @@ pub fn upgrade_postgres_v5_to_v6(mut json: Value) -> Value {
                     .get("name")
                     .and_then(|n| n.as_str())
                     .unwrap_or("unknown");
-                let new_key = format!("public.{}", name);
+                let new_key = format!("public.{name}");
 
                 // Convert values from object to array
-                let values =
-                    if let Some(values_obj) = enum_obj.get("values").and_then(|v| v.as_object()) {
-                        Value::Array(values_obj.values().cloned().collect())
-                    } else {
-                        Value::Array(vec![])
-                    };
+                let values = enum_obj
+                    .get("values")
+                    .and_then(|v| v.as_object())
+                    .map_or_else(
+                        || Value::Array(vec![]),
+                        |values_obj| Value::Array(values_obj.values().cloned().collect()),
+                    );
 
                 let mut new_enum = Map::new();
                 new_enum.insert("name".to_string(), Value::String(name.to_string()));
@@ -126,15 +127,15 @@ pub fn upgrade_postgres_v5_to_v6(mut json: Value) -> Value {
     json
 }
 
-/// Upgrade a PostgreSQL snapshot from v6 to v7
+/// Upgrade a `PostgreSQL` snapshot from v6 to v7
 ///
 /// Changes:
 /// - Index format changes (columns become objects with expression, isExpression, asc, nulls, opClass)
 /// - Adds policies, sequences, roles, views fields to tables and schema
+#[must_use]
 pub fn upgrade_postgres_v6_to_v7(mut json: Value) -> Value {
-    let obj = match json.as_object_mut() {
-        Some(o) => o,
-        None => return json,
+    let Some(obj) = json.as_object_mut() else {
+        return json;
     };
 
     // Transform tables
@@ -218,6 +219,7 @@ pub fn upgrade_postgres_v6_to_v7(mut json: Value) -> Value {
 }
 
 /// Upgrade a snapshot to the latest version for the given dialect
+#[must_use]
 pub fn upgrade_to_latest(json: Value, dialect: Dialect) -> Value {
     // Get version before consuming json
     let version = json
@@ -261,6 +263,7 @@ pub fn upgrade_to_latest(json: Value, dialect: Dialect) -> Value {
 /// }
 /// # "####;
 /// ```
+#[must_use]
 pub fn needs_upgrade_for_dialect(dialect: Dialect, version: u32) -> bool {
     use crate::traits::{Dialect as DialectTrait, Mysql, Postgres, Sqlite};
 
@@ -272,7 +275,8 @@ pub fn needs_upgrade_for_dialect(dialect: Dialect, version: u32) -> bool {
 }
 
 /// Get the latest version for a dialect using the Dialect trait
-pub fn latest_version_for_dialect(dialect: Dialect) -> u32 {
+#[must_use]
+pub const fn latest_version_for_dialect(dialect: Dialect) -> u32 {
     use crate::traits::{Dialect as DialectTrait, Mysql, Postgres, Sqlite, Version};
 
     match dialect {

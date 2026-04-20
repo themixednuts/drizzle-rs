@@ -1341,13 +1341,14 @@ pub enum PrefixMode {
 
 impl PrefixMode {
     /// Generate a prefix for this mode
+    #[must_use]
     pub fn generate_prefix(&self, idx: u32) -> String {
         match self {
-            PrefixMode::Timestamp => generate_timestamp_prefix(),
-            PrefixMode::Index => format!("{:04}", idx),
-            PrefixMode::Supabase => generate_supabase_prefix(),
-            PrefixMode::Unix => generate_unix_prefix(),
-            PrefixMode::None => String::new(),
+            Self::Timestamp => generate_timestamp_prefix(),
+            Self::Index => format!("{idx:04}"),
+            Self::Supabase => generate_supabase_prefix(),
+            Self::Unix => generate_unix_prefix(),
+            Self::None => String::new(),
         }
     }
 }
@@ -1358,12 +1359,12 @@ impl FromStr for PrefixMode {
     /// Parse prefix mode from string (matches drizzle-kit config)
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let result = match s.to_lowercase().as_str() {
-            "index" => PrefixMode::Index,
-            "supabase" => PrefixMode::Supabase,
-            "unix" => PrefixMode::Unix,
-            "none" => PrefixMode::None,
+            "index" => Self::Index,
+            "supabase" => Self::Supabase,
+            "unix" => Self::Unix,
+            "none" => Self::None,
             // "timestamp"
-            _ => PrefixMode::Timestamp,
+            _ => Self::Timestamp,
         };
 
         Ok(result)
@@ -1375,6 +1376,7 @@ impl FromStr for PrefixMode {
 // =============================================================================
 
 /// Generate a timestamp prefix in YYYYMMDDHHMMSS format (matches drizzle-kit V3)
+#[must_use]
 pub fn generate_timestamp_prefix() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1385,16 +1387,15 @@ pub fn generate_timestamp_prefix() -> String {
     let days = secs / 86400;
     let time_of_day = secs % 86400;
 
-    // Calculate year/month/day from days since epoch
-    let (year, month, day) = days_to_ymd(days as i64);
+    // Calculate year/month/day from days since epoch.
+    // Clamp to `i64::MAX` in the (astronomically distant) overflow case so
+    // we never wrap a sentinel timestamp into a negative year.
+    let (year, month, day) = days_to_ymd(i64::try_from(days).unwrap_or(i64::MAX));
     let hours = time_of_day / 3600;
     let minutes = (time_of_day % 3600) / 60;
     let seconds = time_of_day % 60;
 
-    format!(
-        "{:04}{:02}{:02}{:02}{:02}{:02}",
-        year, month, day, hours, minutes, seconds
-    )
+    format!("{year:04}{month:02}{day:02}{hours:02}{minutes:02}{seconds:02}")
 }
 
 /// Generate a Supabase-style prefix
@@ -1413,50 +1414,61 @@ fn generate_unix_prefix() -> String {
     format!("{}", now.as_secs())
 }
 
-/// Convert days since Unix epoch to (year, month, day)
+/// Convert days since Unix epoch to (year, month, day).
+///
+/// Algorithm from Howard Hinnant's date algorithms. `doe` ("day of era") is
+/// mathematically non-negative — `z - era * 146_097` always lies in
+/// `[0, 146_097)` by construction — so the narrowing conversion to `u32` is
+/// value-preserving. Similarly, `y` fits in `i32` for any plausible
+/// Unix-epoch-derived input.
 fn days_to_ymd(days: i64) -> (i32, u32, u32) {
-    // Algorithm from Howard Hinnant's date algorithms
-    let z = days + 719468;
-    let era = if z >= 0 { z } else { z - 146096 } / 146097;
-    let doe = (z - era * 146097) as u32;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe as i64 + era * 400;
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = u32::try_from(z - era * 146_097).unwrap_or(0);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = i64::from(yoe) + era * 400;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
     let mp = (5 * doy + 2) / 153;
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
 
-    (y as i32, m, d)
+    (i32::try_from(y).unwrap_or(i32::MAX), m, d)
 }
 
-/// Generate a random migration suffix like "adjective_hero"
+/// Generate a random migration suffix like "`adjective_hero`".
+///
+/// The nanosecond `seed` is narrowed from `u128` to `u64` via
+/// `u64::try_from(..).unwrap_or(u64::MAX)`; a truncated seed just costs a tiny
+/// sliver of entropy but never panics. The modulus-to-`usize` conversions are
+/// guaranteed to fit because `ADJECTIVES.len()` and `HEROES.len()` are
+/// compile-time-known to be small.
+#[must_use]
 pub fn generate_random_suffix() -> String {
-    let seed = SystemTime::now()
+    let seed: u64 = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0) as u64;
+        .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX));
 
     let mut hasher = DefaultHasher::new();
     seed.hash(&mut hasher);
     let hash = hasher.finish();
 
-    let adj_idx = (hash % ADJECTIVES.len() as u64) as usize;
-    let hero_idx = ((hash >> 32) % HEROES.len() as u64) as usize;
+    let adj_mod = hash % ADJECTIVES.len() as u64;
+    let hero_mod = (hash >> 32) % HEROES.len() as u64;
+    let adj_idx = usize::try_from(adj_mod).unwrap_or(0);
+    let hero_idx = usize::try_from(hero_mod).unwrap_or(0);
 
     format!("{}_{}", ADJECTIVES[adj_idx], HEROES[hero_idx])
 }
 
-/// Generate a migration tag in V3 format: "YYYYMMDDHHMMSS_adjective_hero"
+/// Generate a migration tag in V3 format: "`YYYYMMDDHHMMSS_adjective_hero`"
 ///
 /// If `custom_name` is provided, it will be used instead of the random suffix.
 pub fn generate_migration_tag(custom_name: Option<&str>) -> String {
     let prefix = generate_timestamp_prefix();
-    let suffix = custom_name
-        .map(|s| s.to_string())
-        .unwrap_or_else(generate_random_suffix);
+    let suffix = custom_name.map_or_else(generate_random_suffix, std::string::ToString::to_string);
 
-    format!("{}_{}", prefix, suffix)
+    format!("{prefix}_{suffix}")
 }
 
 /// Generate a migration tag with specific prefix mode
@@ -1466,14 +1478,12 @@ pub fn generate_migration_tag_with_mode(
     custom_name: Option<&str>,
 ) -> String {
     let prefix = mode.generate_prefix(idx);
-    let suffix = custom_name
-        .map(|s| s.to_string())
-        .unwrap_or_else(generate_random_suffix);
+    let suffix = custom_name.map_or_else(generate_random_suffix, std::string::ToString::to_string);
 
     if prefix.is_empty() {
         suffix
     } else {
-        format!("{}_{}", prefix, suffix)
+        format!("{prefix}_{suffix}")
     }
 }
 

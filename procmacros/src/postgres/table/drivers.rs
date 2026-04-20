@@ -1,13 +1,12 @@
-//! Shared driver infrastructure for PostgreSQL row conversion.
+//! Shared driver infrastructure for `PostgreSQL` row conversion.
 //!
-//! This module provides a unified approach to generating TryFrom implementations
-//! for different PostgreSQL drivers (postgres, tokio-postgres), reducing code duplication
+//! This module provides a unified approach to generating `TryFrom` implementations
+//! for different `PostgreSQL` drivers (postgres, tokio-postgres), reducing code duplication
 //! and ensuring consistent behavior.
 //!
-//! This mirrors the pattern used by SQLite's driver infrastructure.
+//! This mirrors the pattern used by `SQLite`'s driver infrastructure.
 
 use proc_macro2::TokenStream;
-use syn::Result;
 
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 use super::context::MacroContext;
@@ -18,9 +17,9 @@ use crate::postgres::field::{FieldInfo, PostgreSQLType, TypeCategory};
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 use quote::quote;
 
-/// Check if a PostgreSQL column type is integer-based
+/// Check if a `PostgreSQL` column type is integer-based
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-fn is_integer_column(col_type: &PostgreSQLType) -> bool {
+const fn is_integer_column(col_type: &PostgreSQLType) -> bool {
     matches!(
         col_type,
         PostgreSQLType::Integer
@@ -36,7 +35,7 @@ fn is_integer_column(col_type: &PostgreSQLType) -> bool {
 ///
 /// The field type in the Select model matches the original table definition.
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-fn generate_select_field_conversion(idx: TokenStream, info: &FieldInfo) -> TokenStream {
+fn generate_select_field_conversion(idx: &TokenStream, info: &FieldInfo) -> TokenStream {
     let drizzle_error = paths::core::drizzle_error();
     let name = &info.ident;
     let base_type = &info.base_type;
@@ -63,11 +62,10 @@ fn generate_select_field_conversion(idx: TokenStream, info: &FieldInfo) -> Token
                     }
                 },
             };
-        } else {
-            return quote! {
-                #name: <#base_type as drizzle::postgres::traits::DrizzlePostgresColumn>::from_postgres_row(row, #idx)?,
-            };
         }
+        return quote! {
+            #name: <#base_type as drizzle::postgres::traits::DrizzlePostgresColumn>::from_postgres_row(row, #idx)?,
+        };
     }
 
     // Handle enums - check column type for storage format
@@ -175,9 +173,9 @@ fn generate_select_field_conversion(idx: TokenStream, info: &FieldInfo) -> Token
 
 /// Generate field conversion for PARTIAL SELECT model.
 ///
-/// In partial models, all fields are `Option<BaseType>` where BaseType is
+/// In partial models, all fields are `Option<BaseType>` where `BaseType` is
 /// the unwrapped inner type (i.e. `Option<T>` fields use just `T`).
-/// We use try_get which returns Result<T, Error> and fall back to None on error.
+/// We use `try_get` which returns Result<T, Error> and fall back to None on error.
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 fn generate_partial_field_conversion(idx: usize, info: &FieldInfo) -> TokenStream {
     let name = &info.ident;
@@ -278,13 +276,13 @@ fn null_probe_type(info: &FieldInfo) -> TokenStream {
 // Public API
 // =============================================================================
 
-/// Generate TryFrom implementations for PostgreSQL drivers.
+/// Generate `TryFrom` implementations for `PostgreSQL` drivers.
 ///
 /// This generates `TryFrom<&drizzle::postgres::Row>` implementations.
 /// The Row type is re-exported from whichever driver is active
 /// (tokio-postgres or postgres-sync), so this single implementation works for both.
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStream> {
+pub fn generate_all_driver_impls(ctx: &MacroContext) -> TokenStream {
     let drizzle_error = paths::core::drizzle_error();
     let row_column_list = paths::core::row_column_list();
     let type_set_nil = paths::core::type_set_nil();
@@ -299,13 +297,13 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
     let select_field_inits: Vec<_> = field_infos
         .iter()
         .enumerate()
-        .map(|(idx, info)| generate_select_field_conversion(quote!(#idx), info))
+        .map(|(idx, info)| generate_select_field_conversion(&quote!(#idx), info))
         .collect();
 
     let from_drizzle_field_inits: Vec<_> = field_infos
         .iter()
         .enumerate()
-        .map(|(idx, info)| generate_select_field_conversion(quote!(offset + #idx), info))
+        .map(|(idx, info)| generate_select_field_conversion(&quote!(offset + #idx), info))
         .collect();
 
     let partial_field_inits: Vec<_> = field_infos
@@ -363,28 +361,27 @@ pub(crate) fn generate_all_driver_impls(ctx: &MacroContext) -> Result<TokenStrea
 
     // Generate NullProbeRow impl for LEFT JOIN support.
     // Enables `Option<SelectModel>` via blanket impl in drizzle-core.
-    let null_probe_impl = if let Some(first_field) = field_infos.first() {
-        let probe_ty = null_probe_type(first_field);
-        quote! {
-            impl drizzle::core::NullProbeRow<drizzle::postgres::Row> for #select_model_ident {
-                fn is_null_at(row: &drizzle::postgres::Row, offset: usize) -> ::std::result::Result<bool, #drizzle_error> {
-                    let first_col: Option<#probe_ty> = row.try_get(offset)
-                        .map_err(|e| #drizzle_error::ConversionError(e.to_string().into()))?;
-                    Ok(first_col.is_none())
+    let null_probe_impl = field_infos.first().map_or_else(
+        || quote! {},
+        |first_field| {
+            let probe_ty = null_probe_type(first_field);
+            quote! {
+                impl drizzle::core::NullProbeRow<drizzle::postgres::Row> for #select_model_ident {
+                    fn is_null_at(row: &drizzle::postgres::Row, offset: usize) -> ::std::result::Result<bool, #drizzle_error> {
+                        let first_col: Option<#probe_ty> = row.try_get(offset)
+                            .map_err(|e| #drizzle_error::ConversionError(e.to_string().into()))?;
+                        Ok(first_col.is_none())
+                    }
                 }
             }
-        }
-    } else {
-        quote! {}
-    };
+        },
+    );
 
-    Ok(quote! { #base_impls #fdr_impl #null_probe_impl })
+    quote! { #base_impls #fdr_impl #null_probe_impl }
 }
 
 /// Fallback when no postgres driver is enabled - returns empty TokenStream
 #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-pub(crate) fn generate_all_driver_impls(
-    _ctx: &super::context::MacroContext,
-) -> Result<TokenStream> {
-    Ok(TokenStream::new())
+pub(crate) fn generate_all_driver_impls(_ctx: &super::context::MacroContext) -> TokenStream {
+    TokenStream::new()
 }

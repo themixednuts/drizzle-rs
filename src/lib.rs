@@ -1,6 +1,6 @@
 //! # Drizzle for Rust
 //!
-//! A type-safe SQL query builder for Rust, supporting SQLite and PostgreSQL.
+//! A type-safe SQL query builder for Rust, supporting `SQLite` and `PostgreSQL`.
 //!
 //! ## Quick Start
 //!
@@ -42,11 +42,11 @@
 //!
 //! | Database   | Driver         | Feature Flag     | Status |
 //! |------------|----------------|------------------|--------|
-//! | SQLite     | rusqlite       | `rusqlite`       | ✅     |
-//! | SQLite     | libsql         | `libsql`         | ✅     |
-//! | SQLite     | turso          | `turso`          | ✅     |
-//! | PostgreSQL | postgres       | `postgres-sync`  | ✅     |
-//! | PostgreSQL | tokio-postgres | `tokio-postgres` | ✅     |
+//! | `SQLite`     | rusqlite       | `rusqlite`       | ✅     |
+//! | `SQLite`     | libsql         | `libsql`         | ✅     |
+//! | `SQLite`     | turso          | `turso`          | ✅     |
+//! | `PostgreSQL` | postgres       | `postgres-sync`  | ✅     |
+//! | `PostgreSQL` | tokio-postgres | `tokio-postgres` | ✅     |
 //!
 //! For schema declarations, import the database prelude:
 //! - `drizzle::sqlite::prelude::*`
@@ -149,7 +149,7 @@ pub mod core {
     #[doc(inline)]
     pub use drizzle_core::ToSQL;
 
-    /// Core traits (SQLTable, SQLColumn, SQLSchema, SQLModel, etc.).
+    /// Core traits (`SQLTable`, `SQLColumn`, `SQLSchema`, `SQLModel`, etc.).
     #[doc(inline)]
     pub use drizzle_core::traits::*;
 
@@ -185,7 +185,7 @@ pub mod core {
     #[doc(inline)]
     pub use drizzle_core::ValueTypeForDialect;
 
-    /// Dialect markers (SQLiteDialect, PostgresDialect, etc.).
+    /// Dialect markers (`SQLiteDialect`, `PostgresDialect`, etc.).
     pub mod dialect {
         #[doc(inline)]
         pub use drizzle_core::dialect::*;
@@ -214,7 +214,7 @@ pub mod core {
     };
 }
 
-/// SQLite types, macros, and query builder.
+/// `SQLite` types, macros, and query builder.
 #[cfg(feature = "sqlite")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sqlite")))]
 pub mod sqlite {
@@ -272,7 +272,7 @@ pub mod sqlite {
         pub use crate::transaction::sqlite::durable::Transaction;
     }
 
-    /// SQLite prelude for schema declarations.
+    /// `SQLite` prelude for schema declarations.
     pub mod prelude {
         // Core types and traits
         pub use crate::core::ToSQL;
@@ -295,7 +295,7 @@ pub mod sqlite {
     }
 }
 
-/// PostgreSQL types, macros, and query builder.
+/// `PostgreSQL` types, macros, and query builder.
 #[cfg(feature = "postgres")]
 #[cfg_attr(docsrs, doc(cfg(feature = "postgres")))]
 pub mod postgres {
@@ -352,7 +352,7 @@ pub mod postgres {
         pub use crate::transaction::postgres::aws_data_api::{Transaction, TransactionBuilder};
     }
 
-    /// PostgreSQL prelude for schema declarations.
+    /// `PostgreSQL` prelude for schema declarations.
     pub mod prelude {
         // Core types and traits
         pub use crate::core::ToSQL;
@@ -378,7 +378,7 @@ pub mod postgres {
     }
 }
 
-/// MySQL types and macros (WIP).
+/// `MySQL` types and macros (WIP).
 #[cfg(feature = "mysql")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mysql")))]
 pub mod mysql {}

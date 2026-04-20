@@ -38,7 +38,7 @@ pub struct CTEInit;
 
 impl ExecutableState for CTEInit {}
 
-/// Main query builder for SQLite operations.
+/// Main query builder for `SQLite` operations.
 ///
 /// `QueryBuilder` provides a type-safe, fluent API for building SQL queries. It uses compile-time
 /// type checking to ensure queries are valid and properly structured.
@@ -306,6 +306,7 @@ where
     /// The comment is prepended to the generated SQL and wrapped in `/* ... */`.
     /// Any `/*` or `*/` sequences in the input are sanitised so they can't
     /// terminate the surrounding comment.
+    #[must_use]
     pub fn comment(mut self, text: impl AsRef<str>) -> Self {
         let fragment = drizzle_core::sql::comment::<SQLiteValue<'a>>(text);
         if fragment.chunks.is_empty() {
@@ -322,6 +323,7 @@ where
     /// Each `(key, value)` pair is URL-encoded, sorted alphabetically, joined
     /// with `,`, and wrapped in `/* ... */`. Pairs with empty values are
     /// skipped; an all-empty input is a no-op.
+    #[must_use]
     pub fn comment_tags<I, K, V>(mut self, pairs: I) -> Self
     where
         I: IntoIterator<Item = (K, V)>,
@@ -380,6 +382,7 @@ impl<'a> QueryBuilder<'a> {
     ///
     /// let builder = QueryBuilder::new::<MySchema>();
     /// ```
+    #[must_use]
     pub const fn new<S>() -> QueryBuilder<'a, S, BuilderInit> {
         QueryBuilder {
             sql: SQL::empty(),
@@ -555,11 +558,10 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         Table: SQLiteTable<'a>,
     {
         let sql = self.sql.clone().append(crate::helpers::insert::<
-            'a,
             Table,
             SQLiteSchemaType,
             SQLiteValue<'a>,
-        >(table));
+        >(&table));
 
         insert::InsertBuilder {
             sql,
@@ -581,11 +583,10 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         Table: SQLiteTable<'a>,
     {
         let sql = self.sql.clone().append(crate::helpers::update::<
-            'a,
             Table,
             SQLiteSchemaType,
             SQLiteValue<'a>,
-        >(table));
+        >(&table));
 
         update::UpdateBuilder {
             sql,
@@ -607,11 +608,10 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         Table: SQLiteTable<'a>,
     {
         let sql = self.sql.clone().append(crate::helpers::delete::<
-            'a,
             Table,
             SQLiteSchemaType,
             SQLiteValue<'a>,
-        >(table));
+        >(&table));
 
         delete::DeleteBuilder {
             sql,
@@ -624,7 +624,8 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         }
     }
 
-    pub fn with<C>(&self, cte: C) -> QueryBuilder<'a, Schema, CTEInit>
+    #[must_use]
+    pub fn with<C>(&self, cte: &C) -> Self
     where
         C: CTEDefinition<'a>,
     {
@@ -688,7 +689,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     where
         Table: SQLiteTable<'a>,
     {
-        let sql = crate::helpers::insert(table);
+        let sql = crate::helpers::insert::<Table, SQLiteSchemaType, SQLiteValue<'a>>(&table);
 
         insert::InsertBuilder {
             sql,
@@ -745,7 +746,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     where
         Table: SQLiteTable<'a>,
     {
-        let sql = crate::helpers::update::<'a, Table, SQLiteSchemaType, SQLiteValue<'a>>(table);
+        let sql = crate::helpers::update::<Table, SQLiteSchemaType, SQLiteValue<'a>>(&table);
 
         update::UpdateBuilder {
             sql,
@@ -801,7 +802,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     where
         Table: SQLiteTable<'a>,
     {
-        let sql = crate::helpers::delete::<'a, Table, SQLiteSchemaType, SQLiteValue<'a>>(table);
+        let sql = crate::helpers::delete::<Table, SQLiteSchemaType, SQLiteValue<'a>>(&table);
 
         delete::DeleteBuilder {
             sql,
@@ -814,7 +815,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
         }
     }
 
-    pub fn with<C>(&self, cte: C) -> QueryBuilder<'a, Schema, CTEInit>
+    pub fn with<C>(&self, cte: &C) -> QueryBuilder<'a, Schema, CTEInit>
     where
         C: CTEDefinition<'a>,
     {

@@ -1,4 +1,4 @@
-//! SQLExpr - A typed SQL expression wrapper.
+//! `SQLExpr` - A typed SQL expression wrapper.
 
 use core::fmt::{self, Display};
 use core::marker::PhantomData;
@@ -18,9 +18,9 @@ use super::{Agg, AggToStatus, AggregateKind, Expr, NonNull, Null, Nullability, S
 /// # Type Parameters
 ///
 /// - `'a`: Lifetime of borrowed data
-/// - `V`: The dialect's value type (SQLiteValue, PostgresValue)
+/// - `V`: The dialect's value type (`SQLiteValue`, `PostgresValue`)
 /// - `T`: The SQL data type marker (Int, Text, etc.)
-/// - `N`: The nullability marker (NonNull or Null)
+/// - `N`: The nullability marker (`NonNull` or Null)
 /// - `A`: The aggregation marker (Scalar or Agg)
 ///
 /// # Example
@@ -48,7 +48,7 @@ pub struct SQLExpr<
 impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind> SQLExpr<'a, V, T, N, A> {
     /// Create a new typed expression from raw SQL.
     #[inline]
-    pub fn new(sql: SQL<'a, V>) -> Self {
+    pub const fn new(sql: SQL<'a, V>) -> Self {
         Self {
             sql,
             _ty: PhantomData,
@@ -164,7 +164,7 @@ pub type NullableAggExpr<'a, V, T> = SQLExpr<'a, V, T, Null, Agg>;
 /// println!("{}", expr);  // "users"."id" = 42
 /// # "####;
 /// ```
-impl<'a, V, T, N, A> Display for SQLExpr<'a, V, T, N, A>
+impl<V, T, N, A> Display for SQLExpr<'_, V, T, N, A>
 where
     V: SQLParam + Display,
     T: DataType,
@@ -176,7 +176,7 @@ where
     }
 }
 
-impl<'a, V, T, N, A> super::HasAggStatus for SQLExpr<'a, V, T, N, A>
+impl<V, T, N, A> super::HasAggStatus for SQLExpr<'_, V, T, N, A>
 where
     V: SQLParam,
     T: DataType,

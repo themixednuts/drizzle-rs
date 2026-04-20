@@ -1,9 +1,9 @@
-//! PostgreSQL type definitions
+//! `PostgreSQL` type definitions
 //!
-//! This module provides type definitions for PostgreSQL including:
+//! This module provides type definitions for `PostgreSQL` including:
 //!
-//! - [`PostgreSQLType`] - PostgreSQL column types
-//! - [`TypeCategory`] - Rust type classification for PostgreSQL mapping
+//! - [`PostgreSQLType`] - `PostgreSQL` column types
+//! - [`TypeCategory`] - Rust type classification for `PostgreSQL` mapping
 //! - [`PgTypeCategory`] - SQL type categories for parsing
 
 pub mod ddl;

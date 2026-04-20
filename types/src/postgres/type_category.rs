@@ -1,4 +1,4 @@
-//! PostgreSQL type category definitions
+//! `PostgreSQL` type category definitions
 //!
 //! Provides type classification for both Rust type mapping and SQL parsing.
 
@@ -8,7 +8,7 @@ use super::PostgreSQLType;
 // TypeCategory - Rust type classification for code generation
 // =============================================================================
 
-/// Categorizes Rust types for consistent handling across the PostgreSQL macro system.
+/// Categorizes Rust types for consistent handling across the `PostgreSQL` macro system.
 ///
 /// This enum provides a single source of truth for type detection, eliminating
 /// fragile string matching scattered across multiple files.
@@ -101,7 +101,7 @@ pub enum TypeCategory {
 impl TypeCategory {
     /// Detect the category from a type string representation.
     ///
-    /// Order matters: more specific types (ArrayString) must be checked
+    /// Order matters: more specific types (`ArrayString`) must be checked
     /// before more general types (String).
     #[cfg(feature = "std")]
     #[must_use]
@@ -119,15 +119,15 @@ impl TypeCategory {
         if type_str.starts_with("[u8;")
             || (type_str.contains("[u8;") && !type_str.contains("SmallVec"))
         {
-            return TypeCategory::ByteArray;
+            return Self::ByteArray;
         }
         if type_str.starts_with("[char;") || type_str.contains("[char;") {
-            return TypeCategory::CharArray;
+            return Self::CharArray;
         }
 
         // ArrayVec/ArrayString and popular wrappers before generic checks
         if type_str.contains("ArrayString") || type_str.contains("CompactString") {
-            return TypeCategory::ArrayString;
+            return Self::ArrayString;
         }
         if (type_str.contains("ArrayVec") && type_str.contains("u8"))
             || type_str.contains("bytes::Bytes")
@@ -136,191 +136,189 @@ impl TypeCategory {
             || type_str == "BytesMut"
             || (type_str.contains("SmallVec") && type_str.contains("u8"))
         {
-            return TypeCategory::ArrayVec;
+            return Self::ArrayVec;
         }
 
         // UUID
         if type_str.contains("Uuid") {
-            return TypeCategory::Uuid;
+            return Self::Uuid;
         }
 
         // JSON (serde_json::Value)
         if type_str.contains("serde_json::Value") || type_str == "Value" {
-            return TypeCategory::Json;
+            return Self::Json;
         }
 
         // Chrono types (check specific types before generic DateTime)
         if type_str.contains("NaiveDate") && !type_str.contains("NaiveDateTime") {
-            return TypeCategory::NaiveDate;
+            return Self::NaiveDate;
         }
         if type_str.contains("NaiveTime") {
-            return TypeCategory::NaiveTime;
+            return Self::NaiveTime;
         }
         if type_str.contains("NaiveDateTime") {
-            return TypeCategory::NaiveDateTime;
+            return Self::NaiveDateTime;
         }
         if type_str.contains("DateTime<") {
-            return TypeCategory::DateTimeTz;
+            return Self::DateTimeTz;
         }
 
         // Time crate types
         if type_str.contains("time::Date") || type_str == "Date" {
-            return TypeCategory::TimeDate;
+            return Self::TimeDate;
         }
         if type_str.contains("time::Time") {
-            return TypeCategory::TimeTime;
+            return Self::TimeTime;
         }
         if type_str.contains("PrimitiveDateTime") {
-            return TypeCategory::TimePrimitiveDateTime;
+            return Self::TimePrimitiveDateTime;
         }
         if type_str.contains("OffsetDateTime") {
-            return TypeCategory::TimeOffsetDateTime;
+            return Self::TimeOffsetDateTime;
         }
 
         // Geo types
         if type_str.contains("Point<") || type_str.contains("geo_types::Point") {
-            return TypeCategory::GeoPoint;
+            return Self::GeoPoint;
         }
         if type_str.contains("Rect<") || type_str.contains("geo_types::Rect") {
-            return TypeCategory::GeoRect;
+            return Self::GeoRect;
         }
         if type_str.contains("LineString<") || type_str.contains("geo_types::LineString") {
-            return TypeCategory::GeoLineString;
+            return Self::GeoLineString;
         }
 
         // Network types (cidr crate)
         if type_str.contains("IpInet") || type_str.contains("IpAddr") {
-            return TypeCategory::IpAddr;
+            return Self::IpAddr;
         }
         if type_str.contains("IpCidr") {
-            return TypeCategory::Cidr;
+            return Self::Cidr;
         }
 
         // MAC address
         if type_str.contains("MacAddress") || type_str.contains("eui48") {
-            return TypeCategory::MacAddr;
+            return Self::MacAddr;
         }
 
         // Bit vector
         if type_str.contains("BitVec") {
-            return TypeCategory::BitVec;
+            return Self::BitVec;
         }
 
         // String types
         if type_str.contains("String") {
-            return TypeCategory::String;
+            return Self::String;
         }
 
         // Vec<u8>
         if type_str.contains("Vec<u8>") {
-            return TypeCategory::Blob;
+            return Self::Blob;
         }
 
         // Primitives - check exact matches for simple types
         match type_str.as_str() {
-            "i16" => TypeCategory::I16,
-            "i32" => TypeCategory::I32,
-            "i64" => TypeCategory::I64,
-            "f32" => TypeCategory::F32,
-            "f64" => TypeCategory::F64,
-            "bool" => TypeCategory::Bool,
-            _ => TypeCategory::Unknown,
+            "i16" => Self::I16,
+            "i32" => Self::I32,
+            "i64" => Self::I64,
+            "f32" => Self::F32,
+            "f64" => Self::F64,
+            "bool" => Self::Bool,
+            _ => Self::Unknown,
         }
     }
 
-    /// Infer the PostgreSQL type from this category.
+    /// Infer the `PostgreSQL` type from this category.
     ///
     /// Returns `None` for Unknown types (should trigger compile error).
     #[must_use]
     pub const fn to_postgres_type(&self) -> Option<PostgreSQLType> {
         match self {
             // Numeric types
-            TypeCategory::I16 => Some(PostgreSQLType::Smallint),
-            TypeCategory::I32 => Some(PostgreSQLType::Integer),
-            TypeCategory::I64 => Some(PostgreSQLType::Bigint),
-            TypeCategory::F32 => Some(PostgreSQLType::Real),
-            TypeCategory::F64 => Some(PostgreSQLType::DoublePrecision),
-            TypeCategory::Bool => Some(PostgreSQLType::Boolean),
+            Self::I16 => Some(PostgreSQLType::Smallint),
+            Self::I32 => Some(PostgreSQLType::Integer),
+            Self::I64 => Some(PostgreSQLType::Bigint),
+            Self::F32 => Some(PostgreSQLType::Real),
+            Self::F64 => Some(PostgreSQLType::DoublePrecision),
+            Self::Bool => Some(PostgreSQLType::Boolean),
 
             // String/text types
-            TypeCategory::String => Some(PostgreSQLType::Text),
-            TypeCategory::ArrayString => Some(PostgreSQLType::Varchar),
-            TypeCategory::CharArray => Some(PostgreSQLType::Char),
+            Self::String => Some(PostgreSQLType::Text),
+            Self::ArrayString => Some(PostgreSQLType::Varchar),
+            Self::CharArray => Some(PostgreSQLType::Char),
 
             // Binary types
-            TypeCategory::Blob | TypeCategory::ByteArray | TypeCategory::ArrayVec => {
-                Some(PostgreSQLType::Bytea)
-            }
+            Self::Blob | Self::ByteArray | Self::ArrayVec => Some(PostgreSQLType::Bytea),
 
             // UUID
             #[cfg(feature = "uuid")]
-            TypeCategory::Uuid => Some(PostgreSQLType::Uuid),
+            Self::Uuid => Some(PostgreSQLType::Uuid),
             #[cfg(not(feature = "uuid"))]
-            TypeCategory::Uuid => None,
+            Self::Uuid => None,
 
             // JSON
             #[cfg(feature = "serde")]
-            TypeCategory::Json => Some(PostgreSQLType::Jsonb),
+            Self::Json => Some(PostgreSQLType::Jsonb),
             #[cfg(not(feature = "serde"))]
-            TypeCategory::Json => None,
+            Self::Json => None,
 
             // Chrono date/time types
-            TypeCategory::NaiveDate => Some(PostgreSQLType::Date),
-            TypeCategory::NaiveTime => Some(PostgreSQLType::Time),
-            TypeCategory::NaiveDateTime => Some(PostgreSQLType::Timestamp),
-            TypeCategory::DateTimeTz => Some(PostgreSQLType::Timestamptz),
+            Self::NaiveDate => Some(PostgreSQLType::Date),
+            Self::NaiveTime => Some(PostgreSQLType::Time),
+            Self::NaiveDateTime => Some(PostgreSQLType::Timestamp),
+            Self::DateTimeTz => Some(PostgreSQLType::Timestamptz),
 
             // Time crate types
-            TypeCategory::TimeDate => Some(PostgreSQLType::Date),
-            TypeCategory::TimeTime => Some(PostgreSQLType::Time),
-            TypeCategory::TimePrimitiveDateTime => Some(PostgreSQLType::Timestamp),
-            TypeCategory::TimeOffsetDateTime => Some(PostgreSQLType::Timestamptz),
+            Self::TimeDate => Some(PostgreSQLType::Date),
+            Self::TimeTime => Some(PostgreSQLType::Time),
+            Self::TimePrimitiveDateTime => Some(PostgreSQLType::Timestamp),
+            Self::TimeOffsetDateTime => Some(PostgreSQLType::Timestamptz),
 
             // Geo types
             #[cfg(feature = "geo-types")]
-            TypeCategory::GeoPoint => Some(PostgreSQLType::Point),
+            Self::GeoPoint => Some(PostgreSQLType::Point),
             #[cfg(feature = "geo-types")]
-            TypeCategory::GeoRect => Some(PostgreSQLType::Box),
+            Self::GeoRect => Some(PostgreSQLType::Box),
             #[cfg(feature = "geo-types")]
-            TypeCategory::GeoLineString => Some(PostgreSQLType::Path),
+            Self::GeoLineString => Some(PostgreSQLType::Path),
             #[cfg(not(feature = "geo-types"))]
-            TypeCategory::GeoPoint | TypeCategory::GeoRect | TypeCategory::GeoLineString => None,
+            Self::GeoPoint | Self::GeoRect | Self::GeoLineString => None,
 
             // Network types
             #[cfg(feature = "cidr")]
-            TypeCategory::IpAddr => Some(PostgreSQLType::Inet),
+            Self::IpAddr => Some(PostgreSQLType::Inet),
             #[cfg(feature = "cidr")]
-            TypeCategory::Cidr => Some(PostgreSQLType::Cidr),
+            Self::Cidr => Some(PostgreSQLType::Cidr),
             #[cfg(not(feature = "cidr"))]
-            TypeCategory::IpAddr | TypeCategory::Cidr => None,
+            Self::IpAddr | Self::Cidr => None,
 
             // MAC address
             #[cfg(feature = "cidr")]
-            TypeCategory::MacAddr => Some(PostgreSQLType::MacAddr),
+            Self::MacAddr => Some(PostgreSQLType::MacAddr),
             #[cfg(not(feature = "cidr"))]
-            TypeCategory::MacAddr => None,
+            Self::MacAddr => None,
 
             // Bit types
             #[cfg(feature = "bit-vec")]
-            TypeCategory::BitVec => Some(PostgreSQLType::Varbit),
+            Self::BitVec => Some(PostgreSQLType::Varbit),
             #[cfg(not(feature = "bit-vec"))]
-            TypeCategory::BitVec => None,
+            Self::BitVec => None,
 
             // Enums handled separately
-            TypeCategory::Enum => None,
-            TypeCategory::Unknown => None,
+            Self::Enum => None,
+            Self::Unknown => None,
         }
     }
 
     /// Check if a constraint is valid for this type category.
     #[must_use]
-    pub fn is_valid_constraint(&self, constraint: &str) -> bool {
+    pub const fn is_valid_constraint(&self, constraint: &str) -> bool {
         if constraint.eq_ignore_ascii_case("serial") {
-            matches!(self, TypeCategory::I32)
+            matches!(self, Self::I32)
         } else if constraint.eq_ignore_ascii_case("smallserial") {
-            matches!(self, TypeCategory::I16)
+            matches!(self, Self::I16)
         } else if constraint.eq_ignore_ascii_case("bigserial") {
-            matches!(self, TypeCategory::I64)
+            matches!(self, Self::I64)
         } else {
             true // Most constraints are valid for all types
         }
@@ -331,7 +329,7 @@ impl TypeCategory {
 // PgTypeCategory - SQL type categories for parsing
 // =============================================================================
 
-/// PostgreSQL SQL type category for parsing SQL type strings.
+/// `PostgreSQL` SQL type category for parsing SQL type strings.
 ///
 /// This categorizes SQL type declarations for migration/introspection purposes.
 ///
@@ -391,140 +389,154 @@ impl PgTypeCategory {
         s.len() >= prefix.len() && s[..prefix.len()].eq_ignore_ascii_case(prefix)
     }
 
-    /// Determine the type category for a SQL type string
-    #[must_use]
-    pub fn from_sql_type(sql_type: &str) -> Self {
-        let normalized = sql_type.trim();
-
-        // Serial types (must check before integer)
+    /// Match serial and integer types (checked before generic numeric).
+    fn match_serial_or_integer(normalized: &str) -> Option<Self> {
         if Self::starts_with_ci(normalized, "smallserial") {
-            return Self::SmallSerial;
+            return Some(Self::SmallSerial);
         }
         if Self::starts_with_ci(normalized, "bigserial") {
-            return Self::BigSerial;
+            return Some(Self::BigSerial);
         }
         if Self::starts_with_ci(normalized, "serial") {
-            return Self::Serial;
+            return Some(Self::Serial);
         }
-
-        // Integer types
         if Self::starts_with_ci(normalized, "smallint") {
-            return Self::SmallInt;
+            return Some(Self::SmallInt);
         }
         if Self::starts_with_ci(normalized, "integer") || normalized.eq_ignore_ascii_case("int") {
-            return Self::Integer;
+            return Some(Self::Integer);
         }
         if Self::starts_with_ci(normalized, "bigint") {
-            return Self::BigInt;
+            return Some(Self::BigInt);
         }
+        None
+    }
 
-        // Numeric types
+    /// Match numeric, real, double and boolean types.
+    fn match_numeric_or_bool(normalized: &str) -> Option<Self> {
         if Self::starts_with_ci(normalized, "numeric")
             || Self::starts_with_ci(normalized, "decimal")
         {
-            return Self::Numeric;
+            return Some(Self::Numeric);
         }
         if Self::starts_with_ci(normalized, "real") {
-            return Self::Real;
+            return Some(Self::Real);
         }
         if Self::starts_with_ci(normalized, "double") {
-            return Self::DoublePrecision;
+            return Some(Self::DoublePrecision);
         }
-
-        // Boolean
         if Self::starts_with_ci(normalized, "boolean") || normalized.eq_ignore_ascii_case("bool") {
-            return Self::Boolean;
+            return Some(Self::Boolean);
         }
+        None
+    }
 
-        // String types (order matters - varchar before char)
+    /// Match character and JSON types (order matters: varchar before char, jsonb before json).
+    fn match_string_or_json(normalized: &str) -> Option<Self> {
         if Self::starts_with_ci(normalized, "varchar")
             || Self::starts_with_ci(normalized, "character varying")
         {
-            return Self::Varchar;
+            return Some(Self::Varchar);
         }
         if Self::starts_with_ci(normalized, "char") || Self::starts_with_ci(normalized, "character")
         {
-            return Self::Char;
+            return Some(Self::Char);
         }
         if Self::starts_with_ci(normalized, "text") {
-            return Self::Text;
+            return Some(Self::Text);
         }
-
-        // JSON types (jsonb before json)
         if Self::starts_with_ci(normalized, "jsonb") {
-            return Self::Jsonb;
+            return Some(Self::Jsonb);
         }
         if Self::starts_with_ci(normalized, "json") {
-            return Self::Json;
+            return Some(Self::Json);
         }
+        None
+    }
 
-        // Time/Date types - check "with time zone" case-insensitively
+    /// Match date/time/interval types, honouring an optional "with time zone" suffix.
+    fn match_datetime(normalized: &str) -> Option<Self> {
         let has_tz = normalized.len() >= 14
             && normalized[normalized.len().saturating_sub(14)..]
                 .eq_ignore_ascii_case("with time zone");
 
         if Self::starts_with_ci(normalized, "timestamp") {
-            return if has_tz {
+            return Some(if has_tz {
                 Self::TimestampTz
             } else {
                 Self::Timestamp
-            };
+            });
         }
         if Self::starts_with_ci(normalized, "time") {
-            return if has_tz { Self::TimeTz } else { Self::Time };
+            return Some(if has_tz { Self::TimeTz } else { Self::Time });
         }
         if Self::starts_with_ci(normalized, "date") {
-            return Self::Date;
+            return Some(Self::Date);
         }
         if Self::starts_with_ci(normalized, "interval") {
-            return Self::Interval;
+            return Some(Self::Interval);
         }
+        None
+    }
 
-        // Other types
+    /// Match network and miscellaneous types.
+    fn match_network_or_misc(normalized: &str) -> Option<Self> {
         if Self::starts_with_ci(normalized, "uuid") {
-            return Self::Uuid;
+            return Some(Self::Uuid);
         }
         if Self::starts_with_ci(normalized, "inet") {
-            return Self::Inet;
+            return Some(Self::Inet);
         }
         if Self::starts_with_ci(normalized, "cidr") {
-            return Self::Cidr;
+            return Some(Self::Cidr);
         }
         if Self::starts_with_ci(normalized, "macaddr8") {
-            return Self::MacAddr8;
+            return Some(Self::MacAddr8);
         }
         if Self::starts_with_ci(normalized, "macaddr") {
-            return Self::MacAddr;
+            return Some(Self::MacAddr);
         }
+        None
+    }
 
-        // Vector types
+    /// Match vector, bit, and geometric types.
+    fn match_vector_or_geometric(normalized: &str) -> Option<Self> {
         if Self::starts_with_ci(normalized, "vector") {
-            return Self::Vector;
+            return Some(Self::Vector);
         }
         if Self::starts_with_ci(normalized, "halfvec") {
-            return Self::HalfVec;
+            return Some(Self::HalfVec);
         }
         if Self::starts_with_ci(normalized, "sparsevec") {
-            return Self::SparseVec;
+            return Some(Self::SparseVec);
         }
-
-        // Bit types
         if Self::starts_with_ci(normalized, "bit") {
-            return Self::Bit;
+            return Some(Self::Bit);
         }
-
-        // Geometric types
         if Self::starts_with_ci(normalized, "point") {
-            return Self::Point;
+            return Some(Self::Point);
         }
         if Self::starts_with_ci(normalized, "line") {
-            return Self::Line;
+            return Some(Self::Line);
         }
         if Self::starts_with_ci(normalized, "geometry") {
-            return Self::Geometry;
+            return Some(Self::Geometry);
         }
+        None
+    }
 
-        Self::Custom
+    /// Determine the type category for a SQL type string
+    #[must_use]
+    pub fn from_sql_type(sql_type: &str) -> Self {
+        let normalized = sql_type.trim();
+
+        Self::match_serial_or_integer(normalized)
+            .or_else(|| Self::match_numeric_or_bool(normalized))
+            .or_else(|| Self::match_string_or_json(normalized))
+            .or_else(|| Self::match_datetime(normalized))
+            .or_else(|| Self::match_network_or_misc(normalized))
+            .or_else(|| Self::match_vector_or_geometric(normalized))
+            .unwrap_or(Self::Custom)
     }
 
     /// Get the drizzle import name for this type

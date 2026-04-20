@@ -1,6 +1,6 @@
-//! Turso driver implementation for SQLite table macro.
+//! Turso driver implementation for `SQLite` table macro.
 //!
-//! Generates TryFrom implementations for `turso::Row` using the shared driver infrastructure.
+//! Generates `TryFrom` implementations for `turso::Row` using the shared driver infrastructure.
 
 use super::drivers::{self, DriverConfig};
 use super::errors;
@@ -17,7 +17,7 @@ use syn::Result;
 // =============================================================================
 
 /// Turso-specific driver configuration.
-pub(crate) struct TursoDriver;
+pub struct TursoDriver;
 
 impl DriverConfig for TursoDriver {
     fn row_type() -> TokenStream {
@@ -60,8 +60,8 @@ impl DriverConfig for TursoDriver {
 // Public API
 // =============================================================================
 
-/// Generate TryFrom implementations for turso::Row for a table's models
-pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
+/// Generate `TryFrom` implementations for `turso::Row` for a table's models
+pub fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
     let drizzle_error = paths::core::drizzle_error();
     let row_column_list = paths::core::row_column_list();
     let type_set_nil = paths::core::type_set_nil();
@@ -78,8 +78,9 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
         .map(|(i, info)| {
             let select_type = info.get_select_type();
             let is_select_optional = syn::parse2::<syn::Type>(select_type)
-                .map(|ty| is_option_type(&ty))
-                .unwrap_or(info.is_nullable && !info.has_default);
+                .map_or(info.is_nullable && !info.has_default, |ty| {
+                    is_option_type(&ty)
+                });
             generate_field_conversion(i, info, is_select_optional)
         })
         .collect::<Result<Vec<_>>>()?;
@@ -90,10 +91,11 @@ pub(crate) fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
         .map(|(i, info)| {
             let select_type = info.get_select_type();
             let is_select_optional = syn::parse2::<syn::Type>(select_type)
-                .map(|ty| is_option_type(&ty))
-                .unwrap_or(info.is_nullable && !info.has_default);
+                .map_or(info.is_nullable && !info.has_default, |ty| {
+                    is_option_type(&ty)
+                });
             drivers::generate_field_conversion_with_index::<TursoDriver>(
-                quote!(offset + #i),
+                &quote!(offset + #i),
                 info,
                 is_select_optional,
             )
@@ -161,8 +163,8 @@ fn generate_field_conversion(
 // JSON/Enum Implementation Generation
 // =============================================================================
 
-/// Generate turso JSON implementations (IntoValue)
-pub(crate) fn generate_json_impls(
+/// Generate turso JSON implementations (`IntoValue`)
+pub fn generate_json_impls(
     json_type_storage: &std::collections::HashMap<String, (SQLiteType, &FieldInfo)>,
 ) -> Result<Vec<TokenStream>> {
     if json_type_storage.is_empty() {
@@ -221,8 +223,8 @@ pub(crate) fn generate_json_impls(
         .collect::<Result<Vec<_>>>()
 }
 
-/// Generate turso enum implementations (IntoValue)
-pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
+/// Generate turso enum implementations (`IntoValue`)
+pub fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
     if !info.is_enum {
         return Ok(quote! {});
     }

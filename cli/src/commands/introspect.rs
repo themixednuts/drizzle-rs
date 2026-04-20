@@ -20,11 +20,17 @@ pub struct IntrospectOptions {
     pub connection: ConnectionOverrides,
 }
 
-/// Run the introspect command
+/// Run the introspect command.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if the requested database cannot be resolved,
+/// credentials are missing or invalid, connecting to the database fails, or
+/// writing the generated Rust schema files fails.
 pub fn run(
     config: &Config,
     db_name: Option<&str>,
-    opts: IntrospectOptions,
+    opts: &IntrospectOptions,
 ) -> Result<(), CliError> {
     let db = config.database(db_name)?;
 
@@ -33,7 +39,7 @@ pub fn run(
         .casing
         .unwrap_or_else(|| db.effective_introspect_casing());
     let effective_dialect = overrides::resolve_dialect(db, opts.dialect);
-    let effective_out = opts.out.as_deref().unwrap_or(db.migrations_dir());
+    let effective_out = opts.out.as_deref().unwrap_or_else(|| db.migrations_dir());
     let effective_breakpoints = opts.breakpoints.unwrap_or(db.breakpoints);
 
     if effective_dialect != Dialect::Postgresql {
@@ -97,40 +103,9 @@ pub fn run(
     // Get credentials
     let credentials = overrides::resolve_credentials(db, effective_dialect, &opts.connection)?;
 
-    let credentials = match credentials {
-        Some(c) => c,
-        None => {
-            println!("{}", output::warning("No database credentials configured."));
-            println!();
-            println!("Add credentials to your drizzle.config.toml:");
-            println!();
-            println!("  {}", output::muted("[dbCredentials]"));
-            match effective_dialect.to_base() {
-                drizzle_types::Dialect::SQLite => {
-                    println!("  {}", output::muted("url = \"./dev.db\""));
-                }
-                drizzle_types::Dialect::PostgreSQL => {
-                    println!(
-                        "  {}",
-                        output::muted("url = \"postgres://user:pass@localhost:5432/db\"")
-                    );
-                }
-                drizzle_types::Dialect::MySQL => {
-                    // drizzle-cli doesn't currently support MySQL end-to-end, but the base
-                    // dialect type includes it, so keep the match exhaustive.
-                    println!(
-                        "  {}",
-                        output::muted("url = \"mysql://user:pass@localhost:3306/db\"")
-                    );
-                }
-            }
-            println!();
-            println!("Or use an environment variable:");
-            println!();
-            println!("  {}", output::muted("[dbCredentials]"));
-            println!("  {}", output::muted("url = { env = \"DATABASE_URL\" }"));
-            return Ok(());
-        }
+    let Some(credentials) = credentials else {
+        print_missing_credentials_help(effective_dialect);
+        return Ok(());
     };
 
     // Run introspection
@@ -146,6 +121,45 @@ pub fn run(
         db.migrations_schema(),
     )?;
 
+    print_introspection_summary(&result, opts.init_metadata);
+    Ok(())
+}
+
+/// Print a helpful message when no database credentials are configured.
+fn print_missing_credentials_help(effective_dialect: Dialect) {
+    println!("{}", output::warning("No database credentials configured."));
+    println!();
+    println!("Add credentials to your drizzle.config.toml:");
+    println!();
+    println!("  {}", output::muted("[dbCredentials]"));
+    match effective_dialect.to_base() {
+        drizzle_types::Dialect::SQLite => {
+            println!("  {}", output::muted("url = \"./dev.db\""));
+        }
+        drizzle_types::Dialect::PostgreSQL => {
+            println!(
+                "  {}",
+                output::muted("url = \"postgres://user:pass@localhost:5432/db\"")
+            );
+        }
+        drizzle_types::Dialect::MySQL => {
+            // drizzle-cli doesn't currently support MySQL end-to-end, but the base
+            // dialect type includes it, so keep the match exhaustive.
+            println!(
+                "  {}",
+                output::muted("url = \"mysql://user:pass@localhost:3306/db\"")
+            );
+        }
+    }
+    println!();
+    println!("Or use an environment variable:");
+    println!();
+    println!("  {}", output::muted("[dbCredentials]"));
+    println!("  {}", output::muted("url = { env = \"DATABASE_URL\" }"));
+}
+
+/// Print the final summary after introspection completes.
+fn print_introspection_summary(result: &crate::db::IntrospectResult, init_metadata: bool) {
     println!();
     println!(
         "  {} {} table(s), {} index(es)",
@@ -169,7 +183,7 @@ pub fn run(
         result.snapshot_path.display()
     );
 
-    if opts.init_metadata {
+    if init_metadata {
         println!();
         println!(
             "  {} Migration metadata initialized in database.",
@@ -177,6 +191,4 @@ pub fn run(
         );
         println!("  The current database state is now the baseline for future migrations.");
     }
-
-    Ok(())
 }

@@ -23,7 +23,7 @@ pub struct ColumnBinOp<Lhs, Rhs, Op> {
 
 impl<Lhs, Rhs, Op> ColumnBinOp<Lhs, Rhs, Op> {
     #[inline]
-    pub fn new(lhs: Lhs, rhs: Rhs) -> Self {
+    pub const fn new(lhs: Lhs, rhs: Rhs) -> Self {
         Self {
             lhs,
             rhs,
@@ -130,7 +130,7 @@ pub struct ColumnNeg<T> {
 
 impl<T> ColumnNeg<T> {
     #[inline]
-    pub fn new(inner: T) -> Self {
+    pub const fn new(inner: T) -> Self {
         Self { inner }
     }
 }

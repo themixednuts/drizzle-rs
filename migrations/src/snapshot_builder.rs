@@ -22,6 +22,7 @@ use std::collections::{HashMap, HashSet};
 ///
 /// Uses the provided `dialect` from config rather than the parser-detected dialect,
 /// allowing users to have multi-dialect schema files and select which to use via config.
+#[must_use]
 pub fn parse_result_to_snapshot(
     result: &ParseResult,
     dialect: Dialect,
@@ -30,7 +31,9 @@ pub fn parse_result_to_snapshot(
     match dialect {
         Dialect::SQLite => Snapshot::Sqlite(build_sqlite_snapshot(result, casing)),
         Dialect::PostgreSQL => Snapshot::Postgres(build_postgres_snapshot(result, casing)),
-        _ => unreachable!("Unsupported dialect for snapshot generation: {dialect:?}"),
+        Dialect::MySQL => {
+            unreachable!("Unsupported dialect for snapshot generation: {dialect:?}")
+        }
     }
 }
 
@@ -95,25 +98,25 @@ fn sqlite_type_sql(ty: SQLiteType) -> String {
     ty.to_sql_type().to_ascii_lowercase()
 }
 
-fn postgres_type_sql(ty: PostgreSQLType) -> String {
+fn postgres_type_sql(ty: &PostgreSQLType) -> String {
     ty.to_sql_type().to_ascii_lowercase()
 }
 
 fn resolve_table_name(table: &ParsedTable, casing: Casing) -> String {
-    table
-        .attr_value("name")
-        .map(|v| trim_wrapping_quotes(&v))
-        .unwrap_or_else(|| apply_casing(&table.name, casing))
+    table.attr_value("name").map_or_else(
+        || apply_casing(&table.name, casing),
+        |v| trim_wrapping_quotes(&v),
+    )
 }
 
 fn resolve_field_name(field: &ParsedField, casing: Casing) -> String {
-    field
-        .attr_value("name")
-        .map(|v| trim_wrapping_quotes(&v))
-        .unwrap_or_else(|| apply_casing(&field.name, casing))
+    field.attr_value("name").map_or_else(
+        || apply_casing(&field.name, casing),
+        |v| trim_wrapping_quotes(&v),
+    )
 }
 
-/// Build an SQLite snapshot from parsed schema
+/// Build an `SQLite` snapshot from parsed schema
 fn build_sqlite_snapshot(result: &ParseResult, casing: Option<Casing>) -> SQLiteSnapshot {
     use crate::sqlite::{PrimaryKey, SqliteEntity, Table, UniqueConstraint};
 
@@ -170,7 +173,7 @@ fn build_sqlite_snapshot(result: &ParseResult, casing: Option<Casing>) -> SQLite
 
             // Add unique constraint if column is unique (not primary)
             if field.is_unique() && !field.is_primary_key() {
-                let constraint_name = format!("{}_{}_unique", table_name, col_name);
+                let constraint_name = format!("{table_name}_{col_name}_unique");
                 snapshot.add_entity(SqliteEntity::UniqueConstraint(
                     UniqueConstraint::from_strings(
                         table_name.clone(),
@@ -198,7 +201,7 @@ fn build_sqlite_snapshot(result: &ParseResult, casing: Option<Casing>) -> SQLite
 
         // Add primary key entity
         if !pk_columns.is_empty() {
-            let pk_name = format!("{}_pkey", table_name);
+            let pk_name = format!("{table_name}_pkey");
             snapshot.add_entity(SqliteEntity::PrimaryKey(PrimaryKey::from_strings(
                 table_name, pk_name, pk_columns,
             )));
@@ -218,11 +221,133 @@ fn build_sqlite_snapshot(result: &ParseResult, casing: Option<Casing>) -> SQLite
     snapshot
 }
 
-/// Build a PostgreSQL snapshot from parsed schema
+/// Name/schema maps for `PostgreSQL` snapshot building, built once up front
+/// and reused for column/FK/index resolution.
+struct PgNameMaps {
+    /// Parsed struct name -> resolved SQL table name.
+    table_name_map: HashMap<String, String>,
+    /// (parsed struct name, parsed field name) -> resolved SQL column name.
+    field_name_map: HashMap<(String, String), String>,
+    /// Parsed struct name -> `PostgreSQL` schema ("public" by default).
+    table_schemas: HashMap<String, String>,
+    /// All distinct schemas discovered in the schema set.
+    schema_list: Vec<String>,
+}
+
+fn build_pg_name_maps(pg_tables: &[&ParsedTable], casing: Casing) -> PgNameMaps {
+    let mut table_name_map: HashMap<String, String> = HashMap::new();
+    let mut field_name_map: HashMap<(String, String), String> = HashMap::new();
+    for table in pg_tables {
+        table_name_map.insert(table.name.clone(), resolve_table_name(table, casing));
+        for field in &table.fields {
+            field_name_map.insert(
+                (table.name.clone(), field.name.clone()),
+                resolve_field_name(field, casing),
+            );
+        }
+    }
+
+    let mut table_schemas: HashMap<String, String> = HashMap::new();
+    let mut schemas: HashSet<String> = HashSet::new();
+    for table in pg_tables {
+        let schema_name = table.schema_name().unwrap_or_else(|| "public".to_string());
+        table_schemas.insert(table.name.clone(), schema_name.clone());
+        schemas.insert(schema_name);
+    }
+    if schemas.is_empty() {
+        schemas.insert("public".to_string());
+    }
+
+    let mut schema_list: Vec<String> = schemas.into_iter().collect();
+    schema_list.sort();
+
+    PgNameMaps {
+        table_name_map,
+        field_name_map,
+        table_schemas,
+        schema_list,
+    }
+}
+
+/// Add table, column, unique, primary-key and FK entities for a single
+/// parsed `PostgreSQL` table.
+fn add_postgres_table_entities(
+    snapshot: &mut PostgresSnapshot,
+    table: &ParsedTable,
+    maps: &PgNameMaps,
+    casing: Casing,
+) {
+    use crate::postgres::{PostgresEntity, PrimaryKey, Table, UniqueConstraint};
+
+    let table_name = maps
+        .table_name_map
+        .get(&table.name)
+        .cloned()
+        .unwrap_or_else(|| resolve_table_name(table, casing));
+    let schema_name = table.schema_name().unwrap_or_else(|| "public".to_string());
+
+    snapshot.add_entity(PostgresEntity::Table(Table {
+        schema: schema_name.clone().into(),
+        name: table_name.clone().into(),
+        is_rls_enabled: None,
+    }));
+
+    let mut pk_columns = Vec::new();
+
+    for field in &table.fields {
+        let col_name = maps
+            .field_name_map
+            .get(&(table.name.clone(), field.name.clone()))
+            .cloned()
+            .unwrap_or_else(|| resolve_field_name(field, casing));
+        let col = build_postgres_column(&schema_name, &table_name, field, &col_name);
+        snapshot.add_entity(PostgresEntity::Column(col));
+
+        if field.is_primary_key() {
+            pk_columns.push(col_name.clone());
+        }
+
+        if field.is_unique() && !field.is_primary_key() {
+            snapshot.add_entity(PostgresEntity::UniqueConstraint(
+                UniqueConstraint::from_strings(
+                    schema_name.clone(),
+                    table_name.clone(),
+                    format!("{table_name}_{col_name}_key"),
+                    vec![col_name.clone()],
+                ),
+            ));
+        }
+
+        if let Some(ref_target) = field.references()
+            && let Some(fk) = build_postgres_foreign_key(
+                &schema_name,
+                &table_name,
+                &col_name,
+                field,
+                &ref_target,
+                &maps.table_name_map,
+                &maps.field_name_map,
+                &maps.table_schemas,
+                casing,
+            )
+        {
+            snapshot.add_entity(PostgresEntity::ForeignKey(fk));
+        }
+    }
+
+    if !pk_columns.is_empty() {
+        snapshot.add_entity(PostgresEntity::PrimaryKey(PrimaryKey::from_strings(
+            schema_name,
+            table_name.clone(),
+            format!("{table_name}_pkey"),
+            pk_columns,
+        )));
+    }
+}
+
+/// Build a `PostgreSQL` snapshot from parsed schema
 fn build_postgres_snapshot(result: &ParseResult, casing: Option<Casing>) -> PostgresSnapshot {
-    use crate::postgres::{
-        PostgresEntity, PrimaryKey, Schema as PgSchema, Table, UniqueConstraint,
-    };
+    use crate::postgres::{PostgresEntity, Schema as PgSchema};
 
     let mut snapshot = PostgresSnapshot::new();
     let name_casing = casing.unwrap_or(Casing::SnakeCase);
@@ -233,107 +358,14 @@ fn build_postgres_snapshot(result: &ParseResult, casing: Option<Casing>) -> Post
         .filter(|t| t.dialect == Dialect::PostgreSQL)
         .collect();
 
-    let mut table_name_map: HashMap<String, String> = HashMap::new();
-    let mut field_name_map: HashMap<(String, String), String> = HashMap::new();
-    for table in &pg_tables {
-        table_name_map.insert(table.name.clone(), resolve_table_name(table, name_casing));
-        for field in &table.fields {
-            field_name_map.insert(
-                (table.name.clone(), field.name.clone()),
-                resolve_field_name(field, name_casing),
-            );
-        }
+    let maps = build_pg_name_maps(&pg_tables, name_casing);
+
+    for schema in &maps.schema_list {
+        snapshot.add_entity(PostgresEntity::Schema(PgSchema::new(schema.clone())));
     }
 
-    // Map parsed struct name -> schema for cross-entity resolution (FKs/indexes)
-    let mut table_schemas: HashMap<String, String> = HashMap::new();
-    let mut schemas: HashSet<String> = HashSet::new();
-    for table in &pg_tables {
-        let schema_name = table.schema_name().unwrap_or_else(|| "public".to_string());
-        table_schemas.insert(table.name.clone(), schema_name.clone());
-        schemas.insert(schema_name);
-    }
-    if schemas.is_empty() {
-        schemas.insert("public".to_string());
-    }
-
-    // Add all discovered schemas in deterministic order
-    let mut schema_list: Vec<String> = schemas.into_iter().collect();
-    schema_list.sort();
-    for schema in schema_list {
-        snapshot.add_entity(PostgresEntity::Schema(PgSchema::new(schema)));
-    }
-
-    // Process tables (only those matching PostgreSQL dialect)
     for table in pg_tables {
-        let table_name = table_name_map
-            .get(&table.name)
-            .cloned()
-            .unwrap_or_else(|| resolve_table_name(table, name_casing));
-        let schema_name = table.schema_name().unwrap_or_else(|| "public".to_string());
-
-        // Add table entity
-        snapshot.add_entity(PostgresEntity::Table(Table {
-            schema: schema_name.clone().into(),
-            name: table_name.clone().into(),
-            is_rls_enabled: None,
-        }));
-
-        // Process columns
-        let mut pk_columns = Vec::new();
-
-        for field in &table.fields {
-            let col_name = field_name_map
-                .get(&(table.name.clone(), field.name.clone()))
-                .cloned()
-                .unwrap_or_else(|| resolve_field_name(field, name_casing));
-            let col = build_postgres_column(&schema_name, &table_name, field, &col_name);
-            snapshot.add_entity(PostgresEntity::Column(col));
-
-            // Track primary key columns
-            if field.is_primary_key() {
-                pk_columns.push(col_name.clone());
-            }
-
-            // Add unique constraint if column is unique (not primary)
-            if field.is_unique() && !field.is_primary_key() {
-                snapshot.add_entity(PostgresEntity::UniqueConstraint(
-                    UniqueConstraint::from_strings(
-                        schema_name.clone(),
-                        table_name.clone(),
-                        format!("{}_{}_key", table_name, col_name),
-                        vec![col_name.clone()],
-                    ),
-                ));
-            }
-
-            // Add foreign key if references exist
-            if let Some(ref_target) = field.references()
-                && let Some(fk) = build_postgres_foreign_key(
-                    &schema_name,
-                    &table_name,
-                    &col_name,
-                    field,
-                    &ref_target,
-                    &table_name_map,
-                    &field_name_map,
-                    &table_schemas,
-                    name_casing,
-                )
-            {
-                snapshot.add_entity(PostgresEntity::ForeignKey(fk));
-            }
-        }
-
-        // Add primary key entity
-        if !pk_columns.is_empty() {
-            snapshot.add_entity(PostgresEntity::PrimaryKey(PrimaryKey::from_strings(
-                schema_name,
-                table_name.clone(),
-                format!("{}_pkey", table_name),
-                pk_columns,
-            )));
-        }
+        add_postgres_table_entities(&mut snapshot, table, &maps, name_casing);
     }
 
     // Process indexes (only those matching PostgreSQL dialect)
@@ -344,9 +376,9 @@ fn build_postgres_snapshot(result: &ParseResult, casing: Option<Casing>) -> Post
     {
         let idx = build_postgres_index(
             index,
-            &table_name_map,
-            &field_name_map,
-            &table_schemas,
+            &maps.table_name_map,
+            &maps.field_name_map,
+            &maps.table_schemas,
             name_casing,
         );
         snapshot.add_entity(PostgresEntity::Index(idx));
@@ -355,7 +387,7 @@ fn build_postgres_snapshot(result: &ParseResult, casing: Option<Casing>) -> Post
     snapshot
 }
 
-/// Build an SQLite column from a parsed field
+/// Build an `SQLite` column from a parsed field
 fn build_sqlite_column(
     table_name: &str,
     field: &ParsedField,
@@ -386,7 +418,7 @@ fn build_sqlite_column(
     col
 }
 
-/// Build a PostgreSQL column from a parsed field
+/// Build a `PostgreSQL` column from a parsed field
 fn build_postgres_column(
     schema_name: &str,
     table_name: &str,
@@ -410,10 +442,9 @@ fn build_postgres_column(
         sql_type: if is_serial {
             field
                 .attr_value("type")
-                .map(Cow::Owned)
-                .unwrap_or_else(|| postgres_type_sql(col_type).into())
+                .map_or_else(|| postgres_type_sql(&col_type).into(), Cow::Owned)
         } else {
-            postgres_type_sql(col_type).into()
+            postgres_type_sql(&col_type).into()
         },
         type_schema: None,
         not_null: !field.is_nullable(),
@@ -425,7 +456,7 @@ fn build_postgres_column(
         // IDENTITY is invalid in PostgreSQL.
         identity: if is_identity {
             Some(Identity {
-                name: format!("{}_{}_seq", table_name, col_name).into(),
+                name: format!("{table_name}_{col_name}_seq").into(),
                 schema: Some(schema_name.to_string().into()),
                 type_: IdentityType::Always,
                 increment: None,
@@ -443,7 +474,7 @@ fn build_postgres_column(
     }
 }
 
-/// Build an SQLite foreign key from a parsed field
+/// Build an `SQLite` foreign key from a parsed field
 fn build_sqlite_foreign_key(
     table_name: &str,
     col_name: &str,
@@ -465,10 +496,7 @@ fn build_sqlite_foreign_key(
         .get(&(target.table.to_string(), target.field.to_string()))
         .cloned()
         .unwrap_or_else(|| apply_casing(target.field, casing));
-    let fk_name = format!(
-        "{}_{}_{}_{}_fk",
-        table_name, col_name, ref_table, ref_column
-    );
+    let fk_name = format!("{table_name}_{col_name}_{ref_table}_{ref_column}_fk");
 
     let mut fk = ForeignKey::from_strings(
         table_name.to_string(),
@@ -484,7 +512,7 @@ fn build_sqlite_foreign_key(
     Some(fk)
 }
 
-/// Build a PostgreSQL foreign key from a parsed field
+/// Build a `PostgreSQL` foreign key from a parsed field
 #[allow(clippy::too_many_arguments)]
 fn build_postgres_foreign_key(
     schema_name: &str,
@@ -513,10 +541,7 @@ fn build_postgres_foreign_key(
         .get(ref_table_struct)
         .cloned()
         .unwrap_or_else(|| "public".to_string());
-    let fk_name = format!(
-        "{}_{}_{}_{}_fk",
-        table_name, col_name, ref_table, ref_column
-    );
+    let fk_name = format!("{table_name}_{col_name}_{ref_table}_{ref_column}_fk");
 
     Some(ForeignKey {
         schema: schema_name.to_string().into(),
@@ -532,7 +557,7 @@ fn build_postgres_foreign_key(
     })
 }
 
-/// Build an SQLite index from a parsed index
+/// Build an `SQLite` index from a parsed index
 fn build_sqlite_index(
     index: &ParsedIndex,
     table_name_map: &HashMap<String, String>,
@@ -574,7 +599,7 @@ fn build_sqlite_index(
     }
 }
 
-/// Build a PostgreSQL index from a parsed index
+/// Build a `PostgreSQL` index from a parsed index
 fn build_postgres_index(
     index: &ParsedIndex,
     table_name_map: &HashMap<String, String>,
@@ -625,7 +650,7 @@ fn build_postgres_index(
     }
 }
 
-/// Infer SQLite type from Rust type string
+/// Infer `SQLite` type from Rust type string
 fn infer_sqlite_type(rust_type: &str) -> SQLiteType {
     let base_type = rust_type
         .trim()
@@ -656,7 +681,7 @@ fn infer_sqlite_type(rust_type: &str) -> SQLiteType {
     }
 }
 
-/// Infer PostgreSQL type from Rust type string
+/// Infer `PostgreSQL` type from Rust type string
 fn infer_postgres_type(rust_type: &str) -> PostgreSQLType {
     let base_type = rust_type
         .trim()
@@ -667,10 +692,8 @@ fn infer_postgres_type(rust_type: &str) -> PostgreSQLType {
 
     match base_type {
         "i16" => PostgreSQLType::Smallint,
-        "i32" => PostgreSQLType::Integer,
-        "i64" => PostgreSQLType::Bigint,
-        "u8" | "u16" | "u32" => PostgreSQLType::Integer,
-        "u64" => PostgreSQLType::Bigint,
+        "i32" | "u8" | "u16" | "u32" => PostgreSQLType::Integer,
+        "i64" | "u64" => PostgreSQLType::Bigint,
         "f32" => PostgreSQLType::Real,
         "f64" => PostgreSQLType::DoublePrecision,
         "bool" => PostgreSQLType::Boolean,

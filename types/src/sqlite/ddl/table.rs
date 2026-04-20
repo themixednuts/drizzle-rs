@@ -1,4 +1,4 @@
-//! SQLite Table DDL types
+//! `SQLite` Table DDL types
 //!
 //! This module provides two complementary types:
 //! - [`TableDef`] - A const-friendly definition type for compile-time schema definitions
@@ -105,7 +105,7 @@ impl Default for TableDef {
 ///
 /// # Examples
 ///
-/// ## From TableDef
+/// ## From `TableDef`
 ///
 /// ```
 /// use drizzle_types::sqlite::ddl::{TableDef, Table};
@@ -158,14 +158,14 @@ impl Table {
 
     /// Set STRICT mode
     #[must_use]
-    pub fn strict(mut self) -> Self {
+    pub const fn strict(mut self) -> Self {
         self.strict = true;
         self
     }
 
     /// Set WITHOUT ROWID mode
     #[must_use]
-    pub fn without_rowid(mut self) -> Self {
+    pub const fn without_rowid(mut self) -> Self {
         self.without_rowid = true;
         self
     }

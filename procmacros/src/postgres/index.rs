@@ -3,8 +3,8 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{DeriveInput, Error, Expr, ExprPath, Ident, Meta, Result, Token, Type, parse::Parse};
 
-/// Attributes for the PostgresIndex attribute macro
-/// Syntax: #[PostgresIndex] or #[PostgresIndex(unique)] or #[PostgresIndex(unique, method = "btree")]
+/// Attributes for the `PostgresIndex` attribute macro
+/// Syntax: #[`PostgresIndex`] or #[PostgresIndex(unique)] or #[PostgresIndex(unique, method = "btree")]
 pub struct IndexAttributes {
     pub unique: bool,
     pub concurrent: bool,
@@ -27,7 +27,7 @@ impl Default for IndexAttributes {
 
 impl Parse for IndexAttributes {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
-        let mut attrs = IndexAttributes::default();
+        let mut attrs = Self::default();
 
         if input.is_empty() {
             return Ok(attrs);
@@ -111,8 +111,11 @@ impl Parse for IndexAttributes {
     }
 }
 
-/// Generates the PostgresIndex implementation
-pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> Result<TokenStream> {
+/// Generates the `PostgresIndex` implementation
+pub fn postgres_index_attr_macro(
+    attr: &IndexAttributes,
+    input: &DeriveInput,
+) -> Result<TokenStream> {
     let struct_ident = &input.ident;
     let struct_vis = &input.vis;
 
@@ -232,32 +235,27 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
         quote! {}
     };
 
-    let method_modifier = if let Some(ref method) = attr.method {
-        quote! { .method(#method) }
-    } else {
-        quote! {}
-    };
+    let method_modifier = attr
+        .method
+        .as_ref()
+        .map_or_else(|| quote! {}, |method| quote! { .method(#method) });
 
-    let where_modifier = if let Some(ref where_clause) = attr.where_clause {
-        quote! { .where_clause(#where_clause) }
-    } else {
-        quote! {}
-    };
+    let where_modifier = attr.where_clause.as_ref().map_or_else(
+        || quote! {},
+        |where_clause| quote! { .where_clause(#where_clause) },
+    );
 
     let is_unique = attr.unique;
 
     // Build compile-time SQL using concatcp! to reference the table's schema and name
     let unique_kw = if attr.unique { "UNIQUE " } else { "" };
     let concurrent_kw = if attr.concurrent { "CONCURRENTLY " } else { "" };
-    let create_prefix = format!(
-        "CREATE {}{}INDEX \"{}\" ON \"",
-        unique_kw, concurrent_kw, index_name
-    );
+    let create_prefix = format!("CREATE {unique_kw}{concurrent_kw}INDEX \"{index_name}\" ON \"");
     let dot_quote = "\".\"";
-    let method_and_open = match &attr.method {
-        Some(method) => format!("\" USING {}(", method),
-        None => "\"(".to_string(),
-    };
+    let method_and_open = attr
+        .method
+        .as_ref()
+        .map_or_else(|| "\"(".to_string(), |method| format!("\" USING {method}("));
     let column_sql_parts: Vec<TokenStream> = columns
         .iter()
         .enumerate()
@@ -276,10 +274,10 @@ pub fn postgres_index_attr_macro(attr: IndexAttributes, input: DeriveInput) -> R
             }
         })
         .collect();
-    let close = match &attr.where_clause {
-        Some(wc) => format!(") WHERE {}", wc),
-        None => ")".to_string(),
-    };
+    let close = attr
+        .where_clause
+        .as_ref()
+        .map_or_else(|| ")".to_string(), |wc| format!(") WHERE {wc}"));
     let const_sql = quote! {
         ::drizzle::const_format::concatcp!(
             #create_prefix,
@@ -442,11 +440,11 @@ fn generate_index_name(struct_ident: &Ident, _columns: &[ColumnReference]) -> St
         snake_case
     } else {
         // Otherwise append _idx
-        format!("{}_idx", snake_case)
+        format!("{snake_case}_idx")
     }
 }
 
-/// Extract table type from column expression (similar to SQLite implementation)
+/// Extract table type from column expression (similar to `SQLite` implementation)
 fn extract_table_from_column(column: &Expr) -> Result<Type> {
     if let Expr::Path(expr_path) = column {
         let path = &expr_path.path;

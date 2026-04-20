@@ -9,7 +9,7 @@ use core::fmt;
 use hashbrown::HashMap;
 use smallvec::SmallVec;
 
-/// An owned version of PreparedStatement with no lifetime dependencies
+/// An owned version of `PreparedStatement` with no lifetime dependencies
 #[derive(Debug, Clone)]
 pub struct OwnedPreparedStatement<V: SQLParam> {
     /// Pre-rendered text segments
@@ -27,9 +27,13 @@ impl<V: SQLParam> core::fmt::Display for OwnedPreparedStatement<V> {
 
 impl<'a, V: SQLParam> From<PreparedStatement<'a, V>> for OwnedPreparedStatement<V> {
     fn from(prepared: PreparedStatement<'a, V>) -> Self {
-        OwnedPreparedStatement {
+        Self {
             text_segments: prepared.text_segments,
-            params: prepared.params.into_iter().map(|p| p.into()).collect(),
+            params: prepared
+                .params
+                .into_iter()
+                .map(std::convert::Into::into)
+                .collect(),
             sql: prepared.sql,
         }
     }
@@ -39,10 +43,11 @@ impl<V: SQLParam> OwnedPreparedStatement<V> {
     /// Returns the number of external parameter bindings expected.
     /// This counts params that need external binding (no pre-set value),
     /// deduplicating named params since one binding satisfies all uses.
+    #[must_use]
     pub fn external_param_count(&self) -> usize {
         let mut named = HashMap::<&str, ()>::new();
         let mut positional = 0usize;
-        for param in self.params.iter() {
+        for param in &self.params {
             if param.value.is_some() {
                 continue;
             }
@@ -57,7 +62,12 @@ impl<V: SQLParam> OwnedPreparedStatement<V> {
     }
 
     /// Bind parameters and return SQL with dialect-appropriate placeholders.
-    /// Uses `$1, $2, ...` for PostgreSQL, `?` for SQLite/MySQL.
+    /// Uses `$1, $2, ...` for `PostgreSQL`, `?` for SQLite/MySQL.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if required parameters are missing or if a named
+    /// placeholder cannot be resolved from the supplied bindings.
     pub fn bind<'a, T: SQLParam + Into<V>>(
         &self,
         param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
@@ -73,6 +83,7 @@ impl<V: SQLParam> OwnedPreparedStatement<V> {
     }
 
     /// Returns the fully rendered SQL with placeholders.
+    #[must_use]
     pub fn sql(&self) -> &str {
         self.sql.as_str()
     }

@@ -25,7 +25,7 @@ macro_rules! drizzle_profile_function {
     };
 }
 
-/// Profile SQL rendering operations (append, append_raw, etc.)
+/// Profile SQL rendering operations (append, `append_raw`, etc.)
 #[macro_export]
 macro_rules! profile_sql {
     ($operation:literal) => {

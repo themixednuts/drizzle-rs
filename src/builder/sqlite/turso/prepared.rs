@@ -65,7 +65,7 @@ pub struct PreparedStatement<'a> {
     pub(crate) inner: CorePreparedStatement<'a, SQLiteValue<'a>>,
 }
 
-impl<'a> PreparedStatement<'a> {
+impl PreparedStatement<'_> {
     pub fn into_owned(self) -> OwnedPreparedStatement {
         let owned_params = self.inner.params.iter().map(|p| OwnedParam {
             placeholder: p.placeholder,
@@ -115,7 +115,7 @@ impl From<OwnedPreparedStatement> for PreparedStatement<'_> {
 
 sqlite_async_prepared_impl!(TursoExecutor, Row, turso::Value);
 
-impl<'a> std::fmt::Display for PreparedStatement<'a> {
+impl std::fmt::Display for PreparedStatement<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.inner)
     }

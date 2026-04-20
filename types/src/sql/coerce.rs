@@ -108,9 +108,9 @@ macro_rules! any_assign {
 // Generic impls
 // =============================================================================
 
-impl<T: DataType> Compatible<crate::Array<T>> for crate::Array<T> {}
-impl Compatible<crate::Placeholder> for crate::Placeholder {}
-impl<T: DataType> Assignable<crate::Array<T>> for crate::Array<T> {}
+impl<T: DataType> Compatible<Self> for crate::Array<T> {}
+impl Compatible<Self> for crate::Placeholder {}
+impl<T: DataType> Assignable<Self> for crate::Array<T> {}
 
 // Reflexive compat & assign for all concrete types
 impl_reflexive_compat!(

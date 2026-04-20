@@ -23,7 +23,6 @@
 //!   a clear diagnostic pointing at the missing trait.
 
 use proc_macro2::TokenStream;
-use syn::Result;
 
 #[cfg(feature = "aws-data-api")]
 use super::context::MacroContext;
@@ -35,7 +34,7 @@ use crate::postgres::field::{FieldInfo, PostgreSQLType, TypeCategory};
 use quote::quote;
 
 #[cfg(feature = "aws-data-api")]
-fn is_integer_column(col_type: &PostgreSQLType) -> bool {
+const fn is_integer_column(col_type: &PostgreSQLType) -> bool {
     matches!(
         col_type,
         PostgreSQLType::Integer
@@ -49,7 +48,7 @@ fn is_integer_column(col_type: &PostgreSQLType) -> bool {
 
 /// Generate field conversion for the (non-partial) Select model.
 #[cfg(feature = "aws-data-api")]
-fn generate_select_field_conversion(idx: TokenStream, info: &FieldInfo) -> TokenStream {
+fn generate_select_field_conversion(idx: &TokenStream, info: &FieldInfo) -> TokenStream {
     let drizzle_error = paths::core::drizzle_error();
     let name = &info.ident;
     let base_type = &info.base_type;
@@ -75,19 +74,18 @@ fn generate_select_field_conversion(idx: TokenStream, info: &FieldInfo) -> Token
                     }
                 },
             };
-        } else {
-            return quote! {
-                #name: {
-                    let v: i64 =
-                        <i64 as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
-                            ::from_row_at(row, #idx)?;
-                    <#base_type as ::core::convert::TryFrom<i32>>::try_from(v as i32)
-                        .map_err(|_| #drizzle_error::ConversionError(
-                            format!("AWS Data API: invalid integer enum {}", v).into()
-                        ))?
-                },
-            };
         }
+        return quote! {
+            #name: {
+                let v: i64 =
+                    <i64 as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
+                        ::from_row_at(row, #idx)?;
+                <#base_type as ::core::convert::TryFrom<i32>>::try_from(v as i32)
+                    .map_err(|_| #drizzle_error::ConversionError(
+                        format!("AWS Data API: invalid integer enum {}", v).into()
+                    ))?
+            },
+        };
     }
 
     // Text-stored enum (including native `#[PostgresEnum]` — AWS always returns
@@ -110,19 +108,18 @@ fn generate_select_field_conversion(idx: TokenStream, info: &FieldInfo) -> Token
                     }
                 },
             };
-        } else {
-            return quote! {
-                #name: {
-                    let s: String =
-                        <String as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
-                            ::from_row_at(row, #idx)?;
-                    s.parse::<#base_type>()
-                        .map_err(|_| #drizzle_error::ConversionError(
-                            format!("AWS Data API: failed to parse enum from {:?}", s).into()
-                        ))?
-                },
-            };
         }
+        return quote! {
+            #name: {
+                let s: String =
+                    <String as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
+                        ::from_row_at(row, #idx)?;
+                s.parse::<#base_type>()
+                    .map_err(|_| #drizzle_error::ConversionError(
+                        format!("AWS Data API: failed to parse enum from {:?}", s).into()
+                    ))?
+            },
+        };
     }
 
     // JSON with custom target struct — read Value, deserialize.
@@ -144,19 +141,18 @@ fn generate_select_field_conversion(idx: TokenStream, info: &FieldInfo) -> Token
                     }
                 },
             };
-        } else {
-            return quote! {
-                #name: {
-                    let v: ::serde_json::Value =
-                        <::serde_json::Value as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
-                            ::from_row_at(row, #idx)?;
-                    ::serde_json::from_value(v)
-                        .map_err(|e| #drizzle_error::ConversionError(
-                            format!("AWS Data API: JSON deserialize: {}", e).into()
-                        ))?
-                },
-            };
         }
+        return quote! {
+            #name: {
+                let v: ::serde_json::Value =
+                    <::serde_json::Value as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
+                        ::from_row_at(row, #idx)?;
+                ::serde_json::from_value(v)
+                    .map_err(|e| #drizzle_error::ConversionError(
+                        format!("AWS Data API: JSON deserialize: {}", e).into()
+                    ))?
+            },
+        };
     }
 
     // Default: delegate to FromDrizzleRow for the field type (handles Option<T> etc).
@@ -218,7 +214,7 @@ fn generate_partial_field_conversion(idx: usize, info: &FieldInfo) -> TokenStrea
 // =============================================================================
 
 #[cfg(feature = "aws-data-api")]
-pub(crate) fn generate_aws_data_api_impls(ctx: &MacroContext) -> Result<TokenStream> {
+pub fn generate_aws_data_api_impls(ctx: &MacroContext) -> TokenStream {
     let drizzle_error = paths::core::drizzle_error();
     let row_column_list = paths::core::row_column_list();
     let type_set_nil = paths::core::type_set_nil();
@@ -233,13 +229,13 @@ pub(crate) fn generate_aws_data_api_impls(ctx: &MacroContext) -> Result<TokenStr
     let select_field_inits: Vec<_> = field_infos
         .iter()
         .enumerate()
-        .map(|(idx, info)| generate_select_field_conversion(quote!(#idx), info))
+        .map(|(idx, info)| generate_select_field_conversion(&quote!(#idx), info))
         .collect();
 
     let from_drizzle_field_inits: Vec<_> = field_infos
         .iter()
         .enumerate()
-        .map(|(idx, info)| generate_select_field_conversion(quote!(offset + #idx), info))
+        .map(|(idx, info)| generate_select_field_conversion(&quote!(offset + #idx), info))
         .collect();
 
     let partial_field_inits: Vec<_> = field_infos
@@ -308,7 +304,9 @@ pub(crate) fn generate_aws_data_api_impls(ctx: &MacroContext) -> Result<TokenStr
         }
     };
 
-    let null_probe_impl = if !field_infos.is_empty() {
+    let null_probe_impl = if field_infos.is_empty() {
+        quote! {}
+    } else {
         quote! {
             impl drizzle::core::NullProbeRow<drizzle::postgres::aws_data_api::Row>
                 for #select_model_ident
@@ -321,17 +319,13 @@ pub(crate) fn generate_aws_data_api_impls(ctx: &MacroContext) -> Result<TokenStr
                 }
             }
         }
-    } else {
-        quote! {}
     };
 
-    Ok(quote! { #base_impls #fdr_impl #null_probe_impl })
+    quote! { #base_impls #fdr_impl #null_probe_impl }
 }
 
 /// Fallback when the `aws-data-api` feature is off: emit nothing.
 #[cfg(not(feature = "aws-data-api"))]
-pub(crate) fn generate_aws_data_api_impls(
-    _ctx: &super::context::MacroContext,
-) -> Result<TokenStream> {
-    Ok(TokenStream::new())
+pub(crate) fn generate_aws_data_api_impls(_ctx: &super::context::MacroContext) -> TokenStream {
+    TokenStream::new()
 }

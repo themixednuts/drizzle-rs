@@ -1,6 +1,6 @@
 //! Convenience method generation for model types.
 //!
-//! Generates `with_*` methods for Insert, Update, and PartialSelect models.
+//! Generates `with_*` methods for Insert, Update, and `PartialSelect` models.
 
 use super::super::context::{MacroContext, ModelType};
 use crate::paths::core as core_paths;
@@ -10,7 +10,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
 /// Generates a convenience method for a field based on its type
-pub(crate) fn generate_convenience_method(
+pub fn generate_convenience_method(
     field: &FieldInfo,
     model_type: ModelType,
     ctx: &MacroContext,

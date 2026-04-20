@@ -108,7 +108,7 @@ where
     }
     parts.sort();
 
-    let total: usize = parts.iter().map(|p| p.len()).sum::<usize>() + parts.len() + 3;
+    let total: usize = parts.iter().map(std::string::String::len).sum::<usize>() + parts.len() + 3;
     let mut out = String::with_capacity(total);
     out.push_str("/*");
     for (i, p) in parts.iter().enumerate() {

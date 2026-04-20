@@ -1,4 +1,4 @@
-//! PostgreSQL SQL generation from schema metadata
+//! `PostgreSQL` SQL generation from schema metadata
 
 use super::collection::{DiffType, EntityDiff};
 use super::ddl::{
@@ -8,6 +8,7 @@ use super::ddl::{
 use crate::traits::EntityKind;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 
 pub const BREAKPOINT: &str = "--> statement-breakpoint";
 
@@ -118,7 +119,7 @@ pub enum JsonStatement {
     DropView {
         view: View,
     },
-    /// Alter a view by dropping and recreating (PostgreSQL doesn't support ALTER VIEW for definition changes)
+    /// Alter a view by dropping and recreating (`PostgreSQL` doesn't support ALTER VIEW for definition changes)
     AlterView {
         old_view: Box<View>,
         new_view: Box<View>,
@@ -185,15 +186,25 @@ impl Default for PostgresGenerator {
 }
 
 impl PostgresGenerator {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { breakpoints: true }
     }
 
-    pub fn with_breakpoints(mut self, breakpoints: bool) -> Self {
+    #[must_use]
+    pub const fn with_breakpoints(mut self, breakpoints: bool) -> Self {
         self.breakpoints = breakpoints;
         self
     }
 
+    /// Generate SQL statements from a set of entity diffs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a table listed in `created_tables` is not found in `diff`
+    /// — this cannot happen in practice because `created_tables` is built
+    /// from `diff` itself.
+    #[must_use]
     pub fn generate(&self, diff: &[EntityDiff]) -> Vec<String> {
         let mut sqls = Vec::new();
 
@@ -213,22 +224,22 @@ impl PostgresGenerator {
 
         // 3. Process Schema creations first
         for d in diff.iter().filter(|d| d.kind == EntityKind::Schema) {
-            if let Some(stmt) = self.diff_to_statement_with_context(d, diff) {
-                sqls.push(self.statement_to_sql(stmt));
+            if let Some(stmt) = Self::diff_to_statement_with_context(d, diff) {
+                sqls.push(Self::statement_to_sql(stmt));
             }
         }
 
         // 4. Process Enum creations
         for d in diff.iter().filter(|d| d.kind == EntityKind::Enum) {
-            if let Some(stmt) = self.diff_to_statement_with_context(d, diff) {
-                sqls.push(self.statement_to_sql(stmt));
+            if let Some(stmt) = Self::diff_to_statement_with_context(d, diff) {
+                sqls.push(Self::statement_to_sql(stmt));
             }
         }
 
         // 5. Process Sequence creations
         for d in diff.iter().filter(|d| d.kind == EntityKind::Sequence) {
-            if let Some(stmt) = self.diff_to_statement_with_context(d, diff) {
-                sqls.push(self.statement_to_sql(stmt));
+            if let Some(stmt) = Self::diff_to_statement_with_context(d, diff) {
+                sqls.push(Self::statement_to_sql(stmt));
             }
         }
 
@@ -238,9 +249,9 @@ impl PostgresGenerator {
             if let Some(table_diff) = diff
                 .iter()
                 .find(|d| &d.name == table_key && d.kind == EntityKind::Table)
-                && let Some(stmt) = self.diff_to_statement_with_context(table_diff, diff)
+                && let Some(stmt) = Self::diff_to_statement_with_context(table_diff, diff)
             {
-                sqls.push(self.statement_to_sql(stmt));
+                sqls.push(Self::statement_to_sql(stmt));
             }
         }
 
@@ -252,9 +263,9 @@ impl PostgresGenerator {
                 .find(|d| &d.name == table_key && d.kind == EntityKind::Table)
                 .unwrap();
             if let Some(PostgresEntity::Table(table)) = &table_diff.right {
-                let rich_table = self.build_rich_table(table, diff);
+                let rich_table = Self::build_rich_table(table, diff);
                 let stmt = JsonStatement::CreateTable { table: rich_table };
-                sqls.push(self.statement_to_sql(stmt));
+                sqls.push(Self::statement_to_sql(stmt));
             }
         }
 
@@ -275,28 +286,28 @@ impl PostgresGenerator {
 
             // For creates of sub-entities, check if table was created/dropped
             if d.diff_type == DiffType::Create
-                && let Some(parent_table) = self.get_parent_table_key(d)
+                && let Some(parent_table) = Self::get_parent_table_key(d)
                 && created_tables.contains(&parent_table)
             {
                 continue; // Handled in CreateTable
             }
             if d.diff_type == DiffType::Drop
-                && let Some(parent_table) = self.get_parent_table_key(d)
+                && let Some(parent_table) = Self::get_parent_table_key(d)
                 && dropped_tables.contains(&parent_table)
             {
                 continue; // Handled in DropTable (implied CASCADE usually or handled by dropping table)
             }
 
             // Process individual statements with full diff context for PK lookups
-            if let Some(stmt) = self.diff_to_statement_with_context(d, diff) {
-                sqls.push(self.statement_to_sql(stmt));
+            if let Some(stmt) = Self::diff_to_statement_with_context(d, diff) {
+                sqls.push(Self::statement_to_sql(stmt));
             }
         }
 
         sqls
     }
 
-    fn get_parent_table_key(&self, d: &EntityDiff) -> Option<String> {
+    fn get_parent_table_key(d: &EntityDiff) -> Option<String> {
         // Extract schema.name for table from entity
         // Uses the conventions from collection.rs keys
         match d.kind {
@@ -332,10 +343,10 @@ impl PostgresGenerator {
         }
     }
 
-    fn build_rich_table(&self, table: &Table, diff: &[EntityDiff]) -> RichTable {
+    fn build_rich_table(table: &Table, diff: &[EntityDiff]) -> RichTable {
         let table_key = format!("{}.{}", table.schema, table.name);
 
-        let columns = self.extract_created_entities(diff, EntityKind::Column, &table_key, |e| {
+        let columns = Self::extract_created_entities(diff, EntityKind::Column, &table_key, |e| {
             if let PostgresEntity::Column(c) = e {
                 Some(c.clone())
             } else {
@@ -343,7 +354,7 @@ impl PostgresGenerator {
             }
         });
 
-        let indexes = self.extract_created_entities(diff, EntityKind::Index, &table_key, |e| {
+        let indexes = Self::extract_created_entities(diff, EntityKind::Index, &table_key, |e| {
             if let PostgresEntity::Index(i) = e {
                 Some(i.clone())
             } else {
@@ -352,7 +363,7 @@ impl PostgresGenerator {
         });
 
         let foreign_keys =
-            self.extract_created_entities(diff, EntityKind::ForeignKey, &table_key, |e| {
+            Self::extract_created_entities(diff, EntityKind::ForeignKey, &table_key, |e| {
                 if let PostgresEntity::ForeignKey(f) = e {
                     Some(f.clone())
                 } else {
@@ -361,7 +372,7 @@ impl PostgresGenerator {
             });
 
         let uniques =
-            self.extract_created_entities(diff, EntityKind::UniqueConstraint, &table_key, |e| {
+            Self::extract_created_entities(diff, EntityKind::UniqueConstraint, &table_key, |e| {
                 if let PostgresEntity::UniqueConstraint(u) = e {
                     Some(u.clone())
                 } else {
@@ -370,7 +381,7 @@ impl PostgresGenerator {
             });
 
         let checks =
-            self.extract_created_entities(diff, EntityKind::CheckConstraint, &table_key, |e| {
+            Self::extract_created_entities(diff, EntityKind::CheckConstraint, &table_key, |e| {
                 if let PostgresEntity::CheckConstraint(c) = e {
                     Some(c.clone())
                 } else {
@@ -378,7 +389,7 @@ impl PostgresGenerator {
                 }
             });
 
-        let policies = self.extract_created_entities(diff, EntityKind::Policy, &table_key, |e| {
+        let policies = Self::extract_created_entities(diff, EntityKind::Policy, &table_key, |e| {
             if let PostgresEntity::Policy(p) = e {
                 Some(p.clone())
             } else {
@@ -387,7 +398,7 @@ impl PostgresGenerator {
         });
 
         let pk_list =
-            self.extract_created_entities(diff, EntityKind::PrimaryKey, &table_key, |e| {
+            Self::extract_created_entities(diff, EntityKind::PrimaryKey, &table_key, |e| {
                 if let PostgresEntity::PrimaryKey(p) = e {
                     Some(p.clone())
                 } else {
@@ -411,7 +422,6 @@ impl PostgresGenerator {
     }
 
     fn extract_created_entities<T, F>(
-        &self,
         diff: &[EntityDiff],
         kind: EntityKind,
         table_key: &str,
@@ -423,7 +433,7 @@ impl PostgresGenerator {
         diff.iter()
             .filter(|d| d.diff_type == DiffType::Create && d.kind == kind)
             .filter_map(|d| {
-                if let Some(parent) = self.get_parent_table_key(d)
+                if let Some(parent) = Self::get_parent_table_key(d)
                     && parent == table_key
                 {
                     return d.right.as_ref().and_then(&extractor);
@@ -436,146 +446,152 @@ impl PostgresGenerator {
     /// Convert a single diff entry to a JSON statement, with access to the full diff
     /// for cross-entity lookups (e.g., determining if a column is part of a PK).
     fn diff_to_statement_with_context(
-        &self,
         d: &EntityDiff,
         all_diffs: &[EntityDiff],
     ) -> Option<JsonStatement> {
         match d.diff_type {
-            DiffType::Create => match d.right.as_ref()? {
-                PostgresEntity::Schema(s) => Some(JsonStatement::CreateSchema {
-                    name: s.name.to_string(),
-                }),
-                PostgresEntity::Enum(e) => Some(JsonStatement::CreateEnum { enum_: e.clone() }),
-                PostgresEntity::Sequence(s) => Some(JsonStatement::CreateSequence {
-                    sequence: s.clone(),
-                }),
-                PostgresEntity::Role(r) => Some(JsonStatement::CreateRole { role: r.clone() }),
-                PostgresEntity::View(v) => Some(JsonStatement::CreateView { view: v.clone() }),
-                PostgresEntity::Column(c) => {
-                    // Check if this column is part of a newly created PK
-                    let (is_pk, is_composite_pk) = self.check_column_pk_status(c, all_diffs);
-                    Some(JsonStatement::AddColumn {
-                        column: Box::new(c.clone()),
-                        is_pk,
-                        is_composite_pk,
+            DiffType::Create => Self::create_diff_to_statement(d.right.as_ref()?, all_diffs),
+            DiffType::Drop => Self::drop_diff_to_statement(d.left.as_ref()?),
+            DiffType::Alter => Self::alter_diff_to_statement(d.left.as_ref(), d.right.as_ref()),
+        }
+    }
+
+    fn create_diff_to_statement(
+        right: &PostgresEntity,
+        all_diffs: &[EntityDiff],
+    ) -> Option<JsonStatement> {
+        match right {
+            PostgresEntity::Schema(s) => Some(JsonStatement::CreateSchema {
+                name: s.name.to_string(),
+            }),
+            PostgresEntity::Enum(e) => Some(JsonStatement::CreateEnum { enum_: e.clone() }),
+            PostgresEntity::Sequence(s) => Some(JsonStatement::CreateSequence {
+                sequence: s.clone(),
+            }),
+            PostgresEntity::Role(r) => Some(JsonStatement::CreateRole { role: r.clone() }),
+            PostgresEntity::View(v) => Some(JsonStatement::CreateView { view: v.clone() }),
+            PostgresEntity::Column(c) => {
+                let (is_pk, is_composite_pk) = Self::check_column_pk_status(c, all_diffs);
+                Some(JsonStatement::AddColumn {
+                    column: Box::new(c.clone()),
+                    is_pk,
+                    is_composite_pk,
+                })
+            }
+            PostgresEntity::Index(i) => Some(JsonStatement::CreateIndex { index: i.clone() }),
+            PostgresEntity::ForeignKey(f) => Some(JsonStatement::CreateFk { fk: f.clone() }),
+            PostgresEntity::PrimaryKey(p) => Some(JsonStatement::AddPk { pk: p.clone() }),
+            PostgresEntity::UniqueConstraint(u) => {
+                Some(JsonStatement::AddUnique { unique: u.clone() })
+            }
+            PostgresEntity::CheckConstraint(c) => {
+                Some(JsonStatement::AddCheck { check: c.clone() })
+            }
+            PostgresEntity::Policy(p) => Some(JsonStatement::CreatePolicy { policy: p.clone() }),
+            // Handled separately in CreateTable; privileges not yet tracked
+            PostgresEntity::Table(_) | PostgresEntity::Privilege(_) => None,
+        }
+    }
+
+    fn drop_diff_to_statement(left: &PostgresEntity) -> Option<JsonStatement> {
+        match left {
+            PostgresEntity::Schema(s) => Some(JsonStatement::DropSchema {
+                name: s.name.to_string(),
+            }),
+            PostgresEntity::Enum(e) => Some(JsonStatement::DropEnum { enum_: e.clone() }),
+            PostgresEntity::Sequence(s) => Some(JsonStatement::DropSequence {
+                sequence: s.clone(),
+            }),
+            PostgresEntity::Role(r) => Some(JsonStatement::DropRole { role: r.clone() }),
+            PostgresEntity::View(v) => Some(JsonStatement::DropView { view: v.clone() }),
+            PostgresEntity::Table(t) => Some(JsonStatement::DropTable {
+                table: t.clone(),
+                table_key: format!("{}.{}", t.schema, t.name),
+            }),
+            PostgresEntity::Column(c) => Some(JsonStatement::DropColumn {
+                column: Box::new(c.clone()),
+            }),
+            PostgresEntity::Index(i) => Some(JsonStatement::DropIndex { index: i.clone() }),
+            PostgresEntity::ForeignKey(f) => Some(JsonStatement::DropFk { fk: f.clone() }),
+            PostgresEntity::PrimaryKey(p) => Some(JsonStatement::DropPk { pk: p.clone() }),
+            PostgresEntity::UniqueConstraint(u) => {
+                Some(JsonStatement::DropUnique { unique: u.clone() })
+            }
+            PostgresEntity::CheckConstraint(c) => {
+                Some(JsonStatement::DropCheck { check: c.clone() })
+            }
+            PostgresEntity::Policy(p) => Some(JsonStatement::DropPolicy { policy: p.clone() }),
+            PostgresEntity::Privilege(_) => None, // Privileges not yet tracked
+        }
+    }
+
+    fn alter_diff_to_statement(
+        left: Option<&PostgresEntity>,
+        right: Option<&PostgresEntity>,
+    ) -> Option<JsonStatement> {
+        match (left, right) {
+            (Some(PostgresEntity::Enum(old)), Some(PostgresEntity::Enum(new))) => {
+                let mut diffs = Vec::new();
+                for val in new.values.iter() {
+                    if !old.values.iter().any(|v| v == val) {
+                        diffs.push(EnumDiff {
+                            r#type: "added".to_string(),
+                            value: val.to_string(),
+                            before_value: None,
+                        });
+                    }
+                }
+                if diffs.is_empty() {
+                    None
+                } else {
+                    Some(JsonStatement::AlterEnum {
+                        from: old.clone(),
+                        to: new.clone(),
+                        diff: diffs,
                     })
                 }
-                PostgresEntity::Index(i) => Some(JsonStatement::CreateIndex { index: i.clone() }),
-                PostgresEntity::ForeignKey(f) => Some(JsonStatement::CreateFk { fk: f.clone() }),
-                PostgresEntity::PrimaryKey(p) => Some(JsonStatement::AddPk { pk: p.clone() }),
-                PostgresEntity::UniqueConstraint(u) => {
-                    Some(JsonStatement::AddUnique { unique: u.clone() })
-                }
-                PostgresEntity::CheckConstraint(c) => {
-                    Some(JsonStatement::AddCheck { check: c.clone() })
-                }
-                PostgresEntity::Policy(p) => {
-                    Some(JsonStatement::CreatePolicy { policy: p.clone() })
-                }
-                PostgresEntity::Table(_) => None, // Handled separately in CreateTable
-                PostgresEntity::Privilege(_) => None, // Privileges not yet tracked
-            },
-            DiffType::Drop => match d.left.as_ref()? {
-                PostgresEntity::Schema(s) => Some(JsonStatement::DropSchema {
-                    name: s.name.to_string(),
-                }),
-                PostgresEntity::Enum(e) => Some(JsonStatement::DropEnum { enum_: e.clone() }),
-                PostgresEntity::Sequence(s) => Some(JsonStatement::DropSequence {
-                    sequence: s.clone(),
-                }),
-                PostgresEntity::Role(r) => Some(JsonStatement::DropRole { role: r.clone() }),
-                PostgresEntity::View(v) => Some(JsonStatement::DropView { view: v.clone() }),
-                PostgresEntity::Table(t) => Some(JsonStatement::DropTable {
-                    table: t.clone(),
-                    table_key: format!("{}.{}", t.schema, t.name),
-                }),
-                PostgresEntity::Column(c) => Some(JsonStatement::DropColumn {
-                    column: Box::new(c.clone()),
-                }),
-                PostgresEntity::Index(i) => Some(JsonStatement::DropIndex { index: i.clone() }),
-                PostgresEntity::ForeignKey(f) => Some(JsonStatement::DropFk { fk: f.clone() }),
-                PostgresEntity::PrimaryKey(p) => Some(JsonStatement::DropPk { pk: p.clone() }),
-                PostgresEntity::UniqueConstraint(u) => {
-                    Some(JsonStatement::DropUnique { unique: u.clone() })
-                }
-                PostgresEntity::CheckConstraint(c) => {
-                    Some(JsonStatement::DropCheck { check: c.clone() })
-                }
-                PostgresEntity::Policy(p) => Some(JsonStatement::DropPolicy { policy: p.clone() }),
-                PostgresEntity::Privilege(_) => None, // Privileges not yet tracked
-            },
-            DiffType::Alter => {
-                match (d.left.as_ref(), d.right.as_ref()) {
-                    (Some(PostgresEntity::Enum(old)), Some(PostgresEntity::Enum(new))) => {
-                        // Find new values added to the enum
-                        let mut diffs = Vec::new();
-                        for val in new.values.iter() {
-                            if !old.values.iter().any(|v| v == val) {
-                                diffs.push(EnumDiff {
-                                    r#type: "added".to_string(),
-                                    value: val.to_string(),
-                                    before_value: None,
-                                });
-                            }
-                        }
-                        if !diffs.is_empty() {
-                            Some(JsonStatement::AlterEnum {
-                                from: old.clone(),
-                                to: new.clone(),
-                                diff: diffs,
-                            })
-                        } else {
-                            None
-                        }
-                    }
-                    (Some(PostgresEntity::Column(old)), Some(PostgresEntity::Column(new))) => {
-                        // Check if this requires a column recreation (adding generated expression)
-                        // PostgreSQL doesn't support ALTER COLUMN ... ADD GENERATED AS
-                        let needs_recreate = old.generated.is_none() && new.generated.is_some();
-
-                        if needs_recreate {
-                            Some(JsonStatement::RecreateColumn {
-                                old_column: Box::new(old.clone()),
-                                new_column: Box::new(new.clone()),
-                            })
-                        } else {
-                            // Build a granular diff structure for column alterations
-                            let diff = self.build_column_diff(old, new);
-                            let was_enum = old.type_schema.is_some();
-                            let is_enum = new.type_schema.is_some();
-
-                            Some(JsonStatement::AlterColumn {
-                                to: Box::new(new.clone()),
-                                was_enum,
-                                is_enum,
-                                diff,
-                            })
-                        }
-                    }
-                    // View alterations: PostgreSQL doesn't support ALTER VIEW for definition changes,
-                    // so we need to drop and recreate the view
-                    (Some(PostgresEntity::View(old)), Some(PostgresEntity::View(new))) => {
-                        // Skip existing views (not managed by drizzle)
-                        if old.is_existing || new.is_existing {
-                            None
-                        } else {
-                            Some(JsonStatement::AlterView {
-                                old_view: Box::new(old.clone()),
-                                new_view: Box::new(new.clone()),
-                            })
-                        }
-                    }
-                    _ => None,
+            }
+            (Some(PostgresEntity::Column(old)), Some(PostgresEntity::Column(new))) => {
+                // PostgreSQL doesn't support ALTER COLUMN ... ADD GENERATED AS
+                let needs_recreate = old.generated.is_none() && new.generated.is_some();
+                if needs_recreate {
+                    Some(JsonStatement::RecreateColumn {
+                        old_column: Box::new(old.clone()),
+                        new_column: Box::new(new.clone()),
+                    })
+                } else {
+                    let diff = Self::build_column_diff(old, new);
+                    let was_enum = old.type_schema.is_some();
+                    let is_enum = new.type_schema.is_some();
+                    Some(JsonStatement::AlterColumn {
+                        to: Box::new(new.clone()),
+                        was_enum,
+                        is_enum,
+                        diff,
+                    })
                 }
             }
+            // PostgreSQL doesn't support ALTER VIEW for definition changes,
+            // so we drop and recreate the view.
+            (Some(PostgresEntity::View(old)), Some(PostgresEntity::View(new))) => {
+                if old.is_existing || new.is_existing {
+                    None
+                } else {
+                    Some(JsonStatement::AlterView {
+                        old_view: Box::new(old.clone()),
+                        new_view: Box::new(new.clone()),
+                    })
+                }
+            }
+            _ => None,
         }
     }
 
     /// Check if a column is part of a newly created primary key.
-    /// Returns (is_pk, is_composite_pk):
-    /// - is_pk: true if this is a single-column PK with default naming
-    /// - is_composite_pk: true if this column is part of a multi-column PK
-    fn check_column_pk_status(&self, col: &Column, all_diffs: &[EntityDiff]) -> (bool, bool) {
+    /// Returns (`is_pk`, `is_composite_pk)`:
+    /// - `is_pk`: true if this is a single-column PK with default naming
+    /// - `is_composite_pk`: true if this column is part of a multi-column PK
+    fn check_column_pk_status(col: &Column, all_diffs: &[EntityDiff]) -> (bool, bool) {
         // Look for created PKs for the same table
         let table_key = format!("{}.{}", col.schema, col.table);
 
@@ -600,7 +616,7 @@ impl PostgresGenerator {
 
     /// Build a granular diff structure for column alterations.
     /// Tracks changes to type, default, notNull, generated, and identity.
-    fn build_column_diff(&self, old: &Column, new: &Column) -> HashMap<String, serde_json::Value> {
+    fn build_column_diff(old: &Column, new: &Column) -> HashMap<String, serde_json::Value> {
         let mut diff = HashMap::new();
 
         // Type change
@@ -656,611 +672,509 @@ impl PostgresGenerator {
         diff
     }
 
-    fn statement_to_sql(&self, stmt: JsonStatement) -> String {
-        match stmt {
-            JsonStatement::CreateSchema { name } => format!("CREATE SCHEMA \"{}\";", name),
-            JsonStatement::DropSchema { name } => format!("DROP SCHEMA \"{}\";", name),
-            JsonStatement::CreateEnum { enum_: e } => {
-                let schema_prefix = if e.schema != "public" {
-                    format!("\"{}\".", e.schema)
-                } else {
-                    String::new()
-                };
-                let values = e
-                    .values
-                    .iter()
-                    .map(|v| format!("'{}'", v))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!(
-                    "CREATE TYPE {}\"{}\" AS ENUM ({});",
-                    schema_prefix, e.name, values
-                )
-            }
-            JsonStatement::DropEnum { enum_: e } => {
-                let schema_prefix = if e.schema != "public" {
-                    format!("\"{}\".", e.schema)
-                } else {
-                    String::new()
-                };
-                format!("DROP TYPE {}\"{}\";", schema_prefix, e.name)
-            }
-            JsonStatement::AlterEnum { from: _, to, diff } => {
-                let schema_prefix = if to.schema != "public" {
-                    format!("\"{}\".", to.schema)
-                } else {
-                    String::new()
-                };
-                let mut sqls = Vec::new();
-                for d in diff {
-                    sqls.push(format!(
-                        "ALTER TYPE {}\"{}\" ADD VALUE '{}';",
-                        schema_prefix, to.name, d.value
-                    ));
-                }
-                sqls.join("\n")
-            }
-            JsonStatement::CreateSequence { sequence: s } => {
-                let schema_prefix = if s.schema != "public" {
-                    format!("\"{}\".", s.schema)
-                } else {
-                    String::new()
-                };
-                let mut sql = format!("CREATE SEQUENCE {}\"{}\"", schema_prefix, s.name);
-                if let Some(ref inc) = s.increment_by {
-                    sql.push_str(&format!(" INCREMENT BY {}", inc));
-                }
-                if let Some(ref min) = s.min_value {
-                    sql.push_str(&format!(" MINVALUE {}", min));
-                }
-                if let Some(ref max) = s.max_value {
-                    sql.push_str(&format!(" MAXVALUE {}", max));
-                }
-                if let Some(ref start) = s.start_with {
-                    sql.push_str(&format!(" START WITH {}", start));
-                }
-                if let Some(cache) = s.cache_size {
-                    sql.push_str(&format!(" CACHE {}", cache));
-                }
-                if s.cycle.unwrap_or(false) {
-                    sql.push_str(" CYCLE");
-                }
-                sql.push(';');
-                sql
-            }
-            JsonStatement::DropSequence { sequence: s } => {
-                let schema_prefix = if s.schema != "public" {
-                    format!("\"{}\".", s.schema)
-                } else {
-                    String::new()
-                };
-                format!("DROP SEQUENCE {}\"{}\";", schema_prefix, s.name)
-            }
-            JsonStatement::CreateTable { table } => {
-                let schema_prefix = if table.schema != "public" {
-                    format!("\"{}\".", table.schema)
-                } else {
-                    String::new()
-                };
-                let mut sql = format!("CREATE TABLE {}\"{}\" (\n", schema_prefix, table.name);
-                let mut lines = Vec::new();
-
-                for col in &table.columns {
-                    lines.push(format!("\t{}", self.column_def(col)));
-                }
-
-                if let Some(pk) = &table.pk {
-                    let cols = pk
-                        .columns
-                        .iter()
-                        .map(|c| format!("\"{}\"", c))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    if pk.name_explicit {
-                        lines.push(format!(
-                            "\tCONSTRAINT \"{}\" PRIMARY KEY({})",
-                            pk.name, cols
-                        ));
-                    } else {
-                        lines.push(format!("\tPRIMARY KEY({})", cols));
-                    }
-                }
-
-                for fk in &table.foreign_keys {
-                    lines.push(format!("\t{}", self.fk_def(fk)));
-                }
-
-                for u in &table.uniques {
-                    let cols = u
-                        .columns
-                        .iter()
-                        .map(|c| format!("\"{}\"", c))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    lines.push(format!("\tCONSTRAINT \"{}\" UNIQUE({})", u.name, cols));
-                }
-
-                for c in &table.checks {
-                    lines.push(format!("\tCONSTRAINT \"{}\" CHECK ({})", c.name, c.value));
-                }
-
-                sql.push_str(&lines.join(",\n"));
-                sql.push_str("\n);");
-
-                // Add Indexes separate? No, standard is create table then indexes usually in Drizzle,
-                // but JsonStatement::CreateTable doesn't strictly imply inline indexes.
-                // But Drizzle-Kit usually separates indexes.
-
-                sql
-            }
-            JsonStatement::DropTable { table, .. } => {
-                let schema_prefix = if table.schema != "public" {
-                    format!("\"{}\".", table.schema)
-                } else {
-                    String::new()
-                };
-                format!("DROP TABLE {}\"{}\";", schema_prefix, table.name)
-            }
-            JsonStatement::AddColumn { column, is_pk, .. } => {
-                let schema_prefix = if column.schema != "public" {
-                    format!("\"{}\".", column.schema)
-                } else {
-                    String::new()
-                };
-                let pk_clause = if is_pk { " PRIMARY KEY" } else { "" };
-                format!(
-                    "ALTER TABLE {}\"{}\" ADD COLUMN {}{};",
-                    schema_prefix,
-                    column.table,
-                    self.column_def(&column),
-                    pk_clause
-                )
-            }
-            JsonStatement::DropColumn { column } => {
-                let schema_prefix = if column.schema != "public" {
-                    format!("\"{}\".", column.schema)
-                } else {
-                    String::new()
-                };
-                format!(
-                    "ALTER TABLE {}\"{}\" DROP COLUMN \"{}\";",
-                    schema_prefix, column.table, column.name
-                )
-            }
-            JsonStatement::CreateIndex { index } => {
-                let unique = if index.is_unique { "UNIQUE " } else { "" };
-                let concurrently = if index.concurrently {
-                    " CONCURRENTLY"
-                } else {
-                    ""
-                };
-                let schema_prefix = if index.schema != "public" {
-                    format!("\"{}\".", index.schema)
-                } else {
-                    String::new()
-                };
-
-                let cols = index
-                    .columns
-                    .iter()
-                    .map(|c| {
-                        let val = if c.is_expression {
-                            c.value.to_string()
-                        } else {
-                            format!("\"{}\"", c.value)
-                        };
-                        let order = if c.asc { "" } else { " DESC" };
-                        let nulls = if c.nulls_first {
-                            " NULLS FIRST"
-                        } else {
-                            " NULLS LAST"
-                        }; // Default varies but being explicit safe?
-                        // Actually Drizzle defaults: ASC NULLS LAST.
-                        format!("{}{}{}", val, order, nulls)
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                format!(
-                    "CREATE {}INDEX{} \"{}\" ON {}\"{}\" USING {} ({});",
-                    unique,
-                    concurrently,
-                    index.name,
-                    schema_prefix,
-                    index.table,
-                    index.method.as_deref().unwrap_or("btree"),
-                    cols
-                )
-            }
-            JsonStatement::DropIndex { index } => {
-                let schema_prefix = if index.schema != "public" {
-                    format!("\"{}\".", index.schema)
-                } else {
-                    String::new()
-                };
-                format!("DROP INDEX {}\"{}\";", schema_prefix, index.name)
-            }
-            JsonStatement::CreateFk { fk } => {
-                let schema_prefix = if fk.schema != "public" {
-                    format!("\"{}\".", fk.schema)
-                } else {
-                    String::new()
-                };
-                format!(
-                    "ALTER TABLE {}\"{}\" ADD {};",
-                    schema_prefix,
-                    fk.table,
-                    self.fk_def(&fk)
-                )
-            }
-            JsonStatement::DropFk { fk } => {
-                let schema_prefix = if fk.schema != "public" {
-                    format!("\"{}\".", fk.schema)
-                } else {
-                    String::new()
-                };
-                format!(
-                    "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",
-                    schema_prefix, fk.table, fk.name
-                )
-            }
-            JsonStatement::CreateView { view } => {
-                let schema_prefix = if view.schema != "public" {
-                    format!("\"{}\".", view.schema)
-                } else {
-                    String::new()
-                };
-                let mat = if view.materialized {
-                    "MATERIALIZED "
-                } else {
-                    ""
-                };
-                let def = view.definition.as_deref().unwrap_or("");
-                format!(
-                    "CREATE {}VIEW {}\"{}\" AS {};",
-                    mat, schema_prefix, view.name, def
-                )
-            }
-            JsonStatement::DropView { view } => {
-                let schema_prefix = if view.schema != "public" {
-                    format!("\"{}\".", view.schema)
-                } else {
-                    String::new()
-                };
-                let mat = if view.materialized {
-                    "MATERIALIZED "
-                } else {
-                    ""
-                };
-                format!("DROP {}VIEW {}\"{}\";", mat, schema_prefix, view.name)
-            }
-            JsonStatement::AlterView { old_view, new_view } => {
-                // PostgreSQL doesn't support ALTER VIEW for definition changes,
-                // so we drop and recreate the view
-                let old_schema_prefix = if old_view.schema != "public" {
-                    format!("\"{}\".", old_view.schema)
-                } else {
-                    String::new()
-                };
-                let old_mat = if old_view.materialized {
-                    "MATERIALIZED "
-                } else {
-                    ""
-                };
-                let drop_sql = format!(
-                    "DROP {}VIEW {}\"{}\";",
-                    old_mat, old_schema_prefix, old_view.name
-                );
-
-                let new_schema_prefix = if new_view.schema != "public" {
-                    format!("\"{}\".", new_view.schema)
-                } else {
-                    String::new()
-                };
-                let new_mat = if new_view.materialized {
-                    "MATERIALIZED "
-                } else {
-                    ""
-                };
-                let def = new_view.definition.as_deref().unwrap_or("");
-                let create_sql = format!(
-                    "CREATE {}VIEW {}\"{}\" AS {};",
-                    new_mat, new_schema_prefix, new_view.name, def
-                );
-
-                format!("{}\n{}", drop_sql, create_sql)
-            }
-            JsonStatement::RenameTable { schema, from, to } => {
-                let schema_prefix = if schema != "public" {
-                    format!("\"{}\".", schema)
-                } else {
-                    String::new()
-                };
-                format!(
-                    "ALTER TABLE {}\"{}\" RENAME TO \"{}\";",
-                    schema_prefix, from, to
-                )
-            }
-            JsonStatement::RenameColumn { from, to } => {
-                let schema_prefix = if from.schema != "public" {
-                    format!("\"{}\".", from.schema)
-                } else {
-                    String::new()
-                };
-                format!(
-                    "ALTER TABLE {}\"{}\" RENAME COLUMN \"{}\" TO \"{}\";",
-                    schema_prefix, from.table, from.name, to.name
-                )
-            }
-            JsonStatement::RenameSchema { from, to } => {
-                format!("ALTER SCHEMA \"{}\" RENAME TO \"{}\";", from.name, to.name)
-            }
-            JsonStatement::AlterColumn { to, diff, .. } => {
-                let schema_prefix = if to.schema != "public" {
-                    format!("\"{}\".", to.schema)
-                } else {
-                    String::new()
-                };
-                let table_key = format!("{}\"{}\"", schema_prefix, to.table);
-                let mut stmts = Vec::new();
-
-                // Handle type change
-                if diff.contains_key("type") {
-                    let using_clause = format!(" USING \"{}\"::{}", to.name, to.sql_type);
-                    stmts.push(format!(
-                        "ALTER TABLE {} ALTER COLUMN \"{}\" SET DATA TYPE {}{};",
-                        table_key, to.name, to.sql_type, using_clause
-                    ));
-                }
-
-                // Handle NOT NULL change
-                if diff.contains_key("notNull") {
-                    if to.not_null {
-                        stmts.push(format!(
-                            "ALTER TABLE {} ALTER COLUMN \"{}\" SET NOT NULL;",
-                            table_key, to.name
-                        ));
-                    } else {
-                        stmts.push(format!(
-                            "ALTER TABLE {} ALTER COLUMN \"{}\" DROP NOT NULL;",
-                            table_key, to.name
-                        ));
-                    }
-                }
-
-                // Handle default change
-                if diff.contains_key("default") {
-                    if let Some(default) = &to.default {
-                        stmts.push(format!(
-                            "ALTER TABLE {} ALTER COLUMN \"{}\" SET DEFAULT {};",
-                            table_key, to.name, default
-                        ));
-                    } else {
-                        stmts.push(format!(
-                            "ALTER TABLE {} ALTER COLUMN \"{}\" DROP DEFAULT;",
-                            table_key, to.name
-                        ));
-                    }
-                }
-
-                // Handle generated column change (drop expression)
-                if diff.contains_key("generated") && to.generated.is_none() {
-                    stmts.push(format!(
-                        "ALTER TABLE {} ALTER COLUMN \"{}\" DROP EXPRESSION;",
-                        table_key, to.name
-                    ));
-                    // Note: Adding generated column requires drop + add (recreate_column)
-                }
-
-                // Handle identity change (skip for serial types — SERIAL
-                // already implies DEFAULT nextval(...) and cannot be combined
-                // with GENERATED AS IDENTITY).
-                if diff.contains_key("identity")
-                    && !super::grammar::PgTypeCategory::from_sql_type(&to.sql_type).is_serial()
-                {
-                    if let Some(id) = &to.identity {
-                        use super::ddl::IdentityType;
-                        let type_str = match id.type_ {
-                            IdentityType::Always => "ALWAYS",
-                            IdentityType::ByDefault => "BY DEFAULT",
-                        };
-                        stmts.push(format!(
-                            "ALTER TABLE {} ALTER COLUMN \"{}\" ADD GENERATED {} AS IDENTITY;",
-                            table_key, to.name, type_str
-                        ));
-                    } else {
-                        stmts.push(format!(
-                            "ALTER TABLE {} ALTER COLUMN \"{}\" DROP IDENTITY;",
-                            table_key, to.name
-                        ));
-                    }
-                }
-
-                if stmts.is_empty() {
-                    format!("-- No column changes for {}.{}", to.table, to.name)
-                } else {
-                    stmts.join("\n")
-                }
-            }
-            JsonStatement::AddPk { pk } => {
-                let schema_prefix = if pk.schema != "public" {
-                    format!("\"{}\".", pk.schema)
-                } else {
-                    String::new()
-                };
-                let cols = pk
-                    .columns
-                    .iter()
-                    .map(|c| format!("\"{}\"", c))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!(
-                    "ALTER TABLE {}\"{}\" ADD CONSTRAINT \"{}\" PRIMARY KEY ({});",
-                    schema_prefix, pk.table, pk.name, cols
-                )
-            }
-            JsonStatement::DropPk { pk } => {
-                let schema_prefix = if pk.schema != "public" {
-                    format!("\"{}\".", pk.schema)
-                } else {
-                    String::new()
-                };
-                format!(
-                    "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",
-                    schema_prefix, pk.table, pk.name
-                )
-            }
-            JsonStatement::AddUnique { unique } => {
-                let schema_prefix = if unique.schema != "public" {
-                    format!("\"{}\".", unique.schema)
-                } else {
-                    String::new()
-                };
-                let cols = unique
-                    .columns
-                    .iter()
-                    .map(|c| format!("\"{}\"", c))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!(
-                    "ALTER TABLE {}\"{}\" ADD CONSTRAINT \"{}\" UNIQUE ({});",
-                    schema_prefix, unique.table, unique.name, cols
-                )
-            }
-            JsonStatement::DropUnique { unique } => {
-                let schema_prefix = if unique.schema != "public" {
-                    format!("\"{}\".", unique.schema)
-                } else {
-                    String::new()
-                };
-                format!(
-                    "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",
-                    schema_prefix, unique.table, unique.name
-                )
-            }
-            JsonStatement::AddCheck { check } => {
-                let schema_prefix = if check.schema != "public" {
-                    format!("\"{}\".", check.schema)
-                } else {
-                    String::new()
-                };
-                format!(
-                    "ALTER TABLE {}\"{}\" ADD CONSTRAINT \"{}\" CHECK ({});",
-                    schema_prefix, check.table, check.name, check.value
-                )
-            }
-            JsonStatement::DropCheck { check } => {
-                let schema_prefix = if check.schema != "public" {
-                    format!("\"{}\".", check.schema)
-                } else {
-                    String::new()
-                };
-                format!(
-                    "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",
-                    schema_prefix, check.table, check.name
-                )
-            }
-            JsonStatement::CreateRole { role } => {
-                let mut sql = format!("CREATE ROLE \"{}\"", role.name);
-                if role.create_db.unwrap_or(false) {
-                    sql.push_str(" CREATEDB");
-                }
-                if role.create_role.unwrap_or(false) {
-                    sql.push_str(" CREATEROLE");
-                }
-                if role.inherit.unwrap_or(true) {
-                    sql.push_str(" INHERIT");
-                } else {
-                    sql.push_str(" NOINHERIT");
-                }
-                sql.push(';');
-                sql
-            }
-            JsonStatement::DropRole { role } => {
-                format!("DROP ROLE \"{}\";", role.name)
-            }
-            JsonStatement::CreatePolicy { policy } => {
-                let schema_prefix = if policy.schema != "public" {
-                    format!("\"{}\".", policy.schema)
-                } else {
-                    String::new()
-                };
-                let mut sql = format!(
-                    "CREATE POLICY \"{}\" ON {}\"{}\"",
-                    policy.name, schema_prefix, policy.table
-                );
-                if let Some(as_clause) = &policy.as_clause {
-                    sql.push_str(&format!(" AS {}", as_clause));
-                }
-                if let Some(for_clause) = &policy.for_clause {
-                    sql.push_str(&format!(" FOR {}", for_clause));
-                }
-                if let Some(to) = &policy.to {
-                    let to_list: Vec<&str> = to.iter().map(|role| role.as_ref()).collect();
-                    sql.push_str(&format!(" TO {}", to_list.join(", ")));
-                }
-                if let Some(using) = &policy.using {
-                    sql.push_str(&format!(" USING ({})", using));
-                }
-                if let Some(with_check) = &policy.with_check {
-                    sql.push_str(&format!(" WITH CHECK ({})", with_check));
-                }
-                sql.push(';');
-                sql
-            }
-            JsonStatement::DropPolicy { policy } => {
-                let schema_prefix = if policy.schema != "public" {
-                    format!("\"{}\".", policy.schema)
-                } else {
-                    String::new()
-                };
-                format!(
-                    "DROP POLICY \"{}\" ON {}\"{}\";",
-                    policy.name, schema_prefix, policy.table
-                )
-            }
-            JsonStatement::RecreateColumn {
-                old_column,
-                new_column,
-            } => {
-                // Recreate column by dropping and adding
-                // Used for adding generated expressions, which PostgreSQL doesn't support via ALTER
-                let schema_prefix = if new_column.schema != "public" {
-                    format!("\"{}\".", new_column.schema)
-                } else {
-                    String::new()
-                };
-                let table_key = format!("{}\"{}\"", schema_prefix, new_column.table);
-
-                let drop_sql = format!(
-                    "ALTER TABLE {} DROP COLUMN \"{}\";",
-                    table_key, old_column.name
-                );
-                let add_sql = format!(
-                    "ALTER TABLE {} ADD COLUMN {};",
-                    table_key,
-                    self.column_def(&new_column)
-                );
-
-                format!("{}\n{}", drop_sql, add_sql)
-            }
+    fn schema_prefix(schema: &str) -> String {
+        if schema == "public" {
+            String::new()
+        } else {
+            format!("\"{schema}\".")
         }
     }
 
-    fn column_def(&self, col: &Column) -> String {
+    fn create_sequence_sql(s: &super::ddl::Sequence) -> String {
+        let schema_prefix = Self::schema_prefix(&s.schema);
+        let mut sql = format!("CREATE SEQUENCE {}\"{}\"", schema_prefix, s.name);
+        if let Some(ref inc) = s.increment_by {
+            let _ = write!(sql, " INCREMENT BY {inc}");
+        }
+        if let Some(ref min) = s.min_value {
+            let _ = write!(sql, " MINVALUE {min}");
+        }
+        if let Some(ref max) = s.max_value {
+            let _ = write!(sql, " MAXVALUE {max}");
+        }
+        if let Some(ref start) = s.start_with {
+            let _ = write!(sql, " START WITH {start}");
+        }
+        if let Some(cache) = s.cache_size {
+            let _ = write!(sql, " CACHE {cache}");
+        }
+        if s.cycle.unwrap_or(false) {
+            sql.push_str(" CYCLE");
+        }
+        sql.push(';');
+        sql
+    }
+
+    fn create_table_sql(table: &RichTable) -> String {
+        let schema_prefix = Self::schema_prefix(&table.schema);
+        let mut sql = format!("CREATE TABLE {}\"{}\" (\n", schema_prefix, table.name);
+        let mut lines = Vec::new();
+
+        for col in &table.columns {
+            lines.push(format!("\t{}", Self::column_def(col)));
+        }
+
+        if let Some(pk) = &table.pk {
+            let cols = pk
+                .columns
+                .iter()
+                .map(|c| format!("\"{c}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if pk.name_explicit {
+                lines.push(format!(
+                    "\tCONSTRAINT \"{}\" PRIMARY KEY({})",
+                    pk.name, cols
+                ));
+            } else {
+                lines.push(format!("\tPRIMARY KEY({cols})"));
+            }
+        }
+
+        for fk in &table.foreign_keys {
+            lines.push(format!("\t{}", Self::fk_def(fk)));
+        }
+
+        for u in &table.uniques {
+            let cols = u
+                .columns
+                .iter()
+                .map(|c| format!("\"{c}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            lines.push(format!("\tCONSTRAINT \"{}\" UNIQUE({})", u.name, cols));
+        }
+
+        for c in &table.checks {
+            lines.push(format!("\tCONSTRAINT \"{}\" CHECK ({})", c.name, c.value));
+        }
+
+        sql.push_str(&lines.join(",\n"));
+        sql.push_str("\n);");
+        sql
+    }
+
+    fn drop_constraint_sql(schema: &str, table: &str, name: &str) -> String {
+        format!(
+            "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",
+            Self::schema_prefix(schema),
+            table,
+            name
+        )
+    }
+
+    fn create_enum_sql(e: &super::ddl::Enum) -> String {
+        let values = e
+            .values
+            .iter()
+            .map(|v| format!("'{v}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "CREATE TYPE {}\"{}\" AS ENUM ({});",
+            Self::schema_prefix(&e.schema),
+            e.name,
+            values
+        )
+    }
+
+    fn alter_enum_sql(to: &super::ddl::Enum, diff: &[EnumDiff]) -> String {
+        let schema_prefix = Self::schema_prefix(&to.schema);
+        diff.iter()
+            .map(|d| {
+                format!(
+                    "ALTER TYPE {}\"{}\" ADD VALUE '{}';",
+                    schema_prefix, to.name, d.value
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn add_pk_sql(pk: &super::ddl::PrimaryKey) -> String {
+        let cols = pk
+            .columns
+            .iter()
+            .map(|c| format!("\"{c}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "ALTER TABLE {}\"{}\" ADD CONSTRAINT \"{}\" PRIMARY KEY ({});",
+            Self::schema_prefix(&pk.schema),
+            pk.table,
+            pk.name,
+            cols
+        )
+    }
+
+    fn add_unique_sql(unique: &super::ddl::UniqueConstraint) -> String {
+        let cols = unique
+            .columns
+            .iter()
+            .map(|c| format!("\"{c}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "ALTER TABLE {}\"{}\" ADD CONSTRAINT \"{}\" UNIQUE ({});",
+            Self::schema_prefix(&unique.schema),
+            unique.table,
+            unique.name,
+            cols
+        )
+    }
+
+    fn recreate_column_sql(old_column: &Column, new_column: &Column) -> String {
+        // Recreate column by dropping and adding.
+        // Used for adding generated expressions, which PostgreSQL doesn't support via ALTER.
+        let table_key = format!(
+            "{}\"{}\"",
+            Self::schema_prefix(&new_column.schema),
+            new_column.table
+        );
+        let drop_sql = format!(
+            "ALTER TABLE {} DROP COLUMN \"{}\";",
+            table_key, old_column.name
+        );
+        let add_sql = format!(
+            "ALTER TABLE {} ADD COLUMN {};",
+            table_key,
+            Self::column_def(new_column)
+        );
+        format!("{drop_sql}\n{add_sql}")
+    }
+
+    fn add_column_sql(column: &Column, is_pk: bool) -> String {
+        let pk_clause = if is_pk { " PRIMARY KEY" } else { "" };
+        format!(
+            "ALTER TABLE {}\"{}\" ADD COLUMN {}{};",
+            Self::schema_prefix(&column.schema),
+            column.table,
+            Self::column_def(column),
+            pk_clause
+        )
+    }
+
+    fn add_check_sql(check: &super::ddl::CheckConstraint) -> String {
+        format!(
+            "ALTER TABLE {}\"{}\" ADD CONSTRAINT \"{}\" CHECK ({});",
+            Self::schema_prefix(&check.schema),
+            check.table,
+            check.name,
+            check.value
+        )
+    }
+
+    fn drop_policy_sql(policy: &super::ddl::Policy) -> String {
+        format!(
+            "DROP POLICY \"{}\" ON {}\"{}\";",
+            policy.name,
+            Self::schema_prefix(&policy.schema),
+            policy.table
+        )
+    }
+
+    fn alter_view_sql(old_view: &View, new_view: &View) -> String {
+        // PostgreSQL doesn't support ALTER VIEW for definition changes,
+        // so we drop and recreate the view.
+        let drop_sql = Self::drop_view_sql(old_view);
+        let create_sql = Self::create_view_sql(new_view);
+        format!("{drop_sql}\n{create_sql}")
+    }
+
+    fn statement_to_sql(stmt: JsonStatement) -> String {
+        match stmt {
+            JsonStatement::CreateSchema { name } => format!("CREATE SCHEMA \"{name}\";"),
+            JsonStatement::DropSchema { name } => format!("DROP SCHEMA \"{name}\";"),
+            JsonStatement::RenameSchema { from, to } => {
+                format!("ALTER SCHEMA \"{}\" RENAME TO \"{}\";", from.name, to.name)
+            }
+            JsonStatement::CreateEnum { enum_: e } => Self::create_enum_sql(&e),
+            JsonStatement::DropEnum { enum_: e } => {
+                format!(
+                    "DROP TYPE {}\"{}\";",
+                    Self::schema_prefix(&e.schema),
+                    e.name
+                )
+            }
+            JsonStatement::AlterEnum { from: _, to, diff } => Self::alter_enum_sql(&to, &diff),
+            JsonStatement::CreateSequence { sequence: s } => Self::create_sequence_sql(&s),
+            JsonStatement::DropSequence { sequence: s } => format!(
+                "DROP SEQUENCE {}\"{}\";",
+                Self::schema_prefix(&s.schema),
+                s.name
+            ),
+            JsonStatement::CreateTable { table } => Self::create_table_sql(&table),
+            JsonStatement::DropTable { table, .. } => format!(
+                "DROP TABLE {}\"{}\";",
+                Self::schema_prefix(&table.schema),
+                table.name
+            ),
+            JsonStatement::RenameTable { schema, from, to } => format!(
+                "ALTER TABLE {}\"{from}\" RENAME TO \"{to}\";",
+                Self::schema_prefix(&schema)
+            ),
+            JsonStatement::AddColumn { column, is_pk, .. } => Self::add_column_sql(&column, is_pk),
+            JsonStatement::DropColumn { column } => format!(
+                "ALTER TABLE {}\"{}\" DROP COLUMN \"{}\";",
+                Self::schema_prefix(&column.schema),
+                column.table,
+                column.name
+            ),
+            JsonStatement::RenameColumn { from, to } => format!(
+                "ALTER TABLE {}\"{}\" RENAME COLUMN \"{}\" TO \"{}\";",
+                Self::schema_prefix(&from.schema),
+                from.table,
+                from.name,
+                to.name
+            ),
+            JsonStatement::AlterColumn { to, diff, .. } => Self::alter_column_sql(&to, &diff),
+            JsonStatement::RecreateColumn {
+                old_column,
+                new_column,
+            } => Self::recreate_column_sql(&old_column, &new_column),
+            JsonStatement::CreateIndex { index } => Self::create_index_sql(&index),
+            JsonStatement::DropIndex { index } => format!(
+                "DROP INDEX {}\"{}\";",
+                Self::schema_prefix(&index.schema),
+                index.name
+            ),
+            JsonStatement::CreateFk { fk } => format!(
+                "ALTER TABLE {}\"{}\" ADD {};",
+                Self::schema_prefix(&fk.schema),
+                fk.table,
+                Self::fk_def(&fk)
+            ),
+            JsonStatement::DropFk { fk } => {
+                Self::drop_constraint_sql(&fk.schema, &fk.table, &fk.name)
+            }
+            JsonStatement::CreateView { view } => Self::create_view_sql(&view),
+            JsonStatement::DropView { view } => Self::drop_view_sql(&view),
+            JsonStatement::AlterView { old_view, new_view } => {
+                Self::alter_view_sql(&old_view, &new_view)
+            }
+            JsonStatement::AddPk { pk } => Self::add_pk_sql(&pk),
+            JsonStatement::DropPk { pk } => {
+                Self::drop_constraint_sql(&pk.schema, &pk.table, &pk.name)
+            }
+            JsonStatement::AddUnique { unique } => Self::add_unique_sql(&unique),
+            JsonStatement::DropUnique { unique } => {
+                Self::drop_constraint_sql(&unique.schema, &unique.table, &unique.name)
+            }
+            JsonStatement::AddCheck { check } => Self::add_check_sql(&check),
+            JsonStatement::DropCheck { check } => {
+                Self::drop_constraint_sql(&check.schema, &check.table, &check.name)
+            }
+            JsonStatement::CreateRole { role } => Self::create_role_sql(&role),
+            JsonStatement::DropRole { role } => format!("DROP ROLE \"{}\";", role.name),
+            JsonStatement::CreatePolicy { policy } => Self::create_policy_sql(&policy),
+            JsonStatement::DropPolicy { policy } => Self::drop_policy_sql(&policy),
+        }
+    }
+
+    fn create_index_sql(index: &Index) -> String {
+        let unique = if index.is_unique { "UNIQUE " } else { "" };
+        let concurrently = if index.concurrently {
+            " CONCURRENTLY"
+        } else {
+            ""
+        };
+        let schema_prefix = Self::schema_prefix(&index.schema);
+
+        let cols = index
+            .columns
+            .iter()
+            .map(|c| {
+                let val = if c.is_expression {
+                    c.value.to_string()
+                } else {
+                    format!("\"{}\"", c.value)
+                };
+                let order = if c.asc { "" } else { " DESC" };
+                let nulls = if c.nulls_first {
+                    " NULLS FIRST"
+                } else {
+                    " NULLS LAST"
+                };
+                format!("{val}{order}{nulls}")
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        format!(
+            "CREATE {}INDEX{} \"{}\" ON {}\"{}\" USING {} ({});",
+            unique,
+            concurrently,
+            index.name,
+            schema_prefix,
+            index.table,
+            index.method.as_deref().unwrap_or("btree"),
+            cols
+        )
+    }
+
+    fn create_view_sql(view: &View) -> String {
+        let mat = if view.materialized {
+            "MATERIALIZED "
+        } else {
+            ""
+        };
+        let def = view.definition.as_deref().unwrap_or("");
+        format!(
+            "CREATE {}VIEW {}\"{}\" AS {};",
+            mat,
+            Self::schema_prefix(&view.schema),
+            view.name,
+            def
+        )
+    }
+
+    fn drop_view_sql(view: &View) -> String {
+        let mat = if view.materialized {
+            "MATERIALIZED "
+        } else {
+            ""
+        };
+        format!(
+            "DROP {}VIEW {}\"{}\";",
+            mat,
+            Self::schema_prefix(&view.schema),
+            view.name
+        )
+    }
+
+    fn alter_column_sql(to: &Column, diff: &HashMap<String, serde_json::Value>) -> String {
+        let table_key = format!("{}\"{}\"", Self::schema_prefix(&to.schema), to.table);
+        let mut stmts = Vec::new();
+
+        if diff.contains_key("type") {
+            let using_clause = format!(" USING \"{}\"::{}", to.name, to.sql_type);
+            stmts.push(format!(
+                "ALTER TABLE {} ALTER COLUMN \"{}\" SET DATA TYPE {}{};",
+                table_key, to.name, to.sql_type, using_clause
+            ));
+        }
+
+        if diff.contains_key("notNull") {
+            if to.not_null {
+                stmts.push(format!(
+                    "ALTER TABLE {} ALTER COLUMN \"{}\" SET NOT NULL;",
+                    table_key, to.name
+                ));
+            } else {
+                stmts.push(format!(
+                    "ALTER TABLE {} ALTER COLUMN \"{}\" DROP NOT NULL;",
+                    table_key, to.name
+                ));
+            }
+        }
+
+        if diff.contains_key("default") {
+            if let Some(default) = &to.default {
+                stmts.push(format!(
+                    "ALTER TABLE {} ALTER COLUMN \"{}\" SET DEFAULT {};",
+                    table_key, to.name, default
+                ));
+            } else {
+                stmts.push(format!(
+                    "ALTER TABLE {} ALTER COLUMN \"{}\" DROP DEFAULT;",
+                    table_key, to.name
+                ));
+            }
+        }
+
+        if diff.contains_key("generated") && to.generated.is_none() {
+            stmts.push(format!(
+                "ALTER TABLE {} ALTER COLUMN \"{}\" DROP EXPRESSION;",
+                table_key, to.name
+            ));
+        }
+
+        if diff.contains_key("identity")
+            && !super::grammar::PgTypeCategory::from_sql_type(&to.sql_type).is_serial()
+        {
+            if let Some(id) = &to.identity {
+                use super::ddl::IdentityType;
+                let type_str = match id.type_ {
+                    IdentityType::Always => "ALWAYS",
+                    IdentityType::ByDefault => "BY DEFAULT",
+                };
+                stmts.push(format!(
+                    "ALTER TABLE {} ALTER COLUMN \"{}\" ADD GENERATED {} AS IDENTITY;",
+                    table_key, to.name, type_str
+                ));
+            } else {
+                stmts.push(format!(
+                    "ALTER TABLE {} ALTER COLUMN \"{}\" DROP IDENTITY;",
+                    table_key, to.name
+                ));
+            }
+        }
+
+        if stmts.is_empty() {
+            format!("-- No column changes for {}.{}", to.table, to.name)
+        } else {
+            stmts.join("\n")
+        }
+    }
+
+    fn create_role_sql(role: &super::ddl::Role) -> String {
+        let mut sql = format!("CREATE ROLE \"{}\"", role.name);
+        if role.create_db.unwrap_or(false) {
+            sql.push_str(" CREATEDB");
+        }
+        if role.create_role.unwrap_or(false) {
+            sql.push_str(" CREATEROLE");
+        }
+        if role.inherit.unwrap_or(true) {
+            sql.push_str(" INHERIT");
+        } else {
+            sql.push_str(" NOINHERIT");
+        }
+        sql.push(';');
+        sql
+    }
+
+    fn create_policy_sql(policy: &super::ddl::Policy) -> String {
+        let schema_prefix = Self::schema_prefix(&policy.schema);
+        let mut sql = format!(
+            "CREATE POLICY \"{}\" ON {}\"{}\"",
+            policy.name, schema_prefix, policy.table
+        );
+        if let Some(as_clause) = &policy.as_clause {
+            let _ = write!(sql, " AS {as_clause}");
+        }
+        if let Some(for_clause) = &policy.for_clause {
+            let _ = write!(sql, " FOR {for_clause}");
+        }
+        if let Some(to) = &policy.to {
+            let to_list: Vec<&str> = to.iter().map(std::convert::AsRef::as_ref).collect();
+            let _ = write!(sql, " TO {}", to_list.join(", "));
+        }
+        if let Some(using) = &policy.using {
+            let _ = write!(sql, " USING ({using})");
+        }
+        if let Some(with_check) = &policy.with_check {
+            let _ = write!(sql, " WITH CHECK ({with_check})");
+        }
+        sql.push(';');
+        sql
+    }
+
+    fn column_def(col: &Column) -> String {
         let mut def = format!("\"{}\" {}", col.name, col.sql_type);
         if col.not_null {
             def.push_str(" NOT NULL");
         }
         if let Some(default) = &col.default {
-            def.push_str(&format!(" DEFAULT {}", default));
+            let _ = write!(def, " DEFAULT {default}");
         }
 
         if let Some(generated_col) = &col.generated {
-            def.push_str(&format!(
+            let _ = write!(
+                def,
                 " GENERATED ALWAYS AS ({}) STORED",
                 generated_col.expression
-            ));
+            );
         }
 
         // Only emit GENERATED AS IDENTITY for non-serial types. SERIAL
@@ -1274,30 +1188,30 @@ impl PostgresGenerator {
                     IdentityType::Always => "ALWAYS",
                     IdentityType::ByDefault => "BY DEFAULT",
                 };
-                def.push_str(&format!(" GENERATED {} AS IDENTITY", type_str));
+                let _ = write!(def, " GENERATED {type_str} AS IDENTITY");
             }
         }
 
         def
     }
 
-    fn fk_def(&self, fk: &ForeignKey) -> String {
+    fn fk_def(fk: &ForeignKey) -> String {
         let cols_from = fk
             .columns
             .iter()
-            .map(|c| format!("\"{}\"", c))
+            .map(|c| format!("\"{c}\""))
             .collect::<Vec<_>>()
             .join(", ");
         let cols_to = fk
             .columns_to
             .iter()
-            .map(|c| format!("\"{}\"", c))
+            .map(|c| format!("\"{c}\""))
             .collect::<Vec<_>>()
             .join(", ");
-        let schema_to_prefix = if fk.schema_to != "public" {
-            format!("\"{}\".", fk.schema_to)
-        } else {
+        let schema_to_prefix = if fk.schema_to == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", fk.schema_to)
         };
 
         let mut def = format!(
@@ -1306,10 +1220,10 @@ impl PostgresGenerator {
         );
 
         if let Some(on_delete) = &fk.on_delete {
-            def.push_str(&format!(" ON DELETE {}", on_delete));
+            let _ = write!(def, " ON DELETE {on_delete}");
         }
         if let Some(on_update) = &fk.on_update {
-            def.push_str(&format!(" ON UPDATE {}", on_update));
+            let _ = write!(def, " ON UPDATE {on_update}");
         }
         def
     }
@@ -1365,8 +1279,7 @@ fn topological_sort_tables_for_create(table_keys: &[String], diff: &[EntityDiff]
             .filter(|t| {
                 dependencies
                     .get(*t)
-                    .map(|deps| deps.iter().all(|d| satisfied.contains(d)))
-                    .unwrap_or(true)
+                    .is_none_or(|deps| deps.iter().all(|d| satisfied.contains(d)))
             })
             .cloned()
             .collect();

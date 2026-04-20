@@ -28,6 +28,7 @@ pub enum IntrospectCasing {
 }
 
 impl IntrospectCasing {
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Camel => "camel",
@@ -50,8 +51,7 @@ impl std::str::FromStr for IntrospectCasing {
             "camel" | "camelCase" => Ok(Self::Camel),
             "preserve" => Ok(Self::Preserve),
             _ => Err(format!(
-                "invalid introspect casing '{}', expected 'camel' or 'preserve'",
-                s
+                "invalid introspect casing '{s}', expected 'camel' or 'preserve'"
             )),
         }
     }
@@ -100,7 +100,8 @@ impl Default for RolesFilter {
 
 impl RolesFilter {
     /// Check if roles should be included at all
-    pub fn is_enabled(&self) -> bool {
+    #[must_use]
+    pub const fn is_enabled(&self) -> bool {
         match self {
             Self::Bool(b) => *b,
             Self::Config { .. } => true,
@@ -108,6 +109,7 @@ impl RolesFilter {
     }
 
     /// Check if a specific role should be included
+    #[must_use]
     pub fn should_include(&self, role_name: &str) -> bool {
         match self {
             Self::Bool(b) => *b,
@@ -173,7 +175,7 @@ fn is_provider_role(provider: &str, role_name: &str) -> bool {
 /// Controls which database entities are included in push/pull operations.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct EntitiesFilter {
-    /// Roles filter (PostgreSQL only)
+    /// Roles filter (`PostgreSQL` only)
     #[serde(default)]
     pub roles: RolesFilter,
 }
@@ -182,15 +184,16 @@ pub struct EntitiesFilter {
 // Extensions Filter (PostgreSQL only)
 // ============================================================================
 
-/// Known PostgreSQL extensions that can be filtered
+/// Known `PostgreSQL` extensions that can be filtered
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Extension {
-    /// PostGIS spatial extension
+    /// `PostGIS` spatial extension
     Postgis,
 }
 
 impl Extension {
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Postgis => "postgis",
@@ -224,7 +227,12 @@ pub enum EnvOr {
 }
 
 impl EnvOr {
-    /// Resolve the value, looking up environment variable if needed
+    /// Resolve the value, looking up environment variable if needed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::EnvNotFound`] if this is an [`EnvOr::Env`] pointing to
+    /// a variable that is not set in the process environment.
     pub fn resolve(&self) -> Result<String, Error> {
         match self {
             Self::Value(v) => Ok(v.clone()),
@@ -232,7 +240,12 @@ impl EnvOr {
         }
     }
 
-    /// Resolve to an optional value (returns None for missing env vars)
+    /// Resolve to an optional value (returns `None` for missing env vars).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::EnvInvalid`] if the referenced environment variable
+    /// is set but contains non-unicode bytes.
     pub fn resolve_optional(&self) -> Result<Option<String>, Error> {
         match self {
             Self::Value(v) => Ok(Some(v.clone())),
@@ -339,6 +352,7 @@ impl Dialect {
     pub const ALL: &'static [&'static str] = &["sqlite", "postgresql", "turso"];
 
     #[inline]
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Sqlite => "sqlite",
@@ -348,6 +362,7 @@ impl Dialect {
     }
 
     #[inline]
+    #[must_use]
     pub const fn to_base(self) -> drizzle_types::Dialect {
         match self {
             Self::Sqlite | Self::Turso => drizzle_types::Dialect::SQLite,
@@ -373,7 +388,7 @@ impl std::str::FromStr for Dialect {
             _ => Err(format!(
                 "invalid dialect '{}', expected one of: {}",
                 s,
-                Dialect::ALL.join(", ")
+                Self::ALL.join(", ")
             )),
         }
     }
@@ -394,15 +409,15 @@ impl From<Dialect> for drizzle_types::Dialect {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum Driver {
-    /// rusqlite - synchronous SQLite driver
+    /// rusqlite - synchronous `SQLite` driver
     Rusqlite,
-    /// libsql - LibSQL driver (local embedded)
+    /// libsql - `LibSQL` driver (local embedded)
     Libsql,
     /// turso - Turso cloud driver (remote)
     Turso,
-    /// postgres-sync - synchronous PostgreSQL driver
+    /// postgres-sync - synchronous `PostgreSQL` driver
     PostgresSync,
-    /// tokio-postgres - async PostgreSQL driver
+    /// tokio-postgres - async `PostgreSQL` driver
     TokioPostgres,
     /// d1-http - Cloudflare D1 over the HTTP API
     ///
@@ -412,15 +427,15 @@ pub enum Driver {
     /// drizzle crate itself — this CLI driver is for schema ops (generate /
     /// push / pull / migrate) against a live D1 instance from your dev box.
     D1Http,
-    /// durable-sqlite - Cloudflare Durable Objects SQLite storage
+    /// durable-sqlite - Cloudflare Durable Objects `SQLite` storage
     ///
-    /// DOs run SQLite embedded inside the Worker runtime. There's no remote
+    /// DOs run `SQLite` embedded inside the Worker runtime. There's no remote
     /// endpoint to push to from the CLI, so this driver is schema-only:
     /// `generate` produces SQL migrations and a bundled `migrations.js` index
     /// (like drizzle-kit's `bundle: true`) that the Worker imports at build
     /// time to apply migrations inside `DurableObject::new()`.
     DurableSqlite,
-    /// aws-data-api - AWS RDS Data API (Aurora Serverless PostgreSQL)
+    /// aws-data-api - AWS RDS Data API (Aurora Serverless `PostgreSQL`)
     ///
     /// Runs SQL through the AWS RDS Data API instead of a direct TCP
     /// connection. Requires `database`, `secretArn` (AWS Secrets Manager ARN
@@ -449,6 +464,7 @@ impl Driver {
     ];
 
     #[inline]
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Rusqlite => "rusqlite",
@@ -462,7 +478,8 @@ impl Driver {
         }
     }
 
-    pub const fn valid_for(dialect: Dialect) -> &'static [Driver] {
+    #[must_use]
+    pub const fn valid_for(dialect: Dialect) -> &'static [Self] {
         match dialect {
             // D1 and Durable Objects are both SQLite-dialect — they only differ
             // in how you reach the database at runtime, so the generator/parser
@@ -474,6 +491,7 @@ impl Driver {
     }
 
     #[inline]
+    #[must_use]
     pub const fn is_valid_for(self, dialect: Dialect) -> bool {
         matches!(
             (self, dialect),
@@ -490,8 +508,9 @@ impl Driver {
 
     /// True for drivers that only make sense as schema/codegen targets — i.e.
     /// drivers where the CLI has no way to connect to a live DB from the dev
-    /// machine (e.g. Durable Objects SQLite runs inside the Workers runtime).
+    /// machine (e.g. Durable Objects `SQLite` runs inside the Workers runtime).
     #[inline]
+    #[must_use]
     pub const fn is_codegen_only(self) -> bool {
         matches!(self, Self::DurableSqlite)
     }
@@ -519,7 +538,7 @@ impl std::str::FromStr for Driver {
             _ => Err(format!(
                 "invalid driver '{}', expected one of: {}",
                 s,
-                Driver::ALL.join(", ")
+                Self::ALL.join(", ")
             )),
         }
     }
@@ -532,8 +551,7 @@ impl std::str::FromStr for Extension {
         match s {
             "postgis" => Ok(Self::Postgis),
             _ => Err(format!(
-                "invalid extension filter '{}', expected 'postgis'",
-                s
+                "invalid extension filter '{s}', expected 'postgis'"
             )),
         }
     }
@@ -546,7 +564,7 @@ impl std::str::FromStr for Extension {
 /// Database credentials - validated and typed
 #[derive(Debug, Clone)]
 pub enum Credentials {
-    /// Local SQLite file
+    /// Local `SQLite` file
     Sqlite { path: Box<str> },
 
     /// Turso/LibSQL
@@ -555,7 +573,7 @@ pub enum Credentials {
         auth_token: Option<Box<str>>,
     },
 
-    /// PostgreSQL
+    /// `PostgreSQL`
     Postgres(PostgresCreds),
 
     /// Cloudflare D1 over the HTTP API.
@@ -569,7 +587,7 @@ pub enum Credentials {
         token: Box<str>,
     },
 
-    /// AWS RDS Data API (Aurora Serverless PostgreSQL).
+    /// AWS RDS Data API (Aurora Serverless `PostgreSQL`).
     ///
     /// The region isn't stored here — the AWS SDK pulls it from the standard
     /// credential chain (env vars, `~/.aws/config`, instance metadata). This
@@ -581,7 +599,7 @@ pub enum Credentials {
     },
 }
 
-/// PostgreSQL credentials
+/// `PostgreSQL` credentials
 #[derive(Debug, Clone)]
 pub enum PostgresCreds {
     Url(Box<str>),
@@ -597,6 +615,7 @@ pub enum PostgresCreds {
 
 impl PostgresCreds {
     /// Build connection URL
+    #[must_use]
     pub fn connection_url(&self) -> String {
         match self {
             Self::Url(url) => url.to_string(),
@@ -673,7 +692,7 @@ pub struct MigrationsOpts {
     ///
     /// Matches drizzle-kit's `bundle: true` behavior. The file statically
     /// `import`s each `migration.sql` so JS bundlers (Metro for Expo/React
-    /// Native, Cloudflare Workers for Durable Objects SQLite) can embed the
+    /// Native, Cloudflare Workers for Durable Objects `SQLite`) can embed the
     /// SQL text at build time. Harmless for Rust-only consumers.
     #[serde(default)]
     pub bundle: Option<bool>,
@@ -794,11 +813,11 @@ pub struct DatabaseConfig {
     #[serde(default)]
     pub tables_filter: Option<Filter>,
 
-    /// Schema name filter (PostgreSQL only)
+    /// Schema name filter (`PostgreSQL` only)
     #[serde(default)]
     pub schema_filter: Option<Filter>,
 
-    /// Extensions filter (PostgreSQL only, e.g., ["postgis"])
+    /// Extensions filter (`PostgreSQL` only, e.g., `["postgis"]`)
     #[serde(default)]
     pub extensions_filters: Option<Vec<Extension>>,
 
@@ -827,7 +846,7 @@ fn default_out() -> PathBuf {
     PathBuf::from("./drizzle")
 }
 
-fn yes() -> bool {
+const fn yes() -> bool {
     true
 }
 
@@ -910,8 +929,7 @@ impl DatabaseConfig {
         // Enforce dialect/shape pairing. Without this, serde can parse a "host" form for
         // any dialect, and later `credentials()` would silently return None.
         match (self.dialect, raw) {
-            (Dialect::Postgresql, RawCreds::Host { .. }) => {}
-            (Dialect::Postgresql, RawCreds::Url { .. }) => {}
+            (Dialect::Postgresql, RawCreds::Host { .. } | RawCreds::Url { .. }) => {}
             (_, RawCreds::Host { .. }) => {
                 return Err(err(
                     "host-based dbCredentials are only supported for dialect = \"postgresql\"",
@@ -1025,19 +1043,22 @@ impl DatabaseConfig {
         }
     }
 
-    /// Get typed credentials, resolving any environment variable references
+    /// Get typed credentials, resolving any environment variable references.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if a referenced environment variable is missing or
+    /// invalid, or if the credentials block does not match the configured
+    /// dialect.
     pub fn credentials(&self) -> Result<Option<Credentials>, Error> {
-        let raw = match self.db_credentials.as_ref() {
-            Some(r) => r,
-            None => return Ok(None),
+        let Some(raw) = self.db_credentials.as_ref() else {
+            return Ok(None);
         };
 
         // Helper to resolve an optional EnvOr
         let resolve_opt = |opt: &Option<EnvOr>| -> Result<Option<Box<str>>, Error> {
-            match opt {
-                Some(e) => e.resolve().map(|s| Some(s.into_boxed_str())),
-                None => Ok(None),
-            }
+            opt.as_ref()
+                .map_or(Ok(None), |e| e.resolve().map(|s| Some(s.into_boxed_str())))
         };
 
         let creds = match (self.dialect, raw) {
@@ -1100,7 +1121,7 @@ impl DatabaseConfig {
                 user: resolve_opt(user)?,
                 password: resolve_opt(password)?,
                 database: database.resolve()?.into_boxed_str(),
-                ssl: ssl.as_ref().map(|s| s.enabled()).unwrap_or(false),
+                ssl: ssl.as_ref().is_some_and(SslVal::enabled),
             }),
             _ => return Ok(None),
         };
@@ -1110,23 +1131,27 @@ impl DatabaseConfig {
 
     /// Migrations output directory
     #[inline]
+    #[must_use]
     pub fn migrations_dir(&self) -> &Path {
         &self.out
     }
 
     /// Meta directory (for journal)
     #[inline]
+    #[must_use]
     pub fn meta_dir(&self) -> PathBuf {
         self.out.join("meta")
     }
 
     /// Journal file path
     #[inline]
+    #[must_use]
     pub fn journal_path(&self) -> PathBuf {
         self.meta_dir().join("_journal.json")
     }
 
     /// Schema paths display string
+    #[must_use]
     pub fn schema_display(&self) -> String {
         match &self.schema {
             Schema::One(s) => s.clone(),
@@ -1134,7 +1159,12 @@ impl DatabaseConfig {
         }
     }
 
-    /// Resolve schema files (with glob support)
+    /// Resolve schema files (with glob support).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if a glob pattern is invalid, if expanding a glob
+    /// fails, or if the resolved pattern matches zero files.
     pub fn schema_files(&self) -> Result<Vec<PathBuf>, Error> {
         let mut files = Vec::new();
 
@@ -1183,12 +1213,14 @@ impl DatabaseConfig {
 
     /// Get effective casing mode (default: camelCase)
     #[inline]
+    #[must_use]
     pub fn effective_casing(&self) -> Casing {
         self.casing.unwrap_or_default()
     }
 
     /// Get effective introspect casing mode (default: camel)
     #[inline]
+    #[must_use]
     pub fn effective_introspect_casing(&self) -> IntrospectCasing {
         self.introspect
             .as_ref()
@@ -1198,40 +1230,41 @@ impl DatabaseConfig {
 
     /// Get entities filter (default: empty)
     #[inline]
+    #[must_use]
     pub fn effective_entities(&self) -> EntitiesFilter {
         self.entities.clone().unwrap_or_default()
     }
 
     /// Check if a role should be included based on entities filter
+    #[must_use]
     pub fn should_include_role(&self, role_name: &str) -> bool {
         self.entities
             .as_ref()
-            .map(|e| e.roles.should_include(role_name))
-            .unwrap_or(false)
+            .is_some_and(|e| e.roles.should_include(role_name))
     }
 
     /// Check if roles are enabled in entities filter
+    #[must_use]
     pub fn roles_enabled(&self) -> bool {
-        self.entities
-            .as_ref()
-            .map(|e| e.roles.is_enabled())
-            .unwrap_or(false)
+        self.entities.as_ref().is_some_and(|e| e.roles.is_enabled())
     }
 
-    /// Get extensions filters (PostgreSQL only)
+    /// Get extensions filters (`PostgreSQL` only)
+    #[must_use]
     pub fn extensions(&self) -> &[Extension] {
         self.extensions_filters.as_deref().unwrap_or(&[])
     }
 
     /// Check if an extension is in the filter list
+    #[must_use]
     pub fn has_extension(&self, ext: Extension) -> bool {
         self.extensions_filters
             .as_ref()
-            .map(|v| v.contains(&ext))
-            .unwrap_or(false)
+            .is_some_and(|v| v.contains(&ext))
     }
 
-    /// Get migration table name (default: __drizzle_migrations)
+    /// Get migration table name (default: __`drizzle_migrations`)
+    #[must_use]
     pub fn migrations_table(&self) -> &str {
         self.migrations
             .as_ref()
@@ -1239,7 +1272,8 @@ impl DatabaseConfig {
             .unwrap_or("__drizzle_migrations")
     }
 
-    /// Get migration schema (PostgreSQL only, default: drizzle)
+    /// Get migration schema (`PostgreSQL` only, default: drizzle)
+    #[must_use]
     pub fn migrations_schema(&self) -> &str {
         self.migrations
             .as_ref()
@@ -1255,6 +1289,7 @@ impl DatabaseConfig {
     ///    Objects need the JS index to import migrations at Worker build time
     ///    (there's no other way to ship SQL into a DO).
     /// 3. Otherwise, default to `false`.
+    #[must_use]
     pub fn bundle_enabled(&self) -> bool {
         if let Some(explicit) = self.migrations.as_ref().and_then(|m| m.bundle) {
             return explicit;
@@ -1308,12 +1343,23 @@ pub struct Config {
 pub const DEFAULT_DB: &str = "default";
 
 impl Config {
-    /// Load from default config file
+    /// Load from default config file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the default config file cannot be read, if it
+    /// fails to parse as JSON, or if validation of the parsed config fails.
     pub fn load() -> Result<Self, Error> {
         Self::load_from(Path::new(CONFIG_FILE))
     }
 
-    /// Load from specific path
+    /// Load from specific path.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotFound`] if `path` does not exist, [`Error::Io`] for
+    /// other read errors, and [`Error`] variants for JSON-parse or validation
+    /// failures.
     pub fn load_from(path: &Path) -> Result<Self, Error> {
         let content = std::fs::read_to_string(path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -1363,7 +1409,7 @@ impl Config {
         Ok(config)
     }
 
-    fn validate(&mut self) -> Result<(), Error> {
+    fn validate(&self) -> Result<(), Error> {
         for (name, db) in &self.databases {
             db.validate(name)?;
         }
@@ -1371,7 +1417,8 @@ impl Config {
     }
 
     /// Check if this is a single-database config
-    pub fn is_single_database(&self) -> bool {
+    #[must_use]
+    pub const fn is_single_database(&self) -> bool {
         self.is_single
     }
 
@@ -1380,13 +1427,20 @@ impl Config {
         self.databases.keys().map(String::as_str)
     }
 
-    /// Get a specific database config by name
+    /// Get a specific database config by name.
     ///
-    /// If name is None, returns the default/only database.
-    /// For single-db configs, any name or None returns the single database.
+    /// If name is `None`, returns the default/only database.
+    /// For single-db configs, any name or `None` returns the single database.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NoDatabases`] if the config has no databases,
+    /// [`Error::DatabaseNotFound`] if `name` does not match any configured
+    /// database, or [`Error::DatabaseRequired`] if multiple databases exist
+    /// and no name was supplied.
     pub fn database(&self, name: Option<&str>) -> Result<&DatabaseConfig, Error> {
-        match name {
-            None => {
+        name.map_or_else(
+            || {
                 // Get default
                 if self.is_single {
                     self.databases.get(DEFAULT_DB).ok_or(Error::NoDatabases)
@@ -1397,8 +1451,8 @@ impl Config {
                         self.databases.keys().cloned().collect(),
                     ))
                 }
-            }
-            Some(name) => {
+            },
+            |name| {
                 if self.is_single {
                     // For single-db config, accept any name
                     self.databases.get(DEFAULT_DB).ok_or(Error::NoDatabases)
@@ -1407,11 +1461,15 @@ impl Config {
                         .get(name)
                         .ok_or_else(|| Error::DatabaseNotFound(name.to_string()))
                 }
-            }
-        }
+            },
+        )
     }
 
-    /// Get the default database (for single-db mode or when only one db exists)
+    /// Get the default database (for single-db mode or when only one db exists).
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::database`] invoked with `None`.
     pub fn default_database(&self) -> Result<&DatabaseConfig, Error> {
         self.database(None)
     }
@@ -1421,44 +1479,58 @@ impl Config {
     // ========================================================================
 
     /// Get dialect (for single-db mode backwards compat)
+    #[must_use]
     pub fn dialect(&self) -> Dialect {
         self.default_database()
             .map(|d| d.dialect)
             .unwrap_or_default()
     }
 
-    /// Get credentials (for single-db mode backwards compat)
+    /// Get credentials (for single-db mode backwards compat).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if resolving the default database or its credentials
+    /// fails (see [`Self::default_database`] and [`DatabaseConfig::credentials`]).
     pub fn credentials(&self) -> Result<Option<Credentials>, Error> {
         self.default_database()?.credentials()
     }
 
     /// Get migrations directory (for single-db mode backwards compat)
+    #[must_use]
     pub fn migrations_dir(&self) -> &Path {
         self.default_database()
-            .map(|d| d.migrations_dir())
-            .unwrap_or(Path::new("./drizzle"))
+            .map_or_else(|_| Path::new("./drizzle"), |d| d.migrations_dir())
     }
 
     /// Get journal path (for single-db mode backwards compat)
+    #[must_use]
     pub fn journal_path(&self) -> PathBuf {
-        self.default_database()
-            .map(|d| d.journal_path())
-            .unwrap_or_else(|_| PathBuf::from("./drizzle/meta/_journal.json"))
+        self.default_database().map_or_else(
+            |_| PathBuf::from("./drizzle/meta/_journal.json"),
+            DatabaseConfig::journal_path,
+        )
     }
 
     /// Get schema display (for single-db mode backwards compat)
+    #[must_use]
     pub fn schema_display(&self) -> String {
         self.default_database()
-            .map(|d| d.schema_display())
-            .unwrap_or_else(|_| "src/schema.rs".into())
+            .map_or_else(|_| "src/schema.rs".into(), DatabaseConfig::schema_display)
     }
 
-    /// Get schema files (for single-db mode backwards compat)
+    /// Get schema files (for single-db mode backwards compat).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if resolving the default database fails or if
+    /// resolving its schema files fails (see [`DatabaseConfig::schema_files`]).
     pub fn schema_files(&self) -> Result<Vec<PathBuf>, Error> {
         self.default_database()?.schema_files()
     }
 
     /// Base dialect for SQL generation (for single-db mode backwards compat)
+    #[must_use]
     pub fn base_dialect(&self) -> drizzle_types::Dialect {
         self.dialect().to_base()
     }

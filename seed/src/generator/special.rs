@@ -284,7 +284,7 @@ impl Generator for BitGen {
     }
 }
 
-/// Generates an empty PostgreSQL array literal.
+/// Generates an empty `PostgreSQL` array literal.
 pub struct ArrayGen;
 
 impl Generator for ArrayGen {

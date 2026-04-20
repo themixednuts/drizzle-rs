@@ -1,4 +1,4 @@
-//! SQLite Foreign Key DDL types
+//! `SQLite` Foreign Key DDL types
 
 use crate::alloc_prelude::*;
 
@@ -38,6 +38,7 @@ impl ReferentialAction {
     }
 
     /// Parse from SQL string
+    #[must_use]
     pub fn from_sql(s: &str) -> Option<Self> {
         match s.to_uppercase().as_str() {
             "NO ACTION" => Some(Self::NoAction),
@@ -251,8 +252,8 @@ impl ForeignKey {
         columns: Vec<String>,
         table_to: String,
         columns_to: Vec<String>,
-    ) -> ForeignKey {
-        ForeignKey {
+    ) -> Self {
+        Self {
             table: Cow::Owned(table),
             name: Cow::Owned(name),
             columns: Cow::Owned(columns.into_iter().map(Cow::Owned).collect()),
@@ -317,7 +318,7 @@ impl From<ForeignKeyDef> for ForeignKey {
 
 #[cfg(feature = "serde")]
 mod serde_impl {
-    use super::*;
+    use super::{Cow, ForeignKey, String, Vec};
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     impl Serialize for ForeignKey {
@@ -329,10 +330,18 @@ mod serde_impl {
             let mut state = serializer.serialize_struct("ForeignKey", 8)?;
             state.serialize_field("table", &*self.table)?;
             state.serialize_field("name", &*self.name)?;
-            let cols: Vec<&str> = self.columns.iter().map(|c| c.as_ref()).collect();
+            let cols: Vec<&str> = self
+                .columns
+                .iter()
+                .map(std::convert::AsRef::as_ref)
+                .collect();
             state.serialize_field("columns", &cols)?;
             state.serialize_field("tableTo", &*self.table_to)?;
-            let cols_to: Vec<&str> = self.columns_to.iter().map(|c| c.as_ref()).collect();
+            let cols_to: Vec<&str> = self
+                .columns_to
+                .iter()
+                .map(std::convert::AsRef::as_ref)
+                .collect();
             state.serialize_field("columnsTo", &cols_to)?;
             state.serialize_field("onDelete", &self.on_delete.as_deref())?;
             state.serialize_field("onUpdate", &self.on_update.as_deref())?;
@@ -365,7 +374,7 @@ mod serde_impl {
             }
 
             let helper = Helper::deserialize(deserializer)?;
-            Ok(ForeignKey {
+            Ok(Self {
                 table: Cow::Owned(helper.table),
                 name: Cow::Owned(helper.name),
                 columns: Cow::Owned(helper.columns.into_iter().map(Cow::Owned).collect()),

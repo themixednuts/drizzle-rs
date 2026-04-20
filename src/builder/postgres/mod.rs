@@ -103,7 +103,7 @@ macro_rules! postgres_builder_constructors {
         /// Creates a query with CTE (Common Table Expression).
         pub fn with<'a, 'b, C>(
             &'a self,
-            cte: C,
+            cte: &C,
         ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'b, Schema, builder::CTEInit>, builder::CTEInit>
         where
             C: builder::CTEDefinition<'b>,
@@ -218,7 +218,7 @@ macro_rules! postgres_builder_constructors {
         /// Creates a query with CTE (Common Table Expression).
         pub fn with<'a, 'b, C>(
             &'a mut self,
-            cte: C,
+            cte: &C,
         ) -> DrizzleBuilder<'a, Schema, QueryBuilder<'b, Schema, builder::CTEInit>, builder::CTEInit>
         where
             C: builder::CTEDefinition<'b>,
@@ -234,14 +234,14 @@ macro_rules! postgres_builder_constructors {
 }
 
 #[cfg(feature = "postgres-sync")]
-pub(crate) mod postgres_sync;
+pub mod postgres_sync;
 
 #[cfg(feature = "tokio-postgres")]
-pub(crate) mod tokio_postgres;
+pub mod tokio_postgres;
 
 #[cfg(feature = "aws-data-api")]
-pub(crate) mod aws_data_api;
+pub mod aws_data_api;
 
-pub(crate) mod common;
-pub(crate) mod prepared_common;
-pub(crate) mod rows;
+pub mod common;
+pub mod prepared_common;
+pub mod rows;

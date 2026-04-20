@@ -15,7 +15,7 @@ use super::ExecutableState;
 // Type State Markers
 //------------------------------------------------------------------------------
 
-/// Marker for the initial state of SelectBuilder.
+/// Marker for the initial state of `SelectBuilder`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectInitial;
 
@@ -249,7 +249,7 @@ impl AsCteState for SelectOffsetSet {}
 // SelectBuilder Definition
 //------------------------------------------------------------------------------
 
-/// Builds a SELECT query specifically for PostgreSQL
+/// Builds a SELECT query specifically for `PostgreSQL`
 pub type SelectBuilder<'a, Schema, State, Table = (), Marker = (), Row = (), Grouped = ()> =
     super::QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>;
 
@@ -435,6 +435,7 @@ where
 {
     /// Limits the number of rows returned.
     #[inline]
+    #[must_use]
     pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G> {
         SelectBuilder {
             sql: self.sql.append(helpers::limit(limit)),
@@ -455,6 +456,7 @@ where
 {
     /// Sets the offset for the query results.
     #[inline]
+    #[must_use]
     pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G> {
         SelectBuilder {
             sql: self.sql.append(helpers::offset(offset)),
@@ -479,6 +481,7 @@ where
 {
     /// Converts this SELECT query into a typed CTE using alias tag name.
     #[inline]
+    #[must_use]
     pub fn into_cte<Tag: drizzle_core::Tag + 'static>(
         self,
     ) -> super::CTEView<
@@ -619,8 +622,8 @@ where
 // IntoSelect conversion trait
 //------------------------------------------------------------------------------
 
-/// Conversion trait for types that can become a SelectBuilder.
-/// Used by set operations to accept both raw SelectBuilder and DrizzleBuilder.
+/// Conversion trait for types that can become a `SelectBuilder`.
+/// Used by set operations to accept both raw `SelectBuilder` and `DrizzleBuilder`.
 pub trait IntoSelect<'a, S, M, R> {
     type State: ExecutableState;
     type Table;
@@ -665,6 +668,7 @@ where
     State: ForLockableState,
 {
     /// Adds FOR UPDATE clause to lock selected rows for update.
+    #[must_use]
     pub fn for_update(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
         SelectBuilder {
             sql: self.sql.append(helpers::for_update()),
@@ -678,6 +682,7 @@ where
     }
 
     /// Adds FOR SHARE clause to lock selected rows for shared access.
+    #[must_use]
     pub fn for_share(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
         SelectBuilder {
             sql: self.sql.append(helpers::for_share()),
@@ -691,6 +696,7 @@ where
     }
 
     /// Adds FOR NO KEY UPDATE clause.
+    #[must_use]
     pub fn for_no_key_update(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
         SelectBuilder {
             sql: self.sql.append(helpers::for_no_key_update()),
@@ -704,6 +710,7 @@ where
     }
 
     /// Adds FOR KEY SHARE clause.
+    #[must_use]
     pub fn for_key_share(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
         SelectBuilder {
             sql: self.sql.append(helpers::for_key_share()),
@@ -753,9 +760,10 @@ where
 // Post-FOR State Implementation (NOWAIT / SKIP LOCKED)
 //------------------------------------------------------------------------------
 
-impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
+impl<S, T, M, R, G> SelectBuilder<'_, S, SelectForSet, T, M, R, G> {
     /// Adds NOWAIT option to fail immediately if rows are locked.
-    pub fn nowait(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
+    #[must_use]
+    pub fn nowait(self) -> Self {
         SelectBuilder {
             sql: self.sql.append(helpers::nowait()),
             schema: PhantomData,
@@ -768,7 +776,8 @@ impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
     }
 
     /// Adds SKIP LOCKED option to skip over locked rows.
-    pub fn skip_locked(self) -> SelectBuilder<'a, S, SelectForSet, T, M, R, G> {
+    #[must_use]
+    pub fn skip_locked(self) -> Self {
         SelectBuilder {
             sql: self.sql.append(helpers::skip_locked()),
             schema: PhantomData,

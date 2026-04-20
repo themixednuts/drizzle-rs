@@ -1,9 +1,10 @@
-//! SQL generation for PostgreSQL DDL types
+//! SQL generation for `PostgreSQL` DDL types
 //!
 //! This module provides SQL generation methods for DDL types, enabling
 //! unified SQL output from both compile-time and runtime schema definitions.
 
 use crate::alloc_prelude::*;
+use std::fmt::Write;
 
 use super::{
     CheckConstraint, Column, Enum, ForeignKey, Generated, GeneratedType, Identity, IdentityType,
@@ -28,8 +29,9 @@ pub struct TableSql<'a> {
 }
 
 impl<'a> TableSql<'a> {
-    /// Create a new TableSql for SQL generation
-    pub fn new(table: &'a Table) -> Self {
+    /// Create a new `TableSql` for SQL generation
+    #[must_use]
+    pub const fn new(table: &'a Table) -> Self {
         Self {
             table,
             columns: &[],
@@ -43,56 +45,64 @@ impl<'a> TableSql<'a> {
     }
 
     /// Set columns
-    pub fn columns(mut self, columns: &'a [Column]) -> Self {
+    #[must_use]
+    pub const fn columns(mut self, columns: &'a [Column]) -> Self {
         self.columns = columns;
         self
     }
 
     /// Set primary key
-    pub fn primary_key(mut self, pk: Option<&'a PrimaryKey>) -> Self {
+    #[must_use]
+    pub const fn primary_key(mut self, pk: Option<&'a PrimaryKey>) -> Self {
         self.primary_key = pk;
         self
     }
 
     /// Set foreign keys
-    pub fn foreign_keys(mut self, fks: &'a [ForeignKey]) -> Self {
+    #[must_use]
+    pub const fn foreign_keys(mut self, fks: &'a [ForeignKey]) -> Self {
         self.foreign_keys = fks;
         self
     }
 
     /// Set unique constraints
-    pub fn unique_constraints(mut self, uniques: &'a [UniqueConstraint]) -> Self {
+    #[must_use]
+    pub const fn unique_constraints(mut self, uniques: &'a [UniqueConstraint]) -> Self {
         self.unique_constraints = uniques;
         self
     }
 
     /// Set check constraints
-    pub fn check_constraints(mut self, checks: &'a [CheckConstraint]) -> Self {
+    #[must_use]
+    pub const fn check_constraints(mut self, checks: &'a [CheckConstraint]) -> Self {
         self.check_constraints = checks;
         self
     }
 
     /// Set indexes
-    pub fn indexes(mut self, indexes: &'a [Index]) -> Self {
+    #[must_use]
+    pub const fn indexes(mut self, indexes: &'a [Index]) -> Self {
         self.indexes = indexes;
         self
     }
 
     /// Set policies
-    pub fn policies(mut self, policies: &'a [Policy]) -> Self {
+    #[must_use]
+    pub const fn policies(mut self, policies: &'a [Policy]) -> Self {
         self.policies = policies;
         self
     }
 
     fn schema_prefix(&self) -> String {
-        if self.table.schema() != "public" {
-            format!("\"{}\".", self.table.schema())
-        } else {
+        if self.table.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.table.schema())
         }
     }
 
     /// Generate CREATE TABLE SQL
+    #[must_use]
     pub fn create_table_sql(&self) -> String {
         let schema_prefix = self.schema_prefix();
         let mut sql = format!(
@@ -113,7 +123,7 @@ impl<'a> TableSql<'a> {
             let cols = pk
                 .columns
                 .iter()
-                .map(|c| format!("\"{}\"", c))
+                .map(|c| format!("\"{c}\""))
                 .collect::<Vec<_>>()
                 .join(", ");
             if pk.name_explicit {
@@ -123,7 +133,7 @@ impl<'a> TableSql<'a> {
                     cols
                 ));
             } else {
-                lines.push(format!("\tPRIMARY KEY({})", cols));
+                lines.push(format!("\tPRIMARY KEY({cols})"));
             }
         }
 
@@ -137,7 +147,7 @@ impl<'a> TableSql<'a> {
             let cols = unique
                 .columns
                 .iter()
-                .map(|c| format!("\"{}\"", c))
+                .map(|c| format!("\"{c}\""))
                 .collect::<Vec<_>>()
                 .join(", ");
             lines.push(format!(
@@ -163,17 +173,23 @@ impl<'a> TableSql<'a> {
     }
 
     /// Generate DROP TABLE SQL
+    #[must_use]
     pub fn drop_table_sql(&self) -> String {
         let schema_prefix = self.schema_prefix();
         format!("DROP TABLE {}\"{}\";", schema_prefix, self.table.name())
     }
 
     /// Generate all related indexes
+    #[must_use]
     pub fn create_indexes_sql(&self) -> Vec<String> {
-        self.indexes.iter().map(|i| i.create_index_sql()).collect()
+        self.indexes
+            .iter()
+            .map(super::index::Index::create_index_sql)
+            .collect()
     }
 
     /// Generate RLS enable statement if needed
+    #[must_use]
     pub fn enable_rls_sql(&self) -> Option<String> {
         if self.table.is_rls_enabled.unwrap_or(false) {
             let schema_prefix = self.schema_prefix();
@@ -188,10 +204,11 @@ impl<'a> TableSql<'a> {
     }
 
     /// Generate all policies
+    #[must_use]
     pub fn create_policies_sql(&self) -> Vec<String> {
         self.policies
             .iter()
-            .map(|p| p.create_policy_sql())
+            .map(super::policy::Policy::create_policy_sql)
             .collect()
     }
 }
@@ -202,6 +219,7 @@ impl<'a> TableSql<'a> {
 
 impl Column {
     /// Generate the column definition SQL (without leading/trailing punctuation)
+    #[must_use]
     pub fn to_column_sql(&self) -> String {
         let mut sql = format!("\"{}\" {}", self.name(), self.sql_type());
 
@@ -220,7 +238,7 @@ impl Column {
             && self.generated.is_none()
             && let Some(default) = self.default.as_ref()
         {
-            sql.push_str(&format!(" DEFAULT {}", default));
+            let _ = write!(sql, " DEFAULT {default}");
         }
 
         // NOT NULL
@@ -232,11 +250,12 @@ impl Column {
     }
 
     /// Generate ADD COLUMN SQL
+    #[must_use]
     pub fn add_column_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         format!(
             "ALTER TABLE {}\"{}\" ADD COLUMN {};",
@@ -247,11 +266,12 @@ impl Column {
     }
 
     /// Generate DROP COLUMN SQL
+    #[must_use]
     pub fn drop_column_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         format!(
             "ALTER TABLE {}\"{}\" DROP COLUMN \"{}\";",
@@ -268,38 +288,39 @@ impl Column {
 
 impl Identity {
     /// Generate the GENERATED AS IDENTITY clause
+    #[must_use]
     pub fn to_sql(&self) -> String {
         let identity_type = match self.type_ {
             IdentityType::Always => "ALWAYS",
             IdentityType::ByDefault => "BY DEFAULT",
         };
 
-        let mut sql = format!(" GENERATED {} AS IDENTITY", identity_type);
+        let mut sql = format!(" GENERATED {identity_type} AS IDENTITY");
 
         // Add sequence options if any are specified
         let mut options = Vec::new();
 
         if let Some(increment) = self.increment.as_ref() {
-            options.push(format!("INCREMENT BY {}", increment));
+            options.push(format!("INCREMENT BY {increment}"));
         }
         if let Some(min) = self.min_value.as_ref() {
-            options.push(format!("MINVALUE {}", min));
+            options.push(format!("MINVALUE {min}"));
         }
         if let Some(max) = self.max_value.as_ref() {
-            options.push(format!("MAXVALUE {}", max));
+            options.push(format!("MAXVALUE {max}"));
         }
         if let Some(start) = self.start_with.as_ref() {
-            options.push(format!("START WITH {}", start));
+            options.push(format!("START WITH {start}"));
         }
         if let Some(cache) = self.cache {
-            options.push(format!("CACHE {}", cache));
+            options.push(format!("CACHE {cache}"));
         }
         if self.cycle.unwrap_or(false) {
             options.push("CYCLE".to_string());
         }
 
         if !options.is_empty() {
-            sql.push_str(&format!(" ({})", options.join(" ")));
+            let _ = write!(sql, " ({})", options.join(" "));
         }
 
         sql
@@ -312,6 +333,7 @@ impl Identity {
 
 impl Generated {
     /// Generate the GENERATED clause SQL
+    #[must_use]
     pub fn to_sql(&self) -> String {
         let gen_type = match self.gen_type {
             GeneratedType::Stored => "STORED",
@@ -326,25 +348,26 @@ impl Generated {
 
 impl ForeignKey {
     /// Generate the CONSTRAINT ... FOREIGN KEY clause SQL
+    #[must_use]
     pub fn to_constraint_sql(&self) -> String {
         let from_cols = self
             .columns
             .iter()
-            .map(|c| format!("\"{}\"", c))
+            .map(|c| format!("\"{c}\""))
             .collect::<Vec<_>>()
             .join(", ");
 
         let to_cols = self
             .columns_to
             .iter()
-            .map(|c| format!("\"{}\"", c))
+            .map(|c| format!("\"{c}\""))
             .collect::<Vec<_>>()
             .join(", ");
 
-        let to_schema_prefix = if self.schema_to() != "public" {
-            format!("\"{}\".", self.schema_to())
-        } else {
+        let to_schema_prefix = if self.schema_to() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema_to())
         };
 
         let mut sql = format!(
@@ -359,24 +382,25 @@ impl ForeignKey {
         if let Some(on_update) = self.on_update.as_ref()
             && on_update != "NO ACTION"
         {
-            sql.push_str(&format!(" ON UPDATE {}", on_update.to_uppercase()));
+            let _ = write!(sql, " ON UPDATE {}", on_update.to_uppercase());
         }
 
         if let Some(on_delete) = self.on_delete.as_ref()
             && on_delete != "NO ACTION"
         {
-            sql.push_str(&format!(" ON DELETE {}", on_delete.to_uppercase()));
+            let _ = write!(sql, " ON DELETE {}", on_delete.to_uppercase());
         }
 
         sql
     }
 
     /// Generate ADD FOREIGN KEY SQL
+    #[must_use]
     pub fn add_fk_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         format!(
             "ALTER TABLE {}\"{}\" ADD {};",
@@ -387,11 +411,12 @@ impl ForeignKey {
     }
 
     /// Generate DROP FOREIGN KEY SQL
+    #[must_use]
     pub fn drop_fk_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         format!(
             "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",
@@ -408,6 +433,7 @@ impl ForeignKey {
 
 impl Index {
     /// Generate CREATE INDEX SQL
+    #[must_use]
     pub fn create_index_sql(&self) -> String {
         let unique = if self.is_unique { "UNIQUE " } else { "" };
 
@@ -417,23 +443,23 @@ impl Index {
             ""
         };
 
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
 
         let columns = self
             .columns
             .iter()
-            .map(|c| c.to_sql())
+            .map(super::index::IndexColumn::to_sql)
             .collect::<Vec<_>>()
             .join(", ");
 
         let using = self
             .method
             .as_ref()
-            .map(|m| format!(" USING {}", m))
+            .map(|m| format!(" USING {m}"))
             .unwrap_or_default();
 
         let mut sql = format!(
@@ -450,18 +476,19 @@ impl Index {
         if let Some(where_clause) = self.where_clause.as_ref() {
             // Remove trailing semicolon to add WHERE
             sql.pop();
-            sql.push_str(&format!(" WHERE {};", where_clause));
+            let _ = write!(sql, " WHERE {where_clause};");
         }
 
         sql
     }
 
     /// Generate DROP INDEX SQL
+    #[must_use]
     pub fn drop_index_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         format!("DROP INDEX {}\"{}\";", schema_prefix, self.name())
     }
@@ -469,6 +496,7 @@ impl Index {
 
 impl IndexColumnDef {
     /// Generate the column reference for an index
+    #[must_use]
     pub fn to_sql(&self) -> String {
         let mut sql = if self.is_expression {
             format!("({})", self.value)
@@ -477,7 +505,7 @@ impl IndexColumnDef {
         };
 
         if let Some(op) = self.opclass.as_ref() {
-            sql.push_str(&format!(" {}", op));
+            let _ = write!(sql, " {op}");
         }
 
         if !self.asc {
@@ -498,16 +526,17 @@ impl IndexColumnDef {
 
 impl Enum {
     /// Generate CREATE TYPE ... AS ENUM SQL
+    #[must_use]
     pub fn create_enum_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         let values = self
             .values
             .iter()
-            .map(|v| format!("'{}'", v))
+            .map(|v| format!("'{v}'"))
             .collect::<Vec<_>>()
             .join(", ");
         format!(
@@ -519,38 +548,43 @@ impl Enum {
     }
 
     /// Generate DROP TYPE SQL
+    #[must_use]
     pub fn drop_enum_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         format!("DROP TYPE {}\"{}\";", schema_prefix, self.name())
     }
 
     /// Generate ALTER TYPE ... ADD VALUE SQL
+    #[must_use]
     pub fn add_value_sql(&self, value: &str, before: Option<&str>) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
-        };
-        if let Some(before_value) = before {
-            format!(
-                "ALTER TYPE {}\"{}\" ADD VALUE '{}' BEFORE '{}';",
-                schema_prefix,
-                self.name(),
-                value,
-                before_value
-            )
         } else {
-            format!(
-                "ALTER TYPE {}\"{}\" ADD VALUE '{}';",
-                schema_prefix,
-                self.name(),
-                value
-            )
-        }
+            format!("\"{}\".", self.schema())
+        };
+        before.map_or_else(
+            || {
+                format!(
+                    "ALTER TYPE {}\"{}\" ADD VALUE '{}';",
+                    schema_prefix,
+                    self.name(),
+                    value
+                )
+            },
+            |before_value| {
+                format!(
+                    "ALTER TYPE {}\"{}\" ADD VALUE '{}' BEFORE '{}';",
+                    schema_prefix,
+                    self.name(),
+                    value,
+                    before_value
+                )
+            },
+        )
     }
 }
 
@@ -560,29 +594,30 @@ impl Enum {
 
 impl Sequence {
     /// Generate CREATE SEQUENCE SQL
+    #[must_use]
     pub fn create_sequence_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
 
         let mut sql = format!("CREATE SEQUENCE {}\"{}\"", schema_prefix, self.name());
 
         if let Some(inc) = self.increment_by.as_ref() {
-            sql.push_str(&format!(" INCREMENT BY {}", inc));
+            let _ = write!(sql, " INCREMENT BY {inc}");
         }
         if let Some(min) = self.min_value.as_ref() {
-            sql.push_str(&format!(" MINVALUE {}", min));
+            let _ = write!(sql, " MINVALUE {min}");
         }
         if let Some(max) = self.max_value.as_ref() {
-            sql.push_str(&format!(" MAXVALUE {}", max));
+            let _ = write!(sql, " MAXVALUE {max}");
         }
         if let Some(start) = self.start_with.as_ref() {
-            sql.push_str(&format!(" START WITH {}", start));
+            let _ = write!(sql, " START WITH {start}");
         }
         if let Some(cache) = self.cache_size {
-            sql.push_str(&format!(" CACHE {}", cache));
+            let _ = write!(sql, " CACHE {cache}");
         }
         if self.cycle.unwrap_or(false) {
             sql.push_str(" CYCLE");
@@ -593,11 +628,12 @@ impl Sequence {
     }
 
     /// Generate DROP SEQUENCE SQL
+    #[must_use]
     pub fn drop_sequence_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         format!("DROP SEQUENCE {}\"{}\";", schema_prefix, self.name())
     }
@@ -607,13 +643,103 @@ impl Sequence {
 // View SQL Generation
 // =============================================================================
 
+/// Append WITH-options clause for `CREATE VIEW`, returning the uppercased
+/// CHECK OPTION clause (to be emitted after `AS <definition>`), if any.
+fn append_view_with_options(
+    sql: &mut String,
+    with_opts: &super::view::ViewWithOption,
+) -> Option<String> {
+    let mut options = String::new();
+    let mut has_option = false;
+
+    let mut push_option = |name: &str, value: &dyn core::fmt::Display| {
+        if has_option {
+            options.push_str(", ");
+        } else {
+            has_option = true;
+        }
+        let _ = write!(options, "{name} = {value}");
+    };
+
+    if let Some(value) = with_opts.security_barrier {
+        push_option("security_barrier", &value);
+    }
+    if let Some(value) = with_opts.security_invoker {
+        push_option("security_invoker", &value);
+    }
+    if let Some(value) = with_opts.fillfactor {
+        push_option("fillfactor", &value);
+    }
+    if let Some(value) = with_opts.toast_tuple_target {
+        push_option("toast_tuple_target", &value);
+    }
+    if let Some(value) = with_opts.parallel_workers {
+        push_option("parallel_workers", &value);
+    }
+    if let Some(value) = with_opts.autovacuum_enabled {
+        push_option("autovacuum_enabled", &value);
+    }
+    if let Some(value) = with_opts.vacuum_index_cleanup.as_ref() {
+        push_option("vacuum_index_cleanup", value);
+    }
+    if let Some(value) = with_opts.vacuum_truncate {
+        push_option("vacuum_truncate", &value);
+    }
+    if let Some(value) = with_opts.autovacuum_vacuum_threshold {
+        push_option("autovacuum_vacuum_threshold", &value);
+    }
+    if let Some(value) = with_opts.autovacuum_vacuum_scale_factor {
+        push_option("autovacuum_vacuum_scale_factor", &value);
+    }
+    if let Some(value) = with_opts.autovacuum_vacuum_cost_delay {
+        push_option("autovacuum_vacuum_cost_delay", &value);
+    }
+    if let Some(value) = with_opts.autovacuum_vacuum_cost_limit {
+        push_option("autovacuum_vacuum_cost_limit", &value);
+    }
+    if let Some(value) = with_opts.autovacuum_freeze_min_age {
+        push_option("autovacuum_freeze_min_age", &value);
+    }
+    if let Some(value) = with_opts.autovacuum_freeze_max_age {
+        push_option("autovacuum_freeze_max_age", &value);
+    }
+    if let Some(value) = with_opts.autovacuum_freeze_table_age {
+        push_option("autovacuum_freeze_table_age", &value);
+    }
+    if let Some(value) = with_opts.autovacuum_multixact_freeze_min_age {
+        push_option("autovacuum_multixact_freeze_min_age", &value);
+    }
+    if let Some(value) = with_opts.autovacuum_multixact_freeze_max_age {
+        push_option("autovacuum_multixact_freeze_max_age", &value);
+    }
+    if let Some(value) = with_opts.autovacuum_multixact_freeze_table_age {
+        push_option("autovacuum_multixact_freeze_table_age", &value);
+    }
+    if let Some(value) = with_opts.log_autovacuum_min_duration {
+        push_option("log_autovacuum_min_duration", &value);
+    }
+    if let Some(value) = with_opts.user_catalog_table {
+        push_option("user_catalog_table", &value);
+    }
+
+    if has_option {
+        let _ = write!(sql, " WITH ({options})");
+    }
+
+    with_opts
+        .check_option
+        .as_deref()
+        .map(str::to_ascii_uppercase)
+}
+
 impl View {
     /// Generate CREATE VIEW SQL
+    #[must_use]
     pub fn create_view_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
 
         let materialized = if self.materialized {
@@ -631,8 +757,6 @@ impl View {
             );
         };
 
-        use core::fmt::Write;
-
         let mut sql = String::with_capacity(def.len() + 64);
         let _ = write!(
             sql,
@@ -643,104 +767,23 @@ impl View {
         );
 
         if let Some(using) = self.using.as_ref() {
-            let _ = write!(sql, " USING {}", using);
+            let _ = write!(sql, " USING {using}");
         }
 
-        let mut check_option_clause = None;
-        if let Some(with_opts) = self.with.as_ref() {
-            let mut options = String::new();
-            let mut has_option = false;
-
-            macro_rules! push_option {
-                ($name:expr, $value:expr) => {{
-                    if has_option {
-                        options.push_str(", ");
-                    } else {
-                        has_option = true;
-                    }
-                    let _ = write!(options, "{} = {}", $name, $value);
-                }};
-            }
-
-            if let Some(check_option) = with_opts.check_option.as_deref() {
-                check_option_clause = Some(check_option.to_ascii_uppercase());
-            }
-
-            if let Some(value) = with_opts.security_barrier {
-                push_option!("security_barrier", value);
-            }
-            if let Some(value) = with_opts.security_invoker {
-                push_option!("security_invoker", value);
-            }
-            if let Some(value) = with_opts.fillfactor {
-                push_option!("fillfactor", value);
-            }
-            if let Some(value) = with_opts.toast_tuple_target {
-                push_option!("toast_tuple_target", value);
-            }
-            if let Some(value) = with_opts.parallel_workers {
-                push_option!("parallel_workers", value);
-            }
-            if let Some(value) = with_opts.autovacuum_enabled {
-                push_option!("autovacuum_enabled", value);
-            }
-            if let Some(value) = with_opts.vacuum_index_cleanup.as_ref() {
-                push_option!("vacuum_index_cleanup", value);
-            }
-            if let Some(value) = with_opts.vacuum_truncate {
-                push_option!("vacuum_truncate", value);
-            }
-            if let Some(value) = with_opts.autovacuum_vacuum_threshold {
-                push_option!("autovacuum_vacuum_threshold", value);
-            }
-            if let Some(value) = with_opts.autovacuum_vacuum_scale_factor {
-                push_option!("autovacuum_vacuum_scale_factor", value);
-            }
-            if let Some(value) = with_opts.autovacuum_vacuum_cost_delay {
-                push_option!("autovacuum_vacuum_cost_delay", value);
-            }
-            if let Some(value) = with_opts.autovacuum_vacuum_cost_limit {
-                push_option!("autovacuum_vacuum_cost_limit", value);
-            }
-            if let Some(value) = with_opts.autovacuum_freeze_min_age {
-                push_option!("autovacuum_freeze_min_age", value);
-            }
-            if let Some(value) = with_opts.autovacuum_freeze_max_age {
-                push_option!("autovacuum_freeze_max_age", value);
-            }
-            if let Some(value) = with_opts.autovacuum_freeze_table_age {
-                push_option!("autovacuum_freeze_table_age", value);
-            }
-            if let Some(value) = with_opts.autovacuum_multixact_freeze_min_age {
-                push_option!("autovacuum_multixact_freeze_min_age", value);
-            }
-            if let Some(value) = with_opts.autovacuum_multixact_freeze_max_age {
-                push_option!("autovacuum_multixact_freeze_max_age", value);
-            }
-            if let Some(value) = with_opts.autovacuum_multixact_freeze_table_age {
-                push_option!("autovacuum_multixact_freeze_table_age", value);
-            }
-            if let Some(value) = with_opts.log_autovacuum_min_duration {
-                push_option!("log_autovacuum_min_duration", value);
-            }
-            if let Some(value) = with_opts.user_catalog_table {
-                push_option!("user_catalog_table", value);
-            }
-
-            if has_option {
-                let _ = write!(sql, " WITH ({})", options);
-            }
-        }
+        let check_option_clause = self
+            .with
+            .as_ref()
+            .and_then(|with_opts| append_view_with_options(&mut sql, with_opts));
 
         if let Some(tablespace) = self.tablespace.as_ref() {
-            let _ = write!(sql, " TABLESPACE \"{}\"", tablespace);
+            let _ = write!(sql, " TABLESPACE \"{tablespace}\"");
         }
 
         sql.push_str(" AS ");
         sql.push_str(def);
 
         if let Some(check_option) = check_option_clause {
-            let _ = write!(sql, " WITH {} CHECK OPTION", check_option);
+            let _ = write!(sql, " WITH {check_option} CHECK OPTION");
         }
 
         if self.materialized && matches!(self.with_no_data, Some(true)) {
@@ -752,11 +795,12 @@ impl View {
     }
 
     /// Generate DROP VIEW SQL
+    #[must_use]
     pub fn drop_view_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         let materialized = if self.materialized {
             "MATERIALIZED "
@@ -778,11 +822,12 @@ impl View {
 
 impl Policy {
     /// Generate CREATE POLICY SQL
+    #[must_use]
     pub fn create_policy_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
 
         let mut sql = format!(
@@ -793,7 +838,7 @@ impl Policy {
         );
 
         if let Some(r#for) = self.for_clause.as_ref() {
-            sql.push_str(&format!(" FOR {}", r#for.to_uppercase()));
+            let _ = write!(sql, " FOR {}", r#for.to_uppercase());
         }
 
         if let Some(to) = self.to.as_ref()
@@ -805,20 +850,20 @@ impl Policy {
                     if *r == "public" {
                         "PUBLIC".to_string()
                     } else {
-                        format!("\"{}\"", r)
+                        format!("\"{r}\"")
                     }
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            sql.push_str(&format!(" TO {}", to_roles));
+            let _ = write!(sql, " TO {to_roles}");
         }
 
         if let Some(using) = self.using.as_ref() {
-            sql.push_str(&format!(" USING ({})", using));
+            let _ = write!(sql, " USING ({using})");
         }
 
         if let Some(with_check) = self.with_check.as_ref() {
-            sql.push_str(&format!(" WITH CHECK ({})", with_check));
+            let _ = write!(sql, " WITH CHECK ({with_check})");
         }
 
         sql.push(';');
@@ -826,11 +871,12 @@ impl Policy {
     }
 
     /// Generate DROP POLICY SQL
+    #[must_use]
     pub fn drop_policy_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         format!(
             "DROP POLICY \"{}\" ON {}\"{}\";",
@@ -847,21 +893,23 @@ impl Policy {
 
 impl Table {
     /// Generate DROP TABLE SQL
+    #[must_use]
     pub fn drop_table_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         format!("DROP TABLE {}\"{}\";", schema_prefix, self.name())
     }
 
     /// Generate RENAME TABLE SQL
+    #[must_use]
     pub fn rename_table_sql(&self, new_name: &str) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         format!(
             "ALTER TABLE {}\"{}\" RENAME TO \"{}\";",
@@ -878,11 +926,12 @@ impl Table {
 
 impl PrimaryKey {
     /// Generate the PRIMARY KEY constraint clause
+    #[must_use]
     pub fn to_constraint_sql(&self) -> String {
         let cols = self
             .columns
             .iter()
-            .map(|c| format!("\"{}\"", c))
+            .map(|c| format!("\"{c}\""))
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -890,11 +939,12 @@ impl PrimaryKey {
     }
 
     /// Generate ADD PRIMARY KEY SQL
+    #[must_use]
     pub fn add_pk_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         format!(
             "ALTER TABLE {}\"{}\" ADD {};",
@@ -905,11 +955,12 @@ impl PrimaryKey {
     }
 
     /// Generate DROP PRIMARY KEY SQL
+    #[must_use]
     pub fn drop_pk_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         format!(
             "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",
@@ -926,11 +977,12 @@ impl PrimaryKey {
 
 impl UniqueConstraint {
     /// Generate the UNIQUE constraint clause
+    #[must_use]
     pub fn to_constraint_sql(&self) -> String {
         let cols = self
             .columns
             .iter()
-            .map(|c| format!("\"{}\"", c))
+            .map(|c| format!("\"{c}\""))
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -938,11 +990,12 @@ impl UniqueConstraint {
     }
 
     /// Generate ADD UNIQUE SQL
+    #[must_use]
     pub fn add_unique_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         format!(
             "ALTER TABLE {}\"{}\" ADD {};",
@@ -953,11 +1006,12 @@ impl UniqueConstraint {
     }
 
     /// Generate DROP UNIQUE SQL
+    #[must_use]
     pub fn drop_unique_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         format!(
             "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",
@@ -974,16 +1028,18 @@ impl UniqueConstraint {
 
 impl CheckConstraint {
     /// Generate the CHECK constraint clause
+    #[must_use]
     pub fn to_constraint_sql(&self) -> String {
         format!("CONSTRAINT \"{}\" CHECK ({})", self.name(), &self.value)
     }
 
     /// Generate ADD CHECK SQL
+    #[must_use]
     pub fn add_check_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         format!(
             "ALTER TABLE {}\"{}\" ADD {};",
@@ -994,11 +1050,12 @@ impl CheckConstraint {
     }
 
     /// Generate DROP CHECK SQL
+    #[must_use]
     pub fn drop_check_sql(&self) -> String {
-        let schema_prefix = if self.schema() != "public" {
-            format!("\"{}\".", self.schema())
-        } else {
+        let schema_prefix = if self.schema() == "public" {
             String::new()
+        } else {
+            format!("\"{}\".", self.schema())
         };
         format!(
             "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",

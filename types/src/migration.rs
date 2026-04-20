@@ -15,6 +15,7 @@ pub enum Casing {
 }
 
 impl Casing {
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::CamelCase => "camelCase",
@@ -52,18 +53,18 @@ impl core::str::FromStr for Casing {
 pub struct MigrationTracking {
     /// Migrations tracking table name.
     pub table: Cow<'static, str>,
-    /// Optional schema name for the tracking table (PostgreSQL).
+    /// Optional schema name for the tracking table (`PostgreSQL`).
     pub schema: Option<Cow<'static, str>>,
 }
 
 impl MigrationTracking {
-    /// Default SQLite migration tracking metadata.
+    /// Default `SQLite` migration tracking metadata.
     pub const SQLITE: Self = Self {
         table: Cow::Borrowed("__drizzle_migrations"),
         schema: None,
     };
 
-    /// Default PostgreSQL migration tracking metadata.
+    /// Default `PostgreSQL` migration tracking metadata.
     pub const POSTGRES: Self = Self {
         table: Cow::Borrowed("__drizzle_migrations"),
         schema: Some(Cow::Borrowed("drizzle")),
@@ -81,18 +82,21 @@ impl MigrationTracking {
     }
 
     /// Override table name while preserving schema.
+    #[must_use]
     pub fn table(mut self, table: impl Into<Cow<'static, str>>) -> Self {
         self.table = table.into();
         self
     }
 
     /// Override schema while preserving table name.
+    #[must_use]
     pub fn schema(mut self, schema: impl Into<Cow<'static, str>>) -> Self {
         self.schema = Some(schema.into());
         self
     }
 
     /// Clear the schema while preserving table name.
+    #[must_use]
     pub fn without_schema(mut self) -> Self {
         self.schema = None;
         self

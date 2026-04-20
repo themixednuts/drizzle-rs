@@ -1,4 +1,4 @@
-//! Attribute markers for SQLiteTable derive macro.
+//! Attribute markers for `SQLiteTable` derive macro.
 //!
 //! These const markers are used within `#[column(...)]` and `#[SQLiteTable(...)]`
 //! attributes. Import them from the prelude to get IDE hover documentation.
@@ -213,7 +213,7 @@ pub const ON_UPDATE: ColumnMarker = ColumnMarker;
 // Referential Action Values
 //------------------------------------------------------------------------------
 
-/// Type alias for referential action markers (uses ColumnMarker for macro compatibility).
+/// Type alias for referential action markers (uses `ColumnMarker` for macro compatibility).
 pub type ReferentialAction = ColumnMarker;
 
 /// CASCADE action: Propagate the delete/update to referencing rows.
@@ -291,7 +291,7 @@ pub struct NameMarker;
 
 /// Specifies a custom name in the database.
 ///
-/// By default, table, view, and column names are automatically converted to snake_case
+/// By default, table, view, and column names are automatically converted to `snake_case`
 /// from the Rust struct/field name. Use NAME to override this behavior.
 ///
 /// ## Column Example
@@ -392,7 +392,7 @@ pub struct TableMarker;
 /// # "####;
 /// ```
 ///
-/// # SQLite Behavior
+/// # `SQLite` Behavior
 /// - Enforces that values match declared column types exactly
 /// - `INTEGER` columns only accept integers
 /// - `TEXT` columns only accept text
@@ -441,7 +441,7 @@ pub struct TypeMarker;
 /// ```
 ///
 /// INTEGER columns store signed integers up to 8 bytes (64-bit).
-/// SQLite uses a variable-length encoding, so small values use less space.
+/// `SQLite` uses a variable-length encoding, so small values use less space.
 ///
 /// See: <https://sqlite.org/datatype3.html#storage_classes_and_datatypes>
 pub const INTEGER: TypeMarker = TypeMarker;
@@ -534,7 +534,7 @@ pub const ANY: TypeMarker = TypeMarker;
 /// # "####;
 /// ```
 ///
-/// SQLite has no native BOOLEAN. Values are stored as INTEGER (0 for false, 1 for true).
+/// `SQLite` has no native BOOLEAN. Values are stored as INTEGER (0 for false, 1 for true).
 ///
 /// See: <https://sqlite.org/datatype3.html#boolean_datatype>
 pub const BOOLEAN: TypeMarker = TypeMarker;

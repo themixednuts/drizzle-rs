@@ -1,6 +1,6 @@
-//! libsql driver implementation for SQLite table macro.
+//! libsql driver implementation for `SQLite` table macro.
 //!
-//! Generates TryFrom implementations for `libsql::Row` using the shared driver infrastructure.
+//! Generates `TryFrom` implementations for `libsql::Row` using the shared driver infrastructure.
 
 use super::errors;
 use super::{FieldInfo, MacroContext};
@@ -15,8 +15,8 @@ use syn::Result;
 // Public API
 // =============================================================================
 
-/// Generate TryFrom implementations for libsql::Row for a table's models
-pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
+/// Generate `TryFrom` implementations for `libsql::Row` for a table's models
+pub fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
     let drizzle_error = paths::core::drizzle_error();
     let row_column_list = paths::core::row_column_list();
     let type_set_nil = paths::core::type_set_nil();
@@ -39,7 +39,7 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
     let from_drizzle_select: Vec<_> = field_infos
         .iter()
         .enumerate()
-        .map(|(i, info)| generate_field_from_row_for_select_with_index(quote!(offset + #i), info))
+        .map(|(i, info)| generate_field_from_row_for_select_with_index(&quote!(offset + #i), info))
         .collect::<Result<Vec<_>>>()?;
 
     let select_model_try_from_impl = quote! {
@@ -91,24 +91,26 @@ pub(crate) fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
 fn generate_field_from_row_for_select(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
     let select_type = info.get_select_type();
     let is_optional = syn::parse2::<syn::Type>(select_type)
-        .map(|ty| is_option_type(&ty))
-        .unwrap_or(info.is_nullable && !info.has_default);
-    generate_field_from_row_impl(quote!(#idx), info, is_optional)
+        .map_or(info.is_nullable && !info.has_default, |ty| {
+            is_option_type(&ty)
+        });
+    generate_field_from_row_impl(&quote!(#idx), info, is_optional)
 }
 
 fn generate_field_from_row_for_select_with_index(
-    idx: TokenStream,
+    idx: &TokenStream,
     info: &FieldInfo,
 ) -> Result<TokenStream> {
     let select_type = info.get_select_type();
     let is_optional = syn::parse2::<syn::Type>(select_type)
-        .map(|ty| is_option_type(&ty))
-        .unwrap_or(info.is_nullable && !info.has_default);
+        .map_or(info.is_nullable && !info.has_default, |ty| {
+            is_option_type(&ty)
+        });
     generate_field_from_row_impl(idx, info, is_optional)
 }
 
 fn generate_field_from_row_impl(
-    idx: TokenStream,
+    idx: &TokenStream,
     info: &FieldInfo,
     is_optional: bool,
 ) -> Result<TokenStream> {
@@ -133,31 +135,30 @@ fn generate_field_from_row_impl(
                     DrizzleRowByIndex::get_column::<Option<#base_type>>(row, #idx)?
                 },
             });
-        } else {
-            return Ok(quote! {
-                #name: {
-                    use drizzle::sqlite::traits::DrizzleRowByIndex;
-                    DrizzleRowByIndex::get_column::<#base_type>(row, #idx)?
-                },
-            });
         }
+        return Ok(quote! {
+            #name: {
+                use drizzle::sqlite::traits::DrizzleRowByIndex;
+                DrizzleRowByIndex::get_column::<#base_type>(row, #idx)?
+            },
+        });
     }
 
     let idx = quote!((#idx) as i32);
 
     // Dispatch based on type category
     match info.type_category() {
-        TypeCategory::Json => handle_json_field(idx, name, info, is_optional),
-        TypeCategory::Uuid => handle_uuid_field(idx, name, info, is_optional),
-        TypeCategory::Enum => handle_enum_field(idx, name, info, is_optional),
-        TypeCategory::ArrayString => handle_arraystring_field(idx, name, info, is_optional),
-        TypeCategory::ArrayVec => handle_arrayvec_field(idx, name, info, is_optional),
-        _ => handle_standard_field(idx, name, info, is_optional),
+        TypeCategory::Json => handle_json_field(&idx, name, info, is_optional),
+        TypeCategory::Uuid => handle_uuid_field(&idx, name, info, is_optional),
+        TypeCategory::Enum => handle_enum_field(&idx, name, info, is_optional),
+        TypeCategory::ArrayString => Ok(handle_arraystring_field(&idx, name, info, is_optional)),
+        TypeCategory::ArrayVec => Ok(handle_arrayvec_field(&idx, name, info, is_optional)),
+        _ => Ok(handle_standard_field(&idx, name, info, is_optional)),
     }
 }
 
 fn handle_json_field(
-    idx: TokenStream,
+    idx: &TokenStream,
     name: &syn::Ident,
     info: &FieldInfo,
     is_optional: bool,
@@ -196,7 +197,7 @@ fn handle_json_field(
 }
 
 fn handle_uuid_field(
-    idx: TokenStream,
+    idx: &TokenStream,
     name: &syn::Ident,
     info: &FieldInfo,
     is_optional: bool,
@@ -228,7 +229,7 @@ fn handle_uuid_field(
 }
 
 fn handle_enum_field(
-    idx: TokenStream,
+    idx: &TokenStream,
     name: &syn::Ident,
     info: &FieldInfo,
     is_optional: bool,
@@ -260,11 +261,11 @@ fn handle_enum_field(
 }
 
 fn handle_arraystring_field(
-    idx: TokenStream,
+    idx: &TokenStream,
     name: &syn::Ident,
     info: &FieldInfo,
     is_optional: bool,
-) -> Result<TokenStream> {
+) -> TokenStream {
     let from_sqlite_value = paths::sqlite::from_sqlite_value();
     let base_type = info.base_type;
     let accessor = if is_optional {
@@ -273,15 +274,15 @@ fn handle_arraystring_field(
         quote!(row.get::<String>(#idx).map(|v| <#base_type as #from_sqlite_value>::from_sqlite_text(&v))?)
     };
 
-    Ok(quote! { #name: #accessor?, })
+    quote! { #name: #accessor?, }
 }
 
 fn handle_arrayvec_field(
-    idx: TokenStream,
+    idx: &TokenStream,
     name: &syn::Ident,
     info: &FieldInfo,
     is_optional: bool,
-) -> Result<TokenStream> {
+) -> TokenStream {
     let from_sqlite_value = paths::sqlite::from_sqlite_value();
     let base_type = info.base_type;
     let accessor = if is_optional {
@@ -290,15 +291,15 @@ fn handle_arrayvec_field(
         quote!(row.get::<Vec<u8>>(#idx).map(|v| <#base_type as #from_sqlite_value>::from_sqlite_blob(&v))?)
     };
 
-    Ok(quote! { #name: #accessor?, })
+    quote! { #name: #accessor?, }
 }
 
 fn handle_standard_field(
-    idx: TokenStream,
+    idx: &TokenStream,
     name: &syn::Ident,
     info: &FieldInfo,
     is_optional: bool,
-) -> Result<TokenStream> {
+) -> TokenStream {
     match info.column_type {
         SQLiteType::Integer => {
             let is_bool = type_is_bool(info.base_type);
@@ -320,7 +321,7 @@ fn handle_standard_field(
                 quote!(row.get(#idx))
             };
 
-            Ok(quote! { #name: #accessor?, })
+            quote! { #name: #accessor?, }
         }
         SQLiteType::Text => {
             let accessor = if is_optional {
@@ -328,7 +329,7 @@ fn handle_standard_field(
             } else {
                 quote!(row.get::<String>(#idx))
             };
-            Ok(quote! { #name: #accessor?, })
+            quote! { #name: #accessor?, }
         }
         SQLiteType::Real => {
             let is_f32 = type_is_float(info.base_type, "f32");
@@ -341,7 +342,7 @@ fn handle_standard_field(
             } else {
                 quote!(row.get(#idx))
             };
-            Ok(quote! { #name: #accessor?, })
+            quote! { #name: #accessor?, }
         }
         SQLiteType::Blob => {
             let accessor = if is_optional {
@@ -349,12 +350,12 @@ fn handle_standard_field(
             } else {
                 quote!(row.get::<Vec<u8>>(#idx))
             };
-            Ok(quote! { #name: #accessor?, })
+            quote! { #name: #accessor?, }
         }
         SQLiteType::Numeric | SQLiteType::Any => {
             // Treat as integer/text
             let accessor = quote!(row.get(#idx));
-            Ok(quote! { #name: #accessor?, })
+            quote! { #name: #accessor?, }
         }
     }
 }
@@ -364,7 +365,7 @@ fn handle_standard_field(
 // =============================================================================
 
 /// Generate libsql JSON implementations (Into<libsql::Value>)
-pub(crate) fn generate_json_impls(
+pub fn generate_json_impls(
     json_type_storage: &std::collections::HashMap<String, (SQLiteType, &FieldInfo)>,
 ) -> Result<Vec<TokenStream>> {
     if json_type_storage.is_empty() {
@@ -428,7 +429,7 @@ pub(crate) fn generate_json_impls(
 }
 
 /// Generate libsql enum implementations (Into<libsql::Value>)
-pub(crate) fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
+pub fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
     if !info.is_enum {
         return Ok(quote! {});
     }

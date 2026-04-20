@@ -1,4 +1,4 @@
-//! Owned PostgreSQL value types for static lifetime scenarios
+//! Owned `PostgreSQL` value types for static lifetime scenarios
 
 use super::PostgresValue;
 use crate::prelude::*;
@@ -27,7 +27,7 @@ use bit_vec::BitVec;
 #[cfg(feature = "rust-decimal")]
 use rust_decimal::Decimal;
 
-/// Owned version of PostgresValue that doesn't borrow data
+/// Owned version of `PostgresValue` that doesn't borrow data
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum OwnedPostgresValue {
     /// SMALLINT values (16-bit signed integer)
@@ -52,10 +52,10 @@ pub enum OwnedPostgresValue {
     /// UUID values
     #[cfg(feature = "uuid")]
     Uuid(Uuid),
-    /// JSON values (stored as text in PostgreSQL)
+    /// JSON values (stored as text in `PostgreSQL`)
     #[cfg(feature = "serde")]
     Json(serde_json::Value),
-    /// JSONB values (stored as binary in PostgreSQL)
+    /// JSONB values (stored as binary in `PostgreSQL`)
     #[cfg(feature = "serde")]
     Jsonb(serde_json::Value),
 
@@ -111,7 +111,7 @@ pub enum OwnedPostgresValue {
     /// POINT values
     #[cfg(feature = "geo-types")]
     Point(Point<f64>),
-    /// PATH values (open path from LineString)
+    /// PATH values (open path from `LineString`)
     #[cfg(feature = "geo-types")]
     LineString(LineString<f64>),
     /// BOX values (bounding rectangle)
@@ -124,8 +124,8 @@ pub enum OwnedPostgresValue {
     BitVec(BitVec),
 
     // Array types (using Vec for simplicity)
-    /// Array of any PostgreSQL type
-    Array(Vec<OwnedPostgresValue>),
+    /// Array of any `PostgreSQL` type
+    Array(Vec<Self>),
 
     /// NULL value
     #[default]
@@ -137,7 +137,7 @@ impl SQLParam for OwnedPostgresValue {
     type DialectMarker = drizzle_core::dialect::PostgresDialect;
 }
 
-impl<'a> From<OwnedPostgresValue> for SQL<'a, OwnedPostgresValue> {
+impl From<OwnedPostgresValue> for SQL<'_, OwnedPostgresValue> {
     fn from(value: OwnedPostgresValue) -> Self {
         SQL::param(value)
     }
@@ -158,60 +158,67 @@ impl<'a> From<&'a OwnedPostgresValue> for Cow<'a, OwnedPostgresValue> {
 impl OwnedPostgresValue {
     /// Returns true if this value is NULL.
     #[inline]
+    #[must_use]
     pub const fn is_null(&self) -> bool {
-        matches!(self, OwnedPostgresValue::Null)
+        matches!(self, Self::Null)
     }
 
     /// Returns the boolean value if this is BOOLEAN.
     #[inline]
+    #[must_use]
     pub const fn as_bool(&self) -> Option<bool> {
         match self {
-            OwnedPostgresValue::Boolean(value) => Some(*value),
+            Self::Boolean(value) => Some(*value),
             _ => None,
         }
     }
 
     /// Returns the i16 value if this is SMALLINT.
     #[inline]
+    #[must_use]
     pub const fn as_i16(&self) -> Option<i16> {
         match self {
-            OwnedPostgresValue::Smallint(value) => Some(*value),
+            Self::Smallint(value) => Some(*value),
             _ => None,
         }
     }
 
     /// Returns the i32 value if this is INTEGER.
     #[inline]
+    #[must_use]
     pub const fn as_i32(&self) -> Option<i32> {
         match self {
-            OwnedPostgresValue::Integer(value) => Some(*value),
+            Self::Integer(value) => Some(*value),
             _ => None,
         }
     }
 
     /// Returns the i64 value if this is BIGINT.
     #[inline]
+    #[must_use]
     pub const fn as_i64(&self) -> Option<i64> {
         match self {
-            OwnedPostgresValue::Bigint(value) => Some(*value),
+            Self::Bigint(value) => Some(*value),
             _ => None,
         }
     }
 
     /// Returns the f32 value if this is REAL.
     #[inline]
+    #[must_use]
     pub const fn as_f32(&self) -> Option<f32> {
         match self {
-            OwnedPostgresValue::Real(value) => Some(*value),
+            Self::Real(value) => Some(*value),
             _ => None,
         }
     }
 
     /// Returns the f64 value if this is DOUBLE PRECISION.
     #[inline]
+    #[must_use]
     pub const fn as_f64(&self) -> Option<f64> {
         match self {
-            OwnedPostgresValue::DoublePrecision(value) => Some(*value),
+            Self::DoublePrecision(value) => Some(*value),
             _ => None,
         }
     }
@@ -219,27 +226,30 @@ impl OwnedPostgresValue {
     /// Returns the decimal value if this is NUMERIC.
     #[inline]
     #[cfg(feature = "rust-decimal")]
-    pub fn as_decimal(&self) -> Option<&Decimal> {
+    #[must_use]
+    pub const fn as_decimal(&self) -> Option<&Decimal> {
         match self {
-            OwnedPostgresValue::Numeric(value) => Some(value),
+            Self::Numeric(value) => Some(value),
             _ => None,
         }
     }
 
     /// Returns the text value if this is TEXT.
     #[inline]
-    pub fn as_str(&self) -> Option<&str> {
+    #[must_use]
+    pub const fn as_str(&self) -> Option<&str> {
         match self {
-            OwnedPostgresValue::Text(value) => Some(value.as_str()),
+            Self::Text(value) => Some(value.as_str()),
             _ => None,
         }
     }
 
     /// Returns the bytea value if this is BYTEA.
     #[inline]
+    #[must_use]
     pub fn as_bytes(&self) -> Option<&[u8]> {
         match self {
-            OwnedPostgresValue::Bytea(value) => Some(value.as_ref()),
+            Self::Bytea(value) => Some(value.as_ref()),
             _ => None,
         }
     }
@@ -247,9 +257,10 @@ impl OwnedPostgresValue {
     /// Returns the UUID value if this is UUID.
     #[inline]
     #[cfg(feature = "uuid")]
-    pub fn as_uuid(&self) -> Option<Uuid> {
+    #[must_use]
+    pub const fn as_uuid(&self) -> Option<Uuid> {
         match self {
-            OwnedPostgresValue::Uuid(value) => Some(*value),
+            Self::Uuid(value) => Some(*value),
             _ => None,
         }
     }
@@ -257,9 +268,10 @@ impl OwnedPostgresValue {
     /// Returns the JSON value if this is JSON.
     #[inline]
     #[cfg(feature = "serde")]
-    pub fn as_json(&self) -> Option<&serde_json::Value> {
+    #[must_use]
+    pub const fn as_json(&self) -> Option<&serde_json::Value> {
         match self {
-            OwnedPostgresValue::Json(value) => Some(value),
+            Self::Json(value) => Some(value),
             _ => None,
         }
     }
@@ -267,9 +279,10 @@ impl OwnedPostgresValue {
     /// Returns the JSONB value if this is JSONB.
     #[inline]
     #[cfg(feature = "serde")]
-    pub fn as_jsonb(&self) -> Option<&serde_json::Value> {
+    #[must_use]
+    pub const fn as_jsonb(&self) -> Option<&serde_json::Value> {
         match self {
-            OwnedPostgresValue::Jsonb(value) => Some(value),
+            Self::Jsonb(value) => Some(value),
             _ => None,
         }
     }
@@ -277,9 +290,10 @@ impl OwnedPostgresValue {
     /// Returns the date value if this is DATE.
     #[inline]
     #[cfg(feature = "chrono")]
-    pub fn as_date(&self) -> Option<&NaiveDate> {
+    #[must_use]
+    pub const fn as_date(&self) -> Option<&NaiveDate> {
         match self {
-            OwnedPostgresValue::Date(value) => Some(value),
+            Self::Date(value) => Some(value),
             _ => None,
         }
     }
@@ -287,9 +301,10 @@ impl OwnedPostgresValue {
     /// Returns the time value if this is TIME.
     #[inline]
     #[cfg(feature = "chrono")]
-    pub fn as_time(&self) -> Option<&NaiveTime> {
+    #[must_use]
+    pub const fn as_time(&self) -> Option<&NaiveTime> {
         match self {
-            OwnedPostgresValue::Time(value) => Some(value),
+            Self::Time(value) => Some(value),
             _ => None,
         }
     }
@@ -297,9 +312,10 @@ impl OwnedPostgresValue {
     /// Returns the timestamp value if this is TIMESTAMP.
     #[inline]
     #[cfg(feature = "chrono")]
-    pub fn as_timestamp(&self) -> Option<&NaiveDateTime> {
+    #[must_use]
+    pub const fn as_timestamp(&self) -> Option<&NaiveDateTime> {
         match self {
-            OwnedPostgresValue::Timestamp(value) => Some(value),
+            Self::Timestamp(value) => Some(value),
             _ => None,
         }
     }
@@ -307,9 +323,10 @@ impl OwnedPostgresValue {
     /// Returns the timestamp with timezone value if this is TIMESTAMPTZ.
     #[inline]
     #[cfg(feature = "chrono")]
-    pub fn as_timestamp_tz(&self) -> Option<&DateTime<FixedOffset>> {
+    #[must_use]
+    pub const fn as_timestamp_tz(&self) -> Option<&DateTime<FixedOffset>> {
         match self {
-            OwnedPostgresValue::TimestampTz(value) => Some(value),
+            Self::TimestampTz(value) => Some(value),
             _ => None,
         }
     }
@@ -317,9 +334,10 @@ impl OwnedPostgresValue {
     /// Returns the interval value if this is INTERVAL.
     #[inline]
     #[cfg(feature = "chrono")]
-    pub fn as_interval(&self) -> Option<&Duration> {
+    #[must_use]
+    pub const fn as_interval(&self) -> Option<&Duration> {
         match self {
-            OwnedPostgresValue::Interval(value) => Some(value),
+            Self::Interval(value) => Some(value),
             _ => None,
         }
     }
@@ -327,9 +345,10 @@ impl OwnedPostgresValue {
     /// Returns the date value if this is DATE (time crate).
     #[inline]
     #[cfg(feature = "time")]
-    pub fn as_time_date(&self) -> Option<&TimeDate> {
+    #[must_use]
+    pub const fn as_time_date(&self) -> Option<&TimeDate> {
         match self {
-            OwnedPostgresValue::TimeDate(value) => Some(value),
+            Self::TimeDate(value) => Some(value),
             _ => None,
         }
     }
@@ -337,9 +356,10 @@ impl OwnedPostgresValue {
     /// Returns the time value if this is TIME (time crate).
     #[inline]
     #[cfg(feature = "time")]
-    pub fn as_time_time(&self) -> Option<&TimeTime> {
+    #[must_use]
+    pub const fn as_time_time(&self) -> Option<&TimeTime> {
         match self {
-            OwnedPostgresValue::TimeTime(value) => Some(value),
+            Self::TimeTime(value) => Some(value),
             _ => None,
         }
     }
@@ -347,9 +367,10 @@ impl OwnedPostgresValue {
     /// Returns the timestamp value if this is TIMESTAMP (time crate).
     #[inline]
     #[cfg(feature = "time")]
-    pub fn as_time_timestamp(&self) -> Option<&PrimitiveDateTime> {
+    #[must_use]
+    pub const fn as_time_timestamp(&self) -> Option<&PrimitiveDateTime> {
         match self {
-            OwnedPostgresValue::TimeTimestamp(value) => Some(value),
+            Self::TimeTimestamp(value) => Some(value),
             _ => None,
         }
     }
@@ -357,9 +378,10 @@ impl OwnedPostgresValue {
     /// Returns the timestamp with timezone value if this is TIMESTAMPTZ (time crate).
     #[inline]
     #[cfg(feature = "time")]
-    pub fn as_time_timestamp_tz(&self) -> Option<&OffsetDateTime> {
+    #[must_use]
+    pub const fn as_time_timestamp_tz(&self) -> Option<&OffsetDateTime> {
         match self {
-            OwnedPostgresValue::TimeTimestampTz(value) => Some(value),
+            Self::TimeTimestampTz(value) => Some(value),
             _ => None,
         }
     }
@@ -367,9 +389,10 @@ impl OwnedPostgresValue {
     /// Returns the interval value if this is INTERVAL (time crate).
     #[inline]
     #[cfg(feature = "time")]
-    pub fn as_time_interval(&self) -> Option<&TimeDuration> {
+    #[must_use]
+    pub const fn as_time_interval(&self) -> Option<&TimeDuration> {
         match self {
-            OwnedPostgresValue::TimeInterval(value) => Some(value),
+            Self::TimeInterval(value) => Some(value),
             _ => None,
         }
     }
@@ -377,9 +400,10 @@ impl OwnedPostgresValue {
     /// Returns the inet value if this is INET.
     #[inline]
     #[cfg(feature = "cidr")]
-    pub fn as_inet(&self) -> Option<&IpInet> {
+    #[must_use]
+    pub const fn as_inet(&self) -> Option<&IpInet> {
         match self {
-            OwnedPostgresValue::Inet(value) => Some(value),
+            Self::Inet(value) => Some(value),
             _ => None,
         }
     }
@@ -387,9 +411,10 @@ impl OwnedPostgresValue {
     /// Returns the cidr value if this is CIDR.
     #[inline]
     #[cfg(feature = "cidr")]
-    pub fn as_cidr(&self) -> Option<&IpCidr> {
+    #[must_use]
+    pub const fn as_cidr(&self) -> Option<&IpCidr> {
         match self {
-            OwnedPostgresValue::Cidr(value) => Some(value),
+            Self::Cidr(value) => Some(value),
             _ => None,
         }
     }
@@ -397,9 +422,10 @@ impl OwnedPostgresValue {
     /// Returns the MAC address if this is MACADDR.
     #[inline]
     #[cfg(feature = "cidr")]
+    #[must_use]
     pub const fn as_macaddr(&self) -> Option<[u8; 6]> {
         match self {
-            OwnedPostgresValue::MacAddr(value) => Some(*value),
+            Self::MacAddr(value) => Some(*value),
             _ => None,
         }
     }
@@ -407,9 +433,10 @@ impl OwnedPostgresValue {
     /// Returns the MAC address if this is MACADDR8.
     #[inline]
     #[cfg(feature = "cidr")]
+    #[must_use]
     pub const fn as_macaddr8(&self) -> Option<[u8; 8]> {
         match self {
-            OwnedPostgresValue::MacAddr8(value) => Some(*value),
+            Self::MacAddr8(value) => Some(*value),
             _ => None,
         }
     }
@@ -417,9 +444,10 @@ impl OwnedPostgresValue {
     /// Returns the point value if this is POINT.
     #[inline]
     #[cfg(feature = "geo-types")]
-    pub fn as_point(&self) -> Option<&Point<f64>> {
+    #[must_use]
+    pub const fn as_point(&self) -> Option<&Point<f64>> {
         match self {
-            OwnedPostgresValue::Point(value) => Some(value),
+            Self::Point(value) => Some(value),
             _ => None,
         }
     }
@@ -427,9 +455,10 @@ impl OwnedPostgresValue {
     /// Returns the line string value if this is PATH.
     #[inline]
     #[cfg(feature = "geo-types")]
-    pub fn as_line_string(&self) -> Option<&LineString<f64>> {
+    #[must_use]
+    pub const fn as_line_string(&self) -> Option<&LineString<f64>> {
         match self {
-            OwnedPostgresValue::LineString(value) => Some(value),
+            Self::LineString(value) => Some(value),
             _ => None,
         }
     }
@@ -437,9 +466,10 @@ impl OwnedPostgresValue {
     /// Returns the rect value if this is BOX.
     #[inline]
     #[cfg(feature = "geo-types")]
-    pub fn as_rect(&self) -> Option<&Rect<f64>> {
+    #[must_use]
+    pub const fn as_rect(&self) -> Option<&Rect<f64>> {
         match self {
-            OwnedPostgresValue::Rect(value) => Some(value),
+            Self::Rect(value) => Some(value),
             _ => None,
         }
     }
@@ -447,214 +477,226 @@ impl OwnedPostgresValue {
     /// Returns the bit vector if this is BIT/VARBIT.
     #[inline]
     #[cfg(feature = "bit-vec")]
-    pub fn as_bitvec(&self) -> Option<&BitVec> {
+    #[must_use]
+    pub const fn as_bitvec(&self) -> Option<&BitVec> {
         match self {
-            OwnedPostgresValue::BitVec(value) => Some(value),
+            Self::BitVec(value) => Some(value),
             _ => None,
         }
     }
 
     /// Returns the array elements if this is an ARRAY.
     #[inline]
-    pub fn as_array(&self) -> Option<&[OwnedPostgresValue]> {
+    #[must_use]
+    pub fn as_array(&self) -> Option<&[Self]> {
         match self {
-            OwnedPostgresValue::Array(values) => Some(values),
+            Self::Array(values) => Some(values),
             _ => None,
         }
     }
 
-    /// Returns a borrowed PostgresValue view of this owned value.
+    /// Returns a borrowed `PostgresValue` view of this owned value.
     #[inline]
     pub fn as_value(&self) -> PostgresValue<'_> {
         match self {
-            OwnedPostgresValue::Smallint(value) => PostgresValue::Smallint(*value),
-            OwnedPostgresValue::Integer(value) => PostgresValue::Integer(*value),
-            OwnedPostgresValue::Bigint(value) => PostgresValue::Bigint(*value),
-            OwnedPostgresValue::Real(value) => PostgresValue::Real(*value),
-            OwnedPostgresValue::DoublePrecision(value) => PostgresValue::DoublePrecision(*value),
+            Self::Smallint(value) => PostgresValue::Smallint(*value),
+            Self::Integer(value) => PostgresValue::Integer(*value),
+            Self::Bigint(value) => PostgresValue::Bigint(*value),
+            Self::Real(value) => PostgresValue::Real(*value),
+            Self::DoublePrecision(value) => PostgresValue::DoublePrecision(*value),
             #[cfg(feature = "rust-decimal")]
-            OwnedPostgresValue::Numeric(value) => PostgresValue::Numeric(*value),
-            OwnedPostgresValue::Text(value) => PostgresValue::Text(Cow::Borrowed(value)),
-            OwnedPostgresValue::Bytea(value) => PostgresValue::Bytea(Cow::Borrowed(value)),
-            OwnedPostgresValue::Boolean(value) => PostgresValue::Boolean(*value),
+            Self::Numeric(value) => PostgresValue::Numeric(*value),
+            Self::Text(value) => PostgresValue::Text(Cow::Borrowed(value)),
+            Self::Bytea(value) => PostgresValue::Bytea(Cow::Borrowed(value)),
+            Self::Boolean(value) => PostgresValue::Boolean(*value),
             #[cfg(feature = "uuid")]
-            OwnedPostgresValue::Uuid(value) => PostgresValue::Uuid(*value),
+            Self::Uuid(value) => PostgresValue::Uuid(*value),
             #[cfg(feature = "serde")]
-            OwnedPostgresValue::Json(value) => PostgresValue::Json(value.clone()),
+            Self::Json(value) => PostgresValue::Json(value.clone()),
             #[cfg(feature = "serde")]
-            OwnedPostgresValue::Jsonb(value) => PostgresValue::Jsonb(value.clone()),
+            Self::Jsonb(value) => PostgresValue::Jsonb(value.clone()),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Date(value) => PostgresValue::Date(*value),
+            Self::Date(value) => PostgresValue::Date(*value),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Time(value) => PostgresValue::Time(*value),
+            Self::Time(value) => PostgresValue::Time(*value),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Timestamp(value) => PostgresValue::Timestamp(*value),
+            Self::Timestamp(value) => PostgresValue::Timestamp(*value),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::TimestampTz(value) => PostgresValue::TimestampTz(*value),
+            Self::TimestampTz(value) => PostgresValue::TimestampTz(*value),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Interval(value) => PostgresValue::Interval(*value),
+            Self::Interval(value) => PostgresValue::Interval(*value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeDate(value) => PostgresValue::TimeDate(*value),
+            Self::TimeDate(value) => PostgresValue::TimeDate(*value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTime(value) => PostgresValue::TimeTime(*value),
+            Self::TimeTime(value) => PostgresValue::TimeTime(*value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTimestamp(value) => PostgresValue::TimeTimestamp(*value),
+            Self::TimeTimestamp(value) => PostgresValue::TimeTimestamp(*value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTimestampTz(value) => PostgresValue::TimeTimestampTz(*value),
+            Self::TimeTimestampTz(value) => PostgresValue::TimeTimestampTz(*value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeInterval(value) => PostgresValue::TimeInterval(*value),
+            Self::TimeInterval(value) => PostgresValue::TimeInterval(*value),
             #[cfg(feature = "cidr")]
-            OwnedPostgresValue::Inet(value) => PostgresValue::Inet(*value),
+            Self::Inet(value) => PostgresValue::Inet(*value),
             #[cfg(feature = "cidr")]
-            OwnedPostgresValue::Cidr(value) => PostgresValue::Cidr(*value),
+            Self::Cidr(value) => PostgresValue::Cidr(*value),
             #[cfg(feature = "cidr")]
-            OwnedPostgresValue::MacAddr(value) => PostgresValue::MacAddr(*value),
+            Self::MacAddr(value) => PostgresValue::MacAddr(*value),
             #[cfg(feature = "cidr")]
-            OwnedPostgresValue::MacAddr8(value) => PostgresValue::MacAddr8(*value),
+            Self::MacAddr8(value) => PostgresValue::MacAddr8(*value),
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::Point(value) => PostgresValue::Point(*value),
+            Self::Point(value) => PostgresValue::Point(*value),
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::LineString(value) => PostgresValue::LineString(value.clone()),
+            Self::LineString(value) => PostgresValue::LineString(value.clone()),
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::Rect(value) => PostgresValue::Rect(*value),
+            Self::Rect(value) => PostgresValue::Rect(*value),
             #[cfg(feature = "bit-vec")]
-            OwnedPostgresValue::BitVec(value) => PostgresValue::BitVec(value.clone()),
-            OwnedPostgresValue::Array(values) => {
-                PostgresValue::Array(values.iter().map(OwnedPostgresValue::as_value).collect())
+            Self::BitVec(value) => PostgresValue::BitVec(value.clone()),
+            Self::Array(values) => {
+                PostgresValue::Array(values.iter().map(Self::as_value).collect())
             }
-            OwnedPostgresValue::Null => PostgresValue::Null,
+            Self::Null => PostgresValue::Null,
         }
     }
 
-    /// Convert this PostgreSQL value to a Rust type using the `FromPostgresValue` trait.
+    /// Convert this `PostgreSQL` value to a Rust type using the `FromPostgresValue` trait.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ConversionError`] when the stored variant's
+    /// native type does not match the target type `T`.
     pub fn convert<T: FromPostgresValue>(self) -> Result<T, DrizzleError> {
         match self {
-            OwnedPostgresValue::Boolean(value) => T::from_postgres_bool(value),
-            OwnedPostgresValue::Smallint(value) => T::from_postgres_i16(value),
-            OwnedPostgresValue::Integer(value) => T::from_postgres_i32(value),
-            OwnedPostgresValue::Bigint(value) => T::from_postgres_i64(value),
-            OwnedPostgresValue::Real(value) => T::from_postgres_f32(value),
-            OwnedPostgresValue::DoublePrecision(value) => T::from_postgres_f64(value),
+            Self::Boolean(value) => T::from_postgres_bool(value),
+            Self::Smallint(value) => T::from_postgres_i16(value),
+            Self::Integer(value) => T::from_postgres_i32(value),
+            Self::Bigint(value) => T::from_postgres_i64(value),
+            Self::Real(value) => T::from_postgres_f32(value),
+            Self::DoublePrecision(value) => T::from_postgres_f64(value),
             #[cfg(feature = "rust-decimal")]
-            OwnedPostgresValue::Numeric(value) => {
+            Self::Numeric(value) => {
                 let text = value.to_string();
                 T::from_postgres_text(&text)
             }
-            OwnedPostgresValue::Text(value) => T::from_postgres_text(&value),
-            OwnedPostgresValue::Bytea(value) => T::from_postgres_bytes(&value),
+            Self::Text(value) => T::from_postgres_text(&value),
+            Self::Bytea(value) => T::from_postgres_bytes(&value),
             #[cfg(feature = "uuid")]
-            OwnedPostgresValue::Uuid(value) => T::from_postgres_uuid(value),
+            Self::Uuid(value) => T::from_postgres_uuid(value),
             #[cfg(feature = "serde")]
-            OwnedPostgresValue::Json(value) => T::from_postgres_json(value),
+            Self::Json(value) => T::from_postgres_json(value),
             #[cfg(feature = "serde")]
-            OwnedPostgresValue::Jsonb(value) => T::from_postgres_jsonb(value),
+            Self::Jsonb(value) => T::from_postgres_jsonb(value),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Date(value) => T::from_postgres_date(value),
+            Self::Date(value) => T::from_postgres_date(value),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Time(value) => T::from_postgres_time(value),
+            Self::Time(value) => T::from_postgres_time(value),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Timestamp(value) => T::from_postgres_timestamp(value),
+            Self::Timestamp(value) => T::from_postgres_timestamp(value),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::TimestampTz(value) => T::from_postgres_timestamptz(value),
+            Self::TimestampTz(value) => T::from_postgres_timestamptz(value),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Interval(value) => T::from_postgres_interval(value),
+            Self::Interval(value) => T::from_postgres_interval(value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeDate(value) => T::from_postgres_time_date(value),
+            Self::TimeDate(value) => T::from_postgres_time_date(value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTime(value) => T::from_postgres_time_time(value),
+            Self::TimeTime(value) => T::from_postgres_time_time(value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTimestamp(value) => T::from_postgres_time_timestamp(value),
+            Self::TimeTimestamp(value) => T::from_postgres_time_timestamp(value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTimestampTz(value) => T::from_postgres_time_timestamptz(value),
+            Self::TimeTimestampTz(value) => T::from_postgres_time_timestamptz(value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeInterval(value) => T::from_postgres_time_interval(value),
+            Self::TimeInterval(value) => T::from_postgres_time_interval(value),
             #[cfg(feature = "cidr")]
-            OwnedPostgresValue::Inet(value) => T::from_postgres_inet(value),
+            Self::Inet(value) => T::from_postgres_inet(value),
             #[cfg(feature = "cidr")]
-            OwnedPostgresValue::Cidr(value) => T::from_postgres_cidr(value),
+            Self::Cidr(value) => T::from_postgres_cidr(value),
             #[cfg(feature = "cidr")]
-            OwnedPostgresValue::MacAddr(value) => T::from_postgres_macaddr(value),
+            Self::MacAddr(value) => T::from_postgres_macaddr(value),
             #[cfg(feature = "cidr")]
-            OwnedPostgresValue::MacAddr8(value) => T::from_postgres_macaddr8(value),
+            Self::MacAddr8(value) => T::from_postgres_macaddr8(value),
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::Point(value) => T::from_postgres_point(value),
+            Self::Point(value) => T::from_postgres_point(value),
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::LineString(value) => T::from_postgres_linestring(value),
+            Self::LineString(value) => T::from_postgres_linestring(value),
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::Rect(value) => T::from_postgres_rect(value),
+            Self::Rect(value) => T::from_postgres_rect(value),
             #[cfg(feature = "bit-vec")]
-            OwnedPostgresValue::BitVec(value) => T::from_postgres_bitvec(value),
-            OwnedPostgresValue::Array(values) => {
+            Self::BitVec(value) => T::from_postgres_bitvec(value),
+            Self::Array(values) => {
                 let values = values.into_iter().map(PostgresValue::from).collect();
                 T::from_postgres_array(values)
             }
-            OwnedPostgresValue::Null => T::from_postgres_null(),
+            Self::Null => T::from_postgres_null(),
         }
     }
 
-    /// Convert a reference to this PostgreSQL value to a Rust type.
+    /// Convert a reference to this `PostgreSQL` value to a Rust type.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ConversionError`] when the stored variant's
+    /// native type does not match the target type `T`.
     pub fn convert_ref<T: FromPostgresValue>(&self) -> Result<T, DrizzleError> {
         match self {
-            OwnedPostgresValue::Boolean(value) => T::from_postgres_bool(*value),
-            OwnedPostgresValue::Smallint(value) => T::from_postgres_i16(*value),
-            OwnedPostgresValue::Integer(value) => T::from_postgres_i32(*value),
-            OwnedPostgresValue::Bigint(value) => T::from_postgres_i64(*value),
-            OwnedPostgresValue::Real(value) => T::from_postgres_f32(*value),
-            OwnedPostgresValue::DoublePrecision(value) => T::from_postgres_f64(*value),
+            Self::Boolean(value) => T::from_postgres_bool(*value),
+            Self::Smallint(value) => T::from_postgres_i16(*value),
+            Self::Integer(value) => T::from_postgres_i32(*value),
+            Self::Bigint(value) => T::from_postgres_i64(*value),
+            Self::Real(value) => T::from_postgres_f32(*value),
+            Self::DoublePrecision(value) => T::from_postgres_f64(*value),
             #[cfg(feature = "rust-decimal")]
-            OwnedPostgresValue::Numeric(value) => {
+            Self::Numeric(value) => {
                 let text = value.to_string();
                 T::from_postgres_text(&text)
             }
-            OwnedPostgresValue::Text(value) => T::from_postgres_text(value),
-            OwnedPostgresValue::Bytea(value) => T::from_postgres_bytes(value),
+            Self::Text(value) => T::from_postgres_text(value),
+            Self::Bytea(value) => T::from_postgres_bytes(value),
             #[cfg(feature = "uuid")]
-            OwnedPostgresValue::Uuid(value) => T::from_postgres_uuid(*value),
+            Self::Uuid(value) => T::from_postgres_uuid(*value),
             #[cfg(feature = "serde")]
-            OwnedPostgresValue::Json(value) => T::from_postgres_json(value.clone()),
+            Self::Json(value) => T::from_postgres_json(value.clone()),
             #[cfg(feature = "serde")]
-            OwnedPostgresValue::Jsonb(value) => T::from_postgres_jsonb(value.clone()),
+            Self::Jsonb(value) => T::from_postgres_jsonb(value.clone()),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Date(value) => T::from_postgres_date(*value),
+            Self::Date(value) => T::from_postgres_date(*value),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Time(value) => T::from_postgres_time(*value),
+            Self::Time(value) => T::from_postgres_time(*value),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Timestamp(value) => T::from_postgres_timestamp(*value),
+            Self::Timestamp(value) => T::from_postgres_timestamp(*value),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::TimestampTz(value) => T::from_postgres_timestamptz(*value),
+            Self::TimestampTz(value) => T::from_postgres_timestamptz(*value),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Interval(value) => T::from_postgres_interval(*value),
+            Self::Interval(value) => T::from_postgres_interval(*value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeDate(value) => T::from_postgres_time_date(*value),
+            Self::TimeDate(value) => T::from_postgres_time_date(*value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTime(value) => T::from_postgres_time_time(*value),
+            Self::TimeTime(value) => T::from_postgres_time_time(*value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTimestamp(value) => T::from_postgres_time_timestamp(*value),
+            Self::TimeTimestamp(value) => T::from_postgres_time_timestamp(*value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTimestampTz(value) => T::from_postgres_time_timestamptz(*value),
+            Self::TimeTimestampTz(value) => T::from_postgres_time_timestamptz(*value),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeInterval(value) => T::from_postgres_time_interval(*value),
+            Self::TimeInterval(value) => T::from_postgres_time_interval(*value),
             #[cfg(feature = "cidr")]
-            OwnedPostgresValue::Inet(value) => T::from_postgres_inet(*value),
+            Self::Inet(value) => T::from_postgres_inet(*value),
             #[cfg(feature = "cidr")]
-            OwnedPostgresValue::Cidr(value) => T::from_postgres_cidr(*value),
+            Self::Cidr(value) => T::from_postgres_cidr(*value),
             #[cfg(feature = "cidr")]
-            OwnedPostgresValue::MacAddr(value) => T::from_postgres_macaddr(*value),
+            Self::MacAddr(value) => T::from_postgres_macaddr(*value),
             #[cfg(feature = "cidr")]
-            OwnedPostgresValue::MacAddr8(value) => T::from_postgres_macaddr8(*value),
+            Self::MacAddr8(value) => T::from_postgres_macaddr8(*value),
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::Point(value) => T::from_postgres_point(*value),
+            Self::Point(value) => T::from_postgres_point(*value),
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::LineString(value) => T::from_postgres_linestring(value.clone()),
+            Self::LineString(value) => T::from_postgres_linestring(value.clone()),
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::Rect(value) => T::from_postgres_rect(*value),
+            Self::Rect(value) => T::from_postgres_rect(*value),
             #[cfg(feature = "bit-vec")]
-            OwnedPostgresValue::BitVec(value) => T::from_postgres_bitvec(value.clone()),
-            OwnedPostgresValue::Array(values) => {
-                let values = values.iter().map(OwnedPostgresValue::as_value).collect();
+            Self::BitVec(value) => T::from_postgres_bitvec(value.clone()),
+            Self::Array(values) => {
+                let values = values.iter().map(Self::as_value).collect();
                 T::from_postgres_array(values)
             }
-            OwnedPostgresValue::Null => T::from_postgres_null(),
+            Self::Null => T::from_postgres_null(),
         }
     }
 }
@@ -662,71 +704,76 @@ impl OwnedPostgresValue {
 impl core::fmt::Display for OwnedPostgresValue {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = match self {
-            OwnedPostgresValue::Smallint(i) => i.to_string(),
-            OwnedPostgresValue::Integer(i) => i.to_string(),
-            OwnedPostgresValue::Bigint(i) => i.to_string(),
-            OwnedPostgresValue::Real(r) => r.to_string(),
-            OwnedPostgresValue::DoublePrecision(r) => r.to_string(),
+            Self::Smallint(i) => i.to_string(),
+            Self::Integer(i) => i.to_string(),
+            Self::Bigint(i) => i.to_string(),
+            Self::Real(r) => r.to_string(),
+            Self::DoublePrecision(r) => r.to_string(),
             #[cfg(feature = "rust-decimal")]
-            OwnedPostgresValue::Numeric(d) => d.to_string(),
-            OwnedPostgresValue::Text(s) => s.clone(),
-            OwnedPostgresValue::Bytea(b) => format!(
-                "\\x{}",
-                b.iter().map(|b| format!("{:02x}", b)).collect::<String>()
-            ),
-            OwnedPostgresValue::Boolean(b) => b.to_string(),
+            Self::Numeric(d) => d.to_string(),
+            Self::Text(s) => s.clone(),
+            Self::Bytea(b) => {
+                use core::fmt::Write;
+                let mut s = String::with_capacity(2 + b.len() * 2);
+                s.push_str("\\x");
+                for byte in b {
+                    write!(s, "{byte:02x}").expect("writing to String cannot fail");
+                }
+                s
+            }
+            Self::Boolean(b) => b.to_string(),
             #[cfg(feature = "uuid")]
-            OwnedPostgresValue::Uuid(uuid) => uuid.to_string(),
+            Self::Uuid(uuid) => uuid.to_string(),
             #[cfg(feature = "serde")]
-            OwnedPostgresValue::Json(json) => json.to_string(),
+            Self::Json(json) => json.to_string(),
             #[cfg(feature = "serde")]
-            OwnedPostgresValue::Jsonb(json) => json.to_string(),
+            Self::Jsonb(json) => json.to_string(),
 
             // Date and time types
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Date(date) => date.to_string(),
+            Self::Date(date) => date.to_string(),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Time(time) => time.to_string(),
+            Self::Time(time) => time.to_string(),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Timestamp(ts) => ts.to_string(),
+            Self::Timestamp(ts) => ts.to_string(),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::TimestampTz(ts) => ts.to_string(),
+            Self::TimestampTz(ts) => ts.to_string(),
             #[cfg(feature = "chrono")]
-            OwnedPostgresValue::Interval(dur) => format!("{} seconds", dur.num_seconds()),
+            Self::Interval(dur) => format!("{} seconds", dur.num_seconds()),
 
             // Date and time types (time crate)
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeDate(date) => date.to_string(),
+            Self::TimeDate(date) => date.to_string(),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTime(time) => time.to_string(),
+            Self::TimeTime(time) => time.to_string(),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTimestamp(ts) => ts.to_string(),
+            Self::TimeTimestamp(ts) => ts.to_string(),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeTimestampTz(ts) => ts.to_string(),
+            Self::TimeTimestampTz(ts) => ts.to_string(),
             #[cfg(feature = "time")]
-            OwnedPostgresValue::TimeInterval(dur) => format!("{} seconds", dur.whole_seconds()),
+            Self::TimeInterval(dur) => format!("{} seconds", dur.whole_seconds()),
 
             // Network address types
             #[cfg(feature = "cidr")]
-            OwnedPostgresValue::Inet(net) => net.to_string(),
+            Self::Inet(net) => net.to_string(),
             #[cfg(feature = "cidr")]
-            OwnedPostgresValue::Cidr(net) => net.to_string(),
+            Self::Cidr(net) => net.to_string(),
             #[cfg(feature = "cidr")]
-            OwnedPostgresValue::MacAddr(mac) => format!(
+            Self::MacAddr(mac) => format!(
                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
             ),
             #[cfg(feature = "cidr")]
-            OwnedPostgresValue::MacAddr8(mac) => format!(
+            Self::MacAddr8(mac) => format!(
                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], mac[6], mac[7]
             ),
 
             // Geometric types
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::Point(point) => format!("({},{})", point.x(), point.y()),
+            Self::Point(point) => format!("({},{})", point.x(), point.y()),
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::LineString(line) => {
+            Self::LineString(line) => {
                 let coords: Vec<String> = line
                     .coords()
                     .map(|coord| format!("({},{})", coord.x, coord.y))
@@ -734,7 +781,7 @@ impl core::fmt::Display for OwnedPostgresValue {
                 format!("[{}]", coords.join(","))
             }
             #[cfg(feature = "geo-types")]
-            OwnedPostgresValue::Rect(rect) => {
+            Self::Rect(rect) => {
                 format!(
                     "(({},{}),({},{}))",
                     rect.min().x,
@@ -746,18 +793,19 @@ impl core::fmt::Display for OwnedPostgresValue {
 
             // Bit string types
             #[cfg(feature = "bit-vec")]
-            OwnedPostgresValue::BitVec(bv) => bv
+            Self::BitVec(bv) => bv
                 .iter()
                 .map(|b| if b { '1' } else { '0' })
                 .collect::<String>(),
 
             // Array types
-            OwnedPostgresValue::Array(arr) => {
-                let elements: Vec<String> = arr.iter().map(|v| v.to_string()).collect();
+            Self::Array(arr) => {
+                let elements: Vec<String> =
+                    arr.iter().map(std::string::ToString::to_string).collect();
                 format!("{{{}}}", elements.join(","))
             }
 
-            OwnedPostgresValue::Null => String::new(),
+            Self::Null => String::new(),
         };
         write!(f, "{value}")
     }
@@ -767,65 +815,63 @@ impl core::fmt::Display for OwnedPostgresValue {
 impl<'a> From<PostgresValue<'a>> for OwnedPostgresValue {
     fn from(value: PostgresValue<'a>) -> Self {
         match value {
-            PostgresValue::Smallint(i) => OwnedPostgresValue::Smallint(i),
-            PostgresValue::Integer(i) => OwnedPostgresValue::Integer(i),
-            PostgresValue::Bigint(i) => OwnedPostgresValue::Bigint(i),
-            PostgresValue::Real(r) => OwnedPostgresValue::Real(r),
-            PostgresValue::DoublePrecision(r) => OwnedPostgresValue::DoublePrecision(r),
+            PostgresValue::Smallint(i) => Self::Smallint(i),
+            PostgresValue::Integer(i) => Self::Integer(i),
+            PostgresValue::Bigint(i) => Self::Bigint(i),
+            PostgresValue::Real(r) => Self::Real(r),
+            PostgresValue::DoublePrecision(r) => Self::DoublePrecision(r),
             #[cfg(feature = "rust-decimal")]
-            PostgresValue::Numeric(d) => OwnedPostgresValue::Numeric(d),
-            PostgresValue::Text(cow) => OwnedPostgresValue::Text(cow.into_owned()),
-            PostgresValue::Bytea(cow) => OwnedPostgresValue::Bytea(cow.into_owned()),
-            PostgresValue::Boolean(b) => OwnedPostgresValue::Boolean(b),
+            PostgresValue::Numeric(d) => Self::Numeric(d),
+            PostgresValue::Text(cow) => Self::Text(cow.into_owned()),
+            PostgresValue::Bytea(cow) => Self::Bytea(cow.into_owned()),
+            PostgresValue::Boolean(b) => Self::Boolean(b),
             #[cfg(feature = "uuid")]
-            PostgresValue::Uuid(uuid) => OwnedPostgresValue::Uuid(uuid),
+            PostgresValue::Uuid(uuid) => Self::Uuid(uuid),
             #[cfg(feature = "serde")]
-            PostgresValue::Json(json) => OwnedPostgresValue::Json(json),
+            PostgresValue::Json(json) => Self::Json(json),
             #[cfg(feature = "serde")]
-            PostgresValue::Jsonb(json) => OwnedPostgresValue::Jsonb(json),
-            PostgresValue::Enum(enum_val) => {
-                OwnedPostgresValue::Text(enum_val.variant_name().to_string())
-            }
-            PostgresValue::Null => OwnedPostgresValue::Null,
+            PostgresValue::Jsonb(json) => Self::Jsonb(json),
+            PostgresValue::Enum(enum_val) => Self::Text(enum_val.variant_name().to_string()),
+            PostgresValue::Null => Self::Null,
             #[cfg(feature = "chrono")]
-            PostgresValue::Date(date) => OwnedPostgresValue::Date(date),
+            PostgresValue::Date(date) => Self::Date(date),
             #[cfg(feature = "chrono")]
-            PostgresValue::Time(time) => OwnedPostgresValue::Time(time),
+            PostgresValue::Time(time) => Self::Time(time),
             #[cfg(feature = "chrono")]
-            PostgresValue::Timestamp(ts) => OwnedPostgresValue::Timestamp(ts),
+            PostgresValue::Timestamp(ts) => Self::Timestamp(ts),
             #[cfg(feature = "chrono")]
-            PostgresValue::TimestampTz(ts) => OwnedPostgresValue::TimestampTz(ts),
+            PostgresValue::TimestampTz(ts) => Self::TimestampTz(ts),
             #[cfg(feature = "chrono")]
-            PostgresValue::Interval(dur) => OwnedPostgresValue::Interval(dur),
+            PostgresValue::Interval(dur) => Self::Interval(dur),
             #[cfg(feature = "time")]
-            PostgresValue::TimeDate(v) => OwnedPostgresValue::TimeDate(v),
+            PostgresValue::TimeDate(v) => Self::TimeDate(v),
             #[cfg(feature = "time")]
-            PostgresValue::TimeTime(v) => OwnedPostgresValue::TimeTime(v),
+            PostgresValue::TimeTime(v) => Self::TimeTime(v),
             #[cfg(feature = "time")]
-            PostgresValue::TimeTimestamp(v) => OwnedPostgresValue::TimeTimestamp(v),
+            PostgresValue::TimeTimestamp(v) => Self::TimeTimestamp(v),
             #[cfg(feature = "time")]
-            PostgresValue::TimeTimestampTz(v) => OwnedPostgresValue::TimeTimestampTz(v),
+            PostgresValue::TimeTimestampTz(v) => Self::TimeTimestampTz(v),
             #[cfg(feature = "time")]
-            PostgresValue::TimeInterval(v) => OwnedPostgresValue::TimeInterval(v),
+            PostgresValue::TimeInterval(v) => Self::TimeInterval(v),
             #[cfg(feature = "cidr")]
-            PostgresValue::Inet(net) => OwnedPostgresValue::Inet(net),
+            PostgresValue::Inet(net) => Self::Inet(net),
             #[cfg(feature = "cidr")]
-            PostgresValue::Cidr(net) => OwnedPostgresValue::Cidr(net),
+            PostgresValue::Cidr(net) => Self::Cidr(net),
             #[cfg(feature = "cidr")]
-            PostgresValue::MacAddr(mac) => OwnedPostgresValue::MacAddr(mac),
+            PostgresValue::MacAddr(mac) => Self::MacAddr(mac),
             #[cfg(feature = "cidr")]
-            PostgresValue::MacAddr8(mac) => OwnedPostgresValue::MacAddr8(mac),
+            PostgresValue::MacAddr8(mac) => Self::MacAddr8(mac),
             #[cfg(feature = "geo-types")]
-            PostgresValue::Point(point) => OwnedPostgresValue::Point(point),
+            PostgresValue::Point(point) => Self::Point(point),
             #[cfg(feature = "geo-types")]
-            PostgresValue::LineString(line) => OwnedPostgresValue::LineString(line),
+            PostgresValue::LineString(line) => Self::LineString(line),
             #[cfg(feature = "geo-types")]
-            PostgresValue::Rect(rect) => OwnedPostgresValue::Rect(rect),
+            PostgresValue::Rect(rect) => Self::Rect(rect),
             #[cfg(feature = "bit-vec")]
-            PostgresValue::BitVec(bv) => OwnedPostgresValue::BitVec(bv),
+            PostgresValue::BitVec(bv) => Self::BitVec(bv),
             PostgresValue::Array(arr) => {
-                let owned_arr = arr.into_iter().map(OwnedPostgresValue::from).collect();
-                OwnedPostgresValue::Array(owned_arr)
+                let owned_arr = arr.into_iter().map(Self::from).collect();
+                Self::Array(owned_arr)
             }
         }
     }
@@ -834,72 +880,70 @@ impl<'a> From<PostgresValue<'a>> for OwnedPostgresValue {
 impl<'a> From<&PostgresValue<'a>> for OwnedPostgresValue {
     fn from(value: &PostgresValue<'a>) -> Self {
         match value {
-            PostgresValue::Smallint(i) => OwnedPostgresValue::Smallint(*i),
-            PostgresValue::Integer(i) => OwnedPostgresValue::Integer(*i),
-            PostgresValue::Bigint(i) => OwnedPostgresValue::Bigint(*i),
-            PostgresValue::Real(r) => OwnedPostgresValue::Real(*r),
-            PostgresValue::DoublePrecision(r) => OwnedPostgresValue::DoublePrecision(*r),
+            PostgresValue::Smallint(i) => Self::Smallint(*i),
+            PostgresValue::Integer(i) => Self::Integer(*i),
+            PostgresValue::Bigint(i) => Self::Bigint(*i),
+            PostgresValue::Real(r) => Self::Real(*r),
+            PostgresValue::DoublePrecision(r) => Self::DoublePrecision(*r),
             #[cfg(feature = "rust-decimal")]
-            PostgresValue::Numeric(d) => OwnedPostgresValue::Numeric(*d),
-            PostgresValue::Text(cow) => OwnedPostgresValue::Text(cow.clone().into_owned()),
-            PostgresValue::Bytea(cow) => OwnedPostgresValue::Bytea(cow.clone().into_owned()),
-            PostgresValue::Boolean(b) => OwnedPostgresValue::Boolean(*b),
+            PostgresValue::Numeric(d) => Self::Numeric(*d),
+            PostgresValue::Text(cow) => Self::Text(cow.clone().into_owned()),
+            PostgresValue::Bytea(cow) => Self::Bytea(cow.clone().into_owned()),
+            PostgresValue::Boolean(b) => Self::Boolean(*b),
             #[cfg(feature = "uuid")]
-            PostgresValue::Uuid(uuid) => OwnedPostgresValue::Uuid(*uuid),
+            PostgresValue::Uuid(uuid) => Self::Uuid(*uuid),
             #[cfg(feature = "serde")]
-            PostgresValue::Json(json) => OwnedPostgresValue::Json(json.clone()),
+            PostgresValue::Json(json) => Self::Json(json.clone()),
             #[cfg(feature = "serde")]
-            PostgresValue::Jsonb(json) => OwnedPostgresValue::Jsonb(json.clone()),
-            PostgresValue::Enum(enum_val) => {
-                OwnedPostgresValue::Text(enum_val.variant_name().to_string())
-            }
+            PostgresValue::Jsonb(json) => Self::Jsonb(json.clone()),
+            PostgresValue::Enum(enum_val) => Self::Text(enum_val.variant_name().to_string()),
             #[cfg(feature = "chrono")]
-            PostgresValue::Date(value) => OwnedPostgresValue::Date(*value),
+            PostgresValue::Date(value) => Self::Date(*value),
             #[cfg(feature = "chrono")]
-            PostgresValue::Time(value) => OwnedPostgresValue::Time(*value),
+            PostgresValue::Time(value) => Self::Time(*value),
             #[cfg(feature = "chrono")]
-            PostgresValue::Timestamp(value) => OwnedPostgresValue::Timestamp(*value),
+            PostgresValue::Timestamp(value) => Self::Timestamp(*value),
             #[cfg(feature = "chrono")]
-            PostgresValue::TimestampTz(value) => OwnedPostgresValue::TimestampTz(*value),
+            PostgresValue::TimestampTz(value) => Self::TimestampTz(*value),
             #[cfg(feature = "chrono")]
-            PostgresValue::Interval(value) => OwnedPostgresValue::Interval(*value),
+            PostgresValue::Interval(value) => Self::Interval(*value),
             #[cfg(feature = "time")]
-            PostgresValue::TimeDate(value) => OwnedPostgresValue::TimeDate(*value),
+            PostgresValue::TimeDate(value) => Self::TimeDate(*value),
             #[cfg(feature = "time")]
-            PostgresValue::TimeTime(value) => OwnedPostgresValue::TimeTime(*value),
+            PostgresValue::TimeTime(value) => Self::TimeTime(*value),
             #[cfg(feature = "time")]
-            PostgresValue::TimeTimestamp(value) => OwnedPostgresValue::TimeTimestamp(*value),
+            PostgresValue::TimeTimestamp(value) => Self::TimeTimestamp(*value),
             #[cfg(feature = "time")]
-            PostgresValue::TimeTimestampTz(value) => OwnedPostgresValue::TimeTimestampTz(*value),
+            PostgresValue::TimeTimestampTz(value) => Self::TimeTimestampTz(*value),
             #[cfg(feature = "time")]
-            PostgresValue::TimeInterval(value) => OwnedPostgresValue::TimeInterval(*value),
+            PostgresValue::TimeInterval(value) => Self::TimeInterval(*value),
             #[cfg(feature = "cidr")]
-            PostgresValue::Inet(value) => OwnedPostgresValue::Inet(*value),
+            PostgresValue::Inet(value) => Self::Inet(*value),
             #[cfg(feature = "cidr")]
-            PostgresValue::Cidr(value) => OwnedPostgresValue::Cidr(*value),
+            PostgresValue::Cidr(value) => Self::Cidr(*value),
             #[cfg(feature = "cidr")]
-            PostgresValue::MacAddr(value) => OwnedPostgresValue::MacAddr(*value),
+            PostgresValue::MacAddr(value) => Self::MacAddr(*value),
             #[cfg(feature = "cidr")]
-            PostgresValue::MacAddr8(value) => OwnedPostgresValue::MacAddr8(*value),
+            PostgresValue::MacAddr8(value) => Self::MacAddr8(*value),
             #[cfg(feature = "geo-types")]
-            PostgresValue::Point(value) => OwnedPostgresValue::Point(*value),
+            PostgresValue::Point(value) => Self::Point(*value),
             #[cfg(feature = "geo-types")]
-            PostgresValue::LineString(value) => OwnedPostgresValue::LineString(value.clone()),
+            PostgresValue::LineString(value) => Self::LineString(value.clone()),
             #[cfg(feature = "geo-types")]
-            PostgresValue::Rect(value) => OwnedPostgresValue::Rect(*value),
+            PostgresValue::Rect(value) => Self::Rect(*value),
             #[cfg(feature = "bit-vec")]
-            PostgresValue::BitVec(value) => OwnedPostgresValue::BitVec(value.clone()),
+            PostgresValue::BitVec(value) => Self::BitVec(value.clone()),
             PostgresValue::Array(arr) => {
-                let owned_arr = arr.iter().map(OwnedPostgresValue::from).collect();
-                OwnedPostgresValue::Array(owned_arr)
+                let owned_arr = arr.iter().map(Self::from).collect();
+                Self::Array(owned_arr)
             }
-            PostgresValue::Null => OwnedPostgresValue::Null,
+            PostgresValue::Null => Self::Null,
         }
     }
 }
 
 // Conversions from OwnedPostgresValue to PostgresValue
-impl<'a> From<OwnedPostgresValue> for PostgresValue<'a> {
+impl From<OwnedPostgresValue> for PostgresValue<'_> {
     fn from(value: OwnedPostgresValue) -> Self {
         match value {
             OwnedPostgresValue::Smallint(i) => PostgresValue::Smallint(i),
@@ -1032,274 +1076,274 @@ impl<'a> From<&'a OwnedPostgresValue> for PostgresValue<'a> {
 // Direct conversions from Rust types to OwnedPostgresValue
 impl From<i16> for OwnedPostgresValue {
     fn from(value: i16) -> Self {
-        OwnedPostgresValue::Smallint(value)
+        Self::Smallint(value)
     }
 }
 
 impl From<i32> for OwnedPostgresValue {
     fn from(value: i32) -> Self {
-        OwnedPostgresValue::Integer(value)
+        Self::Integer(value)
     }
 }
 
 impl From<i64> for OwnedPostgresValue {
     fn from(value: i64) -> Self {
-        OwnedPostgresValue::Bigint(value)
+        Self::Bigint(value)
     }
 }
 
 impl From<f32> for OwnedPostgresValue {
     fn from(value: f32) -> Self {
-        OwnedPostgresValue::Real(value)
+        Self::Real(value)
     }
 }
 
 impl From<f64> for OwnedPostgresValue {
     fn from(value: f64) -> Self {
-        OwnedPostgresValue::DoublePrecision(value)
+        Self::DoublePrecision(value)
     }
 }
 
 #[cfg(feature = "rust-decimal")]
 impl From<Decimal> for OwnedPostgresValue {
     fn from(value: Decimal) -> Self {
-        OwnedPostgresValue::Numeric(value)
+        Self::Numeric(value)
     }
 }
 
 #[cfg(feature = "rust-decimal")]
 impl From<&Decimal> for OwnedPostgresValue {
     fn from(value: &Decimal) -> Self {
-        OwnedPostgresValue::Numeric(*value)
+        Self::Numeric(*value)
     }
 }
 
 impl From<&str> for OwnedPostgresValue {
     fn from(value: &str) -> Self {
-        OwnedPostgresValue::Text(value.to_string())
+        Self::Text(value.to_string())
     }
 }
 
 impl From<&String> for OwnedPostgresValue {
     fn from(value: &String) -> Self {
-        OwnedPostgresValue::Text(value.clone())
+        Self::Text(value.clone())
     }
 }
 
 impl From<Box<str>> for OwnedPostgresValue {
     fn from(value: Box<str>) -> Self {
-        OwnedPostgresValue::Text(value.into())
+        Self::Text(value.into())
     }
 }
 
 impl From<&Box<str>> for OwnedPostgresValue {
     fn from(value: &Box<str>) -> Self {
-        OwnedPostgresValue::Text(value.as_ref().to_string())
+        Self::Text(value.as_ref().to_string())
     }
 }
 
 impl From<Rc<str>> for OwnedPostgresValue {
     fn from(value: Rc<str>) -> Self {
-        OwnedPostgresValue::Text(value.as_ref().to_string())
+        Self::Text(value.as_ref().to_string())
     }
 }
 
 impl From<&Rc<str>> for OwnedPostgresValue {
     fn from(value: &Rc<str>) -> Self {
-        OwnedPostgresValue::Text(value.as_ref().to_string())
+        Self::Text(value.as_ref().to_string())
     }
 }
 
 impl From<Arc<str>> for OwnedPostgresValue {
     fn from(value: Arc<str>) -> Self {
-        OwnedPostgresValue::Text(value.as_ref().to_string())
+        Self::Text(value.as_ref().to_string())
     }
 }
 
 impl From<&Arc<str>> for OwnedPostgresValue {
     fn from(value: &Arc<str>) -> Self {
-        OwnedPostgresValue::Text(value.as_ref().to_string())
+        Self::Text(value.as_ref().to_string())
     }
 }
 
 impl From<String> for OwnedPostgresValue {
     fn from(value: String) -> Self {
-        OwnedPostgresValue::Text(value)
+        Self::Text(value)
     }
 }
 
 impl From<Box<String>> for OwnedPostgresValue {
     fn from(value: Box<String>) -> Self {
-        OwnedPostgresValue::Text(*value)
+        Self::Text(*value)
     }
 }
 
 impl From<&Box<String>> for OwnedPostgresValue {
     fn from(value: &Box<String>) -> Self {
-        OwnedPostgresValue::Text(value.as_ref().clone())
+        Self::Text(value.as_ref().clone())
     }
 }
 
 impl From<Rc<String>> for OwnedPostgresValue {
     fn from(value: Rc<String>) -> Self {
-        OwnedPostgresValue::Text(value.as_ref().clone())
+        Self::Text(value.as_ref().clone())
     }
 }
 
 impl From<&Rc<String>> for OwnedPostgresValue {
     fn from(value: &Rc<String>) -> Self {
-        OwnedPostgresValue::Text(value.as_ref().clone())
+        Self::Text(value.as_ref().clone())
     }
 }
 
 impl From<Arc<String>> for OwnedPostgresValue {
     fn from(value: Arc<String>) -> Self {
-        OwnedPostgresValue::Text(value.as_ref().clone())
+        Self::Text(value.as_ref().clone())
     }
 }
 
 impl From<&Arc<String>> for OwnedPostgresValue {
     fn from(value: &Arc<String>) -> Self {
-        OwnedPostgresValue::Text(value.as_ref().clone())
+        Self::Text(value.as_ref().clone())
     }
 }
 
 impl From<Vec<u8>> for OwnedPostgresValue {
     fn from(value: Vec<u8>) -> Self {
-        OwnedPostgresValue::Bytea(value)
+        Self::Bytea(value)
     }
 }
 
 impl From<Box<Vec<u8>>> for OwnedPostgresValue {
     fn from(value: Box<Vec<u8>>) -> Self {
-        OwnedPostgresValue::Bytea(*value)
+        Self::Bytea(*value)
     }
 }
 
 impl From<&Box<Vec<u8>>> for OwnedPostgresValue {
     fn from(value: &Box<Vec<u8>>) -> Self {
-        OwnedPostgresValue::Bytea(value.as_ref().clone())
+        Self::Bytea(value.as_ref().clone())
     }
 }
 
 impl From<Rc<Vec<u8>>> for OwnedPostgresValue {
     fn from(value: Rc<Vec<u8>>) -> Self {
-        OwnedPostgresValue::Bytea(value.as_ref().clone())
+        Self::Bytea(value.as_ref().clone())
     }
 }
 
 impl From<&Rc<Vec<u8>>> for OwnedPostgresValue {
     fn from(value: &Rc<Vec<u8>>) -> Self {
-        OwnedPostgresValue::Bytea(value.as_ref().clone())
+        Self::Bytea(value.as_ref().clone())
     }
 }
 
 impl From<Arc<Vec<u8>>> for OwnedPostgresValue {
     fn from(value: Arc<Vec<u8>>) -> Self {
-        OwnedPostgresValue::Bytea(value.as_ref().clone())
+        Self::Bytea(value.as_ref().clone())
     }
 }
 
 impl From<&Arc<Vec<u8>>> for OwnedPostgresValue {
     fn from(value: &Arc<Vec<u8>>) -> Self {
-        OwnedPostgresValue::Bytea(value.as_ref().clone())
+        Self::Bytea(value.as_ref().clone())
     }
 }
 
 impl From<bool> for OwnedPostgresValue {
     fn from(value: bool) -> Self {
-        OwnedPostgresValue::Boolean(value)
+        Self::Boolean(value)
     }
 }
 
 #[cfg(feature = "uuid")]
 impl From<Uuid> for OwnedPostgresValue {
     fn from(value: Uuid) -> Self {
-        OwnedPostgresValue::Uuid(value)
+        Self::Uuid(value)
     }
 }
 
 #[cfg(feature = "serde")]
 impl From<serde_json::Value> for OwnedPostgresValue {
     fn from(value: serde_json::Value) -> Self {
-        OwnedPostgresValue::Json(value)
+        Self::Json(value)
     }
 }
 
 #[cfg(feature = "time")]
 impl From<TimeDate> for OwnedPostgresValue {
     fn from(value: TimeDate) -> Self {
-        OwnedPostgresValue::TimeDate(value)
+        Self::TimeDate(value)
     }
 }
 
 #[cfg(feature = "time")]
 impl From<TimeTime> for OwnedPostgresValue {
     fn from(value: TimeTime) -> Self {
-        OwnedPostgresValue::TimeTime(value)
+        Self::TimeTime(value)
     }
 }
 
 #[cfg(feature = "time")]
 impl From<PrimitiveDateTime> for OwnedPostgresValue {
     fn from(value: PrimitiveDateTime) -> Self {
-        OwnedPostgresValue::TimeTimestamp(value)
+        Self::TimeTimestamp(value)
     }
 }
 
 #[cfg(feature = "time")]
 impl From<OffsetDateTime> for OwnedPostgresValue {
     fn from(value: OffsetDateTime) -> Self {
-        OwnedPostgresValue::TimeTimestampTz(value)
+        Self::TimeTimestampTz(value)
     }
 }
 
 #[cfg(feature = "time")]
 impl From<TimeDuration> for OwnedPostgresValue {
     fn from(value: TimeDuration) -> Self {
-        OwnedPostgresValue::TimeInterval(value)
+        Self::TimeInterval(value)
     }
 }
 
 #[cfg(feature = "arrayvec")]
 impl<const N: usize> From<arrayvec::ArrayString<N>> for OwnedPostgresValue {
     fn from(value: arrayvec::ArrayString<N>) -> Self {
-        OwnedPostgresValue::Text(value.to_string())
+        Self::Text(value.to_string())
     }
 }
 
 #[cfg(feature = "compact-str")]
 impl From<compact_str::CompactString> for OwnedPostgresValue {
     fn from(value: compact_str::CompactString) -> Self {
-        OwnedPostgresValue::Text(value.to_string())
+        Self::Text(value.to_string())
     }
 }
 
 #[cfg(feature = "arrayvec")]
 impl<const N: usize> From<arrayvec::ArrayVec<u8, N>> for OwnedPostgresValue {
     fn from(value: arrayvec::ArrayVec<u8, N>) -> Self {
-        OwnedPostgresValue::Bytea(value.to_vec())
+        Self::Bytea(value.to_vec())
     }
 }
 
 #[cfg(feature = "bytes")]
 impl From<bytes::Bytes> for OwnedPostgresValue {
     fn from(value: bytes::Bytes) -> Self {
-        OwnedPostgresValue::Bytea(value.to_vec())
+        Self::Bytea(value.to_vec())
     }
 }
 
 #[cfg(feature = "bytes")]
 impl From<bytes::BytesMut> for OwnedPostgresValue {
     fn from(value: bytes::BytesMut) -> Self {
-        OwnedPostgresValue::Bytea(value.to_vec())
+        Self::Bytea(value.to_vec())
     }
 }
 
 #[cfg(feature = "smallvec")]
 impl<const N: usize> From<smallvec::SmallVec<[u8; N]>> for OwnedPostgresValue {
     fn from(value: smallvec::SmallVec<[u8; N]>) -> Self {
-        OwnedPostgresValue::Bytea(value.into_vec())
+        Self::Bytea(value.into_vec())
     }
 }
 
@@ -1313,7 +1357,7 @@ impl TryFrom<OwnedPostgresValue> for i16 {
             OwnedPostgresValue::Integer(i) => Ok(i.try_into()?),
             OwnedPostgresValue::Bigint(i) => Ok(i.try_into()?),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to i16", value).into(),
+                format!("Cannot convert {value:?} to i16").into(),
             )),
         }
     }
@@ -1328,7 +1372,7 @@ impl TryFrom<OwnedPostgresValue> for i32 {
             OwnedPostgresValue::Integer(i) => Ok(i),
             OwnedPostgresValue::Bigint(i) => Ok(i.try_into()?),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to i32", value).into(),
+                format!("Cannot convert {value:?} to i32").into(),
             )),
         }
     }
@@ -1343,7 +1387,7 @@ impl TryFrom<OwnedPostgresValue> for i64 {
             OwnedPostgresValue::Integer(i) => Ok(i.into()),
             OwnedPostgresValue::Bigint(i) => Ok(i),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to i64", value).into(),
+                format!("Cannot convert {value:?} to i64").into(),
             )),
         }
     }
@@ -1353,14 +1397,19 @@ impl TryFrom<OwnedPostgresValue> for f32 {
     type Error = DrizzleError;
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        fn parse_float<N: core::fmt::Display>(value: N) -> Result<f32, DrizzleError> {
+            format!("{value}").parse::<f32>().map_err(|e| {
+                DrizzleError::ConversionError(format!("Cannot convert to f32: {e}").into())
+            })
+        }
         match value {
             OwnedPostgresValue::Real(r) => Ok(r),
-            OwnedPostgresValue::DoublePrecision(r) => Ok(r as f32),
-            OwnedPostgresValue::Smallint(i) => Ok(i as f32),
-            OwnedPostgresValue::Integer(i) => Ok(i as f32),
-            OwnedPostgresValue::Bigint(i) => Ok(i as f32),
+            OwnedPostgresValue::DoublePrecision(r) => parse_float(r),
+            OwnedPostgresValue::Smallint(i) => Ok(Self::from(i)),
+            OwnedPostgresValue::Integer(i) => parse_float(i),
+            OwnedPostgresValue::Bigint(i) => parse_float(i),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to f32", value).into(),
+                format!("Cannot convert {value:?} to f32").into(),
             )),
         }
     }
@@ -1370,14 +1419,19 @@ impl TryFrom<OwnedPostgresValue> for f64 {
     type Error = DrizzleError;
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        fn parse_double<N: core::fmt::Display>(value: N) -> Result<f64, DrizzleError> {
+            format!("{value}").parse::<f64>().map_err(|e| {
+                DrizzleError::ConversionError(format!("Cannot convert to f64: {e}").into())
+            })
+        }
         match value {
-            OwnedPostgresValue::Real(r) => Ok(r as f64),
+            OwnedPostgresValue::Real(r) => Ok(Self::from(r)),
             OwnedPostgresValue::DoublePrecision(r) => Ok(r),
-            OwnedPostgresValue::Smallint(i) => Ok(i as f64),
-            OwnedPostgresValue::Integer(i) => Ok(i as f64),
-            OwnedPostgresValue::Bigint(i) => Ok(i as f64),
+            OwnedPostgresValue::Smallint(i) => Ok(Self::from(i)),
+            OwnedPostgresValue::Integer(i) => Ok(Self::from(i)),
+            OwnedPostgresValue::Bigint(i) => parse_double(i),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to f64", value).into(),
+                format!("Cannot convert {value:?} to f64").into(),
             )),
         }
     }
@@ -1390,7 +1444,7 @@ impl TryFrom<OwnedPostgresValue> for String {
         match value {
             OwnedPostgresValue::Text(s) => Ok(s),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to String", value).into(),
+                format!("Cannot convert {value:?} to String").into(),
             )),
         }
     }
@@ -1400,7 +1454,7 @@ impl TryFrom<OwnedPostgresValue> for Box<String> {
     type Error = DrizzleError;
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
-        String::try_from(value).map(Box::new)
+        String::try_from(value).map(Self::new)
     }
 }
 
@@ -1408,7 +1462,7 @@ impl TryFrom<OwnedPostgresValue> for Rc<String> {
     type Error = DrizzleError;
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
-        String::try_from(value).map(Rc::new)
+        String::try_from(value).map(Self::new)
     }
 }
 
@@ -1416,7 +1470,7 @@ impl TryFrom<OwnedPostgresValue> for Arc<String> {
     type Error = DrizzleError;
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
-        String::try_from(value).map(Arc::new)
+        String::try_from(value).map(Self::new)
     }
 }
 
@@ -1427,7 +1481,7 @@ impl TryFrom<OwnedPostgresValue> for Box<str> {
         match value {
             OwnedPostgresValue::Text(s) => Ok(s.into_boxed_str()),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Box<str>", value).into(),
+                format!("Cannot convert {value:?} to Box<str>").into(),
             )),
         }
     }
@@ -1438,9 +1492,9 @@ impl TryFrom<OwnedPostgresValue> for Rc<str> {
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
         match value {
-            OwnedPostgresValue::Text(s) => Ok(Rc::from(s)),
+            OwnedPostgresValue::Text(s) => Ok(Self::from(s)),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Rc<str>", value).into(),
+                format!("Cannot convert {value:?} to Rc<str>").into(),
             )),
         }
     }
@@ -1451,9 +1505,9 @@ impl TryFrom<OwnedPostgresValue> for Arc<str> {
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
         match value {
-            OwnedPostgresValue::Text(s) => Ok(Arc::from(s)),
+            OwnedPostgresValue::Text(s) => Ok(Self::from(s)),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Arc<str>", value).into(),
+                format!("Cannot convert {value:?} to Arc<str>").into(),
             )),
         }
     }
@@ -1464,7 +1518,7 @@ impl TryFrom<OwnedPostgresValue> for compact_str::CompactString {
     type Error = DrizzleError;
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
-        String::try_from(value).map(compact_str::CompactString::new)
+        String::try_from(value).map(Self::new)
     }
 }
 
@@ -1475,7 +1529,7 @@ impl TryFrom<OwnedPostgresValue> for Vec<u8> {
         match value {
             OwnedPostgresValue::Bytea(b) => Ok(b),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to Vec<u8>", value).into(),
+                format!("Cannot convert {value:?} to Vec<u8>").into(),
             )),
         }
     }
@@ -1485,7 +1539,7 @@ impl TryFrom<OwnedPostgresValue> for Box<Vec<u8>> {
     type Error = DrizzleError;
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
-        Vec::<u8>::try_from(value).map(Box::new)
+        Vec::<u8>::try_from(value).map(Self::new)
     }
 }
 
@@ -1493,7 +1547,7 @@ impl TryFrom<OwnedPostgresValue> for Rc<Vec<u8>> {
     type Error = DrizzleError;
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
-        Vec::<u8>::try_from(value).map(Rc::new)
+        Vec::<u8>::try_from(value).map(Self::new)
     }
 }
 
@@ -1501,7 +1555,7 @@ impl TryFrom<OwnedPostgresValue> for Arc<Vec<u8>> {
     type Error = DrizzleError;
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
-        Vec::<u8>::try_from(value).map(Arc::new)
+        Vec::<u8>::try_from(value).map(Self::new)
     }
 }
 
@@ -1510,7 +1564,7 @@ impl TryFrom<OwnedPostgresValue> for bytes::Bytes {
     type Error = DrizzleError;
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
-        Vec::<u8>::try_from(value).map(bytes::Bytes::from)
+        Vec::<u8>::try_from(value).map(Self::from)
     }
 }
 
@@ -1519,7 +1573,7 @@ impl TryFrom<OwnedPostgresValue> for bytes::BytesMut {
     type Error = DrizzleError;
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
-        Vec::<u8>::try_from(value).map(|v| bytes::BytesMut::from(v.as_slice()))
+        Vec::<u8>::try_from(value).map(|v| Self::from(v.as_slice()))
     }
 }
 
@@ -1529,7 +1583,7 @@ impl<const N: usize> TryFrom<OwnedPostgresValue> for smallvec::SmallVec<[u8; N]>
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
         Vec::<u8>::try_from(value).map(|v| {
-            let mut out = smallvec::SmallVec::<[u8; N]>::new();
+            let mut out = Self::new();
             out.extend_from_slice(&v);
             out
         })
@@ -1543,7 +1597,7 @@ impl TryFrom<OwnedPostgresValue> for bool {
         match value {
             OwnedPostgresValue::Boolean(b) => Ok(b),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to bool", value).into(),
+                format!("Cannot convert {value:?} to bool").into(),
             )),
         }
     }
@@ -1556,11 +1610,11 @@ impl TryFrom<OwnedPostgresValue> for Uuid {
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
         match value {
             OwnedPostgresValue::Uuid(uuid) => Ok(uuid),
-            OwnedPostgresValue::Text(s) => Uuid::parse_str(&s).map_err(|e| {
-                DrizzleError::ConversionError(format!("Failed to parse UUID: {}", e).into())
+            OwnedPostgresValue::Text(s) => Self::parse_str(&s).map_err(|e| {
+                DrizzleError::ConversionError(format!("Failed to parse UUID: {e}").into())
             }),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to UUID", value).into(),
+                format!("Cannot convert {value:?} to UUID").into(),
             )),
         }
     }
@@ -1572,13 +1626,12 @@ impl TryFrom<OwnedPostgresValue> for serde_json::Value {
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
         match value {
-            OwnedPostgresValue::Json(json) => Ok(json),
-            OwnedPostgresValue::Jsonb(json) => Ok(json),
+            OwnedPostgresValue::Json(json) | OwnedPostgresValue::Jsonb(json) => Ok(json),
             OwnedPostgresValue::Text(s) => serde_json::from_str(&s).map_err(|e| {
-                DrizzleError::ConversionError(format!("Failed to parse JSON: {}", e).into())
+                DrizzleError::ConversionError(format!("Failed to parse JSON: {e}").into())
             }),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to JSON", value).into(),
+                format!("Cannot convert {value:?} to JSON").into(),
             )),
         }
     }
@@ -1590,13 +1643,13 @@ impl<const N: usize> TryFrom<OwnedPostgresValue> for arrayvec::ArrayString<N> {
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
         match value {
-            OwnedPostgresValue::Text(s) => arrayvec::ArrayString::from(&s).map_err(|_| {
+            OwnedPostgresValue::Text(s) => Self::from(&s).map_err(|_| {
                 DrizzleError::ConversionError(
                     format!("Text length {} exceeds ArrayString capacity {}", s.len(), N).into(),
                 )
             }),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to ArrayString", value).into(),
+                format!("Cannot convert {value:?} to ArrayString").into(),
             )),
         }
     }
@@ -1608,19 +1661,18 @@ impl<const N: usize> TryFrom<OwnedPostgresValue> for arrayvec::ArrayVec<u8, N> {
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
         match value {
-            OwnedPostgresValue::Bytea(bytes) => arrayvec::ArrayVec::try_from(bytes.as_slice())
-                .map_err(|_| {
-                    DrizzleError::ConversionError(
-                        format!(
-                            "Bytea length {} exceeds ArrayVec capacity {}",
-                            bytes.len(),
-                            N
-                        )
-                        .into(),
+            OwnedPostgresValue::Bytea(bytes) => Self::try_from(bytes.as_slice()).map_err(|_| {
+                DrizzleError::ConversionError(
+                    format!(
+                        "Bytea length {} exceeds ArrayVec capacity {}",
+                        bytes.len(),
+                        N
                     )
-                }),
+                    .into(),
+                )
+            }),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to ArrayVec<u8>", value).into(),
+                format!("Cannot convert {value:?} to ArrayVec<u8>").into(),
             )),
         }
     }
@@ -1636,7 +1688,7 @@ impl TryFrom<OwnedPostgresValue> for TimeDate {
             OwnedPostgresValue::TimeTimestamp(ts) => Ok(ts.date()),
             OwnedPostgresValue::TimeTimestampTz(ts) => Ok(ts.date()),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to time::Date", value).into(),
+                format!("Cannot convert {value:?} to time::Date").into(),
             )),
         }
     }
@@ -1652,7 +1704,7 @@ impl TryFrom<OwnedPostgresValue> for TimeTime {
             OwnedPostgresValue::TimeTimestamp(ts) => Ok(ts.time()),
             OwnedPostgresValue::TimeTimestampTz(ts) => Ok(ts.time()),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to time::Time", value).into(),
+                format!("Cannot convert {value:?} to time::Time").into(),
             )),
         }
     }
@@ -1666,7 +1718,7 @@ impl TryFrom<OwnedPostgresValue> for PrimitiveDateTime {
         match value {
             OwnedPostgresValue::TimeTimestamp(ts) => Ok(ts),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to time::PrimitiveDateTime", value).into(),
+                format!("Cannot convert {value:?} to time::PrimitiveDateTime").into(),
             )),
         }
     }
@@ -1680,7 +1732,7 @@ impl TryFrom<OwnedPostgresValue> for OffsetDateTime {
         match value {
             OwnedPostgresValue::TimeTimestampTz(ts) => Ok(ts),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to time::OffsetDateTime", value).into(),
+                format!("Cannot convert {value:?} to time::OffsetDateTime").into(),
             )),
         }
     }
@@ -1694,7 +1746,7 @@ impl TryFrom<OwnedPostgresValue> for TimeDuration {
         match value {
             OwnedPostgresValue::TimeInterval(dur) => Ok(dur),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to time::Duration", value).into(),
+                format!("Cannot convert {value:?} to time::Duration").into(),
             )),
         }
     }

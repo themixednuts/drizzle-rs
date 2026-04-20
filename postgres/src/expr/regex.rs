@@ -1,6 +1,6 @@
-//! PostgreSQL regular expression operators.
+//! `PostgreSQL` regular expression operators.
 //!
-//! Provides type-safe access to PostgreSQL regex operators:
+//! Provides type-safe access to `PostgreSQL` regex operators:
 //! - `~` (matches regex, case-sensitive)
 //! - `~*` (matches regex, case-insensitive)
 //! - `!~` (does not match regex, case-sensitive)
@@ -11,7 +11,7 @@ use drizzle_core::expr::{Expr, NonNull, SQLExpr, Scalar};
 use drizzle_core::sql::{SQL, SQLChunk};
 use drizzle_types::postgres::types::Boolean;
 
-/// PostgreSQL `~` operator - case-sensitive regex match.
+/// `PostgreSQL` `~` operator - case-sensitive regex match.
 ///
 /// # Example
 ///
@@ -37,7 +37,7 @@ where
     )
 }
 
-/// PostgreSQL `~*` operator - case-insensitive regex match.
+/// `PostgreSQL` `~*` operator - case-insensitive regex match.
 ///
 /// # Example
 ///
@@ -63,7 +63,7 @@ where
     )
 }
 
-/// PostgreSQL `!~` operator - case-sensitive regex non-match.
+/// `PostgreSQL` `!~` operator - case-sensitive regex non-match.
 ///
 /// # Example
 ///
@@ -89,7 +89,7 @@ where
     )
 }
 
-/// PostgreSQL `!~*` operator - case-insensitive regex non-match.
+/// `PostgreSQL` `!~*` operator - case-insensitive regex non-match.
 ///
 /// # Example
 ///
@@ -115,7 +115,7 @@ where
     )
 }
 
-/// Extension trait providing method-based regex operators for PostgreSQL expressions.
+/// Extension trait providing method-based regex operators for `PostgreSQL` expressions.
 pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     /// Case-sensitive regex match (`~` operator).
     fn regex_match(
@@ -150,5 +150,5 @@ pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     }
 }
 
-/// Blanket implementation for all PostgreSQL `Expr` types.
+/// Blanket implementation for all `PostgreSQL` `Expr` types.
 impl<'a, E: Expr<'a, PostgresValue<'a>>> RegexExprExt<'a> for E {}

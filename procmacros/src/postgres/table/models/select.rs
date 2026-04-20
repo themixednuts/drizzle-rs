@@ -1,10 +1,9 @@
 use super::super::context::{MacroContext, ModelType};
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::Result;
 
 /// Generate SELECT model struct
-pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
+pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
     let select_ident = &ctx.select_model_ident;
     let partial_select_ident = &ctx.select_model_partial_ident;
     let struct_vis = ctx.struct_vis;
@@ -17,8 +16,9 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
 
     for (i, field_info) in ctx.field_infos.iter().enumerate() {
         let field_name = &field_info.ident;
-        let select_type = ctx.get_field_type_for_model(field_info, ModelType::Select);
-        let partial_type = ctx.get_field_type_for_model(field_info, ModelType::PartialSelect);
+        let select_type = MacroContext::get_field_type_for_model(field_info, ModelType::Select);
+        let partial_type =
+            MacroContext::get_field_type_for_model(field_info, ModelType::PartialSelect);
 
         select_fields.push(quote! {
             pub #field_name: #select_type,
@@ -33,7 +33,7 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
         tuple_indices.push(syn::Index::from(i));
     }
 
-    Ok(quote! {
+    quote! {
         #[derive(Debug, Clone, Default)]
         #struct_vis struct #select_ident {
             #(#select_fields)*
@@ -51,5 +51,5 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
         #struct_vis struct #partial_select_ident {
             #(#partial_select_fields)*
         }
-    })
+    }
 }

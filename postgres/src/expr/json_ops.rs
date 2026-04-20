@@ -1,6 +1,6 @@
-//! PostgreSQL JSON/JSONB operators.
+//! `PostgreSQL` JSON/JSONB operators.
 //!
-//! Provides type-safe access to PostgreSQL JSON operators:
+//! Provides type-safe access to `PostgreSQL` JSON operators:
 //! - `->` (get JSON object field by key, returns JSON)
 //! - `->>` (get JSON object field by key, returns text)
 //! - `#>` (get JSON object at path, returns JSON)
@@ -16,7 +16,7 @@ use drizzle_core::expr::{Expr, NonNull, Null, SQLExpr, Scalar};
 use drizzle_core::sql::{SQL, SQLChunk};
 use drizzle_types::postgres::types::{Boolean, Json, Text};
 
-/// PostgreSQL `->` operator - get JSON object field by key, returns JSON.
+/// `PostgreSQL` `->` operator - get JSON object field by key, returns JSON.
 ///
 /// # Example
 ///
@@ -39,7 +39,7 @@ where
     )
 }
 
-/// PostgreSQL `->` operator with integer index - get JSON array element.
+/// `PostgreSQL` `->` operator with integer index - get JSON array element.
 ///
 /// # Example
 ///
@@ -65,7 +65,7 @@ where
     )
 }
 
-/// PostgreSQL `->>` operator - get JSON object field as text.
+/// `PostgreSQL` `->>` operator - get JSON object field as text.
 ///
 /// # Example
 ///
@@ -91,7 +91,7 @@ where
     )
 }
 
-/// PostgreSQL `->>` operator with integer index - get JSON array element as text.
+/// `PostgreSQL` `->>` operator with integer index - get JSON array element as text.
 ///
 /// # Example
 ///
@@ -117,7 +117,7 @@ where
     )
 }
 
-/// PostgreSQL `#>` operator - get JSON object at specified path, returns JSON.
+/// `PostgreSQL` `#>` operator - get JSON object at specified path, returns JSON.
 ///
 /// # Example
 ///
@@ -143,7 +143,7 @@ where
     )
 }
 
-/// PostgreSQL `#>>` operator - get JSON object at specified path as text.
+/// `PostgreSQL` `#>>` operator - get JSON object at specified path as text.
 ///
 /// # Example
 ///
@@ -169,7 +169,7 @@ where
     )
 }
 
-/// PostgreSQL `@>` operator for JSONB - left JSON contains right JSON.
+/// `PostgreSQL` `@>` operator for JSONB - left JSON contains right JSON.
 ///
 /// # Example
 ///
@@ -196,7 +196,7 @@ where
     )
 }
 
-/// PostgreSQL `<@` operator for JSONB - left JSON is contained by right JSON.
+/// `PostgreSQL` `<@` operator for JSONB - left JSON is contained by right JSON.
 ///
 /// # Example
 ///
@@ -223,7 +223,7 @@ where
     )
 }
 
-/// PostgreSQL `?` operator for JSONB - does the key exist in the JSON object?
+/// `PostgreSQL` `?` operator for JSONB - does the key exist in the JSON object?
 ///
 /// # Example
 ///
@@ -249,7 +249,7 @@ where
     )
 }
 
-/// PostgreSQL `?|` operator for JSONB - do any of the keys exist?
+/// `PostgreSQL` `?|` operator for JSONB - do any of the keys exist?
 ///
 /// # Example
 ///
@@ -279,7 +279,7 @@ where
     )
 }
 
-/// PostgreSQL `?&` operator for JSONB - do all of the keys exist?
+/// `PostgreSQL` `?&` operator for JSONB - do all of the keys exist?
 ///
 /// # Example
 ///
@@ -309,7 +309,7 @@ where
     )
 }
 
-/// Extension trait providing method-based JSON operators for PostgreSQL expressions.
+/// Extension trait providing method-based JSON operators for `PostgreSQL` expressions.
 pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     /// Get JSON object field by key (`->` operator), returns JSON.
     fn json_get(self, key: &'a str) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar> {
@@ -372,5 +372,5 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     }
 }
 
-/// Blanket implementation for all PostgreSQL `Expr` types.
+/// Blanket implementation for all `PostgreSQL` `Expr` types.
 impl<'a, E: Expr<'a, PostgresValue<'a>>> JsonExprExt<'a> for E {}

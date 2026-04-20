@@ -36,6 +36,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Creates an empty SQL fragment
     #[inline]
+    #[must_use]
     pub const fn empty() -> Self {
         Self {
             chunks: SmallVec::new_const(),
@@ -46,6 +47,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Creates SQL with a single token
     #[inline]
+    #[must_use]
     pub fn token(t: Token) -> Self {
         Self {
             chunks: smallvec::smallvec![SQLChunk::Token(t)],
@@ -54,6 +56,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Creates an empty SQL fragment with pre-allocated chunk capacity.
     #[inline]
+    #[must_use]
     pub fn with_capacity_chunks(capacity: usize) -> Self {
         Self {
             chunks: SmallVec::with_capacity(capacity),
@@ -78,6 +81,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Creates SQL with a single unsigned integer literal.
     #[inline]
+    #[must_use]
     pub fn number(value: usize) -> Self {
         Self {
             chunks: smallvec::smallvec![SQLChunk::Number(value)],
@@ -101,9 +105,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     #[inline]
     pub fn bytes(bytes: impl Into<Cow<'a, [u8]>>) -> Self
     where
-        V: From<&'a [u8]>,
-        V: From<Vec<u8>>,
-        V: Into<Cow<'a, V>>,
+        V: From<&'a [u8]> + From<Vec<u8>> + Into<Cow<'a, V>>,
     {
         match bytes.into() {
             Cow::Borrowed(value) => Self::param(V::from(value)),
@@ -113,6 +115,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Creates SQL referencing a table
     #[inline]
+    #[must_use]
     pub fn table(table: TableRef) -> Self {
         Self {
             chunks: smallvec::smallvec![SQLChunk::Table(table)],
@@ -121,6 +124,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Creates SQL referencing a column
     #[inline]
+    #[must_use]
     pub fn column(column: ColumnRef) -> Self {
         Self {
             chunks: smallvec::smallvec![SQLChunk::Column(column)],
@@ -130,7 +134,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     /// Creates SQL for a function call: NAME(args)
     /// Subqueries are automatically wrapped in parentheses: NAME((SELECT ...))
     #[inline]
-    pub fn func(name: &'static str, args: SQL<'a, V>) -> Self {
+    pub fn func(name: &'static str, args: Self) -> Self {
         let args = args.parens_if_subquery();
         SQL::raw(name)
             .push(Token::LPAREN)
@@ -142,7 +146,8 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Append another SQL fragment (flat extend)
     #[inline]
-    pub fn append(mut self, other: impl Into<SQL<'a, V>>) -> Self {
+    #[must_use]
+    pub fn append(mut self, other: impl Into<Self>) -> Self {
         #[cfg(feature = "profiling")]
         profile_sql!("append");
         let other = other.into();
@@ -159,7 +164,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     #[inline]
-    pub fn append_mut(&mut self, other: impl Into<SQL<'a, V>>) {
+    pub fn append_mut(&mut self, other: impl Into<Self>) {
         #[cfg(feature = "profiling")]
         profile_sql!("append_mut");
         let other = other.into();
@@ -177,6 +182,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Push a single chunk
     #[inline]
+    #[must_use]
     pub fn push(mut self, chunk: impl Into<SQLChunk<'a, V>>) -> Self {
         self.chunks.push(chunk.into());
         self
@@ -189,6 +195,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Pre-allocates capacity for additional chunks
     #[inline]
+    #[must_use]
     pub fn with_capacity(mut self, additional: usize) -> Self {
         self.chunks.reserve(additional);
         self
@@ -197,7 +204,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     // ==================== combinators ====================
 
     /// Joins multiple SQL fragments with a separator
-    pub fn join<T>(sqls: T, separator: Token) -> SQL<'a, V>
+    pub fn join<T>(sqls: T, separator: Token) -> Self
     where
         T: IntoIterator,
         T::Item: ToSQL<'a, V>,
@@ -230,12 +237,14 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Wrap in parentheses: (self)
     #[inline]
+    #[must_use]
     pub fn parens(self) -> Self {
         SQL::token(Token::LPAREN).append(self).push(Token::RPAREN)
     }
 
     /// Wrap this SQL fragment in parentheses only when it is a subquery.
     #[inline]
+    #[must_use]
     pub fn parens_if_subquery(self) -> Self {
         if self.is_subquery() {
             self.parens()
@@ -254,7 +263,8 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Creates an aliased version: self AS "name"
-    pub fn alias(self, name: impl Into<Cow<'a, str>>) -> SQL<'a, V> {
+    #[must_use]
+    pub fn alias(self, name: impl Into<Cow<'a, str>>) -> Self {
         self.push(Token::AS).push(SQLChunk::Ident(name.into()))
     }
 
@@ -312,7 +322,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     /// Builds chunks directly without intermediate SQL allocations.
     pub fn assignments_sql<I>(pairs: I) -> Self
     where
-        I: IntoIterator<Item = (&'static str, SQL<'a, V>)>,
+        I: IntoIterator<Item = (&'static str, Self)>,
     {
         let iter = pairs.into_iter();
         let (lower, _) = iter.size_hint();
@@ -361,7 +371,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Returns the SQL string with dialect-appropriate placeholders.
-    /// Uses `$1, $2, ...` for PostgreSQL, `:name` or `?` for SQLite, `?` for MySQL.
+    /// Uses `$1, $2, ...` for `PostgreSQL`, `:name` or `?` for `SQLite`, `?` for `MySQL`.
     pub fn sql(&self) -> String {
         #[cfg(feature = "profiling")]
         profile_sql!("sql");
@@ -386,9 +396,10 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     /// differently (e.g. AWS Data API on Postgres) use this to emit
     /// `:1, :2, ...` instead of `$1, $2, ...` without any post-hoc rewriting.
     pub fn build_with(&self, style: crate::dialect::ParamStyle) -> (String, SmallVec<[&V; 8]>) {
+        use crate::dialect::Dialect;
+
         #[cfg(feature = "profiling")]
         crate::drizzle_profile_scope!("sql_render", "build");
-        use crate::dialect::Dialect;
         #[cfg(feature = "profiling")]
         crate::drizzle_profile_scope!("sql_render", "build.estimate");
         let sql_cap = self.chunks.len().saturating_mul(8).max(128);
@@ -431,7 +442,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Write SQL to a buffer with dialect-appropriate placeholders.
-    /// Uses `$1, $2, ...` for PostgreSQL, `?` or `:name` for SQLite, `?` for MySQL.
+    /// Uses `$1, $2, ...` for `PostgreSQL`, `?` or `:name` for `SQLite`, `?` for `MySQL`.
     pub fn write_to(&self, buf: &mut impl core::fmt::Write) {
         self.write_to_with(buf, crate::dialect::ParamStyle::for_dialect(V::DIALECT));
     }
@@ -443,9 +454,10 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         buf: &mut impl core::fmt::Write,
         style: crate::dialect::ParamStyle,
     ) {
+        use crate::dialect::Dialect;
+
         #[cfg(feature = "profiling")]
         crate::drizzle_profile_scope!("sql_render", "write_to");
-        use crate::dialect::Dialect;
         let mut param_index = 1usize;
         for (i, chunk) in self.chunks.iter().enumerate() {
             match chunk {
@@ -552,10 +564,11 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Bind named parameters
+    #[must_use]
     pub fn bind<T: SQLParam + Into<V>>(
         self,
         params: impl IntoIterator<Item: Into<ParamBind<'a, T>>>,
-    ) -> SQL<'a, V> {
+    ) -> Self {
         #[cfg(feature = "profiling")]
         profile_sql!("bind");
 
@@ -609,9 +622,9 @@ pub(crate) fn chunk_needs_space<V: SQLParam>(
 
     match (current, next) {
         // No space before closing/separator punctuation
-        (_, SQLChunk::Token(Token::RPAREN | Token::COMMA | Token::SEMI | Token::DOT)) => false,
-        // No space after opening punctuation
-        (SQLChunk::Token(Token::LPAREN | Token::DOT), _) => false,
+        // or after opening punctuation
+        (_, SQLChunk::Token(Token::RPAREN | Token::COMMA | Token::SEMI | Token::DOT))
+        | (SQLChunk::Token(Token::LPAREN | Token::DOT), _) => false,
         // Space after comma
         (SQLChunk::Token(Token::COMMA), _) => true,
         // Space after closing paren if next is word-like (e.g., ") FROM")
@@ -628,7 +641,7 @@ pub(crate) fn chunk_needs_space<V: SQLParam>(
 
 // ==================== trait implementations ====================
 
-impl<'a, V: SQLParam> Default for SQL<'a, V> {
+impl<V: SQLParam> Default for SQL<'_, V> {
     fn default() -> Self {
         Self::empty()
     }
@@ -640,19 +653,19 @@ impl<'a, V: SQLParam + 'a> From<&'a str> for SQL<'a, V> {
     }
 }
 
-impl<'a, V: SQLParam> From<Token> for SQL<'a, V> {
+impl<V: SQLParam> From<Token> for SQL<'_, V> {
     fn from(value: Token) -> Self {
         SQL::token(value)
     }
 }
 
-impl<'a, V: SQLParam + 'a> AsRef<SQL<'a, V>> for SQL<'a, V> {
-    fn as_ref(&self) -> &SQL<'a, V> {
+impl<'a, V: SQLParam + 'a> AsRef<Self> for SQL<'a, V> {
+    fn as_ref(&self) -> &Self {
         self
     }
 }
 
-impl<'a, V: SQLParam + core::fmt::Display> Display for SQL<'a, V> {
+impl<V: SQLParam + core::fmt::Display> Display for SQL<'_, V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // Collect params for Debug formatting (iterator can't be used with :?)
         let params: Vec<_> = self.params().collect();
@@ -661,11 +674,11 @@ impl<'a, V: SQLParam + core::fmt::Display> Display for SQL<'a, V> {
 }
 
 impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for SQL<'a, V> {
-    fn to_sql(&self) -> SQL<'a, V> {
+    fn to_sql(&self) -> Self {
         self.clone()
     }
 
-    fn into_sql(self) -> SQL<'a, V> {
+    fn into_sql(self) -> Self {
         self
     }
 }
@@ -675,7 +688,10 @@ where
     SQLChunk<'a, V>: From<T>,
 {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let chunks = SmallVec::from_iter(iter.into_iter().map(SQLChunk::from));
+        let chunks = iter
+            .into_iter()
+            .map(SQLChunk::from)
+            .collect::<SmallVec<_>>();
         Self { chunks }
     }
 }

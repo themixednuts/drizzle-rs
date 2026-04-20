@@ -1,6 +1,6 @@
-//! PostgreSQL sequence functions.
+//! `PostgreSQL` sequence functions.
 //!
-//! These functions interact with PostgreSQL sequences (serial/identity columns).
+//! These functions interact with `PostgreSQL` sequences (serial/identity columns).
 
 use crate::dialect::DialectTypes;
 use crate::sql::SQL;
@@ -19,7 +19,7 @@ pub trait SequenceSupport {}
 
 impl SequenceSupport for PostgresDialect {}
 
-/// NEXTVAL - advances a sequence and returns its new value (PostgreSQL).
+/// NEXTVAL - advances a sequence and returns its new value (`PostgreSQL`).
 ///
 /// The argument is the sequence name as a text expression.
 ///
@@ -45,7 +45,7 @@ where
     SQLExpr::new(SQL::func("NEXTVAL", sequence.into_sql()))
 }
 
-/// CURRVAL - returns the most recently obtained value from a sequence (PostgreSQL).
+/// CURRVAL - returns the most recently obtained value from a sequence (`PostgreSQL`).
 ///
 /// Must be called after `NEXTVAL` has been used on the sequence in the current session.
 ///
@@ -71,7 +71,7 @@ where
     SQLExpr::new(SQL::func("CURRVAL", sequence.into_sql()))
 }
 
-/// SETVAL - sets a sequence's current value (PostgreSQL).
+/// SETVAL - sets a sequence's current value (`PostgreSQL`).
 ///
 /// # Example
 ///

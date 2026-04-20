@@ -1,4 +1,4 @@
-//! Attribute markers for PostgresTable derive macro.
+//! Attribute markers for `PostgresTable` derive macro.
 //!
 //! These const markers are used within `#[column(...)]` and `#[PostgresTable(...)]`
 //! attributes. Import them from the prelude to get IDE hover documentation.
@@ -161,7 +161,7 @@ pub const UNIQUE: ColumnMarker = ColumnMarker;
 /// ```
 ///
 /// ## Technical Details
-/// PostgreSQL's identity columns are SQL-standard compliant, unlike SERIAL.
+/// `PostgreSQL`'s identity columns are SQL-standard compliant, unlike SERIAL.
 /// Use ALWAYS for auto-generated IDs, BY DEFAULT when you need to occasionally set values.
 ///
 /// See: <https://www.postgresql.org/docs/current/ddl-identity-columns.html>
@@ -171,7 +171,7 @@ pub const IDENTITY: ColumnMarker = ColumnMarker;
 ///
 /// ## Syntax
 /// - `generated(stored, "expression")` - Computed on write, stored on disk
-/// - `generated(virtual, "expression")` - Computed on read, not stored (PostgreSQL 17+)
+/// - `generated(virtual, "expression")` - Computed on read, not stored (`PostgreSQL` 17+)
 ///
 /// ## Example
 /// ```rust
@@ -187,7 +187,7 @@ pub const IDENTITY: ColumnMarker = ColumnMarker;
 /// ## Technical Details
 /// Generated columns cannot be written to directly.
 /// STORED columns are computed and stored on write.
-/// VIRTUAL columns are computed on read (PostgreSQL 17+).
+/// VIRTUAL columns are computed on read (`PostgreSQL` 17+).
 ///
 /// See: <https://www.postgresql.org/docs/current/ddl-generated-columns.html>
 pub const GENERATED: ColumnMarker = ColumnMarker;
@@ -239,7 +239,7 @@ pub const JSONB: ColumnMarker = ColumnMarker;
 /// # "####;
 /// ```
 ///
-/// For PostgreSQL native ENUM types or text-based enum storage.
+/// For `PostgreSQL` native ENUM types or text-based enum storage.
 ///
 /// See: <https://www.postgresql.org/docs/current/datatype-enum.html>
 pub const ENUM: ColumnMarker = ColumnMarker;
@@ -340,7 +340,7 @@ pub const ON_UPDATE: ColumnMarker = ColumnMarker;
 // Referential Action Values
 //------------------------------------------------------------------------------
 
-/// Type alias for referential action markers (uses ColumnMarker for macro compatibility).
+/// Type alias for referential action markers (uses `ColumnMarker` for macro compatibility).
 pub type ReferentialAction = ColumnMarker;
 
 /// CASCADE action: Propagate the delete/update to referencing rows.
@@ -431,7 +431,7 @@ pub struct NameMarker;
 
 /// Specifies a custom name in the database.
 ///
-/// By default, table, view, and column names are automatically converted to snake_case
+/// By default, table, view, and column names are automatically converted to `snake_case`
 /// from the Rust struct/field name. Use NAME to override this behavior.
 ///
 /// ## Column Example
@@ -792,7 +792,7 @@ pub const TEXT: TypeMarker = TypeMarker;
 /// Specifies a VARCHAR column type.
 ///
 /// VARCHAR stores variable-length character strings.
-/// In PostgreSQL, VARCHAR without length limit is equivalent to TEXT.
+/// In `PostgreSQL`, VARCHAR without length limit is equivalent to TEXT.
 ///
 /// See: <https://www.postgresql.org/docs/current/datatype-character.html>
 pub const VARCHAR: TypeMarker = TypeMarker;

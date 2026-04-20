@@ -1,7 +1,10 @@
 use crate::common::generate_expr_impl;
 use crate::generators::{generate_impl, generate_sql_column_info};
 use crate::paths::{core as core_paths, sqlite as sqlite_paths, std as std_paths};
-use crate::sqlite::generators::*;
+use crate::sqlite::generators::{
+    SQLTableConfig, generate_sql_column, generate_sql_schema, generate_sql_schema_field,
+    generate_sql_table, generate_sqlite_column, generate_sqlite_table, generate_to_sql,
+};
 use crate::sqlite::table::context::MacroContext;
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
@@ -68,7 +71,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         };
 
         // Generate constructor impl
-        let impl_new = generate_impl(aliased_field_type, quote! {
+        let impl_new = generate_impl(aliased_field_type, &quote! {
             pub const fn new(alias: &'static str) -> Self {
                 Self { alias }
             }
@@ -90,56 +93,56 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
 
         // Use generators for trait implementations
         let sql_column_info_impl = generate_sql_column_info(aliased_field_type,
-            quote! {
+            &quote! {
                 static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
                 <#original_field_type as #sql_column_info>::name(&ORIGINAL_FIELD)
             },
-            quote! {
+            &quote! {
                 static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
                 <#original_field_type as #sql_column_info>::r#type(&ORIGINAL_FIELD)
             },
-            quote! {
+            &quote! {
                 static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
                 <#original_field_type as #sql_column_info>::is_primary_key(&ORIGINAL_FIELD)
             },
-            quote! {
+            &quote! {
                 static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
                 <#original_field_type as #sql_column_info>::is_not_null(&ORIGINAL_FIELD)
             },
-            quote! {
+            &quote! {
                 static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
                 <#original_field_type as #sql_column_info>::is_unique(&ORIGINAL_FIELD)
             },
-            quote! {
+            &quote! {
                 static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
                 <#original_field_type as #sql_column_info>::has_default(&ORIGINAL_FIELD)
             },
-            quote! {
+            &quote! {
                 static ORIGINAL_TABLE: #table_name = #table_name::new();
                 &ORIGINAL_TABLE
             },
         );
         let sql_column_impl = generate_sql_column(aliased_field_type,
-            quote! {#aliased_table_name},
-            quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::TableType},
-            quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::ForeignKeys},
-            quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::Type},
-            quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::PRIMARY_KEY},
-            quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::NOT_NULL},
-            quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::UNIQUE},
-            quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::DEFAULT},
-            quote! {
+            &quote! {#aliased_table_name},
+            &quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::TableType},
+            &quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::ForeignKeys},
+            &quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::Type},
+            &quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::PRIMARY_KEY},
+            &quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::NOT_NULL},
+            &quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::UNIQUE},
+            &quote! {<#original_field_type as #sql_column<'a, #sqlite_value<'a>>>::DEFAULT},
+            &quote! {
                 static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
                 ORIGINAL_FIELD.default_fn()
             }
         );
-        let sqlite_column_impl = generate_sqlite_column(aliased_field_type, quote! {
+        let sqlite_column_impl = generate_sqlite_column(aliased_field_type, &quote! {
             <#original_field_type as #sqlite_column<'a>>::AUTOINCREMENT
         });
         let sql_schema_field_impl = generate_sql_schema_field(aliased_field_type,
-            quote! {<#original_field_type as #sql_schema<'a, &'a str, #sqlite_value<'a>>>::NAME},
-            quote! {<#original_field_type as #sql_schema<'a, &'a str, #sqlite_value<'a>>>::TYPE},
-            quote! {<#original_field_type as #sql_schema<'a, &'a str, #sqlite_value<'a>>>::SQL}
+            &quote! {<#original_field_type as #sql_schema<'a, &'a str, #sqlite_value<'a>>>::NAME},
+            &quote! {<#original_field_type as #sql_schema<'a, &'a str, #sqlite_value<'a>>>::TYPE},
+            &quote! {<#original_field_type as #sql_schema<'a, &'a str, #sqlite_value<'a>>>::SQL}
         );
 
         let into_sqlite_value_impl = quote! {
@@ -155,9 +158,9 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         let expr = crate::paths::core::expr();
         let expr_impl = generate_expr_impl(
             aliased_field_type,
-            sqlite_value.clone(),
-            quote! {<#original_field_type as #expr::Expr<'a, #sqlite_value<'a>>>::SQLType},
-            quote! {<#original_field_type as #expr::Expr<'a, #sqlite_value<'a>>>::Nullable},
+            &sqlite_value,
+            &quote! {<#original_field_type as #expr::Expr<'a, #sqlite_value<'a>>>::SQLType},
+            &quote! {<#original_field_type as #expr::Expr<'a, #sqlite_value<'a>>>::Nullable},
         );
 
         let expr_value_type = core_paths::expr_value_type();
@@ -238,20 +241,20 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
 
     let sqlite_table_impl = generate_sqlite_table(
         &aliased_table_name,
-        quote! {<#table_name as #sqlite_table<'a>>::WITHOUT_ROWID},
-        quote! {<#table_name as #sqlite_table<'a>>::STRICT},
+        &quote! {<#table_name as #sqlite_table<'a>>::WITHOUT_ROWID},
+        &quote! {<#table_name as #sqlite_table<'a>>::STRICT},
     );
 
     let sql_schema_impl = generate_sql_schema(
         &aliased_table_name,
-        quote! {<#table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::NAME},
-        quote! {<#table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::TYPE},
-        quote! {<#table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::SQL},
+        &quote! {<#table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::NAME},
+        &quote! {<#table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::TYPE},
+        &quote! {<#table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::SQL},
     );
 
     let to_sql_impl = generate_to_sql(
         &aliased_table_name,
-        quote! {
+        &quote! {
             static ORIGINAL_TABLE: #table_name = #table_name::new();
             #to_sql::to_sql(&ORIGINAL_TABLE).alias(self.alias)
         },

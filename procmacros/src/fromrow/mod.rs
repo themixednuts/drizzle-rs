@@ -1,4 +1,4 @@
-//! FromRow derive macro implementations for database row conversion.
+//! `FromRow` derive macro implementations for database row conversion.
 //!
 //! This module generates `TryFrom` implementations for converting database rows
 //! to Rust structs for various database drivers.
@@ -61,15 +61,15 @@ fn extract_table_from_column_ref(column_ref: &ExprPath) -> Option<syn::Path> {
     }
 }
 
+fn path_eq(a: &syn::Path, b: &syn::Path) -> bool {
+    a.to_token_stream().to_string() == b.to_token_stream().to_string()
+}
+
 fn collect_required_tables(
     fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
     default_from: Option<&ExprPath>,
 ) -> Vec<syn::Path> {
     let mut tables: Vec<syn::Path> = Vec::new();
-
-    fn path_eq(a: &syn::Path, b: &syn::Path) -> bool {
-        a.to_token_stream().to_string() == b.to_token_stream().to_string()
-    }
 
     if let Some(default_table) = default_from
         && !tables.iter().any(|t| path_eq(t, &default_table.path))
@@ -151,9 +151,9 @@ fn generate_field_assignments<F>(
     fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
     is_tuple: bool,
     generator: F,
-) -> Result<Vec<TokenStream>>
+) -> Vec<TokenStream>
 where
-    F: Fn(usize, &Field, Option<&Ident>) -> Result<TokenStream>,
+    F: Fn(usize, &Field, Option<&Ident>) -> TokenStream,
 {
     fields
         .iter()
@@ -165,12 +165,12 @@ where
         .collect()
 }
 
-/// Generate a TryFrom implementation for a specific driver.
+/// Generate a `TryFrom` implementation for a specific driver.
 #[cfg(feature = "sqlite")]
 fn generate_driver_try_from(
     struct_name: &Ident,
-    row_type: TokenStream,
-    error_type: TokenStream,
+    row_type: &TokenStream,
+    error_type: &TokenStream,
     field_assignments: &[TokenStream],
     is_tuple: bool,
 ) -> TokenStream {
@@ -191,12 +191,12 @@ fn generate_driver_try_from(
     }
 }
 
-/// Generate a driver-specific FromDrizzleRow implementation.
+/// Generate a driver-specific `FromDrizzleRow` implementation.
 fn generate_driver_from_drizzle_row_impl(
     struct_name: &Ident,
-    impl_generics: TokenStream,
-    row_type: TokenStream,
-    error_type: TokenStream,
+    impl_generics: &TokenStream,
+    row_type: &TokenStream,
+    error_type: &TokenStream,
     field_assignments: &[TokenStream],
     is_tuple: bool,
     field_count: usize,
@@ -220,8 +220,8 @@ fn generate_driver_from_drizzle_row_impl(
 
 fn generate_driver_row_column_list_impl(
     struct_name: &Ident,
-    impl_generics: TokenStream,
-    row_type: TokenStream,
+    impl_generics: &TokenStream,
+    row_type: &TokenStream,
     fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
 ) -> TokenStream {
     let row_column_list = core_paths::row_column_list();
@@ -233,7 +233,7 @@ fn generate_driver_row_column_list_impl(
     }
 }
 
-/// Generate ToSQL implementation for FromRow structs.
+/// Generate `ToSQL` implementation for `FromRow` structs.
 ///
 /// This allows using the struct as a column selector in queries.
 fn generate_tosql_impl(
@@ -242,7 +242,7 @@ fn generate_tosql_impl(
     default_from: Option<&ExprPath>,
     fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
     is_tuple: bool,
-    value_type: TokenStream,
+    value_type: &TokenStream,
 ) -> TokenStream {
     if is_tuple {
         return quote! {};
@@ -260,19 +260,27 @@ fn generate_tosql_impl(
             let field_name = field.ident.as_ref().unwrap();
             let field_name_str = field_name.to_string();
 
-            if let Some(column_ref) = parse_column_reference(field) {
-                quote! {
-                    columns.push(#to_sql::to_sql(&#column_ref).alias(#field_name_str));
-                }
-            } else if let Some(default_table) = default_from {
-                quote! {
-                    columns.push(#to_sql::to_sql(&#default_table::#field_name).alias(#field_name_str));
-                }
-            } else {
-                quote! {
-                    columns.push(#sql::ident(#field_name_str));
-                }
-            }
+            parse_column_reference(field).map_or_else(
+                || {
+                    default_from.map_or_else(
+                        || {
+                            quote! {
+                                columns.push(#sql::ident(#field_name_str));
+                            }
+                        },
+                        |default_table| {
+                            quote! {
+                                columns.push(#to_sql::to_sql(&#default_table::#field_name).alias(#field_name_str));
+                            }
+                        },
+                    )
+                },
+                |column_ref| {
+                    quote! {
+                        columns.push(#to_sql::to_sql(&#column_ref).alias(#field_name_str));
+                    }
+                },
+            )
         })
         .collect::<Vec<_>>();
 
@@ -313,14 +321,14 @@ fn generate_tosql_impl(
 // SQLite FromRow Implementation
 // =============================================================================
 
-/// Generate SQLite-specific FromRow implementation (rusqlite, libsql, turso)
+/// Generate SQLite-specific `FromRow` implementation (rusqlite, libsql, turso)
 #[cfg(feature = "sqlite")]
-pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenStream> {
+pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream> {
     use crate::paths::sqlite as sqlite_paths;
 
     let struct_name = &input.ident;
-    let default_from = parse_default_from_table(&input)?;
-    let (fields, is_tuple) = extract_struct_fields(&input)?;
+    let default_from = parse_default_from_table(input)?;
+    let (fields, is_tuple) = extract_struct_fields(input)?;
     #[allow(unused_variables)]
     let drizzle_error = core_paths::drizzle_error();
     let sqlite_value = sqlite_paths::sqlite_value();
@@ -335,9 +343,9 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
     #[cfg(feature = "rusqlite")]
     {
         let field_assignments =
-            generate_field_assignments(fields, is_tuple, rusqlite::generate_field_assignment)?;
+            generate_field_assignments(fields, is_tuple, rusqlite::generate_field_assignment);
         let from_drizzle_assignments = if decode_named_by_name {
-            generate_field_assignments(fields, is_tuple, rusqlite::generate_field_assignment)?
+            generate_field_assignments(fields, is_tuple, rusqlite::generate_field_assignment)
         } else {
             fields
                 .iter()
@@ -345,34 +353,34 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
                 .map(|(idx, field)| {
                     let field_name = if is_tuple { None } else { field.ident.as_ref() };
                     rusqlite::generate_field_assignment_with_index_expr(
-                        quote!(offset + #idx),
+                        &quote!(offset + #idx),
                         field,
                         field_name,
                     )
                 })
-                .collect::<Result<Vec<_>>>()?
+                .collect::<Vec<_>>()
         };
 
         impl_blocks.push(generate_driver_try_from(
             struct_name,
-            quote!(::rusqlite::Row<'_>),
-            quote!(#drizzle_error),
+            &quote!(::rusqlite::Row<'_>),
+            &quote!(#drizzle_error),
             &field_assignments,
             is_tuple,
         ));
         impl_blocks.push(generate_driver_from_drizzle_row_impl(
             struct_name,
-            quote!(<'__drizzle_r>),
-            quote!(::rusqlite::Row<'__drizzle_r>),
-            quote!(#drizzle_error),
+            &quote!(<'__drizzle_r>),
+            &quote!(::rusqlite::Row<'__drizzle_r>),
+            &quote!(#drizzle_error),
             &from_drizzle_assignments,
             is_tuple,
             field_count,
         ));
         impl_blocks.push(generate_driver_row_column_list_impl(
             struct_name,
-            quote!(<'__drizzle_r>),
-            quote!(::rusqlite::Row<'__drizzle_r>),
+            &quote!(<'__drizzle_r>),
+            &quote!(::rusqlite::Row<'__drizzle_r>),
             fields,
         ));
     }
@@ -381,7 +389,7 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
     #[cfg(feature = "turso")]
     {
         let field_assignments =
-            generate_field_assignments(fields, is_tuple, turso::generate_field_assignment)?;
+            generate_field_assignments(fields, is_tuple, turso::generate_field_assignment);
         let from_drizzle_assignments = fields
             .iter()
             .enumerate()
@@ -393,28 +401,28 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
                     field_name,
                 )
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Vec<_>>();
 
         impl_blocks.push(generate_driver_try_from(
             struct_name,
-            quote!(::turso::Row),
-            quote!(#drizzle_error),
+            &quote!(::turso::Row),
+            &quote!(#drizzle_error),
             &field_assignments,
             is_tuple,
         ));
         impl_blocks.push(generate_driver_from_drizzle_row_impl(
             struct_name,
-            quote!(),
-            quote!(::turso::Row),
-            quote!(#drizzle_error),
+            &quote!(),
+            &quote!(::turso::Row),
+            &quote!(#drizzle_error),
             &from_drizzle_assignments,
             is_tuple,
             field_count,
         ));
         impl_blocks.push(generate_driver_row_column_list_impl(
             struct_name,
-            quote!(),
-            quote!(::turso::Row),
+            &quote!(),
+            &quote!(::turso::Row),
             fields,
         ));
     }
@@ -423,9 +431,9 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
     #[cfg(feature = "libsql")]
     {
         let field_assignments =
-            generate_field_assignments(fields, is_tuple, libsql::generate_field_assignment)?;
+            generate_field_assignments(fields, is_tuple, libsql::generate_field_assignment);
         let from_drizzle_assignments = if decode_named_by_name {
-            generate_field_assignments(fields, is_tuple, libsql::generate_field_assignment)?
+            generate_field_assignments(fields, is_tuple, libsql::generate_field_assignment)
         } else {
             fields
                 .iter()
@@ -438,29 +446,29 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
                         field_name,
                     )
                 })
-                .collect::<Result<Vec<_>>>()?
+                .collect::<Vec<_>>()
         };
 
         impl_blocks.push(generate_driver_try_from(
             struct_name,
-            quote!(::libsql::Row),
-            quote!(#drizzle_error),
+            &quote!(::libsql::Row),
+            &quote!(#drizzle_error),
             &field_assignments,
             is_tuple,
         ));
         impl_blocks.push(generate_driver_from_drizzle_row_impl(
             struct_name,
-            quote!(),
-            quote!(::libsql::Row),
-            quote!(#drizzle_error),
+            &quote!(),
+            &quote!(::libsql::Row),
+            &quote!(#drizzle_error),
             &from_drizzle_assignments,
             is_tuple,
             field_count,
         ));
         impl_blocks.push(generate_driver_row_column_list_impl(
             struct_name,
-            quote!(),
-            quote!(::libsql::Row),
+            &quote!(),
+            &quote!(::libsql::Row),
             fields,
         ));
     }
@@ -472,21 +480,24 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
         default_from.as_ref(),
         fields,
         is_tuple,
-        sqlite_value,
+        &sqlite_value,
     );
 
     let into_select_target = core_paths::into_select_target();
     let select_as = quote!(drizzle::core::SelectAs<#struct_name>);
     let select_as_from = quote!(drizzle::core::SelectAsFrom);
-    let select_as_from_impl = if let Some(default_table) = default_from.as_ref() {
-        quote! {
-            impl #select_as_from<#default_table> for #struct_name {}
-        }
-    } else {
-        quote! {
-            impl<__Table> #select_as_from<__Table> for #struct_name {}
-        }
-    };
+    let select_as_from_impl = default_from.as_ref().map_or_else(
+        || {
+            quote! {
+                impl<__Table> #select_as_from<__Table> for #struct_name {}
+            }
+        },
+        |default_table| {
+            quote! {
+                impl #select_as_from<#default_table> for #struct_name {}
+            }
+        },
+    );
 
     let select_required_tables = quote!(drizzle::core::SelectRequiredTables);
     let required_tables = collect_required_tables(fields, default_from.as_ref());
@@ -512,19 +523,19 @@ pub(crate) fn generate_sqlite_from_row_impl(input: DeriveInput) -> Result<TokenS
 // PostgreSQL FromRow Implementation
 // =============================================================================
 
-/// Generate PostgreSQL-specific FromRow implementation (postgres-sync, tokio-postgres)
+/// Generate PostgreSQL-specific `FromRow` implementation (postgres-sync, tokio-postgres)
 #[cfg(feature = "postgres")]
-pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<TokenStream> {
+pub fn generate_postgres_from_row_impl(input: &DeriveInput) -> Result<TokenStream> {
     use crate::paths::postgres as postgres_paths;
 
     let struct_name = &input.ident;
-    let default_from = parse_default_from_table(&input)?;
-    let (fields, is_tuple) = extract_struct_fields(&input)?;
+    let default_from = parse_default_from_table(input)?;
+    let (fields, is_tuple) = extract_struct_fields(input)?;
     let drizzle_error = core_paths::drizzle_error();
     let postgres_value = postgres_paths::postgres_value();
 
     let field_assignments =
-        generate_field_assignments(fields, is_tuple, postgres::generate_field_assignment)?;
+        generate_field_assignments(fields, is_tuple, postgres::generate_field_assignment);
     let decode_named_by_name = !is_tuple
         && !fields
             .iter()
@@ -551,7 +562,7 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
         default_from.as_ref(),
         fields,
         is_tuple,
-        postgres_value,
+        &postgres_value,
     );
 
     // Generate TryFrom + FromDrizzleRow implementations with proper conditional
@@ -566,8 +577,10 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
                 let field_name = field.ident.as_ref().ok_or_else(|| {
                     syn::Error::new_spanned(field, "FromRow requires a struct with named fields")
                 })?;
-                postgres::generate_named_field_assignment_with_offset_fallback(
-                    idx, field, field_name,
+                Ok(
+                    postgres::generate_named_field_assignment_with_offset_fallback(
+                        idx, field, field_name,
+                    ),
                 )
             })
             .collect::<Result<Vec<_>>>()?
@@ -578,53 +591,56 @@ pub(crate) fn generate_postgres_from_row_impl(input: DeriveInput) -> Result<Toke
             .map(|(idx, field)| {
                 let field_name = if is_tuple { None } else { field.ident.as_ref() };
                 postgres::generate_field_assignment_with_index_expr(
-                    quote!(offset + #idx),
+                    &quote!(offset + #idx),
                     field,
                     field_name,
                 )
             })
-            .collect::<Result<Vec<_>>>()?
+            .collect::<Vec<_>>()
     };
     let tokio_from_drizzle_impl = generate_driver_from_drizzle_row_impl(
         struct_name,
-        quote!(),
-        quote!(::tokio_postgres::Row),
-        quote!(#drizzle_error),
+        &quote!(),
+        &quote!(::tokio_postgres::Row),
+        &quote!(#drizzle_error),
         &from_drizzle_assignments,
         is_tuple,
         field_count,
     );
     let tokio_row_column_list_impl = generate_driver_row_column_list_impl(
         struct_name,
-        quote!(),
-        quote!(::tokio_postgres::Row),
+        &quote!(),
+        &quote!(::tokio_postgres::Row),
         fields,
     );
     let sync_from_drizzle_impl = generate_driver_from_drizzle_row_impl(
         struct_name,
-        quote!(),
-        quote!(::postgres::Row),
-        quote!(#drizzle_error),
+        &quote!(),
+        &quote!(::postgres::Row),
+        &quote!(#drizzle_error),
         &from_drizzle_assignments,
         is_tuple,
         field_count,
     );
     let sync_row_column_list_impl = generate_driver_row_column_list_impl(
         struct_name,
-        quote!(),
-        quote!(::postgres::Row),
+        &quote!(),
+        &quote!(::postgres::Row),
         fields,
     );
     let select_as_from = quote!(drizzle::core::SelectAsFrom);
-    let select_as_from_impl = if let Some(default_table) = default_from.as_ref() {
-        quote! {
-            impl #select_as_from<#default_table> for #struct_name {}
-        }
-    } else {
-        quote! {
-            impl<__Table> #select_as_from<__Table> for #struct_name {}
-        }
-    };
+    let select_as_from_impl = default_from.as_ref().map_or_else(
+        || {
+            quote! {
+                impl<__Table> #select_as_from<__Table> for #struct_name {}
+            }
+        },
+        |default_table| {
+            quote! {
+                impl #select_as_from<#default_table> for #struct_name {}
+            }
+        },
+    );
 
     let select_required_tables = quote!(drizzle::core::SelectRequiredTables);
     let required_tables = collect_required_tables(fields, default_from.as_ref());

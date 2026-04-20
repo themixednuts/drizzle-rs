@@ -10,7 +10,7 @@ use super::ExecutableState;
 // Type State Markers
 //------------------------------------------------------------------------------
 
-/// Marker for the initial state of DeleteBuilder
+/// Marker for the initial state of `DeleteBuilder`
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DeleteInitial;
 
@@ -31,7 +31,7 @@ impl ExecutableState for DeleteReturningSet {}
 // DeleteBuilder Definition
 //------------------------------------------------------------------------------
 
-/// Builds a DELETE query specifically for PostgreSQL
+/// Builds a DELETE query specifically for `PostgreSQL`
 pub type DeleteBuilder<'a, Schema, State, Table, Marker = (), Row = ()> =
     super::QueryBuilder<'a, Schema, State, Table, Marker, Row>;
 

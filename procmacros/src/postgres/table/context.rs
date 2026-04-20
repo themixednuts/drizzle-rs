@@ -6,10 +6,10 @@ use quote::quote;
 use syn::{Ident, Visibility};
 
 // Re-export ModelType from common for convenience
-pub(crate) use crate::common::ModelType;
+pub use crate::common::ModelType;
 
-/// Context object containing all the information needed for PostgreSQL table macro generation
-pub(crate) struct MacroContext<'a> {
+/// Context object containing all the information needed for `PostgreSQL` table macro generation
+pub struct MacroContext<'a> {
     /// Original struct identifier
     pub struct_ident: &'a Ident,
     /// Struct visibility
@@ -33,17 +33,16 @@ pub(crate) struct MacroContext<'a> {
     pub attrs: &'a TableAttributes,
 }
 
-impl<'a> MacroContext<'a> {
+impl MacroContext<'_> {
     /// Determines if a field should be optional in the Insert model.
     /// A field is optional when it is nullable, has a database or runtime default,
     /// or is auto-generated (serial/bigserial).
-    pub(crate) fn is_field_optional_in_insert(&self, field: &FieldInfo) -> bool {
+    pub(crate) const fn is_field_optional_in_insert(field: &FieldInfo) -> bool {
         field.is_nullable || field.has_default || field.default_fn.is_some() || field.is_serial
     }
 
     /// Gets the appropriate field type for a specific model.
     pub(crate) fn get_field_type_for_model(
-        &self,
         field: &FieldInfo,
         model_type: ModelType,
     ) -> TokenStream {

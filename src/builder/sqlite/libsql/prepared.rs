@@ -89,7 +89,7 @@ impl From<OwnedPreparedStatement> for PreparedStatement<'_> {
     }
 }
 
-impl<'a> PreparedStatement<'a> {
+impl PreparedStatement<'_> {
     pub fn into_owned(self) -> OwnedPreparedStatement {
         let owned_params = self.inner.params.iter().map(|p| OwnedParam {
             placeholder: p.placeholder,
@@ -122,7 +122,7 @@ impl<'a> From<PreparedStatement<'a>> for OwnedPreparedStatement {
 
 sqlite_async_prepared_impl!(LibsqlExecutor, Row, libsql::Value);
 
-impl<'a> std::fmt::Display for PreparedStatement<'a> {
+impl std::fmt::Display for PreparedStatement<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.inner)
     }

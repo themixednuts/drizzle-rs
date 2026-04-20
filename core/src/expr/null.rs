@@ -37,17 +37,17 @@ pub trait NullOr<Rhs: Nullability>: Nullability {
     type Output: Nullability;
 }
 
-impl NullOr<NonNull> for NonNull {
-    type Output = NonNull;
+impl NullOr<Self> for NonNull {
+    type Output = Self;
 }
 impl NullOr<Null> for NonNull {
     type Output = Null;
 }
 impl NullOr<NonNull> for Null {
-    type Output = Null;
+    type Output = Self;
 }
-impl NullOr<Null> for Null {
-    type Output = Null;
+impl NullOr<Self> for Null {
+    type Output = Self;
 }
 
 /// Combine nullability for COALESCE-style fallback behavior.
@@ -58,17 +58,17 @@ pub trait NullAnd<Rhs: Nullability>: Nullability {
     type Output: Nullability;
 }
 
-impl NullAnd<NonNull> for NonNull {
-    type Output = NonNull;
+impl NullAnd<Self> for NonNull {
+    type Output = Self;
 }
 impl NullAnd<Null> for NonNull {
-    type Output = NonNull;
+    type Output = Self;
 }
 impl NullAnd<NonNull> for Null {
     type Output = NonNull;
 }
-impl NullAnd<Null> for Null {
-    type Output = Null;
+impl NullAnd<Self> for Null {
+    type Output = Self;
 }
 
 // =============================================================================
@@ -236,18 +236,18 @@ where
 // GREATEST / LEAST
 // =============================================================================
 
-/// Marker trait for dialects that support GREATEST/LEAST (PostgreSQL).
+/// Marker trait for dialects that support GREATEST/LEAST (`PostgreSQL`).
 ///
-/// SQLite does not have `GREATEST`/`LEAST`. While its multi-argument
+/// `SQLite` does not have `GREATEST`/`LEAST`. While its multi-argument
 /// `MAX`/`MIN` are superficially similar, they have different NULL semantics:
-/// PostgreSQL ignores NULLs (`GREATEST(1, NULL)` = `1`) while SQLite
+/// `PostgreSQL` ignores NULLs (`GREATEST(1, NULL)` = `1`) while `SQLite`
 /// propagates them (`MAX(1, NULL)` = `NULL`).
 pub trait PostgresNullSupport {}
 impl PostgresNullSupport for PostgresDialect {}
 
-/// GREATEST - returns the largest of the given values (PostgreSQL).
+/// GREATEST - returns the largest of the given values (`PostgreSQL`).
 ///
-/// Both arguments must have compatible types. PostgreSQL ignores NULL inputs,
+/// Both arguments must have compatible types. `PostgreSQL` ignores NULL inputs,
 /// so `GREATEST(1, NULL)` returns `1`. The result is only NULL when all
 /// inputs are NULL.
 ///
@@ -289,9 +289,9 @@ where
     ))
 }
 
-/// LEAST - returns the smallest of the given values (PostgreSQL).
+/// LEAST - returns the smallest of the given values (`PostgreSQL`).
 ///
-/// Both arguments must have compatible types. PostgreSQL ignores NULL inputs,
+/// Both arguments must have compatible types. `PostgreSQL` ignores NULL inputs,
 /// so `LEAST(1, NULL)` returns `1`. The result is only NULL when all
 /// inputs are NULL.
 ///

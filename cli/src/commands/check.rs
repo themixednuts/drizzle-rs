@@ -6,6 +6,15 @@ use crate::config::{Config, Credentials, Dialect, PostgresCreds};
 use crate::error::CliError;
 use crate::output;
 
+/// Run the `check` command, validating that the resolved configuration is
+/// well-formed and printing a human-readable summary.
+///
+/// # Errors
+///
+/// Returns a [`CliError`] if the requested database cannot be resolved from the
+/// config, if schema-file discovery fails, if the credentials block is
+/// malformed, or if a warning-as-error condition is encountered (currently only
+/// if the filesystem enumeration of the migrations directory fails).
 pub fn run(
     config: &Config,
     db_name: Option<&str>,
@@ -16,9 +25,7 @@ pub fn run(
 
     // CLI flags override config
     let effective_dialect = dialect_override.unwrap_or(db.dialect);
-    let effective_out = out_override
-        .map(Path::to_path_buf)
-        .unwrap_or(db.out.clone());
+    let effective_out = out_override.map_or_else(|| db.out.clone(), Path::to_path_buf);
 
     println!("{}", output::heading("Checking configuration..."));
     println!();
@@ -103,7 +110,7 @@ pub fn run(
         }
         Err(e) => {
             println!("{}", output::status_error());
-            println!("    {}", e);
+            println!("    {e}");
             has_errors = true;
         }
     }
@@ -166,7 +173,7 @@ fn print_credentials(creds: &Credentials) {
         }
         Credentials::Postgres(pg) => match pg {
             PostgresCreds::Url(url) => {
-                println!("    {}: {}", output::label("PostgreSQL"), mask_url(url))
+                println!("    {}: {}", output::label("PostgreSQL"), mask_url(url));
             }
             PostgresCreds::Host {
                 host,
@@ -207,9 +214,9 @@ fn mask_url(url: &str) -> String {
     if let Some(at) = url.find('@')
         && let Some(colon) = url[..at].rfind(':')
     {
-        let scheme_end = url.find("://").map(|p| p + 3).unwrap_or(0);
+        let scheme_end = url.find("://").map_or(0, |p| p + 3);
         if colon > scheme_end {
-            return format!("{}****{}", &url[..colon + 1], &url[at..]);
+            return format!("{}****{}", &url[..=colon], &url[at..]);
         }
     }
     url.to_string()

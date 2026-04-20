@@ -1,4 +1,4 @@
-//! SQLite implementation for Drizzle
+//! `SQLite` implementation for Drizzle
 //!
 //! This crate provides SQLite-specific types, query builders, and utilities.
 

@@ -1,7 +1,7 @@
 //! Generic entity collection for DDL storage
 //!
 //! This module provides a shared `Collection<E>` type that works with any
-//! entity implementing the `Entity` trait. Used by both SQLite and PostgreSQL.
+//! entity implementing the `Entity` trait. Used by both `SQLite` and `PostgreSQL`.
 
 use crate::traits::{DiffType, Entity, EntityKey, EntityKind};
 use std::collections::HashMap;
@@ -29,6 +29,7 @@ impl<E: Entity> Default for Collection<E> {
 
 impl<E: Entity> Collection<E> {
     /// Create an empty collection
+    #[must_use]
     pub fn new() -> Self {
         Self {
             entities: Vec::new(),
@@ -49,11 +50,13 @@ impl<E: Entity> Collection<E> {
     }
 
     /// Get an entity by its key
+    #[must_use]
     pub fn get(&self, key: &EntityKey) -> Option<&E> {
         self.index.get(key).map(|&idx| &self.entities[idx])
     }
 
     /// Check if an entity with the given key exists
+    #[must_use]
     pub fn contains(&self, key: &EntityKey) -> bool {
         self.index.contains_key(key)
     }
@@ -76,17 +79,18 @@ impl<E: Entity> Collection<E> {
     }
 
     /// List all entities
+    #[must_use]
     pub fn list(&self) -> &[E] {
         &self.entities
     }
 
     /// Get mutable access to entities (invalidates index!)
-    /// Use with caution - prefer update_where for safe mutations
-    pub fn list_mut(&mut self) -> &mut Vec<E> {
+    /// Use with caution - prefer `update_where` for safe mutations
+    pub const fn list_mut(&mut self) -> &mut Vec<E> {
         &mut self.entities
     }
 
-    /// Rebuild the index (call after list_mut modifications)
+    /// Rebuild the index (call after `list_mut` modifications)
     pub fn rebuild_index(&mut self) {
         self.index.clear();
         for (idx, entity) in self.entities.iter().enumerate() {
@@ -95,12 +99,14 @@ impl<E: Entity> Collection<E> {
     }
 
     /// Check if collection is empty
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.entities.is_empty()
     }
 
     /// Get the count of entities
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.entities.len()
     }
 
@@ -110,6 +116,7 @@ impl<E: Entity> Collection<E> {
     }
 
     /// Convert to Vec, consuming the collection
+    #[must_use]
     pub fn into_vec(self) -> Vec<E> {
         self.entities
     }
@@ -120,7 +127,7 @@ impl<E: Entity> Collection<E> {
         P: Fn(&E) -> bool,
         F: FnMut(&mut E),
     {
-        for entity in self.entities.iter_mut() {
+        for entity in &mut self.entities {
             if predicate(entity) {
                 transform(entity);
             }
@@ -157,12 +164,13 @@ pub struct EntityDiff<E: Entity> {
 
 impl<E: Entity> EntityDiff<E> {
     /// Get the entity kind
-    pub fn kind(&self) -> EntityKind {
+    pub const fn kind(&self) -> EntityKind {
         E::KIND
     }
 }
 
 /// Compute diff between two collections of the same entity type
+#[must_use]
 pub fn diff_collections<E: Entity>(
     left: &Collection<E>,
     right: &Collection<E>,

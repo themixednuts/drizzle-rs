@@ -1,6 +1,6 @@
 //! Drizzle Core - SQL generation library
 //!
-//! # no_std Support
+//! # `no_std` Support
 //!
 //! This crate supports `no_std` environments with an allocator:
 //!
@@ -25,7 +25,7 @@ pub(crate) mod prelude {
     pub use std::{
         borrow::Cow,
         boxed::Box,
-        collections::HashMap,
+        collections::{HashMap, HashSet},
         format,
         string::{String, ToString},
         vec,
@@ -42,9 +42,9 @@ pub(crate) mod prelude {
         vec::Vec,
     };
 
-    // For no_std, use hashbrown instead of std::collections::HashMap
+    // For no_std, use hashbrown instead of std::collections::{HashMap, HashSet}
     #[cfg(all(feature = "alloc", not(feature = "std")))]
-    pub use hashbrown::HashMap;
+    pub use hashbrown::{HashMap, HashSet};
 }
 
 pub mod bind;
@@ -96,8 +96,8 @@ pub use row::{
 };
 pub use schema::{OrderBy, asc, desc};
 pub use sql::{
-    ColumnDialect, ColumnRef, ConstraintRef, ForeignKeyRef, OwnedSQL, OwnedSQLChunk, PrimaryKeyRef,
-    SQL, SQLChunk, TableDialect, TableRef, Token,
+    ColumnDialect, ColumnFlags, ColumnRef, ConstraintRef, ForeignKeyRef, OwnedSQL, OwnedSQLChunk,
+    PrimaryKeyRef, SQL, SQLChunk, TableDialect, TableRef, Token,
 };
 pub use traits::*;
 
@@ -105,9 +105,9 @@ pub use traits::*;
 // Helper Macros - Used by proc macros for code generation
 // =============================================================================
 
-/// Generates TryFrom implementations for multiple integer types that delegate to i64.
+/// Generates `TryFrom` implementations for multiple integer types that delegate to i64.
 ///
-/// Used by the SQLiteEnum derive macro to avoid repetitive code.
+/// Used by the `SQLiteEnum` derive macro to avoid repetitive code.
 ///
 /// # Example
 /// ```rust

@@ -20,10 +20,6 @@ impl<R> Rows<R> {
             rows: rows.into_iter(),
         }
     }
-
-    pub fn next(&mut self) -> drizzle_core::error::Result<Option<R>> {
-        Ok(self.rows.next())
-    }
 }
 
 impl<R> Iterator for Rows<R> {
@@ -52,7 +48,7 @@ where
     R: for<'r> TryFrom<&'r libsql::Row>,
     for<'r> <R as TryFrom<&'r libsql::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
 {
-    pub(crate) fn new(rows: libsql::Rows) -> Self {
+    pub(crate) const fn new(rows: libsql::Rows) -> Self {
         Self {
             rows,
             _marker: core::marker::PhantomData,
@@ -96,7 +92,7 @@ where
     R: for<'r> TryFrom<&'r turso::Row>,
     for<'r> <R as TryFrom<&'r turso::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
 {
-    pub(crate) fn new(rows: turso::Rows) -> Self {
+    pub(crate) const fn new(rows: turso::Rows) -> Self {
         Self {
             rows,
             sql: None,
@@ -114,13 +110,14 @@ where
 
     pub async fn next(&mut self) -> drizzle_core::error::Result<Option<R>> {
         let row = self.rows.next().await.map_err(|e| {
-            if let Some(sql) = &self.sql {
-                drizzle_core::error::DrizzleError::ExecutionError(
-                    format!("{}\n\nSQL: {}", e, sql).into(),
-                )
-            } else {
-                drizzle_core::error::DrizzleError::Other(e.to_string().into())
-            }
+            self.sql.as_ref().map_or_else(
+                || drizzle_core::error::DrizzleError::Other(e.to_string().into()),
+                |sql| {
+                    drizzle_core::error::DrizzleError::ExecutionError(
+                        format!("{e}\n\nSQL: {sql}").into(),
+                    )
+                },
+            )
         })?;
 
         match row {

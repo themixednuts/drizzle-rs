@@ -119,8 +119,7 @@ impl D1HttpClient {
         Ok(Self {
             http,
             base_url: format!(
-                "https://api.cloudflare.com/client/v4/accounts/{}/d1/database/{}",
-                account_id, database_id
+                "https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database/{database_id}"
             ),
             auth_header: format!("Bearer {token}"),
         })
@@ -242,7 +241,7 @@ fn rt() -> Result<tokio::runtime::Runtime, CliError> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))
 }
 
 fn client(account_id: &str, database_id: &str, token: &str) -> Result<D1HttpClient, CliError> {
@@ -260,7 +259,7 @@ pub(super) fn inspect_migrations(
         let c = client(account_id, database_id, token)?;
         ensure_tracking_table(&c, set).await?;
         let applied = query_applied_records(&c, set).await?;
-        super::build_migration_plan(set, applied)
+        super::build_migration_plan(set, &applied)
     })
 }
 
@@ -292,7 +291,7 @@ pub(super) fn run_migrations(
             let mut stmts: Vec<&str> = migration
                 .statements()
                 .iter()
-                .map(|s| s.as_str())
+                .map(std::string::String::as_str)
                 .filter(|s| !s.trim().is_empty())
                 .collect();
             let record_sql = set.record_migration_sql(migration);

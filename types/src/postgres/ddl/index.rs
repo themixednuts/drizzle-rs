@@ -1,8 +1,9 @@
-//! PostgreSQL Index DDL types
+//! `PostgreSQL` Index DDL types
 //!
 //! See: <https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts>
 
 use crate::alloc_prelude::*;
+use std::fmt::Write;
 
 #[cfg(feature = "serde")]
 use crate::serde_helpers::{cow_from_string, cow_option_from_string};
@@ -149,14 +150,14 @@ impl IndexColumn {
 
     /// Set descending order
     #[must_use]
-    pub fn desc(mut self) -> Self {
+    pub const fn desc(mut self) -> Self {
         self.asc = false;
         self
     }
 
     /// Set NULLS FIRST
     #[must_use]
-    pub fn nulls_first(mut self) -> Self {
+    pub const fn nulls_first(mut self) -> Self {
         self.nulls_first = true;
         self
     }
@@ -180,7 +181,7 @@ impl IndexColumn {
         };
 
         if let Some(ref op) = self.opclass {
-            sql.push_str(&format!(" {}", op));
+            let _ = write!(sql, " {op}");
         }
         if !self.asc {
             sql.push_str(" DESC");
@@ -200,7 +201,7 @@ impl From<IndexColumnDef> for IndexColumn {
             is_expression: def.is_expression,
             asc: def.asc,
             nulls_first: def.nulls_first,
-            opclass: def.opclass.map(|o| o.into_opclass()),
+            opclass: def.opclass.map(OpclassDef::into_opclass),
         }
     }
 }
@@ -515,14 +516,14 @@ impl Index {
 
     /// Make this a unique index
     #[must_use]
-    pub fn unique(mut self) -> Self {
+    pub const fn unique(mut self) -> Self {
         self.is_unique = true;
         self
     }
 
     /// Mark the name as explicitly specified
     #[must_use]
-    pub fn explicit_name(mut self) -> Self {
+    pub const fn explicit_name(mut self) -> Self {
         self.name_explicit = true;
         self
     }

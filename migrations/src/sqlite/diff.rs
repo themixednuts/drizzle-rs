@@ -1,4 +1,4 @@
-//! Schema diff types and logic for SQLite v7 DDL format
+//! Schema diff types and logic for `SQLite` v7 DDL format
 //!
 //! This module provides diffing between DDL collections and
 //! generates migration statements from schema changes.
@@ -26,16 +26,19 @@ pub struct SchemaDiff {
 
 impl SchemaDiff {
     /// Check if there are any changes
-    pub fn has_changes(&self) -> bool {
+    #[must_use]
+    pub const fn has_changes(&self) -> bool {
         !self.diffs.is_empty()
     }
 
     /// Check if this diff is empty (no changes)
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.diffs.is_empty()
     }
 
     /// Get created entities
+    #[must_use]
     pub fn created(&self) -> Vec<&EntityDiff> {
         self.diffs
             .iter()
@@ -44,6 +47,7 @@ impl SchemaDiff {
     }
 
     /// Get dropped entities
+    #[must_use]
     pub fn dropped(&self) -> Vec<&EntityDiff> {
         self.diffs
             .iter()
@@ -52,6 +56,7 @@ impl SchemaDiff {
     }
 
     /// Get altered entities
+    #[must_use]
     pub fn altered(&self) -> Vec<&EntityDiff> {
         self.diffs
             .iter()
@@ -60,11 +65,13 @@ impl SchemaDiff {
     }
 
     /// Get diffs filtered by entity kind
+    #[must_use]
     pub fn by_kind(&self, kind: EntityKind) -> Vec<&EntityDiff> {
         self.diffs.iter().filter(|d| d.kind == kind).collect()
     }
 
     /// Get created tables
+    #[must_use]
     pub fn created_tables(&self) -> Vec<&EntityDiff> {
         self.diffs
             .iter()
@@ -73,6 +80,7 @@ impl SchemaDiff {
     }
 
     /// Get dropped tables
+    #[must_use]
     pub fn dropped_tables(&self) -> Vec<&EntityDiff> {
         self.diffs
             .iter()
@@ -81,7 +89,8 @@ impl SchemaDiff {
     }
 }
 
-/// Compare two SQLite snapshots and return the diff
+/// Compare two `SQLite` snapshots and return the diff
+#[must_use]
 pub fn diff_snapshots(prev: &SQLiteSnapshot, cur: &SQLiteSnapshot) -> SchemaDiff {
     let prev_ddl = SQLiteDDL::from_entities(prev.ddl.clone());
     let cur_ddl = SQLiteDDL::from_entities(cur.ddl.clone());
@@ -92,6 +101,7 @@ pub fn diff_snapshots(prev: &SQLiteSnapshot, cur: &SQLiteSnapshot) -> SchemaDiff
 }
 
 /// Compare two DDL collections directly
+#[must_use]
 pub fn diff_collections(prev: &SQLiteDDL, cur: &SQLiteDDL) -> SchemaDiff {
     SchemaDiff {
         diffs: diff_ddl(prev, cur),
@@ -130,7 +140,8 @@ pub struct MigrationDiff {
     pub warnings: Vec<String>,
 }
 
-/// Build a TableFull from DDL for a given table name
+/// Build a `TableFull` from DDL for a given table name
+#[must_use]
 pub fn table_from_ddl(table_name: &str, ddl: &SQLiteDDL) -> TableFull {
     let entities = ddl.table_entities(table_name);
 
@@ -138,8 +149,7 @@ pub fn table_from_ddl(table_name: &str, ddl: &SQLiteDDL) -> TableFull {
     let (strict, without_rowid) = ddl
         .tables
         .one(table_name)
-        .map(|t| (t.strict, t.without_rowid))
-        .unwrap_or((false, false));
+        .map_or((false, false), |t| (t.strict, t.without_rowid));
 
     TableFull {
         name: table_name.to_string(),
@@ -153,11 +163,88 @@ pub fn table_from_ddl(table_name: &str, ddl: &SQLiteDDL) -> TableFull {
     }
 }
 
+fn entity_table_name(entity: &SqliteEntity) -> Option<String> {
+    match entity {
+        SqliteEntity::Column(c) => Some(c.table.to_string()),
+        SqliteEntity::ForeignKey(fk) => Some(fk.table.to_string()),
+        SqliteEntity::PrimaryKey(pk) => Some(pk.table.to_string()),
+        SqliteEntity::UniqueConstraint(uc) => Some(uc.table.to_string()),
+        SqliteEntity::CheckConstraint(cc) => Some(cc.table.to_string()),
+        _ => None,
+    }
+}
+
+fn collect_tables_to_recreate(
+    schema_diff: &SchemaDiff,
+    created: &HashSet<String>,
+    dropped: &HashSet<String>,
+) -> HashSet<String> {
+    let mut out: HashSet<String> = HashSet::new();
+
+    // Column alterations trigger recreation (SQLite has no ALTER COLUMN).
+    for col_diff in schema_diff.by_kind(EntityKind::Column) {
+        if col_diff.diff_type == DiffType::Alter
+            && let Some(SqliteEntity::Column(col)) = &col_diff.right
+            && !created.contains(col.table.as_ref())
+            && !dropped.contains(col.table.as_ref())
+        {
+            out.insert(col.table.to_string());
+        }
+    }
+
+    // New STORED generated columns - SQLite doesn't allow ALTER TABLE ADD COLUMN for STORED
+    // See: https://www.sqlite.org/gencol.html
+    for col_diff in schema_diff.by_kind(EntityKind::Column) {
+        if col_diff.diff_type == DiffType::Create
+            && let Some(SqliteEntity::Column(col)) = &col_diff.right
+            && col
+                .generated
+                .as_ref()
+                .is_some_and(|g| g.gen_type == super::ddl::GeneratedType::Stored)
+            && !created.contains(col.table.as_ref())
+            && !dropped.contains(col.table.as_ref())
+        {
+            out.insert(col.table.to_string());
+        }
+    }
+
+    // FK, PK, unique, check constraint changes all require recreation.
+    for kind in [
+        EntityKind::ForeignKey,
+        EntityKind::PrimaryKey,
+        EntityKind::UniqueConstraint,
+        EntityKind::CheckConstraint,
+    ] {
+        for diff in schema_diff.by_kind(kind) {
+            if !matches!(
+                diff.diff_type,
+                DiffType::Create | DiffType::Drop | DiffType::Alter
+            ) {
+                continue;
+            }
+            let table = diff
+                .right
+                .as_ref()
+                .and_then(entity_table_name)
+                .or_else(|| diff.left.as_ref().and_then(entity_table_name));
+            if let Some(table) = table
+                && !created.contains(&table)
+                && !dropped.contains(&table)
+            {
+                out.insert(table);
+            }
+        }
+    }
+
+    out
+}
+
 /// Compute a full migration diff between two DDL states
 ///
 /// This is a simplified version of the TypeScript ddlDiff function.
 /// For a fully interactive migration with rename detection, you would
 /// need to provide resolver callbacks.
+#[must_use]
 pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
     // Heuristic rename detection (non-interactive):
     // - detect exact table renames (same schema, identical entities)
@@ -198,173 +285,51 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
 
     // Collect tables that need recreation due to column alterations
     // SQLite doesn't support ALTER COLUMN, so we need to recreate the table
-    let mut tables_to_recreate: HashSet<String> = HashSet::new();
+    let tables_to_recreate =
+        collect_tables_to_recreate(&schema_diff, &created_table_names, &dropped_table_names);
 
-    for col_diff in schema_diff.by_kind(EntityKind::Column) {
-        if col_diff.diff_type == DiffType::Alter &&
-            // Extract table name from the column diff
-             let Some(SqliteEntity::Column(col)) = &col_diff.right &&
-                // Skip tables that are being created or dropped
-                !created_table_names.contains(col.table.as_ref())
-                    && !dropped_table_names.contains(col.table.as_ref())
-        {
-            tables_to_recreate.insert(col.table.to_string());
-        }
+    append_table_create_recreate_stmts(
+        &mut statements,
+        &schema_diff,
+        prev,
+        cur,
+        &tables_to_recreate,
+    );
+    append_add_column_stmts(
+        &mut statements,
+        &schema_diff,
+        cur,
+        &created_table_names,
+        &tables_to_recreate,
+    );
+    append_index_stmts(&mut statements, &schema_diff, cur, &tables_to_recreate);
+    append_drop_column_and_view_stmts(
+        &mut statements,
+        &schema_diff,
+        &dropped_table_names,
+        &tables_to_recreate,
+    );
+    append_drop_table_stmts(&mut statements, &schema_diff);
+    collect_stored_generated_warnings(&mut warnings, &schema_diff);
+
+    // Convert to SQL
+    let result = from_json(statements.clone());
+
+    MigrationDiff {
+        statements,
+        sql_statements: result.sql_statements,
+        renames,
+        warnings,
     }
+}
 
-    // Check for new STORED generated columns - SQLite doesn't allow ALTER TABLE ADD COLUMN for STORED
-    // See: https://www.sqlite.org/gencol.html - "It is not possible to ALTER TABLE ADD COLUMN a STORED column"
-    for col_diff in schema_diff.by_kind(EntityKind::Column) {
-        if col_diff.diff_type == DiffType::Create
-            && let Some(SqliteEntity::Column(col)) = &col_diff.right
-            && col
-                .generated
-                .as_ref()
-                .is_some_and(|g| g.gen_type == super::ddl::GeneratedType::Stored)
-            && !created_table_names.contains(col.table.as_ref())
-            && !dropped_table_names.contains(col.table.as_ref())
-        {
-            tables_to_recreate.insert(col.table.to_string());
-        }
-    }
-
-    // Also check for FK, PK, unique, check constraint changes that require recreation
-    for diff in schema_diff.by_kind(EntityKind::ForeignKey) {
-        if diff.diff_type == DiffType::Create
-            || diff.diff_type == DiffType::Drop
-            || diff.diff_type == DiffType::Alter
-        {
-            // Extract table name from the FK entity
-            let table = diff
-                .right
-                .as_ref()
-                .and_then(|e| {
-                    if let SqliteEntity::ForeignKey(fk) = e {
-                        Some(fk.table.to_string())
-                    } else {
-                        None
-                    }
-                })
-                .or_else(|| {
-                    diff.left.as_ref().and_then(|e| {
-                        if let SqliteEntity::ForeignKey(fk) = e {
-                            Some(fk.table.to_string())
-                        } else {
-                            None
-                        }
-                    })
-                });
-            if let Some(table) = table
-                && !created_table_names.contains(&table)
-                && !dropped_table_names.contains(&table)
-            {
-                tables_to_recreate.insert(table);
-            }
-        }
-    }
-
-    for diff in schema_diff.by_kind(EntityKind::PrimaryKey) {
-        if diff.diff_type == DiffType::Create
-            || diff.diff_type == DiffType::Drop
-            || diff.diff_type == DiffType::Alter
-        {
-            // Extract table name from the PK entity
-            let table = diff
-                .right
-                .as_ref()
-                .and_then(|e| {
-                    if let SqliteEntity::PrimaryKey(pk) = e {
-                        Some(pk.table.to_string())
-                    } else {
-                        None
-                    }
-                })
-                .or_else(|| {
-                    diff.left.as_ref().and_then(|e| {
-                        if let SqliteEntity::PrimaryKey(pk) = e {
-                            Some(pk.table.to_string())
-                        } else {
-                            None
-                        }
-                    })
-                });
-            if let Some(table) = table
-                && !created_table_names.contains(&table)
-                && !dropped_table_names.contains(&table)
-            {
-                tables_to_recreate.insert(table);
-            }
-        }
-    }
-
-    for diff in schema_diff.by_kind(EntityKind::UniqueConstraint) {
-        if diff.diff_type == DiffType::Create
-            || diff.diff_type == DiffType::Drop
-            || diff.diff_type == DiffType::Alter
-        {
-            // Extract table name from the unique constraint entity
-            let table = diff
-                .right
-                .as_ref()
-                .and_then(|e| {
-                    if let SqliteEntity::UniqueConstraint(uc) = e {
-                        Some(uc.table.to_string())
-                    } else {
-                        None
-                    }
-                })
-                .or_else(|| {
-                    diff.left.as_ref().and_then(|e| {
-                        if let SqliteEntity::UniqueConstraint(uc) = e {
-                            Some(uc.table.to_string())
-                        } else {
-                            None
-                        }
-                    })
-                });
-            if let Some(table) = table
-                && !created_table_names.contains(&table)
-                && !dropped_table_names.contains(&table)
-            {
-                tables_to_recreate.insert(table);
-            }
-        }
-    }
-
-    for diff in schema_diff.by_kind(EntityKind::CheckConstraint) {
-        if diff.diff_type == DiffType::Create
-            || diff.diff_type == DiffType::Drop
-            || diff.diff_type == DiffType::Alter
-        {
-            // Extract table name from the check constraint entity
-            let table = diff
-                .right
-                .as_ref()
-                .and_then(|e| {
-                    if let SqliteEntity::CheckConstraint(cc) = e {
-                        Some(cc.table.to_string())
-                    } else {
-                        None
-                    }
-                })
-                .or_else(|| {
-                    diff.left.as_ref().and_then(|e| {
-                        if let SqliteEntity::CheckConstraint(cc) = e {
-                            Some(cc.table.to_string())
-                        } else {
-                            None
-                        }
-                    })
-                });
-            if let Some(table) = table
-                && !created_table_names.contains(&table)
-                && !dropped_table_names.contains(&table)
-            {
-                tables_to_recreate.insert(table);
-            }
-        }
-    }
-
+fn append_table_create_recreate_stmts(
+    statements: &mut Vec<JsonStatement>,
+    schema_diff: &SchemaDiff,
+    prev: &SQLiteDDL,
+    cur: &SQLiteDDL,
+    tables_to_recreate: &HashSet<String>,
+) {
     // 1. Create tables
     for table_diff in schema_diff.created_tables() {
         if let Some(SqliteEntity::Table(table)) = &table_diff.right {
@@ -376,7 +341,7 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
     }
 
     // 2. Recreate tables that have column alterations
-    for table_name in &tables_to_recreate {
+    for table_name in tables_to_recreate {
         let from_table = table_from_ddl(table_name, prev);
         let to_table = table_from_ddl(table_name, cur);
         statements.push(JsonStatement::RecreateTable(RecreateTableStatement {
@@ -384,7 +349,15 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
             to: to_table,
         }));
     }
+}
 
+fn append_add_column_stmts(
+    statements: &mut Vec<JsonStatement>,
+    schema_diff: &SchemaDiff,
+    cur: &SQLiteDDL,
+    created_table_names: &HashSet<String>,
+    tables_to_recreate: &HashSet<String>,
+) {
     // 3. Add columns (for existing tables only, skip tables being recreated)
     for col_diff in schema_diff.by_kind(EntityKind::Column) {
         if col_diff.diff_type == DiffType::Create
@@ -408,7 +381,14 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
             }));
         }
     }
+}
 
+fn append_index_stmts(
+    statements: &mut Vec<JsonStatement>,
+    schema_diff: &SchemaDiff,
+    cur: &SQLiteDDL,
+    tables_to_recreate: &HashSet<String>,
+) {
     // 4. Drop indexes (skip tables being recreated - indexes will be recreated with table)
     for idx_diff in schema_diff.by_kind(EntityKind::Index) {
         if idx_diff.diff_type == DiffType::Drop
@@ -435,7 +415,7 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
 
     // 5b. Recreate indexes for tables that were recreated
     // When a table is recreated, all its indexes are dropped, so we need to recreate them
-    for table_name in &tables_to_recreate {
+    for table_name in tables_to_recreate {
         for idx in cur.indexes.for_table(table_name) {
             statements.push(JsonStatement::CreateIndex(CreateIndexStatement {
                 index: idx.clone(),
@@ -462,7 +442,14 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
             }
         }
     }
+}
 
+fn append_drop_column_and_view_stmts(
+    statements: &mut Vec<JsonStatement>,
+    schema_diff: &SchemaDiff,
+    dropped_table_names: &HashSet<String>,
+    tables_to_recreate: &HashSet<String>,
+) {
     // 7. Drop columns (for non-dropped tables, skip tables being recreated)
     for col_diff in schema_diff.by_kind(EntityKind::Column) {
         if col_diff.diff_type == DiffType::Drop
@@ -517,14 +504,18 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
             }
         }
     }
+}
 
+fn append_drop_table_stmts(statements: &mut Vec<JsonStatement>, schema_diff: &SchemaDiff) {
     // 11. Drop tables
     for table_diff in schema_diff.dropped_tables() {
         statements.push(JsonStatement::DropTable(DropTableStatement {
             table_name: table_diff.name.clone(),
         }));
     }
+}
 
+fn collect_stored_generated_warnings(warnings: &mut Vec<String>, schema_diff: &SchemaDiff) {
     // Add warnings for STORED generated columns
     for col_diff in schema_diff.by_kind(EntityKind::Column) {
         if col_diff.diff_type == DiffType::Alter
@@ -539,16 +530,6 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
                 col.name, col.table
             ));
         }
-    }
-
-    // Convert to SQL
-    let result = from_json(statements.clone());
-
-    MigrationDiff {
-        statements,
-        sql_statements: result.sql_statements,
-        renames,
-        warnings,
     }
 }
 
@@ -684,7 +665,7 @@ fn detect_and_apply_sqlite_renames(
         let cur_col = cur.columns.one(&table, to);
         if let (Some(prev_col), Some(cur_col)) = (prev_col, cur_col) {
             let mut prev_cmp = prev_col.clone();
-            prev_cmp.name = cur_col.name.clone();
+            prev_cmp.name.clone_from(&cur_col.name);
             if prev_cmp == *cur_col {
                 column_renames.push(ColumnRename {
                     table: table.clone(),
@@ -830,7 +811,7 @@ fn apply_sqlite_column_rename(ddl: &mut SQLiteDDL, table: &str, from: &str, to: 
         .iter_mut()
         .filter(|i| i.table.as_ref() == table)
     {
-        for col in idx.columns.iter_mut() {
+        for col in &mut idx.columns {
             if !col.is_expression && col.value.as_ref() == from {
                 col.value = to.clone().into();
             }
@@ -839,6 +820,7 @@ fn apply_sqlite_column_rename(ddl: &mut SQLiteDDL, table: &str, from: &str, to: 
 }
 
 /// Prepare rename tracking strings for snapshot storage
+#[must_use]
 pub fn prepare_migration_renames(
     table_renames: &[TableRename],
     column_renames: &[ColumnRename],

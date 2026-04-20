@@ -245,7 +245,7 @@ impl OwnedPreparedStatement {
     }
 }
 
-impl<'a> std::fmt::Display for PreparedStatement<'a> {
+impl std::fmt::Display for PreparedStatement<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.inner)
     }

@@ -38,9 +38,9 @@ impl Parse for SqlInput {
                 }
             }
 
-            Ok(SqlInput::Printf { template, args })
+            Ok(Self::Printf { template, args })
         } else {
-            Ok(SqlInput::StringLiteral(template))
+            Ok(Self::StringLiteral(template))
         }
     }
 }
@@ -48,17 +48,17 @@ impl Parse for SqlInput {
 /// A parsed segment of the SQL template
 #[derive(Clone)]
 enum SqlSegment {
-    /// Raw SQL text that becomes SQL::text()
+    /// Raw SQL text that becomes `SQL::text()`
     Text(String),
-    /// An expression inside {braces} that should have .to_sql() called on it
+    /// An expression inside {braces} that should have .`to_sql()` called on it
     Expression(Expr),
 }
 
 impl std::fmt::Debug for SqlSegment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SqlSegment::Text(text) => f.debug_tuple("Text").field(text).finish(),
-            SqlSegment::Expression(_) => f.debug_tuple("Expression").field(&"<expr>").finish(),
+            Self::Text(text) => f.debug_tuple("Text").field(text).finish(),
+            Self::Expression(_) => f.debug_tuple("Expression").field(&"<expr>").finish(),
         }
     }
 }
@@ -136,7 +136,7 @@ fn parse_template_with_args(
                     } else {
                         return Err(syn::Error::new(
                             Span::call_site(),
-                            "empty `{}` in sql!() template; pass arguments after the template string, or use a named expression like `{expr}`",
+                            "empty `{}` in sql!() template; pass arguments after the template string, or use a named expression like `{<expr>}`",
                         ));
                     }
                 } else {
@@ -144,7 +144,7 @@ fn parse_template_with_args(
                     let expr: Expr = syn::parse_str(&expr_content).map_err(|e| {
                         syn::Error::new(
                             Span::call_site(),
-                            format!("invalid expression in sql!() template: {}", e),
+                            format!("invalid expression in sql!() template: {e}"),
                         )
                     })?;
 
@@ -195,7 +195,7 @@ fn parse_template(template: &str) -> Result<Vec<SqlSegment>> {
     parse_template_with_args(template, None)
 }
 
-/// Generate the TokenStream for the sql! macro implementation
+/// Generate the `TokenStream` for the sql! macro implementation
 pub fn sql_impl(input: SqlInput) -> Result<TokenStream> {
     let sql = core_paths::sql();
     let to_sql = core_paths::to_sql();

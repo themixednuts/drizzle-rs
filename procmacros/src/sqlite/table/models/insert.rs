@@ -1,6 +1,6 @@
 //! Insert model generation.
 //!
-//! Generates the InsertModel struct with type-safe field tracking using marker types.
+//! Generates the `InsertModel` struct with type-safe field tracking using marker types.
 
 use super::super::context::{MacroContext, ModelType};
 use super::convenience::generate_convenience_method;
@@ -9,13 +9,8 @@ use crate::sqlite::field::{SQLiteType, TypeCategory};
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::Result;
-
 /// Generates the Insert model with convenience methods and constructor
-pub(crate) fn generate_insert_model(
-    ctx: &MacroContext,
-    required_fields_pattern: &[bool],
-) -> Result<TokenStream> {
+pub fn generate_insert_model(ctx: &MacroContext, required_fields_pattern: &[bool]) -> TokenStream {
     let insert_model = &ctx.insert_model_ident;
     let struct_ident = &ctx.struct_ident;
 
@@ -47,11 +42,11 @@ pub(crate) fn generate_insert_model(
 
     for (field_index, info) in ctx.field_infos.iter().enumerate() {
         let name = info.ident;
-        let field_type = ctx.get_field_type_for_model(info, ModelType::Insert);
+        let field_type = MacroContext::get_field_type_for_model(info, ModelType::Insert);
         let is_optional = ctx.is_field_optional_in_insert(info);
 
         insert_fields.push(quote! { #name: #field_type });
-        insert_default_fields.push(ctx.get_insert_default_value(info));
+        insert_default_fields.push(MacroContext::get_insert_default_value(info));
         insert_field_names.push(name);
         insert_field_indices.push(quote! { #field_index });
         insert_convenience_methods.push(generate_convenience_method(info, ModelType::Insert, ctx));
@@ -67,7 +62,7 @@ pub(crate) fn generate_insert_model(
     // Generate marker types for each field
     let field_marker_types = generate_marker_types(ctx);
 
-    Ok(quote! {
+    quote! {
         // Generate marker types for each field
         #(#field_marker_types)*
 
@@ -151,7 +146,7 @@ pub(crate) fn generate_insert_model(
                 #sql::join(sql_parts, #token::COMMA)
             }
         }
-    })
+    }
 }
 
 // =============================================================================
@@ -273,12 +268,7 @@ fn generate_constructor_param(
             quote! { #field_name: impl ::std::convert::Into<#sqlite_insert_value<'a, #sqlite_value<'a>, ::std::vec::Vec<u8>>> },
             quote! { #field_name: #field_name.into() },
         ),
-        // ArrayString, ArrayVec, Enum use base type directly
-        TypeCategory::ArrayString | TypeCategory::ArrayVec | TypeCategory::Enum => (
-            quote! { #field_name: impl ::std::convert::Into<#sqlite_insert_value<'a, #sqlite_value<'a>, #base_type>> },
-            quote! { #field_name: #field_name.into() },
-        ),
-        // All other types (Integer, Real, Bool, DateTime, Unknown, ByteArray) use base type directly
+        // ArrayString, ArrayVec, Enum, Integer, Real, Bool, DateTime, Unknown, ByteArray all use base type directly
         _ => (
             quote! { #field_name: impl ::std::convert::Into<#sqlite_insert_value<'a, #sqlite_value<'a>, #base_type>> },
             quote! { #field_name: #field_name.into() },

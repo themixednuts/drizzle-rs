@@ -1,13 +1,13 @@
 //! Type-safe date/time functions.
 //!
-//! These functions work with `Temporal` types (Date, Time, Timestamp, TimestampTz)
+//! These functions work with `Temporal` types (Date, Time, Timestamp, `TimestampTz`)
 //! and provide compile-time enforcement of temporal operations.
 //!
 //! # Database Compatibility
 //!
 //! Some functions are database-specific:
-//! - SQLite: `date()`, `time()`, `datetime()`, `strftime()`, `julianday()`
-//! - PostgreSQL: `now()`, `date_trunc()`, `extract()`, `age()`
+//! - `SQLite`: `date()`, `time()`, `datetime()`, `strftime()`, `julianday()`
+//! - `PostgreSQL`: `now()`, `date_trunc()`, `extract()`, `age()`
 //!
 //! Cross-database functions try to use compatible SQL where possible.
 
@@ -44,19 +44,19 @@ impl SQLiteDateTimeSupport for SQLiteDialect {}
 impl PostgresDateTimeSupport for PostgresDialect {}
 
 impl DateTruncPolicy<PostgresDialect> for PgTimestamptz {
-    type Output = PgTimestamptz;
+    type Output = Self;
 }
 impl DateTruncPolicy<PostgresDialect> for PgTimestamp {
-    type Output = PgTimestamp;
+    type Output = Self;
 }
 
 // =============================================================================
 // CURRENT DATE/TIME (Cross-database)
 // =============================================================================
 
-/// CURRENT_DATE - returns the current date.
+/// `CURRENT_DATE` - returns the current date.
 ///
-/// Works on both SQLite and PostgreSQL.
+/// Works on both `SQLite` and `PostgreSQL`.
 ///
 /// # Example
 ///
@@ -68,6 +68,7 @@ impl DateTruncPolicy<PostgresDialect> for PgTimestamp {
 /// let today = current_date::<SQLiteValue>();
 /// # "####;
 /// ```
+#[must_use]
 pub fn current_date<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Date, super::NonNull, Scalar>
 where
@@ -76,9 +77,9 @@ where
     SQLExpr::new(SQL::raw("CURRENT_DATE"))
 }
 
-/// CURRENT_TIME - returns the current time.
+/// `CURRENT_TIME` - returns the current time.
 ///
-/// Works on both SQLite and PostgreSQL.
+/// Works on both `SQLite` and `PostgreSQL`.
 ///
 /// # Example
 ///
@@ -90,6 +91,7 @@ where
 /// let now_time = current_time::<SQLiteValue>();
 /// # "####;
 /// ```
+#[must_use]
 pub fn current_time<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, super::NonNull, Scalar>
 where
@@ -98,11 +100,11 @@ where
     SQLExpr::new(SQL::raw("CURRENT_TIME"))
 }
 
-/// CURRENT_TIMESTAMP - returns the current timestamp with time zone.
+/// `CURRENT_TIMESTAMP` - returns the current timestamp with time zone.
 ///
-/// Works on both SQLite and PostgreSQL. Returns `TimestampTz` because
+/// Works on both `SQLite` and `PostgreSQL`. Returns `TimestampTz` because
 /// the SQL standard defines `CURRENT_TIMESTAMP` as `timestamp with time zone`.
-/// On SQLite (without chrono) this maps to `String`; on PostgreSQL it maps
+/// On `SQLite` (without chrono) this maps to `String`; on `PostgreSQL` it maps
 /// to `DateTime<Utc>` (requires the `chrono` feature).
 ///
 /// # Example
@@ -115,6 +117,7 @@ where
 /// let now = current_timestamp::<SQLiteValue>();
 /// # "####;
 /// ```
+#[must_use]
 pub fn current_timestamp<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::TimestampTz, super::NonNull, Scalar>
 where
@@ -127,7 +130,7 @@ where
 // SQLite-specific DATE/TIME FUNCTIONS
 // =============================================================================
 
-/// DATE - extracts the date part from a temporal expression (SQLite).
+/// DATE - extracts the date part from a temporal expression (`SQLite`).
 ///
 /// Preserves the nullability of the input expression.
 ///
@@ -153,7 +156,7 @@ where
     SQLExpr::new(SQL::func("DATE", expr.into_sql()))
 }
 
-/// TIME - extracts the time part from a temporal expression (SQLite).
+/// TIME - extracts the time part from a temporal expression (`SQLite`).
 ///
 /// Preserves the nullability of the input expression.
 ///
@@ -179,7 +182,7 @@ where
     SQLExpr::new(SQL::func("TIME", expr.into_sql()))
 }
 
-/// DATETIME - creates a datetime from a temporal expression (SQLite).
+/// DATETIME - creates a datetime from a temporal expression (`SQLite`).
 ///
 /// Preserves the nullability of the input expression.
 ///
@@ -205,7 +208,7 @@ where
     SQLExpr::new(SQL::func("DATETIME", expr.into_sql()))
 }
 
-/// STRFTIME - formats a temporal expression as text (SQLite).
+/// STRFTIME - formats a temporal expression as text (`SQLite`).
 ///
 /// Returns Text type, preserves nullability of the time value.
 ///
@@ -257,7 +260,7 @@ where
     ))
 }
 
-/// JULIANDAY - converts a temporal expression to Julian day number (SQLite).
+/// JULIANDAY - converts a temporal expression to Julian day number (`SQLite`).
 ///
 /// Returns a dialect-aware double type, preserves nullability.
 ///
@@ -283,9 +286,9 @@ where
     SQLExpr::new(SQL::func("JULIANDAY", expr.into_sql()))
 }
 
-/// UNIXEPOCH - converts a temporal expression to Unix timestamp (SQLite 3.38+).
+/// UNIXEPOCH - converts a temporal expression to Unix timestamp (`SQLite` 3.38+).
 ///
-/// Returns a dialect-aware BigInt type (seconds since 1970-01-01), preserves nullability.
+/// Returns a dialect-aware `BigInt` type (seconds since 1970-01-01), preserves nullability.
 ///
 /// # Example
 ///
@@ -313,7 +316,7 @@ where
 // PostgreSQL-specific DATE/TIME FUNCTIONS
 // =============================================================================
 
-/// NOW - returns the current timestamp with time zone (PostgreSQL).
+/// NOW - returns the current timestamp with time zone (`PostgreSQL`).
 ///
 /// # Example
 ///
@@ -325,6 +328,7 @@ where
 /// let current = now::<PostgresValue>();
 /// # "####;
 /// ```
+#[must_use]
 pub fn now<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::TimestampTz, super::NonNull, Scalar>
 where
@@ -334,7 +338,7 @@ where
     SQLExpr::new(SQL::raw("NOW()"))
 }
 
-/// DATE_TRUNC - truncates a timestamp to specified precision (PostgreSQL).
+/// `DATE_TRUNC` - truncates a timestamp to specified precision (`PostgreSQL`).
 ///
 /// Truncates the timestamp to the specified precision. Common values:
 /// 'microseconds', 'milliseconds', 'second', 'minute', 'hour',
@@ -420,9 +424,9 @@ where
     )
 }
 
-/// AGE - calculates the interval between two timestamps (PostgreSQL).
+/// AGE - calculates the interval between two timestamps (`PostgreSQL`).
 ///
-/// Returns PostgreSQL INTERVAL. The result is nullable if either input is nullable.
+/// Returns `PostgreSQL` INTERVAL. The result is nullable if either input is nullable.
 ///
 /// # Example
 ///
@@ -465,7 +469,7 @@ where
     ))
 }
 
-/// TO_CHAR - formats a temporal expression as text (PostgreSQL).
+/// `TO_CHAR` - formats a temporal expression as text (`PostgreSQL`).
 ///
 /// Returns Text type, preserves nullability of the input expression.
 ///
@@ -516,9 +520,9 @@ where
     ))
 }
 
-/// TO_TIMESTAMP - converts a Unix timestamp to a timestamp (PostgreSQL).
+/// `TO_TIMESTAMP` - converts a Unix timestamp to a timestamp (`PostgreSQL`).
 ///
-/// Returns TimestampTz type. The input should be a numeric Unix timestamp.
+/// Returns `TimestampTz` type. The input should be a numeric Unix timestamp.
 ///
 /// # Example
 ///
@@ -544,7 +548,7 @@ where
 // Additional PostgreSQL Formatting Functions
 // =============================================================================
 
-/// TO_DATE - parses a date from text using a format pattern (PostgreSQL).
+/// `TO_DATE` - parses a date from text using a format pattern (`PostgreSQL`).
 ///
 /// Returns Date type, preserves nullability of the input expression.
 ///
@@ -584,7 +588,7 @@ where
     ))
 }
 
-/// TO_NUMBER - parses a number from text using a format pattern (PostgreSQL).
+/// `TO_NUMBER` - parses a number from text using a format pattern (`PostgreSQL`).
 ///
 /// Returns Numeric type, preserves nullability of the input expression.
 ///
@@ -628,7 +632,7 @@ where
 // DATE_BIN (PostgreSQL 14+)
 // =============================================================================
 
-/// DATE_BIN - bins timestamps into intervals (PostgreSQL 14+).
+/// `DATE_BIN` - bins timestamps into intervals (`PostgreSQL` 14+).
 ///
 /// Rounds a timestamp down to the nearest multiple of `stride` from `origin`.
 /// Useful for time-series bucketing.
@@ -686,7 +690,7 @@ where
 // MAKE_DATE / MAKE_TIMESTAMP (PostgreSQL)
 // =============================================================================
 
-/// MAKE_DATE - constructs a date from year, month, day (PostgreSQL).
+/// `MAKE_DATE` - constructs a date from year, month, day (`PostgreSQL`).
 ///
 /// # Example
 ///
@@ -737,7 +741,7 @@ where
     ))
 }
 
-/// MAKE_TIMESTAMP - constructs a timestamp from components (PostgreSQL).
+/// `MAKE_TIMESTAMP` - constructs a timestamp from components (`PostgreSQL`).
 ///
 /// # Example
 ///
@@ -827,7 +831,7 @@ where
 // Current Time (PostgreSQL-specific)
 // =============================================================================
 
-/// LOCALTIME - returns the current time without time zone (PostgreSQL).
+/// LOCALTIME - returns the current time without time zone (`PostgreSQL`).
 ///
 /// # Example
 ///
@@ -839,6 +843,7 @@ where
 /// let now_time = localtime::<PostgresValue>();
 /// # "####;
 /// ```
+#[must_use]
 pub fn localtime<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, super::NonNull, Scalar>
 where
@@ -848,7 +853,7 @@ where
     SQLExpr::new(SQL::raw("LOCALTIME"))
 }
 
-/// LOCALTIMESTAMP - returns the current timestamp without time zone (PostgreSQL).
+/// LOCALTIMESTAMP - returns the current timestamp without time zone (`PostgreSQL`).
 ///
 /// # Example
 ///
@@ -860,6 +865,7 @@ where
 /// let now_ts = localtimestamp::<PostgresValue>();
 /// # "####;
 /// ```
+#[must_use]
 pub fn localtimestamp<'a, V>() -> SQLExpr<'a, V, PgTimestamp, super::NonNull, Scalar>
 where
     V: SQLParam + 'a,
@@ -868,7 +874,7 @@ where
     SQLExpr::new(SQL::raw("LOCALTIMESTAMP"))
 }
 
-/// CLOCK_TIMESTAMP - returns the actual wall-clock time (PostgreSQL).
+/// `CLOCK_TIMESTAMP` - returns the actual wall-clock time (`PostgreSQL`).
 ///
 /// Unlike `NOW()` or `CURRENT_TIMESTAMP`, this changes during a transaction.
 ///
@@ -882,6 +888,7 @@ where
 /// let wall_clock = clock_timestamp::<PostgresValue>();
 /// # "####;
 /// ```
+#[must_use]
 pub fn clock_timestamp<'a, V>() -> SQLExpr<'a, V, PgTimestamptz, super::NonNull, Scalar>
 where
     V: SQLParam + 'a,
@@ -894,7 +901,7 @@ where
 // TIMEDIFF (SQLite 3.43+)
 // =============================================================================
 
-/// TIMEDIFF - computes the difference between two temporal values (SQLite 3.43+).
+/// TIMEDIFF - computes the difference between two temporal values (`SQLite` 3.43+).
 ///
 /// Returns a text representation of the time difference.
 ///

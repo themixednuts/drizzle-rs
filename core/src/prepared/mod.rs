@@ -25,7 +25,7 @@ pub struct PreparedStatement<'a, V: SQLParam> {
     pub sql: CompactString,
 }
 
-impl<'a, V: SQLParam> From<OwnedPreparedStatement<V>> for PreparedStatement<'a, V> {
+impl<V: SQLParam> From<OwnedPreparedStatement<V>> for PreparedStatement<'_, V> {
     fn from(value: OwnedPreparedStatement<V>) -> Self {
         Self {
             text_segments: value.text_segments,
@@ -35,7 +35,7 @@ impl<'a, V: SQLParam> From<OwnedPreparedStatement<V>> for PreparedStatement<'a, 
     }
 }
 
-impl<'a, V: SQLParam> core::fmt::Display for PreparedStatement<'a, V> {
+impl<V: SQLParam> core::fmt::Display for PreparedStatement<'_, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.sql())
     }
@@ -163,16 +163,17 @@ impl<'a, V: SQLParam> PreparedStatement<'a, V> {
     /// Returns the number of external parameter bindings expected.
     /// This counts params that need external binding (no pre-set value),
     /// deduplicating named params since one binding satisfies all uses.
+    #[must_use]
     pub fn external_param_count(&self) -> usize {
-        let mut named = HashMap::<&str, ()>::new();
+        let mut named = HashSet::<&str>::new();
         let mut positional = 0usize;
-        for param in self.params.iter() {
+        for param in &self.params {
             if param.value.is_some() {
                 continue;
             }
             match param.placeholder.name {
                 Some(name) if !name.is_empty() => {
-                    named.entry(name).or_insert(());
+                    named.insert(name);
                 }
                 _ => positional += 1,
             }
@@ -181,7 +182,12 @@ impl<'a, V: SQLParam> PreparedStatement<'a, V> {
     }
 
     /// Bind parameters and return SQL with dialect-appropriate placeholders.
-    /// Uses `$1, $2, ...` for PostgreSQL, `:name` or `?` for SQLite, `?` for MySQL.
+    /// Uses `$1, $2, ...` for `PostgreSQL`, `:name` or `?` for `SQLite`, `?` for `MySQL`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if required parameters are missing or if a named
+    /// placeholder cannot be resolved from the supplied bindings.
     pub fn bind<T: SQLParam + Into<V>>(
         &self,
         param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
@@ -190,13 +196,14 @@ impl<'a, V: SQLParam> PreparedStatement<'a, V> {
             &self.params,
             param_binds,
             |p| p.placeholder.name,
-            |p| p.value.as_ref().map(|v| v.as_ref()),
+            |p| p.value.as_ref().map(std::convert::AsRef::as_ref),
         )?;
 
         Ok((self.sql.as_str(), bound_params.into_iter()))
     }
 
     /// Returns the fully rendered SQL with placeholders.
+    #[must_use]
     pub fn sql(&self) -> &str {
         self.sql.as_str()
     }
@@ -225,11 +232,12 @@ impl<'a, V: SQLParam> ToSQL<'a, V> for PreparedStatement<'a, V> {
     }
 }
 /// Pre-render SQL by processing chunks and separating text from parameters
-pub fn prepare_render<'a, V: SQLParam>(sql: SQL<'a, V>) -> PreparedStatement<'a, V> {
-    #[cfg(feature = "profiling")]
-    crate::drizzle_profile_scope!("prepared", "prepare_render");
+pub fn prepare_render<'a, V: SQLParam>(sql: &SQL<'a, V>) -> PreparedStatement<'a, V> {
     use crate::dialect::{Dialect, write_placeholder};
     use crate::sql::chunk_needs_space;
+
+    #[cfg(feature = "profiling")]
+    crate::drizzle_profile_scope!("prepared", "prepare_render");
 
     if !sql
         .chunks
@@ -255,28 +263,25 @@ pub fn prepare_render<'a, V: SQLParam>(sql: SQL<'a, V>) -> PreparedStatement<'a,
     let mut param_index = 1usize;
 
     for (i, chunk) in sql.chunks.iter().enumerate() {
-        let current_text_ends_with_space = match chunk {
-            SQLChunk::Param(param) => {
-                text_segments.push(CompactString::new(&current_text));
-                rendered_sql.push_str(&current_text);
-                current_text.clear();
-                params.push(param.clone());
+        let current_text_ends_with_space = if let SQLChunk::Param(param) = chunk {
+            text_segments.push(CompactString::new(&current_text));
+            rendered_sql.push_str(&current_text);
+            current_text.clear();
+            params.push(param.clone());
 
-                if let Some(name) = param.placeholder.name
-                    && V::DIALECT == Dialect::SQLite
-                {
-                    rendered_sql.push(':');
-                    rendered_sql.push_str(name);
-                } else {
-                    write_placeholder(V::DIALECT, param_index, &mut rendered_sql);
-                }
-                param_index += 1;
-                false
+            if let Some(name) = param.placeholder.name
+                && V::DIALECT == Dialect::SQLite
+            {
+                rendered_sql.push(':');
+                rendered_sql.push_str(name);
+            } else {
+                write_placeholder(V::DIALECT, param_index, &mut rendered_sql);
             }
-            _ => {
-                sql.write_chunk_to(&mut current_text, chunk, i);
-                matches!(chunk, SQLChunk::Raw(text) if text.ends_with(' '))
-            }
+            param_index += 1;
+            false
+        } else {
+            sql.write_chunk_to(&mut current_text, chunk, i);
+            matches!(chunk, SQLChunk::Raw(text) if text.ends_with(' '))
         };
 
         // Use the canonical spacing logic, with an extra check for trailing spaces

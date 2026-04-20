@@ -135,17 +135,17 @@ pub trait AggOr<Rhs: AggregateKind>: AggregateKind {
     type Output: AggregateKind;
 }
 
-impl AggOr<Scalar> for Scalar {
-    type Output = Scalar;
+impl AggOr<Self> for Scalar {
+    type Output = Self;
 }
 impl AggOr<Agg> for Scalar {
     type Output = Agg;
 }
 impl AggOr<Scalar> for Agg {
-    type Output = Agg;
+    type Output = Self;
 }
-impl AggOr<Agg> for Agg {
-    type Output = Agg;
+impl AggOr<Self> for Agg {
+    type Output = Self;
 }
 
 // =============================================================================
@@ -188,8 +188,8 @@ pub trait CombineAggStatus<Rhs> {
     type Output;
 }
 
-impl CombineAggStatus<AllScalar> for AllScalar {
-    type Output = AllScalar;
+impl CombineAggStatus<Self> for AllScalar {
+    type Output = Self;
 }
 impl CombineAggStatus<AllAgg> for AllScalar {
     type Output = MixedAgg;
@@ -200,20 +200,20 @@ impl CombineAggStatus<MixedAgg> for AllScalar {
 impl CombineAggStatus<AllScalar> for AllAgg {
     type Output = MixedAgg;
 }
-impl CombineAggStatus<AllAgg> for AllAgg {
-    type Output = AllAgg;
+impl CombineAggStatus<Self> for AllAgg {
+    type Output = Self;
 }
 impl CombineAggStatus<MixedAgg> for AllAgg {
     type Output = MixedAgg;
 }
 impl CombineAggStatus<AllScalar> for MixedAgg {
-    type Output = MixedAgg;
+    type Output = Self;
 }
 impl CombineAggStatus<AllAgg> for MixedAgg {
-    type Output = MixedAgg;
+    type Output = Self;
 }
-impl CombineAggStatus<MixedAgg> for MixedAgg {
-    type Output = MixedAgg;
+impl CombineAggStatus<Self> for MixedAgg {
+    type Output = Self;
 }
 
 /// Extract the aggregate status of a type that appears in a SELECT list.
@@ -235,7 +235,7 @@ pub trait HasAggStatus {
 /// # Type Parameters
 ///
 /// - `'a`: Lifetime of borrowed data in the expression
-/// - `V`: The dialect's value type (SQLiteValue, PostgresValue)
+/// - `V`: The dialect's value type (`SQLiteValue`, `PostgresValue`)
 ///
 /// # Associated Types
 ///

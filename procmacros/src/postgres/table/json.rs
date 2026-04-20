@@ -1,6 +1,6 @@
-//! JSON type implementations for PostgreSQL
+//! JSON type implementations for `PostgreSQL`
 //!
-//! This module generates TryInto<PostgresValue> implementations for custom JSON types
+//! This module generates `TryInto`<PostgresValue> implementations for custom JSON types
 //! (structs marked with #[column(json)] or #[column(jsonb)]).
 
 use super::context::MacroContext;
@@ -11,11 +11,11 @@ use quote::{ToTokens, quote};
 use std::collections::HashMap;
 use syn::Result;
 
-/// Generate TryInto<PostgresValue> implementations for custom JSON types.
+/// Generate `TryInto`<PostgresValue> implementations for custom JSON types.
 ///
 /// This enables custom structs (that implement Serialize) to be used with the
 /// blanket `From<T> for PostgresInsertValue` impl which requires `T: TryInto<PostgresValue>`.
-pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
+pub fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
     // Create a filter for JSON fields with custom types (not serde_json::Value)
     let json_fields: Vec<_> = ctx
         .field_infos

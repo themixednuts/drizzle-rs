@@ -1,8 +1,8 @@
-//! SQLite column type definitions
+//! `SQLite` column type definitions
 //!
-//! Defines the core SQLite storage classes and type affinities.
+//! Defines the core `SQLite` storage classes and type affinities.
 
-/// Enum representing supported SQLite column types.
+/// Enum representing supported `SQLite` column types.
 ///
 /// These correspond to the [SQLite storage classes](https://sqlite.org/datatype3.html#storage_classes_and_datatypes).
 /// Each type maps to specific Rust types and has different capabilities for constraints and features.
@@ -24,45 +24,45 @@
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "UPPERCASE"))]
 pub enum SQLiteType {
-    /// SQLite INTEGER type - stores signed integers up to 8 bytes.
+    /// `SQLite` INTEGER type - stores signed integers up to 8 bytes.
     ///
     /// See: <https://sqlite.org/datatype3.html#integer_datatype>
     ///
     /// Supports: primary keys, autoincrement, enums (discriminant storage)
     Integer,
 
-    /// SQLite TEXT type - stores text in UTF-8, UTF-16BE, or UTF-16LE encoding.
+    /// `SQLite` TEXT type - stores text in UTF-8, UTF-16BE, or UTF-16LE encoding.
     ///
     /// See: <https://sqlite.org/datatype3.html#text_datatype>
     ///
     /// Supports: enums (variant name storage), JSON serialization
     Text,
 
-    /// SQLite BLOB type - stores binary data exactly as input.
+    /// `SQLite` BLOB type - stores binary data exactly as input.
     ///
     /// See: <https://sqlite.org/datatype3.html#blob_datatype>
     ///
     /// Supports: JSON serialization, UUID storage
     Blob,
 
-    /// SQLite REAL type - stores floating point values as 8-byte IEEE floating point numbers.
+    /// `SQLite` REAL type - stores floating point values as 8-byte IEEE floating point numbers.
     ///
     /// See: <https://sqlite.org/datatype3.html#real_datatype>
     Real,
 
-    /// SQLite NUMERIC type - stores values as INTEGER, REAL, or TEXT depending on the value.
+    /// `SQLite` NUMERIC type - stores values as INTEGER, REAL, or TEXT depending on the value.
     ///
     /// See: <https://sqlite.org/datatype3.html#numeric_datatype>
     Numeric,
 
-    /// SQLite ANY type - no type affinity, can store any type of data.
+    /// `SQLite` ANY type - no type affinity, can store any type of data.
     ///
     /// See: <https://sqlite.org/datatype3.html#type_affinity>
     #[default]
     Any,
 }
 
-/// SQLite type affinity classification.
+/// `SQLite` type affinity classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "UPPERCASE"))]
@@ -80,7 +80,7 @@ impl SQLiteType {
     ///
     /// Handles common attribute names used in the macro system.
     #[must_use]
-    pub fn from_attribute_name(name: &str) -> Option<Self> {
+    pub const fn from_attribute_name(name: &str) -> Option<Self> {
         if name.eq_ignore_ascii_case("integer") {
             Some(Self::Integer)
         } else if name.eq_ignore_ascii_case("text") {
@@ -113,7 +113,7 @@ impl SQLiteType {
         }
     }
 
-    /// Returns this type's SQLite affinity.
+    /// Returns this type's `SQLite` affinity.
     #[must_use]
     pub const fn affinity(&self) -> SQLiteAffinity {
         match self {
@@ -128,7 +128,7 @@ impl SQLiteType {
 
     /// Whether this type is allowed for STRICT tables.
     ///
-    /// SQLite STRICT supports: INTEGER, REAL, TEXT, BLOB, ANY.
+    /// `SQLite` STRICT supports: INTEGER, REAL, TEXT, BLOB, ANY.
     #[must_use]
     pub const fn is_strict_allowed(&self) -> bool {
         matches!(

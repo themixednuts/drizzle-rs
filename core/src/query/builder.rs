@@ -116,7 +116,8 @@ pub struct QueryBuilder<V: SQLParam, T, Rels = (), Cols = AllColumns, Cl = Claus
 
 impl<V: SQLParam, T> QueryBuilder<V, T> {
     /// Creates a new empty `QueryBuilder` for the given table type.
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             where_clause: String::new(),
             where_params: Vec::new(),
@@ -356,10 +357,10 @@ pub trait QueryTable {
     const TABLE_NAME: &'static str;
     /// All column names in SELECT order.
     const COLUMN_NAMES: &'static [&'static str];
-    /// Column names that store BLOB data (e.g., UUID as bytes in SQLite).
+    /// Column names that store BLOB data (e.g., UUID as bytes in `SQLite`).
     ///
     /// These columns are wrapped with `hex()` inside `json_object()` calls
-    /// because SQLite's JSON functions cannot serialize BLOB values directly.
+    /// because `SQLite`'s JSON functions cannot serialize BLOB values directly.
     /// The `FromJsonValue` deserializer then parses the hex string back.
     const BLOB_COLUMNS: &'static [&'static str] = &[];
 }

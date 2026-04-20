@@ -10,7 +10,7 @@ fn path_contains_ident(path: &Path, ident: &str) -> bool {
     path.segments.iter().any(|seg| seg.ident == ident)
 }
 
-fn type_path(ty: &Type) -> Option<&Path> {
+const fn type_path(ty: &Type) -> Option<&Path> {
     if let Type::Path(type_path) = ty {
         Some(&type_path.path)
     } else {
@@ -18,13 +18,13 @@ fn type_path(ty: &Type) -> Option<&Path> {
     }
 }
 
-pub(crate) fn is_option_type(ty: &Type) -> bool {
+pub fn is_option_type(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|ident| ident == "Option")
 }
 
-pub(crate) fn option_inner_type(ty: &Type) -> Option<&Type> {
+pub fn option_inner_type(ty: &Type) -> Option<&Type> {
     let path = type_path(ty)?;
     let segment = path.segments.last()?;
     if segment.ident != "Option" {
@@ -42,25 +42,25 @@ pub(crate) fn option_inner_type(ty: &Type) -> Option<&Type> {
     })
 }
 
-pub(crate) fn unwrap_option(ty: &Type) -> &Type {
+pub fn unwrap_option(ty: &Type) -> &Type {
     option_inner_type(ty).unwrap_or(ty)
 }
 
-pub(crate) fn type_is_int(ty: &Type, ident: &str) -> bool {
+pub fn type_is_int(ty: &Type, ident: &str) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == ident)
 }
 
-pub(crate) fn type_is_bool(ty: &Type) -> bool {
+pub fn type_is_bool(ty: &Type) -> bool {
     type_is_int(ty, "bool")
 }
 
-pub(crate) fn type_is_float(ty: &Type, ident: &str) -> bool {
+pub fn type_is_float(ty: &Type, ident: &str) -> bool {
     type_is_int(ty, ident)
 }
 
-pub(crate) fn type_is_string_like(ty: &Type) -> bool {
+pub fn type_is_string_like(ty: &Type) -> bool {
     if type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "String")
@@ -79,7 +79,7 @@ pub(crate) fn type_is_string_like(ty: &Type) -> bool {
     false
 }
 
-pub(crate) fn type_is_vec_u8(ty: &Type) -> bool {
+pub fn type_is_vec_u8(ty: &Type) -> bool {
     let Some(path) = type_path(ty) else {
         return false;
     };
@@ -106,7 +106,7 @@ pub(crate) fn type_is_vec_u8(ty: &Type) -> bool {
 }
 
 #[cfg(feature = "sqlite")]
-pub(crate) fn type_is_byte_slice(ty: &Type) -> bool {
+pub fn type_is_byte_slice(ty: &Type) -> bool {
     match ty {
         Type::Reference(reference) => match reference.elem.as_ref() {
             Type::Slice(slice) => matches!(
@@ -123,7 +123,7 @@ pub(crate) fn type_is_byte_slice(ty: &Type) -> bool {
     }
 }
 
-pub(crate) fn type_is_array_u8(ty: &Type) -> bool {
+pub fn type_is_array_u8(ty: &Type) -> bool {
     match ty {
         Type::Array(array) => matches!(
             array.elem.as_ref(),
@@ -134,7 +134,7 @@ pub(crate) fn type_is_array_u8(ty: &Type) -> bool {
 }
 
 #[cfg(feature = "postgres")]
-pub(crate) fn type_is_array_char(ty: &Type) -> bool {
+pub fn type_is_array_char(ty: &Type) -> bool {
     match ty {
         Type::Array(array) => matches!(
             array.elem.as_ref(),
@@ -146,11 +146,11 @@ pub(crate) fn type_is_array_char(ty: &Type) -> bool {
 
 #[cfg(feature = "postgres")]
 #[allow(dead_code)]
-pub(crate) fn type_is_char_array(ty: &Type) -> bool {
+pub fn type_is_char_array(ty: &Type) -> bool {
     type_is_array_char(ty)
 }
 
-pub(crate) fn type_is_array_string(ty: &Type) -> bool {
+pub fn type_is_array_string(ty: &Type) -> bool {
     let Some(path) = type_path(ty) else {
         return false;
     };
@@ -218,7 +218,7 @@ fn type_is_bytes_type(ty: &Type) -> bool {
     last.ident == "Bytes" || last.ident == "BytesMut"
 }
 
-pub(crate) fn type_is_arrayvec_u8(ty: &Type) -> bool {
+pub fn type_is_arrayvec_u8(ty: &Type) -> bool {
     #[cfg(feature = "bytes")]
     if type_is_bytes_type(ty) {
         return true;
@@ -254,13 +254,13 @@ pub(crate) fn type_is_arrayvec_u8(ty: &Type) -> bool {
     })
 }
 
-pub(crate) fn type_is_uuid(ty: &Type) -> bool {
+pub fn type_is_uuid(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "Uuid")
 }
 
-pub(crate) fn type_is_json_value(ty: &Type) -> bool {
+pub fn type_is_json_value(ty: &Type) -> bool {
     let Some(path) = type_path(ty) else {
         return false;
     };
@@ -275,103 +275,103 @@ pub(crate) fn type_is_json_value(ty: &Type) -> bool {
     path_contains_ident(path, "serde_json")
 }
 
-pub(crate) fn type_is_naive_date(ty: &Type) -> bool {
+pub fn type_is_naive_date(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "NaiveDate")
 }
 
-pub(crate) fn type_is_naive_time(ty: &Type) -> bool {
+pub fn type_is_naive_time(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "NaiveTime")
 }
 
-pub(crate) fn type_is_naive_datetime(ty: &Type) -> bool {
+pub fn type_is_naive_datetime(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "NaiveDateTime")
 }
 
-pub(crate) fn type_is_datetime_tz(ty: &Type) -> bool {
+pub fn type_is_datetime_tz(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "DateTime")
 }
 
 #[allow(dead_code)]
-pub(crate) fn type_is_chrono_datetime(ty: &Type) -> bool {
+pub fn type_is_chrono_datetime(ty: &Type) -> bool {
     type_is_naive_datetime(ty) || type_is_datetime_tz(ty)
 }
 
-pub(crate) fn type_is_time_date(ty: &Type) -> bool {
+pub fn type_is_time_date(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "Date")
 }
 
-pub(crate) fn type_is_time_time(ty: &Type) -> bool {
+pub fn type_is_time_time(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "Time")
 }
 
-pub(crate) fn type_is_primitive_date_time(ty: &Type) -> bool {
+pub fn type_is_primitive_date_time(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "PrimitiveDateTime")
 }
 
-pub(crate) fn type_is_offset_datetime(ty: &Type) -> bool {
+pub fn type_is_offset_datetime(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "OffsetDateTime")
 }
 
 #[cfg(feature = "postgres")]
-pub(crate) fn type_is_ip_addr(ty: &Type) -> bool {
+pub fn type_is_ip_addr(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "IpAddr" || id == "IpInet")
 }
 
 #[cfg(feature = "postgres")]
-pub(crate) fn type_is_ip_cidr(ty: &Type) -> bool {
+pub fn type_is_ip_cidr(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "IpCidr")
 }
 
 #[cfg(feature = "postgres")]
-pub(crate) fn type_is_mac_addr(ty: &Type) -> bool {
+pub fn type_is_mac_addr(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "MacAddress")
 }
 
 #[cfg(feature = "postgres")]
-pub(crate) fn type_is_geo_point(ty: &Type) -> bool {
+pub fn type_is_geo_point(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "Point")
 }
 
 #[cfg(feature = "postgres")]
-pub(crate) fn type_is_geo_rect(ty: &Type) -> bool {
+pub fn type_is_geo_rect(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "Rect")
 }
 
 #[cfg(feature = "postgres")]
-pub(crate) fn type_is_geo_linestring(ty: &Type) -> bool {
+pub fn type_is_geo_linestring(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "LineString")
 }
 
 #[cfg(feature = "postgres")]
-pub(crate) fn type_is_bit_vec(ty: &Type) -> bool {
+pub fn type_is_bit_vec(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "BitVec")

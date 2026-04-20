@@ -1,4 +1,4 @@
-//! PostgreSQL Column DDL types
+//! `PostgreSQL` Column DDL types
 //!
 //! This module provides two complementary types:
 //! - [`ColumnDef`] - A const-friendly definition type for compile-time schema definitions
@@ -95,7 +95,7 @@ pub struct IdentityDef {
     pub name: &'static str,
     /// Schema name (optional)
     pub schema: Option<&'static str>,
-    /// Identity type: always or by_default
+    /// Identity type: always or `by_default`
     pub type_: IdentityType,
     /// Increment value (as string)
     pub increment: Option<&'static str>,
@@ -242,7 +242,7 @@ pub struct Identity {
     )]
     pub schema: Option<Cow<'static, str>>,
 
-    /// Identity type: always or by_default
+    /// Identity type: always or `by_default`
     #[cfg_attr(feature = "serde", serde(rename = "type"))]
     pub type_: IdentityType,
 
@@ -580,7 +580,7 @@ impl Column {
 
     /// Set NOT NULL
     #[must_use]
-    pub fn not_null(mut self) -> Self {
+    pub const fn not_null(mut self) -> Self {
         self.not_null = true;
         self
     }

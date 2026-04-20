@@ -1,6 +1,6 @@
-//! Macro context and helper methods for SQLite table generation.
+//! Macro context and helper methods for `SQLite` table generation.
 //!
-//! Provides the MacroContext struct which holds all information needed
+//! Provides the `MacroContext` struct which holds all information needed
 //! for code generation, along with helper methods that serve as the
 //! single source of truth for field analysis decisions.
 
@@ -12,13 +12,13 @@ use quote::quote;
 use syn::Visibility;
 
 // Re-export ModelType from common for convenience
-pub(crate) use crate::common::ModelType;
+pub use crate::common::ModelType;
 
 /// Context struct holding all information needed for macro generation.
 ///
 /// This provides helper methods to reduce code duplication and improve maintainability
 /// by centralizing decisions about field handling.
-pub(crate) struct MacroContext<'a> {
+pub struct MacroContext<'a> {
     pub(crate) struct_ident: &'a Ident,
     pub(crate) struct_vis: &'a Visibility,
     pub(crate) table_name: String,
@@ -27,19 +27,19 @@ pub(crate) struct MacroContext<'a> {
     pub(crate) select_model_partial_ident: Ident,
     pub(crate) insert_model_ident: Ident,
     pub(crate) update_model_ident: Ident,
-    /// Table attributes (strict, without_rowid, etc.)
+    /// Table attributes (strict, `without_rowid`, etc.)
     pub(crate) attrs: &'a TableAttributes,
     #[allow(dead_code)]
     pub(crate) is_composite_pk: bool,
 }
 
-impl<'a> MacroContext<'a> {
+impl MacroContext<'_> {
     // =========================================================================
     // Core Field Analysis Methods - Single Source of Truth
     // =========================================================================
 
     /// Determines if a field can auto-increment (INTEGER PRIMARY KEY in regular tables, excluding enums)
-    pub(crate) fn can_field_autoincrement(&self, field: &FieldInfo) -> bool {
+    pub(crate) const fn can_field_autoincrement(&self, field: &FieldInfo) -> bool {
         if !field.is_primary || self.attrs.without_rowid || field.is_enum {
             return false;
         }
@@ -47,7 +47,7 @@ impl<'a> MacroContext<'a> {
     }
 
     /// Determines if a field should be optional in the Insert model
-    pub(crate) fn is_field_optional_in_insert(&self, field: &FieldInfo) -> bool {
+    pub(crate) const fn is_field_optional_in_insert(&self, field: &FieldInfo) -> bool {
         // Nullable fields are always optional
         if field.is_nullable {
             return true;
@@ -68,9 +68,8 @@ impl<'a> MacroContext<'a> {
 
     /// Gets the appropriate field type for a specific model.
     ///
-    /// Uses TypeCategory for consistent type handling across the codebase.
+    /// Uses `TypeCategory` for consistent type handling across the codebase.
     pub(crate) fn get_field_type_for_model(
-        &self,
         field: &FieldInfo,
         model_type: ModelType,
     ) -> TokenStream {
@@ -100,7 +99,7 @@ impl<'a> MacroContext<'a> {
     }
 
     /// Gets the default value expression for insert model
-    pub(crate) fn get_insert_default_value(&self, field: &FieldInfo) -> TokenStream {
+    pub(crate) fn get_insert_default_value(field: &FieldInfo) -> TokenStream {
         let name = field.ident;
         let sqlite_insert_value = sqlite_paths::sqlite_insert_value();
 
@@ -122,11 +121,11 @@ impl<'a> MacroContext<'a> {
     // Field Conversion Methods
     // =========================================================================
 
-    /// Generates field conversion for update ToSQL.
+    /// Generates field conversion for update `ToSQL`.
     ///
     /// Matches on `SQLiteUpdateValue` variants to produce `(column_name, SQL)` pairs
     /// for use with `SQL::assignments_sql()`.
-    pub(crate) fn get_update_field_conversion(&self, field: &FieldInfo) -> TokenStream {
+    pub(crate) fn get_update_field_conversion(field: &FieldInfo) -> TokenStream {
         let name = field.ident;
         let column_name = &field.column_name;
         let sqlite_value = sqlite_paths::sqlite_value();

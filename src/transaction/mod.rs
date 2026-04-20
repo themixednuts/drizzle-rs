@@ -1,7 +1,7 @@
 #[cfg(feature = "sqlite")]
 #[macro_use]
-pub(crate) mod sqlite;
+pub mod sqlite;
 
 #[cfg(feature = "postgres")]
 #[macro_use]
-pub(crate) mod postgres;
+pub mod postgres;

@@ -1,7 +1,7 @@
 //! Dialect-agnostic code generation traits and utilities.
 //!
 //! This module provides traits that abstract over the differences between
-//! SQLite and PostgreSQL code generation, allowing shared generator functions
+//! `SQLite` and `PostgreSQL` code generation, allowing shared generator functions
 //! to work with both dialects.
 
 use proc_macro2::TokenStream;
@@ -12,10 +12,10 @@ use crate::paths::core as core_paths;
 
 /// Provides dialect-specific type paths for code generation.
 ///
-/// This trait is implemented by both SQLite and PostgreSQL to provide
+/// This trait is implemented by both `SQLite` and `PostgreSQL` to provide
 /// the appropriate fully-qualified paths for their respective types.
 #[allow(dead_code)]
-pub(crate) trait GeneratorPaths {
+pub trait GeneratorPaths {
     /// Returns the path to the dialect's value type (e.g., `SQLiteValue`, `PostgresValue`)
     fn value_type() -> TokenStream;
 
@@ -30,7 +30,7 @@ pub(crate) trait GeneratorPaths {
 }
 
 /// Type alias for dialect selection
-pub(crate) trait Dialect: GeneratorPaths {}
+pub trait Dialect: GeneratorPaths {}
 
 // =============================================================================
 // SQLite Dialect Implementation
@@ -38,9 +38,9 @@ pub(crate) trait Dialect: GeneratorPaths {}
 
 #[cfg(feature = "sqlite")]
 mod sqlite_impl {
-    use super::*;
+    use super::{Dialect, GeneratorPaths, TokenStream};
 
-    /// Marker struct for SQLite dialect
+    /// Marker struct for `SQLite` dialect
     pub struct SqliteDialect;
 
     impl GeneratorPaths for SqliteDialect {
@@ -65,7 +65,7 @@ mod sqlite_impl {
 }
 
 #[cfg(feature = "sqlite")]
-pub(crate) use sqlite_impl::SqliteDialect;
+pub use sqlite_impl::SqliteDialect;
 
 // =============================================================================
 // PostgreSQL Dialect Implementation
@@ -73,9 +73,9 @@ pub(crate) use sqlite_impl::SqliteDialect;
 
 #[cfg(feature = "postgres")]
 mod postgres_impl {
-    use super::*;
+    use super::{Dialect, GeneratorPaths, TokenStream};
 
-    /// Marker struct for PostgreSQL dialect
+    /// Marker struct for `PostgreSQL` dialect
     pub struct PostgresDialect;
 
     impl GeneratorPaths for PostgresDialect {
@@ -100,12 +100,12 @@ mod postgres_impl {
 }
 
 #[cfg(feature = "postgres")]
-pub(crate) use postgres_impl::PostgresDialect;
+pub use postgres_impl::PostgresDialect;
 
-/// Generate ToSQL trait implementation for a given dialect.
+/// Generate `ToSQL` trait implementation for a given dialect.
 ///
-/// This is a dialect-agnostic version that works with both SQLite and PostgreSQL.
-pub(crate) fn generate_to_sql<D: Dialect>(struct_ident: &Ident, body: TokenStream) -> TokenStream {
+/// This is a dialect-agnostic version that works with both `SQLite` and `PostgreSQL`.
+pub fn generate_to_sql<D: Dialect>(struct_ident: &Ident, body: &TokenStream) -> TokenStream {
     let to_sql = core_paths::to_sql();
     let sql = core_paths::sql();
     let value_type = D::value_type();
@@ -119,19 +119,19 @@ pub(crate) fn generate_to_sql<D: Dialect>(struct_ident: &Ident, body: TokenStrea
     }
 }
 
-/// Generate SQLColumn trait implementation for a given dialect.
+/// Generate `SQLColumn` trait implementation for a given dialect.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn generate_sql_column<D: Dialect>(
+pub fn generate_sql_column<D: Dialect>(
     struct_ident: &Ident,
-    table: TokenStream,
-    table_type: TokenStream,
-    foreign_keys: TokenStream,
-    r#type: TokenStream,
-    primary_key: TokenStream,
-    not_null: TokenStream,
-    unique: TokenStream,
-    default: TokenStream,
-    default_fn: TokenStream,
+    table: &TokenStream,
+    table_type: &TokenStream,
+    foreign_keys: &TokenStream,
+    r#type: &TokenStream,
+    primary_key: &TokenStream,
+    not_null: &TokenStream,
+    unique: &TokenStream,
+    default: &TokenStream,
+    default_fn: &TokenStream,
 ) -> TokenStream {
     let sql_column = core_paths::sql_column();
     let value_type = D::value_type();
@@ -156,7 +156,7 @@ pub(crate) fn generate_sql_column<D: Dialect>(
 }
 
 /// Configuration for generating an `SQLTable` trait implementation.
-pub(crate) struct SQLTableConfig<'a> {
+pub struct SQLTableConfig<'a> {
     pub struct_ident: &'a Ident,
     pub select: TokenStream,
     pub insert: TokenStream,
@@ -167,8 +167,8 @@ pub(crate) struct SQLTableConfig<'a> {
     pub constraints: TokenStream,
 }
 
-/// Generate SQLTable trait implementation for a given dialect.
-pub(crate) fn generate_sql_table<D: Dialect>(config: SQLTableConfig<'_>) -> TokenStream {
+/// Generate `SQLTable` trait implementation for a given dialect.
+pub fn generate_sql_table<D: Dialect>(config: SQLTableConfig<'_>) -> TokenStream {
     let tag = core_paths::tag();
     let sql_table = core_paths::sql_table();
     let sql_table_meta = core_paths::sql_table_meta();
@@ -209,12 +209,12 @@ pub(crate) fn generate_sql_table<D: Dialect>(config: SQLTableConfig<'_>) -> Toke
     }
 }
 
-/// Generate SQLSchema trait implementation for a given dialect.
-pub(crate) fn generate_sql_schema<D: Dialect>(
+/// Generate `SQLSchema` trait implementation for a given dialect.
+pub fn generate_sql_schema<D: Dialect>(
     struct_ident: &Ident,
-    name: TokenStream,
-    r#type: TokenStream,
-    const_sql: TokenStream,
+    name: &TokenStream,
+    r#type: &TokenStream,
+    const_sql: &TokenStream,
 ) -> TokenStream {
     let sql_schema = core_paths::sql_schema();
     let schema_type = D::schema_type();
@@ -229,12 +229,12 @@ pub(crate) fn generate_sql_schema<D: Dialect>(
     }
 }
 
-/// Generate SQLSchema for fields trait implementation for a given dialect.
-pub(crate) fn generate_sql_schema_field<D: Dialect>(
+/// Generate `SQLSchema` for fields trait implementation for a given dialect.
+pub fn generate_sql_schema_field<D: Dialect>(
     struct_ident: &Ident,
-    name: TokenStream,
-    r#type: TokenStream,
-    sql: TokenStream,
+    name: &TokenStream,
+    r#type: &TokenStream,
+    sql: &TokenStream,
 ) -> TokenStream {
     let sql_schema = core_paths::sql_schema();
     let value_type = D::value_type();

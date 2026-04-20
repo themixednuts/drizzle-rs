@@ -1,5 +1,6 @@
 use super::context::MacroContext;
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
+use crate::sqlite::field::SQLiteType;
 use crate::sqlite::{field::FieldInfo, generators::generate_to_sql};
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
@@ -9,7 +10,7 @@ use syn::{Result, Type, TypePath};
 // Common SQLite documentation URLs for error messages and macro docs
 const SQLITE_JSON_URL: &str = "https://sqlite.org/json1.html";
 
-pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
+pub fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
     // Create a filter for JSON fields
     let json_fields: Vec<_> = ctx.field_infos.iter().filter(|info| info.is_json).collect();
 
@@ -37,8 +38,6 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
     let expression = sqlite_paths::expr();
 
     // Track JSON type to SQLite storage type mapping and detect conflicts
-    use crate::sqlite::field::SQLiteType;
-
     let mut json_type_storage: HashMap<String, (SQLiteType, &FieldInfo)> = HashMap::new();
 
     // Check for conflicts and build the mapping
@@ -118,7 +117,7 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
         match s {
             SQLiteType::Text => generate_to_sql(
                 struct_ident,
-                quote! {
+                &quote! {
                     use ::std::borrow::Cow;
                     ::serde_json::to_string(self)
                         .map(#sqlite_value::from)
@@ -130,7 +129,7 @@ pub(crate) fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
             ),
             SQLiteType::Blob => generate_to_sql(
                 struct_ident,
-                quote! {
+                &quote! {
                     use ::std::borrow::Cow;
                     ::serde_json::to_vec(self)
                         .map(#sqlite_value::from)

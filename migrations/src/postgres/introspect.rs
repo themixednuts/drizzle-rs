@@ -1,6 +1,6 @@
-//! PostgreSQL database introspection
+//! `PostgreSQL` database introspection
 //!
-//! This module provides functionality to introspect an existing PostgreSQL database
+//! This module provides functionality to introspect an existing `PostgreSQL` database
 //! and extract its schema as DDL entities, matching drizzle-kit introspect.ts
 
 use super::ddl::{
@@ -43,7 +43,7 @@ pub type IntrospectResult<T> = Result<T, IntrospectError>;
 // Raw Query Result Types
 // =============================================================================
 
-/// Raw table info from information_schema
+/// Raw table info from `information_schema`
 #[derive(Debug, Clone)]
 pub struct RawTableInfo {
     pub schema: String,
@@ -51,7 +51,7 @@ pub struct RawTableInfo {
     pub is_rls_enabled: bool,
 }
 
-/// Raw column info from information_schema
+/// Raw column info from `information_schema`
 #[derive(Debug, Clone)]
 pub struct RawColumnInfo {
     pub schema: String,
@@ -216,7 +216,7 @@ pub struct IntrospectionResult {
 impl IntrospectionResult {
     /// Collect (schema, name) pairs for sequences owned by serial/bigserial columns.
     ///
-    /// These sequences are auto-managed by PostgreSQL and should not appear in the
+    /// These sequences are auto-managed by `PostgreSQL` and should not appear in the
     /// snapshot used for diffing — otherwise `push()` would try to DROP them.
     fn serial_owned_sequences(&self) -> HashSet<(String, String)> {
         let mut owned = HashSet::new();
@@ -232,6 +232,7 @@ impl IntrospectionResult {
     }
 
     /// Convert to a snapshot
+    #[must_use]
     pub fn to_snapshot(&self) -> PostgresSnapshot {
         let mut snapshot = PostgresSnapshot::new();
         let serial_seqs = self.serial_owned_sequences();
@@ -285,11 +286,13 @@ impl IntrospectionResult {
     }
 
     /// Check if introspection had any errors
-    pub fn has_errors(&self) -> bool {
+    #[must_use]
+    pub const fn has_errors(&self) -> bool {
         !self.errors.is_empty()
     }
 
     /// Get all entities as a vector
+    #[must_use]
     pub fn to_entities(&self) -> Vec<PostgresEntity> {
         let mut entities = Vec::new();
 
@@ -342,6 +345,7 @@ impl IntrospectionResult {
 // =============================================================================
 
 /// Process raw table info into Table entities
+#[must_use]
 pub fn process_tables(raw_tables: &[RawTableInfo]) -> Vec<Table> {
     raw_tables
         .iter()
@@ -355,6 +359,7 @@ pub fn process_tables(raw_tables: &[RawTableInfo]) -> Vec<Table> {
 }
 
 /// Process raw column info into Column entities
+#[must_use]
 pub fn process_columns(raw_columns: &[RawColumnInfo]) -> Vec<Column> {
     use super::ddl::{GeneratedType, IdentityType};
 
@@ -401,9 +406,9 @@ pub fn process_columns(raw_columns: &[RawColumnInfo]) -> Vec<Column> {
                 table: c.table.clone().into(),
                 name: c.name.clone().into(),
                 sql_type: c.column_type.clone().into(),
-                type_schema: c.type_schema.clone().map(|s| s.into()),
+                type_schema: c.type_schema.clone().map(std::convert::Into::into),
                 not_null: c.not_null,
-                default: c.default_value.clone().map(|s| s.into()),
+                default: c.default_value.clone().map(std::convert::Into::into),
                 generated,
                 identity,
                 dimensions: None,
@@ -414,6 +419,7 @@ pub fn process_columns(raw_columns: &[RawColumnInfo]) -> Vec<Column> {
 }
 
 /// Process raw enum info into Enum entities
+#[must_use]
 pub fn process_enums(raw_enums: &[RawEnumInfo]) -> Vec<Enum> {
     raw_enums
         .iter()
@@ -427,6 +433,7 @@ pub fn process_enums(raw_enums: &[RawEnumInfo]) -> Vec<Enum> {
 }
 
 /// Process raw sequence info into Sequence entities
+#[must_use]
 pub fn process_sequences(raw_sequences: &[RawSequenceInfo]) -> Vec<Sequence> {
     raw_sequences
         .iter()
@@ -445,6 +452,7 @@ pub fn process_sequences(raw_sequences: &[RawSequenceInfo]) -> Vec<Sequence> {
 }
 
 /// Process raw index info into Index entities
+#[must_use]
 pub fn process_indexes(raw_indexes: &[RawIndexInfo]) -> Vec<Index> {
     use super::ddl::Opclass;
 
@@ -471,7 +479,7 @@ pub fn process_indexes(raw_indexes: &[RawIndexInfo]) -> Vec<Index> {
                 name_explicit: true,
                 columns,
                 is_unique: i.is_unique,
-                where_clause: i.where_clause.clone().map(|s| s.into()),
+                where_clause: i.where_clause.clone().map(std::convert::Into::into),
                 method: Some(i.method.clone().into()),
                 concurrently: i.concurrent,
                 r#with: None,
@@ -480,7 +488,8 @@ pub fn process_indexes(raw_indexes: &[RawIndexInfo]) -> Vec<Index> {
         .collect()
 }
 
-/// Process raw foreign key info into ForeignKey entities
+/// Process raw foreign key info into `ForeignKey` entities
+#[must_use]
 pub fn process_foreign_keys(raw_fks: &[RawForeignKeyInfo]) -> Vec<ForeignKey> {
     raw_fks
         .iter()
@@ -500,7 +509,8 @@ pub fn process_foreign_keys(raw_fks: &[RawForeignKeyInfo]) -> Vec<ForeignKey> {
         .collect()
 }
 
-/// Process raw primary key info into PrimaryKey entities
+/// Process raw primary key info into `PrimaryKey` entities
+#[must_use]
 pub fn process_primary_keys(raw_pks: &[RawPrimaryKeyInfo]) -> Vec<PrimaryKey> {
     raw_pks
         .iter()
@@ -515,7 +525,8 @@ pub fn process_primary_keys(raw_pks: &[RawPrimaryKeyInfo]) -> Vec<PrimaryKey> {
         .collect()
 }
 
-/// Process raw unique constraint info into UniqueConstraint entities
+/// Process raw unique constraint info into `UniqueConstraint` entities
+#[must_use]
 pub fn process_unique_constraints(raw_uniques: &[RawUniqueInfo]) -> Vec<UniqueConstraint> {
     raw_uniques
         .iter()
@@ -531,7 +542,8 @@ pub fn process_unique_constraints(raw_uniques: &[RawUniqueInfo]) -> Vec<UniqueCo
         .collect()
 }
 
-/// Process raw check constraint info into CheckConstraint entities
+/// Process raw check constraint info into `CheckConstraint` entities
+#[must_use]
 pub fn process_check_constraints(raw_checks: &[RawCheckInfo]) -> Vec<CheckConstraint> {
     raw_checks
         .iter()
@@ -546,6 +558,7 @@ pub fn process_check_constraints(raw_checks: &[RawCheckInfo]) -> Vec<CheckConstr
 }
 
 /// Process raw view info into View entities
+#[must_use]
 pub fn process_views(raw_views: &[RawViewInfo]) -> Vec<View> {
     raw_views
         .iter()
@@ -565,6 +578,7 @@ pub fn process_views(raw_views: &[RawViewInfo]) -> Vec<View> {
 }
 
 /// Process raw policy info into Policy entities
+#[must_use]
 pub fn process_policies(raw_policies: &[RawPolicyInfo]) -> Vec<Policy> {
     use std::borrow::Cow;
 
@@ -581,14 +595,15 @@ pub fn process_policies(raw_policies: &[RawPolicyInfo]) -> Vec<Policy> {
                 as_clause: Some(p.as_clause.clone().into()),
                 for_clause: Some(p.for_clause.clone().into()),
                 to: Some(roles),
-                using: p.using.clone().map(|s| s.into()),
-                with_check: p.with_check.clone().map(|s| s.into()),
+                using: p.using.clone().map(std::convert::Into::into),
+                with_check: p.with_check.clone().map(std::convert::Into::into),
             }
         })
         .collect()
 }
 
 /// Process raw role info into Role entities
+#[must_use]
 pub fn process_roles(raw_roles: &[RawRoleInfo]) -> Vec<Role> {
     raw_roles
         .iter()
@@ -613,19 +628,19 @@ pub fn process_roles(raw_roles: &[RawRoleInfo]) -> Vec<Role> {
 // SQL Queries
 // =============================================================================
 
-/// SQL queries for PostgreSQL introspection
+/// SQL queries for `PostgreSQL` introspection
 pub mod queries {
     /// Query to get all schemas
-    pub const SCHEMAS_QUERY: &str = r#"
+    pub const SCHEMAS_QUERY: &str = r"
         SELECT nspname AS name
         FROM pg_namespace
         WHERE nspname NOT LIKE 'pg_%'
           AND nspname != 'information_schema'
         ORDER BY nspname
-    "#;
+    ";
 
     /// Query to get all tables
-    pub const TABLES_QUERY: &str = r#"
+    pub const TABLES_QUERY: &str = r"
         SELECT 
             schemaname AS schema,
             tablename AS name,
@@ -634,10 +649,10 @@ pub mod queries {
         WHERE schemaname NOT LIKE 'pg_%'
           AND schemaname != 'information_schema'
         ORDER BY schemaname, tablename
-    "#;
+    ";
 
     /// Query to get all columns
-    pub const COLUMNS_QUERY: &str = r#"
+    pub const COLUMNS_QUERY: &str = r"
         SELECT 
             c.table_schema AS schema,
             c.table_name AS table,
@@ -655,10 +670,10 @@ pub mod queries {
         WHERE c.table_schema NOT LIKE 'pg_%'
           AND c.table_schema != 'information_schema'
         ORDER BY c.table_schema, c.table_name, c.ordinal_position
-    "#;
+    ";
 
     /// Query to get all enums
-    pub const ENUMS_QUERY: &str = r#"
+    pub const ENUMS_QUERY: &str = r"
         SELECT 
             n.nspname AS schema,
             t.typname AS name,
@@ -670,7 +685,7 @@ pub mod queries {
           AND n.nspname != 'information_schema'
         GROUP BY n.nspname, t.typname
         ORDER BY n.nspname, t.typname
-    "#;
+    ";
 
     /// Query to get all sequences
     ///
@@ -682,7 +697,7 @@ pub mod queries {
     ///
     /// Value columns are nullable because the current user may lack
     /// privilege on the sequence.
-    pub const SEQUENCES_QUERY: &str = r#"
+    pub const SEQUENCES_QUERY: &str = r"
         SELECT
             n.nspname AS schema,
             c.relname AS name,
@@ -699,13 +714,13 @@ pub mod queries {
         WHERE n.nspname NOT LIKE 'pg_%'
           AND n.nspname != 'information_schema'
         ORDER BY n.nspname, c.relname
-    "#;
+    ";
 
     /// Query to get all views.
     ///
     /// Accepts `$1::text[]` — when non-NULL, scopes to those schemas;
     /// when NULL, returns all non-system views.
-    pub const VIEWS_QUERY: &str = r#"
+    pub const VIEWS_QUERY: &str = r"
         SELECT
             schemaname AS schema,
             viewname AS name,
@@ -726,10 +741,10 @@ pub mod queries {
            OR ($1::text[] IS NULL AND schemaname NOT LIKE 'pg_%'
                AND schemaname != 'information_schema')
         ORDER BY schema, name
-    "#;
+    ";
 
     /// Query to get all indexes
-    pub const INDEXES_QUERY: &str = r#"
+    pub const INDEXES_QUERY: &str = r"
 SELECT
     ns.nspname AS schema,
     tbl.relname AS table,
@@ -749,7 +764,7 @@ WHERE ns.nspname NOT LIKE 'pg_%'
   AND ns.nspname <> 'information_schema'
 GROUP BY ns.nspname, tbl.relname, idx.relname, ix.indisunique, ix.indisprimary, am.amname, ix.indpred, ix.indrelid
 ORDER BY ns.nspname, tbl.relname, idx.relname
-"#;
+";
 
     /// Schema-filtered variant of [`INDEXES_QUERY`].
     ///
@@ -757,7 +772,7 @@ ORDER BY ns.nspname, tbl.relname, idx.relname
     /// MVCC-protected and can fail if concurrent DDL drops an index.
     /// Scoping to specific schemas (`$1::text[]`) avoids encountering
     /// OIDs from schemas being modified by other sessions.
-    pub const INDEXES_QUERY_FILTERED: &str = r#"
+    pub const INDEXES_QUERY_FILTERED: &str = r"
 SELECT
     ns.nspname AS schema,
     tbl.relname AS table,
@@ -776,10 +791,10 @@ JOIN generate_series(1, ix.indnkeyatts) AS s(n) ON TRUE
 WHERE ns.nspname = ANY($1::text[])
 GROUP BY ns.nspname, tbl.relname, idx.relname, ix.indisunique, ix.indisprimary, am.amname, ix.indpred, ix.indrelid
 ORDER BY ns.nspname, tbl.relname, idx.relname
-"#;
+";
 
     /// Query to get all foreign keys
-    pub const FOREIGN_KEYS_QUERY: &str = r#"
+    pub const FOREIGN_KEYS_QUERY: &str = r"
 SELECT
     ns.nspname AS schema,
     tbl.relname AS table,
@@ -804,10 +819,10 @@ WHERE con.contype = 'f'
   AND ns.nspname <> 'information_schema'
 GROUP BY ns.nspname, tbl.relname, con.conname, ns_to.nspname, tbl_to.relname, con.confupdtype, con.confdeltype
 ORDER BY ns.nspname, tbl.relname, con.conname
-"#;
+";
 
     /// Query to get all primary keys
-    pub const PRIMARY_KEYS_QUERY: &str = r#"
+    pub const PRIMARY_KEYS_QUERY: &str = r"
 SELECT
     ns.nspname AS schema,
     tbl.relname AS table,
@@ -823,10 +838,10 @@ WHERE con.contype = 'p'
   AND ns.nspname <> 'information_schema'
 GROUP BY ns.nspname, tbl.relname, con.conname
 ORDER BY ns.nspname, tbl.relname, con.conname
-"#;
+";
 
     /// Query to get all unique constraints
-    pub const UNIQUES_QUERY: &str = r#"
+    pub const UNIQUES_QUERY: &str = r"
 SELECT
     ns.nspname AS schema,
     tbl.relname AS table,
@@ -843,10 +858,10 @@ WHERE con.contype = 'u'
   AND ns.nspname <> 'information_schema'
 GROUP BY ns.nspname, tbl.relname, con.conname
 ORDER BY ns.nspname, tbl.relname, con.conname
-"#;
+";
 
     /// Query to get all check constraints
-    pub const CHECKS_QUERY: &str = r#"
+    pub const CHECKS_QUERY: &str = r"
 SELECT
     ns.nspname AS schema,
     tbl.relname AS table,
@@ -859,14 +874,14 @@ WHERE con.contype = 'c'
   AND ns.nspname NOT LIKE 'pg_%'
   AND ns.nspname <> 'information_schema'
 ORDER BY ns.nspname, tbl.relname, con.conname
-"#;
+";
 
     /// Schema-filtered variant of [`CHECKS_QUERY`].
     ///
     /// `pg_get_expr()` calls `relation_open()` which is not MVCC-protected.
     /// Scoping to specific schemas avoids encountering OIDs from
     /// schemas being modified by other sessions.
-    pub const CHECKS_QUERY_FILTERED: &str = r#"
+    pub const CHECKS_QUERY_FILTERED: &str = r"
 SELECT
     ns.nspname AS schema,
     tbl.relname AS table,
@@ -878,10 +893,10 @@ JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
 WHERE con.contype = 'c'
   AND ns.nspname = ANY($1::text[])
 ORDER BY ns.nspname, tbl.relname, con.conname
-"#;
+";
 
     /// Query to get all roles
-    pub const ROLES_QUERY: &str = r#"
+    pub const ROLES_QUERY: &str = r"
 SELECT
     rolname AS name,
     rolcreatedb AS create_db,
@@ -889,10 +904,10 @@ SELECT
     rolinherit AS inherit
 FROM pg_roles
 ORDER BY rolname
-"#;
+";
 
     /// Query to get all policies
-    pub const POLICIES_QUERY: &str = r#"
+    pub const POLICIES_QUERY: &str = r"
 SELECT
     schemaname AS schema,
     tablename AS table,
@@ -906,23 +921,24 @@ FROM pg_policies
 WHERE schemaname NOT LIKE 'pg_%'
   AND schemaname <> 'information_schema'
 ORDER BY schemaname, tablename, policyname
-"#;
+";
 }
 
 // =============================================================================
 // Utility Functions
 // =============================================================================
 
-/// Convert PostgreSQL foreign key action codes to human-readable strings.
+/// Convert `PostgreSQL` foreign key action codes to human-readable strings.
 ///
-/// PostgreSQL stores FK actions as single-character codes in `pg_constraint`.
+/// `PostgreSQL` stores FK actions as single-character codes in `pg_constraint`.
+#[must_use]
 pub fn pg_action_code_to_string(code: &str) -> String {
     match code {
-        "a" => "NO ACTION",
         "r" => "RESTRICT",
         "c" => "CASCADE",
         "n" => "SET NULL",
         "d" => "SET DEFAULT",
+        // "a" (NO ACTION) and any unknown code fall through to NO ACTION.
         _ => "NO ACTION",
     }
     .to_string()
@@ -932,6 +948,7 @@ pub fn pg_action_code_to_string(code: &str) -> String {
 ///
 /// Each string is a single column expression like `"name"`, `"name DESC"`,
 /// `"lower(name)"`, or `"name text_pattern_ops"`.
+#[must_use]
 pub fn parse_index_columns(cols: Vec<String>) -> Vec<RawIndexColumnInfo> {
     cols.into_iter()
         .map(|c| {
@@ -942,7 +959,7 @@ pub fn parse_index_columns(cols: Vec<String>) -> Vec<RawIndexColumnInfo> {
             let nulls_first = upper.contains(" NULLS FIRST");
 
             // Strip sort/nulls directives for opclass parsing / expression detection.
-            let mut core = trimmed.clone();
+            let mut core = trimmed;
             for token in [" ASC", " DESC", " NULLS FIRST", " NULLS LAST"] {
                 if let Some(pos) = core.to_uppercase().find(token) {
                     core.truncate(pos);

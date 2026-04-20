@@ -1,4 +1,4 @@
-//! PostgreSQL Privilege DDL types
+//! `PostgreSQL` Privilege DDL types
 //!
 //! See: <https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts>
 
@@ -15,7 +15,7 @@ use crate::serde_helpers::cow_from_string;
 // Privilege Type Enum
 // =============================================================================
 
-/// PostgreSQL privilege type
+/// `PostgreSQL` privilege type
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "SCREAMING_SNAKE_CASE"))]
@@ -56,6 +56,7 @@ impl PrivilegeType {
     }
 
     /// Parse from SQL string
+    #[must_use]
     pub fn from_sql(s: &str) -> Option<Self> {
         match s.to_uppercase().as_str() {
             "ALL" => Some(Self::All),
@@ -117,7 +118,7 @@ impl PrivilegeDef {
         Self { grantor, ..self }
     }
 
-    /// Set is_grantable flag
+    /// Set `is_grantable` flag
     #[must_use]
     pub const fn grantable(self) -> Self {
         Self {

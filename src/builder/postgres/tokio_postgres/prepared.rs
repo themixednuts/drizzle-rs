@@ -38,7 +38,7 @@ impl From<OwnedPreparedStatement> for PreparedStatement<'_> {
     }
 }
 
-impl<'a> PreparedStatement<'a> {
+impl PreparedStatement<'_> {
     /// Gets the SQL query string with placeholders
     pub fn sql(&self) -> &str {
         self.inner.sql()
@@ -71,7 +71,7 @@ impl<'a> PreparedStatement<'a> {
     }
 }
 
-/// Owned PostgreSQL prepared statement wrapper.
+/// Owned `PostgreSQL` prepared statement wrapper.
 ///
 /// This is the owned counterpart to [`PreparedStatement`] that doesn't have any lifetime
 /// constraints. All data is owned by this struct, making it suitable for long-term storage,
@@ -101,7 +101,7 @@ impl OwnedPreparedStatement {
 
 postgres_prepared_async_impl!(Client, Row, ToSql);
 
-impl<'a> std::fmt::Display for PreparedStatement<'a> {
+impl std::fmt::Display for PreparedStatement<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.inner)
     }

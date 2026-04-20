@@ -65,63 +65,80 @@ impl Writer {
     }
 
     /// Set whether to use breakpoints in generated SQL
-    pub fn with_breakpoints(mut self, enabled: bool) -> Self {
+    #[must_use]
+    pub const fn with_breakpoints(mut self, enabled: bool) -> Self {
         self.breakpoints = enabled;
         self
     }
 
     /// Set the prefix mode for migration tags
-    pub fn with_prefix_mode(mut self, mode: PrefixMode) -> Self {
+    #[must_use]
+    pub const fn with_prefix_mode(mut self, mode: PrefixMode) -> Self {
         self.prefix_mode = mode;
         self
     }
 
     /// Set a custom name for the next migration
+    #[must_use]
     pub fn with_custom_name(mut self, name: impl Into<String>) -> Self {
         self.custom_name = Some(name.into());
         self
     }
 
     /// Get the migrations directory path
+    #[must_use]
     pub fn migrations_dir(&self) -> &Path {
         &self.out
     }
 
     /// Get the dialect
-    pub fn dialect(&self) -> Dialect {
+    #[must_use]
+    pub const fn dialect(&self) -> Dialect {
         self.dialect
     }
 
-    /// Ensure the migration directory exists
+    /// Ensure the migration directory exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the migrations directory cannot be created (e.g.
+    /// insufficient permissions or a conflicting non-directory file exists).
     pub fn ensure_dirs(&self) -> io::Result<()> {
         fs::create_dir_all(self.migrations_dir())?;
         Ok(())
     }
 
     /// Get the path to a migration folder
+    #[must_use]
     pub fn migration_folder_path(&self, tag: &str) -> PathBuf {
         self.out.join(tag)
     }
 
     /// Get the path to a migration SQL file (V3 format: folder/migration.sql)
+    #[must_use]
     pub fn migration_sql_path(&self, tag: &str) -> PathBuf {
         self.migration_folder_path(tag).join("migration.sql")
     }
 
     /// Get the path to a snapshot file (V3 format: folder/snapshot.json)
+    #[must_use]
     pub fn snapshot_path(&self, tag: &str) -> PathBuf {
         self.migration_folder_path(tag).join("snapshot.json")
     }
 
-    /// Discover all existing migration folders, sorted by name
+    /// Discover all existing migration folders, sorted by name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the migrations directory cannot be read.
     pub fn discover_migrations(&self) -> io::Result<Vec<String>> {
         if !self.out.exists() {
             return Ok(Vec::new());
         }
 
         let mut folders: Vec<String> = fs::read_dir(&self.out)?
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| entry.file_type().map(|t| t.is_dir()).unwrap_or(false))
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| entry.file_type().is_ok_and(|t| t.is_dir()))
             .filter_map(|entry| {
                 let name = entry.file_name().to_string_lossy().to_string();
                 // Check if it has a snapshot.json (indicates it's a migration folder)
@@ -137,15 +154,18 @@ impl Writer {
         Ok(folders)
     }
 
-    /// Load the previous snapshot by scanning existing migration folders
+    /// Load the previous snapshot by scanning existing migration folders.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the migrations directory cannot be read or the
+    /// found snapshot cannot be parsed.
     pub fn load_previous_snapshot(&self) -> io::Result<SQLiteSnapshot> {
         let migrations = self.discover_migrations()?;
 
-        if migrations.is_empty() {
+        let Some(last_tag) = migrations.last() else {
             return Ok(SQLiteSnapshot::new());
-        }
-
-        let last_tag = migrations.last().unwrap();
+        };
         let snapshot_path = self.snapshot_path(last_tag);
 
         if snapshot_path.exists() {
@@ -155,7 +175,13 @@ impl Writer {
         }
     }
 
-    /// Write a SQLite migration in V3 folder format
+    /// Write a `SQLite` migration in V3 folder format.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MigrationError::NoChanges`] if the diff produces no
+    /// statements, or [`MigrationError::IoError`] if any filesystem
+    /// operation fails during migration emission.
     pub fn write_sqlite_migration(
         &self,
         diff: &SqliteSchemaDiff,
@@ -169,7 +195,7 @@ impl Writer {
         let existing = self
             .discover_migrations()
             .map_err(|e| MigrationError::IoError(e.to_string()))?;
-        let idx = existing.len() as u32;
+        let idx = u32::try_from(existing.len()).unwrap_or(u32::MAX);
 
         // Generate tag
         let tag = match self.prefix_mode {
@@ -208,7 +234,7 @@ impl Writer {
             let prev_snapshot = self
                 .load_previous_snapshot()
                 .map_err(|e| MigrationError::IoError(e.to_string()))?;
-            vec![prev_snapshot.id.clone()]
+            vec![prev_snapshot.id]
         };
         snapshot.prev_ids = prev_ids;
         snapshot.id = uuid::Uuid::new_v4().to_string();
@@ -222,7 +248,12 @@ impl Writer {
         Ok(tag)
     }
 
-    /// Generate migration from comparing two snapshots
+    /// Generate migration from comparing two snapshots.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MigrationError::NoChanges`] if the snapshots diff is empty,
+    /// or any error produced by [`Self::write_sqlite_migration`].
     pub fn generate_migration_from_snapshots(
         &self,
         prev: &SQLiteSnapshot,
@@ -237,7 +268,12 @@ impl Writer {
         self.write_sqlite_migration(&diff, cur)
     }
 
-    /// Write a custom (empty) migration for user SQL
+    /// Write a custom (empty) migration for user SQL.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MigrationError::IoError`] if directory creation or file
+    /// writes fail while emitting the placeholder migration folder.
     pub fn write_custom_migration(&self) -> Result<String, MigrationError> {
         // Ensure base directory exists
         self.ensure_dirs()
@@ -247,7 +283,7 @@ impl Writer {
         let existing = self
             .discover_migrations()
             .map_err(|e| MigrationError::IoError(e.to_string()))?;
-        let idx = existing.len() as u32;
+        let idx = u32::try_from(existing.len()).unwrap_or(u32::MAX);
 
         // Generate tag
         let tag = match self.prefix_mode {
@@ -277,7 +313,7 @@ impl Writer {
         snapshot.prev_ids = if existing.is_empty() {
             vec![ORIGIN_UUID.to_string()]
         } else {
-            vec![prev_snapshot.id.clone()]
+            vec![prev_snapshot.id]
         };
         snapshot.id = uuid::Uuid::new_v4().to_string();
 

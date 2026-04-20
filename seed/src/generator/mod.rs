@@ -1,9 +1,9 @@
 //! Value generators for seeding database columns.
 
-pub(crate) mod numeric;
-pub(crate) mod special;
-pub(crate) mod string;
-pub(crate) mod temporal;
+pub mod numeric;
+pub mod special;
+pub mod string;
+pub mod temporal;
 
 /// Dialect-agnostic seed value (IR only — rendering to SQL is done by core).
 #[derive(Debug, Clone, PartialEq)]
@@ -84,93 +84,94 @@ pub enum GeneratorKind {
     Interval,
     /// Binary blob
     Blob,
-    /// PostgreSQL INET
+    /// `PostgreSQL` INET
     PgInet,
-    /// PostgreSQL CIDR
+    /// `PostgreSQL` CIDR
     PgCidr,
-    /// PostgreSQL MACADDR
+    /// `PostgreSQL` MACADDR
     PgMacAddr,
-    /// PostgreSQL MACADDR8
+    /// `PostgreSQL` MACADDR8
     PgMacAddr8,
-    /// PostgreSQL POINT
+    /// `PostgreSQL` POINT
     PgPoint,
-    /// PostgreSQL LINE
+    /// `PostgreSQL` LINE
     PgLine,
-    /// PostgreSQL LSEG
+    /// `PostgreSQL` LSEG
     PgLseg,
-    /// PostgreSQL BOX
+    /// `PostgreSQL` BOX
     PgBox,
-    /// PostgreSQL PATH
+    /// `PostgreSQL` PATH
     PgPath,
-    /// PostgreSQL POLYGON
+    /// `PostgreSQL` POLYGON
     PgPolygon,
-    /// PostgreSQL CIRCLE
+    /// `PostgreSQL` CIRCLE
     PgCircle,
-    /// PostgreSQL BIT
+    /// `PostgreSQL` BIT
     PgBit,
-    /// PostgreSQL VARBIT
+    /// `PostgreSQL` VARBIT
     PgVarBit,
-    /// PostgreSQL arrays (generic empty array literal)
+    /// `PostgreSQL` arrays (generic empty array literal)
     PgArray,
 }
 
 impl GeneratorKind {
     /// Create a boxed `Generator` instance for this kind.
+    #[must_use]
     pub fn into_generator(self) -> Box<dyn Generator> {
         match self {
-            GeneratorKind::IntPrimaryKey => Box::new(numeric::IntPrimaryKeyGen),
-            GeneratorKind::Int => Box::new(numeric::IntGen {
+            Self::IntPrimaryKey => Box::new(numeric::IntPrimaryKeyGen),
+            Self::Int => Box::new(numeric::IntGen {
                 min: 0,
                 max: 10_000,
             }),
-            GeneratorKind::Float => Box::new(numeric::FloatGen {
+            Self::Float => Box::new(numeric::FloatGen {
                 min: 0.0,
                 max: 10_000.0,
             }),
-            GeneratorKind::Bool => Box::new(numeric::BoolGen),
-            GeneratorKind::Text => Box::new(string::TextGen {
+            Self::Bool => Box::new(numeric::BoolGen),
+            Self::Text => Box::new(string::TextGen {
                 min_len: 5,
                 max_len: 50,
             }),
-            GeneratorKind::FirstName => Box::new(string::FirstNameGen),
-            GeneratorKind::LastName => Box::new(string::LastNameGen),
-            GeneratorKind::FullName => Box::new(string::FullNameGen),
-            GeneratorKind::Email => Box::new(string::EmailGen),
-            GeneratorKind::Phone => Box::new(string::PhoneGen),
-            GeneratorKind::City => Box::new(string::CityGen),
-            GeneratorKind::Country => Box::new(string::CountryGen),
-            GeneratorKind::Address => Box::new(string::AddressGen),
-            GeneratorKind::JobTitle => Box::new(string::JobTitleGen),
-            GeneratorKind::Company => Box::new(string::CompanyGen),
-            GeneratorKind::LoremIpsum => Box::new(string::LoremGen { words: 10 }),
-            GeneratorKind::Uuid => Box::new(special::UuidGen),
-            GeneratorKind::Json => Box::new(special::JsonGen),
-            GeneratorKind::Date => Box::new(temporal::DateGen),
-            GeneratorKind::Timestamp => Box::new(temporal::TimestampGen),
-            GeneratorKind::Time => Box::new(temporal::TimeGen),
-            GeneratorKind::TimeTz => Box::new(temporal::TimeTzGen),
-            GeneratorKind::Interval => Box::new(temporal::IntervalGen),
-            GeneratorKind::Blob => Box::new(special::BlobGen { size: 32 }),
-            GeneratorKind::PgInet => Box::new(special::InetGen),
-            GeneratorKind::PgCidr => Box::new(special::CidrGen),
-            GeneratorKind::PgMacAddr => Box::new(special::MacAddrGen),
-            GeneratorKind::PgMacAddr8 => Box::new(special::MacAddr8Gen),
-            GeneratorKind::PgPoint => Box::new(special::PointGen),
-            GeneratorKind::PgLine => Box::new(special::LineGen),
-            GeneratorKind::PgLseg => Box::new(special::LsegGen),
-            GeneratorKind::PgBox => Box::new(special::BoxGen),
-            GeneratorKind::PgPath => Box::new(special::PathGen),
-            GeneratorKind::PgPolygon => Box::new(special::PolygonGen),
-            GeneratorKind::PgCircle => Box::new(special::CircleGen),
-            GeneratorKind::PgBit => Box::new(special::BitGen {
+            Self::FirstName => Box::new(string::FirstNameGen),
+            Self::LastName => Box::new(string::LastNameGen),
+            Self::FullName => Box::new(string::FullNameGen),
+            Self::Email => Box::new(string::EmailGen),
+            Self::Phone => Box::new(string::PhoneGen),
+            Self::City => Box::new(string::CityGen),
+            Self::Country => Box::new(string::CountryGen),
+            Self::Address => Box::new(string::AddressGen),
+            Self::JobTitle => Box::new(string::JobTitleGen),
+            Self::Company => Box::new(string::CompanyGen),
+            Self::LoremIpsum => Box::new(string::LoremGen { words: 10 }),
+            Self::Uuid => Box::new(special::UuidGen),
+            Self::Json => Box::new(special::JsonGen),
+            Self::Date => Box::new(temporal::DateGen),
+            Self::Timestamp => Box::new(temporal::TimestampGen),
+            Self::Time => Box::new(temporal::TimeGen),
+            Self::TimeTz => Box::new(temporal::TimeTzGen),
+            Self::Interval => Box::new(temporal::IntervalGen),
+            Self::Blob => Box::new(special::BlobGen { size: 32 }),
+            Self::PgInet => Box::new(special::InetGen),
+            Self::PgCidr => Box::new(special::CidrGen),
+            Self::PgMacAddr => Box::new(special::MacAddrGen),
+            Self::PgMacAddr8 => Box::new(special::MacAddr8Gen),
+            Self::PgPoint => Box::new(special::PointGen),
+            Self::PgLine => Box::new(special::LineGen),
+            Self::PgLseg => Box::new(special::LsegGen),
+            Self::PgBox => Box::new(special::BoxGen),
+            Self::PgPath => Box::new(special::PathGen),
+            Self::PgPolygon => Box::new(special::PolygonGen),
+            Self::PgCircle => Box::new(special::CircleGen),
+            Self::PgBit => Box::new(special::BitGen {
                 min_len: 8,
                 max_len: 8,
             }),
-            GeneratorKind::PgVarBit => Box::new(special::BitGen {
+            Self::PgVarBit => Box::new(special::BitGen {
                 min_len: 1,
                 max_len: 32,
             }),
-            GeneratorKind::PgArray => Box::new(special::ArrayGen),
+            Self::PgArray => Box::new(special::ArrayGen),
         }
     }
 }

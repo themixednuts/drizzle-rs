@@ -1,15 +1,15 @@
-pub(crate) mod alias;
-pub(crate) mod attributes;
-pub(crate) mod column_definitions;
-pub(crate) mod context;
+pub mod alias;
+pub mod attributes;
+pub mod column_definitions;
+pub mod context;
 mod ddl;
 #[cfg(feature = "turso")]
 mod drivers;
 mod enum_impls;
 mod errors;
 mod json;
-pub(crate) mod models;
-pub(crate) mod traits;
+pub mod models;
+pub mod traits;
 mod validation;
 
 #[cfg(feature = "rusqlite")]
@@ -45,7 +45,7 @@ use syn::{DeriveInput, Result};
 // Main Macro Entry Point
 // ============================================================================
 
-pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<TokenStream> {
+pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<TokenStream> {
     // -------------------
     // 1. Setup Phase
     // -------------------
@@ -53,7 +53,7 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     let struct_vis = &input.vis;
     let table_name = table_name_from_attrs(struct_ident, attrs.name.clone());
 
-    let fields = struct_fields(&input, "SQLiteTable")?;
+    let fields = struct_fields(input, "SQLiteTable")?;
 
     let primary_key_count = count_primary_keys(fields, |field| {
         Ok(FieldInfo::from_field(field, false)?.is_primary)
@@ -93,7 +93,7 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
         select_model_partial_ident: format_ident!("PartialSelect{}", struct_ident),
         insert_model_ident: format_ident!("Insert{}", struct_ident),
         update_model_ident: format_ident!("Update{}", struct_ident),
-        attrs: &attrs,
+        attrs,
         is_composite_pk,
     };
 
@@ -102,11 +102,11 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     // -------------------
 
     let (column_definitions, column_zst_idents) = generate_column_definitions(&ctx)?;
-    let column_fields = generate_column_fields(&ctx, &column_zst_idents)?;
-    let column_accessors = generate_column_accessors(&ctx, &column_zst_idents)?;
+    let column_fields = generate_column_fields(&ctx, &column_zst_idents);
+    let column_accessors = generate_column_accessors(&ctx, &column_zst_idents);
     let table_impls = generate_table_impls(&ctx, &column_zst_idents, &required_fields_pattern)?;
     let model_definitions =
-        generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern)?;
+        generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern);
     let json_impls = generate_json_impls(&ctx)?;
     let alias_definitions = generate_aliased_table(&ctx)?;
 
@@ -130,7 +130,7 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
 
     // Generate query API code (relation ZSTs, accessors, FromJsonValue)
     #[cfg(feature = "query")]
-    let query_api_impls = generate_query_api_impls(&ctx)?;
+    let query_api_impls = generate_query_api_impls(&ctx);
     #[cfg(not(feature = "query"))]
     let query_api_impls = quote!();
 
@@ -138,7 +138,7 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     let default_validations = generate_default_validations(&field_infos);
 
     // Generate const DDL definitions
-    let const_ddl = generate_const_ddl(&ctx)?;
+    let const_ddl = generate_const_ddl(&ctx);
 
     let table_name = &ctx.table_name;
     let expanded = quote! {
@@ -190,11 +190,11 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     Ok(expanded)
 }
 
-/// Generate query API impls (RelationDef, accessors, FromJsonValue) for SQLite.
+/// Generate query API impls (`RelationDef`, accessors, `FromJsonValue`) for `SQLite`.
 ///
 /// Shared by both `#[SQLiteTable]` and `#[SQLiteView]`.
 #[cfg(feature = "query")]
-pub(crate) fn generate_query_api_impls(ctx: &MacroContext) -> Result<TokenStream> {
+pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
     use crate::common::query::{EnumStorage, FieldJsonInfo, FkInfo, generate_query_api};
     use crate::sqlite::field::SQLiteType;
 
@@ -232,14 +232,24 @@ pub(crate) fn generate_query_api_impls(ctx: &MacroContext) -> Result<TokenStream
             } else {
                 None
             };
+            // Determine mutually-exclusive read strategy. UUID wins over blob
+            // (UUIDs are stored as BLOB internally but parsed from strings in
+            // JSON). Bool is checked against the base Rust type.
+            let storage = if f.is_uuid {
+                crate::common::query::FieldStorageKind::Uuid
+            } else if crate::common::type_is_bool(f.base_type) {
+                crate::common::query::FieldStorageKind::Bool
+            } else if matches!(f.column_type, SQLiteType::Blob) {
+                crate::common::query::FieldStorageKind::Blob
+            } else {
+                crate::common::query::FieldStorageKind::Plain
+            };
             FieldJsonInfo {
                 ident: f.ident.clone(),
                 column_name: f.column_name.clone(),
                 is_nullable: f.is_nullable,
-                is_uuid: f.is_uuid,
-                is_blob: !f.is_uuid && matches!(f.column_type, SQLiteType::Blob),
                 is_json: f.is_json,
-                is_bool: crate::common::type_is_bool(f.base_type),
+                storage,
                 enum_storage,
                 base_type: f.base_type.clone(),
             }
@@ -253,7 +263,7 @@ pub(crate) fn generate_query_api_impls(ctx: &MacroContext) -> Result<TokenStream
         .map(|f| f.column_name.clone())
         .collect();
 
-    let inner = generate_query_api(
+    generate_query_api(
         struct_ident,
         ctx.struct_vis,
         table_name,
@@ -262,9 +272,7 @@ pub(crate) fn generate_query_api_impls(ctx: &MacroContext) -> Result<TokenStream
         &fk_infos,
         &field_json_infos,
         &column_names,
-    )?;
-
-    Ok(inner)
+    )
 }
 
 /// Generate a const that references the original table marker tokens from the attribute.

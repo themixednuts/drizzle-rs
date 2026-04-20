@@ -1,4 +1,4 @@
-//! PostgreSQL Sequence DDL types
+//! `PostgreSQL` Sequence DDL types
 //!
 //! See: <https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts>
 

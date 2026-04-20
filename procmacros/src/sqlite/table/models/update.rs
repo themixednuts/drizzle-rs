@@ -3,10 +3,9 @@ use super::convenience::generate_convenience_method;
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::Result;
 
 /// Generates the Update model with convenience methods
-pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
+pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
     let update_model = &ctx.update_model_ident;
     let empty_marker = core_paths::empty_marker();
     let non_empty_marker = core_paths::non_empty_marker();
@@ -27,7 +26,7 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
         field_base_types.push(info.base_type);
 
         // Generate field conversion for ToSQL
-        update_field_conversions.push(ctx.get_update_field_conversion(info));
+        update_field_conversions.push(MacroContext::get_update_field_conversion(info));
 
         // Generate convenience methods (each as standalone impl<'a, S> block)
         update_convenience_methods.push(generate_convenience_method(info, ModelType::Update, ctx));
@@ -36,7 +35,7 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
     // Clone field_names for repeated use in quote repetitions
     let field_names2 = field_names.clone();
 
-    Ok(quote! {
+    quote! {
         // Update Model — all 'a tokens generated within this single quote! block
         // S = Empty means no fields set yet; S = NonEmpty means at least one field was set.
         #[derive(Debug, Clone)]
@@ -65,5 +64,5 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
                 #sql::assignments_sql(assignments)
             }
         }
-    })
+    }
 }

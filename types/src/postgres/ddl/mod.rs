@@ -1,4 +1,4 @@
-//! PostgreSQL DDL (Data Definition Language) entity types
+//! `PostgreSQL` DDL (Data Definition Language) entity types
 //!
 //! This module provides two complementary types for each DDL entity:
 //!
@@ -25,7 +25,7 @@
 //!
 //! # PostgreSQL-Specific Features
 //!
-//! PostgreSQL DDL types include additional features not present in SQLite:
+//! `PostgreSQL` DDL types include additional features not present in `SQLite`:
 //!
 //! - **Schemas** - Namespace support (`public`, `custom_schema`, etc.)
 //! - **Enums** - User-defined enumerated types
@@ -131,10 +131,10 @@ pub use table::{Table, TableDef};
 // Unified Entity Enum
 // =============================================================================
 
-/// Unified PostgreSQL DDL entity enum for serialization
+/// Unified `PostgreSQL` DDL entity enum for serialization
 ///
 /// Uses internally-tagged enum representation where `entityType` discriminates variants.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "entityType"))]
 pub enum PostgresEntity {

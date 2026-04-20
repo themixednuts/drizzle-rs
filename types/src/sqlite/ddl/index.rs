@@ -1,4 +1,4 @@
-//! SQLite Index DDL types
+//! `SQLite` Index DDL types
 //!
 //! This module provides two complementary types:
 //! - [`IndexDef`] - A const-friendly definition type for compile-time schema definitions
@@ -281,7 +281,7 @@ impl Index {
 
     /// Make this a unique index
     #[must_use]
-    pub fn unique(mut self) -> Self {
+    pub const fn unique(mut self) -> Self {
         self.is_unique = true;
         self
     }

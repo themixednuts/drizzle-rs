@@ -14,7 +14,7 @@ use quote::quote;
 // =============================================================================
 
 pub mod std {
-    use super::*;
+    use super::{TokenStream, quote};
 
     pub fn option() -> TokenStream {
         quote!(::std::option::Option)
@@ -53,9 +53,9 @@ pub mod std {
 // CORE TYPES AND TRAITS
 // =============================================================================
 
-/// Core traits from drizzle::core
+/// Core traits from `drizzle::core`
 pub mod core {
-    use super::*;
+    use super::{TokenStream, quote};
 
     pub fn sql() -> TokenStream {
         quote!(drizzle::core::SQL)
@@ -83,6 +83,10 @@ pub mod core {
 
     pub fn column_ref() -> TokenStream {
         quote!(drizzle::core::ColumnRef)
+    }
+
+    pub fn column_flags() -> TokenStream {
+        quote!(drizzle::core::ColumnFlags)
     }
 
     pub fn column_dialect() -> TokenStream {
@@ -289,7 +293,7 @@ pub mod core {
         quote!(drizzle::core::impl_try_from_int)
     }
 
-    /// Path to the types module (DataType markers)
+    /// Path to the types module (`DataType` markers)
     pub fn types() -> TokenStream {
         quote!(drizzle::core::types)
     }
@@ -299,7 +303,7 @@ pub mod core {
         quote!(drizzle::core::expr)
     }
 
-    /// Path to the ToSQL trait
+    /// Path to the `ToSQL` trait
     pub fn to_sql_trait() -> TokenStream {
         quote!(drizzle::core::ToSQL)
     }
@@ -314,12 +318,12 @@ pub mod core {
         quote!(drizzle::core::Joinable)
     }
 
-    /// Path to the SchemaItemTables trait
+    /// Path to the `SchemaItemTables` trait
     pub fn schema_item_tables() -> TokenStream {
         quote!(drizzle::core::SchemaItemTables)
     }
 
-    /// Path to the SchemaHasTable marker trait.
+    /// Path to the `SchemaHasTable` marker trait.
     pub fn schema_has_table() -> TokenStream {
         quote!(drizzle::core::SchemaHasTable)
     }
@@ -339,12 +343,12 @@ pub mod core {
         quote!(drizzle::core::Concat)
     }
 
-    /// Path to the ConflictTarget trait.
+    /// Path to the `ConflictTarget` trait.
     pub fn conflict_target() -> TokenStream {
         quote!(drizzle::core::ConflictTarget)
     }
 
-    /// Path to the NamedConstraint trait.
+    /// Path to the `NamedConstraint` trait.
     pub fn named_constraint() -> TokenStream {
         quote!(drizzle::core::NamedConstraint)
     }
@@ -354,52 +358,52 @@ pub mod core {
         quote!(drizzle::core::Empty)
     }
 
-    /// Path to the NonEmpty marker (at least one field set on update model).
+    /// Path to the `NonEmpty` marker (at least one field set on update model).
     pub fn non_empty_marker() -> TokenStream {
         quote!(drizzle::core::NonEmpty)
     }
 
-    /// Path to the HasSelectModel trait (row inference).
+    /// Path to the `HasSelectModel` trait (row inference).
     pub fn has_select_model() -> TokenStream {
         quote!(drizzle::core::HasSelectModel)
     }
 
-    /// Path to the ExprValueType trait (row inference).
+    /// Path to the `ExprValueType` trait (row inference).
     pub fn expr_value_type() -> TokenStream {
         quote!(drizzle::core::ExprValueType)
     }
 
-    /// Path to the IntoSelectTarget trait (row inference).
+    /// Path to the `IntoSelectTarget` trait (row inference).
     pub fn into_select_target() -> TokenStream {
         quote!(drizzle::core::IntoSelectTarget)
     }
 
-    /// Path to the SelectCols marker (row inference).
+    /// Path to the `SelectCols` marker (row inference).
     pub fn select_cols() -> TokenStream {
         quote!(drizzle::core::SelectCols)
     }
 
-    /// Path to the SelectStar marker (row inference).
+    /// Path to the `SelectStar` marker (row inference).
     pub fn select_star() -> TokenStream {
         quote!(drizzle::core::SelectStar)
     }
 
-    /// Path to the RowColumnList trait (strict decode column-shape checks).
+    /// Path to the `RowColumnList` trait (strict decode column-shape checks).
     pub fn row_column_list() -> TokenStream {
         quote!(drizzle::core::RowColumnList)
     }
 
-    /// Path to the ValueTypeForDialect trait (bind parameter type mapping).
+    /// Path to the `ValueTypeForDialect` trait (bind parameter type mapping).
     pub fn value_type_for_dialect() -> TokenStream {
         quote!(drizzle::core::ValueTypeForDialect)
     }
 
-    /// Path to the SQLiteDialect marker type.
+    /// Path to the `SQLiteDialect` marker type.
     pub fn sqlite_dialect() -> TokenStream {
         quote!(drizzle::core::dialect::SQLiteDialect)
     }
 
-    /// Path to the PostgresDialect marker type.
+    /// Path to the `PostgresDialect` marker type.
     pub fn postgres_dialect() -> TokenStream {
         quote!(drizzle::core::dialect::PostgresDialect)
     }
@@ -411,7 +415,7 @@ pub mod core {
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
-    use super::*;
+    use super::{TokenStream, quote};
 
     pub fn sqlite_value() -> TokenStream {
         quote!(drizzle::sqlite::values::SQLiteValue)
@@ -445,7 +449,7 @@ pub mod sqlite {
         quote!(drizzle::sqlite::traits::FromSQLiteValue)
     }
 
-    /// Path to the DrizzleSQLiteColumn marker trait.
+    /// Path to the `DrizzleSQLiteColumn` marker trait.
     pub fn drizzle_sqlite_column() -> TokenStream {
         quote!(drizzle::sqlite::traits::DrizzleSQLiteColumn)
     }
@@ -462,7 +466,7 @@ pub mod sqlite {
         quote!(drizzle::sqlite::attrs::ColumnMarker)
     }
 
-    /// Path to the SQLite types module (Any, Integer, Text, Real, Blob, Numeric).
+    /// Path to the `SQLite` types module (Any, Integer, Text, Real, Blob, Numeric).
     pub fn types() -> TokenStream {
         quote!(drizzle::sqlite::types)
     }
@@ -472,7 +476,7 @@ pub mod sqlite {
 // DDL TYPES (from drizzle_types, exposed as drizzle::ddl)
 // =============================================================================
 
-/// DDL type paths - these point to drizzle::ddl (re-exported from drizzle_types)
+/// DDL type paths - these point to `drizzle::ddl` (re-exported from `drizzle_types`)
 pub mod ddl {
     pub mod sqlite {
         use proc_macro2::TokenStream;
@@ -590,7 +594,7 @@ pub mod ddl {
 // =============================================================================
 
 pub mod migrations {
-    use super::*;
+    use super::{TokenStream, quote};
 
     pub fn migration() -> TokenStream {
         quote!(drizzle::migrations::Migration)
@@ -610,7 +614,7 @@ pub mod migrations {
 
     // SQLite DDL types (from drizzle::ddl)
     pub mod sqlite {
-        use super::*;
+        use super::{TokenStream, quote};
 
         pub fn snapshot() -> TokenStream {
             quote!(drizzle::migrations::sqlite::SQLiteSnapshot)
@@ -699,7 +703,7 @@ pub mod migrations {
 
     // PostgreSQL DDL types (from drizzle::ddl)
     pub mod postgres {
-        use super::*;
+        use super::{TokenStream, quote};
 
         pub fn snapshot() -> TokenStream {
             quote!(drizzle::migrations::postgres::PostgresSnapshot)
@@ -805,7 +809,7 @@ pub mod migrations {
 
 #[cfg(feature = "postgres")]
 pub mod postgres {
-    use super::*;
+    use super::{TokenStream, quote};
 
     pub fn postgres_value() -> TokenStream {
         quote!(drizzle::postgres::values::PostgresValue)
@@ -851,17 +855,17 @@ pub mod postgres {
         quote!(drizzle::postgres::attrs::ColumnMarker)
     }
 
-    /// Path to the PostgreSQL types module (Int2, Int4, Text, Enum, etc.).
+    /// Path to the `PostgreSQL` types module (Int2, Int4, Text, Enum, etc.).
     pub fn types() -> TokenStream {
         quote!(drizzle::postgres::types)
     }
 
-    /// Path to the PostgresEnum trait.
+    /// Path to the `PostgresEnum` trait.
     pub fn postgres_enum_trait() -> TokenStream {
         quote!(drizzle::postgres::traits::PostgresEnum)
     }
 
-    /// Path to the DrizzlePostgresColumn marker trait.
+    /// Path to the `DrizzlePostgresColumn` marker trait.
     pub fn drizzle_postgres_column() -> TokenStream {
         quote!(drizzle::postgres::traits::DrizzlePostgresColumn)
     }

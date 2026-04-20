@@ -1,13 +1,13 @@
 //! Shared helper functions for procedural macro code generation.
 //!
-//! These utilities are used across both SQLite and PostgreSQL macro implementations
+//! These utilities are used across both `SQLite` and `PostgreSQL` macro implementations
 //! to reduce code duplication and ensure consistent behavior.
 
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Error, Expr, ExprPath, Field, Fields, Meta, Result};
 
-/// Create an ExprPath with an UPPERCASE ident but preserving the original span.
+/// Create an `ExprPath` with an UPPERCASE ident but preserving the original span.
 ///
 /// This is used to preserve IDE hover documentation while normalizing attribute names.
 ///
@@ -24,7 +24,7 @@ use syn::{Data, DeriveInput, Error, Expr, ExprPath, Field, Fields, Meta, Result}
 /// };
 /// assert_eq!(path.path.segments[0].ident.to_string(), "PRIMARY");
 /// ```
-pub(crate) fn make_uppercase_path(original_ident: &syn::Ident, uppercase_name: &str) -> ExprPath {
+pub fn make_uppercase_path(original_ident: &syn::Ident, uppercase_name: &str) -> ExprPath {
     let new_ident = syn::Ident::new(uppercase_name, original_ident.span());
     ExprPath {
         attrs: vec![],
@@ -35,7 +35,7 @@ pub(crate) fn make_uppercase_path(original_ident: &syn::Ident, uppercase_name: &
 
 /// Parse column reference from field attributes, looking for `#[column(Table::field)]`.
 ///
-/// This is used by FromRow derives to map struct fields to specific table columns,
+/// This is used by `FromRow` derives to map struct fields to specific table columns,
 /// which is especially useful for JOIN queries where multiple tables may have
 /// columns with the same name.
 ///
@@ -52,7 +52,7 @@ pub(crate) fn make_uppercase_path(original_ident: &syn::Ident, uppercase_name: &
 /// assert_eq!(expr_path.path.segments.len(), 2);
 /// # let _ = field;
 /// ```
-pub(crate) fn parse_column_reference(field: &Field) -> Option<ExprPath> {
+pub fn parse_column_reference(field: &Field) -> Option<ExprPath> {
     for attr in &field.attrs {
         if let Some(ident) = attr.path().get_ident()
             && ident == "column"
@@ -65,7 +65,7 @@ pub(crate) fn parse_column_reference(field: &Field) -> Option<ExprPath> {
     None
 }
 
-/// Extract struct fields from a DeriveInput, returning the fields and whether it's a tuple struct.
+/// Extract struct fields from a `DeriveInput`, returning the fields and whether it's a tuple struct.
 ///
 /// # Returns
 ///
@@ -77,7 +77,7 @@ pub(crate) fn parse_column_reference(field: &Field) -> Option<ExprPath> {
 /// Returns an error if:
 /// - The input is a unit struct (no fields)
 /// - The input is not a struct (enum or union)
-pub(crate) fn extract_struct_fields(
+pub fn extract_struct_fields(
     input: &DeriveInput,
 ) -> Result<(&syn::punctuated::Punctuated<Field, syn::token::Comma>, bool)> {
     let struct_name = &input.ident;
@@ -130,10 +130,10 @@ pub(crate) fn extract_struct_fields(
 /// assert!(impl_block.to_string().contains("TryFrom"));
 /// ```
 #[allow(dead_code)]
-pub(crate) fn generate_try_from_impl(
+pub fn generate_try_from_impl(
     struct_name: &syn::Ident,
-    row_type: TokenStream,
-    error_type: TokenStream,
+    row_type: &TokenStream,
+    error_type: &TokenStream,
     field_assignments: &[TokenStream],
     is_tuple: bool,
 ) -> TokenStream {
@@ -168,7 +168,7 @@ pub(crate) fn generate_try_from_impl(
 /// assert!(has_json);
 /// ```
 #[allow(dead_code)]
-pub(crate) fn has_attribute(field: &Field, attr_name: &str) -> bool {
+pub fn has_attribute(field: &Field, attr_name: &str) -> bool {
     field.attrs.iter().any(|attr| {
         attr.path()
             .get_ident()
@@ -178,7 +178,7 @@ pub(crate) fn has_attribute(field: &Field, attr_name: &str) -> bool {
 
 /// Check if a field has the `#[json]` attribute or `#[column(json)]`.
 ///
-/// This is used by FromRow derives to determine if a field should be
+/// This is used by `FromRow` derives to determine if a field should be
 /// deserialized from a JSON string using `serde_json::from_str`.
 ///
 /// # Example
@@ -205,7 +205,7 @@ pub(crate) fn has_attribute(field: &Field, attr_name: &str) -> bool {
 /// assert!(has_json);
 /// ```
 #[cfg(feature = "sqlite")]
-pub(crate) fn has_json_attribute(field: &Field) -> bool {
+pub fn has_json_attribute(field: &Field) -> bool {
     field.attrs.iter().any(|attr| {
         if attr.path().get_ident().is_some_and(|ident| ident == "json") {
             return true;
@@ -229,7 +229,7 @@ pub(crate) fn has_json_attribute(field: &Field) -> bool {
 ///
 /// This is useful for determining nullability of fields.
 #[allow(dead_code)]
-pub(crate) fn is_option_type(ty: &syn::Type) -> bool {
+pub fn is_option_type(ty: &syn::Type) -> bool {
     if let syn::Type::Path(type_path) = ty
         && let Some(segment) = type_path.path.segments.last()
     {
@@ -242,7 +242,7 @@ pub(crate) fn is_option_type(ty: &syn::Type) -> bool {
 ///
 /// Returns the original type if it's not an Option.
 #[allow(dead_code)]
-pub(crate) fn extract_option_inner(ty: &syn::Type) -> &syn::Type {
+pub fn extract_option_inner(ty: &syn::Type) -> &syn::Type {
     if let syn::Type::Path(type_path) = ty
         && let Some(segment) = type_path.path.segments.last()
         && segment.ident == "Option"

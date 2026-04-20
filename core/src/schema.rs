@@ -117,8 +117,8 @@ pub(crate) fn topological_order<'a>(
 impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for OrderBy {
     fn to_sql(&self) -> SQL<'a, V> {
         let sql_str = match self {
-            OrderBy::Asc => "ASC",
-            OrderBy::Desc => "DESC",
+            Self::Asc => "ASC",
+            Self::Desc => "DESC",
         };
         SQL::raw(sql_str)
     }

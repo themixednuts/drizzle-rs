@@ -19,7 +19,7 @@ fn append_sql<'a>(
 // Type State Markers
 //------------------------------------------------------------------------------
 
-/// Marker for the initial state of DeleteBuilder
+/// Marker for the initial state of `DeleteBuilder`
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DeleteInitial;
 
@@ -40,7 +40,7 @@ impl ExecutableState for DeleteReturningSet {}
 // DeleteBuilder Definition
 //------------------------------------------------------------------------------
 
-/// Builds a DELETE query specifically for SQLite.
+/// Builds a DELETE query specifically for `SQLite`.
 ///
 /// `DeleteBuilder` provides a type-safe, fluent API for constructing DELETE statements
 /// with support for conditional deletions and returning clauses.

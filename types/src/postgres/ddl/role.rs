@@ -1,4 +1,4 @@
-//! PostgreSQL Role DDL types
+//! `PostgreSQL` Role DDL types
 //!
 //! See: <https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts>
 
@@ -70,7 +70,7 @@ impl RoleDef {
         }
     }
 
-    /// Set create_db flag
+    /// Set `create_db` flag
     #[must_use]
     pub const fn create_db(self, value: bool) -> Self {
         Self {
@@ -79,7 +79,7 @@ impl RoleDef {
         }
     }
 
-    /// Set create_role flag
+    /// Set `create_role` flag
     #[must_use]
     pub const fn create_role(self, value: bool) -> Self {
         Self {
@@ -97,7 +97,7 @@ impl RoleDef {
         }
     }
 
-    /// Set can_login flag
+    /// Set `can_login` flag
     #[must_use]
     pub const fn can_login(self, value: bool) -> Self {
         Self {
@@ -115,7 +115,7 @@ impl RoleDef {
         }
     }
 
-    /// Set bypass_rls flag
+    /// Set `bypass_rls` flag
     #[must_use]
     pub const fn bypass_rls(self, value: bool) -> Self {
         Self {
@@ -142,7 +142,7 @@ impl RoleDef {
         }
     }
 
-    /// Set valid_until date
+    /// Set `valid_until` date
     #[must_use]
     pub const fn valid_until(self, date: &'static str) -> Self {
         Self {

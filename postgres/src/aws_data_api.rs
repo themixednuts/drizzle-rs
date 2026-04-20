@@ -47,36 +47,47 @@ pub struct Row {
 
 impl Row {
     /// Construct a row from a raw `Vec<Field>` and column metadata.
-    pub fn new(fields: Vec<Field>, metadata: Arc<[ColumnMetadata]>) -> Self {
+    #[must_use]
+    pub const fn new(fields: Vec<Field>, metadata: Arc<[ColumnMetadata]>) -> Self {
         Self { fields, metadata }
     }
 
     /// Number of columns in this row.
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.fields.len()
     }
 
     /// Whether the row has no columns.
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.fields.is_empty()
     }
 
     /// Raw `Field` slice.
+    #[must_use]
     pub fn fields(&self) -> &[Field] {
         &self.fields
     }
 
     /// Column metadata (shared).
+    #[must_use]
     pub fn metadata(&self) -> &[ColumnMetadata] {
         &self.metadata
     }
 
     /// Column name at `offset`, if known.
+    #[must_use]
     pub fn column_name(&self, offset: usize) -> Option<&str> {
         self.metadata.get(offset).and_then(|m| m.name.as_deref())
     }
 
     /// Typed accessor — delegates to `FromDrizzleRow`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ConversionError`] when the field at `offset`
+    /// cannot be decoded into `T`.
     pub fn try_get<T>(&self, offset: usize) -> Result<T, DrizzleError>
     where
         T: FromDrizzleRow<Self>,
@@ -86,7 +97,8 @@ impl Row {
 }
 
 /// Build a `Row` from the raw AWS Data API response pieces.
-pub fn row_from_parts(values: Vec<Field>, metadata: Arc<[ColumnMetadata]>) -> Row {
+#[must_use]
+pub const fn row_from_parts(values: Vec<Field>, metadata: Arc<[ColumnMetadata]>) -> Row {
     Row::new(values, metadata)
 }
 
@@ -111,7 +123,7 @@ fn field_at(row: &Row, offset: usize) -> Result<&Field, DrizzleError> {
 
 /// `true` if the field is an explicit NULL sentinel.
 #[inline]
-fn field_is_null(field: &Field) -> bool {
+const fn field_is_null(field: &Field) -> bool {
     matches!(field, Field::IsNull(true))
 }
 
@@ -141,10 +153,19 @@ fn expect_double(field: &Field) -> Result<f64, DrizzleError> {
     match field {
         Field::DoubleValue(v) => Ok(*v),
         // PostgreSQL real/double stored but returned as long when integer-valued.
-        Field::LongValue(v) => Ok(*v as f64),
+        Field::LongValue(v) => format!("{v}").parse::<f64>().map_err(|e| {
+            DrizzleError::ConversionError(format!("Cannot convert i64 to f64: {e}").into())
+        }),
         Field::IsNull(true) => null_error("float"),
         _ => unexpected(field, "DoubleValue"),
     }
+}
+
+#[inline]
+fn double_to_f32(v: f64) -> Result<f32, DrizzleError> {
+    format!("{v}").parse::<f32>().map_err(|e| {
+        DrizzleError::ConversionError(format!("Cannot convert f64 to f32: {e}").into())
+    })
 }
 
 #[inline]
@@ -263,7 +284,7 @@ impl FromDrizzleRow<Row> for Option<f64> {
 impl FromDrizzleRow<Row> for f32 {
     const COLUMN_COUNT: usize = 1;
     fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-        Ok(expect_double(field_at(row, offset)?)? as f32)
+        double_to_f32(expect_double(field_at(row, offset)?)?)
     }
 }
 
@@ -274,7 +295,7 @@ impl FromDrizzleRow<Row> for Option<f32> {
         if field_is_null(field) {
             return Ok(None);
         }
-        expect_double(field).map(|v| Some(v as f32))
+        expect_double(field).and_then(double_to_f32).map(Some)
     }
 }
 
@@ -344,13 +365,15 @@ impl FromDrizzleRow<Row> for Option<Vec<u8>> {
 
 #[cfg(feature = "uuid")]
 mod uuid_impls {
-    use super::*;
+    use super::{
+        DrizzleError, FromDrizzleRow, Row, expect_string, field_at, field_is_null, format,
+    };
 
     impl FromDrizzleRow<Row> for uuid::Uuid {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let s = expect_string(field_at(row, offset)?)?;
-            uuid::Uuid::parse_str(s).map_err(|e| {
+            Self::parse_str(s).map_err(|e| {
                 DrizzleError::ConversionError(format!("AWS Data API uuid: {e}").into())
             })
         }
@@ -373,7 +396,9 @@ mod uuid_impls {
 
 #[cfg(feature = "serde")]
 mod serde_impls {
-    use super::*;
+    use super::{
+        DrizzleError, FromDrizzleRow, Row, expect_string, field_at, field_is_null, format,
+    };
 
     impl FromDrizzleRow<Row> for serde_json::Value {
         const COLUMN_COUNT: usize = 1;
@@ -402,7 +427,10 @@ mod serde_impls {
 
 #[cfg(feature = "chrono")]
 mod chrono_impls {
-    use super::*;
+    use super::{
+        DrizzleError, FromDrizzleRow, Row, expect_string, field_at, field_is_null, format,
+        parse_interval_seconds,
+    };
     use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 
     fn parse<T, E>(
@@ -420,7 +448,7 @@ mod chrono_impls {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let s = expect_string(field_at(row, offset)?)?;
-            parse(s, "date", |v| NaiveDate::parse_from_str(v, "%Y-%m-%d"))
+            parse(s, "date", |v| Self::parse_from_str(v, "%Y-%m-%d"))
         }
     }
 
@@ -440,7 +468,7 @@ mod chrono_impls {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let s = expect_string(field_at(row, offset)?)?;
-            parse(s, "time", |v| NaiveTime::parse_from_str(v, "%H:%M:%S%.f"))
+            parse(s, "time", |v| Self::parse_from_str(v, "%H:%M:%S%.f"))
         }
     }
 
@@ -462,8 +490,8 @@ mod chrono_impls {
             let s = expect_string(field_at(row, offset)?)?;
             // AWS Data API returns timestamps without TZ as "YYYY-MM-DD HH:MM:SS[.fff]"
             parse(s, "timestamp", |v| {
-                NaiveDateTime::parse_from_str(v, "%Y-%m-%d %H:%M:%S%.f")
-                    .or_else(|_| NaiveDateTime::parse_from_str(v, "%Y-%m-%d %H:%M:%S"))
+                Self::parse_from_str(v, "%Y-%m-%d %H:%M:%S%.f")
+                    .or_else(|_| Self::parse_from_str(v, "%Y-%m-%d %H:%M:%S"))
             })
         }
     }
@@ -519,7 +547,7 @@ mod chrono_impls {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let s = expect_string(field_at(row, offset)?)?;
-            if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+            if let Ok(dt) = Self::parse_from_rfc3339(s) {
                 return Ok(dt);
             }
             // Postgres can return "YYYY-MM-DD HH:MM:SS[.fff]+HH" — try common forms.
@@ -529,7 +557,7 @@ mod chrono_impls {
                 "%Y-%m-%d %H:%M:%S%:z",
                 "%Y-%m-%d %H:%M:%S%z",
             ] {
-                if let Ok(dt) = DateTime::parse_from_str(s, fmt) {
+                if let Ok(dt) = Self::parse_from_str(s, fmt) {
                     return Ok(dt);
                 }
             }
@@ -558,7 +586,7 @@ mod chrono_impls {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let s = expect_string(field_at(row, offset)?)?;
-            parse_interval_seconds(s).map(chrono::Duration::seconds)
+            parse_interval_seconds(s).map(Self::seconds)
         }
     }
 
@@ -614,10 +642,7 @@ fn parse_interval_seconds(s: &str) -> Result<i64, DrizzleError> {
         return Ok(total);
     }
     // Remaining must be HH:MM:SS[.fff], with optional leading '-'
-    let (sign, body): (i64, &str) = match rest.strip_prefix('-') {
-        Some(r) => (-1, r),
-        None => (1, rest),
-    };
+    let (sign, body): (i64, &str) = rest.strip_prefix('-').map_or((1, rest), |r| (-1, r));
     let mut parts = body.split(':');
     let h: i64 = parts
         .next()
@@ -648,7 +673,10 @@ mod time_impls {
     //! optional `macros` feature of the `time` crate — the workspace only
     //! enables `formatting` + `parsing`. The formats AWS emits are simple
     //! enough that manual digit-splitting is fine.
-    use super::*;
+    use super::{
+        DrizzleError, FromDrizzleRow, Row, expect_string, field_at, field_is_null, format,
+        parse_interval_seconds,
+    };
     use time::format_description::well_known::Rfc3339;
     use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time};
 
@@ -799,7 +827,7 @@ mod time_impls {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let s = expect_string(field_at(row, offset)?)?;
-            if let Ok(dt) = OffsetDateTime::parse(s, &Rfc3339) {
+            if let Ok(dt) = Self::parse(s, &Rfc3339) {
                 return Ok(dt);
             }
             // No TZ → assume UTC, mirroring tokio-postgres behaviour.
@@ -827,7 +855,7 @@ mod time_impls {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let s = expect_string(field_at(row, offset)?)?;
-            parse_interval_seconds(s).map(time::Duration::seconds)
+            parse_interval_seconds(s).map(Self::seconds)
         }
     }
 
@@ -847,14 +875,16 @@ mod time_impls {
 
 #[cfg(feature = "rust-decimal")]
 mod decimal_impls {
-    use super::*;
+    use super::{
+        DrizzleError, FromDrizzleRow, Row, expect_string, field_at, field_is_null, format,
+    };
     use core::str::FromStr;
 
     impl FromDrizzleRow<Row> for rust_decimal::Decimal {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let s = expect_string(field_at(row, offset)?)?;
-            rust_decimal::Decimal::from_str(s).map_err(|e| {
+            Self::from_str(s).map_err(|e| {
                 DrizzleError::ConversionError(format!("AWS Data API decimal: {e}").into())
             })
         }
@@ -958,9 +988,7 @@ impl_array_leaf!(i16, decode_array_i64, |v: i64| i16::try_from(v).map_err(
 ));
 
 impl_array_leaf!(f64, decode_array_f64, |v: f64| Ok::<f64, DrizzleError>(v));
-impl_array_leaf!(f32, decode_array_f64, |v: f64| Ok::<f32, DrizzleError>(
-    v as f32
-));
+impl_array_leaf!(f32, decode_array_f64, |v: f64| double_to_f32(v));
 impl_array_leaf!(bool, decode_array_bool, |v: bool| Ok::<bool, DrizzleError>(
     v
 ));
@@ -980,13 +1008,16 @@ impl_array_leaf!(String, decode_array_string, |v: String| Ok::<
 
 #[cfg(feature = "arrayvec")]
 mod arrayvec_impls {
-    use super::*;
+    use super::{
+        DrizzleError, FromDrizzleRow, Row, expect_blob, expect_string, field_at, field_is_null,
+        format,
+    };
 
     impl<const N: usize> FromDrizzleRow<Row> for arrayvec::ArrayString<N> {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let s = expect_string(field_at(row, offset)?)?;
-            arrayvec::ArrayString::from(s).map_err(|_| {
+            Self::from(s).map_err(|_| {
                 DrizzleError::ConversionError(
                     format!(
                         "AWS Data API: string length {} exceeds ArrayString capacity {}",
@@ -1014,7 +1045,7 @@ mod arrayvec_impls {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let bytes = expect_blob(field_at(row, offset)?)?;
-            arrayvec::ArrayVec::try_from(bytes).map_err(|_| {
+            Self::try_from(bytes).map_err(|_| {
                 DrizzleError::ConversionError(
                     format!(
                         "AWS Data API: byte length {} exceeds ArrayVec capacity {}",
@@ -1041,12 +1072,12 @@ mod arrayvec_impls {
 
 #[cfg(feature = "bytes")]
 mod bytes_impls {
-    use super::*;
+    use super::{DrizzleError, FromDrizzleRow, Row, expect_blob, field_at, field_is_null};
 
     impl FromDrizzleRow<Row> for bytes::Bytes {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            expect_blob(field_at(row, offset)?).map(bytes::Bytes::copy_from_slice)
+            expect_blob(field_at(row, offset)?).map(Self::copy_from_slice)
         }
     }
 
@@ -1064,7 +1095,7 @@ mod bytes_impls {
     impl FromDrizzleRow<Row> for bytes::BytesMut {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            expect_blob(field_at(row, offset)?).map(bytes::BytesMut::from)
+            expect_blob(field_at(row, offset)?).map(Self::from)
         }
     }
 
@@ -1082,13 +1113,13 @@ mod bytes_impls {
 
 #[cfg(feature = "compact-str")]
 mod compact_str_impls {
-    use super::*;
+    use super::{DrizzleError, FromDrizzleRow, Row, expect_string, field_at, field_is_null};
 
     impl FromDrizzleRow<Row> for compact_str::CompactString {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let s = expect_string(field_at(row, offset)?)?;
-            Ok(compact_str::CompactString::new(s))
+            Ok(Self::new(s))
         }
     }
 
@@ -1107,7 +1138,7 @@ mod compact_str_impls {
 
 #[cfg(feature = "smallvec")]
 mod smallvec_impls {
-    use super::*;
+    use super::{DrizzleError, FromDrizzleRow, Row, expect_blob, field_at, field_is_null};
 
     // SmallVec<[u8; N]> — byte array backed. Stack-allocated up to N, spills
     // to heap beyond. We mirror the tokio-postgres impl by reading as Vec<u8>.
@@ -1115,7 +1146,7 @@ mod smallvec_impls {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let bytes = expect_blob(field_at(row, offset)?)?;
-            Ok(smallvec::SmallVec::from_slice(bytes))
+            Ok(Self::from_slice(bytes))
         }
     }
 
@@ -1134,10 +1165,12 @@ mod smallvec_impls {
 
 #[cfg(feature = "bit-vec")]
 mod bit_vec_impls {
-    use super::*;
+    use super::{
+        DrizzleError, FromDrizzleRow, Row, expect_string, field_at, field_is_null, format,
+    };
 
     /// Parse a bit string of the form "010110..." into a [`bit_vec::BitVec`].
-    /// The Data API returns BIT / BIT VARYING columns as StringValues in this
+    /// The Data API returns BIT / BIT VARYING columns as `StringValues` in this
     /// ASCII form (one char per bit).
     fn parse_bits(s: &str) -> Result<bit_vec::BitVec, DrizzleError> {
         let mut out = bit_vec::BitVec::with_capacity(s.len());
@@ -1177,14 +1210,16 @@ mod bit_vec_impls {
 
 #[cfg(feature = "cidr")]
 mod cidr_impls {
-    use super::*;
+    use super::{
+        DrizzleError, FromDrizzleRow, Row, expect_string, field_at, field_is_null, format,
+    };
     use core::str::FromStr;
 
     impl FromDrizzleRow<Row> for cidr::IpInet {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let s = expect_string(field_at(row, offset)?)?;
-            cidr::IpInet::from_str(s).map_err(|e| {
+            Self::from_str(s).map_err(|e| {
                 DrizzleError::ConversionError(format!("AWS Data API inet: {e}").into())
             })
         }
@@ -1208,7 +1243,7 @@ mod cidr_impls {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let s = expect_string(field_at(row, offset)?)?;
-            cidr::IpCidr::from_str(s).map_err(|e| {
+            Self::from_str(s).map_err(|e| {
                 DrizzleError::ConversionError(format!("AWS Data API cidr: {e}").into())
             })
         }
@@ -1231,12 +1266,14 @@ mod cidr_impls {
 
 #[cfg(feature = "geo-types")]
 mod geo_types_impls {
-    //! Geo-types leaf impls. The Data API returns PostGIS geometries as
-    //! StringValues containing either the Postgres literal (e.g. `(x,y)` for
+    //! Geo-types leaf impls. The Data API returns `PostGIS` geometries as
+    //! `StringValues` containing either the Postgres literal (e.g. `(x,y)` for
     //! POINT) or WKT. We parse the simple `(x,y)` / `[(x,y),...]` / `((x1,y1),(x2,y2))`
     //! forms emitted by our own `encode_field`, falling back to an error for
     //! anything else — users that need WKB / WKT can implement their own wrappers.
-    use super::*;
+    use super::{
+        DrizzleError, FromDrizzleRow, Row, Vec, expect_string, field_at, field_is_null, format,
+    };
     use geo_types::{Coord, LineString, Point, Rect};
 
     fn parse_xy(s: &str) -> Result<(f64, f64), DrizzleError> {
@@ -1262,7 +1299,7 @@ mod geo_types_impls {
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let s = expect_string(field_at(row, offset)?)?;
             let (x, y) = parse_xy(s)?;
-            Ok(Point::new(x, y))
+            Ok(Self::new(x, y))
         }
     }
 
@@ -1313,7 +1350,7 @@ mod geo_types_impls {
                 let (x, y) = parse_xy(tail)?;
                 coords.push(Coord { x, y });
             }
-            Ok(LineString::from(coords))
+            Ok(Self::from(coords))
         }
     }
 
@@ -1341,7 +1378,7 @@ mod geo_types_impls {
             let b = &b[3..]; // skip "),("
             let (x1, y1) = parse_xy(a)?;
             let (x2, y2) = parse_xy(b)?;
-            Ok(Rect::new(Coord { x: x1, y: y1 }, Coord { x: x2, y: y2 }))
+            Ok(Self::new(Coord { x: x1, y: y1 }, Coord { x: x2, y: y2 }))
         }
     }
 
@@ -1381,6 +1418,11 @@ where
 
 /// Public helper used by proc-macro-generated `NullProbeRow` impls. A row is
 /// "null at offset" if the field at that offset is `Field::IsNull(true)`.
+///
+/// # Errors
+///
+/// Returns [`DrizzleError::ConversionError`] when `offset` is out of bounds
+/// for the row.
 pub fn is_null_at(row: &Row, offset: usize) -> Result<bool, DrizzleError> {
     null_probe(row, offset)
 }
@@ -1403,107 +1445,104 @@ pub fn encode_param(name: impl Into<String>, value: &PostgresValue<'_>) -> SqlPa
     builder.build()
 }
 
-/// Split out so nested [`PostgresValue::Array`] can recurse.
-fn encode_field(value: &PostgresValue<'_>) -> (Field, Option<TypeHint>) {
+#[cfg(feature = "chrono")]
+fn encode_chrono_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
     match value {
-        PostgresValue::Null => (Field::IsNull(true), None),
-
-        PostgresValue::Smallint(v) => (Field::LongValue(*v as i64), None),
-        PostgresValue::Integer(v) => (Field::LongValue(*v as i64), None),
-        PostgresValue::Bigint(v) => (Field::LongValue(*v), None),
-        PostgresValue::Real(v) => (Field::DoubleValue(*v as f64), None),
-        PostgresValue::DoublePrecision(v) => (Field::DoubleValue(*v), None),
-        PostgresValue::Boolean(v) => (Field::BooleanValue(*v), None),
-
-        PostgresValue::Text(s) => (Field::StringValue(s.to_string()), None),
-        PostgresValue::Bytea(b) => (Field::BlobValue(Blob::new(b.to_vec())), None),
-
-        #[cfg(feature = "rust-decimal")]
-        PostgresValue::Numeric(d) => (Field::StringValue(d.to_string()), Some(TypeHint::Decimal)),
-
-        #[cfg(feature = "uuid")]
-        PostgresValue::Uuid(u) => (Field::StringValue(u.to_string()), Some(TypeHint::Uuid)),
-
-        #[cfg(feature = "serde")]
-        PostgresValue::Json(v) => (Field::StringValue(v.to_string()), Some(TypeHint::Json)),
-        #[cfg(feature = "serde")]
-        PostgresValue::Jsonb(v) => (Field::StringValue(v.to_string()), Some(TypeHint::Json)),
-
-        PostgresValue::Enum(e) => (Field::StringValue(e.variant_name().to_string()), None),
-
-        #[cfg(feature = "chrono")]
-        PostgresValue::Date(d) => (Field::StringValue(d.to_string()), Some(TypeHint::Date)),
-        #[cfg(feature = "chrono")]
-        PostgresValue::Time(t) => (Field::StringValue(t.to_string()), Some(TypeHint::Time)),
-        #[cfg(feature = "chrono")]
-        PostgresValue::Timestamp(ts) => (
+        PostgresValue::Date(d) => Some((Field::StringValue(d.to_string()), Some(TypeHint::Date))),
+        PostgresValue::Time(t) => Some((Field::StringValue(t.to_string()), Some(TypeHint::Time))),
+        PostgresValue::Timestamp(ts) => Some((
             Field::StringValue(ts.format("%Y-%m-%d %H:%M:%S%.f").to_string()),
             Some(TypeHint::Timestamp),
-        ),
-        #[cfg(feature = "chrono")]
-        PostgresValue::TimestampTz(ts) => (
+        )),
+        PostgresValue::TimestampTz(ts) => Some((
             Field::StringValue(ts.to_rfc3339()),
             Some(TypeHint::Timestamp),
-        ),
-        #[cfg(feature = "chrono")]
-        PostgresValue::Interval(dur) => (
+        )),
+        PostgresValue::Interval(dur) => Some((
             Field::StringValue(format!("{} seconds", dur.num_seconds())),
             None,
-        ),
+        )),
+        _ => None,
+    }
+}
 
-        #[cfg(feature = "time")]
-        PostgresValue::TimeDate(d) => (Field::StringValue(d.to_string()), Some(TypeHint::Date)),
-        #[cfg(feature = "time")]
-        PostgresValue::TimeTime(t) => (Field::StringValue(t.to_string()), Some(TypeHint::Time)),
-        #[cfg(feature = "time")]
-        PostgresValue::TimeTimestamp(ts) => (
+#[cfg(not(feature = "chrono"))]
+const fn encode_chrono_field(_: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
+    None
+}
+
+#[cfg(feature = "time")]
+fn encode_time_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
+    match value {
+        PostgresValue::TimeDate(d) => {
+            Some((Field::StringValue(d.to_string()), Some(TypeHint::Date)))
+        }
+        PostgresValue::TimeTime(t) => {
+            Some((Field::StringValue(t.to_string()), Some(TypeHint::Time)))
+        }
+        PostgresValue::TimeTimestamp(ts) => Some((
             Field::StringValue(ts.to_string()),
             Some(TypeHint::Timestamp),
-        ),
-        #[cfg(feature = "time")]
-        PostgresValue::TimeTimestampTz(ts) => (
+        )),
+        PostgresValue::TimeTimestampTz(ts) => Some((
             Field::StringValue(ts.to_string()),
             Some(TypeHint::Timestamp),
-        ),
-        #[cfg(feature = "time")]
-        PostgresValue::TimeInterval(dur) => (
+        )),
+        PostgresValue::TimeInterval(dur) => Some((
             Field::StringValue(format!("{} seconds", dur.whole_seconds())),
             None,
-        ),
+        )),
+        _ => None,
+    }
+}
 
-        #[cfg(feature = "cidr")]
-        PostgresValue::Inet(net) => (Field::StringValue(net.to_string()), None),
-        #[cfg(feature = "cidr")]
-        PostgresValue::Cidr(net) => (Field::StringValue(net.to_string()), None),
-        #[cfg(feature = "cidr")]
-        PostgresValue::MacAddr(mac) => (
+#[cfg(not(feature = "time"))]
+const fn encode_time_field(_: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
+    None
+}
+
+#[cfg(feature = "cidr")]
+fn encode_cidr_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
+    match value {
+        PostgresValue::Inet(net) => Some((Field::StringValue(net.to_string()), None)),
+        PostgresValue::Cidr(net) => Some((Field::StringValue(net.to_string()), None)),
+        PostgresValue::MacAddr(mac) => Some((
             Field::StringValue(format!(
                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
             )),
             None,
-        ),
-        #[cfg(feature = "cidr")]
-        PostgresValue::MacAddr8(mac) => (
+        )),
+        PostgresValue::MacAddr8(mac) => Some((
             Field::StringValue(format!(
                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], mac[6], mac[7]
             )),
             None,
-        ),
+        )),
+        _ => None,
+    }
+}
 
-        #[cfg(feature = "geo-types")]
-        PostgresValue::Point(p) => (Field::StringValue(format!("({},{})", p.x(), p.y())), None),
-        #[cfg(feature = "geo-types")]
+#[cfg(not(feature = "cidr"))]
+const fn encode_cidr_field(_: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
+    None
+}
+
+#[cfg(feature = "geo-types")]
+fn encode_geo_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
+    match value {
+        PostgresValue::Point(p) => {
+            Some((Field::StringValue(format!("({},{})", p.x(), p.y())), None))
+        }
         PostgresValue::LineString(line) => {
             let coords: Vec<String> = line
                 .coords()
                 .map(|c| format!("({},{})", c.x, c.y))
                 .collect();
-            (Field::StringValue(format!("[{}]", coords.join(","))), None)
+            Some((Field::StringValue(format!("[{}]", coords.join(","))), None))
         }
-        #[cfg(feature = "geo-types")]
-        PostgresValue::Rect(r) => (
+        PostgresValue::Rect(r) => Some((
             Field::StringValue(format!(
                 "(({},{}),({},{}))",
                 r.min().x,
@@ -1512,16 +1551,68 @@ fn encode_field(value: &PostgresValue<'_>) -> (Field, Option<TypeHint>) {
                 r.max().y
             )),
             None,
-        ),
+        )),
+        _ => None,
+    }
+}
 
-        #[cfg(feature = "bit-vec")]
+#[cfg(not(feature = "geo-types"))]
+const fn encode_geo_field(_: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
+    None
+}
+
+#[cfg(feature = "bit-vec")]
+fn encode_bitvec_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
+    match value {
         PostgresValue::BitVec(bv) => {
             let s: String = bv.iter().map(|b| if b { '1' } else { '0' }).collect();
-            (Field::StringValue(s), None)
+            Some((Field::StringValue(s), None))
         }
-
-        PostgresValue::Array(items) => (encode_array(items), None),
+        _ => None,
     }
+}
+
+#[cfg(not(feature = "bit-vec"))]
+const fn encode_bitvec_field(_: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
+    None
+}
+
+fn encode_core_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
+    match value {
+        PostgresValue::Null => Some((Field::IsNull(true), None)),
+        PostgresValue::Smallint(v) => Some((Field::LongValue(i64::from(*v)), None)),
+        PostgresValue::Integer(v) => Some((Field::LongValue(i64::from(*v)), None)),
+        PostgresValue::Bigint(v) => Some((Field::LongValue(*v), None)),
+        PostgresValue::Real(v) => Some((Field::DoubleValue(f64::from(*v)), None)),
+        PostgresValue::DoublePrecision(v) => Some((Field::DoubleValue(*v), None)),
+        PostgresValue::Boolean(v) => Some((Field::BooleanValue(*v), None)),
+        PostgresValue::Text(s) => Some((Field::StringValue(s.to_string()), None)),
+        PostgresValue::Bytea(b) => Some((Field::BlobValue(Blob::new(b.to_vec())), None)),
+        #[cfg(feature = "rust-decimal")]
+        PostgresValue::Numeric(d) => {
+            Some((Field::StringValue(d.to_string()), Some(TypeHint::Decimal)))
+        }
+        #[cfg(feature = "uuid")]
+        PostgresValue::Uuid(u) => Some((Field::StringValue(u.to_string()), Some(TypeHint::Uuid))),
+        #[cfg(feature = "serde")]
+        PostgresValue::Json(v) | PostgresValue::Jsonb(v) => {
+            Some((Field::StringValue(v.to_string()), Some(TypeHint::Json)))
+        }
+        PostgresValue::Enum(e) => Some((Field::StringValue(e.variant_name().to_string()), None)),
+        PostgresValue::Array(items) => Some((encode_array(items), None)),
+        _ => None,
+    }
+}
+
+/// Split out so nested [`PostgresValue::Array`] can recurse.
+fn encode_field(value: &PostgresValue<'_>) -> (Field, Option<TypeHint>) {
+    encode_core_field(value)
+        .or_else(|| encode_chrono_field(value))
+        .or_else(|| encode_time_field(value))
+        .or_else(|| encode_cidr_field(value))
+        .or_else(|| encode_geo_field(value))
+        .or_else(|| encode_bitvec_field(value))
+        .unwrap_or((Field::IsNull(true), None))
 }
 
 /// Collapse a `Vec<PostgresValue>` into `Field::ArrayValue(ArrayValue::...)`.
@@ -1542,8 +1633,8 @@ fn encode_array(items: &[PostgresValue<'_>]) -> Field {
             let mut out = Vec::with_capacity(items.len());
             for v in items {
                 let i = match v {
-                    V::Smallint(i) => *i as i64,
-                    V::Integer(i) => *i as i64,
+                    V::Smallint(i) => i64::from(*i),
+                    V::Integer(i) => i64::from(*i),
                     V::Bigint(i) => *i,
                     _ => return fallback_string_array(items),
                 };
@@ -1555,7 +1646,7 @@ fn encode_array(items: &[PostgresValue<'_>]) -> Field {
             let mut out = Vec::with_capacity(items.len());
             for v in items {
                 let f = match v {
-                    V::Real(f) => *f as f64,
+                    V::Real(f) => f64::from(*f),
                     V::DoublePrecision(f) => *f,
                     _ => return fallback_string_array(items),
                 };
@@ -1580,6 +1671,6 @@ fn encode_array(items: &[PostgresValue<'_>]) -> Field {
 }
 
 fn fallback_string_array(items: &[PostgresValue<'_>]) -> Field {
-    let out: Vec<String> = items.iter().map(|v| v.to_string()).collect();
+    let out: Vec<String> = items.iter().map(std::string::ToString::to_string).collect();
     Field::ArrayValue(ArrayValue::StringValues(out))
 }

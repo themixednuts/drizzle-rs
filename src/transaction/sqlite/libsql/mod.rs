@@ -45,13 +45,14 @@ impl<Schema> std::fmt::Debug for Transaction<Schema> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Transaction")
             .field("tx_type", &self.tx_type)
-            .finish()
+            .field("savepoint_depth", &self.savepoint_depth)
+            .finish_non_exhaustive()
     }
 }
 
 impl<Schema> Transaction<Schema> {
     /// Creates a new transaction wrapper
-    pub(crate) fn new(
+    pub(crate) const fn new(
         tx: libsql::Transaction,
         tx_type: SQLiteTransactionType,
         schema: Schema,
@@ -66,19 +67,19 @@ impl<Schema> Transaction<Schema> {
 
     /// Gets a reference to the schema.
     #[inline]
-    pub fn schema(&self) -> &Schema {
+    pub const fn schema(&self) -> &Schema {
         &self.schema
     }
 
     /// Gets a reference to the underlying transaction
     #[inline]
-    pub fn inner(&self) -> &libsql::Transaction {
+    pub const fn inner(&self) -> &libsql::Transaction {
         &self.tx
     }
 
     /// Gets the transaction type
     #[inline]
-    pub fn tx_type(&self) -> SQLiteTransactionType {
+    pub const fn tx_type(&self) -> SQLiteTransactionType {
         self.tx_type
     }
 
@@ -117,15 +118,19 @@ impl<Schema> Transaction<Schema> {
     /// }).await?;
     /// # "####;
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the savepoint cannot be created/released, or the inner closure returns an error.
     pub async fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where
         F: AsyncFnOnce(&Self) -> drizzle_core::error::Result<R>,
     {
         let depth = self.savepoint_depth.load(Ordering::Relaxed);
-        let sp_name = format!("drizzle_sp_{}", depth);
+        let sp_name = format!("drizzle_sp_{depth}");
         self.savepoint_depth.store(depth + 1, Ordering::Relaxed);
 
-        self.execute_raw(&format!("SAVEPOINT {}", sp_name)).await?;
+        self.execute_raw(&format!("SAVEPOINT {sp_name}")).await?;
 
         let result = f(self).await;
 
@@ -133,16 +138,16 @@ impl<Schema> Transaction<Schema> {
 
         match result {
             Ok(value) => {
-                self.execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name))
+                self.execute_raw(&format!("RELEASE SAVEPOINT {sp_name}"))
                     .await?;
                 Ok(value)
             }
             Err(e) => {
                 let _ = self
-                    .execute_raw(&format!("ROLLBACK TO SAVEPOINT {}", sp_name))
+                    .execute_raw(&format!("ROLLBACK TO SAVEPOINT {sp_name}"))
                     .await;
                 let _ = self
-                    .execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name))
+                    .execute_raw(&format!("RELEASE SAVEPOINT {sp_name}"))
                     .await;
                 Err(e)
             }
@@ -152,18 +157,26 @@ impl<Schema> Transaction<Schema> {
     sqlite_transaction_constructors!();
 
     /// Executes a raw query within the transaction
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the database call fails or the SQL is invalid.
     pub async fn execute<'a, T>(&self, query: T) -> Result<u64, DrizzleError>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
         let query = query.to_sql();
         let (sql, params) = query.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
+        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
         Ok(self.tx.execute(&sql, params).await?)
     }
 
     /// Runs a query and returns all matching rows within the transaction
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the query fails or row decoding fails.
     pub async fn all<'a, T, R>(&self, query: T) -> drizzle_core::error::Result<Vec<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -174,6 +187,10 @@ impl<Schema> Transaction<Schema> {
     }
 
     /// Runs a query and returns a row cursor within the transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the query fails.
     pub async fn rows<'a, T, R>(&self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -182,13 +199,17 @@ impl<Schema> Transaction<Schema> {
     {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
+        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
         let rows = self.tx.query(&sql_str, params).await?;
         Ok(Rows::new(rows))
     }
 
     /// Runs a query and returns a single row within the transaction
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the query fails, no rows match (returns `DrizzleError::NotFound`), or decoding fails.
     pub async fn get<'a, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -197,23 +218,30 @@ impl<Schema> Transaction<Schema> {
     {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
+        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
         let mut rows = self.tx.query(&sql_str, params).await?;
 
-        if let Some(row) = rows.next().await? {
-            R::try_from(&row).map_err(Into::into)
-        } else {
-            Err(DrizzleError::NotFound)
-        }
+        rows.next().await?.map_or_else(
+            || Err(DrizzleError::NotFound),
+            |row| R::try_from(&row).map_err(Into::into),
+        )
     }
 
     /// Commits the transaction using libsql's SQL commands
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the commit call to the database fails.
     pub async fn commit(self) -> Result<(), DrizzleError> {
         Ok(self.tx.commit().await?)
     }
 
     /// Rolls back the transaction using libsql's SQL commands
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the rollback call to the database fails.
     pub async fn rollback(self) -> Result<(), DrizzleError> {
         Ok(self.tx.rollback().await?)
     }
@@ -228,7 +256,7 @@ where
     /// Runs the query and returns the number of affected rows
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         let (sql, params) = self.builder.sql.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
+        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
         Ok(self.transaction.tx.execute(&sql, params).await?)
     }
@@ -243,7 +271,7 @@ where
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = self.builder.sql.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
+        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
         let mut rows = self.transaction.tx.query(&sql_str, params).await?;
         let mut decoded = Vec::new();
         while let Some(row) = rows.next().await? {
@@ -262,7 +290,7 @@ where
         for<'r> <Rw as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
     {
         let (sql_str, params) = self.builder.sql.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
+        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
         let rows = self.transaction.tx.query(&sql_str, params).await?;
         Ok(Rows::new(rows))
@@ -278,12 +306,11 @@ where
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = self.builder.sql.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(|p| p.into()).collect();
+        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
         let mut rows = self.transaction.tx.query(&sql_str, params).await?;
-        if let Some(row) = rows.next().await? {
-            <Mk as drizzle_core::row::DecodeSelectedRef<&::libsql::Row, R>>::decode(&row)
-        } else {
-            Err(DrizzleError::NotFound)
-        }
+        rows.next().await?.map_or_else(
+            || Err(DrizzleError::NotFound),
+            |row| <Mk as drizzle_core::row::DecodeSelectedRef<&::libsql::Row, R>>::decode(&row),
+        )
     }
 }

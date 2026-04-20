@@ -1,4 +1,4 @@
-//! PostgreSQL ILIKE operators.
+//! `PostgreSQL` ILIKE operators.
 
 use crate::values::PostgresValue;
 use drizzle_core::{SQL, ToSQL};
@@ -18,12 +18,12 @@ use drizzle_core::{SQL, ToSQL};
 pub fn ilike<'a, L, R>(left: L, pattern: R) -> SQL<'a, PostgresValue<'a>>
 where
     L: ToSQL<'a, PostgresValue<'a>>,
-    R: Into<PostgresValue<'a>> + ToSQL<'a, PostgresValue<'a>>,
+    R: Into<PostgresValue<'a>>,
 {
     use drizzle_core::sql::SQLChunk;
     left.to_sql()
         .push(SQLChunk::Raw("ILIKE".into()))
-        .append(pattern.to_sql())
+        .append(SQL::param(pattern.into()))
 }
 
 /// Case-insensitive NOT LIKE pattern matching (PostgreSQL-specific)
@@ -41,11 +41,11 @@ where
 pub fn not_ilike<'a, L, R>(left: L, pattern: R) -> SQL<'a, PostgresValue<'a>>
 where
     L: ToSQL<'a, PostgresValue<'a>>,
-    R: Into<PostgresValue<'a>> + ToSQL<'a, PostgresValue<'a>>,
+    R: Into<PostgresValue<'a>>,
 {
     use drizzle_core::sql::{SQLChunk, Token};
     left.to_sql()
         .push(Token::NOT)
         .push(SQLChunk::Raw("ILIKE".into()))
-        .append(pattern.to_sql())
+        .append(SQL::param(pattern.into()))
 }

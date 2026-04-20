@@ -1,16 +1,16 @@
-//! Shared field assignment generation for postgres-sync and tokio-postgres FromRow derive.
+//! Shared field assignment generation for postgres-sync and tokio-postgres `FromRow` derive.
 //!
-//! Both drivers use the shared DrizzleRow::get_column interface for unified type conversion
-//! via the FromPostgresValue trait, while standard types use the native driver's get method.
+//! Both drivers use the shared `DrizzleRow::get_column` interface for unified type conversion
+//! via the `FromPostgresValue` trait, while standard types use the native driver's get method.
 
 use crate::postgres::field::TypeCategory;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Field, Result};
+use syn::Field;
 
-/// Driver-specific configuration for PostgreSQL row access
+/// Driver-specific configuration for `PostgreSQL` row access
 #[allow(dead_code)]
-pub(crate) trait DriverConfig {
+pub trait DriverConfig {
     /// Get the row type for this driver
     fn row_type() -> TokenStream;
 
@@ -20,7 +20,7 @@ pub(crate) trait DriverConfig {
 
 /// Configuration for postgres-sync driver
 #[allow(dead_code)]
-pub(crate) struct PostgresSyncDriver;
+pub struct PostgresSyncDriver;
 
 impl DriverConfig for PostgresSyncDriver {
     fn row_type() -> TokenStream {
@@ -34,7 +34,7 @@ impl DriverConfig for PostgresSyncDriver {
 
 /// Configuration for tokio-postgres driver
 #[allow(dead_code)]
-pub(crate) struct TokioPostgresDriver;
+pub struct TokioPostgresDriver;
 
 impl DriverConfig for TokioPostgresDriver {
     fn row_type() -> TokenStream {
@@ -69,21 +69,22 @@ fn extract_inner_type(ty: &syn::Type) -> &syn::Type {
 
 /// Generate field assignment using the driver-agnostic approach.
 ///
-/// For special types like ArrayVec/ArrayString, uses DrizzleRow::get_column
-/// with FromPostgresValue trait. For standard types, uses the native driver's get method.
-pub(crate) fn generate_field_assignment(
+/// For special types like ArrayVec/ArrayString, uses `DrizzleRow::get_column`
+/// with `FromPostgresValue` trait. For standard types, uses the native driver's get method.
+pub fn generate_field_assignment(
     idx: usize,
     field: &Field,
     field_name: Option<&syn::Ident>,
-) -> Result<TokenStream> {
+) -> TokenStream {
     let category = TypeCategory::from_type(&field.ty);
 
-    let idx_or_name = if let Some(field_name) = field_name {
-        let field_name_str = field_name.to_string();
-        quote! { #field_name_str }
-    } else {
-        quote! { #idx }
-    };
+    let idx_or_name = field_name.map_or_else(
+        || quote! { #idx },
+        |field_name| {
+            let field_name_str = field_name.to_string();
+            quote! { #field_name_str }
+        },
+    );
 
     let target_type = extract_inner_type(&field.ty);
     let is_optional = is_option_type(&field.ty);
@@ -135,26 +136,28 @@ pub(crate) fn generate_field_assignment(
         }
     };
 
-    let name = if let Some(field_name) = field_name {
-        quote! {
-            #field_name: #assignment,
-        }
-    } else {
-        quote! {
-            #assignment,
-        }
-    };
-    Ok(name)
+    field_name.map_or_else(
+        || {
+            quote! {
+                #assignment,
+            }
+        },
+        |field_name| {
+            quote! {
+                #field_name: #assignment,
+            }
+        },
+    )
 }
 
 /// Generate field assignment using an arbitrary index expression.
 ///
-/// Used by FromDrizzleRow::from_row_at for offset-aware decoding.
-pub(crate) fn generate_field_assignment_with_index_expr(
-    idx_expr: TokenStream,
+/// Used by `FromDrizzleRow::from_row_at` for offset-aware decoding.
+pub fn generate_field_assignment_with_index_expr(
+    idx_expr: &TokenStream,
     field: &Field,
     field_name: Option<&syn::Ident>,
-) -> Result<TokenStream> {
+) -> TokenStream {
     let category = TypeCategory::from_type(&field.ty);
     let target_type = extract_inner_type(&field.ty);
     let is_optional = is_option_type(&field.ty);
@@ -187,15 +190,18 @@ pub(crate) fn generate_field_assignment_with_index_expr(
         }
     };
 
-    if let Some(field_name) = field_name {
-        Ok(quote! {
-            #field_name: #assignment,
-        })
-    } else {
-        Ok(quote! {
-            #assignment,
-        })
-    }
+    field_name.map_or_else(
+        || {
+            quote! {
+                #assignment,
+            }
+        },
+        |field_name| {
+            quote! {
+                #field_name: #assignment,
+            }
+        },
+    )
 }
 
 /// Generate named field assignment that decodes by name at top-level
@@ -203,11 +209,11 @@ pub(crate) fn generate_field_assignment_with_index_expr(
 ///
 /// This preserves named-struct behavior for top-level selects while keeping
 /// offset-aware decoding correct when nested in larger selections.
-pub(crate) fn generate_named_field_assignment_with_offset_fallback(
+pub fn generate_named_field_assignment_with_offset_fallback(
     idx: usize,
     field: &Field,
     field_name: &syn::Ident,
-) -> Result<TokenStream> {
+) -> TokenStream {
     let category = TypeCategory::from_type(&field.ty);
     let target_type = extract_inner_type(&field.ty);
     let is_optional = is_option_type(&field.ty);
@@ -258,7 +264,7 @@ pub(crate) fn generate_named_field_assignment_with_offset_fallback(
         )
     };
 
-    Ok(quote! {
+    quote! {
         #field_name: if offset == 0 { #by_name } else { #by_index },
-    })
+    }
 }

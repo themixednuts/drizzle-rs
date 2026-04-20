@@ -1,14 +1,14 @@
-pub(crate) mod alias;
-pub(crate) mod attributes;
-pub(crate) mod aws_data_api;
-pub(crate) mod column_definitions;
-pub(crate) mod context;
+pub mod alias;
+pub mod attributes;
+pub mod aws_data_api;
+pub mod column_definitions;
+pub mod context;
 mod ddl;
-pub(crate) mod drivers;
+pub mod drivers;
 mod errors;
 mod json;
-pub(crate) mod models;
-pub(crate) mod traits;
+pub mod models;
+pub mod traits;
 
 use super::field::{FieldInfo, generate_table_meta_json};
 use crate::common::{
@@ -32,7 +32,7 @@ use traits::generate_table_impls;
 // Main Macro Entry Point
 // ============================================================================
 
-pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<TokenStream> {
+pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<TokenStream> {
     // -------------------
     // 1. Setup Phase
     // -------------------
@@ -40,7 +40,7 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     let struct_vis = &input.vis;
     let table_name = table_name_from_attrs(struct_ident, attrs.name.clone());
 
-    let fields = struct_fields(&input, "PostgresTable")?;
+    let fields = struct_fields(input, "PostgresTable")?;
 
     let primary_key_count = count_primary_keys(fields, |field| {
         Ok(FieldInfo::from_field(field, false)?.is_primary)
@@ -65,31 +65,32 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
         insert_model_ident: format_ident!("Insert{}", struct_ident),
         update_model_ident: format_ident!("Update{}", struct_ident),
         is_composite_pk,
-        attrs: &attrs,
+        attrs,
     };
 
     // Calculate required fields pattern for const generic
-    let required_fields_pattern =
-        required_fields_pattern(&field_infos, |info| ctx.is_field_optional_in_insert(info));
+    let required_fields_pattern = required_fields_pattern(&field_infos, |info| {
+        MacroContext::is_field_optional_in_insert(info)
+    });
 
     // -------------------
     // 2. Generation Phase
     // -------------------
     let (column_definitions, column_zst_idents) = generate_column_definitions(&ctx)?;
-    let column_fields = generate_column_fields(&ctx, &column_zst_idents)?;
-    let column_accessors = generate_column_accessors(&ctx, &column_zst_idents)?;
+    let column_fields = generate_column_fields(&ctx, &column_zst_idents);
+    let column_accessors = generate_column_accessors(&ctx, &column_zst_idents);
 
     let table_impls = generate_table_impls(&ctx, &column_zst_idents, &required_fields_pattern)?;
     let model_definitions =
-        generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern)?;
-    let alias_definitions = generate_aliased_table(&ctx)?;
+        generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern);
+    let alias_definitions = generate_aliased_table(&ctx);
 
     // Generate TryFrom implementations for all enabled PostgreSQL drivers
-    let driver_impls = drivers::generate_all_driver_impls(&ctx)?;
+    let driver_impls = drivers::generate_all_driver_impls(&ctx);
 
     // Generate AWS Aurora Data API row conversion impls (gated on `aws-data-api`
     // feature in drizzle-macros; emits empty TokenStream otherwise).
-    let aws_driver_impls = aws_data_api::generate_aws_data_api_impls(&ctx)?;
+    let aws_driver_impls = aws_data_api::generate_aws_data_api_impls(&ctx);
 
     // Generate TryInto<PostgresValue> implementations for custom JSON types
     let json_impls = json::generate_json_impls(&ctx)?;
@@ -98,11 +99,11 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     let table_marker_const = generate_table_marker_const(struct_ident, &attrs.marker_exprs);
 
     // Generate const DDL entities
-    let const_ddl = generate_const_ddl(&ctx, &column_zst_idents)?;
+    let const_ddl = generate_const_ddl(&ctx, &column_zst_idents);
 
     // Generate query API code (relation ZSTs, accessors, FromJsonValue)
     #[cfg(feature = "query")]
-    let query_api_impls = generate_query_api_impls(&ctx)?;
+    let query_api_impls = generate_query_api_impls(&ctx);
     #[cfg(not(feature = "query"))]
     let query_api_impls = quote!();
 
@@ -156,11 +157,11 @@ pub fn table_attr_macro(input: DeriveInput, attrs: TableAttributes) -> Result<To
     Ok(expanded)
 }
 
-/// Generate query API impls (RelationDef, accessors, FromJsonValue) for PostgreSQL.
+/// Generate query API impls (`RelationDef`, accessors, `FromJsonValue`) for `PostgreSQL`.
 ///
 /// Shared by both `#[PostgresTable]` and `#[PostgresView]`.
 #[cfg(feature = "query")]
-pub(crate) fn generate_query_api_impls(ctx: &MacroContext) -> Result<TokenStream> {
+pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
     use crate::common::query::{EnumStorage, FieldJsonInfo, FkInfo, generate_query_api};
     use crate::common::type_is_uuid;
     use crate::postgres::field::PostgreSQLType;
@@ -206,14 +207,20 @@ pub(crate) fn generate_query_api_impls(ctx: &MacroContext) -> Result<TokenStream
             } else {
                 None
             };
+            // PostgreSQL handles all types natively in json_build_object, and
+            // produces JSON true/false for booleans — so only UUID needs
+            // special-case reading; everything else is plain.
+            let storage = if type_is_uuid(&f.base_type) {
+                crate::common::query::FieldStorageKind::Uuid
+            } else {
+                crate::common::query::FieldStorageKind::Plain
+            };
             FieldJsonInfo {
                 ident: f.ident.clone(),
                 column_name: f.column_name.clone(),
                 is_nullable: f.is_nullable,
-                is_uuid: type_is_uuid(&f.base_type),
-                is_blob: false, // PostgreSQL handles all types natively in json_build_object
                 is_json: f.is_json,
-                is_bool: false, // PostgreSQL correctly produces JSON true/false for booleans
+                storage,
                 enum_storage,
                 base_type: f.base_type.clone(),
             }
@@ -227,7 +234,7 @@ pub(crate) fn generate_query_api_impls(ctx: &MacroContext) -> Result<TokenStream
         .map(|f| f.column_name.clone())
         .collect();
 
-    let inner = generate_query_api(
+    generate_query_api(
         struct_ident,
         ctx.struct_vis,
         table_name,
@@ -236,9 +243,7 @@ pub(crate) fn generate_query_api_impls(ctx: &MacroContext) -> Result<TokenStream
         &fk_infos,
         &field_json_infos,
         &column_names,
-    )?;
-
-    Ok(inner)
+    )
 }
 
 /// Generate a const that references the original table marker tokens from the attribute.

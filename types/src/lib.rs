@@ -3,14 +3,14 @@
 //! This crate provides common type definitions used across multiple Drizzle crates,
 //! including:
 //!
-//! - [`Dialect`] - Database dialect enum (SQLite, PostgreSQL, MySQL)
-//! - SQLite types in the [`sqlite`] module
-//! - PostgreSQL types in the [`postgres`] module
+//! - [`Dialect`] - Database dialect enum (`SQLite`, `PostgreSQL`, `MySQL`)
+//! - `SQLite` types in the [`sqlite`] module
+//! - `PostgreSQL` types in the [`postgres`] module
 //!
 //! # Features
 //!
 //! - `std` - Standard library support (enabled by default)
-//! - `alloc` - Allocator support for no_std environments
+//! - `alloc` - Allocator support for `no_std` environments
 //! - `uuid` - Enable UUID type support
 //! - `serde` - Enable serde serialization/deserialization
 //! - `chrono` - Enable chrono date/time type support

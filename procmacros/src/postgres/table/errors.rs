@@ -1,4 +1,4 @@
-//! Shared error messages for PostgreSQL macro generation.
+//! Shared error messages for `PostgreSQL` macro generation.
 //!
 //! Centralizes error strings to ensure consistency across driver implementations
 //! and simplify maintenance.
@@ -6,7 +6,7 @@
 #![allow(dead_code)]
 
 /// Error messages for JSON field configuration
-pub(crate) mod json {
+pub mod json {
     pub const INVALID_COLUMN_TYPE: &str = "JSON fields must use either JSON or JSONB column types.\n\
          \n\
          - JSON: Standard JSON storage\n\
@@ -22,7 +22,7 @@ pub(crate) mod json {
 
 /// Error messages for UUID field configuration
 #[allow(dead_code)]
-pub(crate) mod uuid {
+pub mod uuid {
     pub const INVALID_COLUMN_TYPE: &str = "UUID fields must use the UUID column type.\n\
          \n\
          PostgreSQL has native UUID support.\n\
@@ -31,7 +31,7 @@ pub(crate) mod uuid {
 }
 
 /// Error messages for enum field configuration
-pub(crate) mod enums {
+pub mod enums {
     pub const INVALID_COLUMN_TYPE: &str = "Enum fields must use `#[column(enum)]` with a type that derives `PostgresEnum`.\n\
          \n\
          - Default: native PostgreSQL ENUM type\n\
@@ -42,7 +42,7 @@ pub(crate) mod enums {
 
 /// Error messages for type conversion
 #[allow(dead_code)]
-pub(crate) mod conversion {
+pub mod conversion {
     pub const REFERENCE_TYPE_UNSUPPORTED: &str = "Reference types (&str, &[u8]) are not supported.\n\
          \n\
          Use owned types instead:\n\
@@ -51,6 +51,6 @@ pub(crate) mod conversion {
 
     /// Generate a field conversion error message
     pub fn required_field(field_name: &str) -> String {
-        format!("Error converting required field `{}`", field_name)
+        format!("Error converting required field `{field_name}`")
     }
 }

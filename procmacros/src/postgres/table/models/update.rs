@@ -4,10 +4,9 @@ use crate::paths::core as core_paths;
 use crate::postgres::field::FieldInfo;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::Result;
 
-/// Generate UPDATE model struct with proper ToSQL impl
-pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
+/// Generate UPDATE model struct with proper `ToSQL` impl
+pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
     let update_ident = &ctx.update_model_ident;
     let struct_vis = ctx.struct_vis;
     let empty_marker = core_paths::empty_marker();
@@ -20,7 +19,10 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
 
     for field_info in ctx.field_infos {
         field_names.push(&field_info.ident);
-        field_types.push(ctx.get_field_type_for_model(field_info, ModelType::Update));
+        field_types.push(MacroContext::get_field_type_for_model(
+            field_info,
+            ModelType::Update,
+        ));
 
         // Generate field conversion for ToSQL (column_name, SQL) pairs
         update_field_conversions.push(get_update_field_conversion(field_info));
@@ -36,7 +38,7 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
     // Clone field_names for repeated use in quote repetitions
     let field_names2 = field_names.clone();
 
-    Ok(quote! {
+    quote! {
         // Update Model — all 'a tokens generated within this single quote! block
         // S = Empty means no fields set yet; S = NonEmpty means at least one field was set.
         #[derive(Debug, Clone)]
@@ -65,7 +67,7 @@ pub(crate) fn generate_update_model(ctx: &MacroContext) -> Result<TokenStream> {
                 SQL::assignments_sql(assignments)
             }
         }
-    })
+    }
 }
 
 /// Generate field conversion code for UPDATE assignments

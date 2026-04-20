@@ -1,10 +1,10 @@
-//! Shared error messages for SQLite macro generation.
+//! Shared error messages for `SQLite` macro generation.
 //!
 //! Centralizes error strings to ensure consistency across driver implementations
 //! and simplify maintenance.
 
 /// Error messages for JSON field configuration
-pub(crate) mod json {
+pub mod json {
     pub const INVALID_COLUMN_TYPE: &str = "JSON fields must use either TEXT or BLOB column types.\n\
          \n\
          - TEXT storage: Human-readable JSON string format\n\
@@ -20,7 +20,7 @@ pub(crate) mod json {
 
 /// Error messages for UUID field configuration
 #[allow(dead_code)]
-pub(crate) mod uuid {
+pub mod uuid {
     pub const INVALID_COLUMN_TYPE: &str = "UUID fields must use BLOB or TEXT column types.\n\
          \n\
          - BLOB storage: Efficient 16-byte binary format (recommended)\n\
@@ -30,7 +30,7 @@ pub(crate) mod uuid {
 }
 
 /// Error messages for enum field configuration
-pub(crate) mod enums {
+pub mod enums {
     pub const INVALID_COLUMN_TYPE: &str = "Enum fields are only supported with TEXT or INTEGER column types.\n\
          \n\
          - TEXT storage: Stores variant names (e.g., 'Active', 'Pending')\n\
@@ -41,7 +41,7 @@ pub(crate) mod enums {
 
 /// Error messages for type conversion
 #[allow(dead_code)]
-pub(crate) mod conversion {
+pub mod conversion {
     pub const REFERENCE_TYPE_UNSUPPORTED: &str = "Reference types (&str, &[u8]) are not supported.\n\
          \n\
          Use owned types instead:\n\
@@ -50,6 +50,6 @@ pub(crate) mod conversion {
 
     /// Generate a field conversion error message
     pub fn required_field(field_name: &str) -> String {
-        format!("Error converting required field `{}`", field_name)
+        format!("Error converting required field `{field_name}`")
     }
 }

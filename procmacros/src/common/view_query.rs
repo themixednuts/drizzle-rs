@@ -50,38 +50,38 @@ pub enum JoinKind {
     Cross,
 }
 
-/// An expression in filter/join/having/order_by positions.
+/// An expression in `filter/join/having/order_by` positions.
 pub enum QueryExpr {
     Column(Path),
     Literal(Lit),
     BinaryOp {
         op: BinOp,
-        left: Box<QueryExpr>,
-        right: Box<QueryExpr>,
+        left: Box<Self>,
+        right: Box<Self>,
     },
     IsNull {
-        expr: Box<QueryExpr>,
+        expr: Box<Self>,
         negated: bool,
     },
     Between {
-        expr: Box<QueryExpr>,
-        low: Box<QueryExpr>,
-        high: Box<QueryExpr>,
+        expr: Box<Self>,
+        low: Box<Self>,
+        high: Box<Self>,
         negated: bool,
     },
     InArray {
-        expr: Box<QueryExpr>,
-        values: Vec<QueryExpr>,
+        expr: Box<Self>,
+        values: Vec<Self>,
     },
-    And(Vec<QueryExpr>),
-    Or(Vec<QueryExpr>),
-    Not(Box<QueryExpr>),
+    And(Vec<Self>),
+    Or(Vec<Self>),
+    Not(Box<Self>),
     Aggregate {
         func: AggFunc,
-        expr: Option<Box<QueryExpr>>,
+        expr: Option<Box<Self>>,
     },
-    Asc(Box<QueryExpr>),
-    Desc(Box<QueryExpr>),
+    Asc(Box<Self>),
+    Desc(Box<Self>),
 }
 
 #[derive(Clone, Copy)]
@@ -200,7 +200,7 @@ impl Parse for ViewQuery {
                             "duplicate `group_by` clause",
                         ));
                     }
-                    let paths = parse_comma_separated(&content, |input| input.parse::<Path>())?;
+                    let paths = parse_comma_separated_paths(&content)?;
                     group_by = Some(paths);
                 }
                 "having" => {
@@ -244,7 +244,7 @@ impl Parse for ViewQuery {
                 other => {
                     return Err(syn::Error::new(
                         clause_ident.span(),
-                        format!("unknown query clause `{}`", other),
+                        format!("unknown query clause `{other}`"),
                     ));
                 }
             }
@@ -266,7 +266,7 @@ impl Parse for ViewQuery {
             )
         })?;
 
-        Ok(ViewQuery {
+        Ok(Self {
             select,
             from,
             joins,
@@ -278,6 +278,18 @@ impl Parse for ViewQuery {
             offset,
         })
     }
+}
+
+/// Parse comma-separated `Path` items.
+fn parse_comma_separated_paths(input: ParseStream) -> Result<Vec<Path>> {
+    let mut items = Vec::new();
+    while !input.is_empty() {
+        items.push(input.parse::<Path>()?);
+        if !input.is_empty() {
+            input.parse::<Token![,]>()?;
+        }
+    }
+    Ok(items)
 }
 
 /// Parse comma-separated items using a given parser function.
@@ -311,11 +323,11 @@ fn parse_select_item(input: ParseStream) -> Result<SelectItem> {
 /// Parse a JOIN clause: `(Table, condition_expr)`
 fn parse_join_clause(input: ParseStream, kind: JoinKind) -> Result<JoinClause> {
     let table = input.parse::<Path>()?;
-    let condition = if !input.is_empty() {
+    let condition = if input.is_empty() {
+        None
+    } else {
         input.parse::<Token![,]>()?;
         Some(parse_query_expr(input)?)
-    } else {
-        None
     };
     Ok(JoinClause {
         kind,
@@ -502,7 +514,7 @@ fn parse_function_expr(ident: &Ident, content: ParseStream) -> Result<QueryExpr>
 
         _ => Err(syn::Error::new(
             ident.span(),
-            format!("unknown function `{}`", name),
+            format!("unknown function `{name}`"),
         )),
     }
 }
@@ -577,47 +589,54 @@ fn path_to_table_type(path: &Path) -> syn::Type {
     })
 }
 
+fn collect_tables_add_type(
+    ty: syn::Type,
+    tables: &mut Vec<syn::Type>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    let key = quote!(#ty).to_string();
+    if seen.insert(key) {
+        tables.push(ty);
+    }
+}
+
+fn collect_tables_add_column_path(
+    path: &Path,
+    tables: &mut Vec<syn::Type>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    if let Some(ty) = extract_table_from_column(path) {
+        collect_tables_add_type(ty, tables, seen);
+    }
+}
+
+fn collect_tables_add_table_path(
+    path: &Path,
+    tables: &mut Vec<syn::Type>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    collect_tables_add_type(path_to_table_type(path), tables, seen);
+}
+
+fn collect_tables_add_expr_tables(
+    expr: &QueryExpr,
+    tables: &mut Vec<syn::Type>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    collect_expr_tables(expr, &mut |p| {
+        collect_tables_add_column_path(p, tables, seen);
+    });
+}
+
 /// Collect all unique table types referenced in the query.
 fn collect_tables(query: &ViewQuery) -> Vec<syn::Type> {
     let mut tables = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
-    fn add_type(
-        ty: syn::Type,
-        tables: &mut Vec<syn::Type>,
-        seen: &mut std::collections::HashSet<String>,
-    ) {
-        let key = quote!(#ty).to_string();
-        if seen.insert(key) {
-            tables.push(ty);
-        }
-    }
-
-    fn add_column_path(
-        path: &Path,
-        tables: &mut Vec<syn::Type>,
-        seen: &mut std::collections::HashSet<String>,
-    ) {
-        if let Some(ty) = extract_table_from_column(path) {
-            add_type(ty, tables, seen);
-        }
-    }
-
-    fn add_table_path(
-        path: &Path,
-        tables: &mut Vec<syn::Type>,
-        seen: &mut std::collections::HashSet<String>,
-    ) {
-        add_type(path_to_table_type(path), tables, seen);
-    }
-
-    fn add_expr_tables(
-        expr: &QueryExpr,
-        tables: &mut Vec<syn::Type>,
-        seen: &mut std::collections::HashSet<String>,
-    ) {
-        collect_expr_tables(expr, &mut |p| add_column_path(p, tables, seen));
-    }
+    // Local aliases keep the call sites below readable.
+    let add_column_path = collect_tables_add_column_path;
+    let add_table_path = collect_tables_add_table_path;
+    let add_expr_tables = collect_tables_add_expr_tables;
 
     for item in &query.select {
         match item {
@@ -675,13 +694,14 @@ fn collect_expr_tables(expr: &QueryExpr, add: &mut dyn FnMut(&Path)) {
                 collect_expr_tables(i, add);
             }
         }
-        QueryExpr::Not(e) => collect_expr_tables(e, add),
+        QueryExpr::Not(e) | QueryExpr::Asc(e) | QueryExpr::Desc(e) => {
+            collect_expr_tables(e, add);
+        }
         QueryExpr::Aggregate { expr, .. } => {
             if let Some(e) = expr {
                 collect_expr_tables(e, add);
             }
         }
-        QueryExpr::Asc(e) | QueryExpr::Desc(e) => collect_expr_tables(e, add),
     }
 }
 
@@ -696,7 +716,7 @@ pub fn generate_const_sql(
     query: &ViewQuery,
     field_names: &[String],
     dialect: Dialect,
-) -> Result<TokenStream> {
+) -> TokenStream {
     let sql_schema_path = quote!(drizzle::core::SQLSchema);
     let (value_path, schema_type_path) = match dialect {
         Dialect::SQLite => (
@@ -788,7 +808,7 @@ pub fn generate_const_sql(
             }
         }
         // AS alias
-        let alias = format!(" AS \"{}\"", field_name);
+        let alias = format!(" AS \"{field_name}\"");
         parts.push(quote! { #alias });
     }
 
@@ -885,12 +905,12 @@ pub fn generate_const_sql(
         parts.push(quote! { #offset_lit });
     }
 
-    Ok(quote! {
+    quote! {
         ::drizzle::const_format::concatcp!(#(#parts),*)
-    })
+    }
 }
 
-/// Convert a QueryExpr into a list of concatcp-compatible token streams.
+/// Convert a `QueryExpr` into a list of concatcp-compatible token streams.
 fn expr_to_sql_parts(
     expr: &QueryExpr,
     table_ref_parts: &dyn Fn(&Path) -> Vec<TokenStream>,
@@ -1106,10 +1126,7 @@ pub fn generate_validation(
     if select_count != field_count {
         return Err(syn::Error::new(
             proc_macro2::Span::call_site(),
-            format!(
-                "query has {} SELECT items but struct has {} fields",
-                select_count, field_count
-            ),
+            format!("query has {select_count} SELECT items but struct has {field_count} fields"),
         ));
     }
 
@@ -1277,15 +1294,16 @@ fn generate_expr_validation(expr: &QueryExpr, expr_mod: &TokenStream) -> Option<
                 Some(quote! { #(#stmts)* })
             }
         }
-        QueryExpr::Not(inner) => generate_expr_validation(inner, expr_mod),
+        QueryExpr::Not(inner) | QueryExpr::Asc(inner) | QueryExpr::Desc(inner) => {
+            generate_expr_validation(inner, expr_mod)
+        }
         QueryExpr::Aggregate { expr: inner, .. } => inner
             .as_ref()
             .and_then(|e| generate_expr_validation(e, expr_mod)),
-        QueryExpr::Asc(inner) | QueryExpr::Desc(inner) => generate_expr_validation(inner, expr_mod),
     }
 }
 
-/// Convert a QueryExpr into a token stream usable as a function argument in validation.
+/// Convert a `QueryExpr` into a token stream usable as a function argument in validation.
 fn expr_to_validation_expr(expr: &QueryExpr, expr_mod: &TokenStream) -> TokenStream {
     match expr {
         QueryExpr::Column(path) => quote! { #path },

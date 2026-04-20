@@ -96,6 +96,7 @@ pub trait SQLPartial<'a, Value: SQLParam> {
     /// for selective querying
     type Partial: SQLModel<'a, Value> + Default + 'a;
 
+    #[must_use]
     fn partial() -> Self::Partial {
         Default::default()
     }
@@ -106,7 +107,7 @@ pub trait SQLPartial<'a, Value: SQLParam> {
     label = "ensure this type was derived with #[SQLiteTable] or #[PostgresTable]"
 )]
 pub trait SQLTable<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
-    SQLSchema<'a, Type, Value> + SQLTableInfo + Default + Clone
+    SQLSchema<'a, Type, Value> + SQLTableInfo + Default + Clone + Copy
 {
     type Select: SQLModel<'a, Value> + SQLPartial<'a, Value> + Default + 'a;
     type ForeignKeys;
@@ -114,7 +115,7 @@ pub trait SQLTable<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
     type Constraints;
 
     /// The type representing a model for INSERT operations on this table.
-    /// Uses PhantomData with tuple markers to track which fields are set
+    /// Uses `PhantomData` with tuple markers to track which fields are set
     type Insert<T>: SQLModel<'a, Value> + Default;
 
     /// The type representing a model for UPDATE operations on this table.
@@ -200,10 +201,10 @@ pub trait SQLTableInfo: Send + Sync {
 
     /// Fully-qualified table name.
     fn qualified_name(&self) -> Cow<'static, str> {
-        match self.schema() {
-            Some(schema) => Cow::Owned(format!("{schema}.{}", self.name())),
-            None => Cow::Borrowed(self.name()),
-        }
+        self.schema().map_or_else(
+            || Cow::Borrowed(self.name()),
+            |schema| Cow::Owned(format!("{schema}.{}", self.name())),
+        )
     }
 }
 

@@ -1,4 +1,4 @@
-//! PostgreSQL Enum DDL types
+//! `PostgreSQL` Enum DDL types
 //!
 //! This module provides two complementary types:
 //! - [`EnumDef`] - A const-friendly definition type for compile-time schema definitions
@@ -90,8 +90,8 @@ impl Enum {
     /// Create a new enum from owned strings (convenience for runtime construction)
     #[cfg(feature = "std")]
     #[must_use]
-    pub fn from_strings(schema: String, name: String, values: Vec<String>) -> Enum {
-        Enum {
+    pub fn from_strings(schema: String, name: String, values: Vec<String>) -> Self {
+        Self {
             schema: Cow::Owned(schema),
             name: Cow::Owned(name),
             values: Cow::Owned(values.into_iter().map(Cow::Owned).collect()),
@@ -131,7 +131,7 @@ impl From<EnumDef> for Enum {
 
 #[cfg(feature = "serde")]
 mod serde_impl {
-    use super::*;
+    use super::{Cow, Enum};
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     impl Serialize for Enum {
@@ -144,7 +144,11 @@ mod serde_impl {
             state.serialize_field("schema", &*self.schema)?;
             state.serialize_field("name", &*self.name)?;
             // Serialize values as Vec<&str>
-            let vals: Vec<&str> = self.values.iter().map(|v| v.as_ref()).collect();
+            let vals: Vec<&str> = self
+                .values
+                .iter()
+                .map(std::convert::AsRef::as_ref)
+                .collect();
             state.serialize_field("values", &vals)?;
             state.end()
         }
@@ -165,7 +169,7 @@ mod serde_impl {
             }
 
             let helper = Helper::deserialize(deserializer)?;
-            Ok(Enum {
+            Ok(Self {
                 schema: Cow::Owned(helper.schema),
                 name: Cow::Owned(helper.name),
                 values: Cow::Owned(helper.values.into_iter().map(Cow::Owned).collect()),

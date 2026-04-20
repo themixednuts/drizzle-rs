@@ -1,4 +1,4 @@
-//! SQLite View DDL types
+//! `SQLite` View DDL types
 //!
 //! See: <https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/sqlite/ddl.ts>
 

@@ -1,6 +1,6 @@
-//! rusqlite driver implementation for SQLite table macro.
+//! rusqlite driver implementation for `SQLite` table macro.
 //!
-//! Generates TryFrom implementations for `rusqlite::Row` using the `FromSQLiteValue` trait.
+//! Generates `TryFrom` implementations for `rusqlite::Row` using the `FromSQLiteValue` trait.
 //!
 //! This implementation differs from libsql/turso in that it uses column names instead of
 //! indices, and leverages our custom `FromSQLiteValue` trait for all non-JSON conversions.
@@ -18,8 +18,8 @@ use syn::Result;
 // Public API
 // =============================================================================
 
-/// Generate TryFrom implementations for rusqlite::Row for a table's models
-pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream> {
+/// Generate `TryFrom` implementations for `rusqlite::Row` for a table's models
+pub fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream> {
     let drizzle_error = paths::core::drizzle_error();
     let row_column_list = paths::core::row_column_list();
     let type_set_nil = paths::core::type_set_nil();
@@ -37,7 +37,7 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
         .map(|(idx, info)| {
             Ok((
                 generate_field_from_row(idx, info)?,
-                generate_partial_field_from_row(idx, info)?,
+                generate_partial_field_from_row(idx, info),
             ))
         })
         .collect::<Result<(Vec<_>, Vec<_>)>>()?;
@@ -77,8 +77,9 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
             let idx_expr = quote!(offset + #idx);
             let select_type = info.get_select_type();
             let is_select_optional = syn::parse2::<syn::Type>(select_type)
-                .map(|ty| crate::common::is_option_type(&ty))
-                .unwrap_or(info.is_nullable && !info.has_default);
+                .map_or(info.is_nullable && !info.has_default, |ty| {
+                    crate::common::is_option_type(&ty)
+                });
 
             let value_expr = if info.type_category() == TypeCategory::Json {
                 match info.column_type {
@@ -183,7 +184,7 @@ pub(crate) fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream>
 // Field Conversion Generators
 // =============================================================================
 
-/// Generate field conversion for SelectModel
+/// Generate field conversion for `SelectModel`
 fn generate_field_from_row(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
     let from_sqlite_value = paths::sqlite::from_sqlite_value();
     let name = info.ident;
@@ -334,21 +335,21 @@ fn generate_field_from_row(idx: usize, info: &FieldInfo) -> Result<TokenStream> 
     }
 }
 
-/// Generate field conversion for PartialSelectModel (all fields are Option<T>)
-fn generate_partial_field_from_row(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
+/// Generate field conversion for `PartialSelectModel` (all fields are Option<T>)
+fn generate_partial_field_from_row(idx: usize, info: &FieldInfo) -> TokenStream {
     let from_sqlite_value = paths::sqlite::from_sqlite_value();
     let name = info.ident;
     let base_type = info.base_type;
 
     // JSON fields use rusqlite's FromSql directly
     if info.type_category() == TypeCategory::Json {
-        return Ok(quote! {
+        return quote! {
             #name: row.get(#idx).unwrap_or_default(),
-        });
+        };
     }
 
     // Partial models have all fields as Option<T>
-    Ok(quote! {
+    quote! {
         #name: {
             let value_ref = row.get_ref(#idx).unwrap_or(::rusqlite::types::ValueRef::Null);
             match value_ref {
@@ -356,7 +357,7 @@ fn generate_partial_field_from_row(idx: usize, info: &FieldInfo) -> Result<Token
                 _ => <#base_type as #from_sqlite_value>::from_value_ref(value_ref).ok(),
             }
         },
-    })
+    }
 }
 
 // =============================================================================
@@ -364,15 +365,15 @@ fn generate_partial_field_from_row(idx: usize, info: &FieldInfo) -> Result<Token
 // =============================================================================
 
 /// Generate rusqlite enum implementations (FromSql/ToSql)
-/// NOTE: This is now a no-op since SQLiteEnum derive generates these impls directly.
-pub(crate) fn generate_enum_impls(_info: &FieldInfo) -> Result<TokenStream> {
+/// NOTE: This is now a no-op since `SQLiteEnum` derive generates these impls directly.
+pub fn generate_enum_impls(_info: &FieldInfo) -> TokenStream {
     // SQLiteEnum now generates FromSql/ToSql implementations directly,
     // so we don't need to generate them here anymore.
-    Ok(quote! {})
+    quote! {}
 }
 
 /// Generate rusqlite JSON implementations (FromSql/ToSql)
-pub(crate) fn generate_json_impls(
+pub fn generate_json_impls(
     json_type_storage: &std::collections::HashMap<String, (SQLiteType, &FieldInfo)>,
 ) -> Result<Vec<TokenStream>> {
     if json_type_storage.is_empty() {

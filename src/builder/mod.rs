@@ -1,10 +1,10 @@
 #[cfg(feature = "sqlite")]
 #[macro_use]
-pub(crate) mod sqlite;
+pub mod sqlite;
 
 #[cfg(feature = "postgres")]
 #[macro_use]
-pub(crate) mod postgres;
+pub mod postgres;
 
 #[macro_export]
 macro_rules! drizzle_prepare_impl {
@@ -23,7 +23,7 @@ macro_rules! drizzle_prepare_impl {
             #[inline]
             pub fn prepare(self) -> prepared::PreparedStatement<'b> {
                 prepared::PreparedStatement {
-                    inner: prepare_render(self.to_sql()),
+                    inner: prepare_render(&self.to_sql()),
                 }
             }
         }

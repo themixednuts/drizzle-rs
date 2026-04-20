@@ -1,4 +1,4 @@
-//! SQLite type category definitions
+//! `SQLite` type category definitions
 //!
 //! Provides type classification for both Rust type mapping and SQL parsing.
 
@@ -12,7 +12,7 @@ use super::SQLiteType;
 ///
 /// This enum provides a single source of truth for type detection, eliminating
 /// fragile string matching scattered across multiple files. This is used for
-/// both type inference (Rust type → SQLite type) and code generation.
+/// both type inference (Rust type → `SQLite` type) and code generation.
 ///
 /// # Examples
 ///
@@ -61,7 +61,7 @@ pub enum TypeCategory {
 impl TypeCategory {
     /// Detect the category from a type string representation.
     ///
-    /// Order matters: more specific types (ArrayString) must be checked
+    /// Order matters: more specific types (`ArrayString`) must be checked
     /// before more general types (String).
     #[cfg(feature = "std")]
     #[must_use]
@@ -79,12 +79,12 @@ impl TypeCategory {
         if type_str.starts_with("[u8;")
             || (type_str.contains("[u8;") && !type_str.contains("SmallVec"))
         {
-            return TypeCategory::ByteArray;
+            return Self::ByteArray;
         }
 
         // ArrayVec/ArrayString and popular string wrappers before generic checks
         if type_str.contains("ArrayString") || type_str.contains("CompactString") {
-            return TypeCategory::ArrayString;
+            return Self::ArrayString;
         }
         if (type_str.contains("ArrayVec") && type_str.contains("u8"))
             || type_str.contains("bytes::Bytes")
@@ -93,17 +93,17 @@ impl TypeCategory {
             || type_str == "BytesMut"
             || (type_str.contains("SmallVec") && type_str.contains("u8"))
         {
-            return TypeCategory::ArrayVec;
+            return Self::ArrayVec;
         }
 
         // UUID
         if type_str.contains("Uuid") {
-            return TypeCategory::Uuid;
+            return Self::Uuid;
         }
 
         // JSON (serde_json::Value)
         if type_str.contains("serde_json::Value") || type_str == "Value" {
-            return TypeCategory::Json;
+            return Self::Json;
         }
 
         // Chrono types - all stored as TEXT in SQLite
@@ -112,7 +112,7 @@ impl TypeCategory {
             || type_str.contains("NaiveDateTime")
             || type_str.contains("DateTime<")
         {
-            return TypeCategory::DateTime;
+            return Self::DateTime;
         }
 
         // Time crate types
@@ -121,31 +121,31 @@ impl TypeCategory {
             || type_str.contains("PrimitiveDateTime")
             || type_str.contains("OffsetDateTime")
         {
-            return TypeCategory::DateTime;
+            return Self::DateTime;
         }
 
         // String types
         if type_str.contains("String") {
-            return TypeCategory::String;
+            return Self::String;
         }
 
         // Vec<u8>
         if type_str.contains("Vec<u8>") {
-            return TypeCategory::Blob;
+            return Self::Blob;
         }
 
         // Primitives - check exact matches for simple types
         match type_str.as_str() {
             "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "isize" | "usize" => {
-                TypeCategory::Integer
+                Self::Integer
             }
-            "f32" | "f64" => TypeCategory::Real,
-            "bool" => TypeCategory::Bool,
-            _ => TypeCategory::Unknown,
+            "f32" | "f64" => Self::Real,
+            "bool" => Self::Bool,
+            _ => Self::Unknown,
         }
     }
 
-    /// Infer the SQLite type from this category.
+    /// Infer the `SQLite` type from this category.
     ///
     /// Returns `Some(SQLiteType)` for types that can be automatically inferred,
     /// or `None` for types that require explicit annotation (Unknown).
@@ -153,41 +153,32 @@ impl TypeCategory {
     pub const fn to_sqlite_type(&self) -> Option<SQLiteType> {
         match self {
             // Integer types → INTEGER
-            TypeCategory::Integer | TypeCategory::Bool => Some(SQLiteType::Integer),
+            Self::Integer | Self::Bool => Some(SQLiteType::Integer),
             // Floating point → REAL
-            TypeCategory::Real => Some(SQLiteType::Real),
-            // String types → TEXT
-            TypeCategory::String | TypeCategory::ArrayString | TypeCategory::DateTime => {
+            Self::Real => Some(SQLiteType::Real),
+            // String types → TEXT. JSON defaults to TEXT (human-readable),
+            // Enum defaults to TEXT (variant names); both can be overridden.
+            Self::String | Self::ArrayString | Self::DateTime | Self::Json | Self::Enum => {
                 Some(SQLiteType::Text)
             }
-            // Binary types → BLOB
-            TypeCategory::Blob | TypeCategory::ArrayVec | TypeCategory::ByteArray => {
-                Some(SQLiteType::Blob)
-            }
-            // UUID defaults to BLOB (more efficient), but can be overridden to TEXT
-            TypeCategory::Uuid => Some(SQLiteType::Blob),
-            // JSON defaults to TEXT (human-readable), but can be overridden to BLOB
-            TypeCategory::Json => Some(SQLiteType::Text),
-            // Enum defaults to TEXT (variant names), but can be overridden to INTEGER
-            TypeCategory::Enum => Some(SQLiteType::Text),
+            // Binary types → BLOB. UUID defaults to BLOB (more efficient),
+            // but can be overridden to TEXT.
+            Self::Blob | Self::ArrayVec | Self::ByteArray | Self::Uuid => Some(SQLiteType::Blob),
             // Unknown types require explicit annotation
-            TypeCategory::Unknown => None,
+            Self::Unknown => None,
         }
     }
 
     /// Check if this category requires the `FromSQLiteValue` trait for conversion
     #[must_use]
     pub const fn uses_from_sqlite_value(&self) -> bool {
-        matches!(self, TypeCategory::ArrayString | TypeCategory::ArrayVec)
+        matches!(self, Self::ArrayString | Self::ArrayVec)
     }
 
     /// Check if this category should use a generic `impl Into<...>` parameter
     #[must_use]
     pub const fn uses_into_param(&self) -> bool {
-        matches!(
-            self,
-            TypeCategory::String | TypeCategory::Blob | TypeCategory::Uuid
-        )
+        matches!(self, Self::String | Self::Blob | Self::Uuid)
     }
 }
 
@@ -198,7 +189,7 @@ impl TypeCategory {
 /// SQL type category for parsing SQL type strings.
 ///
 /// This categorizes SQL type declarations (e.g., "VARCHAR(255)", "INTEGER")
-/// into their SQLite affinity groups for migration/introspection purposes.
+/// into their `SQLite` affinity groups for migration/introspection purposes.
 ///
 /// # Examples
 ///

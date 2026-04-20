@@ -15,12 +15,12 @@ pub struct QueryRow<Base, Store = ()> {
 
 impl<Base, Store> QueryRow<Base, Store> {
     /// Creates a new `QueryRow` with the given base model and relation store.
-    pub fn new(base: Base, store: Store) -> Self {
+    pub const fn new(base: Base, store: Store) -> Self {
         Self { base, store }
     }
 
     /// Returns a reference to the base model.
-    pub fn base(&self) -> &Base {
+    pub const fn base(&self) -> &Base {
         &self.base
     }
 

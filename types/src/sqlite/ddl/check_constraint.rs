@@ -1,4 +1,4 @@
-//! SQLite Check Constraint DDL types
+//! `SQLite` Check Constraint DDL types
 
 #[cfg(feature = "std")]
 use std::borrow::Cow;

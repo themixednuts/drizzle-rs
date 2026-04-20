@@ -1,4 +1,4 @@
-//! From and TryFrom implementations for SQLiteValue
+//! From and `TryFrom` implementations for `SQLiteValue`
 
 use super::{OwnedSQLiteValue, SQLiteValue};
 use crate::prelude::*;
@@ -11,8 +11,8 @@ use uuid::Uuid;
 // ToSQL Implementation
 //------------------------------------------------------------------------------
 
-impl<'a> ToSQL<'a, SQLiteValue<'a>> for SQLiteValue<'a> {
-    fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
+impl<'a> ToSQL<'a, Self> for SQLiteValue<'a> {
+    fn to_sql(&self) -> SQL<'a, Self> {
         SQL::param(self.clone())
     }
 }
@@ -21,7 +21,7 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for SQLiteValue<'a> {
 // From OwnedSQLiteValue
 //------------------------------------------------------------------------------
 
-impl<'a> From<OwnedSQLiteValue> for SQLiteValue<'a> {
+impl From<OwnedSQLiteValue> for SQLiteValue<'_> {
     fn from(value: OwnedSQLiteValue) -> Self {
         match value {
             OwnedSQLiteValue::Integer(f) => SQLiteValue::Integer(f),
@@ -45,8 +45,8 @@ impl<'a> From<&'a OwnedSQLiteValue> for SQLiteValue<'a> {
     }
 }
 
-impl<'a> From<&'a SQLiteValue<'a>> for SQLiteValue<'a> {
-    fn from(value: &'a SQLiteValue<'a>) -> Self {
+impl<'a> From<&'a Self> for SQLiteValue<'a> {
+    fn from(value: &'a Self) -> Self {
         match value {
             SQLiteValue::Integer(f) => SQLiteValue::Integer(*f),
             SQLiteValue::Real(r) => SQLiteValue::Real(*r),
@@ -57,8 +57,8 @@ impl<'a> From<&'a SQLiteValue<'a>> for SQLiteValue<'a> {
     }
 }
 
-impl<'a> From<Cow<'a, SQLiteValue<'a>>> for SQLiteValue<'a> {
-    fn from(value: Cow<'a, SQLiteValue<'a>>) -> Self {
+impl<'a> From<Cow<'a, Self>> for SQLiteValue<'a> {
+    fn from(value: Cow<'a, Self>) -> Self {
         match value {
             Cow::Borrowed(r) => r.into(),
             Cow::Owned(o) => o,
@@ -66,8 +66,8 @@ impl<'a> From<Cow<'a, SQLiteValue<'a>>> for SQLiteValue<'a> {
     }
 }
 
-impl<'a> From<&'a Cow<'a, SQLiteValue<'a>>> for SQLiteValue<'a> {
-    fn from(value: &'a Cow<'a, SQLiteValue<'a>>) -> Self {
+impl<'a> From<&'a Cow<'a, Self>> for SQLiteValue<'a> {
+    fn from(value: &'a Cow<'a, Self>) -> Self {
         match value {
             Cow::Borrowed(r) => (*r).into(),
             Cow::Owned(o) => o.into(),
@@ -80,53 +80,116 @@ impl<'a> From<&'a Cow<'a, SQLiteValue<'a>>> for SQLiteValue<'a> {
 // Macro-based to reduce boilerplate
 //------------------------------------------------------------------------------
 
-/// Macro to implement From<integer> for SQLiteValue (converts to INTEGER)
-macro_rules! impl_from_int_for_sqlite_value {
+/// Integer widths where `i64::from(T)` is infallible.
+macro_rules! impl_from_lossless_int_for_sqlite_value {
     ($($ty:ty),* $(,)?) => {
         $(
             impl<'a> From<$ty> for SQLiteValue<'a> {
                 #[inline]
                 fn from(value: $ty) -> Self {
-                    SQLiteValue::Integer(value as i64)
+                    SQLiteValue::Integer(i64::from(value))
                 }
             }
 
             impl<'a> From<&$ty> for SQLiteValue<'a> {
                 #[inline]
                 fn from(value: &$ty) -> Self {
-                    SQLiteValue::Integer(*value as i64)
+                    SQLiteValue::Integer(i64::from(*value))
                 }
             }
         )*
     };
 }
 
-/// Macro to implement From<float> for SQLiteValue (converts to REAL)
-macro_rules! impl_from_float_for_sqlite_value {
+// Types that widen to i64 without loss.
+impl_from_lossless_int_for_sqlite_value!(i8, i16, i32, u8, u16, u32, bool);
+
+// i64 identity — no conversion needed.
+impl From<i64> for SQLiteValue<'_> {
+    #[inline]
+    fn from(value: i64) -> Self {
+        SQLiteValue::Integer(value)
+    }
+}
+
+impl From<&i64> for SQLiteValue<'_> {
+    #[inline]
+    fn from(value: &i64) -> Self {
+        SQLiteValue::Integer(*value)
+    }
+}
+
+// u64 → i64 by reinterpreting bits. SQLite stores INTEGER as signed 64-bit;
+// this matches the round-trip convention used by the matching `i64 → u64`
+// reinterpretation on read.
+impl From<u64> for SQLiteValue<'_> {
+    #[inline]
+    fn from(value: u64) -> Self {
+        SQLiteValue::Integer(value.cast_signed())
+    }
+}
+
+impl From<&u64> for SQLiteValue<'_> {
+    #[inline]
+    fn from(value: &u64) -> Self {
+        SQLiteValue::Integer(value.cast_signed())
+    }
+}
+
+/// Pointer-sized integer widths (usize/isize). All Rust-supported targets have
+/// pointers ≤ 64 bits, so `i64::try_from` succeeds; the saturating fallback is
+/// defensive only.
+macro_rules! impl_from_pointer_int_for_sqlite_value {
     ($($ty:ty),* $(,)?) => {
         $(
             impl<'a> From<$ty> for SQLiteValue<'a> {
                 #[inline]
                 fn from(value: $ty) -> Self {
-                    SQLiteValue::Real(value as f64)
+                    SQLiteValue::Integer(i64::try_from(value).unwrap_or(i64::MAX))
                 }
             }
 
             impl<'a> From<&$ty> for SQLiteValue<'a> {
                 #[inline]
                 fn from(value: &$ty) -> Self {
-                    SQLiteValue::Real(*value as f64)
+                    SQLiteValue::Integer(i64::try_from(*value).unwrap_or(i64::MAX))
                 }
             }
         )*
     };
 }
 
-// Integer types -> SQLiteValue::Integer
-impl_from_int_for_sqlite_value!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize, bool);
+impl_from_pointer_int_for_sqlite_value!(isize, usize);
 
-// Float types -> SQLiteValue::Real
-impl_from_float_for_sqlite_value!(f32, f64);
+// f32 widens exactly into f64.
+impl From<f32> for SQLiteValue<'_> {
+    #[inline]
+    fn from(value: f32) -> Self {
+        SQLiteValue::Real(f64::from(value))
+    }
+}
+
+impl From<&f32> for SQLiteValue<'_> {
+    #[inline]
+    fn from(value: &f32) -> Self {
+        SQLiteValue::Real(f64::from(*value))
+    }
+}
+
+// f64 identity.
+impl From<f64> for SQLiteValue<'_> {
+    #[inline]
+    fn from(value: f64) -> Self {
+        SQLiteValue::Real(value)
+    }
+}
+
+impl From<&f64> for SQLiteValue<'_> {
+    #[inline]
+    fn from(value: &f64) -> Self {
+        SQLiteValue::Real(*value)
+    }
+}
 
 // --- String Types ---
 
@@ -142,7 +205,7 @@ impl<'a> From<Cow<'a, str>> for SQLiteValue<'a> {
     }
 }
 
-impl<'a> From<String> for SQLiteValue<'a> {
+impl From<String> for SQLiteValue<'_> {
     fn from(value: String) -> Self {
         SQLiteValue::Text(Cow::Owned(value))
     }
@@ -154,7 +217,7 @@ impl<'a> From<&'a String> for SQLiteValue<'a> {
     }
 }
 
-impl<'a> From<Box<String>> for SQLiteValue<'a> {
+impl From<Box<String>> for SQLiteValue<'_> {
     fn from(value: Box<String>) -> Self {
         SQLiteValue::Text(Cow::Owned(*value))
     }
@@ -166,7 +229,7 @@ impl<'a> From<&'a Box<String>> for SQLiteValue<'a> {
     }
 }
 
-impl<'a> From<Rc<String>> for SQLiteValue<'a> {
+impl From<Rc<String>> for SQLiteValue<'_> {
     fn from(value: Rc<String>) -> Self {
         SQLiteValue::Text(Cow::Owned(value.as_ref().clone()))
     }
@@ -178,7 +241,7 @@ impl<'a> From<&'a Rc<String>> for SQLiteValue<'a> {
     }
 }
 
-impl<'a> From<Arc<String>> for SQLiteValue<'a> {
+impl From<Arc<String>> for SQLiteValue<'_> {
     fn from(value: Arc<String>) -> Self {
         SQLiteValue::Text(Cow::Owned(value.as_ref().clone()))
     }
@@ -190,7 +253,7 @@ impl<'a> From<&'a Arc<String>> for SQLiteValue<'a> {
     }
 }
 
-impl<'a> From<Box<str>> for SQLiteValue<'a> {
+impl From<Box<str>> for SQLiteValue<'_> {
     fn from(value: Box<str>) -> Self {
         SQLiteValue::Text(Cow::Owned(value.into()))
     }
@@ -202,7 +265,7 @@ impl<'a> From<&'a Box<str>> for SQLiteValue<'a> {
     }
 }
 
-impl<'a> From<Rc<str>> for SQLiteValue<'a> {
+impl From<Rc<str>> for SQLiteValue<'_> {
     fn from(value: Rc<str>) -> Self {
         SQLiteValue::Text(Cow::Owned(value.as_ref().to_string()))
     }
@@ -214,7 +277,7 @@ impl<'a> From<&'a Rc<str>> for SQLiteValue<'a> {
     }
 }
 
-impl<'a> From<Arc<str>> for SQLiteValue<'a> {
+impl From<Arc<str>> for SQLiteValue<'_> {
     fn from(value: Arc<str>) -> Self {
         SQLiteValue::Text(Cow::Owned(value.as_ref().to_string()))
     }
@@ -229,20 +292,20 @@ impl<'a> From<&'a Arc<str>> for SQLiteValue<'a> {
 // --- ArrayString ---
 
 #[cfg(feature = "arrayvec")]
-impl<'a, const N: usize> From<arrayvec::ArrayString<N>> for SQLiteValue<'a> {
+impl<const N: usize> From<arrayvec::ArrayString<N>> for SQLiteValue<'_> {
     fn from(value: arrayvec::ArrayString<N>) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_string()))
     }
 }
 
 #[cfg(feature = "arrayvec")]
-impl<'a, const N: usize> From<&arrayvec::ArrayString<N>> for SQLiteValue<'a> {
+impl<const N: usize> From<&arrayvec::ArrayString<N>> for SQLiteValue<'_> {
     fn from(value: &arrayvec::ArrayString<N>) -> Self {
         SQLiteValue::Text(Cow::Owned(String::from(value.as_str())))
     }
 }
 
-impl<'a> From<compact_str::CompactString> for SQLiteValue<'a> {
+impl From<compact_str::CompactString> for SQLiteValue<'_> {
     fn from(value: compact_str::CompactString) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_string()))
     }
@@ -268,13 +331,13 @@ impl<'a> From<Cow<'a, [u8]>> for SQLiteValue<'a> {
     }
 }
 
-impl<'a> From<Vec<u8>> for SQLiteValue<'a> {
+impl From<Vec<u8>> for SQLiteValue<'_> {
     fn from(value: Vec<u8>) -> Self {
         SQLiteValue::Blob(Cow::Owned(value))
     }
 }
 
-impl<'a> From<Box<Vec<u8>>> for SQLiteValue<'a> {
+impl From<Box<Vec<u8>>> for SQLiteValue<'_> {
     fn from(value: Box<Vec<u8>>) -> Self {
         SQLiteValue::Blob(Cow::Owned(*value))
     }
@@ -286,7 +349,7 @@ impl<'a> From<&'a Box<Vec<u8>>> for SQLiteValue<'a> {
     }
 }
 
-impl<'a> From<Rc<Vec<u8>>> for SQLiteValue<'a> {
+impl From<Rc<Vec<u8>>> for SQLiteValue<'_> {
     fn from(value: Rc<Vec<u8>>) -> Self {
         SQLiteValue::Blob(Cow::Owned(value.as_ref().clone()))
     }
@@ -298,7 +361,7 @@ impl<'a> From<&'a Rc<Vec<u8>>> for SQLiteValue<'a> {
     }
 }
 
-impl<'a> From<Arc<Vec<u8>>> for SQLiteValue<'a> {
+impl From<Arc<Vec<u8>>> for SQLiteValue<'_> {
     fn from(value: Arc<Vec<u8>>) -> Self {
         SQLiteValue::Blob(Cow::Owned(value.as_ref().clone()))
     }
@@ -313,21 +376,21 @@ impl<'a> From<&'a Arc<Vec<u8>>> for SQLiteValue<'a> {
 // --- ArrayVec<u8, N> ---
 
 #[cfg(feature = "arrayvec")]
-impl<'a, const N: usize> From<arrayvec::ArrayVec<u8, N>> for SQLiteValue<'a> {
+impl<const N: usize> From<arrayvec::ArrayVec<u8, N>> for SQLiteValue<'_> {
     fn from(value: arrayvec::ArrayVec<u8, N>) -> Self {
         SQLiteValue::Blob(Cow::Owned(value.to_vec()))
     }
 }
 
 #[cfg(feature = "arrayvec")]
-impl<'a, const N: usize> From<&arrayvec::ArrayVec<u8, N>> for SQLiteValue<'a> {
+impl<const N: usize> From<&arrayvec::ArrayVec<u8, N>> for SQLiteValue<'_> {
     fn from(value: &arrayvec::ArrayVec<u8, N>) -> Self {
         SQLiteValue::Blob(Cow::Owned(value.to_vec()))
     }
 }
 
 #[cfg(feature = "bytes")]
-impl<'a> From<bytes::Bytes> for SQLiteValue<'a> {
+impl From<bytes::Bytes> for SQLiteValue<'_> {
     fn from(value: bytes::Bytes) -> Self {
         SQLiteValue::Blob(Cow::Owned(value.to_vec()))
     }
@@ -341,7 +404,7 @@ impl<'a> From<&'a bytes::Bytes> for SQLiteValue<'a> {
 }
 
 #[cfg(feature = "bytes")]
-impl<'a> From<bytes::BytesMut> for SQLiteValue<'a> {
+impl From<bytes::BytesMut> for SQLiteValue<'_> {
     fn from(value: bytes::BytesMut) -> Self {
         SQLiteValue::Blob(Cow::Owned(value.to_vec()))
     }
@@ -355,14 +418,14 @@ impl<'a> From<&'a bytes::BytesMut> for SQLiteValue<'a> {
 }
 
 #[cfg(feature = "smallvec")]
-impl<'a, const N: usize> From<smallvec::SmallVec<[u8; N]>> for SQLiteValue<'a> {
+impl<const N: usize> From<smallvec::SmallVec<[u8; N]>> for SQLiteValue<'_> {
     fn from(value: smallvec::SmallVec<[u8; N]>) -> Self {
         SQLiteValue::Blob(Cow::Owned(value.into_vec()))
     }
 }
 
 #[cfg(feature = "smallvec")]
-impl<'a, const N: usize> From<&smallvec::SmallVec<[u8; N]>> for SQLiteValue<'a> {
+impl<const N: usize> From<&smallvec::SmallVec<[u8; N]>> for SQLiteValue<'_> {
     fn from(value: &smallvec::SmallVec<[u8; N]>) -> Self {
         SQLiteValue::Blob(Cow::Owned(value.to_vec()))
     }
@@ -371,84 +434,84 @@ impl<'a, const N: usize> From<&smallvec::SmallVec<[u8; N]>> for SQLiteValue<'a> 
 // --- Chrono Date/Time Types (stored as ISO-8601 text) ---
 
 #[cfg(feature = "chrono")]
-impl<'a> From<chrono::NaiveDate> for SQLiteValue<'a> {
+impl From<chrono::NaiveDate> for SQLiteValue<'_> {
     fn from(value: chrono::NaiveDate) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_string()))
     }
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<&chrono::NaiveDate> for SQLiteValue<'a> {
+impl From<&chrono::NaiveDate> for SQLiteValue<'_> {
     fn from(value: &chrono::NaiveDate) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_string()))
     }
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<chrono::NaiveTime> for SQLiteValue<'a> {
+impl From<chrono::NaiveTime> for SQLiteValue<'_> {
     fn from(value: chrono::NaiveTime) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_string()))
     }
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<&chrono::NaiveTime> for SQLiteValue<'a> {
+impl From<&chrono::NaiveTime> for SQLiteValue<'_> {
     fn from(value: &chrono::NaiveTime) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_string()))
     }
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<chrono::NaiveDateTime> for SQLiteValue<'a> {
+impl From<chrono::NaiveDateTime> for SQLiteValue<'_> {
     fn from(value: chrono::NaiveDateTime) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_string()))
     }
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<&chrono::NaiveDateTime> for SQLiteValue<'a> {
+impl From<&chrono::NaiveDateTime> for SQLiteValue<'_> {
     fn from(value: &chrono::NaiveDateTime) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_string()))
     }
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<chrono::DateTime<chrono::FixedOffset>> for SQLiteValue<'a> {
+impl From<chrono::DateTime<chrono::FixedOffset>> for SQLiteValue<'_> {
     fn from(value: chrono::DateTime<chrono::FixedOffset>) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_rfc3339()))
     }
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<&chrono::DateTime<chrono::FixedOffset>> for SQLiteValue<'a> {
+impl From<&chrono::DateTime<chrono::FixedOffset>> for SQLiteValue<'_> {
     fn from(value: &chrono::DateTime<chrono::FixedOffset>) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_rfc3339()))
     }
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<chrono::DateTime<chrono::Utc>> for SQLiteValue<'a> {
+impl From<chrono::DateTime<chrono::Utc>> for SQLiteValue<'_> {
     fn from(value: chrono::DateTime<chrono::Utc>) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_rfc3339()))
     }
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<&chrono::DateTime<chrono::Utc>> for SQLiteValue<'a> {
+impl From<&chrono::DateTime<chrono::Utc>> for SQLiteValue<'_> {
     fn from(value: &chrono::DateTime<chrono::Utc>) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_rfc3339()))
     }
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<chrono::Duration> for SQLiteValue<'a> {
+impl From<chrono::Duration> for SQLiteValue<'_> {
     fn from(value: chrono::Duration) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_string()))
     }
 }
 
 #[cfg(feature = "chrono")]
-impl<'a> From<&chrono::Duration> for SQLiteValue<'a> {
+impl From<&chrono::Duration> for SQLiteValue<'_> {
     fn from(value: &chrono::Duration) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_string()))
     }
@@ -457,7 +520,7 @@ impl<'a> From<&chrono::Duration> for SQLiteValue<'a> {
 // --- Time crate Date/Time Types (stored as ISO-8601 text) ---
 
 #[cfg(feature = "time")]
-impl<'a> From<time::Date> for SQLiteValue<'a> {
+impl From<time::Date> for SQLiteValue<'_> {
     fn from(value: time::Date) -> Self {
         SQLiteValue::Text(Cow::Owned(
             value
@@ -468,7 +531,7 @@ impl<'a> From<time::Date> for SQLiteValue<'a> {
 }
 
 #[cfg(feature = "time")]
-impl<'a> From<&time::Date> for SQLiteValue<'a> {
+impl From<&time::Date> for SQLiteValue<'_> {
     fn from(value: &time::Date) -> Self {
         SQLiteValue::Text(Cow::Owned(
             value
@@ -479,7 +542,7 @@ impl<'a> From<&time::Date> for SQLiteValue<'a> {
 }
 
 #[cfg(feature = "time")]
-impl<'a> From<time::Time> for SQLiteValue<'a> {
+impl From<time::Time> for SQLiteValue<'_> {
     fn from(value: time::Time) -> Self {
         SQLiteValue::Text(Cow::Owned(
             value
@@ -490,7 +553,7 @@ impl<'a> From<time::Time> for SQLiteValue<'a> {
 }
 
 #[cfg(feature = "time")]
-impl<'a> From<&time::Time> for SQLiteValue<'a> {
+impl From<&time::Time> for SQLiteValue<'_> {
     fn from(value: &time::Time) -> Self {
         SQLiteValue::Text(Cow::Owned(
             value
@@ -501,7 +564,7 @@ impl<'a> From<&time::Time> for SQLiteValue<'a> {
 }
 
 #[cfg(feature = "time")]
-impl<'a> From<time::PrimitiveDateTime> for SQLiteValue<'a> {
+impl From<time::PrimitiveDateTime> for SQLiteValue<'_> {
     fn from(value: time::PrimitiveDateTime) -> Self {
         SQLiteValue::Text(Cow::Owned(
             value
@@ -512,7 +575,7 @@ impl<'a> From<time::PrimitiveDateTime> for SQLiteValue<'a> {
 }
 
 #[cfg(feature = "time")]
-impl<'a> From<&time::PrimitiveDateTime> for SQLiteValue<'a> {
+impl From<&time::PrimitiveDateTime> for SQLiteValue<'_> {
     fn from(value: &time::PrimitiveDateTime) -> Self {
         SQLiteValue::Text(Cow::Owned(
             value
@@ -523,7 +586,7 @@ impl<'a> From<&time::PrimitiveDateTime> for SQLiteValue<'a> {
 }
 
 #[cfg(feature = "time")]
-impl<'a> From<time::OffsetDateTime> for SQLiteValue<'a> {
+impl From<time::OffsetDateTime> for SQLiteValue<'_> {
     fn from(value: time::OffsetDateTime) -> Self {
         SQLiteValue::Text(Cow::Owned(
             value
@@ -534,7 +597,7 @@ impl<'a> From<time::OffsetDateTime> for SQLiteValue<'a> {
 }
 
 #[cfg(feature = "time")]
-impl<'a> From<&time::OffsetDateTime> for SQLiteValue<'a> {
+impl From<&time::OffsetDateTime> for SQLiteValue<'_> {
     fn from(value: &time::OffsetDateTime) -> Self {
         SQLiteValue::Text(Cow::Owned(
             value
@@ -545,14 +608,14 @@ impl<'a> From<&time::OffsetDateTime> for SQLiteValue<'a> {
 }
 
 #[cfg(feature = "time")]
-impl<'a> From<time::Duration> for SQLiteValue<'a> {
+impl From<time::Duration> for SQLiteValue<'_> {
     fn from(value: time::Duration) -> Self {
         SQLiteValue::Text(Cow::Owned(format!("{}s", value.whole_seconds())))
     }
 }
 
 #[cfg(feature = "time")]
-impl<'a> From<&time::Duration> for SQLiteValue<'a> {
+impl From<&time::Duration> for SQLiteValue<'_> {
     fn from(value: &time::Duration) -> Self {
         SQLiteValue::Text(Cow::Owned(format!("{}s", value.whole_seconds())))
     }
@@ -561,14 +624,14 @@ impl<'a> From<&time::Duration> for SQLiteValue<'a> {
 // --- Decimal (stored as text for lossless round-trip) ---
 
 #[cfg(feature = "rust-decimal")]
-impl<'a> From<rust_decimal::Decimal> for SQLiteValue<'a> {
+impl From<rust_decimal::Decimal> for SQLiteValue<'_> {
     fn from(value: rust_decimal::Decimal) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_string()))
     }
 }
 
 #[cfg(feature = "rust-decimal")]
-impl<'a> From<&rust_decimal::Decimal> for SQLiteValue<'a> {
+impl From<&rust_decimal::Decimal> for SQLiteValue<'_> {
     fn from(value: &rust_decimal::Decimal) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_string()))
     }
@@ -577,14 +640,14 @@ impl<'a> From<&rust_decimal::Decimal> for SQLiteValue<'a> {
 // --- JSON ---
 
 #[cfg(feature = "serde")]
-impl<'a> From<serde_json::Value> for SQLiteValue<'a> {
+impl From<serde_json::Value> for SQLiteValue<'_> {
     fn from(value: serde_json::Value) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_string()))
     }
 }
 
 #[cfg(feature = "serde")]
-impl<'a> From<&serde_json::Value> for SQLiteValue<'a> {
+impl From<&serde_json::Value> for SQLiteValue<'_> {
     fn from(value: &serde_json::Value) -> Self {
         SQLiteValue::Text(Cow::Owned(value.to_string()))
     }
@@ -593,7 +656,7 @@ impl<'a> From<&serde_json::Value> for SQLiteValue<'a> {
 // --- UUID ---
 
 #[cfg(feature = "uuid")]
-impl<'a> From<Uuid> for SQLiteValue<'a> {
+impl From<Uuid> for SQLiteValue<'_> {
     fn from(value: Uuid) -> Self {
         SQLiteValue::Blob(Cow::Owned(value.as_bytes().to_vec()))
     }
@@ -607,15 +670,14 @@ impl<'a> From<&'a Uuid> for SQLiteValue<'a> {
 }
 
 // --- Option Types ---
-impl<'a, T> From<Option<T>> for SQLiteValue<'a>
+impl<T> From<Option<T>> for SQLiteValue<'_>
 where
-    T: TryInto<SQLiteValue<'a>>,
+    T: TryInto<Self>,
 {
     fn from(value: Option<T>) -> Self {
-        match value {
-            Some(value) => value.try_into().unwrap_or(SQLiteValue::Null),
-            None => SQLiteValue::Null,
-        }
+        value.map_or(SQLiteValue::Null, |v| {
+            v.try_into().unwrap_or(SQLiteValue::Null)
+        })
     }
 }
 
@@ -637,7 +699,7 @@ impl<'a> From<&'a SQLiteValue<'a>> for Cow<'a, SQLiteValue<'a>> {
 // Uses the FromSQLiteValue trait via convert() for unified conversion logic
 //------------------------------------------------------------------------------
 
-/// Macro to implement TryFrom<SQLiteValue> for types implementing FromSQLiteValue
+/// Macro to implement `TryFrom`<SQLiteValue> for types implementing `FromSQLiteValue`
 macro_rules! impl_try_from_sqlite_value {
     ($($ty:ty),* $(,)?) => {
         $(
@@ -726,7 +788,7 @@ impl<const N: usize> TryFrom<SQLiteValue<'_>> for smallvec::SmallVec<[u8; N]> {
 // Uses the FromSQLiteValue trait via convert_ref() for unified conversion logic
 //------------------------------------------------------------------------------
 
-/// Macro to implement TryFrom<&SQLiteValue> for types implementing FromSQLiteValue
+/// Macro to implement `TryFrom`<&`SQLiteValue`> for types implementing `FromSQLiteValue`
 macro_rules! impl_try_from_sqlite_value_ref {
     ($($ty:ty),* $(,)?) => {
         $(
@@ -819,7 +881,7 @@ impl<'a> TryFrom<&'a SQLiteValue<'a>> for &'a str {
         match value {
             SQLiteValue::Text(cow) => Ok(cow.as_ref()),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to &str", value).into(),
+                format!("Cannot convert {value:?} to &str").into(),
             )),
         }
     }
@@ -832,7 +894,7 @@ impl<'a> TryFrom<&'a SQLiteValue<'a>> for &'a [u8] {
         match value {
             SQLiteValue::Blob(cow) => Ok(cow.as_ref()),
             _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {:?} to &[u8]", value).into(),
+                format!("Cannot convert {value:?} to &[u8]").into(),
             )),
         }
     }

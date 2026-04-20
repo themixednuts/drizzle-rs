@@ -85,21 +85,21 @@ impl Config {
 
     /// Set the inferred naming casing strategy.
     #[must_use]
-    pub fn casing(mut self, casing: Casing) -> Self {
+    pub const fn casing(mut self, casing: Casing) -> Self {
         self.casing = Some(casing);
         self
     }
 
     /// Enable or disable statement breakpoints in written SQL.
     #[must_use]
-    pub fn breakpoints(mut self, enabled: bool) -> Self {
+    pub const fn breakpoints(mut self, enabled: bool) -> Self {
         self.breakpoints = enabled;
         self
     }
 
     /// Set migration tag prefix mode.
     #[must_use]
-    pub fn prefix_mode(mut self, mode: PrefixMode) -> Self {
+    pub const fn prefix_mode(mut self, mode: PrefixMode) -> Self {
         self.prefix_mode = mode;
         self
     }
@@ -137,7 +137,7 @@ pub enum Output {
 
 impl Output {
     #[must_use]
-    pub fn is_generated(&self) -> bool {
+    pub const fn is_generated(&self) -> bool {
         matches!(self, Self::Generated { .. })
     }
 }
@@ -188,6 +188,13 @@ pub enum BuildError {
 /// }
 /// # Ok::<(), drizzle_migrations::BuildError>(())
 /// ```
+///
+/// # Errors
+///
+/// Returns a [`BuildError`] if the config has no schema files, the dialect is
+/// unsupported, schema parsing fails, snapshot/migration generation fails, or
+/// any filesystem operation (read/write) errors while materializing the
+/// migration folder.
 pub fn run(config: &Config) -> Result<Output, BuildError> {
     if config.files.is_empty() {
         return Err(BuildError::MissingSchemaFiles);
@@ -282,9 +289,10 @@ fn next_migration_index(out_dir: &Path) -> Result<u32, BuildError> {
         }
     }
 
-    Ok(max_index
-        .map(|idx| idx.saturating_add(1))
-        .unwrap_or(entries.len() as u32))
+    Ok(max_index.map_or_else(
+        || u32::try_from(entries.len()).unwrap_or(u32::MAX),
+        |idx| idx.saturating_add(1),
+    ))
 }
 
 fn collect_v3_migration_dirs(out_dir: &Path) -> Result<Vec<(String, PathBuf)>, BuildError> {

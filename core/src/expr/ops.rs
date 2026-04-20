@@ -1,4 +1,4 @@
-//! Arithmetic operations using std::ops traits.
+//! Arithmetic operations using `std::ops` traits.
 //!
 //! This module implements `Add`, `Sub`, `Mul`, `Div`, `Rem` for `SQLExpr`,
 //! enabling natural Rust syntax for SQL arithmetic.
@@ -170,7 +170,7 @@ where
     N: Nullability,
     A: AggregateKind,
 {
-    type Output = SQLExpr<'a, V, T, N, A>;
+    type Output = Self;
 
     fn neg(self) -> Self::Output {
         SQLExpr::new(SQL::from(Token::MINUS).append(self.into_sql().parens()))

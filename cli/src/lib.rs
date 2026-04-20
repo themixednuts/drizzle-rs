@@ -22,7 +22,7 @@
 //! url = "./dev.db"
 //! ```
 //!
-//! For PostgreSQL:
+//! For `PostgreSQL`:
 //!
 //! ```toml
 //! dialect = "postgresql"

@@ -1,6 +1,6 @@
-//! Schema diff types and logic for PostgreSQL
+//! Schema diff types and logic for `PostgreSQL`
 //!
-//! This module provides diffing between PostgreSQL DDL collections and
+//! This module provides diffing between `PostgreSQL` DDL collections and
 //! generates migration statements from schema changes.
 
 use super::collection::{DiffType, EntityDiff, PostgresDDL, diff_ddl};
@@ -10,22 +10,25 @@ use crate::postgres::snapshot::PostgresSnapshot;
 use crate::traits::EntityKind;
 use std::collections::HashSet;
 
-/// Complete schema diff between two PostgreSQL snapshots
+/// Complete schema diff between two `PostgreSQL` snapshots
 #[derive(Debug, Clone, Default)]
 pub struct SchemaDiff {
     pub diffs: Vec<EntityDiff>,
 }
 
 impl SchemaDiff {
-    pub fn has_changes(&self) -> bool {
+    #[must_use]
+    pub const fn has_changes(&self) -> bool {
         !self.diffs.is_empty()
     }
 
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.diffs.is_empty()
     }
 
     /// Get created entities
+    #[must_use]
     pub fn created(&self) -> Vec<&EntityDiff> {
         self.diffs
             .iter()
@@ -34,6 +37,7 @@ impl SchemaDiff {
     }
 
     /// Get dropped entities
+    #[must_use]
     pub fn dropped(&self) -> Vec<&EntityDiff> {
         self.diffs
             .iter()
@@ -42,6 +46,7 @@ impl SchemaDiff {
     }
 
     /// Get altered entities
+    #[must_use]
     pub fn altered(&self) -> Vec<&EntityDiff> {
         self.diffs
             .iter()
@@ -50,11 +55,13 @@ impl SchemaDiff {
     }
 
     /// Get diffs filtered by entity kind
+    #[must_use]
     pub fn by_kind(&self, kind: EntityKind) -> Vec<&EntityDiff> {
         self.diffs.iter().filter(|d| d.kind == kind).collect()
     }
 
     /// Get created tables
+    #[must_use]
     pub fn created_tables(&self) -> Vec<&EntityDiff> {
         self.diffs
             .iter()
@@ -63,6 +70,7 @@ impl SchemaDiff {
     }
 
     /// Get dropped tables
+    #[must_use]
     pub fn dropped_tables(&self) -> Vec<&EntityDiff> {
         self.diffs
             .iter()
@@ -71,6 +79,7 @@ impl SchemaDiff {
     }
 
     /// Get created schemas
+    #[must_use]
     pub fn created_schemas(&self) -> Vec<&EntityDiff> {
         self.diffs
             .iter()
@@ -79,6 +88,7 @@ impl SchemaDiff {
     }
 
     /// Get created enums
+    #[must_use]
     pub fn created_enums(&self) -> Vec<&EntityDiff> {
         self.diffs
             .iter()
@@ -87,7 +97,8 @@ impl SchemaDiff {
     }
 }
 
-/// Compare two PostgreSQL snapshots
+/// Compare two `PostgreSQL` snapshots
+#[must_use]
 pub fn diff_snapshots(prev_ddl: &[PostgresEntity], cur_ddl: &[PostgresEntity]) -> SchemaDiff {
     let left = PostgresDDL::from_entities(prev_ddl.to_vec());
     let right = PostgresDDL::from_entities(cur_ddl.to_vec());
@@ -96,14 +107,16 @@ pub fn diff_snapshots(prev_ddl: &[PostgresEntity], cur_ddl: &[PostgresEntity]) -
     SchemaDiff { diffs }
 }
 
-/// Compare two PostgreSQL DDL collections directly
+/// Compare two `PostgreSQL` DDL collections directly
+#[must_use]
 pub fn diff_collections(prev: &PostgresDDL, cur: &PostgresDDL) -> SchemaDiff {
     SchemaDiff {
         diffs: diff_ddl(prev, cur),
     }
 }
 
-/// Compare two full PostgreSQL snapshots
+/// Compare two full `PostgreSQL` snapshots
+#[must_use]
 pub fn diff_full_snapshots(prev: &PostgresSnapshot, cur: &PostgresSnapshot) -> SchemaDiff {
     diff_snapshots(&prev.ddl, &cur.ddl)
 }
@@ -147,7 +160,8 @@ pub struct MigrationDiff {
     pub warnings: Vec<String>,
 }
 
-/// Compute a full migration diff between two PostgreSQL DDL states
+/// Compute a full migration diff between two `PostgreSQL` DDL states
+#[must_use]
 pub fn compute_migration(prev: &PostgresDDL, cur: &PostgresDDL) -> MigrationDiff {
     // Heuristic rename detection (non-interactive):
     // Detect simple column renames: one dropped + one created column in the same table
@@ -210,7 +224,7 @@ fn detect_and_apply_postgres_column_renames(
         let cur_col = cur.columns.one(&schema, &table, to);
         if let (Some(prev_col), Some(cur_col)) = (prev_col, cur_col) {
             let mut prev_cmp = prev_col.clone();
-            prev_cmp.name = cur_col.name.clone();
+            prev_cmp.name.clone_from(&cur_col.name);
             if prev_cmp == *cur_col {
                 out.push(ColumnRename {
                     schema: schema.clone(),
@@ -219,8 +233,7 @@ fn detect_and_apply_postgres_column_renames(
                     to: to.clone(),
                 });
                 rename_sql.push(format!(
-                    "ALTER TABLE \"{}\".\"{}\" RENAME COLUMN \"{}\" TO \"{}\";",
-                    schema, table, from, to
+                    "ALTER TABLE \"{schema}\".\"{table}\" RENAME COLUMN \"{from}\" TO \"{to}\";"
                 ));
                 apply_postgres_column_rename(prev, &schema, &table, from, to);
             }
@@ -296,7 +309,7 @@ fn apply_postgres_column_rename(
         .iter_mut()
         .filter(|i| i.schema.as_ref() == schema && i.table.as_ref() == table)
     {
-        for col in idx.columns.iter_mut() {
+        for col in &mut idx.columns {
             if !col.is_expression && col.value.as_ref() == from {
                 col.value = to.clone().into();
             }
@@ -305,6 +318,7 @@ fn apply_postgres_column_rename(
 }
 
 /// Compute a migration from snapshots
+#[must_use]
 pub fn compute_migration_from_snapshots(
     prev: &PostgresSnapshot,
     cur: &PostgresSnapshot,
@@ -315,6 +329,7 @@ pub fn compute_migration_from_snapshots(
 }
 
 /// Prepare rename tracking strings for snapshot storage
+#[must_use]
 pub fn prepare_migration_renames(
     schema_renames: &[SchemaRename],
     table_renames: &[TableRename],

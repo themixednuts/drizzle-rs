@@ -103,7 +103,7 @@ impl Drizzle {
     }
 }
 
-impl<S> AsRef<Drizzle<S>> for Drizzle<S> {
+impl<S> AsRef<Self> for Drizzle<S> {
     #[inline]
     fn as_ref(&self) -> &Self {
         self
@@ -113,7 +113,7 @@ impl<S> AsRef<Drizzle<S>> for Drizzle<S> {
 impl<Schema> Drizzle<Schema> {
     /// Reference to the underlying AWS SDK client.
     #[inline]
-    pub fn client(&self) -> &Client {
+    pub const fn client(&self) -> &Client {
         &self.client
     }
 
@@ -137,13 +137,17 @@ impl<Schema> Drizzle<Schema> {
 
     /// Schema handle.
     #[inline]
-    pub fn schema(&self) -> &Schema {
+    pub const fn schema(&self) -> &Schema {
         &self.schema
     }
 
     postgres_builder_constructors!();
 
     /// Run the query and return the number of affected rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the Data API call fails or the SQL is invalid.
     pub async fn execute<'a, T>(&'a self, query: T) -> drizzle_core::error::Result<u64>
     where
         T: ToSQL<'a, PostgresValue<'a>>,
@@ -161,10 +165,14 @@ impl<Schema> Drizzle<Schema> {
         let out = self
             .run_statement(&sql_str, sql_params, None::<&str>)
             .await?;
-        Ok(out.number_of_records_updated.max(0) as u64)
+        Ok(out.number_of_records_updated.max(0).cast_unsigned())
     }
 
     /// Run the query and collect all rows into `C`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the Data API call fails or row decoding fails.
     pub async fn all<'a, T, R, C>(&'a self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -178,6 +186,10 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Run the query and return a lazy row cursor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the Data API call fails.
     pub async fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -201,6 +213,10 @@ impl<Schema> Drizzle<Schema> {
     }
 
     /// Run the query and return a single row.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the Data API call fails, no rows match (returns `DrizzleError::NotFound`), or decoding fails.
     pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -216,6 +232,10 @@ impl<Schema> Drizzle<Schema> {
     /// `tx_type` selects the `ISOLATION LEVEL`. The Data API implicitly starts
     /// each transaction via the service-level `BeginTransaction` call; the
     /// isolation level is communicated as a preamble statement.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the Data API begin/commit call fails, or if the inner closure returns an error.
     pub async fn transaction<F, R>(
         &self,
         tx_type: PostgresTransactionType,
@@ -238,7 +258,7 @@ impl<Schema> Drizzle<Schema> {
         let begin_out = begin
             .send()
             .await
-            .map_err(|e| aws_error("begin_transaction", e))?;
+            .map_err(|e| aws_error("begin_transaction", &e))?;
 
         let tx_id = begin_out.transaction_id.ok_or_else(|| {
             DrizzleError::TransactionError("AWS Data API: missing transaction_id".into())
@@ -254,12 +274,10 @@ impl<Schema> Drizzle<Schema> {
             self.schema,
         );
 
-        if let Some(preamble) = isolation_preamble(tx_type) {
-            // Failure to set isolation level should abort.
-            if let Err(e) = tx.execute(preamble).await {
-                let _ = tx.rollback().await;
-                return Err(e);
-            }
+        // Failure to set isolation level should abort.
+        if let Err(e) = tx.execute(isolation_preamble(tx_type)).await {
+            let _ = tx.rollback().await;
+            return Err(e);
         }
 
         match f(&tx).await {
@@ -308,6 +326,10 @@ where
     Schema: drizzle_core::traits::SQLSchemaImpl + Default,
 {
     /// Create all schema objects (tables, indexes, ...) from `SQLSchemaImpl`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if any CREATE statement fails via the Data API.
     pub async fn create(&self) -> drizzle_core::error::Result<()> {
         let schema = Schema::default();
         let statements = schema.create_statements()?;
@@ -324,6 +346,10 @@ impl<Schema> Drizzle<Schema> {
     ///
     /// Migrations run inside a single Data API transaction so a mid-run failure
     /// rolls back cleanly. Each migration can contain multiple statements.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the underlying migration or Data API transaction fails.
     pub async fn migrate(
         &self,
         migrations: &[drizzle_migrations::Migration],
@@ -384,7 +410,7 @@ impl<Schema> Drizzle<Schema> {
 /// [`SqlParameter`] list, using stringified 1-indexed ordinals as parameter
 /// names (`"1"`, `"2"`, ...). These line up with the `:1`, `:2`, ... that the
 /// builder emits via [`ParamStyle::ColonNumbered`].
-pub(crate) fn encode_params(params: &[&PostgresValue<'_>]) -> Vec<SqlParameter> {
+pub fn encode_params(params: &[&PostgresValue<'_>]) -> Vec<SqlParameter> {
     params
         .iter()
         .enumerate()
@@ -392,26 +418,22 @@ pub(crate) fn encode_params(params: &[&PostgresValue<'_>]) -> Vec<SqlParameter> 
         .collect()
 }
 
-fn isolation_preamble(tx_type: PostgresTransactionType) -> Option<&'static str> {
+const fn isolation_preamble(tx_type: PostgresTransactionType) -> &'static str {
     match tx_type {
         PostgresTransactionType::ReadUncommitted => {
-            Some("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED")
+            "SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED"
         }
-        PostgresTransactionType::ReadCommitted => {
-            Some("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
-        }
+        PostgresTransactionType::ReadCommitted => "SET TRANSACTION ISOLATION LEVEL READ COMMITTED",
         PostgresTransactionType::RepeatableRead => {
-            Some("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"
         }
-        PostgresTransactionType::Serializable => {
-            Some("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        }
+        PostgresTransactionType::Serializable => "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
     }
 }
 
-/// Decode rows from an ExecuteStatementOutput into a Vec<Row>, sharing the
+/// Decode rows from an `ExecuteStatementOutput` into a Vec<Row>, sharing the
 /// column metadata via an Arc.
-pub(crate) fn decode_rows(
+pub fn decode_rows(
     out: aws_sdk_rdsdata::operation::execute_statement::ExecuteStatementOutput,
 ) -> Vec<Row> {
     let metadata: Arc<[ColumnMetadata]> = out
@@ -429,7 +451,7 @@ pub(crate) fn decode_rows(
 /// Shared low-level executor — used by both the top-level driver and
 /// [`Transaction`]. Packages the request building boilerplate and maps SDK
 /// errors into [`DrizzleError`].
-pub(crate) async fn execute_statement_raw(
+pub async fn execute_statement_raw(
     client: &Client,
     resource_arn: &str,
     secret_arn: &str,
@@ -459,17 +481,17 @@ pub(crate) async fn execute_statement_raw(
 
     req.send()
         .await
-        .map_err(|e| aws_error("execute_statement", e))
+        .map_err(|e| aws_error("execute_statement", &e))
 }
 
 /// Convert an AWS SDK error into a `DrizzleError`. We preserve the service
 /// message when available for easier debugging.
-pub(crate) fn aws_error<E, R>(op: &str, err: aws_sdk_rdsdata::error::SdkError<E, R>) -> DrizzleError
+pub fn aws_error<E, R>(op: &str, err: &aws_sdk_rdsdata::error::SdkError<E, R>) -> DrizzleError
 where
     E: std::error::Error,
 {
     use aws_sdk_rdsdata::error::SdkError;
-    let msg = match &err {
+    let msg = match err {
         SdkError::ServiceError(service) => format!("aws {op}: {}", service.err()),
         other => format!("aws {op}: {other}"),
     };
@@ -480,8 +502,8 @@ where
 // Builder trailing-impls (execute / all / rows / get via DrizzleBuilder)
 // =============================================================================
 
-impl<'a, 'b, S, Schema, State, Table, Mk, Rw, Grouped>
-    DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw, Grouped>, State>
+impl<S, Schema, State, Table, Mk, Rw, Grouped>
+    DrizzleBuilder<'_, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>
 where
     State: builder::ExecutableState,
 {
@@ -500,7 +522,7 @@ where
             .drizzle
             .run_statement(&sql_str, sql_params, None::<&str>)
             .await?;
-        Ok(out.number_of_records_updated.max(0) as u64)
+        Ok(out.number_of_records_updated.max(0).cast_unsigned())
     }
 
     /// Run the builder and collect all rows using the builder's row type.

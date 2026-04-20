@@ -27,7 +27,7 @@ pub fn sqlite_column_type_to_sql_type(column_type: &SQLiteType) -> TokenStream {
 }
 
 #[cfg(feature = "sqlite")]
-pub fn sqlite_column_type_is_numeric(column_type: &SQLiteType) -> bool {
+pub const fn sqlite_column_type_is_numeric(column_type: &SQLiteType) -> bool {
     matches!(
         column_type,
         SQLiteType::Integer | SQLiteType::Real | SQLiteType::Numeric
@@ -100,7 +100,7 @@ pub fn postgres_column_type_to_sql_type(column_type: &PostgreSQLType) -> TokenSt
 }
 
 #[cfg(feature = "postgres")]
-pub fn postgres_column_type_is_numeric(column_type: &PostgreSQLType) -> bool {
+pub const fn postgres_column_type_is_numeric(column_type: &PostgreSQLType) -> bool {
     matches!(
         column_type,
         PostgreSQLType::Smallint
@@ -130,9 +130,9 @@ pub fn rust_type_to_nullability(ty: &Type) -> TokenStream {
 /// Generates an Expr trait implementation for a column type.
 pub fn generate_expr_impl(
     struct_ident: &proc_macro2::Ident,
-    value_type: TokenStream,
-    sql_type: TokenStream,
-    sql_nullable: TokenStream,
+    value_type: &TokenStream,
+    sql_type: &TokenStream,
+    sql_nullable: &TokenStream,
 ) -> TokenStream {
     let expr = core_paths::expr();
 

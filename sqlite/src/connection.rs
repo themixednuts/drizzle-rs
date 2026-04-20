@@ -1,9 +1,9 @@
-//! Connection types and transaction handling for SQLite drivers
+//! Connection types and transaction handling for `SQLite` drivers
 
 #[cfg(not(any(feature = "libsql", feature = "rusqlite", feature = "turso")))]
 use core::marker::PhantomData;
 
-/// Reference to different SQLite driver connection types
+/// Reference to different `SQLite` driver connection types
 #[derive(Debug)]
 pub enum ConnectionRef<'a> {
     #[cfg(feature = "libsql")]
@@ -38,7 +38,7 @@ impl<'a> From<&'a turso::Connection> for ConnectionRef<'a> {
     }
 }
 
-/// SQLite transaction types
+/// `SQLite` transaction types
 #[derive(Default, Debug, Clone, Copy)]
 pub enum SQLiteTransactionType {
     #[default]
@@ -54,9 +54,9 @@ pub enum SQLiteTransactionType {
 impl From<SQLiteTransactionType> for ::rusqlite::TransactionBehavior {
     fn from(tx_type: SQLiteTransactionType) -> Self {
         match tx_type {
-            SQLiteTransactionType::Deferred => ::rusqlite::TransactionBehavior::Deferred,
-            SQLiteTransactionType::Immediate => ::rusqlite::TransactionBehavior::Immediate,
-            SQLiteTransactionType::Exclusive => ::rusqlite::TransactionBehavior::Exclusive,
+            SQLiteTransactionType::Deferred => Self::Deferred,
+            SQLiteTransactionType::Immediate => Self::Immediate,
+            SQLiteTransactionType::Exclusive => Self::Exclusive,
         }
     }
 }
@@ -65,10 +65,10 @@ impl From<SQLiteTransactionType> for ::rusqlite::TransactionBehavior {
 impl From<::rusqlite::TransactionBehavior> for SQLiteTransactionType {
     fn from(behavior: ::rusqlite::TransactionBehavior) -> Self {
         match behavior {
-            ::rusqlite::TransactionBehavior::Deferred => SQLiteTransactionType::Deferred,
-            ::rusqlite::TransactionBehavior::Immediate => SQLiteTransactionType::Immediate,
-            ::rusqlite::TransactionBehavior::Exclusive => SQLiteTransactionType::Exclusive,
-            _ => SQLiteTransactionType::Deferred, // Default for any future variants
+            ::rusqlite::TransactionBehavior::Immediate => Self::Immediate,
+            ::rusqlite::TransactionBehavior::Exclusive => Self::Exclusive,
+            // Deferred and any future variants default to Deferred.
+            _ => Self::Deferred,
         }
     }
 }
@@ -78,9 +78,9 @@ impl From<::rusqlite::TransactionBehavior> for SQLiteTransactionType {
 impl From<SQLiteTransactionType> for libsql::TransactionBehavior {
     fn from(tx_type: SQLiteTransactionType) -> Self {
         match tx_type {
-            SQLiteTransactionType::Deferred => libsql::TransactionBehavior::Deferred,
-            SQLiteTransactionType::Immediate => libsql::TransactionBehavior::Immediate,
-            SQLiteTransactionType::Exclusive => libsql::TransactionBehavior::Exclusive,
+            SQLiteTransactionType::Deferred => Self::Deferred,
+            SQLiteTransactionType::Immediate => Self::Immediate,
+            SQLiteTransactionType::Exclusive => Self::Exclusive,
         }
     }
 }
@@ -90,10 +90,12 @@ impl From<SQLiteTransactionType> for libsql::TransactionBehavior {
 impl From<libsql::TransactionBehavior> for SQLiteTransactionType {
     fn from(behavior: libsql::TransactionBehavior) -> Self {
         match behavior {
-            libsql::TransactionBehavior::Deferred => SQLiteTransactionType::Deferred,
-            libsql::TransactionBehavior::Immediate => SQLiteTransactionType::Immediate,
-            libsql::TransactionBehavior::Exclusive => SQLiteTransactionType::Exclusive,
-            libsql::TransactionBehavior::ReadOnly => SQLiteTransactionType::Deferred, // Map ReadOnly to Deferred as closest equivalent
+            libsql::TransactionBehavior::Immediate => Self::Immediate,
+            libsql::TransactionBehavior::Exclusive => Self::Exclusive,
+            // Deferred and ReadOnly (mapped as closest equivalent) both fall through to Deferred.
+            libsql::TransactionBehavior::Deferred | libsql::TransactionBehavior::ReadOnly => {
+                Self::Deferred
+            }
         }
     }
 }
@@ -103,9 +105,9 @@ impl From<libsql::TransactionBehavior> for SQLiteTransactionType {
 impl From<SQLiteTransactionType> for turso::transaction::TransactionBehavior {
     fn from(tx_type: SQLiteTransactionType) -> Self {
         match tx_type {
-            SQLiteTransactionType::Deferred => turso::transaction::TransactionBehavior::Deferred,
-            SQLiteTransactionType::Immediate => turso::transaction::TransactionBehavior::Immediate,
-            SQLiteTransactionType::Exclusive => turso::transaction::TransactionBehavior::Exclusive,
+            SQLiteTransactionType::Deferred => Self::Deferred,
+            SQLiteTransactionType::Immediate => Self::Immediate,
+            SQLiteTransactionType::Exclusive => Self::Exclusive,
         }
     }
 }
@@ -115,10 +117,10 @@ impl From<SQLiteTransactionType> for turso::transaction::TransactionBehavior {
 impl From<turso::transaction::TransactionBehavior> for SQLiteTransactionType {
     fn from(behavior: turso::transaction::TransactionBehavior) -> Self {
         match behavior {
-            turso::transaction::TransactionBehavior::Deferred => SQLiteTransactionType::Deferred,
-            turso::transaction::TransactionBehavior::Immediate => SQLiteTransactionType::Immediate,
-            turso::transaction::TransactionBehavior::Exclusive => SQLiteTransactionType::Exclusive,
-            _ => SQLiteTransactionType::Deferred,
+            turso::transaction::TransactionBehavior::Immediate => Self::Immediate,
+            turso::transaction::TransactionBehavior::Exclusive => Self::Exclusive,
+            // Deferred and any future variants default to Deferred.
+            _ => Self::Deferred,
         }
     }
 }

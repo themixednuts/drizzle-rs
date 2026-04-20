@@ -1,4 +1,4 @@
-//! PostgreSQL Table DDL types
+//! `PostgreSQL` Table DDL types
 //!
 //! This module provides two complementary types:
 //! - [`TableDef`] - A const-friendly definition type for compile-time schema definitions
@@ -108,7 +108,7 @@ impl Table {
 
     /// Set Row-Level Security enabled
     #[must_use]
-    pub fn rls_enabled(mut self) -> Self {
+    pub const fn rls_enabled(mut self) -> Self {
         self.is_rls_enabled = Some(true);
         self
     }

@@ -85,8 +85,7 @@ impl<Scope> ScopeSatisfies<Nil, ()> for Scope {}
 impl<Scope, Head, Tail, HeadProof, TailProof>
     ScopeSatisfies<Cons<Head, Tail>, (HeadProof, TailProof)> for Scope
 where
-    Scope: ScopeContains<Head, HeadProof>,
-    Scope: ScopeSatisfies<Tail, TailProof>,
+    Scope: ScopeContains<Head, HeadProof> + ScopeSatisfies<Tail, TailProof>,
 {
 }
 
@@ -312,7 +311,7 @@ with_col_sizes_16!(impl_into_group_by_tuple);
 // Scalar column validation against grouped columns
 // =============================================================================
 
-/// Checks that every scalar column in a SelectCols tuple is present in
+/// Checks that every scalar column in a `SelectCols` tuple is present in
 /// the Grouped column list. Aggregate columns are skipped.
 ///
 /// `Proof` is a witness type inferred by the compiler (like `ScopeContains`).
@@ -326,7 +325,7 @@ pub trait ScalarColumnsIn<Grouped, Proof> {}
 /// Aggregate expressions always pass (they don't need to be in GROUP BY).
 pub struct AggSkip;
 
-/// Scalar expressions need a ScopeContains witness.
+/// Scalar expressions need a `ScopeContains` witness.
 pub struct ScalarCheck<W>(core::marker::PhantomData<W>);
 
 // 1-tuple
@@ -354,7 +353,7 @@ impl<E: GroupByIdentity> GroupByIdentity for crate::expr::AliasedExpr<E> {
 }
 
 // SQLExpr: identity is self (for aggregate expressions, this won't be checked anyway)
-impl<'a, V: crate::SQLParam, T, N, A> GroupByIdentity for crate::expr::SQLExpr<'a, V, T, N, A>
+impl<V: crate::SQLParam, T, N, A> GroupByIdentity for crate::expr::SQLExpr<'_, V, T, N, A>
 where
     T: crate::types::DataType,
     N: crate::expr::Nullability,
@@ -487,7 +486,7 @@ impl<Row: ?Sized, T> ColumnTypeCompatible<Row, T, T> for () {}
 
 trait TypeListCompatible<Row: ?Sized, ActualList> {}
 
-impl<Row: ?Sized> TypeListCompatible<Row, crate::Nil> for crate::Nil {}
+impl<Row: ?Sized> TypeListCompatible<Row, Self> for crate::Nil {}
 
 impl<Row: ?Sized, EH, ET, AH, AT> TypeListCompatible<Row, crate::Cons<AH, AT>>
     for crate::Cons<EH, ET>
@@ -500,7 +499,7 @@ where
 trait SqliteDecodeRow {}
 
 #[cfg(feature = "rusqlite")]
-impl<'r> SqliteDecodeRow for ::rusqlite::Row<'r> {}
+impl SqliteDecodeRow for ::rusqlite::Row<'_> {}
 
 #[cfg(feature = "libsql")]
 impl SqliteDecodeRow for ::libsql::Row {}
@@ -572,104 +571,104 @@ impl<Row: ?Sized> RowColumnList<Row> for () {
 
 #[cfg(feature = "uuid")]
 impl<Row: ?Sized> RowColumnList<Row> for uuid::Uuid {
-    type Columns = crate::Cons<uuid::Uuid, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "chrono")]
 impl<Row: ?Sized> RowColumnList<Row> for chrono::NaiveDate {
-    type Columns = crate::Cons<chrono::NaiveDate, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "chrono")]
 impl<Row: ?Sized> RowColumnList<Row> for chrono::NaiveTime {
-    type Columns = crate::Cons<chrono::NaiveTime, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "chrono")]
 impl<Row: ?Sized> RowColumnList<Row> for chrono::NaiveDateTime {
-    type Columns = crate::Cons<chrono::NaiveDateTime, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "chrono")]
 impl<Row: ?Sized> RowColumnList<Row> for chrono::DateTime<chrono::Utc> {
-    type Columns = crate::Cons<chrono::DateTime<chrono::Utc>, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "serde")]
 impl<Row: ?Sized> RowColumnList<Row> for serde_json::Value {
-    type Columns = crate::Cons<serde_json::Value, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "rust-decimal")]
 impl<Row: ?Sized> RowColumnList<Row> for rust_decimal::Decimal {
-    type Columns = crate::Cons<rust_decimal::Decimal, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "chrono")]
 impl<Row: ?Sized> RowColumnList<Row> for chrono::Duration {
-    type Columns = crate::Cons<chrono::Duration, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "cidr")]
 impl<Row: ?Sized> RowColumnList<Row> for cidr::IpInet {
-    type Columns = crate::Cons<cidr::IpInet, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "cidr")]
 impl<Row: ?Sized> RowColumnList<Row> for cidr::IpCidr {
-    type Columns = crate::Cons<cidr::IpCidr, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "geo-types")]
 impl<Row: ?Sized> RowColumnList<Row> for geo_types::Point<f64> {
-    type Columns = crate::Cons<geo_types::Point<f64>, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "geo-types")]
 impl<Row: ?Sized> RowColumnList<Row> for geo_types::LineString<f64> {
-    type Columns = crate::Cons<geo_types::LineString<f64>, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "geo-types")]
 impl<Row: ?Sized> RowColumnList<Row> for geo_types::Rect<f64> {
-    type Columns = crate::Cons<geo_types::Rect<f64>, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "bit-vec")]
 impl<Row: ?Sized> RowColumnList<Row> for bit_vec::BitVec {
-    type Columns = crate::Cons<bit_vec::BitVec, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "arrayvec")]
 impl<Row: ?Sized, const N: usize> RowColumnList<Row> for arrayvec::ArrayString<N> {
-    type Columns = crate::Cons<arrayvec::ArrayString<N>, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "arrayvec")]
 impl<Row: ?Sized, T, const N: usize> RowColumnList<Row> for arrayvec::ArrayVec<T, N> {
-    type Columns = crate::Cons<arrayvec::ArrayVec<T, N>, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 impl<Row: ?Sized> RowColumnList<Row> for compact_str::CompactString {
-    type Columns = crate::Cons<compact_str::CompactString, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "bytes")]
 impl<Row: ?Sized> RowColumnList<Row> for bytes::Bytes {
-    type Columns = crate::Cons<bytes::Bytes, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 #[cfg(feature = "bytes")]
 impl<Row: ?Sized> RowColumnList<Row> for bytes::BytesMut {
-    type Columns = crate::Cons<bytes::BytesMut, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 impl<Row: ?Sized, A: smallvec::Array> RowColumnList<Row> for smallvec::SmallVec<A> {
-    type Columns = crate::Cons<smallvec::SmallVec<A>, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 impl<Row: ?Sized, T> RowColumnList<Row> for Option<T> {
-    type Columns = crate::Cons<Option<T>, crate::Nil>;
+    type Columns = crate::Cons<Self, crate::Nil>;
 }
 
 impl<Row: ?Sized, A> RowColumnList<Row> for (A,)
@@ -833,6 +832,12 @@ impl<M, Scope, Joined> ScopePush<Joined> for Scoped<M, Scope> {
 
 /// Marker-directed row decoding for `.all()`/`.get()`.
 pub trait DecodeSelectedRef<RowRef, R> {
+    /// Decode the row into `R` according to the marker.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the row cannot be decoded into the expected type
+    /// (missing columns, type mismatch, or downstream conversion failure).
     fn decode(row: RowRef) -> Result<R, DrizzleError>;
 }
 
@@ -906,9 +911,18 @@ pub trait FromDrizzleRow<Row: ?Sized>: Sized {
     const COLUMN_COUNT: usize;
 
     /// Read this type from `row` starting at column `offset`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any column from `offset` through
+    /// `offset + COLUMN_COUNT - 1` cannot be read or converted.
     fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError>;
 
     /// Read from offset 0.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the row cannot be decoded — see [`Self::from_row_at`].
     fn from_row(row: &Row) -> Result<Self, DrizzleError> {
         Self::from_row_at(row, 0)
     }
@@ -924,6 +938,11 @@ pub trait FromDrizzleRow<Row: ?Sized>: Sized {
 /// etc.) use concrete `Option<T>` impls instead.
 pub trait NullProbeRow<Row: ?Sized>: FromDrizzleRow<Row> {
     /// Returns `true` if the first column at `offset` is NULL.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the row cannot be inspected at `offset` (e.g. the
+    /// driver reports an out-of-range index or conversion failure).
     fn is_null_at(row: &Row, offset: usize) -> Result<bool, DrizzleError>;
 }
 
@@ -1271,7 +1290,7 @@ pub trait ExprValueType {
     type ValueType;
 }
 
-impl<'a, V: crate::SQLParam, T, N, A> ExprValueType for crate::expr::SQLExpr<'a, V, T, N, A>
+impl<V: crate::SQLParam, T, N, A> ExprValueType for crate::expr::SQLExpr<'_, V, T, N, A>
 where
     T: crate::types::DataType + SQLTypeToRust<V::DialectMarker>,
     N: crate::expr::Nullability + WrapNullable<<T as SQLTypeToRust<V::DialectMarker>>::RustType>,
@@ -1281,7 +1300,7 @@ where
 }
 
 /// Raw SQL fallback — value type is `()`, user must specify the concrete type.
-impl<'a, V: crate::SQLParam> ExprValueType for crate::sql::SQL<'a, V> {
+impl<V: crate::SQLParam> ExprValueType for crate::sql::SQL<'_, V> {
     type ValueType = ();
 }
 
@@ -1587,12 +1606,12 @@ impl IntoSelectTarget for () {
 }
 
 /// `select(sql!(...))` → `SelectExpr` — user must specify row type.
-impl<'a, V: crate::SQLParam> IntoSelectTarget for crate::sql::SQL<'a, V> {
+impl<V: crate::SQLParam> IntoSelectTarget for crate::sql::SQL<'_, V> {
     type Marker = SelectExpr;
 }
 
 /// `select(typed_expr)` → `SelectCols<(Expr,)>` — single typed expression.
-impl<'a, V: crate::SQLParam, T, N, A> IntoSelectTarget for crate::expr::SQLExpr<'a, V, T, N, A>
+impl<V: crate::SQLParam, T, N, A> IntoSelectTarget for crate::expr::SQLExpr<'_, V, T, N, A>
 where
     T: crate::types::DataType,
     N: crate::expr::Nullability,

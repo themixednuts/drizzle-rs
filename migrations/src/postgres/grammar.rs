@@ -1,18 +1,20 @@
-//! PostgreSQL SQL type grammar and naming conventions
+//! `PostgreSQL` SQL type grammar and naming conventions
 //!
 //! This module provides type checking, naming conventions, and default value
-//! handling for PostgreSQL columns matching drizzle-kit grammar.ts
+//! handling for `PostgreSQL` columns matching drizzle-kit grammar.ts
 
 // =============================================================================
 // Naming Conventions
 // =============================================================================
 
 /// Generate default name for a primary key constraint
+#[must_use]
 pub fn default_name_for_pk(table: &str) -> String {
-    format!("{}_pkey", table)
+    format!("{table}_pkey")
 }
 
 /// Generate default name for a foreign key constraint
+#[must_use]
 pub fn default_name_for_fk(
     table: &str,
     columns: &[String],
@@ -31,9 +33,9 @@ pub fn default_name_for_fk(
     if desired.len() > 63 {
         let hash = hash_string(&desired);
         if table.len() < 63 - 18 {
-            format!("{}_{}_fkey", table, hash)
+            format!("{table}_{hash}_fkey")
         } else {
-            format!("{}_fkey", hash)
+            format!("{hash}_fkey")
         }
     } else {
         desired
@@ -41,23 +43,27 @@ pub fn default_name_for_fk(
 }
 
 /// Generate default name for a unique constraint
+#[must_use]
 pub fn default_name_for_unique(table: &str, columns: &[String]) -> String {
     format!("{}_{}_key", table, columns.join("_"))
 }
 
 /// Generate default name for an index
+#[must_use]
 pub fn default_name_for_index(table: &str, columns: &[String]) -> String {
     format!("{}_{}_idx", table, columns.join("_"))
 }
 
 /// Generate default name for an identity sequence
+#[must_use]
 pub fn default_name_for_identity_sequence(table: &str, column: &str) -> String {
-    format!("{}_{}_seq", table, column)
+    format!("{table}_{column}_seq")
 }
 
 /// Generate default name for a check constraint
+#[must_use]
 pub fn default_name_for_check(table: &str, index: usize) -> String {
-    format!("{}_check_{}", table, index)
+    format!("{table}_check_{index}")
 }
 
 /// Simple hash function for constraint naming
@@ -74,7 +80,7 @@ fn hash_string(s: &str) -> String {
 // SQL Type Categories
 // =============================================================================
 
-/// PostgreSQL SQL type category
+/// `PostgreSQL` SQL type category
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PgTypeCategory {
     SmallInt,
@@ -115,136 +121,145 @@ pub enum PgTypeCategory {
 }
 
 impl PgTypeCategory {
+    /// Match serial and integer types. Serial aliases must be checked first so
+    /// `smallserial` isn't misclassified as `smallint`.
+    fn match_numeric(s: &str) -> Option<Self> {
+        // Serial aliases first (prefix collides with integer types).
+        if s.starts_with("smallserial") {
+            return Some(Self::SmallSerial);
+        }
+        if s.starts_with("bigserial") {
+            return Some(Self::BigSerial);
+        }
+        if s.starts_with("serial") {
+            return Some(Self::Serial);
+        }
+
+        if s.starts_with("smallint") || s == "int2" {
+            return Some(Self::SmallInt);
+        }
+        if s.starts_with("integer") || s == "int" || s == "int4" {
+            return Some(Self::Integer);
+        }
+        if s.starts_with("bigint") || s == "int8" {
+            return Some(Self::BigInt);
+        }
+        if s.starts_with("numeric") || s.starts_with("decimal") {
+            return Some(Self::Numeric);
+        }
+        if s.starts_with("real") || s == "float4" {
+            return Some(Self::Real);
+        }
+        if s.starts_with("double") {
+            return Some(Self::DoublePrecision);
+        }
+        if s.starts_with("boolean") || s == "bool" {
+            return Some(Self::Boolean);
+        }
+        None
+    }
+
+    /// Match string and JSON types. `varchar`/`character varying` must be
+    /// checked before `char`/`character`; `jsonb` before `json`.
+    fn match_string_or_json(s: &str) -> Option<Self> {
+        if s.starts_with("varchar") || s.starts_with("character varying") {
+            return Some(Self::Varchar);
+        }
+        if s.starts_with("char") || s.starts_with("character") {
+            return Some(Self::Char);
+        }
+        if s.starts_with("text") {
+            return Some(Self::Text);
+        }
+        if s.starts_with("jsonb") {
+            return Some(Self::Jsonb);
+        }
+        if s.starts_with("json") {
+            return Some(Self::Json);
+        }
+        None
+    }
+
+    /// Match time/date types. The `with time zone` variants are checked before
+    /// the base `timestamp` / `time` prefixes.
+    fn match_temporal(s: &str) -> Option<Self> {
+        if s.starts_with("timestamp") && s.contains("with time zone") {
+            return Some(Self::TimestampTz);
+        }
+        if s.starts_with("timestamp") {
+            return Some(Self::Timestamp);
+        }
+        if s.starts_with("time") && s.contains("with time zone") {
+            return Some(Self::TimeTz);
+        }
+        if s.starts_with("time") {
+            return Some(Self::Time);
+        }
+        if s.starts_with("date") {
+            return Some(Self::Date);
+        }
+        if s.starts_with("interval") {
+            return Some(Self::Interval);
+        }
+        None
+    }
+
+    /// Match network, vector, bit, geometric and other specialized types.
+    fn match_specialized(s: &str) -> Option<Self> {
+        if s.starts_with("uuid") {
+            return Some(Self::Uuid);
+        }
+        if s.starts_with("inet") {
+            return Some(Self::Inet);
+        }
+        if s.starts_with("cidr") {
+            return Some(Self::Cidr);
+        }
+        // macaddr8 must be matched before macaddr
+        if s.starts_with("macaddr8") {
+            return Some(Self::MacAddr8);
+        }
+        if s.starts_with("macaddr") {
+            return Some(Self::MacAddr);
+        }
+        if s.starts_with("vector") {
+            return Some(Self::Vector);
+        }
+        if s.starts_with("halfvec") {
+            return Some(Self::HalfVec);
+        }
+        if s.starts_with("sparsevec") {
+            return Some(Self::SparseVec);
+        }
+        if s.starts_with("bit") {
+            return Some(Self::Bit);
+        }
+        if s.starts_with("geometry") {
+            return Some(Self::Geometry);
+        }
+        if s.starts_with("point") {
+            return Some(Self::Point);
+        }
+        if s.starts_with("line") {
+            return Some(Self::Line);
+        }
+        None
+    }
+
     /// Determine the type category for a SQL type string
+    #[must_use]
     pub fn from_sql_type(sql_type: &str) -> Self {
         let s = sql_type.trim().to_lowercase();
 
-        // Serial types (must check before integer to avoid misclassification)
-        if s.starts_with("smallserial") {
-            return Self::SmallSerial;
-        }
-        if s.starts_with("bigserial") {
-            return Self::BigSerial;
-        }
-        if s.starts_with("serial") {
-            return Self::Serial;
-        }
-
-        // Integer types
-        if s.starts_with("smallint") || s == "int2" {
-            return Self::SmallInt;
-        }
-        if s.starts_with("integer") || s == "int" || s == "int4" {
-            return Self::Integer;
-        }
-        if s.starts_with("bigint") || s == "int8" {
-            return Self::BigInt;
-        }
-
-        // Numeric types
-        if s.starts_with("numeric") || s.starts_with("decimal") {
-            return Self::Numeric;
-        }
-        if s.starts_with("real") || s == "float4" {
-            return Self::Real;
-        }
-        if s.starts_with("double") {
-            return Self::DoublePrecision;
-        }
-
-        // Boolean
-        if s.starts_with("boolean") || s == "bool" {
-            return Self::Boolean;
-        }
-
-        // String types (varchar/character varying before char/character)
-        if s.starts_with("varchar") || s.starts_with("character varying") {
-            return Self::Varchar;
-        }
-        if s.starts_with("char") || s.starts_with("character") {
-            return Self::Char;
-        }
-        if s.starts_with("text") {
-            return Self::Text;
-        }
-
-        // JSON types (jsonb before json)
-        if s.starts_with("jsonb") {
-            return Self::Jsonb;
-        }
-        if s.starts_with("json") {
-            return Self::Json;
-        }
-
-        // Time/Date types (with time zone variants before base)
-        if s.starts_with("timestamp") && s.contains("with time zone") {
-            return Self::TimestampTz;
-        }
-        if s.starts_with("timestamp") {
-            return Self::Timestamp;
-        }
-        if s.starts_with("time") && s.contains("with time zone") {
-            return Self::TimeTz;
-        }
-        if s.starts_with("time") {
-            return Self::Time;
-        }
-        if s.starts_with("date") {
-            return Self::Date;
-        }
-
-        // Other types
-        if s.starts_with("uuid") {
-            return Self::Uuid;
-        }
-        if s.starts_with("interval") {
-            return Self::Interval;
-        }
-        if s.starts_with("inet") {
-            return Self::Inet;
-        }
-        if s.starts_with("cidr") {
-            return Self::Cidr;
-        }
-        // macaddr8 before macaddr
-        if s.starts_with("macaddr8") {
-            return Self::MacAddr8;
-        }
-        if s.starts_with("macaddr") {
-            return Self::MacAddr;
-        }
-
-        // Vector types
-        if s.starts_with("vector") {
-            return Self::Vector;
-        }
-        if s.starts_with("halfvec") {
-            return Self::HalfVec;
-        }
-        if s.starts_with("sparsevec") {
-            return Self::SparseVec;
-        }
-
-        // Bit type
-        if s.starts_with("bit") {
-            return Self::Bit;
-        }
-
-        // Geometric types
-        if s.starts_with("geometry") {
-            return Self::Geometry;
-        }
-        if s.starts_with("point") {
-            return Self::Point;
-        }
-        if s.starts_with("line") {
-            return Self::Line;
-        }
-
-        Self::Custom
+        Self::match_numeric(&s)
+            .or_else(|| Self::match_string_or_json(&s))
+            .or_else(|| Self::match_temporal(&s))
+            .or_else(|| Self::match_specialized(&s))
+            .unwrap_or(Self::Custom)
     }
 
     /// Get the drizzle import name for this type
+    #[must_use]
     pub const fn drizzle_import(&self) -> &'static str {
         match self {
             Self::SmallInt => "smallint",
@@ -284,6 +299,7 @@ impl PgTypeCategory {
     }
 
     /// Check if this is a serial type
+    #[must_use]
     pub const fn is_serial(&self) -> bool {
         matches!(self, Self::Serial | Self::SmallSerial | Self::BigSerial)
     }
@@ -294,12 +310,13 @@ impl PgTypeCategory {
 // =============================================================================
 
 /// Extract parameters from a type like "varchar(255)" or "numeric(10,2)"
+#[must_use]
 pub fn parse_type_params(sql_type: &str) -> Option<(String, Option<String>)> {
     let start = sql_type.find('(')?;
     let end = sql_type.find(')')?;
     let params = &sql_type[start + 1..end];
 
-    let parts: Vec<&str> = params.split(',').map(|s| s.trim()).collect();
+    let parts: Vec<&str> = params.split(',').map(str::trim).collect();
     match parts.len() {
         1 => Some((parts[0].to_string(), None)),
         2 => Some((parts[0].to_string(), Some(parts[1].to_string()))),
@@ -308,6 +325,7 @@ pub fn parse_type_params(sql_type: &str) -> Option<(String, Option<String>)> {
 }
 
 /// Split SQL type into base type and options
+#[must_use]
 pub fn split_sql_type(sql_type: &str) -> (String, Option<String>) {
     let normalized = sql_type.replace("[]", "");
 
@@ -323,20 +341,22 @@ pub fn split_sql_type(sql_type: &str) -> (String, Option<String>) {
 }
 
 /// Trim a character from both ends of a string
+#[must_use]
 pub fn trim_char(s: &str, c: char) -> &str {
     s.trim_start_matches(c).trim_end_matches(c)
 }
 
 /// Check if a string is a serial expression
+#[must_use]
 pub fn is_serial_expression(expr: &str, schema: &str) -> bool {
     let schema_prefix = if schema == "public" {
         String::new()
     } else {
-        format!("{}.", schema)
+        format!("{schema}.")
     };
 
-    (expr.starts_with(&format!("nextval('{}", schema_prefix))
-        || expr.starts_with(&format!("nextval('\"{}", schema_prefix)))
+    (expr.starts_with(&format!("nextval('{schema_prefix}"))
+        || expr.starts_with(&format!("nextval('\"{schema_prefix}")))
         && (expr.ends_with("_seq'::regclass)") || expr.ends_with("_seq\"'::regclass)"))
 }
 
@@ -346,14 +366,12 @@ pub fn is_serial_expression(expr: &str, schema: &str) -> bool {
 /// - `nextval('users_id_seq'::regclass)` → `users_id_seq`
 /// - `nextval('public.users_id_seq'::regclass)` → `users_id_seq`
 /// - `nextval('"myschema"."users_id_seq"'::regclass)` → `users_id_seq`
+#[must_use]
 pub fn extract_nextval_sequence(expr: &str) -> Option<String> {
     let inner = expr
         .strip_prefix("nextval('")?
         .strip_suffix("'::regclass)")?;
-    let name_part = match inner.rfind('.') {
-        Some(pos) => &inner[pos + 1..],
-        None => inner,
-    };
+    let name_part = inner.rfind('.').map_or(inner, |pos| &inner[pos + 1..]);
     let name = name_part.trim_matches('"');
     if name.is_empty() {
         return None;
@@ -375,23 +393,29 @@ impl IdentityDefaults {
     pub const CACHE: i32 = 1;
     pub const CYCLE: bool = false;
 
-    /// Get the maximum value for an identity column based on type
+    /// Get the maximum value for an identity column based on type.
+    ///
+    /// Falls back to the `integer` range for unknown/unspecified types.
+    #[must_use]
     pub fn max_for(column_type: &str) -> &'static str {
         match column_type {
             "smallint" => "32767",
-            "integer" => "2147483647",
             "bigint" => "9223372036854775807",
-            _ => "2147483647", // Default to integer
+            // "integer" and fallback share the same range
+            _ => "2147483647",
         }
     }
 
-    /// Get the minimum value for an identity column based on type
+    /// Get the minimum value for an identity column based on type.
+    ///
+    /// Falls back to the `integer` range for unknown/unspecified types.
+    #[must_use]
     pub fn min_for(column_type: &str) -> &'static str {
         match column_type {
             "smallint" => "-32768",
-            "integer" => "-2147483648",
             "bigint" => "-9223372036854775808",
-            _ => "-2147483648", // Default to integer
+            // "integer" and fallback share the same range
+            _ => "-2147483648",
         }
     }
 }
@@ -404,6 +428,7 @@ impl IdentityDefaults {
 pub const SYSTEM_NAMESPACE_NAMES: &[&str] = &["pg_toast", "pg_catalog", "information_schema"];
 
 /// Check if a namespace is a system namespace
+#[must_use]
 pub fn is_system_namespace(name: &str) -> bool {
     name.starts_with("pg_toast")
         || name == "pg_default"
@@ -413,12 +438,14 @@ pub fn is_system_namespace(name: &str) -> bool {
 }
 
 /// Check if a role is a system role
+#[must_use]
 pub fn is_system_role(name: &str) -> bool {
     name == "postgres" || name.starts_with("pg_")
 }
 
 /// Check if an action is the default (NO ACTION)
-pub fn is_default_action(action: &str) -> bool {
+#[must_use]
+pub const fn is_default_action(action: &str) -> bool {
     action.eq_ignore_ascii_case("no action")
 }
 
@@ -426,7 +453,7 @@ pub fn is_default_action(action: &str) -> bool {
 // Default Values
 // =============================================================================
 
-/// PostgreSQL default values and settings
+/// `PostgreSQL` default values and settings
 pub struct PgDefaults;
 
 impl PgDefaults {
@@ -463,6 +490,7 @@ pub const VECTOR_OPS: &[&str] = &[
 // =============================================================================
 
 /// Parse a CHECK constraint definition
+#[must_use]
 pub fn parse_check_definition(value: &str) -> String {
     value
         .trim_start_matches("CHECK ((")
@@ -470,25 +498,30 @@ pub fn parse_check_definition(value: &str) -> String {
         .to_string()
 }
 
-/// Parse a VIEW definition
-pub fn parse_view_definition(value: Option<&str>) -> Option<String> {
-    value.map(|v| {
-        v.split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .trim_end_matches(';')
-            .to_string()
-    })
+/// Parse a VIEW definition.
+///
+/// Callers with `Option<&str>` can pair this with [`Option::map`].
+#[must_use]
+pub fn parse_view_definition(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim_end_matches(';')
+        .to_string()
 }
 
-/// Parse ON DELETE/UPDATE action from PostgreSQL code
+/// Parse ON DELETE/UPDATE action from `PostgreSQL` code.
+///
+/// Unknown codes and the canonical `"a"` (no action) both map to `"NO ACTION"`.
+#[must_use]
 pub fn parse_on_type(code: &str) -> &'static str {
     match code {
-        "a" => "NO ACTION",
         "r" => "RESTRICT",
         "n" => "SET NULL",
         "c" => "CASCADE",
         "d" => "SET DEFAULT",
+        // "a" and any unknown code default to "NO ACTION"
         _ => "NO ACTION",
     }
 }

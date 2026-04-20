@@ -1,7 +1,7 @@
-//! Shared driver infrastructure for SQLite row conversion.
+//! Shared driver infrastructure for `SQLite` row conversion.
 //!
-//! This module provides a unified approach to generating TryFrom implementations
-//! for different SQLite drivers (rusqlite, libsql, turso), reducing code duplication
+//! This module provides a unified approach to generating `TryFrom` implementations
+//! for different `SQLite` drivers (rusqlite, libsql, turso), reducing code duplication
 //! and ensuring consistent behavior.
 
 use crate::common::{type_is_float, type_is_int};
@@ -17,13 +17,13 @@ use super::errors;
 // Driver Configuration Trait
 // =============================================================================
 
-/// Configuration for a specific SQLite driver's row access patterns.
+/// Configuration for a specific `SQLite` driver's row access patterns.
 ///
 /// Each driver implements this to provide its specific syntax for:
 /// - Row type path (e.g., `::rusqlite::Row<'_>`)
 /// - Value extraction methods
 /// - Optional wrapping for non-optional fields
-pub(crate) trait DriverConfig {
+pub trait DriverConfig {
     /// The row type path for this driver
     fn row_type() -> TokenStream;
 
@@ -53,18 +53,18 @@ pub(crate) trait DriverConfig {
 /// Generate field conversion code for any driver.
 ///
 /// This is the main entry point that dispatches to type-specific handlers
-/// based on the field's TypeCategory.
-pub(crate) fn generate_field_conversion<D: DriverConfig>(
+/// based on the field's `TypeCategory`.
+pub fn generate_field_conversion<D: DriverConfig>(
     idx: usize,
     info: &FieldInfo,
     is_optional: bool,
 ) -> Result<TokenStream> {
-    generate_field_conversion_with_index::<D>(quote!(#idx), info, is_optional)
+    generate_field_conversion_with_index::<D>(&quote!(#idx), info, is_optional)
 }
 
 /// Generate field conversion code for any driver with a custom index expression.
-pub(crate) fn generate_field_conversion_with_index<D: DriverConfig>(
-    idx_tokens: TokenStream,
+pub fn generate_field_conversion_with_index<D: DriverConfig>(
+    idx_tokens: &TokenStream,
     info: &FieldInfo,
     is_optional: bool,
 ) -> Result<TokenStream> {
@@ -88,31 +88,28 @@ pub(crate) fn generate_field_conversion_with_index<D: DriverConfig>(
                     DrizzleRowByIndex::get_column::<Option<#base_type>>(row, #idx_tokens)?
                 },
             });
-        } else {
-            return Ok(quote! {
-                #name: {
-                    use drizzle::sqlite::traits::DrizzleRowByIndex;
-                    DrizzleRowByIndex::get_column::<#base_type>(row, #idx_tokens)?
-                },
-            });
         }
+        return Ok(quote! {
+            #name: {
+                use drizzle::sqlite::traits::DrizzleRowByIndex;
+                DrizzleRowByIndex::get_column::<#base_type>(row, #idx_tokens)?
+            },
+        });
     }
 
     // Dispatch based on type category
     let converted = match info.type_category() {
-        TypeCategory::Json => generate_json_conversion::<D>(&idx_tokens, info, is_optional)?,
-        TypeCategory::Uuid => generate_uuid_conversion::<D>(&idx_tokens, info, is_optional)?,
-        TypeCategory::Enum => generate_enum_conversion::<D>(&idx_tokens, info, is_optional)?,
+        TypeCategory::Json => generate_json_conversion::<D>(idx_tokens, info, is_optional)?,
+        TypeCategory::Uuid => generate_uuid_conversion::<D>(idx_tokens, info, is_optional)?,
+        TypeCategory::Enum => generate_enum_conversion::<D>(idx_tokens, info, is_optional)?,
         TypeCategory::ArrayString => {
-            generate_arraystring_conversion::<D>(&idx_tokens, info, is_optional)?
+            generate_arraystring_conversion::<D>(idx_tokens, info, is_optional)
         }
-        TypeCategory::ArrayVec => {
-            generate_arrayvec_conversion::<D>(&idx_tokens, info, is_optional)?
-        }
-        TypeCategory::String => generate_string_conversion::<D>(&idx_tokens, info, is_optional)?,
-        TypeCategory::Blob => generate_blob_conversion::<D>(&idx_tokens, info, is_optional)?,
+        TypeCategory::ArrayVec => generate_arrayvec_conversion::<D>(idx_tokens, info, is_optional),
+        TypeCategory::String => generate_string_conversion::<D>(idx_tokens, info, is_optional),
+        TypeCategory::Blob => generate_blob_conversion::<D>(idx_tokens, info, is_optional),
         // All other types (Integer, Real, Bool, DateTime, Unknown, ByteArray) use primitive conversion
-        _ => generate_primitive_conversion::<D>(&idx_tokens, info, is_optional)?,
+        _ => generate_primitive_conversion::<D>(idx_tokens, info, is_optional),
     };
 
     // Wrap with appropriate optional/required handling
@@ -213,105 +210,100 @@ fn generate_enum_conversion<D: DriverConfig>(
     }
 }
 
-#[allow(dead_code)]
 fn generate_arraystring_conversion<D: DriverConfig>(
     idx: &TokenStream,
     info: &FieldInfo,
     _is_optional: bool,
-) -> Result<TokenStream> {
+) -> TokenStream {
     let accessor = D::text_accessor(idx);
     let base_type = info.base_type;
     let from_sqlite_value = paths::sqlite::from_sqlite_value();
 
-    Ok(quote!(
+    quote!(
         #accessor
             .map(|v| <#base_type as #from_sqlite_value>::from_sqlite_text(v))
             .transpose()?
-    ))
+    )
 }
 
-#[allow(dead_code)]
 fn generate_arrayvec_conversion<D: DriverConfig>(
     idx: &TokenStream,
     info: &FieldInfo,
     _is_optional: bool,
-) -> Result<TokenStream> {
+) -> TokenStream {
     let accessor = D::blob_accessor(idx);
     let base_type = info.base_type;
     let from_sqlite_value = paths::sqlite::from_sqlite_value();
 
-    Ok(quote!(
+    quote!(
         #accessor
             .map(|v| <#base_type as #from_sqlite_value>::from_sqlite_blob(v))
             .transpose()?
-    ))
+    )
 }
 
-#[allow(dead_code)]
 fn generate_string_conversion<D: DriverConfig>(
     idx: &TokenStream,
     _info: &FieldInfo,
     _is_optional: bool,
-) -> Result<TokenStream> {
+) -> TokenStream {
     let accessor = D::text_accessor(idx);
-    Ok(quote!(#accessor.cloned()))
+    quote!(#accessor.cloned())
 }
 
-#[allow(dead_code)]
 fn generate_blob_conversion<D: DriverConfig>(
     idx: &TokenStream,
     _info: &FieldInfo,
     _is_optional: bool,
-) -> Result<TokenStream> {
+) -> TokenStream {
     let accessor = D::blob_accessor(idx);
-    Ok(quote!(#accessor.cloned()))
+    quote!(#accessor.cloned())
 }
 
-#[allow(dead_code)]
 fn generate_primitive_conversion<D: DriverConfig>(
     idx: &TokenStream,
     info: &FieldInfo,
     _is_optional: bool,
-) -> Result<TokenStream> {
+) -> TokenStream {
     let category = info.type_category();
 
     match info.column_type {
         SQLiteType::Integer => {
             let accessor = D::integer_accessor(idx);
             if matches!(category, TypeCategory::Bool) {
-                Ok(quote!(#accessor.map(|&v| v != 0)))
+                quote!(#accessor.map(|&v| v != 0))
             } else if type_is_int(info.base_type, "i64") {
-                Ok(quote!(#accessor.copied()))
+                quote!(#accessor.copied())
             } else {
                 // Other integer types need conversion
-                Ok(quote!(#accessor.map(|&v| v.try_into()).transpose()?))
+                quote!(#accessor.map(|&v| v.try_into()).transpose()?)
             }
         }
         SQLiteType::Real => {
             let accessor = D::real_accessor(idx);
             if type_is_float(info.base_type, "f32") {
-                Ok(quote!(#accessor.map(|&v| v as f32)))
+                quote!(#accessor.map(|&v| v as f32))
             } else {
-                Ok(quote!(#accessor.copied()))
+                quote!(#accessor.copied())
             }
         }
         SQLiteType::Text => {
             let accessor = D::text_accessor(idx);
-            Ok(quote!(#accessor.cloned()))
+            quote!(#accessor.cloned())
         }
         SQLiteType::Blob => {
             let accessor = D::blob_accessor(idx);
-            Ok(quote!(#accessor.cloned()))
+            quote!(#accessor.cloned())
         }
         SQLiteType::Numeric => {
             // Treat as integer
             let accessor = D::integer_accessor(idx);
-            Ok(quote!(#accessor.copied()))
+            quote!(#accessor.copied())
         }
         SQLiteType::Any => {
             // Default to text
             let accessor = D::text_accessor(idx);
-            Ok(quote!(#accessor.cloned()))
+            quote!(#accessor.cloned())
         }
     }
 }

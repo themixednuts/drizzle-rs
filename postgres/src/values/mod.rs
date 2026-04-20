@@ -1,4 +1,4 @@
-//! PostgreSQL value conversion traits and types
+//! `PostgreSQL` value conversion traits and types
 
 mod conversions;
 mod drivers;
@@ -43,9 +43,9 @@ use crate::traits::{FromPostgresValue, PostgresEnum};
 // PostgresValue Definition
 //------------------------------------------------------------------------------
 
-/// Represents a PostgreSQL value.
+/// Represents a `PostgreSQL` value.
 ///
-/// This enum provides type-safe value handling for PostgreSQL operations.
+/// This enum provides type-safe value handling for `PostgreSQL` operations.
 ///
 /// # Examples
 ///
@@ -88,13 +88,13 @@ pub enum PostgresValue<'a> {
     /// UUID values
     #[cfg(feature = "uuid")]
     Uuid(Uuid),
-    /// JSON values (stored as text in PostgreSQL)
+    /// JSON values (stored as text in `PostgreSQL`)
     #[cfg(feature = "serde")]
     Json(serde_json::Value),
-    /// JSONB values (stored as binary in PostgreSQL)
+    /// JSONB values (stored as binary in `PostgreSQL`)
     #[cfg(feature = "serde")]
     Jsonb(serde_json::Value),
-    /// Native PostgreSQL ENUM values
+    /// Native `PostgreSQL` ENUM values
     Enum(Box<dyn PostgresEnum>),
 
     // Date and time types
@@ -149,7 +149,7 @@ pub enum PostgresValue<'a> {
     /// POINT values
     #[cfg(feature = "geo-types")]
     Point(Point<f64>),
-    /// PATH values (open path from LineString)
+    /// PATH values (open path from `LineString`)
     #[cfg(feature = "geo-types")]
     LineString(LineString<f64>),
     /// BOX values (bounding rectangle)
@@ -162,15 +162,15 @@ pub enum PostgresValue<'a> {
     BitVec(BitVec),
 
     // Array types (using Vec for simplicity)
-    /// Array of any PostgreSQL type
-    Array(Vec<PostgresValue<'a>>),
+    /// Array of any `PostgreSQL` type
+    Array(Vec<Self>),
 
     /// NULL value
     #[default]
     Null,
 }
 
-impl<'a> core::fmt::Display for PostgresValue<'a> {
+impl core::fmt::Display for PostgresValue<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = match self {
             PostgresValue::Smallint(i) => i.to_string(),
@@ -181,10 +181,15 @@ impl<'a> core::fmt::Display for PostgresValue<'a> {
             #[cfg(feature = "rust-decimal")]
             PostgresValue::Numeric(d) => d.to_string(),
             PostgresValue::Text(cow) => cow.to_string(),
-            PostgresValue::Bytea(cow) => format!(
-                "\\x{}",
-                cow.iter().map(|b| format!("{:02x}", b)).collect::<String>()
-            ),
+            PostgresValue::Bytea(cow) => {
+                use core::fmt::Write;
+                let mut s = String::with_capacity(2 + cow.len() * 2);
+                s.push_str("\\x");
+                for byte in cow.iter() {
+                    write!(s, "{byte:02x}").expect("writing to String cannot fail");
+                }
+                s
+            }
             PostgresValue::Boolean(b) => b.to_string(),
             #[cfg(feature = "uuid")]
             PostgresValue::Uuid(uuid) => uuid.to_string(),
@@ -265,7 +270,8 @@ impl<'a> core::fmt::Display for PostgresValue<'a> {
 
             // Array types
             PostgresValue::Array(arr) => {
-                let elements: Vec<String> = arr.iter().map(|v| v.to_string()).collect();
+                let elements: Vec<String> =
+                    arr.iter().map(std::string::ToString::to_string).collect();
                 format!("{{{}}}", elements.join(","))
             }
 
@@ -275,15 +281,17 @@ impl<'a> core::fmt::Display for PostgresValue<'a> {
     }
 }
 
-impl<'a> PostgresValue<'a> {
+impl PostgresValue<'_> {
     /// Returns true if this value is NULL.
     #[inline]
+    #[must_use]
     pub const fn is_null(&self) -> bool {
         matches!(self, PostgresValue::Null)
     }
 
     /// Returns the boolean value if this is BOOLEAN.
     #[inline]
+    #[must_use]
     pub const fn as_bool(&self) -> Option<bool> {
         match self {
             PostgresValue::Boolean(value) => Some(*value),
@@ -293,6 +301,7 @@ impl<'a> PostgresValue<'a> {
 
     /// Returns the i16 value if this is SMALLINT.
     #[inline]
+    #[must_use]
     pub const fn as_i16(&self) -> Option<i16> {
         match self {
             PostgresValue::Smallint(value) => Some(*value),
@@ -302,6 +311,7 @@ impl<'a> PostgresValue<'a> {
 
     /// Returns the i32 value if this is INTEGER.
     #[inline]
+    #[must_use]
     pub const fn as_i32(&self) -> Option<i32> {
         match self {
             PostgresValue::Integer(value) => Some(*value),
@@ -311,6 +321,7 @@ impl<'a> PostgresValue<'a> {
 
     /// Returns the i64 value if this is BIGINT.
     #[inline]
+    #[must_use]
     pub const fn as_i64(&self) -> Option<i64> {
         match self {
             PostgresValue::Bigint(value) => Some(*value),
@@ -320,6 +331,7 @@ impl<'a> PostgresValue<'a> {
 
     /// Returns the f32 value if this is REAL.
     #[inline]
+    #[must_use]
     pub const fn as_f32(&self) -> Option<f32> {
         match self {
             PostgresValue::Real(value) => Some(*value),
@@ -329,6 +341,7 @@ impl<'a> PostgresValue<'a> {
 
     /// Returns the f64 value if this is DOUBLE PRECISION.
     #[inline]
+    #[must_use]
     pub const fn as_f64(&self) -> Option<f64> {
         match self {
             PostgresValue::DoublePrecision(value) => Some(*value),
@@ -339,7 +352,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the decimal value if this is NUMERIC.
     #[inline]
     #[cfg(feature = "rust-decimal")]
-    pub fn as_decimal(&self) -> Option<&Decimal> {
+    #[must_use]
+    pub const fn as_decimal(&self) -> Option<&Decimal> {
         match self {
             PostgresValue::Numeric(value) => Some(value),
             _ => None,
@@ -348,6 +362,7 @@ impl<'a> PostgresValue<'a> {
 
     /// Returns the text value if this is TEXT.
     #[inline]
+    #[must_use]
     pub fn as_str(&self) -> Option<&str> {
         match self {
             PostgresValue::Text(value) => Some(value.as_ref()),
@@ -357,6 +372,7 @@ impl<'a> PostgresValue<'a> {
 
     /// Returns the bytea value if this is BYTEA.
     #[inline]
+    #[must_use]
     pub fn as_bytes(&self) -> Option<&[u8]> {
         match self {
             PostgresValue::Bytea(value) => Some(value.as_ref()),
@@ -367,7 +383,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the UUID value if this is UUID.
     #[inline]
     #[cfg(feature = "uuid")]
-    pub fn as_uuid(&self) -> Option<Uuid> {
+    #[must_use]
+    pub const fn as_uuid(&self) -> Option<Uuid> {
         match self {
             PostgresValue::Uuid(value) => Some(*value),
             _ => None,
@@ -377,7 +394,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the JSON value if this is JSON.
     #[inline]
     #[cfg(feature = "serde")]
-    pub fn as_json(&self) -> Option<&serde_json::Value> {
+    #[must_use]
+    pub const fn as_json(&self) -> Option<&serde_json::Value> {
         match self {
             PostgresValue::Json(value) => Some(value),
             _ => None,
@@ -387,15 +405,17 @@ impl<'a> PostgresValue<'a> {
     /// Returns the JSONB value if this is JSONB.
     #[inline]
     #[cfg(feature = "serde")]
-    pub fn as_jsonb(&self) -> Option<&serde_json::Value> {
+    #[must_use]
+    pub const fn as_jsonb(&self) -> Option<&serde_json::Value> {
         match self {
             PostgresValue::Jsonb(value) => Some(value),
             _ => None,
         }
     }
 
-    /// Returns the enum value if this is a PostgreSQL enum.
+    /// Returns the enum value if this is a `PostgreSQL` enum.
     #[inline]
+    #[must_use]
     pub fn as_enum(&self) -> Option<&dyn PostgresEnum> {
         match self {
             PostgresValue::Enum(value) => Some(value.as_ref()),
@@ -406,7 +426,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the date value if this is DATE.
     #[inline]
     #[cfg(feature = "chrono")]
-    pub fn as_date(&self) -> Option<&NaiveDate> {
+    #[must_use]
+    pub const fn as_date(&self) -> Option<&NaiveDate> {
         match self {
             PostgresValue::Date(value) => Some(value),
             _ => None,
@@ -416,7 +437,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the time value if this is TIME.
     #[inline]
     #[cfg(feature = "chrono")]
-    pub fn as_time(&self) -> Option<&NaiveTime> {
+    #[must_use]
+    pub const fn as_time(&self) -> Option<&NaiveTime> {
         match self {
             PostgresValue::Time(value) => Some(value),
             _ => None,
@@ -426,7 +448,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the timestamp value if this is TIMESTAMP.
     #[inline]
     #[cfg(feature = "chrono")]
-    pub fn as_timestamp(&self) -> Option<&NaiveDateTime> {
+    #[must_use]
+    pub const fn as_timestamp(&self) -> Option<&NaiveDateTime> {
         match self {
             PostgresValue::Timestamp(value) => Some(value),
             _ => None,
@@ -436,7 +459,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the timestamp with timezone value if this is TIMESTAMPTZ.
     #[inline]
     #[cfg(feature = "chrono")]
-    pub fn as_timestamp_tz(&self) -> Option<&DateTime<FixedOffset>> {
+    #[must_use]
+    pub const fn as_timestamp_tz(&self) -> Option<&DateTime<FixedOffset>> {
         match self {
             PostgresValue::TimestampTz(value) => Some(value),
             _ => None,
@@ -446,7 +470,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the interval value if this is INTERVAL.
     #[inline]
     #[cfg(feature = "chrono")]
-    pub fn as_interval(&self) -> Option<&Duration> {
+    #[must_use]
+    pub const fn as_interval(&self) -> Option<&Duration> {
         match self {
             PostgresValue::Interval(value) => Some(value),
             _ => None,
@@ -456,7 +481,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the inet value if this is INET.
     #[inline]
     #[cfg(feature = "cidr")]
-    pub fn as_inet(&self) -> Option<&IpInet> {
+    #[must_use]
+    pub const fn as_inet(&self) -> Option<&IpInet> {
         match self {
             PostgresValue::Inet(value) => Some(value),
             _ => None,
@@ -466,7 +492,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the cidr value if this is CIDR.
     #[inline]
     #[cfg(feature = "cidr")]
-    pub fn as_cidr(&self) -> Option<&IpCidr> {
+    #[must_use]
+    pub const fn as_cidr(&self) -> Option<&IpCidr> {
         match self {
             PostgresValue::Cidr(value) => Some(value),
             _ => None,
@@ -476,6 +503,7 @@ impl<'a> PostgresValue<'a> {
     /// Returns the MAC address if this is MACADDR.
     #[inline]
     #[cfg(feature = "cidr")]
+    #[must_use]
     pub const fn as_macaddr(&self) -> Option<[u8; 6]> {
         match self {
             PostgresValue::MacAddr(value) => Some(*value),
@@ -486,6 +514,7 @@ impl<'a> PostgresValue<'a> {
     /// Returns the MAC address if this is MACADDR8.
     #[inline]
     #[cfg(feature = "cidr")]
+    #[must_use]
     pub const fn as_macaddr8(&self) -> Option<[u8; 8]> {
         match self {
             PostgresValue::MacAddr8(value) => Some(*value),
@@ -496,7 +525,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the point value if this is POINT.
     #[inline]
     #[cfg(feature = "geo-types")]
-    pub fn as_point(&self) -> Option<&Point<f64>> {
+    #[must_use]
+    pub const fn as_point(&self) -> Option<&Point<f64>> {
         match self {
             PostgresValue::Point(value) => Some(value),
             _ => None,
@@ -506,7 +536,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the line string value if this is PATH.
     #[inline]
     #[cfg(feature = "geo-types")]
-    pub fn as_line_string(&self) -> Option<&LineString<f64>> {
+    #[must_use]
+    pub const fn as_line_string(&self) -> Option<&LineString<f64>> {
         match self {
             PostgresValue::LineString(value) => Some(value),
             _ => None,
@@ -516,7 +547,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the rect value if this is BOX.
     #[inline]
     #[cfg(feature = "geo-types")]
-    pub fn as_rect(&self) -> Option<&Rect<f64>> {
+    #[must_use]
+    pub const fn as_rect(&self) -> Option<&Rect<f64>> {
         match self {
             PostgresValue::Rect(value) => Some(value),
             _ => None,
@@ -526,7 +558,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the bit vector if this is BIT/VARBIT.
     #[inline]
     #[cfg(feature = "bit-vec")]
-    pub fn as_bitvec(&self) -> Option<&BitVec> {
+    #[must_use]
+    pub const fn as_bitvec(&self) -> Option<&BitVec> {
         match self {
             PostgresValue::BitVec(value) => Some(value),
             _ => None,
@@ -536,7 +569,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the date value if this is DATE (time crate).
     #[inline]
     #[cfg(feature = "time")]
-    pub fn as_time_date(&self) -> Option<&TimeDate> {
+    #[must_use]
+    pub const fn as_time_date(&self) -> Option<&TimeDate> {
         match self {
             PostgresValue::TimeDate(value) => Some(value),
             _ => None,
@@ -546,7 +580,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the time value if this is TIME (time crate).
     #[inline]
     #[cfg(feature = "time")]
-    pub fn as_time_time(&self) -> Option<&TimeTime> {
+    #[must_use]
+    pub const fn as_time_time(&self) -> Option<&TimeTime> {
         match self {
             PostgresValue::TimeTime(value) => Some(value),
             _ => None,
@@ -556,7 +591,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the timestamp value if this is TIMESTAMP (time crate).
     #[inline]
     #[cfg(feature = "time")]
-    pub fn as_time_timestamp(&self) -> Option<&PrimitiveDateTime> {
+    #[must_use]
+    pub const fn as_time_timestamp(&self) -> Option<&PrimitiveDateTime> {
         match self {
             PostgresValue::TimeTimestamp(value) => Some(value),
             _ => None,
@@ -566,7 +602,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the timestamp with timezone value if this is TIMESTAMPTZ (time crate).
     #[inline]
     #[cfg(feature = "time")]
-    pub fn as_time_timestamp_tz(&self) -> Option<&OffsetDateTime> {
+    #[must_use]
+    pub const fn as_time_timestamp_tz(&self) -> Option<&OffsetDateTime> {
         match self {
             PostgresValue::TimeTimestampTz(value) => Some(value),
             _ => None,
@@ -576,7 +613,8 @@ impl<'a> PostgresValue<'a> {
     /// Returns the interval value if this is INTERVAL (time crate).
     #[inline]
     #[cfg(feature = "time")]
-    pub fn as_time_interval(&self) -> Option<&TimeDuration> {
+    #[must_use]
+    pub const fn as_time_interval(&self) -> Option<&TimeDuration> {
         match self {
             PostgresValue::TimeInterval(value) => Some(value),
             _ => None,
@@ -585,7 +623,8 @@ impl<'a> PostgresValue<'a> {
 
     /// Returns the array elements if this is an ARRAY.
     #[inline]
-    pub fn as_array(&self) -> Option<&[PostgresValue<'a>]> {
+    #[must_use]
+    pub fn as_array(&self) -> Option<&[Self]> {
         match self {
             PostgresValue::Array(values) => Some(values),
             _ => None,
@@ -594,11 +633,17 @@ impl<'a> PostgresValue<'a> {
 
     /// Converts this value into an owned representation.
     #[inline]
+    #[must_use]
     pub fn into_owned(self) -> OwnedPostgresValue {
         self.into()
     }
 
-    /// Convert this PostgreSQL value to a Rust type using the `FromPostgresValue` trait.
+    /// Convert this `PostgreSQL` value to a Rust type using the `FromPostgresValue` trait.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ConversionError`] when the stored variant's
+    /// native type does not match the target type `T`.
     pub fn convert<T: FromPostgresValue>(self) -> Result<T, DrizzleError> {
         match self {
             PostgresValue::Boolean(value) => T::from_postgres_bool(value),
@@ -662,7 +707,12 @@ impl<'a> PostgresValue<'a> {
         }
     }
 
-    /// Convert a reference to this PostgreSQL value to a Rust type.
+    /// Convert a reference to this `PostgreSQL` value to a Rust type.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ConversionError`] when the stored variant's
+    /// native type does not match the target type `T`.
     pub fn convert_ref<T: FromPostgresValue>(&self) -> Result<T, DrizzleError> {
         match self {
             PostgresValue::Boolean(value) => T::from_postgres_bool(*value),
@@ -728,7 +778,7 @@ impl<'a> PostgresValue<'a> {
 }
 
 // Implement core traits required by Drizzle
-impl<'a> SQLParam for PostgresValue<'a> {
+impl SQLParam for PostgresValue<'_> {
     const DIALECT: drizzle_core::dialect::Dialect = drizzle_core::dialect::Dialect::PostgreSQL;
     type DialectMarker = drizzle_core::dialect::PostgresDialect;
 }

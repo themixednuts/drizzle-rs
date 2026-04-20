@@ -44,7 +44,7 @@ pub struct Transaction<'conn, Schema = ()> {
 
 impl<'conn, Schema> Transaction<'conn, Schema> {
     /// Creates a new transaction wrapper
-    pub(crate) fn new(
+    pub(crate) const fn new(
         tx: rusqlite::Transaction<'conn>,
         tx_type: SQLiteTransactionType,
         schema: Schema,
@@ -59,19 +59,19 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
     /// Gets a reference to the schema.
     #[inline]
-    pub fn schema(&self) -> &Schema {
+    pub const fn schema(&self) -> &Schema {
         &self.schema
     }
 
     /// Gets a reference to the underlying transaction
     #[inline]
-    pub fn inner(&self) -> &rusqlite::Transaction<'conn> {
+    pub const fn inner(&self) -> &rusqlite::Transaction<'conn> {
         &self.tx
     }
 
     /// Gets the transaction type
     #[inline]
-    pub fn tx_type(&self) -> SQLiteTransactionType {
+    pub const fn tx_type(&self) -> SQLiteTransactionType {
         self.tx_type
     }
 
@@ -116,15 +116,19 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// })?;
     /// # Ok(()) }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the savepoint cannot be created/released, or the inner closure returns an error.
     pub fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where
         F: FnOnce(&Self) -> drizzle_core::error::Result<R>,
     {
         let depth = self.savepoint_depth.load(Ordering::Relaxed);
-        let sp_name = format!("drizzle_sp_{}", depth);
+        let sp_name = format!("drizzle_sp_{depth}");
         self.savepoint_depth.store(depth + 1, Ordering::Relaxed);
 
-        self.execute_raw(&format!("SAVEPOINT {}", sp_name))?;
+        self.execute_raw(&format!("SAVEPOINT {sp_name}"))?;
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self)));
 
@@ -132,17 +136,17 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
         match result {
             Ok(Ok(value)) => {
-                self.execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name))?;
+                self.execute_raw(&format!("RELEASE SAVEPOINT {sp_name}"))?;
                 Ok(value)
             }
             Ok(Err(e)) => {
-                let _ = self.execute_raw(&format!("ROLLBACK TO SAVEPOINT {}", sp_name));
-                let _ = self.execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name));
+                let _ = self.execute_raw(&format!("ROLLBACK TO SAVEPOINT {sp_name}"));
+                let _ = self.execute_raw(&format!("RELEASE SAVEPOINT {sp_name}"));
                 Err(e)
             }
             Err(panic_payload) => {
-                let _ = self.execute_raw(&format!("ROLLBACK TO SAVEPOINT {}", sp_name));
-                let _ = self.execute_raw(&format!("RELEASE SAVEPOINT {}", sp_name));
+                let _ = self.execute_raw(&format!("ROLLBACK TO SAVEPOINT {sp_name}"));
+                let _ = self.execute_raw(&format!("RELEASE SAVEPOINT {sp_name}"));
                 std::panic::resume_unwind(panic_payload);
             }
         }
@@ -151,6 +155,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     sqlite_transaction_constructors!('conn);
 
     /// Executes a raw query within the transaction
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`rusqlite::Error`] if the database call fails or the SQL is invalid.
     pub fn execute<'a, T>(&'a self, query: T) -> rusqlite::Result<usize>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
@@ -165,6 +173,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Runs a query and returns all matching rows within the transaction
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the query fails or row decoding fails.
     pub fn all<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Vec<R>>
     where
         R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
@@ -177,6 +189,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Runs a query and returns a row cursor within the transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the query fails or row decoding fails.
     pub fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
@@ -206,6 +222,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Runs a query and returns a single row within the transaction
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the query fails, no rows match, or decoding fails.
     pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r rusqlite::Row<'r>>,
@@ -227,19 +247,27 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Commits the transaction
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`rusqlite::Error`] if the commit call to the database fails.
     pub fn commit(self) -> rusqlite::Result<()> {
         self.tx.commit()
     }
 
     /// Rolls back the transaction
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`rusqlite::Error`] if the rollback call to the database fails.
     pub fn rollback(self) -> rusqlite::Result<()> {
         self.tx.rollback()
     }
 }
 
 #[cfg(feature = "rusqlite")]
-impl<'a, 'conn, S, Schema, State, Table, Mk, Rw, Grouped>
-    TransactionBuilder<'a, 'conn, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw, Grouped>, State>
+impl<'a, S, Schema, State, Table, Mk, Rw, Grouped>
+    TransactionBuilder<'a, '_, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw, Grouped>, State>
 where
     State: builder::ExecutableState,
 {

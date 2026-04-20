@@ -1,5 +1,5 @@
 #[cfg(feature = "postgres-sync")]
-pub(crate) fn postgres_sync_param_type(
+pub const fn postgres_sync_param_type(
     value: &drizzle_postgres::values::PostgresValue<'_>,
 ) -> Option<postgres::types::Type> {
     use drizzle_postgres::values::PostgresValue;

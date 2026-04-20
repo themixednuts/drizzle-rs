@@ -5,13 +5,13 @@ use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
-/// Generates an aliased version of a PostgreSQL table struct
+/// Generates an aliased version of a `PostgreSQL` table struct
 ///
 /// For a table `Users` with fields `id` and `name`, this generates:
 /// - `AliasedUsers` struct with `AliasedUsersId` and `AliasedUsersName` fields
 /// - Each aliased field contains the table alias name
 /// - `Users::alias::<Tag>() -> UsersAlias<Tag>` method
-pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
+pub fn generate_aliased_table(ctx: &MacroContext) -> TokenStream {
     let table_name = &ctx.struct_ident;
     let struct_vis = &ctx.struct_vis;
     let aliased_table_name = format_ident!("Aliased{}", table_name);
@@ -200,7 +200,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             }
         })
         .collect();
-    Ok(quote! {
+    quote! {
 
         // Generate all aliased field type definitions
         #(#aliased_field_definitions)*
@@ -388,5 +388,5 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
                 #alias_type_name::<Tag>::new()
             }
         }
-    })
+    }
 }

@@ -13,18 +13,15 @@ pub struct MigrateOptions {
     pub safe: bool,
 }
 
-/// Run the migrate command
+/// Run the migrate command.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if mutually exclusive flags are combined, the database
+/// or credentials cannot be resolved, connecting to the database fails, or
+/// applying migrations fails.
 pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Result<(), CliError> {
-    if opts.safe && opts.verify {
-        return Err(CliError::Other(
-            "--safe can't be combined with --verify".to_string(),
-        ));
-    }
-    if opts.safe && opts.plan {
-        return Err(CliError::Other(
-            "--safe can't be combined with --plan".to_string(),
-        ));
-    }
+    validate_mutex_opts(opts)?;
 
     let db = config.database(db_name)?;
 
@@ -33,16 +30,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Resu
         println!("{}: {}", output::label("Database"), name);
     }
 
-    let heading = if opts.verify {
-        "Verifying migrations..."
-    } else if opts.plan {
-        "Planning migrations..."
-    } else if opts.safe {
-        "Running safe migration flow..."
-    } else {
-        "Running migrations..."
-    };
-    println!("{}", output::heading(heading));
+    println!("{}", output::heading(migrate_heading(opts)));
     println!();
 
     let out_dir = db.migrations_dir();
@@ -58,43 +46,16 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Resu
     // CLI to reach — migrations execute inside the DO runtime. Short-circuit
     // with a pointed message instead of the generic "no credentials" fallback.
     if matches!(db.driver, Some(Driver::DurableSqlite)) {
-        println!(
-            "{}",
-            output::warning("Durable Objects SQLite runs inside the Workers runtime.")
-        );
-        println!();
-        println!("  The CLI can't apply migrations to a DO from outside.");
-        println!(
-            "  Apply them at `DurableObject` init time by importing `{}/migrations.js`",
-            out_dir.display()
-        );
-        println!("  and running each statement against `state.storage().sql()`.");
-        println!();
-        println!(
-            "  (This command only generates the SQL + JS bundle — run `drizzle generate` for that.)"
-        );
+        print_durable_sqlite_notice(out_dir);
         return Ok(());
     }
 
     // Get credentials
     let credentials = db.credentials()?;
 
-    let credentials = match credentials {
-        Some(c) => c,
-        None => {
-            println!("{}", output::warning("No database credentials configured."));
-            println!();
-            println!("Add credentials to your drizzle.config.toml:");
-            println!();
-            println!("  {}", output::muted("[dbCredentials]"));
-            println!("  {}", output::muted("url = \"./dev.db\""));
-            println!();
-            println!("Or use an environment variable:");
-            println!();
-            println!("  {}", output::muted("[dbCredentials]"));
-            println!("  {}", output::muted("url = { env = \"DATABASE_URL\" }"));
-            return Ok(());
-        }
+    let Some(credentials) = credentials else {
+        print_missing_credentials_help();
+        return Ok(());
     };
 
     let plan = if opts.verify || opts.plan || opts.safe {
@@ -109,43 +70,10 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Resu
         None
     };
 
-    if let Some(plan) = &plan {
-        println!(
-            "  {} {}",
-            output::label("Applied migrations:"),
-            plan.applied_count
-        );
-        println!(
-            "  {} {} ({} statement(s))",
-            output::label("Pending migrations:"),
-            plan.pending_count,
-            plan.pending_statements
-        );
-
-        if !plan.pending_migrations.is_empty() {
-            println!("  {}", output::label("Pending tags:"));
-            for tag in &plan.pending_migrations {
-                println!("    {} {}", output::label("->"), tag);
-            }
-        }
-        println!();
-
-        if opts.verify {
-            println!("{}", output::success("Migration verification passed."));
-            return Ok(());
-        }
-
-        if opts.plan {
-            println!("{}", output::success("Migration plan complete."));
-            return Ok(());
-        }
-
-        if opts.safe && plan.pending_count == 0 {
-            println!("  {}", output::success("No pending migrations."));
-            println!();
-            println!("{}", output::success("Safe migration complete!"));
-            return Ok(());
-        }
+    if let Some(plan) = &plan
+        && handle_plan_short_circuit(plan, opts)
+    {
+        return Ok(());
     }
 
     // Run migrations
@@ -157,6 +85,111 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Resu
         db.migrations_schema(),
     )?;
 
+    print_migration_result(&result, opts.safe);
+    Ok(())
+}
+
+fn validate_mutex_opts(opts: MigrateOptions) -> Result<(), CliError> {
+    if opts.safe && opts.verify {
+        return Err(CliError::Other(
+            "--safe can't be combined with --verify".to_string(),
+        ));
+    }
+    if opts.safe && opts.plan {
+        return Err(CliError::Other(
+            "--safe can't be combined with --plan".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+const fn migrate_heading(opts: MigrateOptions) -> &'static str {
+    if opts.verify {
+        "Verifying migrations..."
+    } else if opts.plan {
+        "Planning migrations..."
+    } else if opts.safe {
+        "Running safe migration flow..."
+    } else {
+        "Running migrations..."
+    }
+}
+
+fn print_durable_sqlite_notice(out_dir: &std::path::Path) {
+    println!(
+        "{}",
+        output::warning("Durable Objects SQLite runs inside the Workers runtime.")
+    );
+    println!();
+    println!("  The CLI can't apply migrations to a DO from outside.");
+    println!(
+        "  Apply them at `DurableObject` init time by importing `{}/migrations.js`",
+        out_dir.display()
+    );
+    println!("  and running each statement against `state.storage().sql()`.");
+    println!();
+    println!(
+        "  (This command only generates the SQL + JS bundle — run `drizzle generate` for that.)"
+    );
+}
+
+fn print_missing_credentials_help() {
+    println!("{}", output::warning("No database credentials configured."));
+    println!();
+    println!("Add credentials to your drizzle.config.toml:");
+    println!();
+    println!("  {}", output::muted("[dbCredentials]"));
+    println!("  {}", output::muted("url = \"./dev.db\""));
+    println!();
+    println!("Or use an environment variable:");
+    println!();
+    println!("  {}", output::muted("[dbCredentials]"));
+    println!("  {}", output::muted("url = { env = \"DATABASE_URL\" }"));
+}
+
+/// Print plan summary and return `true` if the caller should return early.
+fn handle_plan_short_circuit(plan: &crate::db::MigrationPlan, opts: MigrateOptions) -> bool {
+    println!(
+        "  {} {}",
+        output::label("Applied migrations:"),
+        plan.applied_count
+    );
+    println!(
+        "  {} {} ({} statement(s))",
+        output::label("Pending migrations:"),
+        plan.pending_count,
+        plan.pending_statements
+    );
+
+    if !plan.pending_migrations.is_empty() {
+        println!("  {}", output::label("Pending tags:"));
+        for tag in &plan.pending_migrations {
+            println!("    {} {}", output::label("->"), tag);
+        }
+    }
+    println!();
+
+    if opts.verify {
+        println!("{}", output::success("Migration verification passed."));
+        return true;
+    }
+
+    if opts.plan {
+        println!("{}", output::success("Migration plan complete."));
+        return true;
+    }
+
+    if opts.safe && plan.pending_count == 0 {
+        println!("  {}", output::success("No pending migrations."));
+        println!();
+        println!("{}", output::success("Safe migration complete!"));
+        return true;
+    }
+
+    false
+}
+
+fn print_migration_result(result: &crate::db::MigrationResult, safe: bool) {
     if result.applied_count == 0 {
         println!("  {}", output::success("No pending migrations."));
     } else {
@@ -171,11 +204,9 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Resu
     }
 
     println!();
-    if opts.safe {
+    if safe {
         println!("{}", output::success("Safe migration complete!"));
     } else {
         println!("{}", output::success("Migrations complete!"));
     }
-
-    Ok(())
 }

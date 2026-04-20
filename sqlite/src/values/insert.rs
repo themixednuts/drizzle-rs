@@ -39,31 +39,26 @@ pub enum SQLiteInsertValue<'a, V: SQLParam, T> {
 }
 
 impl<'a, T> SQLiteInsertValue<'a, SQLiteValue<'a>, T> {
-    /// Converts this InsertValue to an owned version with 'static lifetime
+    /// Converts this `InsertValue` to an owned version with 'static lifetime
+    #[must_use]
     pub fn into_owned(self) -> SQLiteInsertValue<'static, SQLiteValue<'static>, T> {
         match self {
             SQLiteInsertValue::Omit => SQLiteInsertValue::Omit,
             SQLiteInsertValue::Null => SQLiteInsertValue::Null,
             SQLiteInsertValue::Value(wrapper) => {
                 // Extract the parameter value, convert to owned, then back to static SQLiteValue
-                if let Some(drizzle_core::SQLChunk::Param(param)) = wrapper.value.chunks.first() {
-                    if let Some(ref val) = param.value {
-                        let owned_val = OwnedSQLiteValue::from(val.as_ref().clone());
-                        let static_val: SQLiteValue<'static> = owned_val.into();
-                        let static_sql = drizzle_core::SQL::param(static_val);
-                        SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'static>, T>::new(
-                            static_sql,
-                        ))
-                    } else {
-                        SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'static>, T>::new(
-                            drizzle_core::SQL::param(SQLiteValue::Null),
-                        ))
-                    }
-                } else {
-                    SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'static>, T>::new(
-                        drizzle_core::SQL::param(SQLiteValue::Null),
-                    ))
-                }
+                let static_sql = match wrapper.value.chunks.first() {
+                    Some(drizzle_core::SQLChunk::Param(param)) => param.value.as_ref().map_or_else(
+                        || drizzle_core::SQL::param(SQLiteValue::Null),
+                        |val| {
+                            let owned_val = OwnedSQLiteValue::from(val.as_ref().clone());
+                            let static_val: SQLiteValue<'static> = owned_val.into();
+                            drizzle_core::SQL::param(static_val)
+                        },
+                    ),
+                    _ => drizzle_core::SQL::param(SQLiteValue::Null),
+                };
+                SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'static>, T>::new(static_sql))
             }
         }
     }
@@ -71,15 +66,16 @@ impl<'a, T> SQLiteInsertValue<'a, SQLiteValue<'a>, T> {
 
 impl<'a, T, U> From<T> for SQLiteInsertValue<'a, SQLiteValue<'a>, U>
 where
-    T: TryInto<SQLiteValue<'a>>,
-    T: TryInto<U>,
+    T: TryInto<SQLiteValue<'a>> + TryInto<U>,
     U: TryInto<SQLiteValue<'a>>,
 {
     fn from(value: T) -> Self {
         let sql = TryInto::<U>::try_into(value)
             .map(|v| v.try_into().unwrap_or_default())
-            .map(|v: SQLiteValue<'a>| SQL::from(v))
-            .unwrap_or_else(|_| SQL::from(SQLiteValue::Null));
+            .map_or_else(
+                |_| SQL::from(SQLiteValue::Null),
+                |v: SQLiteValue<'a>| SQL::from(v),
+            );
         SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(sql))
     }
 }

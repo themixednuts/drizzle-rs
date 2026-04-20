@@ -41,17 +41,14 @@ pub fn seeding_order<'a>(tables: &[&'a TableRef]) -> Vec<&'a str> {
         }
     }
 
-    // Kahn's algorithm
-    let mut queue: VecDeque<&str> = in_degree
+    // Kahn's algorithm — collect roots and sort for deterministic ordering
+    let mut initial: Vec<&str> = in_degree
         .iter()
         .filter(|(_, deg)| **deg == 0)
         .map(|(&name, _)| name)
         .collect();
-
-    // Sort the initial queue for deterministic ordering
-    let mut initial: Vec<&str> = queue.drain(..).collect();
-    initial.sort();
-    queue.extend(initial);
+    initial.sort_unstable();
+    let mut queue: VecDeque<&str> = initial.into_iter().collect();
 
     let mut result: Vec<&str> = Vec::with_capacity(tables.len());
 
@@ -67,7 +64,7 @@ pub fn seeding_order<'a>(tables: &[&'a TableRef]) -> Vec<&'a str> {
                 }
             }
             // Sort for deterministic ordering
-            next.sort();
+            next.sort_unstable();
             queue.extend(next);
         }
     }

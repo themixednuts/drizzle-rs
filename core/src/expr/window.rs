@@ -55,11 +55,15 @@ pub enum FrameBound {
 impl FrameBound {
     fn write_sql<'a, V: SQLParam>(&self) -> SQL<'a, V> {
         match self {
-            FrameBound::UnboundedPreceding => SQL::from(Token::UNBOUNDED).push(Token::PRECEDING),
-            FrameBound::Preceding(n) => SQL::number(*n as usize).push(Token::PRECEDING),
-            FrameBound::CurrentRow => SQL::from(Token::CURRENT).push(Token::ROW),
-            FrameBound::Following(n) => SQL::number(*n as usize).push(Token::FOLLOWING),
-            FrameBound::UnboundedFollowing => SQL::from(Token::UNBOUNDED).push(Token::FOLLOWING),
+            Self::UnboundedPreceding => SQL::from(Token::UNBOUNDED).push(Token::PRECEDING),
+            Self::Preceding(n) => {
+                SQL::number(usize::try_from(*n).unwrap_or(usize::MAX)).push(Token::PRECEDING)
+            }
+            Self::CurrentRow => SQL::from(Token::CURRENT).push(Token::ROW),
+            Self::Following(n) => {
+                SQL::number(usize::try_from(*n).unwrap_or(usize::MAX)).push(Token::FOLLOWING)
+            }
+            Self::UnboundedFollowing => SQL::from(Token::UNBOUNDED).push(Token::FOLLOWING),
         }
     }
 }
@@ -88,7 +92,8 @@ pub struct WindowSpec<'a, V: SQLParam> {
 }
 
 /// Create an empty window specification.
-pub fn window<'a, V: SQLParam>() -> WindowSpec<'a, V> {
+#[must_use]
+pub const fn window<'a, V: SQLParam>() -> WindowSpec<'a, V> {
     WindowSpec {
         partition: None,
         order: None,
@@ -98,6 +103,7 @@ pub fn window<'a, V: SQLParam>() -> WindowSpec<'a, V> {
 
 impl<'a, V: SQLParam + 'a> WindowSpec<'a, V> {
     /// Set the PARTITION BY clause.
+    #[must_use]
     pub fn partition_by<I>(mut self, exprs: I) -> Self
     where
         I: IntoIterator,
@@ -112,6 +118,7 @@ impl<'a, V: SQLParam + 'a> WindowSpec<'a, V> {
     }
 
     /// Set the ORDER BY clause.
+    #[must_use]
     pub fn order_by<T: ToSQL<'a, V>>(mut self, exprs: T) -> Self {
         self.order = Some(
             SQL::from(Token::ORDER)
@@ -122,6 +129,7 @@ impl<'a, V: SQLParam + 'a> WindowSpec<'a, V> {
     }
 
     /// Set a ROWS frame specification.
+    #[must_use]
     pub fn rows_between(mut self, start: FrameBound, end: FrameBound) -> Self {
         self.frame = Some(
             SQL::from(Token::ROWS)
@@ -134,6 +142,7 @@ impl<'a, V: SQLParam + 'a> WindowSpec<'a, V> {
     }
 
     /// Set a RANGE frame specification.
+    #[must_use]
     pub fn range_between(mut self, start: FrameBound, end: FrameBound) -> Self {
         self.frame = Some(
             SQL::from(Token::RANGE)
@@ -197,10 +206,11 @@ where
         SQLExpr::new(sql)
     }
 
-    /// Apply a FILTER clause to this aggregate (PostgreSQL extension).
+    /// Apply a FILTER clause to this aggregate (`PostgreSQL` extension).
     ///
     /// Generates `<agg> FILTER (WHERE <condition>)`.
-    pub fn filter<C>(self, condition: C) -> SQLExpr<'a, V, T, N, Agg>
+    #[must_use]
+    pub fn filter<C>(self, condition: C) -> Self
     where
         C: Expr<'a, V>,
         C::SQLType: BooleanLike,
@@ -222,7 +232,7 @@ where
 
 /// A window function expression that is not yet valid SQL.
 ///
-/// Pure window functions like ROW_NUMBER, RANK, LAG, etc. MUST have an
+/// Pure window functions like `ROW_NUMBER`, RANK, LAG, etc. MUST have an
 /// `.over()` call before they can be used in a query. This type enforces
 /// that at compile time by not implementing `Expr` or `ToSQL`.
 #[derive(Debug, Clone)]
@@ -237,7 +247,7 @@ where
     T: DataType,
     N: Nullability,
 {
-    fn new(sql: SQL<'a, V>) -> Self {
+    const fn new(sql: SQL<'a, V>) -> Self {
         Self {
             sql,
             _marker: PhantomData,
@@ -262,9 +272,10 @@ where
 // Pure Window Functions
 // =============================================================================
 
-/// ROW_NUMBER() — sequential row number within the partition.
+/// `ROW_NUMBER()` — sequential row number within the partition.
 ///
 /// Returns an integer, never NULL.
+#[must_use]
 pub fn row_number<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull>
 where
     V: SQLParam + 'a,
@@ -273,9 +284,10 @@ where
     WindowFnExpr::new(SQL::raw("ROW_NUMBER()"))
 }
 
-/// RANK() — rank with gaps for ties.
+/// `RANK()` — rank with gaps for ties.
 ///
 /// Returns an integer, never NULL.
+#[must_use]
 pub fn rank<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull>
 where
     V: SQLParam + 'a,
@@ -284,9 +296,10 @@ where
     WindowFnExpr::new(SQL::raw("RANK()"))
 }
 
-/// DENSE_RANK() — rank without gaps.
+/// `DENSE_RANK()` — rank without gaps.
 ///
 /// Returns an integer, never NULL.
+#[must_use]
 pub fn dense_rank<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull>
 where
     V: SQLParam + 'a,
@@ -298,6 +311,7 @@ where
 /// NTILE(n) — divide rows into n roughly equal groups.
 ///
 /// Returns an integer, never NULL.
+#[must_use]
 pub fn ntile<'a, V>(
     n: usize,
 ) -> WindowFnExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull>
@@ -308,9 +322,10 @@ where
     WindowFnExpr::new(SQL::func("NTILE", SQL::number(n)))
 }
 
-/// PERCENT_RANK() — relative rank of the current row: (rank - 1) / (total rows - 1).
+/// `PERCENT_RANK()` — relative rank of the current row: (rank - 1) / (total rows - 1).
 ///
 /// Returns a float between 0.0 and 1.0, never NULL.
+#[must_use]
 pub fn percent_rank<'a, V>()
 -> WindowFnExpr<'a, V, <V::DialectMarker as FloatPolicy>::Float, NonNull>
 where
@@ -320,9 +335,10 @@ where
     WindowFnExpr::new(SQL::raw("PERCENT_RANK()"))
 }
 
-/// CUME_DIST() — cumulative distribution: fraction of rows <= current row.
+/// `CUME_DIST()` — cumulative distribution: fraction of rows <= current row.
 ///
 /// Returns a float between 0.0 and 1.0 (exclusive of 0), never NULL.
+#[must_use]
 pub fn cume_dist<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as FloatPolicy>::Float, NonNull>
 where
     V: SQLParam + 'a,
@@ -403,7 +419,7 @@ where
     WindowFnExpr::new(SQL::func("LEAD", args))
 }
 
-/// FIRST_VALUE(expr) — value of expr from the first row of the frame.
+/// `FIRST_VALUE(expr)` — value of expr from the first row of the frame.
 ///
 /// Always nullable (frame may be empty for some edge cases).
 pub fn first_value<'a, V, E>(expr: E) -> WindowFnExpr<'a, V, E::SQLType, Null>
@@ -414,7 +430,7 @@ where
     WindowFnExpr::new(SQL::func("FIRST_VALUE", expr.into_sql()))
 }
 
-/// LAST_VALUE(expr) — value of expr from the last row of the frame.
+/// `LAST_VALUE(expr)` — value of expr from the last row of the frame.
 ///
 /// Always nullable (frame boundaries affect result).
 pub fn last_value<'a, V, E>(expr: E) -> WindowFnExpr<'a, V, E::SQLType, Null>
@@ -425,7 +441,7 @@ where
     WindowFnExpr::new(SQL::func("LAST_VALUE", expr.into_sql()))
 }
 
-/// NTH_VALUE(expr, n) — value of expr from the nth row of the frame.
+/// `NTH_VALUE(expr`, n) — value of expr from the nth row of the frame.
 ///
 /// Always nullable (n may exceed frame size).
 pub fn nth_value<'a, V, E>(expr: E, n: usize) -> WindowFnExpr<'a, V, E::SQLType, Null>

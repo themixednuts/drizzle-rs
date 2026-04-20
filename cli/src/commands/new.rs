@@ -34,7 +34,14 @@ pub struct NewOptions {
     pub schema_help: bool,
 }
 
-pub fn run(config: Option<&Config>, options: NewOptions) -> Result<(), CliError> {
+/// Run the `new` command to scaffold a schema definition.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if loading or validating the JSON schema definition
+/// fails, if interactive prompts are cancelled, or if writing the generated
+/// Rust schema files fails.
+pub fn run(config: Option<&Config>, options: &NewOptions) -> Result<(), CliError> {
     // --schema-help: print annotated example and exit
     if options.schema_help {
         print_json_schema();
@@ -45,7 +52,7 @@ pub fn run(config: Option<&Config>, options: NewOptions) -> Result<(), CliError>
     let def = if options.json {
         load_json(options.from.as_deref())?
     } else {
-        collect_interactively(config, &options)?
+        collect_interactively(config, options)?
     };
 
     // Validate the schema definition
@@ -116,7 +123,7 @@ pub fn run(config: Option<&Config>, options: NewOptions) -> Result<(), CliError>
     if !def.foreign_keys.is_empty() {
         println!("  Foreign keys: {}", def.foreign_keys.len());
     }
-    println!("  Output: {}", output_path);
+    println!("  Output: {output_path}");
     if let Some(ref export_path) = options.export_json {
         println!("  JSON export: {}", export_path.display());
     }
@@ -150,7 +157,7 @@ pub struct SchemaDefinition {
     pub foreign_keys: Vec<ForeignKeyDef>,
 }
 
-fn default_casing() -> FieldCasing {
+const fn default_casing() -> FieldCasing {
     FieldCasing::Snake
 }
 
@@ -178,19 +185,34 @@ pub struct EnumDef {
 pub struct TableDef {
     pub name: String,
     pub columns: Vec<ColumnDef>,
-    /// SQLite only
+    /// `SQLite` only
     #[serde(default)]
     pub strict: bool,
-    /// SQLite only
+    /// `SQLite` only
     #[serde(default)]
     pub without_rowid: bool,
-    /// PostgreSQL only
+    /// `PostgreSQL` only
     #[serde(default = "default_pg_schema")]
     pub pg_schema: String,
 }
 
 fn default_pg_schema() -> String {
     "public".to_string()
+}
+
+/// Auto-generation strategy for a column value.
+///
+/// `autoincrement` is `SQLite`-specific (`INTEGER PRIMARY KEY AUTOINCREMENT`) and
+/// `identity` is `PostgreSQL`-specific (`GENERATED ALWAYS AS IDENTITY`). They are
+/// mutually exclusive dialect variants, so they live in a single optional enum
+/// rather than two parallel booleans.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum AutoGenKind {
+    /// `SQLite` `INTEGER PRIMARY KEY AUTOINCREMENT`.
+    Autoincrement,
+    /// `PostgreSQL` `GENERATED ALWAYS AS IDENTITY`.
+    Identity,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -203,17 +225,27 @@ pub struct ColumnDef {
     #[serde(default)]
     pub primary_key: bool,
     #[serde(default)]
-    pub autoincrement: bool,
-    #[serde(default)]
     pub unique: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
-    /// For PG identity columns
-    #[serde(default)]
-    pub identity: bool,
+    /// Auto-generation strategy (`SQLite` autoincrement / `PostgreSQL` identity).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_gen: Option<AutoGenKind>,
     /// For PG enum columns: the enum name
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enum_name: Option<String>,
+}
+
+impl ColumnDef {
+    #[must_use]
+    pub const fn is_autoincrement(&self) -> bool {
+        matches!(self.auto_gen, Some(AutoGenKind::Autoincrement))
+    }
+
+    #[must_use]
+    pub const fn is_identity(&self) -> bool {
+        matches!(self.auto_gen, Some(AutoGenKind::Identity))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -257,17 +289,16 @@ pub enum FieldCasing {
 // ── JSON import/export ──────────────────────────────────────────────────────
 
 fn load_json(from: Option<&std::path::Path>) -> Result<SchemaDefinition, CliError> {
-    let content = match from {
-        Some(path) => std::fs::read_to_string(path)
-            .map_err(|e| CliError::IoError(format!("Failed to read {}: {e}", path.display())))?,
-        None => {
-            use std::io::Read;
-            let mut buf = String::new();
-            std::io::stdin()
-                .read_to_string(&mut buf)
-                .map_err(|e| CliError::IoError(format!("Failed to read stdin: {e}")))?;
-            buf
-        }
+    let content = if let Some(path) = from {
+        std::fs::read_to_string(path)
+            .map_err(|e| CliError::IoError(format!("Failed to read {}: {e}", path.display())))?
+    } else {
+        use std::io::Read;
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .map_err(|e| CliError::IoError(format!("Failed to read stdin: {e}")))?;
+        buf
     };
     serde_json::from_str(&content)
         .map_err(|e| CliError::Other(format!("Invalid JSON schema definition: {e}")))
@@ -311,118 +342,40 @@ const VALID_FK_ACTIONS: &[&str] = &[
 ];
 
 fn validate_schema(def: &SchemaDefinition) -> Result<(), CliError> {
-    let err = |msg: String| CliError::Other(msg);
-
     // Must have at least one table
     if def.tables.is_empty() {
-        return Err(err("Schema must have at least one table".into()));
+        return Err(CliError::Other(
+            "Schema must have at least one table".into(),
+        ));
     }
 
-    // Check table names are valid and unique
+    // Check table names are valid and unique, and per-table column/dialect rules
     let mut table_names = HashSet::new();
     for table in &def.tables {
         if !is_valid_identifier(&table.name) {
-            return Err(err(format!("Invalid table name: '{}'", table.name)));
-        }
-        if !table_names.insert(&table.name) {
-            return Err(err(format!("Duplicate table name: '{}'", table.name)));
-        }
-
-        // Each table must have at least one column
-        if table.columns.is_empty() {
-            return Err(err(format!(
-                "Table '{}' must have at least one column",
+            return Err(CliError::Other(format!(
+                "Invalid table name: '{}'",
                 table.name
             )));
         }
-
-        // Check column names are valid and unique within the table
-        let mut col_names = HashSet::new();
-        for col in &table.columns {
-            if !is_valid_identifier(&col.name) {
-                return Err(err(format!(
-                    "Invalid column name '{}' in table '{}'",
-                    col.name, table.name
-                )));
-            }
-            if !col_names.insert(&col.name) {
-                return Err(err(format!(
-                    "Duplicate column name '{}' in table '{}'",
-                    col.name, table.name
-                )));
-            }
-        }
-
-        // Dialect-specific column checks
-        match def.dialect {
-            Dialect::Sqlite | Dialect::Turso => {
-                for col in &table.columns {
-                    if col.identity {
-                        return Err(err(format!(
-                            "Column '{}.{}': 'identity' is only supported for PostgreSQL",
-                            table.name, col.name
-                        )));
-                    }
-                    if col.enum_name.is_some() {
-                        return Err(err(format!(
-                            "Column '{}.{}': 'enum_name' is only supported for PostgreSQL",
-                            table.name, col.name
-                        )));
-                    }
-                }
-            }
-            Dialect::Postgresql => {
-                if table.strict {
-                    return Err(err(format!(
-                        "Table '{}': 'strict' is only supported for SQLite",
-                        table.name
-                    )));
-                }
-                if table.without_rowid {
-                    return Err(err(format!(
-                        "Table '{}': 'without_rowid' is only supported for SQLite",
-                        table.name
-                    )));
-                }
-                for col in &table.columns {
-                    if col.autoincrement {
-                        return Err(err(format!(
-                            "Column '{}.{}': 'autoincrement' is only supported for SQLite (use 'identity' for PostgreSQL)",
-                            table.name, col.name
-                        )));
-                    }
-                }
-            }
-        }
-    }
-
-    // Validate enums
-    if def.dialect != Dialect::Postgresql && !def.enums.is_empty() {
-        return Err(err("Enums are only supported for PostgreSQL".into()));
-    }
-    let mut enum_names = HashSet::new();
-    for e in &def.enums {
-        if !is_valid_identifier(&e.name) {
-            return Err(err(format!("Invalid enum name: '{}'", e.name)));
-        }
-        if !enum_names.insert(&e.name) {
-            return Err(err(format!("Duplicate enum name: '{}'", e.name)));
-        }
-        if e.variants.is_empty() {
-            return Err(err(format!(
-                "Enum '{}' must have at least one variant",
-                e.name
+        if !table_names.insert(&table.name) {
+            return Err(CliError::Other(format!(
+                "Duplicate table name: '{}'",
+                table.name
             )));
         }
+        validate_table(table, def.dialect)?;
     }
+
+    let enum_names = validate_enums(def)?;
 
     // Validate enum references in columns
     for table in &def.tables {
         for col in &table.columns {
             if let Some(ref en) = col.enum_name
-                && !enum_names.contains(en)
+                && !enum_names.contains(en.as_str())
             {
-                return Err(err(format!(
+                return Err(CliError::Other(format!(
                     "Column '{}.{}' references unknown enum '{}'",
                     table.name, col.name, en
                 )));
@@ -430,38 +383,147 @@ fn validate_schema(def: &SchemaDefinition) -> Result<(), CliError> {
         }
     }
 
-    // Validate indexes reference existing tables and columns
+    validate_indexes(def)?;
+    validate_foreign_keys(def)?;
+
+    Ok(())
+}
+
+/// Validate a single table: column names, dialect-specific column rules, and
+/// that the table itself has at least one column.
+fn validate_table(table: &TableDef, dialect: Dialect) -> Result<(), CliError> {
+    if table.columns.is_empty() {
+        return Err(CliError::Other(format!(
+            "Table '{}' must have at least one column",
+            table.name
+        )));
+    }
+
+    let mut col_names = HashSet::new();
+    for col in &table.columns {
+        if !is_valid_identifier(&col.name) {
+            return Err(CliError::Other(format!(
+                "Invalid column name '{}' in table '{}'",
+                col.name, table.name
+            )));
+        }
+        if !col_names.insert(&col.name) {
+            return Err(CliError::Other(format!(
+                "Duplicate column name '{}' in table '{}'",
+                col.name, table.name
+            )));
+        }
+    }
+
+    match dialect {
+        Dialect::Sqlite | Dialect::Turso => {
+            for col in &table.columns {
+                if col.is_identity() {
+                    return Err(CliError::Other(format!(
+                        "Column '{}.{}': 'identity' is only supported for PostgreSQL",
+                        table.name, col.name
+                    )));
+                }
+                if col.enum_name.is_some() {
+                    return Err(CliError::Other(format!(
+                        "Column '{}.{}': 'enum_name' is only supported for PostgreSQL",
+                        table.name, col.name
+                    )));
+                }
+            }
+        }
+        Dialect::Postgresql => {
+            if table.strict {
+                return Err(CliError::Other(format!(
+                    "Table '{}': 'strict' is only supported for SQLite",
+                    table.name
+                )));
+            }
+            if table.without_rowid {
+                return Err(CliError::Other(format!(
+                    "Table '{}': 'without_rowid' is only supported for SQLite",
+                    table.name
+                )));
+            }
+            for col in &table.columns {
+                if col.is_autoincrement() {
+                    return Err(CliError::Other(format!(
+                        "Column '{}.{}': 'autoincrement' is only supported for SQLite (use 'identity' for PostgreSQL)",
+                        table.name, col.name
+                    )));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate enum definitions and return the set of declared enum names.
+fn validate_enums(def: &SchemaDefinition) -> Result<HashSet<&str>, CliError> {
+    if def.dialect != Dialect::Postgresql && !def.enums.is_empty() {
+        return Err(CliError::Other(
+            "Enums are only supported for PostgreSQL".into(),
+        ));
+    }
+    let mut enum_names = HashSet::new();
+    for e in &def.enums {
+        if !is_valid_identifier(&e.name) {
+            return Err(CliError::Other(format!("Invalid enum name: '{}'", e.name)));
+        }
+        if !enum_names.insert(e.name.as_str()) {
+            return Err(CliError::Other(format!(
+                "Duplicate enum name: '{}'",
+                e.name
+            )));
+        }
+        if e.variants.is_empty() {
+            return Err(CliError::Other(format!(
+                "Enum '{}' must have at least one variant",
+                e.name
+            )));
+        }
+    }
+    Ok(enum_names)
+}
+
+/// Validate that each index references a real table and real columns.
+fn validate_indexes(def: &SchemaDefinition) -> Result<(), CliError> {
     for idx in &def.indexes {
         let table = def.tables.iter().find(|t| t.name == idx.table);
         let Some(table) = table else {
-            return Err(err(format!(
+            return Err(CliError::Other(format!(
                 "Index '{}' references unknown table '{}'",
                 idx.name, idx.table
             )));
         };
         for col_name in &idx.columns {
             if !table.columns.iter().any(|c| &c.name == col_name) {
-                return Err(err(format!(
+                return Err(CliError::Other(format!(
                     "Index '{}' references unknown column '{}.{}'",
                     idx.name, idx.table, col_name
                 )));
             }
         }
     }
+    Ok(())
+}
 
-    // Validate foreign keys reference existing tables and columns
+/// Validate that each foreign key references real tables/columns and uses a
+/// recognized on-delete / on-update action.
+fn validate_foreign_keys(def: &SchemaDefinition) -> Result<(), CliError> {
     for fk in &def.foreign_keys {
         // Source table
         let src = def.tables.iter().find(|t| t.name == fk.table);
         let Some(src) = src else {
-            return Err(err(format!(
+            return Err(CliError::Other(format!(
                 "Foreign key '{}' references unknown source table '{}'",
                 fk.name, fk.table
             )));
         };
         for col_name in &fk.columns {
             if !src.columns.iter().any(|c| &c.name == col_name) {
-                return Err(err(format!(
+                return Err(CliError::Other(format!(
                     "Foreign key '{}' references unknown source column '{}.{}'",
                     fk.name, fk.table, col_name
                 )));
@@ -471,14 +533,14 @@ fn validate_schema(def: &SchemaDefinition) -> Result<(), CliError> {
         // Target table
         let tgt = def.tables.iter().find(|t| t.name == fk.table_to);
         let Some(tgt) = tgt else {
-            return Err(err(format!(
+            return Err(CliError::Other(format!(
                 "Foreign key '{}' references unknown target table '{}'",
                 fk.name, fk.table_to
             )));
         };
         for col_name in &fk.columns_to {
             if !tgt.columns.iter().any(|c| &c.name == col_name) {
-                return Err(err(format!(
+                return Err(CliError::Other(format!(
                     "Foreign key '{}' references unknown target column '{}.{}'",
                     fk.name, fk.table_to, col_name
                 )));
@@ -487,7 +549,7 @@ fn validate_schema(def: &SchemaDefinition) -> Result<(), CliError> {
 
         // Validate FK actions
         if !VALID_FK_ACTIONS.contains(&fk.on_delete.as_str()) {
-            return Err(err(format!(
+            return Err(CliError::Other(format!(
                 "Foreign key '{}': invalid on_delete action '{}'. Valid: {}",
                 fk.name,
                 fk.on_delete,
@@ -495,7 +557,7 @@ fn validate_schema(def: &SchemaDefinition) -> Result<(), CliError> {
             )));
         }
         if !VALID_FK_ACTIONS.contains(&fk.on_update.as_str()) {
-            return Err(err(format!(
+            return Err(CliError::Other(format!(
                 "Foreign key '{}': invalid on_update action '{}'. Valid: {}",
                 fk.name,
                 fk.on_update,
@@ -503,7 +565,6 @@ fn validate_schema(def: &SchemaDefinition) -> Result<(), CliError> {
             )));
         }
     }
-
     Ok(())
 }
 
@@ -520,10 +581,11 @@ fn collect_interactively(
     let schema_name = prompt_schema_name()?;
 
     // Phase 2: Enums (PostgreSQL only)
-    let mut enums: Vec<EnumDef> = Vec::new();
-    if dialect == Dialect::Postgresql {
-        enums = prompt_enums()?;
-    }
+    let enums: Vec<EnumDef> = if dialect == Dialect::Postgresql {
+        prompt_enums()?
+    } else {
+        Vec::new()
+    };
 
     // Phase 3 & 4: Tables + Columns
     let mut tables: Vec<TableDef> = Vec::new();
@@ -536,16 +598,19 @@ fn collect_interactively(
     }
 
     // Phase 5: Indexes
-    let mut indexes: Vec<IndexDef> = Vec::new();
-    if confirm("Add indexes?", false)? {
-        indexes = prompt_indexes(&tables)?;
-    }
+    let indexes: Vec<IndexDef> = if confirm("Add indexes?", false)? {
+        prompt_indexes(&tables)?
+    } else {
+        Vec::new()
+    };
 
     // Phase 6: Foreign Keys
-    let mut foreign_keys: Vec<ForeignKeyDef> = Vec::new();
-    if tables.len() > 1 && confirm("Add foreign keys?", false)? {
-        foreign_keys = prompt_foreign_keys(&tables, dialect)?;
-    }
+    let foreign_keys: Vec<ForeignKeyDef> =
+        if tables.len() > 1 && confirm("Add foreign keys?", false)? {
+            prompt_foreign_keys(&tables, dialect)?
+        } else {
+            Vec::new()
+        };
 
     Ok(SchemaDefinition {
         dialect,
@@ -601,9 +666,10 @@ fn resolve_output_path(
     if let Some(s) = cli_schema {
         return Ok(s);
     }
-    let default = config
-        .map(|c| c.schema_display())
-        .unwrap_or_else(|| "src/schema.rs".to_string());
+    let default = config.map_or_else(
+        || "src/schema.rs".to_string(),
+        super::super::config::Config::schema_display,
+    );
     Text::new("Schema output path:")
         .with_default(&default)
         .prompt()
@@ -704,7 +770,7 @@ fn prompt_table(dialect: Dialect, enums: &[EnumDef]) -> Result<TableDef, CliErro
     // Columns
     let mut columns = Vec::new();
     println!();
-    println!("  Define columns for '{}':", name);
+    println!("  Define columns for '{name}':");
     loop {
         let col = prompt_column(dialect, enums)?;
         columns.push(col);
@@ -772,15 +838,22 @@ fn prompt_column(dialect: Dialect, enums: &[EnumDef]) -> Result<ColumnDef, CliEr
         None
     };
 
+    let auto_gen = if autoincrement {
+        Some(AutoGenKind::Autoincrement)
+    } else if identity {
+        Some(AutoGenKind::Identity)
+    } else {
+        None
+    };
+
     Ok(ColumnDef {
         name: col_name,
         sql_type,
         not_null: !nullable,
         primary_key,
-        autoincrement,
         unique,
         default,
-        identity,
+        auto_gen,
         enum_name,
     })
 }
@@ -821,7 +894,7 @@ fn prompt_type(dialect: Dialect, enums: &[EnumDef]) -> Result<(String, Option<St
         options.push(format!("enum:{}", e.name));
     }
 
-    let refs: Vec<&str> = options.iter().map(|s| s.as_str()).collect();
+    let refs: Vec<&str> = options.iter().map(std::string::String::as_str).collect();
     let chosen = Select::new("  Rust type:", refs)
         .prompt()
         .map_err(|e| CliError::Other(format!("Prompt cancelled: {e}")))?;
@@ -836,7 +909,6 @@ fn prompt_type(dialect: Dialect, enums: &[EnumDef]) -> Result<(String, Option<St
         Dialect::Sqlite | Dialect::Turso => match chosen {
             "i32" | "i64" => "integer",
             "f64" => "real",
-            "String" => "text",
             "bool" => "boolean",
             "Vec<u8>" => "blob",
             _ => "text",
@@ -847,7 +919,6 @@ fn prompt_type(dialect: Dialect, enums: &[EnumDef]) -> Result<(String, Option<St
             "i64" => "int8",
             "f32" => "float4",
             "f64" => "float8",
-            "String" => "text",
             "bool" => "bool",
             "Vec<u8>" => "bytea",
             "uuid::Uuid" => "uuid",
@@ -906,7 +977,10 @@ fn prompt_indexes(tables: &[TableDef]) -> Result<Vec<IndexDef>, CliError> {
         indexes.push(IndexDef {
             name: idx_name,
             table: table_name.to_string(),
-            columns: selected_cols.into_iter().map(|s| s.to_string()).collect(),
+            columns: selected_cols
+                .into_iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
             unique: is_unique,
             pg_schema: table.pg_schema.clone(),
         });
@@ -973,9 +1047,15 @@ fn prompt_foreign_keys(
         fks.push(ForeignKeyDef {
             name: fk_name,
             table: src_table_name.to_string(),
-            columns: src_cols.into_iter().map(|s| s.to_string()).collect(),
+            columns: src_cols
+                .into_iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
             table_to: tgt_table_name.to_string(),
-            columns_to: tgt_cols.into_iter().map(|s| s.to_string()).collect(),
+            columns_to: tgt_cols
+                .into_iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
             on_delete: on_delete.to_string(),
             on_update: on_update.to_string(),
             pg_schema: src_table.pg_schema.clone(),
@@ -1025,14 +1105,19 @@ fn generate_sqlite(
             if col.not_null {
                 column = column.not_null();
             }
-            if col.autoincrement {
+            if col.is_autoincrement() {
                 column = column.autoincrement();
             }
             if let Some(ref default) = col.default {
                 column = column.default_value(default.clone());
             }
             // Set ordinal position to preserve order
-            column.ordinal_position = Some((col_idx as i32) + 1);
+            column.ordinal_position = Some(
+                i32::try_from(col_idx)
+                    .ok()
+                    .and_then(|i| i.checked_add(1))
+                    .unwrap_or(i32::MAX),
+            );
             ddl.columns.push(column);
 
             if col.primary_key {
@@ -1120,9 +1205,7 @@ fn generate_postgres(
 ) -> String {
     use drizzle_migrations::postgres::codegen;
     use drizzle_migrations::postgres::collection::PostgresDDL;
-    use drizzle_types::postgres::ddl::{
-        Column, Enum, ForeignKey, Index, IndexColumn, PrimaryKey, Table, UniqueConstraint,
-    };
+    use drizzle_types::postgres::ddl::{Enum, Table};
 
     let mut ddl = PostgresDDL::new();
 
@@ -1141,62 +1224,100 @@ fn generate_postgres(
     for table in tables {
         ddl.tables
             .push(Table::new(table.pg_schema.clone(), table.name.clone()));
+        add_postgres_table_columns(&mut ddl, table);
+    }
 
-        let mut pk_cols: Vec<String> = Vec::new();
-        let mut unique_cols: Vec<String> = Vec::new();
+    add_postgres_indexes(&mut ddl, indexes);
+    add_postgres_foreign_keys(&mut ddl, fks);
 
-        for (col_idx, col) in table.columns.iter().enumerate() {
-            let mut column = Column::new(
-                table.pg_schema.clone(),
-                table.name.clone(),
-                col.name.clone(),
-                col.sql_type.clone(),
-            );
-            if col.not_null {
-                column = column.not_null();
-            }
-            if let Some(ref default) = col.default {
-                column = column.default_value(default.clone());
-            }
-            if col.identity {
-                use drizzle_types::postgres::ddl::Identity;
-                let seq_name = format!("{}_{}_seq", table.name, col.name);
-                column.identity = Some(Identity::always(seq_name));
-            }
-            if col.enum_name.is_some() {
-                // Set type_schema so codegen can find it in the enum_map
-                column.type_schema = Some(Cow::Owned(table.pg_schema.clone()));
-            }
-            column.ordinal_position = Some((col_idx as i32) + 1);
-            ddl.columns.push(column);
+    let field_casing = match casing {
+        FieldCasing::Snake => codegen::FieldCasing::Snake,
+        FieldCasing::Camel => codegen::FieldCasing::Camel,
+    };
 
-            if col.primary_key {
-                pk_cols.push(col.name.clone());
-            }
-            if col.unique {
-                unique_cols.push(col.name.clone());
-            }
+    let options = codegen::CodegenOptions {
+        module_doc: Some("Generated by `drizzle new`".to_string()),
+        include_schema: true,
+        schema_name: schema_name.to_string(),
+        use_pub: true,
+        field_casing,
+    };
+
+    codegen::generate_rust_schema(&ddl, &options).code
+}
+
+/// Populate `ddl.columns`, `ddl.pks`, `ddl.uniques` for a single postgres table.
+fn add_postgres_table_columns(
+    ddl: &mut drizzle_migrations::postgres::collection::PostgresDDL,
+    table: &TableDef,
+) {
+    use drizzle_types::postgres::ddl::{Column, PrimaryKey, UniqueConstraint};
+
+    let mut pk_cols: Vec<String> = Vec::new();
+    let mut unique_cols: Vec<String> = Vec::new();
+
+    for (col_idx, col) in table.columns.iter().enumerate() {
+        let mut column = Column::new(
+            table.pg_schema.clone(),
+            table.name.clone(),
+            col.name.clone(),
+            col.sql_type.clone(),
+        );
+        if col.not_null {
+            column = column.not_null();
         }
-
-        if !pk_cols.is_empty() {
-            ddl.pks.push(PrimaryKey::from_strings(
-                table.pg_schema.clone(),
-                table.name.clone(),
-                format!("{}_pk", table.name),
-                pk_cols,
-            ));
+        if let Some(ref default) = col.default {
+            column = column.default_value(default.clone());
         }
-        for uc in unique_cols {
-            ddl.uniques.push(UniqueConstraint::from_strings(
-                table.pg_schema.clone(),
-                table.name.clone(),
-                format!("{}_{}_unique", table.name, uc),
-                vec![uc],
-            ));
+        if col.is_identity() {
+            use drizzle_types::postgres::ddl::Identity;
+            let seq_name = format!("{}_{}_seq", table.name, col.name);
+            column.identity = Some(Identity::always(seq_name));
+        }
+        if col.enum_name.is_some() {
+            // Set type_schema so codegen can find it in the enum_map
+            column.type_schema = Some(Cow::Owned(table.pg_schema.clone()));
+        }
+        column.ordinal_position = Some(
+            i32::try_from(col_idx)
+                .ok()
+                .and_then(|i| i.checked_add(1))
+                .unwrap_or(i32::MAX),
+        );
+        ddl.columns.push(column);
+
+        if col.primary_key {
+            pk_cols.push(col.name.clone());
+        }
+        if col.unique {
+            unique_cols.push(col.name.clone());
         }
     }
 
-    // Add indexes
+    if !pk_cols.is_empty() {
+        ddl.pks.push(PrimaryKey::from_strings(
+            table.pg_schema.clone(),
+            table.name.clone(),
+            format!("{}_pk", table.name),
+            pk_cols,
+        ));
+    }
+    for uc in unique_cols {
+        ddl.uniques.push(UniqueConstraint::from_strings(
+            table.pg_schema.clone(),
+            table.name.clone(),
+            format!("{}_{}_unique", table.name, uc),
+            vec![uc],
+        ));
+    }
+}
+
+/// Append index definitions to the postgres DDL collection.
+fn add_postgres_indexes(
+    ddl: &mut drizzle_migrations::postgres::collection::PostgresDDL,
+    indexes: &[IndexDef],
+) {
+    use drizzle_types::postgres::ddl::{Index, IndexColumn};
     for idx in indexes {
         let columns: Vec<IndexColumn> = idx
             .columns
@@ -1214,8 +1335,14 @@ fn generate_postgres(
         }
         ddl.indexes.push(index);
     }
+}
 
-    // Add foreign keys
+/// Append foreign-key definitions to the postgres DDL collection.
+fn add_postgres_foreign_keys(
+    ddl: &mut drizzle_migrations::postgres::collection::PostgresDDL,
+    fks: &[ForeignKeyDef],
+) {
+    use drizzle_types::postgres::ddl::ForeignKey;
     for fk in fks {
         let mut foreign_key = ForeignKey::from_strings(
             fk.pg_schema.clone(),
@@ -1234,21 +1361,6 @@ fn generate_postgres(
         }
         ddl.fks.push(foreign_key);
     }
-
-    let field_casing = match casing {
-        FieldCasing::Snake => codegen::FieldCasing::Snake,
-        FieldCasing::Camel => codegen::FieldCasing::Camel,
-    };
-
-    let options = codegen::CodegenOptions {
-        module_doc: Some("Generated by `drizzle new`".to_string()),
-        include_schema: true,
-        schema_name: schema_name.to_string(),
-        use_pub: true,
-        field_casing,
-    };
-
-    codegen::generate_rust_schema(&ddl, &options).code
 }
 
 // ── Utility helpers ─────────────────────────────────────────────────────────
@@ -1292,10 +1404,9 @@ mod tests {
                     sql_type: "integer".into(),
                     not_null: true,
                     primary_key: true,
-                    autoincrement: false,
                     unique: false,
                     default: None,
-                    identity: false,
+                    auto_gen: None,
                     enum_name: None,
                 }],
                 strict: false,
@@ -1349,7 +1460,7 @@ mod tests {
     #[test]
     fn validate_rejects_identity_on_sqlite() {
         let mut def = minimal_sqlite_def();
-        def.tables[0].columns[0].identity = true;
+        def.tables[0].columns[0].auto_gen = Some(AutoGenKind::Identity);
         let err = validate_schema(&def).unwrap_err();
         assert!(err.to_string().contains("identity"));
         assert!(err.to_string().contains("PostgreSQL"));
@@ -1359,7 +1470,7 @@ mod tests {
     fn validate_rejects_autoincrement_on_postgres() {
         let mut def = minimal_sqlite_def();
         def.dialect = Dialect::Postgresql;
-        def.tables[0].columns[0].autoincrement = true;
+        def.tables[0].columns[0].auto_gen = Some(AutoGenKind::Autoincrement);
         let err = validate_schema(&def).unwrap_err();
         assert!(err.to_string().contains("autoincrement"));
         assert!(err.to_string().contains("SQLite"));
@@ -1424,10 +1535,9 @@ mod tests {
                 sql_type: "integer".into(),
                 not_null: true,
                 primary_key: false,
-                autoincrement: false,
                 unique: false,
                 default: None,
-                identity: false,
+                auto_gen: None,
                 enum_name: None,
             }],
             strict: false,

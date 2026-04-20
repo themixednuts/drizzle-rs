@@ -100,7 +100,7 @@ enum Command {
         #[arg(long)]
         custom: bool,
 
-        /// Casing for generated identifiers (camelCase or snake_case)
+        /// Casing for generated identifiers (`camelCase` or `snake_case`)
         #[arg(long, value_parser = parse_casing)]
         casing: Option<Casing>,
 
@@ -165,7 +165,7 @@ enum Command {
         #[arg(long)]
         explain: bool,
 
-        /// Casing for identifiers (camelCase or snake_case)
+        /// Casing for identifiers (`camelCase` or `snake_case`)
         #[arg(long, value_parser = parse_casing)]
         casing: Option<Casing>,
 
@@ -372,7 +372,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
             let config = load_config(cli.config.as_deref()).ok();
             drizzle_cli::commands::new::run(
                 config.as_ref(),
-                drizzle_cli::commands::new::NewOptions {
+                &drizzle_cli::commands::new::NewOptions {
                     dialect,
                     schema,
                     json,
@@ -435,7 +435,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
             drizzle_cli::commands::push::run(
                 &config,
                 db_name,
-                drizzle_cli::commands::push::PushOptions {
+                &drizzle_cli::commands::push::PushOptions {
                     cli_verbose: verbose,
                     force,
                     cli_explain: explain,
@@ -480,7 +480,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
             drizzle_cli::commands::introspect::run(
                 &config,
                 db_name,
-                drizzle_cli::commands::introspect::IntrospectOptions {
+                &drizzle_cli::commands::introspect::IntrospectOptions {
                     init_metadata,
                     casing,
                     out,
@@ -531,17 +531,17 @@ fn run(cli: Cli) -> Result<(), CliError> {
 
 /// Load configuration with fallback to default path
 fn load_config(custom_path: Option<&std::path::Path>) -> Result<Config, CliError> {
-    match custom_path {
-        Some(path) => {
+    custom_path.map_or_else(
+        || Config::load().map_err(Into::into),
+        |path| {
             // If the user points at a config in a different directory, also try to load a `.env`
             // next to that config before resolving `{ env = "NAME" }` values.
             if let Some(dir) = path.parent() {
                 let _ = dotenvy::from_path(dir.join(".env"));
             }
             Config::load_from(path).map_err(Into::into)
-        }
-        None => Config::load().map_err(Into::into),
-    }
+        },
+    )
 }
 
 /// Initialize a new drizzle.config.toml file
@@ -550,8 +550,7 @@ fn run_init(dialect: &str, driver: Option<&str>) -> Result<(), CliError> {
 
     if config_path.exists() {
         return Err(CliError::Other(format!(
-            "{} already exists. Delete it first to reinitialize.",
-            DEFAULT_CONFIG_FILE
+            "{DEFAULT_CONFIG_FILE} already exists. Delete it first to reinitialize."
         )));
     }
 
@@ -561,14 +560,11 @@ fn run_init(dialect: &str, driver: Option<&str>) -> Result<(), CliError> {
 
     println!(
         "{}",
-        output::success(&format!("Created {}", DEFAULT_CONFIG_FILE))
+        output::success(&format!("Created {DEFAULT_CONFIG_FILE}"))
     );
     println!();
     println!("Next steps:");
-    println!(
-        "  1. Edit {} with your database credentials",
-        DEFAULT_CONFIG_FILE
-    );
+    println!("  1. Edit {DEFAULT_CONFIG_FILE} with your database credentials");
     println!(
         "  2. Create your schema file at {}",
         output::heading("src/schema.rs")
@@ -584,7 +580,7 @@ fn run_init(dialect: &str, driver: Option<&str>) -> Result<(), CliError> {
 /// Generate the init configuration content based on dialect and driver
 fn generate_init_config(dialect: &str, driver: Option<&str>) -> Result<String, CliError> {
     let dialect = dialect.to_lowercase();
-    let driver = driver.map(|d| d.to_lowercase());
+    let driver = driver.map(str::to_lowercase);
 
     // Rust-only: keep init output aligned with what `cli/src/config.rs` can actually parse.
     match dialect.as_str() {
@@ -597,7 +593,7 @@ fn generate_init_config(dialect: &str, driver: Option<&str>) -> Result<String, C
                 )));
             }
             Ok(format!(
-                r#"#:schema {}
+                r#"#:schema {SCHEMA_URL}
 
 # Drizzle Configuration (drizzle-rs)
 #
@@ -613,8 +609,7 @@ out = "./drizzle"
 
 [dbCredentials]
 url = "./dev.db"
-"#,
-                SCHEMA_URL
+"#
             ))
         }
         "turso" => {
@@ -627,7 +622,7 @@ url = "./dev.db"
                 )));
             }
             Ok(format!(
-                r#"#:schema {}
+                r#"#:schema {SCHEMA_URL}
 
 # Drizzle Configuration (drizzle-rs)
 
@@ -641,8 +636,7 @@ out = "./drizzle"
 [dbCredentials]
 url = "libsql://your-db.turso.io"
 authToken = "your-auth-token"
-"#,
-                SCHEMA_URL
+"#
             ))
         }
         "postgresql" | "postgres" => {
@@ -655,7 +649,7 @@ authToken = "your-auth-token"
                 )));
             }
             Ok(format!(
-                r#"#:schema {}
+                r#"#:schema {SCHEMA_URL}
 
 # Drizzle Configuration (drizzle-rs)
 
@@ -677,8 +671,7 @@ url = "postgres://user:password@localhost:5432/mydb"
 # password = "password"
 # database = "mydb"
 # ssl = true
-"#,
-                SCHEMA_URL
+"#
             ))
         }
         _ => Err(CliError::Other(format!(

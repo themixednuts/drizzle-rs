@@ -1,4 +1,4 @@
-//! SQLite schema code generation
+//! `SQLite` schema code generation
 //!
 //! This module generates Rust source code from introspected DDL entities.
 //! The generated code uses the lowercase attribute syntax (e.g., `primary` instead of `PRIMARY`)
@@ -10,6 +10,7 @@ use crate::utils::escape_for_rust_literal;
 use drizzle_types::sqlite::SQLTypeCategory;
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 
 /// Result of code generation
 #[derive(Debug, Clone, Default)]
@@ -80,27 +81,14 @@ fn apply_field_casing(name: &str, casing: FieldCasing) -> String {
     }
 }
 
-/// Generate Rust schema code from DDL
-pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> GeneratedSchema {
-    let mut result = GeneratedSchema::default();
-    let mut code = String::new();
+struct SchemaMaps<'a> {
+    table_columns: HashMap<String, Vec<&'a Column>>,
+    table_pks: HashMap<String, HashSet<String>>,
+    table_uniques: HashMap<String, HashSet<String>>,
+    fk_map: HashMap<(String, String), (&'a ForeignKey, usize)>,
+}
 
-    // Module header
-    code.push_str("//! Auto-generated SQLite schema from introspection\n");
-    code.push_str("//!\n");
-    if let Some(doc) = &options.module_doc {
-        for line in doc.lines() {
-            code.push_str("//! ");
-            code.push_str(line);
-            code.push('\n');
-        }
-    }
-    code.push('\n');
-
-    // Imports
-    code.push_str("use drizzle::sqlite::prelude::*;\n\n");
-
-    // Build a map of table name -> columns
+fn build_schema_maps(ddl: &SQLiteDDL) -> SchemaMaps<'_> {
     let mut table_columns: HashMap<String, Vec<&Column>> = HashMap::new();
     for column in ddl.columns.list() {
         table_columns
@@ -109,7 +97,6 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
             .push(column);
     }
 
-    // Build a map of table name -> primary key columns
     let mut table_pks: HashMap<String, HashSet<String>> = HashMap::new();
     for pk in ddl.pks.list() {
         for col in pk.columns.iter() {
@@ -120,7 +107,6 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
         }
     }
 
-    // Build a map of table name -> unique constraints (single-column only for inline)
     let mut table_uniques: HashMap<String, HashSet<String>> = HashMap::new();
     for unique in ddl.uniques.list() {
         if unique.columns.len() == 1 {
@@ -131,7 +117,6 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
         }
     }
 
-    // Build a map of foreign keys by (table, column) -> (ref_table, ref_column)
     let mut fk_map: HashMap<(String, String), (&ForeignKey, usize)> = HashMap::new();
     for fk in ddl.fks.list() {
         for (idx, col) in fk.columns.iter().enumerate() {
@@ -139,13 +124,49 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
         }
     }
 
+    SchemaMaps {
+        table_columns,
+        table_pks,
+        table_uniques,
+        fk_map,
+    }
+}
+
+fn write_module_header(code: &mut String, options: &CodegenOptions) {
+    code.push_str("//! Auto-generated SQLite schema from introspection\n");
+    code.push_str("//!\n");
+    if let Some(doc) = &options.module_doc {
+        for line in doc.lines() {
+            code.push_str("//! ");
+            code.push_str(line);
+            code.push('\n');
+        }
+    }
+    code.push('\n');
+    code.push_str("use drizzle::sqlite::prelude::*;\n\n");
+}
+
+/// Generate Rust schema code from DDL
+#[must_use]
+pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> GeneratedSchema {
+    let mut result = GeneratedSchema::default();
+    let mut code = String::new();
+
+    write_module_header(&mut code, options);
+
+    let SchemaMaps {
+        table_columns,
+        table_pks,
+        table_uniques,
+        fk_map,
+    } = build_schema_maps(ddl);
+
     // Generate table structs
     for table in ddl.tables.list() {
         let table_name = table.name.to_string();
         let columns = table_columns
             .get(&table_name)
-            .map(|c| c.as_slice())
-            .unwrap_or(&[]);
+            .map_or(&[][..], std::vec::Vec::as_slice);
 
         // Preserve DB/introspection order when available (cid -> ordinal_position).
         let mut columns_sorted: Vec<&Column> = columns.to_vec();
@@ -156,7 +177,7 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
         });
         let pk_columns = table_pks.get(&table_name);
         let unique_columns = table_uniques.get(&table_name);
-        let is_composite_pk = pk_columns.map(|pks| pks.len() > 1).unwrap_or(false);
+        let is_composite_pk = pk_columns.is_some_and(|pks| pks.len() > 1);
 
         let ctx = TableGenContext {
             table,
@@ -193,8 +214,7 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
         let view_name = view.name.to_string();
         let columns = table_columns
             .get(&view_name)
-            .map(|c| c.as_slice())
-            .unwrap_or(&[]);
+            .map_or(&[][..], std::vec::Vec::as_slice);
         let view_code = generate_view_struct(view, columns, options.use_pub, options.field_casing);
         code.push_str(&view_code);
         code.push('\n');
@@ -256,11 +276,11 @@ fn generate_table_struct(ctx: &TableGenContext<'_>) -> String {
     if table_attrs.is_empty() {
         code.push_str("#[SQLiteTable]\n");
     } else {
-        code.push_str(&format!("#[SQLiteTable({})]\n", table_attrs.join(", ")));
+        let _ = writeln!(code, "#[SQLiteTable({})]", table_attrs.join(", "));
     }
 
     // Struct definition
-    code.push_str(&format!("{}struct {} {{\n", vis, struct_name));
+    let _ = writeln!(code, "{vis}struct {struct_name} {{");
 
     // Fields
     for column in ctx.columns {
@@ -320,23 +340,23 @@ fn generate_column_field(
         // Format default value for Rust
         let default_str = format_default_value(default, &column.sql_type);
         if let Some(d) = default_str {
-            attrs.push(format!("default = {}", d));
+            attrs.push(format!("default = {d}"));
         }
     }
 
     // Check foreign key
-    if let Some((fk, idx)) = fk_map.get(&(column.table.to_string(), column_name.clone()))
+    if let Some((fk, idx)) = fk_map.get(&(column.table.to_string(), column_name))
         && let Some(ref_col) = fk.columns_to.get(*idx)
     {
         let ref_table_struct = fk.table_to.to_pascal_case();
-        attrs.push(format!("references = {}::{}", ref_table_struct, ref_col));
+        attrs.push(format!("references = {ref_table_struct}::{ref_col}"));
 
         // Add ON DELETE if specified
         if let Some(on_delete) = &fk.on_delete
             && !on_delete.eq_ignore_ascii_case("NO ACTION")
         {
             let action = on_delete.replace(' ', "_").to_lowercase();
-            attrs.push(format!("on_delete = {}", action));
+            attrs.push(format!("on_delete = {action}"));
         }
 
         // Add ON UPDATE if specified
@@ -344,7 +364,7 @@ fn generate_column_field(
             && !on_update.eq_ignore_ascii_case("NO ACTION")
         {
             let action = on_update.replace(' ', "_").to_lowercase();
-            attrs.push(format!("on_update = {}", action));
+            attrs.push(format!("on_update = {action}"));
         }
     }
 
@@ -370,7 +390,7 @@ fn generate_column_field(
     // Field name (snake_case)
     let field_name = apply_field_casing(column.name.as_ref(), field_casing);
 
-    format!("{}    {}{}: {},\n", attr_str, vis, field_name, rust_type)
+    format!("{attr_str}    {vis}{field_name}: {rust_type},\n")
 }
 
 /// Format a default value for Rust syntax
@@ -397,18 +417,13 @@ fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
         SQLTypeCategory::Text | SQLTypeCategory::Blob => {
             // Remove surrounding quotes if present
             let trimmed = default.trim_matches(|c| c == '\'' || c == '"');
-            Some(format!("\"{}\"", trimmed))
+            Some(format!("\"{trimmed}\""))
         }
-        SQLTypeCategory::Numeric => {
-            // Try as integer first, then float
-            if let Ok(v) = default.parse::<i64>() {
-                Some(v.to_string())
-            } else if let Ok(v) = default.parse::<f64>() {
-                Some(v.to_string())
-            } else {
-                None
-            }
-        }
+        SQLTypeCategory::Numeric => default
+            .parse::<i64>()
+            .map(|v| v.to_string())
+            .ok()
+            .or_else(|| default.parse::<f64>().map(|v| v.to_string()).ok()),
     }
 }
 
@@ -426,17 +441,16 @@ fn sql_type_to_rust_type(sql_type: &str, not_null: bool) -> String {
     let category = SQLTypeCategory::from_sql_type(sql_type);
 
     let base_type = match category {
-        SQLTypeCategory::Integer => "i64",
+        SQLTypeCategory::Integer | SQLTypeCategory::Numeric => "i64",
         SQLTypeCategory::Real => "f64",
         SQLTypeCategory::Text => "String",
         SQLTypeCategory::Blob => "Vec<u8>",
-        SQLTypeCategory::Numeric => "i64",
     };
 
     if not_null {
         base_type.to_string()
     } else {
-        format!("Option<{}>", base_type)
+        format!("Option<{base_type}>")
     }
 }
 
@@ -471,12 +485,13 @@ fn generate_index_struct(index: &Index, use_pub: bool, field_casing: FieldCasing
     }
 
     // Struct definition (tuple struct with column references)
-    code.push_str(&format!(
-        "{}struct {}({});\n",
+    let _ = writeln!(
+        code,
+        "{}struct {}({});",
         vis,
         struct_name,
         columns.join(", ")
-    ));
+    );
 
     code
 }
@@ -504,18 +519,18 @@ fn generate_view_struct(
     // Add definition
     if let Some(def) = &view.definition {
         let escaped_def = escape_for_rust_literal(def);
-        attrs.push(format!("definition = \"{}\"", escaped_def));
+        attrs.push(format!("definition = \"{escaped_def}\""));
     }
 
     // Build the attribute line
     if attrs.is_empty() {
         code.push_str("#[SQLiteView]\n");
     } else {
-        code.push_str(&format!("#[SQLiteView({})]\n", attrs.join(", ")));
+        let _ = writeln!(code, "#[SQLiteView({})]", attrs.join(", "));
     }
 
     // Struct definition with column fields
-    code.push_str(&format!("{vis}struct {struct_name} {{\n"));
+    let _ = writeln!(code, "{vis}struct {struct_name} {{");
 
     // Sort columns by ordinal position
     let mut sorted_columns: Vec<&&Column> = columns.iter().collect();
@@ -529,7 +544,7 @@ fn generate_view_struct(
     for column in sorted_columns {
         let field_name = apply_field_casing(column.name.as_ref(), field_casing);
         let rust_type = sql_type_to_rust_type(&column.sql_type, column.not_null);
-        code.push_str(&format!("    {vis}{field_name}: {rust_type},\n"));
+        let _ = writeln!(code, "    {vis}{field_name}: {rust_type},");
     }
 
     code.push_str("}\n");
@@ -548,20 +563,20 @@ fn generate_schema_struct(
     let vis = if use_pub { "pub " } else { "" };
 
     code.push_str("#[derive(SQLiteSchema)]\n");
-    code.push_str(&format!("{}struct {} {{\n", vis, schema_name));
+    let _ = writeln!(code, "{vis}struct {schema_name} {{");
 
     // Add tables
     for table in tables {
         let field_name = apply_field_casing(table, field_casing);
         let type_name = table.to_pascal_case();
-        code.push_str(&format!("    {}{}: {},\n", vis, field_name, type_name));
+        let _ = writeln!(code, "    {vis}{field_name}: {type_name},");
     }
 
     // Add indexes
     for index in indexes {
         let field_name = apply_field_casing(index, field_casing);
         let type_name = index.to_pascal_case();
-        code.push_str(&format!("    {}{}: {},\n", vis, field_name, type_name));
+        let _ = writeln!(code, "    {vis}{field_name}: {type_name},");
     }
 
     code.push_str("}\n");

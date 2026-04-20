@@ -1,6 +1,6 @@
 //! Type-safe string functions.
 //!
-//! These functions require `Textual` types (Text, VarChar) and provide
+//! These functions require `Textual` types (Text, `VarChar`) and provide
 //! compile-time enforcement of string operations.
 //!
 //! # Type Safety
@@ -318,7 +318,7 @@ where
 /// INSTR - finds the position of a substring.
 ///
 /// Returns the 1-indexed position of the first occurrence of `search`
-/// in the expression, or 0 if not found. Returns SQLite INTEGER.
+/// in the expression, or 0 if not found. Returns `SQLite` INTEGER.
 /// Preserves the nullability of the input expression.
 ///
 /// # Example
@@ -358,7 +358,7 @@ where
     ))
 }
 
-/// STRPOS - finds the position of a substring (PostgreSQL).
+/// STRPOS - finds the position of a substring (`PostgreSQL`).
 #[allow(clippy::type_complexity)]
 pub fn strpos<'a, V, E, S>(
     expr: E,
@@ -454,12 +454,12 @@ where
 // CONCAT_WS (with separator)
 // =============================================================================
 
-/// CONCAT_WS - concatenates values with a separator, skipping NULLs.
+/// `CONCAT_WS` - concatenates values with a separator, skipping NULLs.
 ///
-/// Unlike `||`, CONCAT_WS skips NULL values and never returns NULL
+/// Unlike `||`, `CONCAT_WS` skips NULL values and never returns NULL
 /// (unless the separator itself is NULL).
 ///
-/// Supported by both SQLite (3.44+) and PostgreSQL.
+/// Supported by both `SQLite` (3.44+) and `PostgreSQL`.
 ///
 /// # Example
 ///
@@ -503,7 +503,7 @@ where
 // PostgreSQL-specific String Functions
 // =============================================================================
 
-/// LEFT - returns the first n characters of a string (PostgreSQL).
+/// LEFT - returns the first n characters of a string (`PostgreSQL`).
 ///
 /// Preserves the nullability of the input expression.
 ///
@@ -544,7 +544,7 @@ where
     ))
 }
 
-/// RIGHT - returns the last n characters of a string (PostgreSQL).
+/// RIGHT - returns the last n characters of a string (`PostgreSQL`).
 ///
 /// Preserves the nullability of the input expression.
 ///
@@ -585,7 +585,7 @@ where
     ))
 }
 
-/// SPLIT_PART - splits a string and returns the nth field (PostgreSQL).
+/// `SPLIT_PART` - splits a string and returns the nth field (`PostgreSQL`).
 ///
 /// Returns the field at position `n` (1-indexed) when splitting by `delimiter`.
 ///
@@ -635,7 +635,7 @@ where
     ))
 }
 
-/// LPAD - pads a string on the left to a specified length (PostgreSQL).
+/// LPAD - pads a string on the left to a specified length (`PostgreSQL`).
 ///
 /// # Example
 ///
@@ -683,7 +683,7 @@ where
     ))
 }
 
-/// RPAD - pads a string on the right to a specified length (PostgreSQL).
+/// RPAD - pads a string on the right to a specified length (`PostgreSQL`).
 ///
 /// # Example
 ///
@@ -731,7 +731,7 @@ where
     ))
 }
 
-/// INITCAP - converts the first letter of each word to uppercase (PostgreSQL).
+/// INITCAP - converts the first letter of each word to uppercase (`PostgreSQL`).
 ///
 /// Preserves the nullability of the input expression.
 pub fn initcap<'a, V, E>(
@@ -746,7 +746,7 @@ where
     SQLExpr::new(SQL::func("INITCAP", expr.into_sql()))
 }
 
-/// REVERSE - reverses a string (PostgreSQL).
+/// REVERSE - reverses a string (`PostgreSQL`).
 ///
 /// Preserves the nullability of the input expression.
 pub fn reverse<'a, V, E>(
@@ -761,7 +761,7 @@ where
     SQLExpr::new(SQL::func("REVERSE", expr.into_sql()))
 }
 
-/// REPEAT - repeats a string n times (PostgreSQL).
+/// REPEAT - repeats a string n times (`PostgreSQL`).
 ///
 /// # Example
 ///
@@ -800,10 +800,10 @@ where
     ))
 }
 
-/// STARTS_WITH - tests if a string starts with a prefix (PostgreSQL).
+/// `STARTS_WITH` - tests if a string starts with a prefix (`PostgreSQL`).
 ///
 /// Returns a boolean expression. Follows comparison operator convention
-/// of returning NonNull.
+/// of returning `NonNull`.
 ///
 /// # Example
 ///
@@ -846,9 +846,9 @@ where
 // CHAR_LENGTH / OCTET_LENGTH (Standard SQL)
 // =============================================================================
 
-/// Dialect-aware function name for CHAR_LENGTH.
+/// Dialect-aware function name for `CHAR_LENGTH`.
 ///
-/// PostgreSQL uses `CHAR_LENGTH`; SQLite uses `LENGTH`.
+/// `PostgreSQL` uses `CHAR_LENGTH`; `SQLite` uses `LENGTH`.
 pub trait CharLengthPolicy {
     const CHAR_LENGTH_FN: &'static str;
 }
@@ -861,9 +861,9 @@ impl CharLengthPolicy for PostgresDialect {
     const CHAR_LENGTH_FN: &'static str = "CHAR_LENGTH";
 }
 
-/// CHAR_LENGTH - returns the number of characters in a string.
+/// `CHAR_LENGTH` - returns the number of characters in a string.
 ///
-/// Standard SQL function. Emits `CHAR_LENGTH` on PostgreSQL, `LENGTH` on SQLite.
+/// Standard SQL function. Emits `CHAR_LENGTH` on `PostgreSQL`, `LENGTH` on `SQLite`.
 ///
 /// # Example
 ///
@@ -892,9 +892,9 @@ where
     ))
 }
 
-/// OCTET_LENGTH - returns the number of bytes in a string.
+/// `OCTET_LENGTH` - returns the number of bytes in a string.
 ///
-/// Standard SQL function. Works on both SQLite (3.43+) and PostgreSQL.
+/// Standard SQL function. Works on both `SQLite` (3.43+) and `PostgreSQL`.
 ///
 /// # Example
 ///
@@ -923,7 +923,7 @@ where
 // =============================================================================
 
 /// TRANSLATE - replaces each character in `from` with the corresponding
-/// character in `to` (PostgreSQL).
+/// character in `to` (`PostgreSQL`).
 ///
 /// Characters in `from` that have no match in `to` are removed.
 ///
@@ -977,7 +977,7 @@ where
 // REGEXP_REPLACE / REGEXP_MATCH (PostgreSQL)
 // =============================================================================
 
-/// REGEXP_REPLACE - replaces substrings matching a POSIX regex (PostgreSQL).
+/// `REGEXP_REPLACE` - replaces substrings matching a POSIX regex (`PostgreSQL`).
 ///
 /// Replaces the first match of `pattern` in `expr` with `replacement`.
 /// Use optional flags (e.g., `"g"` for global) via `regexp_replace_flags`.
@@ -1028,7 +1028,7 @@ where
     ))
 }
 
-/// REGEXP_REPLACE with flags - replaces substrings matching a POSIX regex (PostgreSQL).
+/// `REGEXP_REPLACE` with flags - replaces substrings matching a POSIX regex (`PostgreSQL`).
 ///
 /// Common flags: `"g"` (global), `"i"` (case-insensitive), `"gi"` (both).
 ///
@@ -1088,7 +1088,7 @@ where
     ))
 }
 
-/// REGEXP_MATCH - returns captured groups from the first POSIX regex match (PostgreSQL).
+/// `REGEXP_MATCH` - returns captured groups from the first POSIX regex match (`PostgreSQL`).
 ///
 /// Returns a text array of captured groups. If the pattern has no groups,
 /// the result is a single-element array with the whole match.
@@ -1132,9 +1132,9 @@ where
     ))
 }
 
-/// REGEXP_MATCH with flags (PostgreSQL).
+/// `REGEXP_MATCH` with flags (`PostgreSQL`).
 ///
-/// Common flags: `"i"` (case-insensitive), `"g"` (not valid for regexp_match, use regexp_matches).
+/// Common flags: `"i"` (case-insensitive), `"g"` (not valid for `regexp_match`, use `regexp_matches`).
 ///
 /// # Example
 ///

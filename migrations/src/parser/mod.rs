@@ -2,7 +2,7 @@
 //!
 //! This module provides utilities for parsing generated Rust schema code
 //! into structured data that can be used for validation, analysis, or tooling.
-//! Supports SQLite, PostgreSQL, and MySQL (future) generated code.
+//! Supports `SQLite`, `PostgreSQL`, and `MySQL` (future) generated code.
 //!
 //! # Example
 //!
@@ -42,7 +42,8 @@ pub struct SchemaParser;
 
 impl SchemaParser {
     /// Parse generated Rust schema code into structured data
-    /// Automatically detects SQLite or PostgreSQL dialect
+    /// Automatically detects `SQLite` or `PostgreSQL` dialect
+    #[must_use]
     pub fn parse(code: &str) -> ParseResult {
         let mut result = ParseResult::default();
 
@@ -137,7 +138,7 @@ impl SchemaParser {
 }
 
 /// Get the key prefix for a dialect
-fn dialect_key(dialect: Dialect) -> &'static str {
+const fn dialect_key(dialect: Dialect) -> &'static str {
     match dialect {
         Dialect::SQLite => "sqlite",
         Dialect::PostgreSQL => "postgres",

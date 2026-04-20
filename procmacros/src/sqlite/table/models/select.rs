@@ -2,10 +2,9 @@ use super::super::context::{MacroContext, ModelType};
 use super::convenience::generate_convenience_method;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::Result;
 
 /// Generates the Select model and its partial variant
-pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
+pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
     #[allow(unused_variables)]
     let MacroContext {
         select_model_ident,
@@ -17,7 +16,6 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
 
     let mut select_fields = Vec::new();
     let mut partial_select_fields = Vec::new();
-    let mut select_column_names = Vec::new();
     let mut select_field_names = Vec::new();
     let mut select_types = Vec::new();
     let mut tuple_indices = Vec::new();
@@ -25,13 +23,11 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
 
     for (i, info) in field_infos.iter().enumerate() {
         let name = info.ident;
-        let select_type = ctx.get_field_type_for_model(info, ModelType::Select);
-        let partial_type = ctx.get_field_type_for_model(info, ModelType::PartialSelect);
-        let column_name = &info.column_name;
+        let select_type = MacroContext::get_field_type_for_model(info, ModelType::Select);
+        let partial_type = MacroContext::get_field_type_for_model(info, ModelType::PartialSelect);
 
         select_fields.push(quote! { pub #name: #select_type });
         partial_select_fields.push(quote! { pub #name: #partial_type });
-        select_column_names.push(quote! { #column_name });
         select_types.push(select_type);
         tuple_indices.push(syn::Index::from(i));
         select_field_names.push(name);
@@ -54,7 +50,7 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
             }
     };
 
-    Ok(quote! {
+    quote! {
         // Select Model
         #[derive(Debug, Clone, PartialEq, Default)]
         #struct_vis struct #select_model_ident { #(#select_fields,)* }
@@ -68,5 +64,5 @@ pub(crate) fn generate_select_model(ctx: &MacroContext) -> Result<TokenStream> {
         }
 
         #partial_impl
-    })
+    }
 }

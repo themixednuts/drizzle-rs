@@ -1,4 +1,4 @@
-//! Update value types for PostgreSQL.
+//! Update value types for `PostgreSQL`.
 //!
 //! Each field in an UPDATE operation can be skipped (left unchanged),
 //! set to NULL, or set to a value or expression.
@@ -28,9 +28,9 @@ pub enum PostgresUpdateValue<'a, V: SQLParam, T> {
     Value(ValueWrapper<'a, V, T>),
 }
 
-impl<'a, V: SQLParam, T> PostgresUpdateValue<'a, V, T> {
+impl<V: SQLParam, T> PostgresUpdateValue<'_, V, T> {
     /// Returns true if this is `Skip`
-    pub fn is_skip(&self) -> bool {
+    pub const fn is_skip(&self) -> bool {
         matches!(self, Self::Skip)
     }
 }
@@ -41,10 +41,10 @@ where
     T: TryInto<PostgresValue<'a>>,
 {
     fn from(value: T) -> Self {
-        let sql = value
-            .try_into()
-            .map(|v: PostgresValue<'a>| SQL::from(v))
-            .unwrap_or_else(|_| SQL::from(PostgresValue::Null));
+        let sql = value.try_into().map_or_else(
+            |_| SQL::from(PostgresValue::Null),
+            |v: PostgresValue<'a>| SQL::from(v),
+        );
         PostgresUpdateValue::Value(ValueWrapper::<PostgresValue<'a>, T>::new(sql))
     }
 }

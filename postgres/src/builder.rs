@@ -48,7 +48,7 @@ pub struct CTEInit;
 
 impl ExecutableState for CTEInit {}
 
-/// Main query builder for PostgreSQL
+/// Main query builder for `PostgreSQL`
 ///
 /// The `S` type parameter represents the schema type, which is used
 /// to ensure type safety when building queries.
@@ -94,6 +94,7 @@ where
     /// The comment is prepended to the generated SQL and wrapped in `/* ... */`.
     /// Any `/*` or `*/` sequences in the input are sanitised so they can't
     /// terminate the surrounding comment.
+    #[must_use]
     pub fn comment(mut self, text: impl AsRef<str>) -> Self {
         let fragment = drizzle_core::sql::comment::<PostgresValue<'a>>(text);
         if fragment.chunks.is_empty() {
@@ -110,6 +111,7 @@ where
     /// Each `(key, value)` pair is URL-encoded, sorted alphabetically, joined
     /// with `,`, and wrapped in `/* ... */`. Pairs with empty values are
     /// skipped; an all-empty input is a no-op.
+    #[must_use]
     pub fn comment_tags<I, K, V>(mut self, pairs: I) -> Self
     where
         I: IntoIterator<Item = (K, V)>,
@@ -128,6 +130,7 @@ where
 
 impl<'a> QueryBuilder<'a> {
     /// Creates a new query builder for the given schema
+    #[must_use]
     pub const fn new<S>() -> QueryBuilder<'a, S, BuilderInit> {
         QueryBuilder {
             sql: SQL::empty(),
@@ -289,7 +292,10 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
     where
         Table: PostgresTable<'a>,
     {
-        let sql = self.sql.clone().append(crate::helpers::insert(table));
+        let sql = self
+            .sql
+            .clone()
+            .append(crate::helpers::insert::<Table>(&table));
 
         insert::InsertBuilder {
             sql,
@@ -311,11 +317,10 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         Table: PostgresTable<'a>,
     {
         let sql = self.sql.clone().append(crate::helpers::update::<
-            'a,
             Table,
             PostgresSchemaType,
             PostgresValue<'a>,
-        >(table));
+        >(&table));
 
         update::UpdateBuilder {
             sql,
@@ -337,11 +342,10 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         Table: PostgresTable<'a>,
     {
         let sql = self.sql.clone().append(crate::helpers::delete::<
-            'a,
             Table,
             PostgresSchemaType,
             PostgresValue<'a>,
-        >(table));
+        >(&table));
 
         delete::DeleteBuilder {
             sql,
@@ -354,7 +358,8 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         }
     }
 
-    pub fn with<C>(&self, cte: C) -> QueryBuilder<'a, Schema, CTEInit>
+    #[must_use]
+    pub fn with<C>(&self, cte: &C) -> Self
     where
         C: CTEDefinition<'a>,
     {
@@ -384,7 +389,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     where
         Table: PostgresTable<'a>,
     {
-        let sql = crate::helpers::insert(table);
+        let sql = crate::helpers::insert::<Table>(&table);
 
         insert::InsertBuilder {
             sql,
@@ -405,7 +410,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     where
         Table: PostgresTable<'a>,
     {
-        let sql = crate::helpers::update::<'a, Table, PostgresSchemaType, PostgresValue<'a>>(table);
+        let sql = crate::helpers::update::<Table, PostgresSchemaType, PostgresValue<'a>>(&table);
 
         update::UpdateBuilder {
             sql,
@@ -426,7 +431,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     where
         Table: PostgresTable<'a>,
     {
-        let sql = crate::helpers::delete::<'a, Table, PostgresSchemaType, PostgresValue<'a>>(table);
+        let sql = crate::helpers::delete::<Table, PostgresSchemaType, PostgresValue<'a>>(&table);
 
         delete::DeleteBuilder {
             sql,
@@ -440,7 +445,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     }
 
     /// Starts a WITH (CTE) clause. Chain additional `.with()` calls to add more CTEs.
-    pub fn with<C>(&self, cte: C) -> QueryBuilder<'a, Schema, CTEInit>
+    pub fn with<C>(&self, cte: &C) -> QueryBuilder<'a, Schema, CTEInit>
     where
         C: CTEDefinition<'a>,
     {

@@ -1,8 +1,8 @@
 use super::{Generator, RngCore, SeedValue};
 use rand::Rng;
 
-const fn one_indexed_i64(index: usize) -> i64 {
-    (index as i64) + 1
+fn one_indexed_i64(index: usize) -> i64 {
+    i64::try_from(index).unwrap_or(i64::MAX - 1) + 1
 }
 
 /// Generates sequential primary key values starting at 1.

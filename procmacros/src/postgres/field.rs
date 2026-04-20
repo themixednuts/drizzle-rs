@@ -1,6 +1,7 @@
 use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
+use std::fmt::Write;
 use std::{collections::HashSet, fmt::Display};
 use syn::{Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Result, Token, Type};
 
@@ -27,7 +28,7 @@ use crate::common::{
 /// This enum provides a single source of truth for type detection, eliminating
 /// fragile string matching scattered across multiple files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TypeCategory {
+pub enum TypeCategory {
     /// `arrayvec::ArrayString<N>` - Fixed-capacity string on the stack
     ArrayString,
     /// `arrayvec::ArrayVec<u8, N>` - Fixed-capacity byte array on the stack
@@ -101,197 +102,195 @@ pub(crate) enum TypeCategory {
 impl TypeCategory {
     /// Detect the category from a `syn::Type` without stringification.
     ///
-    /// Order matters: more specific types (ArrayString) must be checked
+    /// Order matters: more specific types (`ArrayString`) must be checked
     /// before more general types (String).
     pub(crate) fn from_type(ty: &Type) -> Self {
         let ty = unwrap_option(ty);
 
         if type_is_array_u8(ty) {
-            return TypeCategory::ByteArray;
+            return Self::ByteArray;
         }
         if type_is_array_char(ty) {
-            return TypeCategory::CharArray;
+            return Self::CharArray;
         }
         if type_is_array_string(ty) {
-            return TypeCategory::ArrayString;
+            return Self::ArrayString;
         }
         if type_is_arrayvec_u8(ty) {
-            return TypeCategory::ArrayVec;
+            return Self::ArrayVec;
         }
         if type_is_uuid(ty) {
-            return TypeCategory::Uuid;
+            return Self::Uuid;
         }
         if type_is_json_value(ty) {
-            return TypeCategory::Json;
+            return Self::Json;
         }
 
         if type_is_naive_date(ty) {
-            return TypeCategory::NaiveDate;
+            return Self::NaiveDate;
         }
         if type_is_naive_time(ty) {
-            return TypeCategory::NaiveTime;
+            return Self::NaiveTime;
         }
         if type_is_naive_datetime(ty) {
-            return TypeCategory::NaiveDateTime;
+            return Self::NaiveDateTime;
         }
         if type_is_datetime_tz(ty) {
-            return TypeCategory::DateTimeTz;
+            return Self::DateTimeTz;
         }
 
         if type_is_time_date(ty) {
-            return TypeCategory::TimeDate;
+            return Self::TimeDate;
         }
         if type_is_time_time(ty) {
-            return TypeCategory::TimeTime;
+            return Self::TimeTime;
         }
         if type_is_primitive_date_time(ty) {
-            return TypeCategory::TimePrimitiveDateTime;
+            return Self::TimePrimitiveDateTime;
         }
         if type_is_offset_datetime(ty) {
-            return TypeCategory::TimeOffsetDateTime;
+            return Self::TimeOffsetDateTime;
         }
 
         if type_is_geo_point(ty) {
-            return TypeCategory::GeoPoint;
+            return Self::GeoPoint;
         }
         if type_is_geo_rect(ty) {
-            return TypeCategory::GeoRect;
+            return Self::GeoRect;
         }
         if type_is_geo_linestring(ty) {
-            return TypeCategory::GeoLineString;
+            return Self::GeoLineString;
         }
 
         if type_is_ip_addr(ty) {
-            return TypeCategory::IpAddr;
+            return Self::IpAddr;
         }
         if type_is_ip_cidr(ty) {
-            return TypeCategory::Cidr;
+            return Self::Cidr;
         }
 
         if type_is_mac_addr(ty) {
-            return TypeCategory::MacAddr;
+            return Self::MacAddr;
         }
         if type_is_bit_vec(ty) {
-            return TypeCategory::BitVec;
+            return Self::BitVec;
         }
 
         if type_is_string_like(ty) {
-            return TypeCategory::String;
+            return Self::String;
         }
         if type_is_vec_u8(ty) {
-            return TypeCategory::Blob;
+            return Self::Blob;
         }
 
         if type_is_int(ty, "i16") {
-            return TypeCategory::I16;
+            return Self::I16;
         }
         if type_is_int(ty, "i32") {
-            return TypeCategory::I32;
+            return Self::I32;
         }
         if type_is_int(ty, "i64") {
-            return TypeCategory::I64;
+            return Self::I64;
         }
         if type_is_float(ty, "f32") {
-            return TypeCategory::F32;
+            return Self::F32;
         }
         if type_is_float(ty, "f64") {
-            return TypeCategory::F64;
+            return Self::F64;
         }
         if type_is_bool(ty) {
-            return TypeCategory::Bool;
+            return Self::Bool;
         }
 
-        TypeCategory::Unknown
+        Self::Unknown
     }
 
-    /// Infer the PostgreSQL type from this category.
+    /// Infer the `PostgreSQL` type from this category.
     /// Returns None for Unknown types (should trigger compile error).
-    pub(crate) fn to_postgres_type(self) -> Option<PostgreSQLType> {
+    pub(crate) const fn to_postgres_type(self) -> Option<PostgreSQLType> {
         match self {
             // Numeric types
-            TypeCategory::I16 => Some(PostgreSQLType::Smallint),
-            TypeCategory::I32 => Some(PostgreSQLType::Integer),
-            TypeCategory::I64 => Some(PostgreSQLType::Bigint),
-            TypeCategory::F32 => Some(PostgreSQLType::Real),
-            TypeCategory::F64 => Some(PostgreSQLType::DoublePrecision),
-            TypeCategory::Bool => Some(PostgreSQLType::Boolean),
+            Self::I16 => Some(PostgreSQLType::Smallint),
+            Self::I32 => Some(PostgreSQLType::Integer),
+            Self::I64 => Some(PostgreSQLType::Bigint),
+            Self::F32 => Some(PostgreSQLType::Real),
+            Self::F64 => Some(PostgreSQLType::DoublePrecision),
+            Self::Bool => Some(PostgreSQLType::Boolean),
 
             // String/text types
-            TypeCategory::String => Some(PostgreSQLType::Text),
-            TypeCategory::ArrayString => Some(PostgreSQLType::Varchar),
-            TypeCategory::CharArray => Some(PostgreSQLType::Char),
+            Self::String => Some(PostgreSQLType::Text),
+            Self::ArrayString => Some(PostgreSQLType::Varchar),
+            Self::CharArray => Some(PostgreSQLType::Char),
 
             // Binary types
-            TypeCategory::Blob | TypeCategory::ByteArray | TypeCategory::ArrayVec => {
-                Some(PostgreSQLType::Bytea)
-            }
+            Self::Blob | Self::ByteArray | Self::ArrayVec => Some(PostgreSQLType::Bytea),
 
             // UUID
             #[cfg(feature = "uuid")]
-            TypeCategory::Uuid => Some(PostgreSQLType::Uuid),
+            Self::Uuid => Some(PostgreSQLType::Uuid),
             #[cfg(not(feature = "uuid"))]
             TypeCategory::Uuid => None,
 
             // JSON
             #[cfg(feature = "serde")]
-            TypeCategory::Json => Some(PostgreSQLType::Jsonb),
+            Self::Json => Some(PostgreSQLType::Jsonb),
             #[cfg(not(feature = "serde"))]
             TypeCategory::Json => None,
 
             // Chrono date/time types
-            TypeCategory::NaiveDate => Some(PostgreSQLType::Date),
-            TypeCategory::NaiveTime => Some(PostgreSQLType::Time),
-            TypeCategory::NaiveDateTime => Some(PostgreSQLType::Timestamp),
-            TypeCategory::DateTimeTz => Some(PostgreSQLType::Timestamptz),
+            Self::NaiveDate => Some(PostgreSQLType::Date),
+            Self::NaiveTime => Some(PostgreSQLType::Time),
+            Self::NaiveDateTime => Some(PostgreSQLType::Timestamp),
+            Self::DateTimeTz => Some(PostgreSQLType::Timestamptz),
 
             // Time crate types
-            TypeCategory::TimeDate => Some(PostgreSQLType::Date),
-            TypeCategory::TimeTime => Some(PostgreSQLType::Time),
-            TypeCategory::TimePrimitiveDateTime => Some(PostgreSQLType::Timestamp),
-            TypeCategory::TimeOffsetDateTime => Some(PostgreSQLType::Timestamptz),
+            Self::TimeDate => Some(PostgreSQLType::Date),
+            Self::TimeTime => Some(PostgreSQLType::Time),
+            Self::TimePrimitiveDateTime => Some(PostgreSQLType::Timestamp),
+            Self::TimeOffsetDateTime => Some(PostgreSQLType::Timestamptz),
 
             // Geo types
             #[cfg(feature = "geo-types")]
-            TypeCategory::GeoPoint => Some(PostgreSQLType::Point),
+            Self::GeoPoint => Some(PostgreSQLType::Point),
             #[cfg(feature = "geo-types")]
-            TypeCategory::GeoRect => Some(PostgreSQLType::Box),
+            Self::GeoRect => Some(PostgreSQLType::Box),
             #[cfg(feature = "geo-types")]
-            TypeCategory::GeoLineString => Some(PostgreSQLType::Path),
+            Self::GeoLineString => Some(PostgreSQLType::Path),
             #[cfg(not(feature = "geo-types"))]
             TypeCategory::GeoPoint | TypeCategory::GeoRect | TypeCategory::GeoLineString => None,
 
             // Network types
             #[cfg(feature = "cidr")]
-            TypeCategory::IpAddr => Some(PostgreSQLType::Inet),
+            Self::IpAddr => Some(PostgreSQLType::Inet),
             #[cfg(feature = "cidr")]
-            TypeCategory::Cidr => Some(PostgreSQLType::Cidr),
+            Self::Cidr => Some(PostgreSQLType::Cidr),
             #[cfg(not(feature = "cidr"))]
             TypeCategory::IpAddr | TypeCategory::Cidr => None,
 
             // MAC address
             #[cfg(feature = "cidr")]
-            TypeCategory::MacAddr => Some(PostgreSQLType::MacAddr),
+            Self::MacAddr => Some(PostgreSQLType::MacAddr),
             #[cfg(not(feature = "cidr"))]
             TypeCategory::MacAddr => None,
 
             // Bit types
             #[cfg(feature = "bit-vec")]
-            TypeCategory::BitVec => Some(PostgreSQLType::Varbit),
+            Self::BitVec => Some(PostgreSQLType::Varbit),
             #[cfg(not(feature = "bit-vec"))]
             TypeCategory::BitVec => None,
 
             // Enums handled separately
-            TypeCategory::Enum => None,
-            TypeCategory::Unknown => None,
+            Self::Enum => None,
+            Self::Unknown => None,
         }
     }
 
     /// Check if a constraint is valid for this type category.
-    pub(crate) fn is_valid_constraint(&self, constraint: &str) -> bool {
+    pub(crate) fn is_valid_constraint(self, constraint: &str) -> bool {
         match constraint {
-            "serial" => matches!(self, TypeCategory::I32),
-            "smallserial" => matches!(self, TypeCategory::I16),
-            "bigserial" => matches!(self, TypeCategory::I64),
+            "serial" => matches!(self, Self::I32),
+            "smallserial" => matches!(self, Self::I16),
+            "bigserial" => matches!(self, Self::I64),
             "primary" | "unique" | "not_null" | "check" | "references" | "default"
             | "default_fn" => true,
             _ => false,
@@ -299,212 +298,212 @@ impl TypeCategory {
     }
 }
 
-/// Enum representing supported PostgreSQL column types.
+/// Enum representing supported `PostgreSQL` column types.
 ///
-/// These correspond to PostgreSQL data types.
+/// These correspond to `PostgreSQL` data types.
 /// See: <https://www.postgresql.org/docs/current/datatype.html>
 #[allow(dead_code)]
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub(crate) enum PostgreSQLType {
-    /// PostgreSQL INTEGER type - 32-bit signed integer
+pub enum PostgreSQLType {
+    /// `PostgreSQL` INTEGER type - 32-bit signed integer
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-INT>
     Integer,
 
-    /// PostgreSQL BIGINT type - 64-bit signed integer
+    /// `PostgreSQL` BIGINT type - 64-bit signed integer
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-INT>
     Bigint,
 
-    /// PostgreSQL SMALLINT type - 16-bit signed integer
+    /// `PostgreSQL` SMALLINT type - 16-bit signed integer
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-INT>
     Smallint,
 
-    /// PostgreSQL SERIAL type - auto-incrementing 32-bit integer
+    /// `PostgreSQL` SERIAL type - auto-incrementing 32-bit integer
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-SERIAL>
     Serial,
 
-    /// PostgreSQL SMALLSERIAL type - auto-incrementing 16-bit integer
+    /// `PostgreSQL` SMALLSERIAL type - auto-incrementing 16-bit integer
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-SERIAL>
     Smallserial,
 
-    /// PostgreSQL BIGSERIAL type - auto-incrementing 64-bit integer
+    /// `PostgreSQL` BIGSERIAL type - auto-incrementing 64-bit integer
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-SERIAL>
     Bigserial,
 
-    /// PostgreSQL TEXT type - variable-length character string
+    /// `PostgreSQL` TEXT type - variable-length character string
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-character.html>
     #[default]
     Text,
 
-    /// PostgreSQL VARCHAR type - variable-length character string with limit
+    /// `PostgreSQL` VARCHAR type - variable-length character string with limit
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-character.html>
     Varchar,
 
-    /// PostgreSQL CHAR type - fixed-length character string
+    /// `PostgreSQL` CHAR type - fixed-length character string
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-character.html>
     Char,
 
-    /// PostgreSQL REAL type - single precision floating-point number
+    /// `PostgreSQL` REAL type - single precision floating-point number
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-FLOAT>
     Real,
 
-    /// PostgreSQL DOUBLE PRECISION type - double precision floating-point number
+    /// `PostgreSQL` DOUBLE PRECISION type - double precision floating-point number
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-FLOAT>
     DoublePrecision,
 
-    /// PostgreSQL NUMERIC type - exact numeric with selectable precision
+    /// `PostgreSQL` NUMERIC type - exact numeric with selectable precision
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-NUMERIC-DECIMAL>
     Numeric,
 
-    /// PostgreSQL BOOLEAN type - true/false
+    /// `PostgreSQL` BOOLEAN type - true/false
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-boolean.html>
     Boolean,
 
-    /// PostgreSQL BYTEA type - binary data
+    /// `PostgreSQL` BYTEA type - binary data
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-binary.html>
     Bytea,
 
-    /// PostgreSQL UUID type - universally unique identifier
+    /// `PostgreSQL` UUID type - universally unique identifier
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-uuid.html>
     #[cfg(feature = "uuid")]
     Uuid,
 
-    /// PostgreSQL JSON type - JSON data
+    /// `PostgreSQL` JSON type - JSON data
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-json.html>
     #[cfg(feature = "serde")]
     Json,
 
-    /// PostgreSQL JSONB type - binary JSON data
+    /// `PostgreSQL` JSONB type - binary JSON data
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-json.html>
     #[cfg(feature = "serde")]
     Jsonb,
 
-    /// PostgreSQL TIMESTAMP type - date and time
+    /// `PostgreSQL` TIMESTAMP type - date and time
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
     Timestamp,
 
-    /// PostgreSQL TIMESTAMPTZ type - date and time with time zone
+    /// `PostgreSQL` TIMESTAMPTZ type - date and time with time zone
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
     Timestamptz,
 
-    /// PostgreSQL DATE type - calendar date
+    /// `PostgreSQL` DATE type - calendar date
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
     Date,
 
-    /// PostgreSQL TIME type - time of day
+    /// `PostgreSQL` TIME type - time of day
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
     Time,
 
-    /// PostgreSQL TIMETZ type - time of day with time zone
+    /// `PostgreSQL` TIMETZ type - time of day with time zone
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
     Timetz,
 
-    /// PostgreSQL INTERVAL type - time interval
+    /// `PostgreSQL` INTERVAL type - time interval
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
     #[cfg(feature = "chrono")]
     Interval,
 
-    /// PostgreSQL INET type - IPv4 or IPv6 host address
+    /// `PostgreSQL` INET type - IPv4 or IPv6 host address
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-net-types.html>
     #[cfg(feature = "cidr")]
     Inet,
 
-    /// PostgreSQL CIDR type - IPv4 or IPv6 network address
+    /// `PostgreSQL` CIDR type - IPv4 or IPv6 network address
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-net-types.html>
     #[cfg(feature = "cidr")]
     Cidr,
 
-    /// PostgreSQL MACADDR type - MAC address
+    /// `PostgreSQL` MACADDR type - MAC address
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-net-types.html>
     #[cfg(feature = "cidr")]
     MacAddr,
 
-    /// PostgreSQL MACADDR8 type - EUI-64 MAC address
+    /// `PostgreSQL` MACADDR8 type - EUI-64 MAC address
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-net-types.html>
     #[cfg(feature = "cidr")]
     MacAddr8,
 
-    /// PostgreSQL POINT type - geometric point
+    /// `PostgreSQL` POINT type - geometric point
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
     #[cfg(feature = "geo-types")]
     Point,
 
-    /// PostgreSQL LINE type - geometric line (infinite)
+    /// `PostgreSQL` LINE type - geometric line (infinite)
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
     #[cfg(feature = "geo-types")]
     Line,
 
-    /// PostgreSQL LSEG type - geometric line segment
+    /// `PostgreSQL` LSEG type - geometric line segment
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
     #[cfg(feature = "geo-types")]
     Lseg,
 
-    /// PostgreSQL BOX type - geometric box
+    /// `PostgreSQL` BOX type - geometric box
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
     #[cfg(feature = "geo-types")]
     Box,
 
-    /// PostgreSQL PATH type - geometric path
+    /// `PostgreSQL` PATH type - geometric path
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
     #[cfg(feature = "geo-types")]
     Path,
 
-    /// PostgreSQL POLYGON type - geometric polygon
+    /// `PostgreSQL` POLYGON type - geometric polygon
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
     #[cfg(feature = "geo-types")]
     Polygon,
 
-    /// PostgreSQL CIRCLE type - geometric circle
+    /// `PostgreSQL` CIRCLE type - geometric circle
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-geometric.html>
     #[cfg(feature = "geo-types")]
     Circle,
 
-    /// PostgreSQL BIT type - fixed-length bit string
+    /// `PostgreSQL` BIT type - fixed-length bit string
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-bit.html>
     #[cfg(feature = "bit-vec")]
     Bit,
 
-    /// PostgreSQL BIT VARYING type - variable-length bit string
+    /// `PostgreSQL` BIT VARYING type - variable-length bit string
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-bit.html>
     #[cfg(feature = "bit-vec")]
     Varbit,
 
-    /// PostgreSQL custom ENUM type - user-defined enumerated type
+    /// `PostgreSQL` custom ENUM type - user-defined enumerated type
     ///
     /// See: <https://www.postgresql.org/docs/current/datatype-enum.html>
     Enum(String), // The enum type name
@@ -517,14 +516,14 @@ impl Display for PostgreSQLType {
 }
 
 impl PostgreSQLType {
-    /// Create a native PostgreSQL enum type from enum attribute
+    /// Create a native `PostgreSQL` enum type from enum attribute
     /// Used when a field is marked with `#[column(enum)]`
     pub(crate) fn from_enum_attribute(enum_name: &str) -> Self {
         Self::Enum(enum_name.to_string())
     }
 
     /// Get the SQL type string for this type
-    pub(crate) fn to_sql_type(&self) -> &str {
+    pub(crate) const fn to_sql_type(&self) -> &str {
         match self {
             Self::Integer => "INTEGER",
             Self::Bigint => "BIGINT",
@@ -584,10 +583,10 @@ impl PostgreSQLType {
     }
 }
 
-/// PostgreSQL column constraint flags
+/// `PostgreSQL` column constraint flags
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum PostgreSQLFlag {
+pub enum PostgreSQLFlag {
     Primary,
     Unique,
     NotNull,
@@ -595,27 +594,27 @@ pub(crate) enum PostgreSQLFlag {
     Identity,
     /// Used with TEXT/INTEGER columns to store enum as text/discriminant
     Enum,
-    /// Used with native PostgreSQL ENUM types - references the enum type name
+    /// Used with native `PostgreSQL` ENUM types - references the enum type name
     NativeEnum(String),
     Json,
     Check(String),
 }
 
-/// Default value specification for PostgreSQL columns
+/// Default value specification for `PostgreSQL` columns
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
-pub(crate) enum PostgreSQLDefault {
-    /// Literal value (e.g., 'default_value')
+pub enum PostgreSQLDefault {
+    /// Literal value (e.g., '`default_value`')
     Literal(String),
-    /// Function call (e.g., NOW())
+    /// Function call (e.g., `NOW()`)
     Function(String),
     /// Expression using Rust code (evaluated at compile time)
     Expression(TokenStream),
 }
 
-/// References specification for PostgreSQL foreign keys
+/// References specification for `PostgreSQL` foreign keys
 #[derive(Debug, Clone)]
-pub(crate) struct PostgreSQLReference {
+pub struct PostgreSQLReference {
     pub table: Ident,
     pub column: Ident,
     pub on_delete: Option<String>,
@@ -624,7 +623,7 @@ pub(crate) struct PostgreSQLReference {
 
 /// Identity column mode for GENERATED IDENTITY columns
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum IdentityMode {
+pub enum IdentityMode {
     /// GENERATED ALWAYS AS IDENTITY - user values rejected unless OVERRIDING SYSTEM VALUE
     Always,
     /// GENERATED BY DEFAULT AS IDENTITY - user values take precedence
@@ -633,17 +632,22 @@ pub(crate) enum IdentityMode {
 
 /// Generated column specification (GENERATED AS expression)
 #[derive(Debug, Clone)]
-pub(crate) struct GeneratedColumn {
+pub struct GeneratedColumn {
     /// The generation expression (SQL)
     pub expression: String,
     /// Whether the column is STORED (computed on write) or VIRTUAL (computed on read)
     pub stored: bool,
 }
 
-/// Information about a PostgreSQL table field
-#[allow(dead_code)]
+/// Information about a `PostgreSQL` table field.
+///
+/// The many `bool` fields here each represent an independent SQL column
+/// property (primary, unique, nullable, serial, json, etc.) that is read at
+/// disparate points during code-gen. Bundling them into bitflags would
+/// obscure intent and bloat every access site.
+#[allow(dead_code, clippy::struct_excessive_bools)]
 #[derive(Clone)]
-pub(crate) struct FieldInfo {
+pub struct FieldInfo {
     pub ident: Ident,
     pub vis: syn::Visibility,
     /// The original field type (e.g., Option<String> or i32)
@@ -665,7 +669,7 @@ pub(crate) struct FieldInfo {
     pub is_jsonb: bool,
     pub is_serial: bool,
     pub is_generated_identity: bool,
-    /// Identity mode for GENERATED IDENTITY columns (always/by_default)
+    /// Identity mode for GENERATED IDENTITY columns (`always/by_default`)
     pub identity_mode: Option<IdentityMode>,
     /// Generated column specification (GENERATED AS expression STORED/VIRTUAL)
     pub generated_column: Option<GeneratedColumn>,
@@ -675,14 +679,14 @@ pub(crate) struct FieldInfo {
     pub foreign_key: Option<PostgreSQLReference>,
     pub has_default: bool,
     pub marker_exprs: Vec<syn::ExprPath>,
-    /// True for unknown types that are validated at type-check time via DrizzlePostgresColumn trait
+    /// True for unknown types that are validated at type-check time via `DrizzlePostgresColumn` trait
     pub is_custom_type: bool,
 }
 
 impl FieldInfo {
     /// Parse field information from a struct field.
     ///
-    /// The PostgreSQL type is INFERRED from the Rust type, not from attributes.
+    /// The `PostgreSQL` type is INFERRED from the Rust type, not from attributes.
     /// Attributes are only used for constraints (primary, unique, etc.).
     pub(crate) fn from_field(field: &Field, is_composite_pk: bool) -> Result<Self> {
         let Some(name) = field.ident.clone() else {
@@ -724,7 +728,7 @@ impl FieldInfo {
         let mut is_explicit_jsonb = false;
         for attr in &field.attrs {
             if let Some(column_info) =
-                Self::parse_column_attribute(attr, &type_category, name.span())?
+                Self::parse_column_attribute(attr, type_category, name.span())?
             {
                 flags = column_info.flags;
                 default = column_info.default;
@@ -818,18 +822,18 @@ impl FieldInfo {
         let column_name = name.to_string().to_snake_case();
 
         // Build SQL definition for this column
-        let sql_definition = build_sql_definition(SqlDefinitionContext {
+        let sql_definition = build_sql_definition(&SqlDefinitionContext {
             column_name: &column_name,
             column_type: &column_type,
             is_primary_single: is_primary && !is_composite_pk,
             is_not_null: !is_nullable,
             is_unique,
             is_serial: is_serial_type,
-            default: &default,
-            check_constraint: &check_constraint,
+            default: default.as_ref(),
+            check_constraint: check_constraint.as_deref(),
         });
 
-        Ok(FieldInfo {
+        Ok(Self {
             ident: name,
             vis,
             field_type: ty,
@@ -863,11 +867,11 @@ impl FieldInfo {
 
     /// Parse #[column(...)] attribute for constraints.
     ///
-    /// The PostgreSQL type is NOT determined by attributes anymore - it's inferred
+    /// The `PostgreSQL` type is NOT determined by attributes anymore - it's inferred
     /// from the Rust type. This method only parses constraints like primary, unique, etc.
     fn parse_column_attribute(
         attr: &Attribute,
-        type_category: &TypeCategory,
+        type_category: TypeCategory,
         span: proc_macro2::Span,
     ) -> Result<Option<ColumnInfo>> {
         // Only process #[column(...)] attributes
@@ -1054,16 +1058,16 @@ impl FieldInfo {
                                 Lit::Str(s) => {
                                     let escaped = s.value().replace('\'', "''");
                                     default =
-                                        Some(PostgreSQLDefault::Literal(format!("'{}'", escaped)))
+                                        Some(PostgreSQLDefault::Literal(format!("'{escaped}'")));
                                 }
                                 Lit::Int(i) => {
-                                    default = Some(PostgreSQLDefault::Literal(i.to_string()))
+                                    default = Some(PostgreSQLDefault::Literal(i.to_string()));
                                 }
                                 Lit::Float(f) => {
-                                    default = Some(PostgreSQLDefault::Literal(f.to_string()))
+                                    default = Some(PostgreSQLDefault::Literal(f.to_string()));
                                 }
                                 Lit::Bool(b) => {
-                                    default = Some(PostgreSQLDefault::Literal(b.value.to_string()))
+                                    default = Some(PostgreSQLDefault::Literal(b.value.to_string()));
                                 }
                                 _ => {
                                     return Err(syn::Error::new_spanned(
@@ -1142,10 +1146,10 @@ impl FieldInfo {
                     _ => {
                         return Err(syn::Error::new_spanned(
                             &meta.path,
-                            format!("unknown #[column] attribute `{}`.\n\
+                            format!("unknown #[column] attribute `{path_ident}`.\n\
                                      Supported: primary, unique, serial, bigserial, smallserial, identity, \
                                      generated, json, jsonb, enum, default, default_fn, check, references, \
-                                     on_delete, on_update", path_ident),
+                                     on_delete, on_update"),
                         ));
                     }
                 }
@@ -1185,8 +1189,7 @@ impl FieldInfo {
             _ => Err(Error::new_spanned(
                 action,
                 format!(
-                    "invalid referential action `{}`; expected one of: CASCADE, SET_NULL, SET_DEFAULT, RESTRICT, NO_ACTION",
-                    action_str
+                    "invalid referential action `{action_str}`; expected one of: CASCADE, SET_NULL, SET_DEFAULT, RESTRICT, NO_ACTION"
                 ),
             )),
         }
@@ -1207,20 +1210,18 @@ impl FieldInfo {
             .path
             .segments
             .first()
-            .ok_or(Error::new_spanned(
-                path,
-                "References must be in the format Table::column",
-            ))?
+            .ok_or_else(|| {
+                Error::new_spanned(path, "References must be in the format Table::column")
+            })?
             .ident
             .clone();
         let column = path
             .path
             .segments
             .last()
-            .ok_or(Error::new_spanned(
-                path,
-                "References must be in the format Table::column",
-            ))?
+            .ok_or_else(|| {
+                Error::new_spanned(path, "References must be in the format Table::column")
+            })?
             .ident
             .clone();
 
@@ -1298,7 +1299,7 @@ impl FieldInfo {
         col
     }
 
-    /// Convert this field to a drizzle-schema ForeignKey if it has a reference.
+    /// Convert this field to a drizzle-schema `ForeignKey` if it has a reference.
     pub(crate) fn to_foreign_key_meta(
         &self,
         schema: &str,
@@ -1340,7 +1341,7 @@ impl FieldInfo {
 }
 
 /// Generate the complete table metadata JSON for use in drizzle-kit compatible migrations.
-pub(crate) fn generate_table_meta_json(
+pub fn generate_table_meta_json(
     table_name: &str,
     field_infos: &[FieldInfo],
     is_composite_pk: bool,
@@ -1375,7 +1376,7 @@ pub(crate) fn generate_table_meta_json(
             .collect();
 
         if pk_columns.len() > 1 {
-            let pk_name = format!("{}_pk", table_name);
+            let pk_name = format!("{table_name}_pk");
             let pk = PrimaryKey::from_strings(
                 schema.to_string(),
                 table_name.to_string(),
@@ -1389,7 +1390,11 @@ pub(crate) fn generate_table_meta_json(
     serde_json::to_string(&entities).unwrap_or_else(|_| "[]".to_string())
 }
 
-/// Context for building a SQL column definition
+/// Context for building a SQL column definition. Each bool drives an
+/// independent piece of the emitted DDL (PRIMARY KEY, NOT NULL, UNIQUE, and
+/// whether the serial implicit NOT NULL should suppress the explicit one) and
+/// is populated independently from the parsed column attributes.
+#[allow(clippy::struct_excessive_bools)]
 struct SqlDefinitionContext<'a> {
     column_name: &'a str,
     column_type: &'a PostgreSQLType,
@@ -1397,12 +1402,12 @@ struct SqlDefinitionContext<'a> {
     is_not_null: bool,
     is_unique: bool,
     is_serial: bool,
-    default: &'a Option<PostgreSQLDefault>,
-    check_constraint: &'a Option<String>,
+    default: Option<&'a PostgreSQLDefault>,
+    check_constraint: Option<&'a str>,
 }
 
-/// Build SQL column definition string for PostgreSQL
-fn build_sql_definition(ctx: SqlDefinitionContext<'_>) -> String {
+/// Build SQL column definition string for `PostgreSQL`
+fn build_sql_definition(ctx: &SqlDefinitionContext<'_>) -> String {
     let mut sql = format!("\"{}\" {}", ctx.column_name, ctx.column_type.to_sql_type());
 
     // Handle primary key
@@ -1424,10 +1429,10 @@ fn build_sql_definition(ctx: SqlDefinitionContext<'_>) -> String {
     if let Some(default_value) = ctx.default {
         match default_value {
             PostgreSQLDefault::Literal(lit) => {
-                sql.push_str(&format!(" DEFAULT {}", lit));
+                let _ = write!(sql, " DEFAULT {lit}");
             }
             PostgreSQLDefault::Function(func) => {
-                sql.push_str(&format!(" DEFAULT {}", func));
+                let _ = write!(sql, " DEFAULT {func}");
             }
             PostgreSQLDefault::Expression(_) => {
                 // Expression defaults are handled at runtime
@@ -1437,14 +1442,19 @@ fn build_sql_definition(ctx: SqlDefinitionContext<'_>) -> String {
 
     // Add CHECK constraint
     if let Some(check) = ctx.check_constraint {
-        sql.push_str(&format!(" CHECK ({})", check));
+        let _ = write!(sql, " CHECK ({check})");
     }
 
     sql
 }
 
-/// Intermediate structure for parsing column constraint information
-#[allow(dead_code)]
+/// Intermediate structure for parsing column constraint information.
+///
+/// The bool fields correspond to orthogonal `#[column(...)]` markers
+/// (SERIAL/SMALLSERIAL/BIGSERIAL families, IDENTITY, PGENUM/JSON/JSONB);
+/// collapsing them into an enum would split parsing into multiple passes
+/// and is not worth the churn for a private parser scratchpad.
+#[allow(dead_code, clippy::struct_excessive_bools)]
 struct ColumnInfo {
     flags: HashSet<PostgreSQLFlag>,
     default: Option<PostgreSQLDefault>,

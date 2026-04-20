@@ -1,4 +1,4 @@
-//! Const DDL generation for SQLite tables.
+//! Const DDL generation for `SQLite` tables.
 //!
 //! This module generates compile-time DDL entity definitions that can be used
 //! for migrations, introspection, and schema comparison.
@@ -10,16 +10,16 @@ use crate::sqlite::field::FieldInfo;
 use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::Result;
+use std::fmt::Write;
 
 /// Convert a referential action string to the corresponding enum variant token
 fn referential_action_token(action: &str, referential_action: &TokenStream) -> TokenStream {
     match action.to_uppercase().as_str() {
-        "NO ACTION" => quote! { #referential_action::NoAction },
         "RESTRICT" => quote! { #referential_action::Restrict },
         "CASCADE" => quote! { #referential_action::Cascade },
         "SET NULL" => quote! { #referential_action::SetNull },
         "SET DEFAULT" => quote! { #referential_action::SetDefault },
+        // "NO ACTION" and unknown values default to NoAction
         _ => quote! { #referential_action::NoAction },
     }
 }
@@ -27,7 +27,7 @@ fn referential_action_token(action: &str, referential_action: &TokenStream) -> T
 /// Generate a compile-time `const SQL: &'static str` value for `SQLSchema`
 /// using `concatcp!` so that foreign key REFERENCES can resolve table names
 /// via `<OtherTable>::TABLE_NAME` at compile time.
-pub(crate) fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
+pub fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
     let table_name = &ctx.table_name;
     let is_composite_pk = ctx.is_composite_pk;
     let strict = ctx.attrs.strict;
@@ -55,7 +55,7 @@ pub(crate) fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
     let mut parts: Vec<TokenStream> = Vec::new();
 
     // CREATE TABLE "table_name" (\n
-    let header = format!("CREATE TABLE \"{}\" (\n", table_name);
+    let header = format!("CREATE TABLE \"{table_name}\" (\n");
     parts.push(quote! { #header });
 
     // Column definitions
@@ -66,7 +66,7 @@ pub(crate) fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
 
     for (i, col_line) in column_lines.iter().enumerate() {
         let line = if i > 0 {
-            format!(",\n{}", col_line)
+            format!(",\n{col_line}")
         } else {
             col_line.clone()
         };
@@ -85,7 +85,7 @@ pub(crate) fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
                 ",\nPRIMARY KEY({})",
                 pk_columns
                     .iter()
-                    .map(|c| format!("\"{}\"", c))
+                    .map(|c| format!("\"{c}\""))
                     .collect::<Vec<_>>()
                     .join(", ")
             );
@@ -113,13 +113,13 @@ pub(crate) fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
             parts.push(quote! { <#ref_table_ident>::TABLE_NAME });
 
             // FK suffix: " ("ref_col")
-            let mut fk_suffix = format!("\" (\"{}\")", ref_column);
+            let mut fk_suffix = format!("\" (\"{ref_column}\")");
 
             if let Some(ref on_delete) = fk.on_delete {
-                fk_suffix.push_str(&format!(" ON DELETE {}", on_delete.to_uppercase()));
+                let _ = write!(fk_suffix, " ON DELETE {}", on_delete.to_uppercase());
             }
             if let Some(ref on_update) = fk.on_update {
-                fk_suffix.push_str(&format!(" ON UPDATE {}", on_update.to_uppercase()));
+                let _ = write!(fk_suffix, " ON UPDATE {}", on_update.to_uppercase());
             }
 
             parts.push(quote! { #fk_suffix });
@@ -136,35 +136,38 @@ pub(crate) fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
                 ctx.field_infos
                     .iter()
                     .find(|f| f.ident == src)
-                    .map(|f| f.column_name.clone())
-                    .unwrap_or_else(|| src.to_string())
+                    .map_or_else(|| src.to_string(), |f| f.column_name.clone())
             })
             .collect();
-        let target_columns: Vec<String> = fk.target_columns.iter().map(|c| c.to_string()).collect();
+        let target_columns: Vec<String> = fk
+            .target_columns
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
 
         let source_cols_str = source_columns
             .iter()
-            .map(|c| format!("\"{}\"", c))
+            .map(|c| format!("\"{c}\""))
             .collect::<Vec<_>>()
             .join(", ");
         let target_cols_str = target_columns
             .iter()
-            .map(|c| format!("\"{}\"", c))
+            .map(|c| format!("\"{c}\""))
             .collect::<Vec<_>>()
             .join(", ");
 
-        let fk_prefix = format!(",\nFOREIGN KEY ({}) REFERENCES \"", source_cols_str);
+        let fk_prefix = format!(",\nFOREIGN KEY ({source_cols_str}) REFERENCES \"");
         parts.push(quote! { #fk_prefix });
 
         parts.push(quote! { <#ref_table_ident>::TABLE_NAME });
 
-        let mut fk_suffix = format!("\" ({})", target_cols_str);
+        let mut fk_suffix = format!("\" ({target_cols_str})");
 
         if let Some(ref on_delete) = fk.on_delete {
-            fk_suffix.push_str(&format!(" ON DELETE {}", on_delete.to_uppercase()));
+            let _ = write!(fk_suffix, " ON DELETE {}", on_delete.to_uppercase());
         }
         if let Some(ref on_update) = fk.on_update {
-            fk_suffix.push_str(&format!(" ON UPDATE {}", on_update.to_uppercase()));
+            let _ = write!(fk_suffix, " ON UPDATE {}", on_update.to_uppercase());
         }
 
         parts.push(quote! { #fk_suffix });
@@ -251,15 +254,15 @@ fn build_create_table_sql(
         .map(|f| f.column_name.clone())
         .collect();
 
-    let primary_key = if !pk_columns.is_empty() {
-        let pk_name = format!("{}_pkey", table_name);
+    let primary_key = if pk_columns.is_empty() {
+        None
+    } else {
+        let pk_name = format!("{table_name}_pkey");
         Some(PrimaryKey::from_strings(
             table_name.to_string(),
             pk_name,
             pk_columns,
         ))
-    } else {
-        None
     };
 
     let unique_constraints: Vec<UniqueConstraint> = field_infos
@@ -309,8 +312,8 @@ fn build_column_sql(_table_name: &str, field: &FieldInfo, is_composite_pk: bool)
         && let syn::Expr::Lit(expr_lit) = default_expr
     {
         let default_str = match &expr_lit.lit {
-            syn::Lit::Int(i) => format!("DEFAULT {}", i),
-            syn::Lit::Float(f) => format!("DEFAULT {}", f),
+            syn::Lit::Int(i) => format!("DEFAULT {i}"),
+            syn::Lit::Float(f) => format!("DEFAULT {f}"),
             syn::Lit::Bool(b) => format!("DEFAULT {}", if b.value() { "1" } else { "0" }),
             syn::Lit::Str(s) => format!("DEFAULT '{}'", s.value().replace('\'', "''")),
             _ => String::new(),
@@ -332,8 +335,7 @@ fn build_column_sql(_table_name: &str, field: &FieldInfo, is_composite_pk: bool)
 /// - `DDL_PRIMARY_KEY: Option<...>` - Primary key definition
 /// - `DDL_FOREIGN_KEYS: &'static [...]` - Foreign key definitions
 /// - `DDL_UNIQUE_CONSTRAINTS: &'static [...]` - Unique constraint definitions
-pub(crate) fn generate_const_ddl(ctx: &MacroContext) -> Result<TokenStream> {
-    let _struct_ident = ctx.struct_ident;
+pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
     let table_name = &ctx.table_name;
     let strict = ctx.attrs.strict;
     let without_rowid = ctx.attrs.without_rowid;
@@ -413,8 +415,14 @@ pub(crate) fn generate_const_ddl(ctx: &MacroContext) -> Result<TokenStream> {
         .map(|f| &f.column_name)
         .collect();
 
-    let pk_name = format!("{}_pkey", table_name);
-    let pk_def = if !pk_columns.is_empty() {
+    let pk_name = format!("{table_name}_pkey");
+    let pk_def = if pk_columns.is_empty() {
+        quote! {
+            /// Primary key definition (none)
+            pub const DDL_PRIMARY_KEY: ::std::option::Option<#primary_key_def> =
+                ::std::option::Option::None;
+        }
+    } else {
         let pk_col_cows: Vec<TokenStream> = pk_columns
             .iter()
             .map(|col| quote! { ::std::borrow::Cow::Borrowed(#col) })
@@ -425,12 +433,6 @@ pub(crate) fn generate_const_ddl(ctx: &MacroContext) -> Result<TokenStream> {
                 const PK_COLS: &[::std::borrow::Cow<'static, str>] = &[#(#pk_col_cows),*];
                 ::std::option::Option::Some(#primary_key_def::new(#table_name, #pk_name).columns(PK_COLS))
             };
-        }
-    } else {
-        quote! {
-            /// Primary key definition (none)
-            pub const DDL_PRIMARY_KEY: ::std::option::Option<#primary_key_def> =
-                ::std::option::Option::None;
         }
     };
 
@@ -482,11 +484,14 @@ pub(crate) fn generate_const_ddl(ctx: &MacroContext) -> Result<TokenStream> {
                 ctx.field_infos
                     .iter()
                     .find(|f| f.ident == src)
-                    .map(|f| f.column_name.clone())
-                    .unwrap_or_else(|| src.to_string())
+                    .map_or_else(|| src.to_string(), |f| f.column_name.clone())
             })
             .collect();
-        let target_columns: Vec<String> = fk.target_columns.iter().map(|c| c.to_string()).collect();
+        let target_columns: Vec<String> = fk
+            .target_columns
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
 
         let fk_name = format!("{}_{}_fkey", table_name, source_columns.join("_"));
         let fk_cols: Vec<TokenStream> = source_columns
@@ -538,7 +543,7 @@ pub(crate) fn generate_const_ddl(ctx: &MacroContext) -> Result<TokenStream> {
         })
         .collect();
 
-    Ok(quote! {
+    quote! {
         /// Const DDL table definition for compile-time schema metadata.
         pub const DDL_TABLE: #table_def =
             #table_def::new(#table_name)
@@ -587,7 +592,7 @@ pub(crate) fn generate_const_ddl(ctx: &MacroContext) -> Result<TokenStream> {
         pub fn ddl_sql() -> &'static str {
             <Self as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::SQL
         }
-    })
+    }
 }
 
 #[cfg(test)]

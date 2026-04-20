@@ -3,7 +3,7 @@ use crate::sql::{ColumnRef, TableRef};
 use crate::{OwnedParam, SQL, SQLChunk, SQLParam, ToSQL, Token};
 use smallvec::SmallVec;
 
-/// Owned version of SQLChunk with 'static lifetime
+/// Owned version of `SQLChunk` with 'static lifetime
 #[derive(Debug, Clone)]
 pub enum OwnedSQLChunk<V: SQLParam> {
     Token(Token),
@@ -18,18 +18,21 @@ pub enum OwnedSQLChunk<V: SQLParam> {
 impl<V: SQLParam> OwnedSQLChunk<V> {
     /// Creates a token chunk.
     #[inline]
+    #[must_use]
     pub const fn token(t: Token) -> Self {
         Self::Token(t)
     }
 
     /// Creates a table chunk.
     #[inline]
+    #[must_use]
     pub const fn table(table: TableRef) -> Self {
         Self::Table(table)
     }
 
     /// Creates a column chunk.
     #[inline]
+    #[must_use]
     pub const fn column(column: ColumnRef) -> Self {
         Self::Column(column)
     }
@@ -48,7 +51,7 @@ impl<V: SQLParam> OwnedSQLChunk<V> {
 
     /// Creates a parameter chunk with owned value.
     #[inline]
-    pub fn param(value: OwnedParam<V>) -> Self {
+    pub const fn param(value: OwnedParam<V>) -> Self {
         Self::Param(value)
     }
 }
@@ -106,6 +109,7 @@ impl<'a, V: SQLParam> From<SQL<'a, V>> for OwnedSQL<V> {
 impl<V: SQLParam> OwnedSQL<V> {
     /// Creates an empty SQL fragment with const-friendly initialization.
     #[inline]
+    #[must_use]
     pub const fn empty() -> Self {
         Self {
             chunks: SmallVec::new_const(),
@@ -114,6 +118,7 @@ impl<V: SQLParam> OwnedSQL<V> {
 
     /// Creates an empty SQL fragment with pre-allocated chunk capacity.
     #[inline]
+    #[must_use]
     pub fn with_capacity_chunks(capacity: usize) -> Self {
         Self {
             chunks: SmallVec::with_capacity(capacity),
@@ -137,7 +142,7 @@ impl<V: SQLParam> OwnedSQL<V> {
 
 impl<V: SQLParam> ToSQL<'static, V> for OwnedSQL<V> {
     fn to_sql(&self) -> SQL<'static, V> {
-        OwnedSQL::to_sql(self)
+        Self::to_sql(self)
     }
 
     fn into_sql(self) -> SQL<'static, V> {
