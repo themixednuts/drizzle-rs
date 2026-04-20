@@ -7,9 +7,9 @@
 use crate::common::schema::postgres::*;
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 
-postgres_test!(test_prepare_with_placeholder, SimpleSchema, {
+#[drizzle::test]
+fn test_prepare_with_placeholder(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -33,9 +33,10 @@ postgres_test!(test_prepare_with_placeholder, SimpleSchema, {
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "Alice");
-});
+}
 
-postgres_test!(test_prepare_reuse_with_different_params, SimpleSchema, {
+#[drizzle::test]
+fn test_prepare_reuse_with_different_params(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -71,9 +72,10 @@ postgres_test!(test_prepare_reuse_with_different_params, SimpleSchema, {
         drizzle_exec!(prepared.all(drizzle_client!(), [name.bind("Charlie")]));
     assert_eq!(charlie.len(), 1);
     assert_eq!(charlie[0].name, "Charlie");
-});
+}
 
-postgres_test!(test_prepared_get_single_row, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_get_single_row(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -95,9 +97,10 @@ postgres_test!(test_prepared_get_single_row, SimpleSchema, {
         drizzle_exec!(prepared.get(drizzle_client!(), [name.bind("UniqueUser")]));
 
     assert_eq!(result.name, "UniqueUser");
-});
+}
 
-postgres_test!(test_prepared_missing_named_param_fails, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_missing_named_param_fails(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -123,9 +126,10 @@ postgres_test!(test_prepared_missing_named_param_fails, SimpleSchema, {
         Ok(Err(drizzle::error::DrizzleError::ParameterError(_))) => {} // bind error — expected in release builds
         other => panic!("expected param mismatch failure, got: {other:?}"),
     }
-});
+}
 
-postgres_test!(test_prepared_extra_named_param_fails, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_extra_named_param_fails(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -156,9 +160,10 @@ postgres_test!(test_prepared_extra_named_param_fails, SimpleSchema, {
         Ok(Err(drizzle::error::DrizzleError::ParameterError(_))) => {} // bind error — expected in release builds
         other => panic!("expected param mismatch failure, got: {other:?}"),
     }
-});
+}
 
-postgres_test!(test_prepared_execute_insert, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_execute_insert(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Prepare an insert with values baked in and convert to owned
@@ -182,9 +187,10 @@ postgres_test!(test_prepared_execute_insert, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "PreparedInsert");
-});
+}
 
-postgres_test!(test_prepared_select_all_no_params, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_select_all_no_params(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -207,9 +213,10 @@ postgres_test!(test_prepared_select_all_no_params, SimpleSchema, {
     let results: Vec<SelectSimple> = drizzle_exec!(prepared.all(drizzle_client!(), []));
 
     assert_eq!(results.len(), 3);
-});
+}
 
-postgres_test!(test_prepared_owned_conversion, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_owned_conversion(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -233,9 +240,10 @@ postgres_test!(test_prepared_owned_conversion, SimpleSchema, {
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "OwnedTest");
-});
+}
 
-postgres_test!(test_prepared_performance_comparison, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_performance_comparison(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -277,9 +285,10 @@ postgres_test!(test_prepared_performance_comparison, SimpleSchema, {
         prepared_duration <= regular_duration * 3,
         "Prepared statements shouldn't be significantly slower"
     );
-});
+}
 
-postgres_test!(test_prepared_insert_multiple_times, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_insert_multiple_times(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Create prepared inserts with different values
@@ -301,4 +310,4 @@ postgres_test!(test_prepared_insert_multiple_times, SimpleSchema, {
     for i in 0..5 {
         assert!(results.iter().any(|r| r.name == format!("BatchUser{}", i)));
     }
-});
+}

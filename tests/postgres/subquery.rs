@@ -5,7 +5,6 @@
 use crate::common::schema::postgres::{InsertSimple, SimpleSchema};
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 
 #[derive(Debug, PostgresFromRow)]
 struct PgSubqueryResult {
@@ -13,7 +12,8 @@ struct PgSubqueryResult {
     name: String,
 }
 
-postgres_test!(test_typed_scalar_subquery, SimpleSchema, {
+#[drizzle::test]
+fn test_typed_scalar_subquery(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
     let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
     let SimpleSchema {
@@ -41,9 +41,10 @@ postgres_test!(test_typed_scalar_subquery, SimpleSchema, {
     assert!(results.iter().all(|r| r.id > 1));
     assert!(results.iter().any(|r| r.name == "bob"));
     assert!(results.iter().any(|r| r.name == "charlie"));
-});
+}
 
-postgres_test!(test_typed_in_subquery_single_column, SimpleSchema, {
+#[drizzle::test]
+fn test_typed_in_subquery_single_column(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
     let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
     let SimpleSchema {
@@ -72,44 +73,45 @@ postgres_test!(test_typed_in_subquery_single_column, SimpleSchema, {
     assert_eq!(1, results.len());
     assert_eq!(2, results[0].id);
     assert_eq!("bob", results[0].name);
-});
+}
 
-postgres_test!(
-    test_typed_in_subquery_multi_column_row_value,
-    SimpleSchema,
-    {
-        let SimpleSchema { simple } = schema;
-        let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
-        let SimpleSchema {
-            simple: subquery_simple,
-        } = SimpleSchema::new();
+#[drizzle::test]
+fn test_typed_in_subquery_multi_column_row_value(
+    db: &mut TestDb<SimpleSchema>,
+    schema: SimpleSchema,
+) {
+    let SimpleSchema { simple } = schema;
+    let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
+    let SimpleSchema {
+        simple: subquery_simple,
+    } = SimpleSchema::new();
 
-        let test_data = vec![
-            InsertSimple::new("alice"),
-            InsertSimple::new("bob"),
-            InsertSimple::new("charlie"),
-        ];
-        drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    let test_data = vec![
+        InsertSimple::new("alice"),
+        InsertSimple::new("bob"),
+        InsertSimple::new("charlie"),
+    ];
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
-        let bob_row = builder
-            .select((subquery_simple.id, subquery_simple.name))
-            .from(subquery_simple)
-            .r#where(eq(subquery_simple.name, "bob"));
+    let bob_row = builder
+        .select((subquery_simple.id, subquery_simple.name))
+        .from(subquery_simple)
+        .r#where(eq(subquery_simple.name, "bob"));
 
-        let results: Vec<PgSubqueryResult> = drizzle_exec!(
-            db.select((simple.id, simple.name))
-                .from(simple)
-                .r#where(in_subquery((simple.id, simple.name), bob_row))
-                => all
-        );
+    let results: Vec<PgSubqueryResult> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(in_subquery((simple.id, simple.name), bob_row))
+            => all
+    );
 
-        assert_eq!(1, results.len());
-        assert_eq!(2, results[0].id);
-        assert_eq!("bob", results[0].name);
-    }
-);
+    assert_eq!(1, results.len());
+    assert_eq!(2, results[0].id);
+    assert_eq!("bob", results[0].name);
+}
 
-postgres_test!(test_with_subquery_parenthesization, SimpleSchema, {
+#[drizzle::test]
+fn test_with_subquery_parenthesization(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
     let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
     let SimpleSchema {
@@ -166,4 +168,4 @@ postgres_test!(test_with_subquery_parenthesization, SimpleSchema, {
         func_sql.contains(r#"AVG ((WITH filtered_ids AS"#),
         "sql: {func_sql}"
     );
-});
+}

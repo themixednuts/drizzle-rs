@@ -5,7 +5,6 @@
 use crate::common::schema::postgres::*;
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 
 #[allow(dead_code)]
 #[cfg(feature = "uuid")]
@@ -18,7 +17,8 @@ struct PgComplexResult {
     active: bool,
 }
 
-postgres_test!(update_single_row, SimpleSchema, {
+#[drizzle::test]
+fn update_single_row(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("Original")]);
@@ -35,9 +35,10 @@ postgres_test!(update_single_row, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Updated");
-});
+}
 
-postgres_test!(update_multiple_rows, SimpleSchema, {
+#[drizzle::test]
+fn update_multiple_rows(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
@@ -66,10 +67,11 @@ postgres_test!(update_multiple_rows, SimpleSchema, {
         .r#where(eq(simple.name, "other"));
     let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(update_multiple_columns, ComplexSchema, {
+#[drizzle::test]
+fn update_multiple_columns(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     let stmt = db
@@ -98,10 +100,11 @@ postgres_test!(update_multiple_columns, ComplexSchema, {
     assert_eq!(results[0].email, Some("new@example.com".to_string()));
     assert_eq!(results[0].age, Some(30));
     assert!(!results[0].active);
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(update_with_complex_where, ComplexSchema, {
+#[drizzle::test]
+fn update_with_complex_where(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     let stmt = db.insert(complex).values([
@@ -125,9 +128,10 @@ postgres_test!(update_with_complex_where, ComplexSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Adult");
-});
+}
 
-postgres_test!(update_with_in_condition, SimpleSchema, {
+#[drizzle::test]
+fn update_with_in_condition(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
@@ -157,9 +161,10 @@ postgres_test!(update_with_in_condition, SimpleSchema, {
         .r#where(in_array(simple.name, ["Bob", "David"]));
     let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
-});
+}
 
-postgres_test!(update_no_matching_rows, SimpleSchema, {
+#[drizzle::test]
+fn update_no_matching_rows(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
@@ -176,9 +181,10 @@ postgres_test!(update_no_matching_rows, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
-});
+}
 
-postgres_test!(update_with_placeholders_sql, SimpleSchema, {
+#[drizzle::test]
+fn update_with_placeholders_sql(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let new_name = simple.name.placeholder("new_name");
@@ -220,9 +226,10 @@ postgres_test!(update_with_placeholders_sql, SimpleSchema, {
         "Should have no bound params when using placeholders, got {}",
         params.len()
     );
-});
+}
 
-postgres_test!(update_with_placeholders_execute, SimpleSchema, {
+#[drizzle::test]
+fn update_with_placeholders_execute(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -259,4 +266,4 @@ postgres_test!(update_with_placeholders_execute, SimpleSchema, {
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].name, "updated_name");
-});
+}

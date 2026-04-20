@@ -6,7 +6,6 @@ use crate::common::schema::sqlite::{
 use crate::common::schema::sqlite::{Complex, InsertComplex, Role};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 
 #[cfg(feature = "uuid")]
 use std::array;
@@ -40,7 +39,8 @@ struct PostCategoryResult {
 }
 
 #[cfg(feature = "uuid")]
-sqlite_test!(simple_inner_join, ComplexPostSchema, {
+#[drizzle::test]
+fn simple_inner_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSchema) {
     let ComplexPostSchema { complex, post } = schema;
 
     #[cfg(not(feature = "uuid"))]
@@ -127,10 +127,11 @@ sqlite_test!(simple_inner_join, ComplexPostSchema, {
     alice_posts.iter().for_each(|result| {
         assert_eq!(result.author_name, "alice");
     });
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(auto_fk_join, ComplexPostSchema, {
+#[drizzle::test]
+fn auto_fk_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSchema) {
     let ComplexPostSchema { complex, post } = schema;
 
     let [id1, id2, id3]: [Uuid; 3] = array::from_fn(|_| Uuid::new_v4());
@@ -197,9 +198,10 @@ sqlite_test!(auto_fk_join, ComplexPostSchema, {
     inner_results.iter().for_each(|r| {
         assert_eq!(r.author_name, "alice");
     });
-});
+}
 
-sqlite_test!(many_to_many_join, FullBlogSchema, {
+#[drizzle::test]
+fn many_to_many_join(db: &mut TestDb<FullBlogSchema>, schema: FullBlogSchema) {
     let FullBlogSchema {
         category,
         post,
@@ -312,9 +314,10 @@ sqlite_test!(many_to_many_join, FullBlogSchema, {
     published_results.iter().for_each(|result| {
         assert_ne!(result.post_title, "Draft Post");
     });
-});
+}
 
-sqlite_test!(chained_fk_join, FullBlogSchema, {
+#[drizzle::test]
+fn chained_fk_join(db: &mut TestDb<FullBlogSchema>, schema: FullBlogSchema) {
     let FullBlogSchema {
         post,
         category,
@@ -390,4 +393,4 @@ sqlite_test!(chained_fk_join, FullBlogSchema, {
         results[2].category_description,
         Some("How-to guides".to_string())
     );
-});
+}

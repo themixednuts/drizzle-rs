@@ -2,7 +2,6 @@
 #![allow(clippy::approx_constant)]
 
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 
 // Test struct with various data types for FromRow
 #[derive(SQLiteFromRow, Debug, PartialEq)]
@@ -68,7 +67,8 @@ pub struct TypeTestSchema {
     type_test: TypeTest,
 }
 
-sqlite_test!(test_fromrow_with_all_data_types, TypeTestSchema, {
+#[drizzle::test]
+fn test_fromrow_with_all_data_types(db: &mut TestDb<TypeTestSchema>, schema: TypeTestSchema) {
     let TypeTestSchema { type_test } = schema;
 
     // Insert test data with all data types
@@ -88,14 +88,15 @@ sqlite_test!(test_fromrow_with_all_data_types, TypeTestSchema, {
     };
 
     assert_eq!(result, expected);
-});
+}
 
 #[derive(SQLiteSchema)]
 struct IntegerSchema {
     integer_test: IntegerTest,
 }
 
-sqlite_test!(test_fromrow_with_integer_sizes, IntegerSchema, {
+#[drizzle::test]
+fn test_fromrow_with_integer_sizes(db: &mut TestDb<IntegerSchema>, schema: IntegerSchema) {
     let IntegerSchema { integer_test } = schema;
 
     // Insert test data with different integer sizes
@@ -113,13 +114,14 @@ sqlite_test!(test_fromrow_with_integer_sizes, IntegerSchema, {
     };
 
     assert_eq!(result, expected);
-});
+}
 
 #[derive(SQLiteSchema)]
 struct FloatSchema {
     float_test: FloatTest,
 }
-sqlite_test!(test_fromrow_with_float_types, FloatSchema, {
+#[drizzle::test]
+fn test_fromrow_with_float_types(db: &mut TestDb<FloatSchema>, schema: FloatSchema) {
     let FloatSchema { float_test } = schema;
 
     // Insert test data with different float types
@@ -136,9 +138,13 @@ sqlite_test!(test_fromrow_with_float_types, FloatSchema, {
     };
 
     assert_eq!(result, expected);
-});
+}
 
-sqlite_test!(test_fromrow_type_conversion_edge_cases, TypeTestSchema, {
+#[drizzle::test]
+fn test_fromrow_type_conversion_edge_cases(
+    db: &mut TestDb<TypeTestSchema>,
+    schema: TypeTestSchema,
+) {
     let TypeTestSchema { type_test } = schema;
 
     // Insert test data with edge case values
@@ -158,7 +164,7 @@ sqlite_test!(test_fromrow_type_conversion_edge_cases, TypeTestSchema, {
     };
 
     assert_eq!(result, expected);
-});
+}
 
 // Test FromRow derive macro with partial selection
 #[derive(SQLiteFromRow, Debug, Default)]
@@ -177,26 +183,27 @@ struct DerivedSimpleWithColumns {
     table_name: String,
 }
 
-sqlite_test!(
-    test_fromrow_derive_with_partial_selection,
-    TypeTestSchema,
-    {
-        let TypeTestSchema { type_test } = schema;
+#[drizzle::test]
+fn test_fromrow_derive_with_partial_selection(
+    db: &mut TestDb<TypeTestSchema>,
+    schema: TypeTestSchema,
+) {
+    let TypeTestSchema { type_test } = schema;
 
-        let test_data = InsertTypeTest::new("derive_test", 25, 98.5, true, [1, 2, 3]);
-        drizzle_exec!(db.insert(type_test).values([test_data]) => execute);
+    let test_data = InsertTypeTest::new("derive_test", 25, 98.5, true, [1, 2, 3]);
+    drizzle_exec!(db.insert(type_test).values([test_data]) => execute);
 
-        // Test the derived implementation with partial selection
-        let result: DerivedPartialSimple = drizzle_exec!(
-            db.select(DerivedPartialSimple::Select)
-                .from(type_test)
-                => get
-        );
-        assert_eq!(result.name, "derive_test");
-    }
-);
+    // Test the derived implementation with partial selection
+    let result: DerivedPartialSimple = drizzle_exec!(
+        db.select(DerivedPartialSimple::Select)
+            .from(type_test)
+            => get
+    );
+    assert_eq!(result.name, "derive_test");
+}
 
-sqlite_test!(test_fromrow_with_column_mapping, TypeTestSchema, {
+#[drizzle::test]
+fn test_fromrow_with_column_mapping(db: &mut TestDb<TypeTestSchema>, schema: TypeTestSchema) {
     let TypeTestSchema { type_test } = schema;
 
     let test_data = InsertTypeTest::new("column_test", 25, 98.5, true, [1, 2, 3]).with_id(42);
@@ -211,29 +218,29 @@ sqlite_test!(test_fromrow_with_column_mapping, TypeTestSchema, {
 
     assert_eq!(result.table_id, 42);
     assert_eq!(result.table_name, "column_test");
-});
+}
 
-sqlite_test!(
-    test_insert_returning_select_target_infers_row,
-    TypeTestSchema,
-    {
-        let TypeTestSchema { type_test } = schema;
+#[drizzle::test]
+fn test_insert_returning_select_target_infers_row(
+    db: &mut TestDb<TypeTestSchema>,
+    schema: TypeTestSchema,
+) {
+    let TypeTestSchema { type_test } = schema;
 
-        let stmt = db
-            .insert(type_test)
-            .values([InsertTypeTest::new(
-                "returning_test",
-                30,
-                88.0,
-                true,
-                [1, 2, 3],
-            )])
-            .returning(DerivedPartialSimple::Select);
+    let stmt = db
+        .insert(type_test)
+        .values([InsertTypeTest::new(
+            "returning_test",
+            30,
+            88.0,
+            true,
+            [1, 2, 3],
+        )])
+        .returning(DerivedPartialSimple::Select);
 
-        let result: DerivedPartialSimple = drizzle_exec!(stmt => get);
-        assert_eq!(result.name, "returning_test");
-    }
-);
+    let result: DerivedPartialSimple = drizzle_exec!(stmt => get);
+    assert_eq!(result.name, "returning_test");
+}
 
 #[derive(SQLiteFromRow, Debug, PartialEq)]
 struct NamedNameId {
@@ -244,7 +251,8 @@ struct NamedNameId {
 #[derive(SQLiteFromRow, Debug, PartialEq)]
 struct TupleNameId(String, i32);
 
-sqlite_test!(test_fromrow_named_struct_maps_by_name, TypeTestSchema, {
+#[drizzle::test]
+fn test_fromrow_named_struct_maps_by_name(db: &mut TestDb<TypeTestSchema>, schema: TypeTestSchema) {
     // Turso row API does not expose column names, so named decoding is index-based there.
     if __driver_name == "turso" {
         return Ok(());
@@ -261,9 +269,13 @@ sqlite_test!(test_fromrow_named_struct_maps_by_name, TypeTestSchema, {
 
     assert_eq!(result.id, 42);
     assert_eq!(result.name, "order_test");
-});
+}
 
-sqlite_test!(test_fromrow_tuple_struct_maps_by_index, TypeTestSchema, {
+#[drizzle::test]
+fn test_fromrow_tuple_struct_maps_by_index(
+    db: &mut TestDb<TypeTestSchema>,
+    schema: TypeTestSchema,
+) {
     let TypeTestSchema { type_test } = schema;
 
     let row = InsertTypeTest::new("order_test", 25, 98.5, true, [1, 2, 3]).with_id(42);
@@ -275,4 +287,4 @@ sqlite_test!(test_fromrow_tuple_struct_maps_by_index, TypeTestSchema, {
 
     assert_eq!(result.0, "order_test");
     assert_eq!(result.1, 42);
-});
+}

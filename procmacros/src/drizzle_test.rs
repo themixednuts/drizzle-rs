@@ -1,65 +1,270 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{Block, Ident, Type, parse_macro_input};
+use syn::{Attribute, Block, FnArg, Ident, ItemFn, Pat, PatIdent, Type, spanned::Spanned};
 
-/// Parse input for drivers_test macro
-struct DriversTestInput {
-    test_name: Ident,
-    schema_type: Type,
-    test_body: Block,
+// ===========================================================================
+// Attribute-style entry: `#[drizzle::test]` / `#[drizzle::test(sqlite|postgres)]`
+// ===========================================================================
+
+#[derive(Clone, Copy, Debug)]
+enum Dialect {
+    Sqlite,
+    Postgres,
 }
 
-impl syn::parse::Parse for DriversTestInput {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let test_name: Ident = input.parse()?;
-        input.parse::<syn::Token![,]>()?;
-        let schema_type: Type = input.parse()?;
-        input.parse::<syn::Token![,]>()?;
-        let test_body: Block = input.parse()?;
+#[derive(Clone, Copy)]
+enum DialectOverride {
+    None,
+    Sqlite,
+    Postgres,
+}
 
-        Ok(DriversTestInput {
-            test_name,
-            schema_type,
-            test_body,
-        })
+impl syn::parse::Parse for DialectOverride {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        if input.is_empty() {
+            return Ok(Self::None);
+        }
+        let ident: Ident = input.parse()?;
+        if !input.is_empty() {
+            return Err(input.error("unexpected tokens; expected `sqlite` or `postgres`"));
+        }
+        match ident.to_string().as_str() {
+            "sqlite" => Ok(Self::Sqlite),
+            "postgres" => Ok(Self::Postgres),
+            other => Err(syn::Error::new(
+                ident.span(),
+                format!("expected `sqlite` or `postgres`, got `{other}`"),
+            )),
+        }
     }
 }
 
-/// Generates test functions for all enabled SQLite drivers
-pub fn drizzle_test_impl(input: TokenStream) -> TokenStream {
-    let DriversTestInput {
-        test_name,
-        schema_type,
-        test_body,
-    } = parse_macro_input!(input as DriversTestInput);
-
-    let expanded = generate_sqlite_driver_tests(&test_name, &schema_type, &test_body);
-
-    TokenStream::from(expanded)
+/// Parsed view of the user-written `fn` that `#[drizzle::test]` was applied to.
+struct FnInput {
+    outer_attrs: Vec<Attribute>,
+    fn_name: Ident,
+    db_pat: PatIdent,
+    db_ty: Type,
+    schema_pat: PatIdent,
+    schema_ty: Type,
+    body: Block,
 }
 
-/// Generates test functions for all enabled PostgreSQL drivers
-pub fn postgres_test_impl(input: TokenStream) -> TokenStream {
-    let DriversTestInput {
-        test_name,
-        schema_type,
-        test_body,
-    } = parse_macro_input!(input as DriversTestInput);
-
-    let expanded = generate_postgres_driver_tests(&test_name, &schema_type, &test_body);
-
-    TokenStream::from(expanded)
+pub fn attribute_impl(args: TokenStream, item: TokenStream) -> TokenStream {
+    let args_ts: TokenStream2 = args.into();
+    let item_ts: TokenStream2 = item.into();
+    match attribute_impl_inner(args_ts, item_ts) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
 }
 
-fn generate_sqlite_driver_tests(
+fn attribute_impl_inner(args: TokenStream2, item: TokenStream2) -> syn::Result<TokenStream2> {
+    let dialect_override: DialectOverride = syn::parse2(args)?;
+    let input_fn: ItemFn = syn::parse2(item)?;
+    let fn_input = parse_fn(input_fn)?;
+    let dialect = resolve_dialect(dialect_override, &fn_input)?;
+
+    let bindings_for = |setup_call: TokenStream2| -> TokenStream2 {
+        let rebinds = rebind_stmts(
+            &fn_input.db_pat,
+            &fn_input.db_ty,
+            &quote! { __raw_db },
+            &fn_input.schema_pat,
+            &fn_input.schema_ty,
+            &quote! { __raw_schema },
+        );
+        quote! {
+            let (mut __raw_db, __raw_schema) = #setup_call;
+            #rebinds
+        }
+    };
+
+    let generated = match dialect {
+        Dialect::Sqlite => generate_sqlite_driver_tests_with(
+            &fn_input.fn_name,
+            &fn_input.schema_ty,
+            &fn_input.body,
+            &bindings_for,
+        ),
+        Dialect::Postgres => generate_postgres_driver_tests_with(
+            &fn_input.fn_name,
+            &fn_input.schema_ty,
+            &fn_input.body,
+            &bindings_for,
+        ),
+    };
+
+    Ok(wrap_with_schema_assertion(&fn_input, &generated))
+}
+
+fn parse_fn(item_fn: ItemFn) -> syn::Result<FnInput> {
+    let sig = &item_fn.sig;
+    if let Some(asyncness) = sig.asyncness {
+        return Err(syn::Error::new(
+            asyncness.span(),
+            "`#[drizzle::test]` functions must be synchronous; use the injected `drizzle_exec!` / `drizzle_try!` / `drizzle_tx!` helper macros in the body for async operations",
+        ));
+    }
+    if let Some(constness) = sig.constness {
+        return Err(syn::Error::new(constness.span(), "unexpected `const`"));
+    }
+    if let Some(unsafety) = sig.unsafety {
+        return Err(syn::Error::new(unsafety.span(), "unexpected `unsafe`"));
+    }
+    if !sig.generics.params.is_empty() {
+        return Err(syn::Error::new(
+            sig.generics.span(),
+            "`#[drizzle::test]` functions cannot declare generics",
+        ));
+    }
+
+    let inputs: Vec<&FnArg> = sig.inputs.iter().collect();
+    if inputs.len() != 2 {
+        return Err(syn::Error::new(
+            sig.inputs.span(),
+            "`#[drizzle::test]` expects exactly 2 parameters: `db` then `schema`",
+        ));
+    }
+
+    let (db_pat, db_ty) = parse_typed_arg(inputs[0])?;
+    let (schema_pat, schema_ty) = parse_typed_arg(inputs[1])?;
+
+    if db_pat.ident != "db" {
+        return Err(syn::Error::new(
+            db_pat.ident.span(),
+            "first parameter must be named `db` (the body-local `drizzle_exec!`/`drizzle_try!`/etc. macros reference it by name)",
+        ));
+    }
+    if schema_pat.ident != "schema" {
+        return Err(syn::Error::new(
+            schema_pat.ident.span(),
+            "second parameter must be named `schema`",
+        ));
+    }
+
+    Ok(FnInput {
+        outer_attrs: item_fn.attrs,
+        fn_name: sig.ident.clone(),
+        db_pat,
+        db_ty,
+        schema_pat,
+        schema_ty,
+        body: *item_fn.block,
+    })
+}
+
+fn parse_typed_arg(arg: &FnArg) -> syn::Result<(PatIdent, Type)> {
+    let pt = match arg {
+        FnArg::Typed(pt) => pt,
+        FnArg::Receiver(r) => {
+            return Err(syn::Error::new(
+                r.span(),
+                "`self` receivers are not allowed on `#[drizzle::test]` functions",
+            ));
+        }
+    };
+    let pat_ident = match &*pt.pat {
+        Pat::Ident(pi) => pi.clone(),
+        other => {
+            return Err(syn::Error::new(
+                other.span(),
+                "parameter pattern must be a simple identifier (e.g. `db` or `schema`)",
+            ));
+        }
+    };
+    Ok((pat_ident, (*pt.ty).clone()))
+}
+
+fn resolve_dialect(overrid: DialectOverride, fn_input: &FnInput) -> syn::Result<Dialect> {
+    match overrid {
+        DialectOverride::Sqlite => Ok(Dialect::Sqlite),
+        DialectOverride::Postgres => Ok(Dialect::Postgres),
+        DialectOverride::None => {
+            let file = proc_macro::Span::call_site().file();
+            let normalized = file.replace('\\', "/");
+            let in_sqlite = normalized.contains("/sqlite/") || normalized.starts_with("sqlite/");
+            let in_postgres =
+                normalized.contains("/postgres/") || normalized.starts_with("postgres/");
+            match (in_sqlite, in_postgres) {
+                (true, false) => Ok(Dialect::Sqlite),
+                (false, true) => Ok(Dialect::Postgres),
+                _ => Err(syn::Error::new(
+                    fn_input.fn_name.span(),
+                    format!(
+                        "could not auto-detect dialect from file path `{file}` — add `#[drizzle::test(sqlite)]` or `#[drizzle::test(postgres)]`"
+                    ),
+                )),
+            }
+        }
+    }
+}
+
+/// Emit the let-bindings that shadow the raw `__raw_db` / `__raw_schema` locals
+/// with names and forms matching what the user wrote in the fn signature.
+fn rebind_stmts(
+    db_pat: &PatIdent,
+    db_ty: &Type,
+    raw_db: &TokenStream2,
+    schema_pat: &PatIdent,
+    schema_ty: &Type,
+    raw_schema: &TokenStream2,
+) -> TokenStream2 {
+    let db_stmt = rebind_stmt(db_pat, db_ty, raw_db);
+    let schema_stmt = rebind_stmt(schema_pat, schema_ty, raw_schema);
+    quote! {
+        #db_stmt
+        #schema_stmt
+    }
+}
+
+fn rebind_stmt(pat: &PatIdent, ty: &Type, raw: &TokenStream2) -> TokenStream2 {
+    let name = &pat.ident;
+    let user_mut = &pat.mutability;
+    if let Type::Reference(tr) = ty {
+        if tr.mutability.is_some() {
+            quote! { #[allow(unused_variables)] let #user_mut #name = &mut #raw; }
+        } else {
+            quote! { #[allow(unused_variables)] let #user_mut #name = & #raw; }
+        }
+    } else {
+        quote! { #[allow(unused_variables)] let #user_mut #name = #raw; }
+    }
+}
+
+fn wrap_with_schema_assertion(fn_input: &FnInput, generated: &TokenStream2) -> TokenStream2 {
+    let schema_ty_owned = strip_outer_ref(&fn_input.schema_ty);
+    let outer_attrs = &fn_input.outer_attrs;
+    quote! {
+        #(#outer_attrs)*
+        #[allow(non_snake_case, dead_code)]
+        const _: () = {
+            fn __drizzle_test_assert_schema<
+                S: drizzle::core::SQLSchemaImpl + ::core::default::Default + ::core::marker::Copy,
+            >() {}
+            let _ = __drizzle_test_assert_schema::<#schema_ty_owned>;
+        };
+        #generated
+    }
+}
+
+fn strip_outer_ref(ty: &Type) -> Type {
+    match ty {
+        Type::Reference(tr) => (*tr.elem).clone(),
+        other => other.clone(),
+    }
+}
+
+fn generate_sqlite_driver_tests_with(
     test_name: &Ident,
     schema_type: &Type,
     test_body: &Block,
+    bindings: &dyn Fn(TokenStream2) -> TokenStream2,
 ) -> TokenStream2 {
-    let rusqlite_test = generate_rusqlite_test(test_name, schema_type, test_body);
-    let libsql_test = generate_libsql_test(test_name, schema_type, test_body);
-    let turso_test = generate_turso_test(test_name, schema_type, test_body);
+    let rusqlite_test = generate_rusqlite_test(test_name, schema_type, test_body, bindings);
+    let libsql_test = generate_libsql_test(test_name, schema_type, test_body, bindings);
+    let turso_test = generate_turso_test(test_name, schema_type, test_body, bindings);
 
     quote! {
         #rusqlite_test
@@ -68,13 +273,16 @@ fn generate_sqlite_driver_tests(
     }
 }
 
-fn generate_postgres_driver_tests(
+fn generate_postgres_driver_tests_with(
     test_name: &Ident,
     schema_type: &Type,
     test_body: &Block,
+    bindings: &dyn Fn(TokenStream2) -> TokenStream2,
 ) -> TokenStream2 {
-    let postgres_sync_test = generate_postgres_sync_test(test_name, schema_type, test_body);
-    let tokio_postgres_test = generate_tokio_postgres_test(test_name, schema_type, test_body);
+    let postgres_sync_test =
+        generate_postgres_sync_test(test_name, schema_type, test_body, bindings);
+    let tokio_postgres_test =
+        generate_tokio_postgres_test(test_name, schema_type, test_body, bindings);
 
     quote! {
         #postgres_sync_test
@@ -86,10 +294,13 @@ fn generate_rusqlite_test(
     test_name: &Ident,
     schema_type: &Type,
     test_body: &Block,
+    bindings: &dyn Fn(TokenStream2) -> TokenStream2,
 ) -> TokenStream2 {
-    let test_fn_name = syn::Ident::new(&format!("{}_rusqlite", test_name), test_name.span());
+    let test_fn_name = syn::Ident::new(&format!("{test_name}_rusqlite"), test_name.span());
     let test_name_str = test_name.to_string();
     let driver_name = "rusqlite";
+    let setup_call = quote! { rusqlite_setup::setup_db::<#schema_type>() };
+    let prelude = bindings(setup_call);
     quote! {
         #[cfg(feature = "rusqlite")]
         mod #test_fn_name {
@@ -97,7 +308,7 @@ fn generate_rusqlite_test(
             #[test]
             fn run() -> std::result::Result<(), drizzle::error::DrizzleError> {
                 use crate::common::helpers::rusqlite_setup;
-                let (mut db, schema) = rusqlite_setup::setup_db::<#schema_type>();
+                #prelude
                 let __test_name = #test_name_str;
                 let __driver_name = #driver_name;
 
@@ -324,10 +535,17 @@ fn generate_rusqlite_test(
     }
 }
 
-fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block) -> TokenStream2 {
-    let test_fn_name = syn::Ident::new(&format!("{}_libsql", test_name), test_name.span());
+fn generate_libsql_test(
+    test_name: &Ident,
+    schema_type: &Type,
+    test_body: &Block,
+    bindings: &dyn Fn(TokenStream2) -> TokenStream2,
+) -> TokenStream2 {
+    let test_fn_name = syn::Ident::new(&format!("{test_name}_libsql"), test_name.span());
     let test_name_str = test_name.to_string();
     let driver_name = "libsql";
+    let setup_call = quote! { libsql_setup::setup_db::<#schema_type>().await };
+    let prelude = bindings(setup_call);
     quote! {
         #[cfg(feature = "libsql")]
         mod #test_fn_name {
@@ -335,7 +553,7 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
             #[tokio::test]
             async fn run() -> std::result::Result<(), drizzle::error::DrizzleError> {
                 use crate::common::helpers::libsql_setup;
-                let (mut db, schema) = libsql_setup::setup_db::<#schema_type>().await;
+                #prelude
                 let __test_name = #test_name_str;
                 let __driver_name = #driver_name;
 
@@ -564,10 +782,17 @@ fn generate_libsql_test(test_name: &Ident, schema_type: &Type, test_body: &Block
     }
 }
 
-fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block) -> TokenStream2 {
-    let test_fn_name = syn::Ident::new(&format!("{}_turso", test_name), test_name.span());
+fn generate_turso_test(
+    test_name: &Ident,
+    schema_type: &Type,
+    test_body: &Block,
+    bindings: &dyn Fn(TokenStream2) -> TokenStream2,
+) -> TokenStream2 {
+    let test_fn_name = syn::Ident::new(&format!("{test_name}_turso"), test_name.span());
     let test_name_str = test_name.to_string();
     let driver_name = "turso";
+    let setup_call = quote! { turso_setup::setup_db::<#schema_type>().await };
+    let prelude = bindings(setup_call);
     quote! {
         #[cfg(feature = "turso")]
         mod #test_fn_name {
@@ -575,7 +800,7 @@ fn generate_turso_test(test_name: &Ident, schema_type: &Type, test_body: &Block)
             #[tokio::test]
             async fn run() -> std::result::Result<(), drizzle::error::DrizzleError> {
                 use crate::common::helpers::turso_setup;
-                let (mut db, schema) = turso_setup::setup_db::<#schema_type>().await;
+                #prelude
                 let __test_name = #test_name_str;
                 let __driver_name = #driver_name;
 
@@ -866,10 +1091,13 @@ fn generate_postgres_sync_test(
     test_name: &Ident,
     schema_type: &Type,
     test_body: &Block,
+    bindings: &dyn Fn(TokenStream2) -> TokenStream2,
 ) -> TokenStream2 {
-    let test_fn_name = syn::Ident::new(&format!("{}_postgres_sync", test_name), test_name.span());
+    let test_fn_name = syn::Ident::new(&format!("{test_name}_postgres_sync"), test_name.span());
     let test_name_str = test_name.to_string();
     let driver_name = "postgres-sync";
+    let setup_call = quote! { postgres_sync_setup::setup_db::<#schema_type>() };
+    let prelude = bindings(setup_call);
     quote! {
         #[cfg(feature = "postgres-sync")]
         mod #test_fn_name {
@@ -877,7 +1105,7 @@ fn generate_postgres_sync_test(
             #[test]
             fn run() -> std::result::Result<(), drizzle::error::DrizzleError> {
                 use crate::common::helpers::postgres_sync_setup;
-                let (mut db, schema) = postgres_sync_setup::setup_db::<#schema_type>();
+                #prelude
                 let __test_name = #test_name_str;
                 let __driver_name = #driver_name;
 
@@ -1113,10 +1341,13 @@ fn generate_tokio_postgres_test(
     test_name: &Ident,
     schema_type: &Type,
     test_body: &Block,
+    bindings: &dyn Fn(TokenStream2) -> TokenStream2,
 ) -> TokenStream2 {
-    let test_fn_name = syn::Ident::new(&format!("{}_tokio_postgres", test_name), test_name.span());
+    let test_fn_name = syn::Ident::new(&format!("{test_name}_tokio_postgres"), test_name.span());
     let test_name_str = test_name.to_string();
     let driver_name = "tokio-postgres";
+    let setup_call = quote! { tokio_postgres_setup::setup_db::<#schema_type>().await };
+    let prelude = bindings(setup_call);
     quote! {
         #[cfg(feature = "tokio-postgres")]
         mod #test_fn_name {
@@ -1124,7 +1355,7 @@ fn generate_tokio_postgres_test(
             #[tokio::test]
             async fn run() -> std::result::Result<(), drizzle::error::DrizzleError> {
                 use crate::common::helpers::tokio_postgres_setup;
-                let (mut db, schema) = tokio_postgres_setup::setup_db::<#schema_type>().await;
+                #prelude
                 let __test_name = #test_name_str;
                 let __driver_name = #driver_name;
 

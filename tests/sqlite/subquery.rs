@@ -2,7 +2,6 @@
 use crate::common::schema::sqlite::{InsertSimple, SimpleSchema};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 
 #[allow(dead_code)]
 #[derive(Debug, SQLiteFromRow)]
@@ -11,7 +10,8 @@ struct SubqueryResult {
     name: String,
 }
 
-sqlite_test!(test_one_level_subquery, SimpleSchema, {
+#[drizzle::test]
+fn test_one_level_subquery(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -35,10 +35,11 @@ sqlite_test!(test_one_level_subquery, SimpleSchema, {
     drizzle_assert_eq!(2, results.len()); // Should exclude the minimum (id=1)
     drizzle_assert!(results.iter().any(|r| r.name == "bob"));
     drizzle_assert!(results.iter().any(|r| r.name == "charlie"));
-});
+}
 
 // Note: Turso doesn't support nested subqueries in AVG() - turso variant will fail
-sqlite_test!(test_two_level_subquery, SimpleSchema, {
+#[drizzle::test]
+fn test_two_level_subquery(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -64,9 +65,10 @@ sqlite_test!(test_two_level_subquery, SimpleSchema, {
     // Should find records with id > average of (2,3,4) = 3, so only id=4
     drizzle_assert!(!results.is_empty());
     drizzle_assert!(results.iter().any(|r| r.name == "user4"));
-});
+}
 
-sqlite_test!(test_three_level_subquery, SimpleSchema, {
+#[drizzle::test]
+fn test_three_level_subquery(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -96,13 +98,14 @@ sqlite_test!(test_three_level_subquery, SimpleSchema, {
     // Average of (30,40,50) = 40, so should return records with id > 40 (just epsilon with id=50)
     drizzle_assert!(!results.is_empty());
     drizzle_assert!(results.iter().any(|r| r.name == "epsilon"));
-});
+}
 
 // =============================================================================
 // Typed subqueries via Expr on SELECT builders
 // =============================================================================
 
-sqlite_test!(test_typed_scalar_subquery, SimpleSchema, {
+#[drizzle::test]
+fn test_typed_scalar_subquery(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -125,9 +128,10 @@ sqlite_test!(test_typed_scalar_subquery, SimpleSchema, {
     drizzle_assert_eq!(2, results.len());
     drizzle_assert!(results.iter().any(|r| r.name == "bob"));
     drizzle_assert!(results.iter().any(|r| r.name == "charlie"));
-});
+}
 
-sqlite_test!(test_typed_scalar_subquery_max, SimpleSchema, {
+#[drizzle::test]
+fn test_typed_scalar_subquery_max(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -150,9 +154,10 @@ sqlite_test!(test_typed_scalar_subquery_max, SimpleSchema, {
     drizzle_assert_eq!(2, results.len());
     drizzle_assert!(results.iter().any(|r| r.name == "alice"));
     drizzle_assert!(results.iter().any(|r| r.name == "bob"));
-});
+}
 
-sqlite_test!(test_typed_in_subquery_single_column, SimpleSchema, {
+#[drizzle::test]
+fn test_typed_in_subquery_single_column(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -177,35 +182,35 @@ sqlite_test!(test_typed_in_subquery_single_column, SimpleSchema, {
 
     drizzle_assert_eq!(1, results.len());
     drizzle_assert_eq!("bob", results[0].name);
-});
+}
 
-sqlite_test!(
-    test_typed_in_subquery_multi_column_row_value,
-    SimpleSchema,
-    {
-        let SimpleSchema { simple } = schema;
+#[drizzle::test]
+fn test_typed_in_subquery_multi_column_row_value(
+    db: &mut TestDb<SimpleSchema>,
+    schema: SimpleSchema,
+) {
+    let SimpleSchema { simple } = schema;
 
-        let test_data = vec![
-            InsertSimple::new("alice").with_id(1),
-            InsertSimple::new("bob").with_id(2),
-            InsertSimple::new("charlie").with_id(3),
-        ];
+    let test_data = vec![
+        InsertSimple::new("alice").with_id(1),
+        InsertSimple::new("bob").with_id(2),
+        InsertSimple::new("charlie").with_id(3),
+    ];
 
-        drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
-        let bob_row = db
-            .select((simple.id, simple.name))
+    let bob_row = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "bob"));
+
+    let results: Vec<SubqueryResult> = drizzle_exec!(
+        db.select((simple.id, simple.name))
             .from(simple)
-            .r#where(eq(simple.name, "bob"));
+            .r#where(in_subquery((simple.id, simple.name), bob_row))
+            => all
+    );
 
-        let results: Vec<SubqueryResult> = drizzle_exec!(
-            db.select((simple.id, simple.name))
-                .from(simple)
-                .r#where(in_subquery((simple.id, simple.name), bob_row))
-                => all
-        );
-
-        drizzle_assert_eq!(1, results.len());
-        drizzle_assert_eq!("bob", results[0].name);
-    }
-);
+    drizzle_assert_eq!(1, results.len());
+    drizzle_assert_eq!("bob", results[0].name);
+}

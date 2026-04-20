@@ -5,10 +5,10 @@ use crate::common::schema::sqlite::{ComplexSchema, InsertComplex, Role, UpdateCo
 use crate::common::schema::sqlite::{InsertSimple, SelectSimple, SimpleSchema, UpdateSimple};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-sqlite_test!(test_insert_with_placeholders, SimpleSchema, {
+#[drizzle::test]
+fn test_insert_with_placeholders(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Create a typed placeholder from the column
@@ -36,94 +36,94 @@ sqlite_test!(test_insert_with_placeholders, SimpleSchema, {
         params.is_empty(),
         "Should have no bound parameters since we used a placeholder"
     );
-});
+}
 
-sqlite_test!(
-    test_insert_with_placeholders_execute_and_retrieve,
-    SimpleSchema,
-    {
-        let SimpleSchema { simple } = schema;
+#[drizzle::test]
+fn test_insert_with_placeholders_execute_and_retrieve(
+    db: &mut TestDb<SimpleSchema>,
+    schema: SimpleSchema,
+) {
+    let SimpleSchema { simple } = schema;
 
-        // Create a typed placeholder from the column
-        let user_name = simple.name.placeholder("user_name");
+    // Create a typed placeholder from the column
+    let user_name = simple.name.placeholder("user_name");
 
-        // Create insert model with typed placeholder
-        let insert_data = InsertSimple::new(user_name);
+    // Create insert model with typed placeholder
+    let insert_data = InsertSimple::new(user_name);
 
-        // Prepare the insert statement and execute it with bound parameters
-        let prepared_insert = db.insert(simple).values([insert_data]).prepare();
+    // Prepare the insert statement and execute it with bound parameters
+    let prepared_insert = db.insert(simple).values([insert_data]).prepare();
 
-        // Execute the prepared insert with bound parameters
-        let row_count =
-            drizzle_exec!(prepared_insert.execute(db.conn(), [user_name.bind("Alice")]));
-        assert_eq!(row_count, 1, "Should have inserted one row");
+    // Execute the prepared insert with bound parameters
+    let row_count = drizzle_exec!(prepared_insert.execute(db.conn(), [user_name.bind("Alice")]));
+    assert_eq!(row_count, 1, "Should have inserted one row");
 
-        // Retrieve the data to verify it was inserted correctly
-        let results: Vec<SelectSimple> = drizzle_exec!(
-            db.select((simple.id, simple.name))
-                .from(simple)
-                .r#where(eq(simple.name, "Alice"))
-                => all
-        );
+    // Retrieve the data to verify it was inserted correctly
+    let results: Vec<SelectSimple> = drizzle_exec!(
+        db.select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.name, "Alice"))
+            => all
+    );
 
-        assert_eq!(results.len(), 1, "Should have found one result");
-        assert_eq!(
-            results[0].name, "Alice",
-            "Name should match the bound placeholder value"
-        );
-    }
-);
+    assert_eq!(results.len(), 1, "Should have found one result");
+    assert_eq!(
+        results[0].name, "Alice",
+        "Name should match the bound placeholder value"
+    );
+}
 
-sqlite_test!(
-    test_parameter_integration_with_query_builder,
-    SimpleSchema,
-    {
-        #[derive(SQLiteFromRow, Default)]
-        struct SimpleResult(String);
-        let SimpleSchema { simple } = schema;
+#[drizzle::test]
+fn test_parameter_integration_with_query_builder(
+    db: &mut TestDb<SimpleSchema>,
+    schema: SimpleSchema,
+) {
+    #[derive(SQLiteFromRow, Default)]
+    struct SimpleResult(String);
+    let SimpleSchema { simple } = schema;
 
-        // Insert test data
-        let test_data = vec![
-            InsertSimple::new("alice"),
-            InsertSimple::new("bob"),
-            InsertSimple::new("charlie"),
-        ];
-        drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    // Insert test data
+    let test_data = vec![
+        InsertSimple::new("alice"),
+        InsertSimple::new("bob"),
+        InsertSimple::new("charlie"),
+    ];
+    drizzle_exec!(db.insert(simple).values(test_data) => execute);
 
-        // Test that normal query builder still works (this uses internal parameter binding)
-        let results: Vec<SimpleResult> = drizzle_exec!(
-            db.select(simple.name)
-                .from(simple)
-                .r#where(eq(simple.name, "alice"))
-                => all
-        );
+    // Test that normal query builder still works (this uses internal parameter binding)
+    let results: Vec<SimpleResult> = drizzle_exec!(
+        db.select(simple.name)
+            .from(simple)
+            .r#where(eq(simple.name, "alice"))
+            => all
+    );
 
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].0, "alice");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, "alice");
 
-        // Test multiple parameter conditions using multiple queries
-        let alice_results: Vec<SimpleResult> = drizzle_exec!(
-            db.select(simple.name)
-                .from(simple)
-                .r#where(eq(simple.name, "alice"))
-                => all
-        );
+    // Test multiple parameter conditions using multiple queries
+    let alice_results: Vec<SimpleResult> = drizzle_exec!(
+        db.select(simple.name)
+            .from(simple)
+            .r#where(eq(simple.name, "alice"))
+            => all
+    );
 
-        let bob_results: Vec<SimpleResult> = drizzle_exec!(
-            db.select(simple.name)
-                .from(simple)
-                .r#where(eq(simple.name, "bob"))
-                => all
-        );
+    let bob_results: Vec<SimpleResult> = drizzle_exec!(
+        db.select(simple.name)
+            .from(simple)
+            .r#where(eq(simple.name, "bob"))
+            => all
+    );
 
-        assert_eq!(alice_results.len(), 1);
-        assert_eq!(bob_results.len(), 1);
-        assert_eq!(alice_results[0].0, "alice");
-        assert_eq!(bob_results[0].0, "bob");
-    }
-);
+    assert_eq!(alice_results.len(), 1);
+    assert_eq!(bob_results.len(), 1);
+    assert_eq!(alice_results[0].0, "alice");
+    assert_eq!(bob_results[0].0, "bob");
+}
 
-sqlite_test!(test_update_with_placeholders_sql, SimpleSchema, {
+#[drizzle::test]
+fn test_update_with_placeholders_sql(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Create typed placeholders from columns
@@ -169,9 +169,10 @@ sqlite_test!(test_update_with_placeholders_sql, SimpleSchema, {
         "Should have no bound parameters since all values are placeholders, got {} params",
         params.len()
     );
-});
+}
 
-sqlite_test!(test_update_with_placeholders_execute, SimpleSchema, {
+#[drizzle::test]
+fn test_update_with_placeholders_execute(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial data
@@ -221,79 +222,80 @@ sqlite_test!(test_update_with_placeholders_execute, SimpleSchema, {
             => all
     );
     assert_eq!(old_results.len(), 0, "Original name should no longer exist");
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(
-    test_update_with_mixed_values_and_placeholders,
-    ComplexSchema,
-    {
-        #[allow(dead_code)]
-        #[derive(SQLiteFromRow, Debug)]
-        struct ComplexResult {
-            name: String,
-            email: Option<String>,
-            age: Option<i32>,
-            score: Option<f64>,
-        }
-
-        let ComplexSchema { complex } = schema;
-
-        // Insert initial record with known values
-        let insert_data = InsertComplex::new("alice", true, Role::User)
-            .with_id(uuid::Uuid::new_v4())
-            .with_email("alice@old.com".to_string())
-            .with_age(25)
-            .with_score(90.5);
-        drizzle_exec!(db.insert(complex).values([insert_data]) => execute);
-
-        // Create typed placeholder from column
-        let new_age = complex.age.placeholder("new_age");
-
-        // Mix concrete value (email) with placeholder (age) in the same update
-        let update = UpdateComplex::default()
-            .with_email("alice@new.com".to_string())
-            .with_age(new_age);
-
-        let prepared = db
-            .update(complex)
-            .set(update)
-            .r#where(eq(complex.name, "alice"))
-            .prepare();
-
-        // Execute — only the placeholder needs to be bound
-        let update_count = drizzle_exec!(prepared.execute(db.conn(), [new_age.bind(30)]));
-        drizzle_assert_eq!(1, update_count, "Should have updated one row");
-
-        // Verify both concrete and placeholder-bound fields were updated
-        let results: Vec<ComplexResult> = drizzle_exec!(
-            db.select((complex.name, complex.email, complex.age, complex.score))
-                .from(complex)
-                .r#where(eq(complex.name, "alice"))
-                => all
-        );
-
-        assert_eq!(results.len(), 1);
-        assert_eq!(
-            results[0].email,
-            Some("alice@new.com".to_string()),
-            "Concrete value should be updated"
-        );
-        assert_eq!(
-            results[0].age,
-            Some(30),
-            "Placeholder-bound value should be updated"
-        );
-        assert_eq!(
-            results[0].score,
-            Some(90.5),
-            "Untouched field should remain unchanged"
-        );
+#[drizzle::test]
+fn test_update_with_mixed_values_and_placeholders(
+    db: &mut TestDb<ComplexSchema>,
+    schema: ComplexSchema,
+) {
+    #[allow(dead_code)]
+    #[derive(SQLiteFromRow, Debug)]
+    struct ComplexResult {
+        name: String,
+        email: Option<String>,
+        age: Option<i32>,
+        score: Option<f64>,
     }
-);
+
+    let ComplexSchema { complex } = schema;
+
+    // Insert initial record with known values
+    let insert_data = InsertComplex::new("alice", true, Role::User)
+        .with_id(uuid::Uuid::new_v4())
+        .with_email("alice@old.com".to_string())
+        .with_age(25)
+        .with_score(90.5);
+    drizzle_exec!(db.insert(complex).values([insert_data]) => execute);
+
+    // Create typed placeholder from column
+    let new_age = complex.age.placeholder("new_age");
+
+    // Mix concrete value (email) with placeholder (age) in the same update
+    let update = UpdateComplex::default()
+        .with_email("alice@new.com".to_string())
+        .with_age(new_age);
+
+    let prepared = db
+        .update(complex)
+        .set(update)
+        .r#where(eq(complex.name, "alice"))
+        .prepare();
+
+    // Execute — only the placeholder needs to be bound
+    let update_count = drizzle_exec!(prepared.execute(db.conn(), [new_age.bind(30)]));
+    drizzle_assert_eq!(1, update_count, "Should have updated one row");
+
+    // Verify both concrete and placeholder-bound fields were updated
+    let results: Vec<ComplexResult> = drizzle_exec!(
+        db.select((complex.name, complex.email, complex.age, complex.score))
+            .from(complex)
+            .r#where(eq(complex.name, "alice"))
+            => all
+    );
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0].email,
+        Some("alice@new.com".to_string()),
+        "Concrete value should be updated"
+    );
+    assert_eq!(
+        results[0].age,
+        Some(30),
+        "Placeholder-bound value should be updated"
+    );
+    assert_eq!(
+        results[0].score,
+        Some(90.5),
+        "Untouched field should remain unchanged"
+    );
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(test_update_skip_excludes_unset_fields, ComplexSchema, {
+#[drizzle::test]
+fn test_update_skip_excludes_unset_fields(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
 
     // Set only email — all other fields remain Skip (default)
@@ -334,4 +336,4 @@ sqlite_test!(test_update_skip_excludes_unset_fields, ComplexSchema, {
         "SQL should NOT include description (it was Skip), got: {}",
         sql_string
     );
-});
+}

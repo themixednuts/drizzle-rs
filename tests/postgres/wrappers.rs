@@ -4,7 +4,7 @@
 ))]
 
 use drizzle::postgres::prelude::*;
-use drizzle_macros::{PostgresFromRow, PostgresSchema, PostgresTable, postgres_test};
+use drizzle_macros::{PostgresFromRow, PostgresSchema, PostgresTable};
 
 #[cfg(feature = "compact-str")]
 use compact_str::CompactString;
@@ -40,7 +40,8 @@ struct CompactStringRow {
 }
 
 #[cfg(feature = "compact-str")]
-postgres_test!(compact_string_roundtrip, PgCompactStringSchema, {
+#[drizzle::test]
+fn compact_string_roundtrip(db: &mut TestDb<PgCompactStringSchema>, schema: PgCompactStringSchema) {
     let PgCompactStringSchema { table } = schema;
 
     let value = CompactString::new("pg compact");
@@ -56,7 +57,7 @@ postgres_test!(compact_string_roundtrip, PgCompactStringSchema, {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].name, value);
     assert_eq!(rows[0].note, "compact note");
-});
+}
 
 #[cfg(feature = "bytes")]
 #[PostgresTable(name = "pg_bytes_blob_test")]
@@ -85,7 +86,8 @@ struct BytesBlobRow {
 }
 
 #[cfg(feature = "bytes")]
-postgres_test!(bytes_roundtrip, PgBytesBlobSchema, {
+#[drizzle::test]
+fn bytes_roundtrip(db: &mut TestDb<PgBytesBlobSchema>, schema: PgBytesBlobSchema) {
     let PgBytesBlobSchema { table } = schema;
 
     let payload = Bytes::from_static(b"pg-bytes");
@@ -105,7 +107,7 @@ postgres_test!(bytes_roundtrip, PgBytesBlobSchema, {
     assert_eq!(rows[0].payload.as_ref(), payload.as_ref());
     assert_eq!(rows[0].mutable_payload.as_ref(), mutable_payload.as_ref());
     assert_eq!(rows[0].note, "bytes note");
-});
+}
 
 #[cfg(feature = "smallvec-types")]
 #[PostgresTable(name = "pg_smallvec_blob_test")]
@@ -132,7 +134,8 @@ struct SmallVecBlobRow {
 }
 
 #[cfg(feature = "smallvec-types")]
-postgres_test!(smallvec_roundtrip, PgSmallVecBlobSchema, {
+#[drizzle::test]
+fn smallvec_roundtrip(db: &mut TestDb<PgSmallVecBlobSchema>, schema: PgSmallVecBlobSchema) {
     let PgSmallVecBlobSchema { table } = schema;
 
     let mut payload = SmallVec::<[u8; 16]>::new();
@@ -150,4 +153,4 @@ postgres_test!(smallvec_roundtrip, PgSmallVecBlobSchema, {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].payload.as_slice(), payload.as_slice());
     assert_eq!(rows[0].note, "smallvec note");
-});
+}

@@ -3,7 +3,6 @@
 
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -40,7 +39,8 @@ pub struct JsonReadResult {
     profile: Profile,
 }
 
-sqlite_test!(json_storage, Schema, {
+#[drizzle::test]
+fn json_storage(db: &mut TestDb<Schema>, schema: Schema) {
     let Schema { jsonuser } = schema;
 
     let profile = Profile {
@@ -89,4 +89,4 @@ sqlite_test!(json_storage, Schema, {
     assert_eq!(result.id, id);
     assert_eq!(result.email, "john@test.com");
     assert_eq!(result.profile, profile);
-});
+}

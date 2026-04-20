@@ -12,7 +12,6 @@ use crate::common::schema::postgres::{
 use drizzle::core::expr::{eq, gt};
 use drizzle::core::{asc, desc};
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 use uuid::Uuid;
 
 // Import generated query result accessor traits from the common schema.
@@ -59,7 +58,11 @@ struct DeepQuerySchema {
 // =============================================================================
 
 // -- Basic find_many without relations --
-postgres_test!(query_find_many_no_relations, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_find_many_no_relations(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
     let ComplexPostQuerySchema {
         complex, post: _, ..
     } = schema;
@@ -77,10 +80,11 @@ postgres_test!(query_find_many_no_relations, ComplexPostQuerySchema, {
     assert_eq!(users.len(), 2);
     assert_eq!(users[0].name, "Alice");
     assert_eq!(users[1].name, "Bob");
-});
+}
 
 // -- find_first --
-postgres_test!(query_find_first, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_find_first(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
     let ComplexPostQuerySchema {
         complex, post: _, ..
     } = schema;
@@ -97,20 +101,22 @@ postgres_test!(query_find_first, ComplexPostQuerySchema, {
     let user = drizzle_exec!(db.query(complex).order_by(asc(complex.name)).find_first());
     assert!(user.is_some());
     assert_eq!(user.unwrap().name, "Alice");
-});
+}
 
 // -- find_first returns None on empty table --
-postgres_test!(query_find_first_empty, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_find_first_empty(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
     let ComplexPostQuerySchema {
         complex, post: _, ..
     } = schema;
 
     let user = drizzle_exec!(db.query(complex).find_first());
     assert!(user.is_none());
-});
+}
 
 // -- with limit --
-postgres_test!(query_with_limit, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_with_limit(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
     let ComplexPostQuerySchema {
         complex, post: _, ..
     } = schema;
@@ -127,10 +133,14 @@ postgres_test!(query_with_limit, ComplexPostQuerySchema, {
 
     let users = drizzle_exec!(db.query(complex).limit(2).find_many());
     assert_eq!(users.len(), 2);
-});
+}
 
 // -- Reverse relation: Complex -> Posts (Many) --
-postgres_test!(query_reverse_relation_many, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_reverse_relation_many(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
     // Insert users
@@ -173,10 +183,14 @@ postgres_test!(query_reverse_relation_many, ComplexPostQuerySchema, {
     let bob = users.iter().find(|u| u.name == "Bob").unwrap();
     assert_eq!(bob.posts().len(), 1);
     assert_eq!(bob.posts()[0].title, "Bob Post 1");
-});
+}
 
 // -- Forward relation: Post -> Author (OptionalOne since author_id is nullable) --
-postgres_test!(query_forward_relation_one, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_forward_relation_one(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
     drizzle_exec!(
@@ -200,10 +214,14 @@ postgres_test!(query_forward_relation_one, ComplexPostQuerySchema, {
     assert_eq!(posts.len(), 1);
     assert_eq!(posts[0].title, "Hello World");
     assert_eq!(posts[0].author().as_ref().unwrap().name, "Alice");
-});
+}
 
 // -- Forward relation: OptionalOne (nullable FK, self-referential) --
-postgres_test!(query_forward_optional_one, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_forward_optional_one(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
     let ComplexPostQuerySchema {
         complex, post: _, ..
     } = schema;
@@ -237,10 +255,11 @@ postgres_test!(query_forward_optional_one, ComplexPostQuerySchema, {
     let bob = users.iter().find(|u| u.name == "Bob").unwrap();
     assert!(bob.invited_by().is_some());
     assert_eq!(bob.invited_by().as_ref().unwrap().name, "Alice");
-});
+}
 
 // -- Nested relations: Complex -> Posts -> Comments --
-postgres_test!(query_nested_relations, FullQuerySchema, {
+#[drizzle::test]
+fn query_nested_relations(db: &mut TestDb<FullQuerySchema>, schema: FullQuerySchema) {
     let FullQuerySchema {
         complex,
         post,
@@ -302,10 +321,14 @@ postgres_test!(query_nested_relations, FullQuerySchema, {
     let p2 = alice.posts().iter().find(|p| p.title == "Post 2").unwrap();
     assert_eq!(p2.comments().len(), 1);
     assert_eq!(p2.comments()[0].body, "Comment on P2");
-});
+}
 
 // -- Multiple relations: Complex with posts AND invited_by --
-postgres_test!(query_multiple_relations, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_multiple_relations(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
     // Alice (no inviter)
@@ -356,10 +379,14 @@ postgres_test!(query_multiple_relations, ComplexPostQuerySchema, {
     let alice = users.iter().find(|u| u.name == "Alice").unwrap();
     assert_eq!(alice.posts().len(), 0);
     assert!(alice.invited_by().is_none());
-});
+}
 
 // -- Empty relation (Many with no rows) --
-postgres_test!(query_empty_many_relation, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_empty_many_relation(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
     let ComplexPostQuerySchema {
         complex, post: _, ..
     } = schema;
@@ -374,10 +401,11 @@ postgres_test!(query_empty_many_relation, ComplexPostQuerySchema, {
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].posts().len(), 0);
-});
+}
 
 // -- Typed WHERE on root query (tests $N placeholder renumbering) --
-postgres_test!(query_where_typed, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_where_typed(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
     let ComplexPostQuerySchema {
         complex, post: _, ..
     } = schema;
@@ -401,10 +429,11 @@ postgres_test!(query_where_typed, ComplexPostQuerySchema, {
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].name, "Bob");
-});
+}
 
 // -- Typed ORDER BY on root query --
-postgres_test!(query_order_by_typed, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_order_by_typed(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
     let ComplexPostQuerySchema {
         complex, post: _, ..
     } = schema;
@@ -432,10 +461,14 @@ postgres_test!(query_order_by_typed, ComplexPostQuerySchema, {
     assert_eq!(users[0].name, "Charlie");
     assert_eq!(users[1].name, "Bob");
     assert_eq!(users[2].name, "Alice");
-});
+}
 
 // -- Typed WHERE on relation subquery (tests $N renumbering in subqueries) --
-postgres_test!(query_relation_where_typed, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_relation_where_typed(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
     drizzle_exec!(
@@ -467,10 +500,14 @@ postgres_test!(query_relation_where_typed, ComplexPostQuerySchema, {
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].posts().len(), 2);
-});
+}
 
 // -- Typed ORDER BY + LIMIT on relation subquery --
-postgres_test!(query_relation_order_limit_typed, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_relation_order_limit_typed(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
     drizzle_exec!(
@@ -503,10 +540,14 @@ postgres_test!(query_relation_order_limit_typed, ComplexPostQuerySchema, {
     assert_eq!(users[0].posts().len(), 2);
     assert_eq!(users[0].posts()[0].title, "Post C");
     assert_eq!(users[0].posts()[1].title, "Post B");
-});
+}
 
 // -- Forward relation with NULL FK --
-postgres_test!(query_forward_relation_null_fk, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_forward_relation_null_fk(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
     drizzle_exec!(
@@ -543,52 +584,52 @@ postgres_test!(query_forward_relation_null_fk, ComplexPostQuerySchema, {
     assert!(posts[0].author().is_none());
     assert!(posts[1].author().is_some());
     assert_eq!(posts[1].author().as_ref().unwrap().name, "Alice");
-});
+}
 
 // -- Combined root WHERE + relation WHERE (tests param ordering) --
-postgres_test!(
-    query_root_and_relation_where_combined,
-    ComplexPostQuerySchema,
-    {
-        let ComplexPostQuerySchema { complex, post, .. } = schema;
+#[drizzle::test]
+fn query_root_and_relation_where_combined(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
+    let ComplexPostQuerySchema { complex, post, .. } = schema;
 
-        drizzle_exec!(
-            db.insert(complex)
-                .values([
-                    InsertComplex::new("Alice", true, Role::User),
-                    InsertComplex::new("Bob", true, Role::User),
-                ])
-                => execute
-        );
+    drizzle_exec!(
+        db.insert(complex)
+            .values([
+                InsertComplex::new("Alice", true, Role::User),
+                InsertComplex::new("Bob", true, Role::User),
+            ])
+            => execute
+    );
 
-        let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
-        let alice_id = all_users.iter().find(|u| u.name == "Alice").unwrap().id;
-        let bob_id = all_users.iter().find(|u| u.name == "Bob").unwrap().id;
+    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let alice_id = all_users.iter().find(|u| u.name == "Alice").unwrap().id;
+    let bob_id = all_users.iter().find(|u| u.name == "Bob").unwrap().id;
 
-        drizzle_exec!(
-            db.insert(post)
-                .values([
-                    InsertPost::new("Alice Draft", false).with_author_id(alice_id),
-                    InsertPost::new("Alice Published", true).with_author_id(alice_id),
-                    InsertPost::new("Bob Post", true).with_author_id(bob_id),
-                ])
-                => execute
-        );
+    drizzle_exec!(
+        db.insert(post)
+            .values([
+                InsertPost::new("Alice Draft", false).with_author_id(alice_id),
+                InsertPost::new("Alice Published", true).with_author_id(alice_id),
+                InsertPost::new("Bob Post", true).with_author_id(bob_id),
+            ])
+            => execute
+    );
 
-        // Root WHERE filters to Alice, relation WHERE filters to published posts
-        let users = drizzle_exec!(
-            db.query(complex)
-                .with(complex.posts().r#where(eq(post.published, true)))
-                .r#where(eq(complex.name, "Alice"))
-                .find_many()
-        );
+    // Root WHERE filters to Alice, relation WHERE filters to published posts
+    let users = drizzle_exec!(
+        db.query(complex)
+            .with(complex.posts().r#where(eq(post.published, true)))
+            .r#where(eq(complex.name, "Alice"))
+            .find_many()
+    );
 
-        assert_eq!(users.len(), 1);
-        assert_eq!(users[0].name, "Alice");
-        assert_eq!(users[0].posts().len(), 1);
-        assert_eq!(users[0].posts()[0].title, "Alice Published");
-    }
-);
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0].name, "Alice");
+    assert_eq!(users[0].posts().len(), 1);
+    assert_eq!(users[0].posts()[0].title, "Alice Published");
+}
 
 // =============================================================================
 // View support
@@ -610,7 +651,8 @@ struct ViewQuerySchema {
 }
 
 // -- Basic view query without relations --
-postgres_test!(query_view_find_many, ViewQuerySchema, {
+#[drizzle::test]
+fn query_view_find_many(db: &mut TestDb<ViewQuerySchema>, schema: ViewQuerySchema) {
     let ViewQuerySchema {
         complex,
         post,
@@ -640,10 +682,11 @@ postgres_test!(query_view_find_many, ViewQuerySchema, {
     assert_eq!(posts.len(), 2);
     assert_eq!(posts[0].title, "Post 1");
     assert_eq!(posts[1].title, "Post 2");
-});
+}
 
 // -- View with find_first --
-postgres_test!(query_view_find_first, ViewQuerySchema, {
+#[drizzle::test]
+fn query_view_find_first(db: &mut TestDb<ViewQuerySchema>, schema: ViewQuerySchema) {
     let ViewQuerySchema {
         complex,
         post,
@@ -676,10 +719,11 @@ postgres_test!(query_view_find_first, ViewQuerySchema, {
     );
     assert!(found.is_some());
     assert_eq!(found.unwrap().title, "First Post");
-});
+}
 
 // -- View with WHERE and ORDER BY --
-postgres_test!(query_view_where_order, ViewQuerySchema, {
+#[drizzle::test]
+fn query_view_where_order(db: &mut TestDb<ViewQuerySchema>, schema: ViewQuerySchema) {
     let ViewQuerySchema {
         complex,
         post,
@@ -728,7 +772,7 @@ postgres_test!(query_view_where_order, ViewQuerySchema, {
     assert_eq!(posts.len(), 2);
     assert_eq!(posts[0].title, "Charlie Post");
     assert_eq!(posts[1].title, "Bravo Post");
-});
+}
 
 // -- View with FK: query a view that has relations --
 #[PostgresView(DEFINITION = "SELECT id, title, author_id FROM post")]
@@ -748,7 +792,8 @@ struct ViewFkQuerySchema {
 }
 
 // -- View with forward relation (view -> table) --
-postgres_test!(query_view_with_forward_relation, ViewFkQuerySchema, {
+#[drizzle::test]
+fn query_view_with_forward_relation(db: &mut TestDb<ViewFkQuerySchema>, schema: ViewFkQuerySchema) {
     let ViewFkQuerySchema {
         complex,
         post,
@@ -791,10 +836,11 @@ postgres_test!(query_view_with_forward_relation, ViewFkQuerySchema, {
     assert_eq!(posts[0].author().as_ref().unwrap().name, "Alice");
     assert_eq!(posts[1].title, "Bob's Post");
     assert_eq!(posts[1].author().as_ref().unwrap().name, "Bob");
-});
+}
 
 // -- Combo: query regular tables and views in the same schema --
-postgres_test!(query_combo_tables_and_views, ViewFkQuerySchema, {
+#[drizzle::test]
+fn query_combo_tables_and_views(db: &mut TestDb<ViewFkQuerySchema>, schema: ViewFkQuerySchema) {
     let ViewFkQuerySchema {
         complex,
         post,
@@ -859,10 +905,11 @@ postgres_test!(query_combo_tables_and_views, ViewFkQuerySchema, {
     );
     assert!(view_first.is_some());
     assert_eq!(view_first.unwrap().title, "Post B");
-});
+}
 
 // -- Complex deeply nested: 4-level deep, multiple siblings, all cardinalities --
-postgres_test!(query_deep_nested_complex, DeepQuerySchema, {
+#[drizzle::test]
+fn query_deep_nested_complex(db: &mut TestDb<DeepQuerySchema>, schema: DeepQuerySchema) {
     let DeepQuerySchema {
         complex,
         post,
@@ -1047,7 +1094,7 @@ postgres_test!(query_deep_nested_complex, DeepQuerySchema, {
     // -- Dave: no inviter, no posts --
     assert!(users[3].invited_by().is_none());
     assert_eq!(users[3].posts().len(), 0);
-});
+}
 
 // =============================================================================
 // Type alias ergonomics
@@ -1075,7 +1122,11 @@ fn get_inviter_name(user: &ComplexWithPostsAndInviter) -> Option<&str> {
     user.invited_by().as_ref().map(|u| u.name.as_str())
 }
 
-postgres_test!(query_type_alias_in_fn_signature, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_type_alias_in_fn_signature(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
     drizzle_exec!(
@@ -1131,14 +1182,18 @@ postgres_test!(query_type_alias_in_fn_signature, ComplexPostQuerySchema, {
 
     let alice = users.iter().find(|u| u.name == "Alice").unwrap();
     assert_eq!(get_inviter_name(alice), None);
-});
+}
 
 // =============================================================================
 // Offset
 // =============================================================================
 
 // -- Root query offset --
-postgres_test!(query_with_limit_offset, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_with_limit_offset(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
     let ComplexPostQuerySchema {
         complex, post: _, ..
     } = schema;
@@ -1166,10 +1221,14 @@ postgres_test!(query_with_limit_offset, ComplexPostQuerySchema, {
     assert_eq!(users.len(), 2);
     assert_eq!(users[0].name, "Bob");
     assert_eq!(users[1].name, "Charlie");
-});
+}
 
 // -- Relation handle offset --
-postgres_test!(query_relation_limit_offset, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_relation_limit_offset(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
     drizzle_exec!(
@@ -1203,14 +1262,18 @@ postgres_test!(query_relation_limit_offset, ComplexPostQuerySchema, {
     assert_eq!(users[0].posts().len(), 2);
     assert_eq!(users[0].posts()[0].title, "BBB");
     assert_eq!(users[0].posts()[1].title, "CCC");
-});
+}
 
 // =============================================================================
 // Partial Column Selection
 // =============================================================================
 
 // -- Whitelist: select only specific columns --
-postgres_test!(query_columns_whitelist, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_columns_whitelist(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
     let ComplexPostQuerySchema {
         complex, post: _, ..
     } = schema;
@@ -1240,10 +1303,11 @@ postgres_test!(query_columns_whitelist, ComplexPostQuerySchema, {
     assert!(users[0].invited_by.is_none());
 
     assert_eq!(users[1].name.as_deref(), Some("Bob"));
-});
+}
 
 // -- Blacklist: omit specific columns --
-postgres_test!(query_omit_blacklist, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_omit_blacklist(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
     let ComplexPostQuerySchema {
         complex, post: _, ..
     } = schema;
@@ -1266,10 +1330,14 @@ postgres_test!(query_omit_blacklist, ComplexPostQuerySchema, {
     assert_eq!(users[0].name.as_deref(), Some("Alice"));
     // Omitted column is None
     assert!(users[0].invited_by.is_none());
-});
+}
 
 // -- Partial columns with relations --
-postgres_test!(query_columns_with_relations, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_columns_with_relations(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
     drizzle_exec!(
@@ -1304,10 +1372,11 @@ postgres_test!(query_columns_with_relations, ComplexPostQuerySchema, {
     assert_eq!(users[0].posts().len(), 2);
     // Relations are full SelectModel (not partial)
     assert_eq!(users[0].posts()[0].title, "Post 1");
-});
+}
 
 // -- Partial columns on a relation --
-postgres_test!(query_relation_columns, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_relation_columns(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
     drizzle_exec!(
@@ -1344,10 +1413,14 @@ postgres_test!(query_relation_columns, ComplexPostQuerySchema, {
     assert_eq!(users[0].posts()[0].title.as_deref(), Some("Post 1"));
     // author_id not selected
     assert!(users[0].posts()[0].author_id.is_none());
-});
+}
 
 // -- find_first with partial columns --
-postgres_test!(query_columns_find_first, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_columns_find_first(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
     let ComplexPostQuerySchema {
         complex, post: _, ..
     } = schema;
@@ -1368,14 +1441,18 @@ postgres_test!(query_columns_find_first, ComplexPostQuerySchema, {
     let user = user.unwrap();
     assert_eq!(user.name.as_deref(), Some("Alice"));
     assert!(user.id.is_none()); // not selected
-});
+}
 
 // =============================================================================
 // .first() on relations
 // =============================================================================
 
 // -- .first() limits relation to at most 1 element --
-postgres_test!(query_first_limits_to_one, ComplexPostQuerySchema, {
+#[drizzle::test]
+fn query_first_limits_to_one(
+    db: &mut TestDb<ComplexPostQuerySchema>,
+    schema: ComplexPostQuerySchema,
+) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
     drizzle_exec!(
@@ -1401,7 +1478,7 @@ postgres_test!(query_first_limits_to_one, ComplexPostQuerySchema, {
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].posts().len(), 1);
-});
+}
 
 // =============================================================================
 // Many-to-many relations
@@ -1417,7 +1494,8 @@ struct M2MQuerySchema {
 }
 
 // -- basic m2m: post.categories() returns categories through junction --
-postgres_test!(query_many_to_many_basic, M2MQuerySchema, {
+#[drizzle::test]
+fn query_many_to_many_basic(db: &mut TestDb<M2MQuerySchema>, schema: M2MQuerySchema) {
     let M2MQuerySchema {
         complex,
         post,
@@ -1478,10 +1556,11 @@ postgres_test!(query_many_to_many_basic, M2MQuerySchema, {
         .collect();
     assert!(cat_names.contains(&"Tech"));
     assert!(cat_names.contains(&"Science"));
-});
+}
 
 // -- reverse m2m: category.posts() returns posts through junction --
-postgres_test!(query_many_to_many_reverse, M2MQuerySchema, {
+#[drizzle::test]
+fn query_many_to_many_reverse(db: &mut TestDb<M2MQuerySchema>, schema: M2MQuerySchema) {
     let M2MQuerySchema {
         complex,
         post,
@@ -1538,10 +1617,11 @@ postgres_test!(query_many_to_many_reverse, M2MQuerySchema, {
     let post_titles: Vec<&str> = cats[0].posts().iter().map(|p| p.title.as_str()).collect();
     assert!(post_titles.contains(&"Post A"));
     assert!(post_titles.contains(&"Post B"));
-});
+}
 
 // -- m2m with no associations returns empty vec --
-postgres_test!(query_many_to_many_empty, M2MQuerySchema, {
+#[drizzle::test]
+fn query_many_to_many_empty(db: &mut TestDb<M2MQuerySchema>, schema: M2MQuerySchema) {
     let M2MQuerySchema {
         complex,
         post,
@@ -1569,10 +1649,11 @@ postgres_test!(query_many_to_many_empty, M2MQuerySchema, {
 
     assert_eq!(posts.len(), 1);
     assert_eq!(posts[0].categories().len(), 0);
-});
+}
 
 // -- m2m with limit --
-postgres_test!(query_many_to_many_with_limit, M2MQuerySchema, {
+#[drizzle::test]
+fn query_many_to_many_with_limit(db: &mut TestDb<M2MQuerySchema>, schema: M2MQuerySchema) {
     let M2MQuerySchema {
         complex,
         post,
@@ -1625,4 +1706,4 @@ postgres_test!(query_many_to_many_with_limit, M2MQuerySchema, {
 
     assert_eq!(posts.len(), 1);
     assert_eq!(posts[0].categories().len(), 2);
-});
+}

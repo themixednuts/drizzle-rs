@@ -4,19 +4,19 @@
 //!
 //! ## Core Macros
 //!
-//! ### SQLite
-//! - [`SQLiteTable`] - Define SQLite table schemas with type safety
-//! - [`SQLiteView`] - Define SQLite view schemas with type safety
-//! - [`SQLiteEnum`] - Define enums that can be stored in SQLite
-//! - [`SQLiteIndex`] - Define indexes on SQLite tables
+//! ### `SQLite`
+//! - [`SQLiteTable`] - Define `SQLite` table schemas with type safety
+//! - [`SQLiteView`] - Define `SQLite` view schemas with type safety
+//! - [`SQLiteEnum`] - Define enums that can be stored in `SQLite`
+//! - [`SQLiteIndex`] - Define indexes on `SQLite` tables
 //! - [`SQLiteSchema`] - Derive macro to group tables and indexes into a schema
 //!
-//! ### PostgreSQL
-//! - [`PostgresTable`] - Define PostgreSQL table schemas with type safety
-//! - [`PostgresView`] - Define PostgreSQL view schemas with type safety
-//! - [`PostgresEnum`] - Define enums for PostgreSQL (text, integer, or native ENUM)
+//! ### `PostgreSQL`
+//! - [`PostgresTable`] - Define `PostgreSQL` table schemas with type safety
+//! - [`PostgresView`] - Define `PostgreSQL` view schemas with type safety
+//! - [`PostgresEnum`] - Define enums for `PostgreSQL` (text, integer, or native ENUM)
 
-//! - [`PostgresIndex`] - Define indexes on PostgreSQL tables
+//! - [`PostgresIndex`] - Define indexes on `PostgreSQL` tables
 //! - [`PostgresSchema`] - Derive macro to group tables and indexes into a schema
 //!
 //! ### Shared
@@ -72,7 +72,7 @@
 //! #          pub use drizzle_core::*;
 //! #      }
 //! #  }
-//! #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+//! #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 //! # fn main() {
 //! use drizzle::sqlite::prelude::*;
 //!
@@ -92,6 +92,14 @@
 //! ```
 //!
 //! For more detailed documentation, see the individual macro documentation below.
+
+// Rationale for crate-level clippy allow:
+//   `too_many_lines`: this crate is dominated by proc-macro code-generation
+//   functions built around a single cohesive `quote!` expansion. The line
+//   count reflects the size of the generated code, not the algorithmic
+//   complexity of the function — splitting them produces indirection without
+//   reducing cognitive load. The 100-line clippy default is a poor proxy here.
+#![allow(clippy::too_many_lines)]
 
 extern crate proc_macro;
 
@@ -115,7 +123,7 @@ use syn::parse_macro_input;
 
 /// Derive macro for creating SQLite-compatible enums.
 ///
-/// This macro allows enums to be stored in SQLite databases as either TEXT (variant names)
+/// This macro allows enums to be stored in `SQLite` databases as either TEXT (variant names)
 /// or INTEGER (discriminant values) depending on the column attribute used.
 ///
 /// The enum can be used with `#[column(enum)]` or `#[column(integer, enum)]` column attributes.
@@ -177,7 +185,7 @@ use syn::parse_macro_input;
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -251,7 +259,7 @@ use syn::parse_macro_input;
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -318,9 +326,9 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Define a SQLite table schema with type-safe column definitions.
+/// Define a `SQLite` table schema with type-safe column definitions.
 ///
-/// This attribute macro transforms a Rust struct into a complete SQLite table definition
+/// This attribute macro transforms a Rust struct into a complete `SQLite` table definition
 /// with generated types for INSERT, SELECT, and UPDATE operations.
 ///
 /// See [SQLite CREATE TABLE documentation](https://sqlite.org/lang_createtable.html) for
@@ -328,7 +336,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// # Table Attributes
 ///
-/// - `name = "table_name"` - Custom table name (defaults to struct name in snake_case)
+/// - `name = "table_name"` - Custom table name (defaults to struct name in `snake_case`)
 /// - `strict` - Enable [SQLite STRICT mode](https://sqlite.org/stricttables.html)  
 /// - `without_rowid` - Create a [WITHOUT ROWID table](https://sqlite.org/withoutrowid.html)
 ///
@@ -404,7 +412,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -476,7 +484,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -543,7 +551,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # #[cfg(feature = "serde")]
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
@@ -624,7 +632,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -704,7 +712,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -727,19 +735,19 @@ pub fn SQLiteTable(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::DeriveInput);
     let attr_result = syn::parse_macro_input!(attr as crate::sqlite::table::TableAttributes);
 
-    match crate::sqlite::table::table_attr_macro(input, attr_result) {
+    match crate::sqlite::table::table_attr_macro(&input, &attr_result) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
 }
 
-/// Attribute macro for defining SQLite views.
+/// Attribute macro for defining `SQLite` views.
 ///
 /// This macro generates a typed view schema with column accessors and view metadata.
 ///
 /// # Attributes
 ///
-/// - `name/NAME = "view_name"` - Optional view name (defaults to struct name in snake_case)
+/// - `name/NAME = "view_name"` - Optional view name (defaults to struct name in `snake_case`)
 /// - `definition/DEFINITION = "SELECT ..."` - View definition SQL
 /// - `existing/EXISTING` - Mark view as existing (skip creation)
 #[cfg(feature = "sqlite")]
@@ -749,13 +757,13 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::DeriveInput);
     let attr_result = syn::parse_macro_input!(attr as crate::sqlite::view::ViewAttributes);
 
-    match crate::sqlite::view::view_attr_macro(input, attr_result) {
+    match crate::sqlite::view::view_attr_macro(&input, &attr_result) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
 }
 
-/// Attribute macro for creating SQLite indexes.
+/// Attribute macro for creating `SQLite` indexes.
 ///
 /// This macro generates SQLite-specific index definitions for columns in your tables.
 /// Indexes improve query performance when filtering or sorting by the indexed columns.
@@ -816,7 +824,7 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -889,7 +897,7 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -955,7 +963,7 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -977,7 +985,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::DeriveInput);
     let attr_input = syn::parse_macro_input!(attr as crate::sqlite::index::IndexAttributes);
 
-    match crate::sqlite::index::sqlite_index_attr_macro(attr_input, input) {
+    match crate::sqlite::index::sqlite_index_attr_macro(attr_input, &input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
@@ -985,7 +993,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Automatically implements row-to-struct conversion for database result types.
 ///
-/// This derive macro generates `TryFrom` implementations for all enabled SQLite database
+/// This derive macro generates `TryFrom` implementations for all enabled `SQLite` database
 /// drivers, allowing seamless conversion from database rows to Rust structs.
 ///
 /// # Supported Drivers
@@ -999,7 +1007,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// The macro automatically handles type conversion for:
 ///
-/// | Rust Type | SQLite Type | Notes |
+/// | Rust Type | `SQLite` Type | Notes |
 /// |-----------|-------------|-------|
 /// | `i8`, `i16`, `i32`, `i64` | INTEGER | Auto-converts from i64 |
 /// | `u8`, `u16`, `u32`, `u64` | INTEGER | Auto-converts from i64 |
@@ -1076,7 +1084,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -1142,7 +1150,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 /// use drizzle_macros::{SQLiteTable, SQLiteFromRow};
@@ -1228,7 +1236,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -1291,7 +1299,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// # #[cfg(feature = "uuid")]
 /// # {
@@ -1356,7 +1364,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// // This example requires serde feature and specific rusqlite version compatibility
 /// use drizzle::sqlite::prelude::*;
@@ -1428,7 +1436,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -1443,15 +1451,15 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
 
-    match crate::fromrow::generate_sqlite_from_row_impl(input) {
+    match crate::fromrow::generate_sqlite_from_row_impl(&input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
 }
 
-/// Automatically implements row-to-struct conversion for PostgreSQL database drivers.
+/// Automatically implements row-to-struct conversion for `PostgreSQL` database drivers.
 ///
-/// This derive macro generates `TryFrom` implementations for PostgreSQL database
+/// This derive macro generates `TryFrom` implementations for `PostgreSQL` database
 /// drivers, allowing seamless conversion from database rows to Rust structs.
 ///
 /// # Supported Drivers
@@ -1509,7 +1517,7 @@ pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # #[cfg(feature = "postgres")]
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
@@ -1527,7 +1535,7 @@ pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
 pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
 
-    match crate::fromrow::generate_postgres_from_row_impl(input) {
+    match crate::fromrow::generate_postgres_from_row_impl(&input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
@@ -1594,7 +1602,7 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -1663,7 +1671,7 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -1737,7 +1745,7 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -1761,7 +1769,7 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 pub fn sqlite_schema_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
 
-    match crate::sqlite::schema::generate_sqlite_schema_derive_impl(input) {
+    match crate::sqlite::schema::generate_sqlite_schema_derive_impl(&input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
@@ -1772,7 +1780,7 @@ pub fn sqlite_schema_derive(input: TokenStream) -> TokenStream {
 pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
 
-    match crate::postgres::generate_postgres_schema_derive_impl(input) {
+    match crate::postgres::generate_postgres_schema_derive_impl(&input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
@@ -1841,7 +1849,7 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sql;
 /// use drizzle::sqlite::prelude::*;
@@ -1912,7 +1920,7 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sql;
 /// use drizzle::sqlite::prelude::*;
@@ -1982,7 +1990,7 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -2047,7 +2055,7 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -2121,7 +2129,7 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -2199,7 +2207,7 @@ pub fn sql(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// let _: Vec<drizzle::migrations::Migration> = drizzle::include_migrations!("./drizzle");
 /// # }
@@ -2213,355 +2221,51 @@ pub fn include_migrations(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Generates test functions for all enabled SQLite drivers.
+/// Attribute-style integration test macro with dependency injection.
 ///
-/// This macro creates separate test functions for rusqlite, libsql, and turso drivers,
-/// each with proper async/sync handling and driver-specific setup.
+/// Apply to a plain `fn` whose signature declares the two resources needed:
+/// `db` (the driver-bound test handle) and `schema` (the schema instance).
+/// The macro expands into per-driver test modules: one gated on each enabled
+/// driver feature (`rusqlite`, `libsql`, `turso`, `postgres-sync`,
+/// `tokio-postgres`). Body-local helper macros (`drizzle_exec!`,
+/// `drizzle_try!`, `drizzle_tx!`, `drizzle_assert_eq!`, etc.) are injected
+/// into the scope so sync and async drivers share a single test body.
 ///
-/// # Syntax
+/// # Dialect selection
 ///
-/// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
-/// # fn main() {
-/// sqlite_test!(test_name, SchemaType, {
-///     // Test body - uses `db` and `schema` variables
-///     let SchemaType { my_table } = schema;
-///     let result = drizzle_exec!(db.insert(my_table).values([data]).execute());
-///     assert_eq!(result, 1);
-/// });
-/// # }
+/// - `#[drizzle::test]` — dialect is auto-detected from the call-site file
+///   path: tests living under a `sqlite` directory emit `SQLite` drivers,
+///   tests under a `postgres` directory emit `PostgreSQL` drivers. If the
+///   path is ambiguous, the macro emits a compile error asking for an
+///   explicit override.
+/// - `#[drizzle::test(sqlite)]` — force `SQLite` driver expansion.
+/// - `#[drizzle::test(postgres)]` — force `PostgreSQL` driver expansion.
+///
+/// # Signature requirements
+///
+/// ```ignore
+/// #[drizzle::test]
+/// fn my_test(db: &mut TestDb<MySchema>, schema: MySchema) {
+///     let MySchema { users } = schema;
+///     drizzle_exec!(db.insert(users).values([/* ... */]) => execute);
+/// }
 /// ```
 ///
-/// # Generated Functions
-///
-/// For a test named `my_test`, this generates:
-/// - `my_test_rusqlite()` - Sync test for rusqlite (when `rusqlite` feature enabled)
-/// - `my_test_libsql()` - Async test for libsql (when `libsql` feature enabled)
-/// - `my_test_turso()` - Async test for turso (when `turso` feature enabled)
-///
-/// # Available Macros in Test Body
-///
-/// - `drizzle_exec!(operation)` - Execute operation with proper async/sync handling
-/// - `drizzle_try!(operation)` - Try operation, returns early on error
-/// - `drizzle_tx!(tx_type, { body })` - Execute transaction with proper async/sync handling
-///
-/// # Variables Available in Test Body
-///
-/// - `db` - The Drizzle instance for the current driver
-/// - `schema` - The schema instance with all tables
-/// - `tx` - The transaction instance (within `drizzle_tx!` blocks)
-///
-/// # Example
-///
-/// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
-/// # fn main() {
-/// use drizzle::sqlite::prelude::*;
-///
-/// #[SQLiteTable(name = "users")]
-/// struct Users {
-///     #[column(primary, autoincrement)]
-///     id: i32,
-///     name: String,
-/// }
-///
-/// #[derive(SQLiteSchema)]
-/// struct TestSchema {
-///     users: Users,
-/// }
-///
-/// sqlite_test!(insert_and_select, TestSchema, {
-///     let TestSchema { users } = schema;
-///
-///     // Insert a user
-///     drizzle_exec!(db.insert(users)
-///         .values([InsertUsers::new("Alice")])
-///         .execute());
-///
-///     // Select all users
-///     let results: Vec<SelectUsers> = drizzle_exec!(
-///         db.select(()).from(users).all()
-///     );
-///
-///     assert_eq!(results.len(), 1);
-///     assert_eq!(results[0].name, "Alice");
-/// });
-/// # }
-/// ```
-#[proc_macro]
-pub fn sqlite_test(input: TokenStream) -> TokenStream {
-    crate::drizzle_test::drizzle_test_impl(input)
-}
-
-/// Generates test functions for all enabled PostgreSQL drivers.
-///
-/// This macro creates separate test functions for PostgreSQL drivers (postgres-sync, tokio-postgres),
-/// each with proper async/sync handling and driver-specific setup.
-///
-/// # Syntax
-///
-/// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
-/// # fn main() {
-/// postgres_test!(test_name, SchemaType, {
-///     // Test body - uses `db` and `schema` variables
-///     let SchemaType { my_table } = schema;
-///     let result = drizzle_exec!(db.insert(my_table).values([data]).execute());
-///     assert_eq!(result, 1);
-/// });
-/// # }
-/// ```
-///
-/// # Generated Functions
-///
-/// For a test named `my_test`, this generates:
-/// - `my_test_postgres_sync()` - Sync test for postgres (when `postgres-sync` feature enabled)
-///
-/// # Available Macros in Test Body
-///
-/// - `drizzle_exec!(operation)` - Execute operation with proper async/sync handling
-/// - `drizzle_try!(operation)` - Try operation, returns early on error
-/// - `drizzle_tx!(tx_type, { body })` - Execute transaction with proper async/sync handling
-///
-/// # Variables Available in Test Body
-///
-/// - `db` - The Drizzle instance for the current driver
-/// - `schema` - The schema instance with all tables
-/// - `tx` - The transaction instance (within `drizzle_tx!` blocks)
-///
-/// # Example
-///
-/// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
-/// # fn main() {
-/// # #[cfg(feature = "postgres")]
-/// # {
-/// use drizzle::postgres::prelude::*;
-///
-/// #[PostgresTable(name = "users")]
-/// struct Users {
-///     #[column(serial, primary)]
-///     id: i32,
-///     name: String,
-/// }
-///
-/// #[derive(PostgresSchema)]
-/// struct TestSchema {
-///     users: Users,
-/// }
-///
-/// postgres_test!(insert_and_select, TestSchema, {
-///     let TestSchema { users } = schema;
-///
-///     // Insert a user
-///     drizzle_exec!(db.insert(users)
-///         .values([InsertUsers::new("Alice")])
-///         .execute());
-///
-///     // Select all users
-///     let results: Vec<SelectUsers> = drizzle_exec!(
-///         db.select(()).from(users).all()
-///     );
-///
-///     assert_eq!(results.len(), 1);
-///     assert_eq!(results[0].name, "Alice");
-/// });
-/// # }
-/// # }
-/// ```
-#[proc_macro]
-pub fn postgres_test(input: TokenStream) -> TokenStream {
-    crate::drizzle_test::postgres_test_impl(input)
+/// - Function must be synchronous; async operations flow through the
+///   injected `drizzle_exec!` / `drizzle_try!` / `drizzle_tx!` macros.
+/// - First parameter must be named `db` and the second `schema`. Both
+///   parameter forms are honored: `&mut TestDb<S>`, `&TestDb<S>`,
+///   `mut TestDb<S>`, and owned `TestDb<S>` all produce appropriate
+///   local bindings in each generated driver test.
+#[proc_macro_attribute]
+pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
+    crate::drizzle_test::attribute_impl(args, item)
 }
 
 /// Derive macro for creating PostgreSQL-compatible enums.
 ///
-/// This macro provides PostgreSQL enum support in two storage modes:
-/// - **Native ENUM** (default) - Uses a PostgreSQL enum type with `#[column(enum)]`
+/// This macro provides `PostgreSQL` enum support in two storage modes:
+/// - **Native ENUM** (default) - Uses a `PostgreSQL` enum type with `#[column(enum)]`
 /// - **INTEGER** - Uses INTEGER storage when the enum has an integer repr
 ///   (for example `#[repr(i32)]`), also with `#[column(enum)]`
 ///
@@ -2573,7 +2277,7 @@ pub fn postgres_test(input: TokenStream) -> TokenStream {
 ///
 /// # Examples
 ///
-/// ## Native PostgreSQL ENUM Type (Default)
+/// ## Native `PostgreSQL` ENUM Type (Default)
 ///
 /// ```rust,no_run
 /// # extern crate self as drizzle;
@@ -2622,7 +2326,7 @@ pub fn postgres_test(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
@@ -2693,7 +2397,7 @@ pub fn postgres_test(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
@@ -2757,9 +2461,9 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Define a PostgreSQL table schema with type-safe column definitions.
+/// Define a `PostgreSQL` table schema with type-safe column definitions.
 ///
-/// This attribute macro transforms a Rust struct into a complete PostgreSQL table definition
+/// This attribute macro transforms a Rust struct into a complete `PostgreSQL` table definition
 /// with generated types for INSERT, SELECT, and UPDATE operations.
 ///
 /// See [PostgreSQL CREATE TABLE documentation](https://www.postgresql.org/docs/current/sql-createtable.html) for
@@ -2767,7 +2471,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// # Table Attributes
 ///
-/// - `name = "table_name"` - Custom table name (defaults to struct name in snake_case)
+/// - `name = "table_name"` - Custom table name (defaults to struct name in `snake_case`)
 /// - `unlogged` - Create UNLOGGED table for better performance  
 /// - `temporary` - Create TEMPORARY table
 /// - `if_not_exists` - Add IF NOT EXISTS clause
@@ -2793,7 +2497,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// - `references = Table::column` - Foreign key reference
 ///
 /// Note: For `#[derive(PostgresEnum)]`, storage is:
-/// - Native PostgreSQL ENUM by default
+/// - Native `PostgreSQL` ENUM by default
 /// - INTEGER when the enum has an integer repr (`#[repr(i32)]`, etc.)
 ///
 /// # Examples
@@ -2847,7 +2551,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
@@ -2917,7 +2621,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
@@ -3000,7 +2704,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # #[cfg(feature = "serde")]
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
@@ -3043,19 +2747,19 @@ pub fn PostgresTable(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::DeriveInput);
     let attr_result = syn::parse_macro_input!(attr as crate::postgres::table::TableAttributes);
 
-    match crate::postgres::table::table_attr_macro(input, attr_result) {
+    match crate::postgres::table::table_attr_macro(&input, &attr_result) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
 }
 
-/// Attribute macro for defining PostgreSQL views.
+/// Attribute macro for defining `PostgreSQL` views.
 ///
 /// This macro generates a typed view schema with column accessors and view metadata.
 ///
 /// # Attributes
 ///
-/// - `name/NAME = "view_name"` - Optional view name (defaults to struct name in snake_case)
+/// - `name/NAME = "view_name"` - Optional view name (defaults to struct name in `snake_case`)
 /// - `schema/SCHEMA = "schema_name"` - Optional schema (defaults to public)
 /// - `definition/DEFINITION = "SELECT ..."` - View definition SQL
 /// - `materialized/MATERIALIZED` - Mark as materialized view
@@ -3071,16 +2775,16 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::DeriveInput);
     let attr_result = syn::parse_macro_input!(attr as crate::postgres::view::ViewAttributes);
 
-    match crate::postgres::view::view_attr_macro(input, attr_result) {
+    match crate::postgres::view::view_attr_macro(&input, &attr_result) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
 }
 
-/// Attribute macro for creating PostgreSQL indexes.
+/// Attribute macro for creating `PostgreSQL` indexes.
 ///
 /// This macro generates PostgreSQL-specific index definitions with support for
-/// various PostgreSQL index features.
+/// various `PostgreSQL` index features.
 ///
 /// # Attributes
 ///
@@ -3138,7 +2842,7 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
@@ -3209,7 +2913,7 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #          pub use drizzle_core::*;
 /// #      }
 /// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations, sqlite_test, postgres_test}; pub use const_format;
+/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
@@ -3232,7 +2936,7 @@ pub fn PostgresIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::DeriveInput);
     let attr_input = syn::parse_macro_input!(attr as crate::postgres::index::IndexAttributes);
 
-    match crate::postgres::index::postgres_index_attr_macro(attr_input, input) {
+    match crate::postgres::index::postgres_index_attr_macro(&attr_input, &input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }

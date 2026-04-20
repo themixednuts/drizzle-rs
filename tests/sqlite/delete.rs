@@ -4,7 +4,6 @@ use crate::common::schema::sqlite::{InsertComplex, Role, SimpleComplexSchema};
 use crate::common::schema::sqlite::{InsertSimple, SelectSimple, Simple, SimpleSchema};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
@@ -18,7 +17,8 @@ struct ComplexResult {
     age: Option<i32>,
 }
 
-sqlite_test!(simple_delete, SimpleSchema, {
+#[drizzle::test]
+fn simple_delete(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert test records
@@ -61,10 +61,11 @@ sqlite_test!(simple_delete, SimpleSchema, {
     );
 
     assert_eq!(deleted_results.len(), 0);
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(feature_gated_delete, SimpleComplexSchema, {
+#[drizzle::test]
+fn feature_gated_delete(db: &mut TestDb<SimpleComplexSchema>, schema: SimpleComplexSchema) {
     let SimpleComplexSchema { complex, .. } = schema;
 
     // Insert test records with UUIDs
@@ -121,4 +122,4 @@ sqlite_test!(feature_gated_delete, SimpleComplexSchema, {
     );
 
     drizzle_assert_eq!(0, deleted_results.len());
-});
+}

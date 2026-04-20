@@ -8,10 +8,10 @@
 use crate::common::schema::postgres::*;
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 
 // Test queries that would benefit from indexes
-postgres_test!(query_by_name_column, SimpleSchema, {
+#[drizzle::test]
+fn query_by_name_column(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
@@ -30,10 +30,11 @@ postgres_test!(query_by_name_column, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Bob");
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(query_by_nullable_column, ComplexSchema, {
+#[drizzle::test]
+fn query_by_nullable_column(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     // Insert rows with and without email
@@ -61,9 +62,10 @@ postgres_test!(query_by_nullable_column, ComplexSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "With Email");
-});
+}
 
-postgres_test!(query_large_dataset, SimpleSchema, {
+#[drizzle::test]
+fn query_large_dataset(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert many rows
@@ -84,4 +86,4 @@ postgres_test!(query_large_dataset, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "User_025");
-});
+}

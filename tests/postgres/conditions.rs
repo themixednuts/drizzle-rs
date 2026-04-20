@@ -5,7 +5,6 @@
 use crate::common::schema::postgres::*;
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 
 #[allow(dead_code)]
 #[cfg(feature = "uuid")]
@@ -18,7 +17,8 @@ struct PgComplexResult {
     active: bool,
 }
 
-postgres_test!(condition_eq, SimpleSchema, {
+#[drizzle::test]
+fn condition_eq(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -34,9 +34,10 @@ postgres_test!(condition_eq, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
-});
+}
 
-postgres_test!(condition_neq, SimpleSchema, {
+#[drizzle::test]
+fn condition_neq(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -52,10 +53,11 @@ postgres_test!(condition_neq, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Bob");
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(condition_gt_lt, ComplexSchema, {
+#[drizzle::test]
+fn condition_gt_lt(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     let stmt = db.insert(complex).values([
@@ -84,9 +86,10 @@ postgres_test!(condition_gt_lt, ComplexSchema, {
     let stmt = db.select(()).from(complex).r#where(lte(complex.age, 40));
     let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
-});
+}
 
-postgres_test!(condition_in_array, SimpleSchema, {
+#[drizzle::test]
+fn condition_in_array(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
@@ -107,9 +110,10 @@ postgres_test!(condition_in_array, SimpleSchema, {
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
     assert!(names.contains(&"Alice"));
     assert!(names.contains(&"Charlie"));
-});
+}
 
-postgres_test!(condition_not_in_array, SimpleSchema, {
+#[drizzle::test]
+fn condition_not_in_array(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
@@ -129,10 +133,11 @@ postgres_test!(condition_not_in_array, SimpleSchema, {
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
     assert!(names.contains(&"Bob"));
     assert!(names.contains(&"Charlie"));
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(condition_is_null, ComplexSchema, {
+#[drizzle::test]
+fn condition_is_null(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     // Separate inserts due to type state differences
@@ -151,10 +156,11 @@ postgres_test!(condition_is_null, ComplexSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "No Email");
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(condition_is_not_null, ComplexSchema, {
+#[drizzle::test]
+fn condition_is_not_null(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     // Separate inserts due to type state differences
@@ -176,9 +182,10 @@ postgres_test!(condition_is_not_null, ComplexSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "With Email");
-});
+}
 
-postgres_test!(condition_like, SimpleSchema, {
+#[drizzle::test]
+fn condition_like(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
@@ -203,10 +210,11 @@ postgres_test!(condition_like, SimpleSchema, {
         .r#where(like(simple.name, "%o%"));
     let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 3); // test_one, test_two, other all contain 'o'
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(condition_between, ComplexSchema, {
+#[drizzle::test]
+fn condition_between(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     let stmt = db.insert(complex).values([
@@ -227,10 +235,11 @@ postgres_test!(condition_between, ComplexSchema, {
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
     assert!(names.contains(&"Young"));
     assert!(names.contains(&"Adult"));
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(condition_and, ComplexSchema, {
+#[drizzle::test]
+fn condition_and(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     let stmt = db.insert(complex).values([
@@ -248,10 +257,11 @@ postgres_test!(condition_and, ComplexSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Active Young");
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(condition_or, ComplexSchema, {
+#[drizzle::test]
+fn condition_or(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     let stmt = db.insert(complex).values([
@@ -271,10 +281,11 @@ postgres_test!(condition_or, ComplexSchema, {
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
     assert!(names.contains(&"Admin"));
     assert!(names.contains(&"Moderator"));
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(condition_nested_and_or, ComplexSchema, {
+#[drizzle::test]
+fn condition_nested_and_or(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     let stmt = db.insert(complex).values([
@@ -297,10 +308,11 @@ postgres_test!(condition_nested_and_or, ComplexSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Active Admin");
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(condition_not, ComplexSchema, {
+#[drizzle::test]
+fn condition_not(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     let stmt = db.insert(complex).values([
@@ -317,4 +329,4 @@ postgres_test!(condition_not, ComplexSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Inactive");
-});
+}

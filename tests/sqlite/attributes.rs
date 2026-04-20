@@ -3,7 +3,6 @@
 
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -215,7 +214,8 @@ struct NullableTestSchema {
     nullable_test: NullableTest,
 }
 
-sqlite_test!(test_all_column_types, AllTypesSchema, {
+#[drizzle::test]
+fn test_all_column_types(db: &mut TestDb<AllTypesSchema>, schema: AllTypesSchema) {
     let all_types = schema.all_types;
 
     // Test insertion with all column types
@@ -223,39 +223,43 @@ sqlite_test!(test_all_column_types, AllTypesSchema, {
 
     let result = drizzle_exec!(db.insert(all_types).values([test_data]) => execute);
     assert_eq!(result, 1);
-});
+}
 
-sqlite_test!(
-    test_primary_key_autoincrement,
-    PrimaryKeyVariationsSchema,
-    {
-        let pk_table = schema.pk_variations;
+#[drizzle::test]
+fn test_primary_key_autoincrement(
+    db: &mut TestDb<PrimaryKeyVariationsSchema>,
+    schema: PrimaryKeyVariationsSchema,
+) {
+    let pk_table = schema.pk_variations;
 
-        // Insert multiple records to test autoincrement
-        let data1 = InsertPrimaryKeyVariations::new("first");
-        let data2 = InsertPrimaryKeyVariations::new("second");
+    // Insert multiple records to test autoincrement
+    let data1 = InsertPrimaryKeyVariations::new("first");
+    let data2 = InsertPrimaryKeyVariations::new("second");
 
-        drizzle_exec!(db.insert(pk_table).values([data1]) => execute);
-        drizzle_exec!(db.insert(pk_table).values([data2]) => execute);
+    drizzle_exec!(db.insert(pk_table).values([data1]) => execute);
+    drizzle_exec!(db.insert(pk_table).values([data2]) => execute);
 
-        // Verify autoincrement worked using unified approach
-        let select_query = db
-            .select((pk_table.auto_id, pk_table.name))
-            .from(pk_table)
-            .order_by(pk_table.auto_id);
+    // Verify autoincrement worked using unified approach
+    let select_query = db
+        .select((pk_table.auto_id, pk_table.name))
+        .from(pk_table)
+        .order_by(pk_table.auto_id);
 
-        #[derive(SQLiteFromRow, Debug, PartialEq)]
-        struct ReturnResult(i32, String);
+    #[derive(SQLiteFromRow, Debug, PartialEq)]
+    struct ReturnResult(i32, String);
 
-        let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
+    let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
 
-        assert_eq!(results.len(), 2);
-        assert_eq!(results[0], ReturnResult(1, "first".to_string()));
-        assert_eq!(results[1], ReturnResult(2, "second".to_string()));
-    }
-);
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0], ReturnResult(1, "first".to_string()));
+    assert_eq!(results[1], ReturnResult(2, "second".to_string()));
+}
 
-sqlite_test!(test_manual_primary_key, ManualPrimaryKeySchema, {
+#[drizzle::test]
+fn test_manual_primary_key(
+    db: &mut TestDb<ManualPrimaryKeySchema>,
+    schema: ManualPrimaryKeySchema,
+) {
     let manual_pk = schema.manual_pk;
 
     let data = InsertManualPrimaryKey::new("custom_id_123", "Test description");
@@ -277,9 +281,10 @@ sqlite_test!(test_manual_primary_key, ManualPrimaryKeySchema, {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, "custom_id_123");
     assert_eq!(results[0].1, "Test description");
-});
+}
 
-sqlite_test!(test_unique_constraints, UniqueFieldsSchema, {
+#[drizzle::test]
+fn test_unique_constraints(db: &mut TestDb<UniqueFieldsSchema>, schema: UniqueFieldsSchema) {
     let unique_table = schema.unique_fields;
 
     // Insert first record
@@ -295,9 +300,13 @@ sqlite_test!(test_unique_constraints, UniqueFieldsSchema, {
 
     let result2 = drizzle_try!(db.insert(unique_table).values([data2]).execute());
     assert!(result2.is_err()); // Should fail due to unique constraint
-});
+}
 
-sqlite_test!(test_compile_time_defaults, CompileTimeDefaultsSchema, {
+#[drizzle::test]
+fn test_compile_time_defaults(
+    db: &mut TestDb<CompileTimeDefaultsSchema>,
+    schema: CompileTimeDefaultsSchema,
+) {
     let defaults_table = schema.compile_defaults;
 
     // Insert with minimal data - defaults should be used
@@ -328,9 +337,10 @@ sqlite_test!(test_compile_time_defaults, CompileTimeDefaultsSchema, {
     assert!((results[0].2 - 3.14).abs() < f64::EPSILON);
     assert!(results[0].3);
     assert_eq!(results[0].4, "pending");
-});
+}
 
-sqlite_test!(test_runtime_defaults, RuntimeDefaultsSchema, {
+#[drizzle::test]
+fn test_runtime_defaults(db: &mut TestDb<RuntimeDefaultsSchema>, schema: RuntimeDefaultsSchema) {
     let RuntimeDefaultsSchema { runtime_defaults } = schema;
 
     // Insert with minimal data - runtime defaults should be used
@@ -357,9 +367,10 @@ sqlite_test!(test_runtime_defaults, RuntimeDefaultsSchema, {
     assert_eq!(results[0].0, ""); // String::new() returns empty string
     assert_eq!(results[0].1, 100); // Closure returns 100
     assert_eq!(results[0].2, "test");
-});
+}
 
-sqlite_test!(test_enum_storage_types, EnumFieldsSchema, {
+#[drizzle::test]
+fn test_enum_storage_types(db: &mut TestDb<EnumFieldsSchema>, schema: EnumFieldsSchema) {
     let enum_table = schema.enum_fields;
 
     // Test different enum storage types
@@ -390,11 +401,12 @@ sqlite_test!(test_enum_storage_types, EnumFieldsSchema, {
     assert_eq!(results[0].1, "InProgress"); // TaskStatus::InProgress as text
     assert_eq!(results[0].2, "integer"); // integer(enum) stores as INTEGER
     assert_eq!(results[0].3, "text"); // text(enum) stores as TEXT
-});
+}
 
 // Verify full SelectEnumFields round-trip: INTEGER enum (Priority) and TEXT enum (TaskStatus)
 // are correctly deserialized back to their Rust enum types.
-sqlite_test!(test_enum_full_round_trip, EnumFieldsSchema, {
+#[drizzle::test]
+fn test_enum_full_round_trip(db: &mut TestDb<EnumFieldsSchema>, schema: EnumFieldsSchema) {
     let enum_table = schema.enum_fields;
 
     // Insert all variants of both enums
@@ -420,10 +432,11 @@ sqlite_test!(test_enum_full_round_trip, EnumFieldsSchema, {
     assert_eq!(results[0].status, TaskStatus::Done);
     assert_eq!(results[1].status, TaskStatus::InProgress);
     assert_eq!(results[2].status, TaskStatus::Todo);
-});
+}
 
 // Verify enum WHERE conditions work with both INTEGER and TEXT storage.
-sqlite_test!(test_enum_where_conditions, EnumFieldsSchema, {
+#[drizzle::test]
+fn test_enum_where_conditions(db: &mut TestDb<EnumFieldsSchema>, schema: EnumFieldsSchema) {
     let enum_table = schema.enum_fields;
 
     let data = vec![
@@ -450,10 +463,11 @@ sqlite_test!(test_enum_where_conditions, EnumFieldsSchema, {
     );
     assert_eq!(results.len(), 2);
     assert!(results.iter().all(|r| r.status == TaskStatus::Done));
-});
+}
 
 #[cfg(feature = "serde")]
-sqlite_test!(test_json_storage_types, JsonFieldsSchema, {
+#[drizzle::test]
+fn test_json_storage_types(db: &mut TestDb<JsonFieldsSchema>, schema: JsonFieldsSchema) {
     let json_table = schema.json_fields;
 
     let json_data = JsonData {
@@ -480,10 +494,14 @@ sqlite_test!(test_json_storage_types, JsonFieldsSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, "text"); // text(json) stores as TEXT
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(test_uuid_primary_key_with_default_fn, UuidFieldsSchema, {
+#[drizzle::test]
+fn test_uuid_primary_key_with_default_fn(
+    db: &mut TestDb<UuidFieldsSchema>,
+    schema: UuidFieldsSchema,
+) {
     let uuid_table = schema.uuid_fields;
 
     // Insert without specifying UUID - default_fn should generate one
@@ -524,9 +542,10 @@ sqlite_test!(test_uuid_primary_key_with_default_fn, UuidFieldsSchema, {
 
     assert_eq!(type_results.len(), 1);
     assert_eq!(type_results[0].0, "blob"); // blob(primary) stores UUIDs as BLOB
-});
+}
 
-sqlite_test!(test_nullable_vs_non_nullable, NullableTestSchema, {
+#[drizzle::test]
+fn test_nullable_vs_non_nullable(db: &mut TestDb<NullableTestSchema>, schema: NullableTestSchema) {
     let nullable_table = schema.nullable_test;
 
     // Test 1: Insert with all required fields, no optional fields
@@ -573,7 +592,7 @@ sqlite_test!(test_nullable_vs_non_nullable, NullableTestSchema, {
     assert_eq!(results[1].0, "full");
     assert_eq!(results[1].1, Some("optional text".to_string()));
     assert_eq!(results[1].2, Some(789));
-});
+}
 
 #[test]
 fn test_schema_generation() {

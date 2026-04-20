@@ -9,7 +9,6 @@ use crate::common::schema::postgres::{
 };
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 
 #[cfg(feature = "uuid")]
 use std::array;
@@ -28,7 +27,8 @@ struct AuthorPostResult {
 }
 
 #[cfg(feature = "uuid")]
-postgres_test!(auto_fk_join, ComplexPostSchema, {
+#[drizzle::test]
+fn auto_fk_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSchema) {
     let ComplexPostSchema { complex, post, .. } = schema;
 
     let [id1, id2, id3]: [Uuid; 3] = array::from_fn(|_| Uuid::new_v4());
@@ -96,7 +96,7 @@ postgres_test!(auto_fk_join, ComplexPostSchema, {
     filtered_results.iter().for_each(|r| {
         assert_eq!(r.author_name, "alice");
     });
-});
+}
 
 #[cfg(feature = "uuid")]
 #[derive(Debug, PostgresFromRow, Default)]
@@ -108,7 +108,8 @@ struct PostCategoryResult {
 }
 
 #[cfg(feature = "uuid")]
-postgres_test!(chained_fk_join, FullBlogSchema, {
+#[drizzle::test]
+fn chained_fk_join(db: &mut TestDb<FullBlogSchema>, schema: FullBlogSchema) {
     let FullBlogSchema {
         post,
         category,
@@ -164,4 +165,4 @@ postgres_test!(chained_fk_join, FullBlogSchema, {
 
     assert_eq!(results[2].post_title, "Rust Guide");
     assert_eq!(results[2].category_name, "Tutorial");
-});
+}

@@ -9,7 +9,6 @@ use crate::common::schema::sqlite::{UserConfig, UserMetadata};
 
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::ComplexSchema;
@@ -24,7 +23,8 @@ struct ComplexResult {
     age: Option<i32>,
 }
 
-sqlite_test!(simple_select_with_conditions, SimpleSchema, {
+#[drizzle::test]
+fn simple_select_with_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
     // Insert test data
     let test_data = vec![
@@ -73,10 +73,11 @@ sqlite_test!(simple_select_with_conditions, SimpleSchema, {
     assert_eq!(offset_results.len(), 2);
     assert_eq!(offset_results[0].name, "delta");
     assert_eq!(offset_results[1].name, "gamma");
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(complex_select_with_conditions, ComplexSchema, {
+#[drizzle::test]
+fn complex_select_with_conditions(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
     // Insert test data with different ages
     #[cfg(not(feature = "uuid"))]
@@ -135,10 +136,11 @@ sqlite_test!(complex_select_with_conditions, ComplexSchema, {
     assert_eq!(range_results.len(), 1);
     assert_eq!(range_results[0].name, "middle");
     assert_eq!(range_results[0].age, Some(35));
-});
+}
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-sqlite_test!(feature_gated_select, ComplexSchema, {
+#[drizzle::test]
+fn feature_gated_select(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
 
     // Insert Complex record with feature-gated fields
@@ -179,4 +181,4 @@ sqlite_test!(feature_gated_select, ComplexSchema, {
 
     assert_eq!(metadata_results.len(), 1);
     assert_eq!(metadata_results[0].name, "feature_user");
-});
+}

@@ -6,7 +6,6 @@ use crate::common::schema::sqlite::{Complex, InsertComplex, InsertPost, Post};
 use crate::common::schema::sqlite::{InsertSimple, Simple};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 
 use crate::common::schema::sqlite::SimpleSchema;
 #[cfg(feature = "uuid")]
@@ -50,7 +49,8 @@ impl drizzle::core::Tag for AliasP {
     const NAME: &'static str = "p";
 }
 
-sqlite_test!(basic_table_alias, SimpleSchema, {
+#[drizzle::test]
+fn basic_table_alias(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -72,9 +72,10 @@ sqlite_test!(basic_table_alias, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "bob");
-});
+}
 
-sqlite_test!(table_alias_with_conditions, SimpleSchema, {
+#[drizzle::test]
+fn table_alias_with_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -96,10 +97,11 @@ sqlite_test!(table_alias_with_conditions, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test2");
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(self_join_with_aliases, ComplexSchema, {
+#[drizzle::test]
+fn self_join_with_aliases(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     // Insert test data with same email domain
@@ -138,10 +140,11 @@ sqlite_test!(self_join_with_aliases, ComplexSchema, {
         .collect();
     assert!(names.contains(&"user1".to_string()));
     assert!(names.contains(&"user2".to_string()));
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(multiple_table_aliases_join, ComplexPostSchema, {
+#[drizzle::test]
+fn multiple_table_aliases_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSchema) {
     let ComplexPostSchema { complex, post } = schema;
 
     // Insert test users
@@ -181,9 +184,10 @@ sqlite_test!(multiple_table_aliases_join, ComplexPostSchema, {
     assert_eq!(results[0].post_title, "First Post");
     assert_eq!(results[1].user_name, "author2");
     assert_eq!(results[1].post_title, "Second Post");
-});
+}
 
-sqlite_test!(alias_with_original_table_comparison, SimpleSchema, {
+#[drizzle::test]
+fn alias_with_original_table_comparison(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -212,11 +216,12 @@ sqlite_test!(alias_with_original_table_comparison, SimpleSchema, {
 
     assert_eq!(alias_results.len(), 1);
     assert_eq!(alias_results[0].name, "aliased");
-});
+}
 
-sqlite_test!(tagged_alias_forwards_alias_metadata, SimpleSchema, {
+#[drizzle::test]
+fn tagged_alias_forwards_alias_metadata(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let tagged = Simple::alias::<AliasSimple>();
     let _base = Simple::new();
 
     assert_eq!(tagged.name(), "s_alias");
-});
+}

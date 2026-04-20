@@ -7,10 +7,10 @@
 use crate::common::schema::postgres::*;
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 
 // Test SQL generation for FOR UPDATE clause
-postgres_test!(for_update_sql_generation, SimpleSchema, {
+#[drizzle::test]
+fn for_update_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("lock_test")]) => execute);
@@ -32,10 +32,11 @@ postgres_test!(for_update_sql_generation, SimpleSchema, {
     let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "lock_test");
-});
+}
 
 // Test SQL generation for FOR SHARE clause
-postgres_test!(for_share_sql_generation, SimpleSchema, {
+#[drizzle::test]
+fn for_share_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("share_test")]) => execute);
@@ -57,10 +58,11 @@ postgres_test!(for_share_sql_generation, SimpleSchema, {
     let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "share_test");
-});
+}
 
 // Test SQL generation for FOR NO KEY UPDATE clause
-postgres_test!(for_no_key_update_sql_generation, SimpleSchema, {
+#[drizzle::test]
+fn for_no_key_update_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("nku_test")]) => execute);
@@ -82,10 +84,11 @@ postgres_test!(for_no_key_update_sql_generation, SimpleSchema, {
     let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "nku_test");
-});
+}
 
 // Test SQL generation for FOR KEY SHARE clause
-postgres_test!(for_key_share_sql_generation, SimpleSchema, {
+#[drizzle::test]
+fn for_key_share_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("ks_test")]) => execute);
@@ -107,10 +110,11 @@ postgres_test!(for_key_share_sql_generation, SimpleSchema, {
     let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "ks_test");
-});
+}
 
 // Test SQL generation for FOR UPDATE with NOWAIT
-postgres_test!(for_update_nowait_sql_generation, SimpleSchema, {
+#[drizzle::test]
+fn for_update_nowait_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("nowait_test")]) => execute);
@@ -134,10 +138,11 @@ postgres_test!(for_update_nowait_sql_generation, SimpleSchema, {
     let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "nowait_test");
-});
+}
 
 // Test SQL generation for FOR UPDATE with SKIP LOCKED
-postgres_test!(for_update_skip_locked_sql_generation, SimpleSchema, {
+#[drizzle::test]
+fn for_update_skip_locked_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("skip_test")]) => execute);
@@ -165,10 +170,11 @@ postgres_test!(for_update_skip_locked_sql_generation, SimpleSchema, {
     let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "skip_test");
-});
+}
 
 // Test SQL generation for FOR UPDATE OF table
-postgres_test!(for_update_of_sql_generation, SimpleSchema, {
+#[drizzle::test]
+fn for_update_of_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("of_test")]) => execute);
@@ -196,10 +202,11 @@ postgres_test!(for_update_of_sql_generation, SimpleSchema, {
     let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "of_test");
-});
+}
 
 // Test SQL generation for FOR SHARE OF table
-postgres_test!(for_share_of_sql_generation, SimpleSchema, {
+#[drizzle::test]
+fn for_share_of_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("share_of_test")]) => execute);
@@ -227,10 +234,11 @@ postgres_test!(for_share_of_sql_generation, SimpleSchema, {
     let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "share_of_test");
-});
+}
 
 // Test FOR UPDATE from different states (FROM, WHERE, ORDER BY)
-postgres_test!(for_update_from_different_states, SimpleSchema, {
+#[drizzle::test]
+fn for_update_from_different_states(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -280,10 +288,11 @@ postgres_test!(for_update_from_different_states, SimpleSchema, {
     assert!(sql.contains("FOR UPDATE"));
     let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
     assert_eq!(results.len(), 2);
-});
+}
 
 // Test actual execution of FOR UPDATE (locks rows)
-postgres_test!(for_update_execution, SimpleSchema, {
+#[drizzle::test]
+fn for_update_execution(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -301,4 +310,4 @@ postgres_test!(for_update_execution, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test_lock");
-});
+}

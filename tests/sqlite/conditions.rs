@@ -7,7 +7,6 @@ use drizzle::core::expr::*;
 #[cfg(feature = "serde")]
 use drizzle::sqlite::expr::json_extract;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 
 #[cfg(feature = "serde")]
 #[derive(Debug, SQLiteFromRow)]
@@ -20,7 +19,8 @@ struct ConcatResult {
     concat: String,
 }
 
-sqlite_test!(test_basic_comparison_conditions, SimpleSchema, {
+#[drizzle::test]
+fn test_basic_comparison_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
     let test_data = vec![
         InsertSimple::new("Item A").with_id(1),
@@ -68,9 +68,10 @@ sqlite_test!(test_basic_comparison_conditions, SimpleSchema, {
     let result: Vec<SelectSimple> =
         drizzle_exec!(db.select(()).from(simple).r#where(lte(simple.id, 2)) => all);
     assert_eq!(result.len(), 2);
-});
+}
 
-sqlite_test!(test_in_array_conditions, SimpleSchema, {
+#[drizzle::test]
+fn test_in_array_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -107,10 +108,11 @@ sqlite_test!(test_in_array_conditions, SimpleSchema, {
             => all
     );
     assert_eq!(result.len(), 0);
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(test_null_conditions, ComplexSchema, {
+#[drizzle::test]
+fn test_null_conditions(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
 
     // Insert data with separate operations since each has different column patterns
@@ -176,10 +178,11 @@ sqlite_test!(test_null_conditions, ComplexSchema, {
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "User C");
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(test_between_conditions, ComplexSchema, {
+#[drizzle::test]
+fn test_between_conditions(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
 
     let test_data = vec![
@@ -223,9 +226,10 @@ sqlite_test!(test_between_conditions, ComplexSchema, {
             => all
     );
     assert_eq!(result.len(), 2);
-});
+}
 
-sqlite_test!(test_like_conditions, SimpleSchema, {
+#[drizzle::test]
+fn test_like_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -272,10 +276,11 @@ sqlite_test!(test_like_conditions, SimpleSchema, {
             => all
     );
     assert_eq!(result.len(), 2);
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(test_logical_conditions, ComplexSchema, {
+#[drizzle::test]
+fn test_logical_conditions(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
 
     let test_data = vec![
@@ -329,9 +334,10 @@ sqlite_test!(test_logical_conditions, ComplexSchema, {
             => all
     );
     assert_eq!(result.len(), 2);
-});
+}
 
-sqlite_test!(test_single_condition_logical_operations, SimpleSchema, {
+#[drizzle::test]
+fn test_single_condition_logical_operations(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data - both have same pattern (both set id)
@@ -367,9 +373,10 @@ sqlite_test!(test_single_condition_logical_operations, SimpleSchema, {
     // Test no condition (get all records)
     let result: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(result.len(), 2); // No condition should return all
-});
+}
 
-sqlite_test!(test_string_operations, SimpleSchema, {
+#[drizzle::test]
+fn test_string_operations(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -389,10 +396,11 @@ sqlite_test!(test_string_operations, SimpleSchema, {
     let concats: Vec<String> = result.iter().map(|r| r.concat.clone()).collect();
     assert!(concats.contains(&"Hello - Suffix".to_string()));
     assert!(concats.contains(&"World - Suffix".to_string()));
-});
+}
 
 #[cfg(all(feature = "sqlite", feature = "serde", feature = "uuid"))]
-sqlite_test!(test_sqlite_json_conditions, ComplexSchema, {
+#[drizzle::test]
+fn test_sqlite_json_conditions(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     use crate::common::schema::sqlite::{ComplexSchema, UserMetadata};
 
     let ComplexSchema { complex } = schema;
@@ -433,9 +441,10 @@ sqlite_test!(test_sqlite_json_conditions, ComplexSchema, {
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].extract, Some("dark".to_string()));
-});
+}
 
-sqlite_test!(test_condition_edge_cases, SimpleSchema, {
+#[drizzle::test]
+fn test_condition_edge_cases(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Test").with_id(1)];
@@ -462,4 +471,4 @@ sqlite_test!(test_condition_edge_cases, SimpleSchema, {
             => all
     );
     assert_eq!(result.len(), 1);
-});
+}

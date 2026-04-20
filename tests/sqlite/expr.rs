@@ -7,7 +7,6 @@ use crate::common::schema::sqlite::{ComplexSchema, InsertComplex};
 use crate::common::schema::sqlite::{InsertSimple, SelectSimple, Simple, SimpleSchema};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 
 #[derive(Debug, SQLiteFromRow)]
 struct CountResult {
@@ -102,7 +101,8 @@ struct CoalesceAvgResult {
     coalesce: f64,
 }
 
-sqlite_test!(test_aggregate_functions, SimpleSchema, {
+#[drizzle::test]
+fn test_aggregate_functions(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -141,10 +141,14 @@ sqlite_test!(test_aggregate_functions, SimpleSchema, {
     let result: Vec<AvgResult> =
         drizzle_exec!(db.select(alias(avg(simple.id), "avg")).from(simple) => all);
     assert_eq!(result[0].avg, Some(25.0));
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(test_aggregate_functions_with_real_numbers, ComplexSchema, {
+#[drizzle::test]
+fn test_aggregate_functions_with_real_numbers(
+    db: &mut TestDb<ComplexSchema>,
+    schema: ComplexSchema,
+) {
     let ComplexSchema { complex } = schema;
 
     let test_data = vec![
@@ -195,9 +199,10 @@ sqlite_test!(test_aggregate_functions_with_real_numbers, ComplexSchema, {
             => all
     );
     assert!((result[0].max.expect("max") - 92.0).abs() < 0.1);
-});
+}
 
-sqlite_test!(test_distinct_expression, SimpleSchema, {
+#[drizzle::test]
+fn test_distinct_expression(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -229,10 +234,11 @@ sqlite_test!(test_distinct_expression, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].count, 3);
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(test_coalesce_expression, ComplexSchema, {
+#[drizzle::test]
+fn test_coalesce_expression(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
 
     // Insert data with separate operations since each has different column patterns
@@ -279,10 +285,11 @@ sqlite_test!(test_coalesce_expression, ComplexSchema, {
     assert_eq!(result.len(), 3);
     // All should be 0 since we didn't set any ages
     assert!(result.iter().all(|r| r.coalesce == 0));
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(test_coalesce_many_expression, ComplexSchema, {
+#[drizzle::test]
+fn test_coalesce_many_expression(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
 
     drizzle_exec!(
@@ -311,9 +318,10 @@ sqlite_test!(test_coalesce_many_expression, ComplexSchema, {
     let values: Vec<String> = result.iter().map(|r| r.value.clone()).collect();
     assert!(values.contains(&"user@example.com".to_string()));
     assert!(values.contains(&"no-email@example.com".to_string()));
-});
+}
 
-sqlite_test!(test_alias_expression, SimpleSchema, {
+#[drizzle::test]
+fn test_alias_expression(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Test Item").with_id(1)];
@@ -343,10 +351,11 @@ sqlite_test!(test_alias_expression, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].id_sum, Some(1));
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(test_complex_expressions, ComplexSchema, {
+#[drizzle::test]
+fn test_complex_expressions(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
 
     // Insert data with separate operations since each has different column patterns
@@ -393,10 +402,11 @@ sqlite_test!(test_complex_expressions, ComplexSchema, {
             => all
     );
     assert!((result[0].coalesce - 85.266).abs() < 0.1);
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(test_expressions_with_conditions, ComplexSchema, {
+#[drizzle::test]
+fn test_expressions_with_conditions(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
 
     let test_data = [
@@ -434,9 +444,10 @@ sqlite_test!(test_expressions_with_conditions, ComplexSchema, {
             => all
     );
     assert!((result[0].max.expect("max") - 88.7).abs() < 0.1);
-});
+}
 
-sqlite_test!(test_aggregate_with_empty_result, SimpleSchema, {
+#[drizzle::test]
+fn test_aggregate_with_empty_result(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // No data inserted, test aggregate functions on empty table
@@ -452,9 +463,10 @@ sqlite_test!(test_aggregate_with_empty_result, SimpleSchema, {
     // Other aggregates on empty table should handle NULL appropriately
     // Note: Different databases handle this differently, but typically return NULL
     // which would be handled by the driver
-});
+}
 
-sqlite_test!(test_expression_edge_cases, SimpleSchema, {
+#[drizzle::test]
+fn test_expression_edge_cases(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = [
@@ -496,9 +508,10 @@ sqlite_test!(test_expression_edge_cases, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].coalesce, ""); // Empty string is not NULL, so coalesce returns it
-});
+}
 
-sqlite_test!(test_multiple_aliases, SimpleSchema, {
+#[drizzle::test]
+fn test_multiple_aliases(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = [
@@ -529,11 +542,12 @@ sqlite_test!(test_multiple_aliases, SimpleSchema, {
     assert_eq!(result[0].identifier, 1);
     assert_eq!(result[0].item_name, "Item A");
     assert_eq!(result[0].total, 1);
-});
+}
 
 // CTE tests have moved to use .into_cte() API - see test_cte_integration_* tests below
 
-sqlite_test!(test_cte_integration_simple, SimpleSchema, {
+#[drizzle::test]
+fn test_cte_integration_simple(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     struct FilteredUsersTag;
@@ -575,9 +589,10 @@ sqlite_test!(test_cte_integration_simple, SimpleSchema, {
     assert_eq!(result[0].name, "Bob");
     assert_eq!(result[1].id, 3);
     assert_eq!(result[1].name, "Charlie");
-});
+}
 
-sqlite_test!(test_cte_integration_with_aggregation, SimpleSchema, {
+#[drizzle::test]
+fn test_cte_integration_with_aggregation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     struct UserCountTag;
@@ -615,9 +630,10 @@ sqlite_test!(test_cte_integration_with_aggregation, SimpleSchema, {
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].count, 3);
-});
+}
 
-sqlite_test!(test_cte_complex_two_levels, SimpleSchema, {
+#[drizzle::test]
+fn test_cte_complex_two_levels(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     struct FilteredUsersTag;
@@ -663,9 +679,10 @@ sqlite_test!(test_cte_complex_two_levels, SimpleSchema, {
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].count, 3); // Should have 3 users with id > 2 (Charlie, David, Eve)
     assert_eq!(result[0].category, Some("Charlie".to_string()));
-});
+}
 
-sqlite_test!(test_cte_after_join, SimpleSchema, {
+#[drizzle::test]
+fn test_cte_after_join(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     struct SimpleTag;
@@ -702,9 +719,10 @@ sqlite_test!(test_cte_after_join, SimpleSchema, {
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].name, "Alpha");
     assert_eq!(results[2].name, "Gamma");
-});
+}
 
-sqlite_test!(test_cte_after_order_limit_offset, SimpleSchema, {
+#[drizzle::test]
+fn test_cte_after_order_limit_offset(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     struct PagedSimpleTag;
@@ -739,13 +757,14 @@ sqlite_test!(test_cte_after_order_limit_offset, SimpleSchema, {
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].id, 2);
     assert_eq!(results[1].id, 3);
-});
+}
 
 // =============================================================================
 // New Expression DX Tests
 // =============================================================================
 
-sqlite_test!(test_modulo_operator, SimpleSchema, {
+#[drizzle::test]
+fn test_modulo_operator(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -777,9 +796,10 @@ sqlite_test!(test_modulo_operator, SimpleSchema, {
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].id, 23);
-});
+}
 
-sqlite_test!(test_between_method, SimpleSchema, {
+#[drizzle::test]
+fn test_between_method(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -814,9 +834,10 @@ sqlite_test!(test_between_method, SimpleSchema, {
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].id, 5);
     assert_eq!(result[1].id, 25);
-});
+}
 
-sqlite_test!(test_in_array_method, SimpleSchema, {
+#[drizzle::test]
+fn test_in_array_method(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -862,9 +883,10 @@ sqlite_test!(test_in_array_method, SimpleSchema, {
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].name, "Alice");
     assert_eq!(result[1].name, "Eve");
-});
+}
 
-sqlite_test!(test_column_arithmetic, SimpleSchema, {
+#[drizzle::test]
+fn test_column_arithmetic(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -901,7 +923,7 @@ sqlite_test!(test_column_arithmetic, SimpleSchema, {
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].id, 10);
     assert_eq!(result[1].id, 20);
-});
+}
 
 // =============================================================================
 // String Function Tests
@@ -922,7 +944,8 @@ struct InstrResult {
     position: i64,
 }
 
-sqlite_test!(test_string_upper_lower, SimpleSchema, {
+#[drizzle::test]
+fn test_string_upper_lower(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -949,9 +972,10 @@ sqlite_test!(test_string_upper_lower, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, "hello world");
-});
+}
 
-sqlite_test!(test_string_trim, SimpleSchema, {
+#[drizzle::test]
+fn test_string_trim(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -988,9 +1012,10 @@ sqlite_test!(test_string_trim, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, "right");
-});
+}
 
-sqlite_test!(test_string_length, SimpleSchema, {
+#[drizzle::test]
+fn test_string_length(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1018,9 +1043,10 @@ sqlite_test!(test_string_length, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].length, 0);
-});
+}
 
-sqlite_test!(test_string_substr, SimpleSchema, {
+#[drizzle::test]
+fn test_string_substr(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Hello World").with_id(1)];
@@ -1042,9 +1068,10 @@ sqlite_test!(test_string_substr, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, "World");
-});
+}
 
-sqlite_test!(test_string_replace, SimpleSchema, {
+#[drizzle::test]
+fn test_string_replace(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Hello World").with_id(1)];
@@ -1066,9 +1093,10 @@ sqlite_test!(test_string_replace, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, "Hello World");
-});
+}
 
-sqlite_test!(test_string_instr, SimpleSchema, {
+#[drizzle::test]
+fn test_string_instr(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Hello World").with_id(1)];
@@ -1090,9 +1118,10 @@ sqlite_test!(test_string_instr, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].position, 0);
-});
+}
 
-sqlite_test!(test_string_concat, SimpleSchema, {
+#[drizzle::test]
+fn test_string_concat(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1119,9 +1148,10 @@ sqlite_test!(test_string_concat, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, "Hello there");
-});
+}
 
-sqlite_test!(test_string_functions_combined, SimpleSchema, {
+#[drizzle::test]
+fn test_string_functions_combined(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("  Hello World  ").with_id(1)];
@@ -1151,7 +1181,7 @@ sqlite_test!(test_string_functions_combined, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].length, 11); // "Hello World" without leading/trailing spaces
-});
+}
 
 // =============================================================================
 // Math Function Tests
@@ -1167,7 +1197,8 @@ struct MathFloatResult {
     result: f64,
 }
 
-sqlite_test!(test_math_abs, SimpleSchema, {
+#[drizzle::test]
+fn test_math_abs(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1195,9 +1226,10 @@ sqlite_test!(test_math_abs, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, 0);
-});
+}
 
-sqlite_test!(test_math_round, SimpleSchema, {
+#[drizzle::test]
+fn test_math_round(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Use a table with float values - we'll compute from integer for simplicity
@@ -1214,9 +1246,10 @@ sqlite_test!(test_math_round, SimpleSchema, {
     );
     // Integer division: 37 / 10 = 3, ROUND(3) = 3.0
     assert_eq!(result[0].result, 3.0);
-});
+}
 
-sqlite_test!(test_math_sign, SimpleSchema, {
+#[drizzle::test]
+fn test_math_sign(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1253,9 +1286,10 @@ sqlite_test!(test_math_sign, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, 1.0);
-});
+}
 
-sqlite_test!(test_math_mod, SimpleSchema, {
+#[drizzle::test]
+fn test_math_mod(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1283,7 +1317,7 @@ sqlite_test!(test_math_mod, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, 3);
-});
+}
 
 // =============================================================================
 // DateTime Function Tests
@@ -1299,7 +1333,8 @@ struct CurrentDateResult {
     today: String,
 }
 
-sqlite_test!(test_datetime_current, SimpleSchema, {
+#[drizzle::test]
+fn test_datetime_current(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Test").with_id(1)];
@@ -1314,9 +1349,10 @@ sqlite_test!(test_datetime_current, SimpleSchema, {
     // Just verify it's in the expected format (YYYY-MM-DD)
     assert!(result[0].today.len() == 10);
     assert!(result[0].today.contains('-'));
-});
+}
 
-sqlite_test!(test_datetime_strftime, SimpleSchema, {
+#[drizzle::test]
+fn test_datetime_strftime(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Test").with_id(1)];
@@ -1331,7 +1367,7 @@ sqlite_test!(test_datetime_strftime, SimpleSchema, {
     // Should return 4-digit year
     assert!(result[0].result.len() == 4);
     assert!(result[0].result.starts_with("20")); // Years 2000-2099
-});
+}
 
 // =============================================================================
 // SQLTypeToRust Inference Tests
@@ -1347,7 +1383,8 @@ struct InferredDateResult {
 
 // Tests that current_date() infers String (or chrono::NaiveDate with chrono)
 // and deserializes correctly from SQLite's TEXT representation.
-sqlite_test!(test_inferred_current_date, SimpleSchema, {
+#[drizzle::test]
+fn test_inferred_current_date(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("seed")]) => execute);
 
@@ -1360,7 +1397,7 @@ sqlite_test!(test_inferred_current_date, SimpleSchema, {
     // SQLite returns YYYY-MM-DD for CURRENT_DATE
     assert_eq!(result[0].today.len(), 10);
     assert!(result[0].today.contains('-'));
-});
+}
 
 #[derive(Debug, SQLiteFromRow)]
 struct InferredTimestampResult {
@@ -1368,7 +1405,8 @@ struct InferredTimestampResult {
 }
 
 // Tests that current_timestamp() infers correctly and deserializes from SQLite.
-sqlite_test!(test_inferred_current_timestamp, SimpleSchema, {
+#[drizzle::test]
+fn test_inferred_current_timestamp(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("seed")]) => execute);
 
@@ -1384,7 +1422,7 @@ sqlite_test!(test_inferred_current_timestamp, SimpleSchema, {
     // SQLite returns YYYY-MM-DD HH:MM:SS for CURRENT_TIMESTAMP
     assert!(result[0].now.contains(' '));
     assert!(result[0].now.contains(':'));
-});
+}
 
 // =============================================================================
 // CASE / WHEN expressions
@@ -1400,7 +1438,8 @@ struct CaseNullableResult {
     label: Option<String>,
 }
 
-sqlite_test!(test_case_when_with_else, SimpleSchema, {
+#[drizzle::test]
+fn test_case_when_with_else(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1429,9 +1468,10 @@ sqlite_test!(test_case_when_with_else, SimpleSchema, {
     assert_eq!(results[0].label, "Minor"); // id=10
     assert_eq!(results[1].label, "Adult"); // id=25
     assert_eq!(results[2].label, "Senior"); // id=70
-});
+}
 
-sqlite_test!(test_case_when_no_else, SimpleSchema, {
+#[drizzle::test]
+fn test_case_when_no_else(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1457,7 +1497,7 @@ sqlite_test!(test_case_when_no_else, SimpleSchema, {
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].label, None); // id=10, no match
     assert_eq!(results[1].label.as_deref(), Some("Big")); // id=25
-});
+}
 
 // =============================================================================
 // Window functions
@@ -1469,7 +1509,8 @@ struct RowNumberResult {
     rn: i64,
 }
 
-sqlite_test!(test_window_row_number, SimpleSchema, {
+#[drizzle::test]
+fn test_window_row_number(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1499,7 +1540,7 @@ sqlite_test!(test_window_row_number, SimpleSchema, {
     assert_eq!(results[1].rn, 2);
     assert_eq!(results[2].name, "charlie");
     assert_eq!(results[2].rn, 3);
-});
+}
 
 #[derive(Debug, SQLiteFromRow)]
 struct RunningSumResult {
@@ -1507,7 +1548,8 @@ struct RunningSumResult {
     running_total: Option<i32>,
 }
 
-sqlite_test!(test_window_sum_over, SimpleSchema, {
+#[drizzle::test]
+fn test_window_sum_over(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1545,7 +1587,7 @@ sqlite_test!(test_window_sum_over, SimpleSchema, {
     assert_eq!(results[1].running_total, Some(30)); // 10+20
     assert_eq!(results[2].name, "charlie");
     assert_eq!(results[2].running_total, Some(60)); // 10+20+30
-});
+}
 
 #[derive(Debug, SQLiteFromRow)]
 struct RankResult {
@@ -1553,7 +1595,8 @@ struct RankResult {
     rnk: i64,
 }
 
-sqlite_test!(test_window_dense_rank, SimpleSchema, {
+#[drizzle::test]
+fn test_window_dense_rank(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1584,7 +1627,7 @@ sqlite_test!(test_window_dense_rank, SimpleSchema, {
     assert_eq!(results[1].rnk, 2);
     assert_eq!(results[2].name, "charlie");
     assert_eq!(results[2].rnk, 3);
-});
+}
 
 #[derive(Debug, SQLiteFromRow)]
 struct PercentRankResult {
@@ -1592,7 +1635,8 @@ struct PercentRankResult {
     pct: f64,
 }
 
-sqlite_test!(test_window_percent_rank, SimpleSchema, {
+#[drizzle::test]
+fn test_window_percent_rank(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1620,7 +1664,7 @@ sqlite_test!(test_window_percent_rank, SimpleSchema, {
     assert!((results[0].pct - 0.0).abs() < f64::EPSILON); // first row → 0.0
     assert!((results[1].pct - 0.5).abs() < f64::EPSILON); // (2-1)/(3-1) = 0.5
     assert!((results[2].pct - 1.0).abs() < f64::EPSILON); // (3-1)/(3-1) = 1.0
-});
+}
 
 #[derive(Debug, SQLiteFromRow)]
 struct CumeDistResult {
@@ -1628,7 +1672,8 @@ struct CumeDistResult {
     cd: f64,
 }
 
-sqlite_test!(test_window_cume_dist, SimpleSchema, {
+#[drizzle::test]
+fn test_window_cume_dist(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1657,13 +1702,14 @@ sqlite_test!(test_window_cume_dist, SimpleSchema, {
     assert!((results[0].cd - 1.0 / 3.0).abs() < f64::EPSILON); // 1/3
     assert!((results[1].cd - 2.0 / 3.0).abs() < f64::EPSILON); // 2/3
     assert!((results[2].cd - 1.0).abs() < f64::EPSILON); // 3/3
-});
+}
 
 // =============================================================================
 // CONCAT_WS Test
 // =============================================================================
 
-sqlite_test!(test_concat_ws, SimpleSchema, {
+#[drizzle::test]
+fn test_concat_ws(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("World").with_id(1)];
@@ -1676,7 +1722,7 @@ sqlite_test!(test_concat_ws, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, "Hello, Beautiful");
-});
+}
 
 // =============================================================================
 // IS DISTINCT FROM / IS NOT DISTINCT FROM Tests
@@ -1687,7 +1733,8 @@ struct BoolIntResult {
     result: i64,
 }
 
-sqlite_test!(test_is_distinct_from, SimpleSchema, {
+#[drizzle::test]
+fn test_is_distinct_from(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1731,13 +1778,14 @@ sqlite_test!(test_is_distinct_from, SimpleSchema, {
         => all
     );
     assert_eq!(result[0].result, 1);
-});
+}
 
 // =============================================================================
 // IS TRUE / IS FALSE Tests
 // =============================================================================
 
-sqlite_test!(test_is_true_is_false, SimpleSchema, {
+#[drizzle::test]
+fn test_is_true_is_false(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1781,7 +1829,7 @@ sqlite_test!(test_is_true_is_false, SimpleSchema, {
         => all
     );
     assert_eq!(result[0].result, 1);
-});
+}
 
 // =============================================================================
 // TOTAL (SQLite-specific) Test
@@ -1792,7 +1840,8 @@ struct TotalResult {
     total: f64,
 }
 
-sqlite_test!(test_total_aggregate, SimpleSchema, {
+#[drizzle::test]
+fn test_total_aggregate(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1818,13 +1867,14 @@ sqlite_test!(test_total_aggregate, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].total, 60.0);
-});
+}
 
 // =============================================================================
 // CHAR_LENGTH / OCTET_LENGTH Tests
 // =============================================================================
 
-sqlite_test!(test_char_length, SimpleSchema, {
+#[drizzle::test]
+fn test_char_length(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1848,9 +1898,10 @@ sqlite_test!(test_char_length, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].length, 0);
-});
+}
 
-sqlite_test!(test_octet_length, SimpleSchema, {
+#[drizzle::test]
+fn test_octet_length(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("hello").with_id(1)];
@@ -1863,7 +1914,7 @@ sqlite_test!(test_octet_length, SimpleSchema, {
     );
     // ASCII "hello" = 5 bytes
     assert_eq!(result[0].length, 5);
-});
+}
 
 // =============================================================================
 // PI / RANDOM / LOG2 Tests
@@ -1876,7 +1927,8 @@ struct RandomIntResult {
     result: i64,
 }
 
-sqlite_test!(test_random, SimpleSchema, {
+#[drizzle::test]
+fn test_random(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("seed").with_id(1)];
@@ -1891,7 +1943,7 @@ sqlite_test!(test_random, SimpleSchema, {
     assert_eq!(result.len(), 1);
     // We can't assert a specific value, but we can verify it's a number
     let _ = result[0].result;
-});
+}
 
 // log2() requires SQLITE_ENABLE_MATH_FUNCTIONS — tested in PG tests
 
@@ -1899,7 +1951,8 @@ sqlite_test!(test_random, SimpleSchema, {
 // TIMEDIFF Test (SQLite 3.43+)
 // =============================================================================
 
-sqlite_test!(test_timediff, SimpleSchema, {
+#[drizzle::test]
+fn test_timediff(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("seed").with_id(1)];
@@ -1918,4 +1971,4 @@ sqlite_test!(test_timediff, SimpleSchema, {
         => all
     );
     assert!(result[0].result.contains("1"));
-});
+}

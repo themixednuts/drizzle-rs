@@ -5,7 +5,6 @@
 use crate::common::schema::postgres::*;
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 
 #[allow(dead_code)]
 #[cfg(feature = "uuid")]
@@ -18,7 +17,8 @@ struct PgComplexResult {
     active: bool,
 }
 
-postgres_test!(delete_single_row, SimpleSchema, {
+#[drizzle::test]
+fn delete_single_row(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert data
@@ -37,9 +37,10 @@ postgres_test!(delete_single_row, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Bob");
-});
+}
 
-postgres_test!(delete_multiple_rows, SimpleSchema, {
+#[drizzle::test]
+fn delete_multiple_rows(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert data
@@ -60,9 +61,10 @@ postgres_test!(delete_multiple_rows, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "other");
-});
+}
 
-postgres_test!(delete_with_in_condition, SimpleSchema, {
+#[drizzle::test]
+fn delete_with_in_condition(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert data
@@ -88,10 +90,11 @@ postgres_test!(delete_with_in_condition, SimpleSchema, {
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
     assert!(names.contains(&"Bob"));
     assert!(names.contains(&"David"));
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(delete_with_complex_where, ComplexSchema, {
+#[drizzle::test]
+fn delete_with_complex_where(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     // Insert data
@@ -119,10 +122,11 @@ postgres_test!(delete_with_complex_where, ComplexSchema, {
     assert!(names.contains(&"Active Admin"));
     assert!(names.contains(&"Inactive Admin"));
     assert!(!names.contains(&"Inactive User"));
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(delete_with_null_check, ComplexSchema, {
+#[drizzle::test]
+fn delete_with_null_check(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     // Insert data with email
@@ -148,10 +152,11 @@ postgres_test!(delete_with_null_check, ComplexSchema, {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "With Email");
     assert!(results[0].email.is_some());
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(delete_with_comparison, ComplexSchema, {
+#[drizzle::test]
+fn delete_with_comparison(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     // Insert data with ages
@@ -174,10 +179,11 @@ postgres_test!(delete_with_comparison, ComplexSchema, {
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
     assert!(names.contains(&"Young"));
     assert!(names.contains(&"Middle"));
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(delete_with_between, ComplexSchema, {
+#[drizzle::test]
+fn delete_with_between(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     // Insert data
@@ -201,9 +207,10 @@ postgres_test!(delete_with_between, ComplexSchema, {
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
     assert!(names.contains(&"Teen"));
     assert!(names.contains(&"Senior"));
-});
+}
 
-postgres_test!(delete_no_matching_rows, SimpleSchema, {
+#[drizzle::test]
+fn delete_no_matching_rows(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert data
@@ -220,9 +227,10 @@ postgres_test!(delete_no_matching_rows, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
-});
+}
 
-postgres_test!(delete_all_rows, SimpleSchema, {
+#[drizzle::test]
+fn delete_all_rows(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert data
@@ -242,4 +250,4 @@ postgres_test!(delete_all_rows, SimpleSchema, {
     let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 0);
-});
+}

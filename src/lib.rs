@@ -101,6 +101,11 @@ pub use drizzle_macros::include_migrations;
 #[doc(inline)]
 pub use drizzle_macros::sql;
 
+/// Attribute macro for integration tests with DI-style `db` / `schema`
+/// parameters. See [`drizzle_macros::test`] for full documentation.
+#[doc(inline)]
+pub use drizzle_macros::test;
+
 /// Database dialect enum.
 #[doc(inline)]
 pub use drizzle_types::Dialect;

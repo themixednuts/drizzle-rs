@@ -8,7 +8,7 @@
 use arrayvec::{ArrayString, ArrayVec};
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-use drizzle_macros::{PostgresFromRow, PostgresSchema, PostgresTable, postgres_test};
+use drizzle_macros::{PostgresFromRow, PostgresSchema, PostgresTable};
 
 #[PostgresTable(name = "pg_arraystring_test")]
 struct PgArrayStringTest {
@@ -52,7 +52,11 @@ struct ArrayVecBlobResult {
     label: String,
 }
 
-postgres_test!(arraystring_insert_and_select, PgArrayStringSchema, {
+#[drizzle::test]
+fn arraystring_insert_and_select(
+    db: &mut TestDb<PgArrayStringSchema>,
+    schema: PgArrayStringSchema,
+) {
     let PgArrayStringSchema { table } = schema;
 
     let name = ArrayString::<16>::from("Hello").unwrap();
@@ -67,9 +71,13 @@ postgres_test!(arraystring_insert_and_select, PgArrayStringSchema, {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "Hello");
     assert_eq!(results[0].description, "test description");
-});
+}
 
-postgres_test!(arrayvec_blob_insert_and_select, PgArrayVecBlobSchema, {
+#[drizzle::test]
+fn arrayvec_blob_insert_and_select(
+    db: &mut TestDb<PgArrayVecBlobSchema>,
+    schema: PgArrayVecBlobSchema,
+) {
     let PgArrayVecBlobSchema { table } = schema;
 
     let mut data = ArrayVec::<u8, 32>::new();
@@ -86,9 +94,10 @@ postgres_test!(arrayvec_blob_insert_and_select, PgArrayVecBlobSchema, {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].data.as_slice(), &[1, 2, 3, 4, 5]);
     assert_eq!(results[0].label, "blob test");
-});
+}
 
-postgres_test!(arraystring_empty, PgArrayStringSchema, {
+#[drizzle::test]
+fn arraystring_empty(db: &mut TestDb<PgArrayStringSchema>, schema: PgArrayStringSchema) {
     let PgArrayStringSchema { table } = schema;
 
     let name = ArrayString::<16>::new();
@@ -102,9 +111,10 @@ postgres_test!(arraystring_empty, PgArrayStringSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "");
-});
+}
 
-postgres_test!(arrayvec_empty, PgArrayVecBlobSchema, {
+#[drizzle::test]
+fn arrayvec_empty(db: &mut TestDb<PgArrayVecBlobSchema>, schema: PgArrayVecBlobSchema) {
     let PgArrayVecBlobSchema { table } = schema;
 
     let data = ArrayVec::<u8, 32>::new();
@@ -118,9 +128,10 @@ postgres_test!(arrayvec_empty, PgArrayVecBlobSchema, {
 
     assert_eq!(results.len(), 1);
     assert!(results[0].data.is_empty());
-});
+}
 
-postgres_test!(arraystring_max_capacity, PgArrayStringSchema, {
+#[drizzle::test]
+fn arraystring_max_capacity(db: &mut TestDb<PgArrayStringSchema>, schema: PgArrayStringSchema) {
     let PgArrayStringSchema { table } = schema;
 
     // 16 character string - max capacity
@@ -135,9 +146,10 @@ postgres_test!(arraystring_max_capacity, PgArrayStringSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "1234567890123456");
-});
+}
 
-postgres_test!(arrayvec_max_capacity, PgArrayVecBlobSchema, {
+#[drizzle::test]
+fn arrayvec_max_capacity(db: &mut TestDb<PgArrayVecBlobSchema>, schema: PgArrayVecBlobSchema) {
     let PgArrayVecBlobSchema { table } = schema;
 
     // 32 bytes - max capacity
@@ -159,9 +171,10 @@ postgres_test!(arrayvec_max_capacity, PgArrayVecBlobSchema, {
     for i in 0..32 {
         assert_eq!(results[0].data[i], i as u8);
     }
-});
+}
 
-postgres_test!(arrayvec_update, PgArrayVecBlobSchema, {
+#[drizzle::test]
+fn arrayvec_update(db: &mut TestDb<PgArrayVecBlobSchema>, schema: PgArrayVecBlobSchema) {
     let PgArrayVecBlobSchema { table } = schema;
 
     let mut initial = ArrayVec::<u8, 32>::new();
@@ -186,7 +199,7 @@ postgres_test!(arrayvec_update, PgArrayVecBlobSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].data.as_slice(), &[9, 8, 7, 6, 5]);
-});
+}
 
 #[PostgresTable(name = "pg_array_nullable_test")]
 struct PgArrayNullableTest {
@@ -209,7 +222,8 @@ struct ArrayNullableResult {
     data: Option<ArrayVec<u8, 32>>,
 }
 
-postgres_test!(array_nullable_test, PgArrayNullableSchema, {
+#[drizzle::test]
+fn array_nullable_test(db: &mut TestDb<PgArrayNullableSchema>, schema: PgArrayNullableSchema) {
     let PgArrayNullableSchema { table } = schema;
 
     // Test inserting Some values
@@ -238,9 +252,10 @@ postgres_test!(array_nullable_test, PgArrayNullableSchema, {
     // Check second row (None values)
     assert!(results[1].name.is_none());
     assert!(results[1].data.is_none());
-});
+}
 
-postgres_test!(arraystring_unicode_boundary, PgArrayStringSchema, {
+#[drizzle::test]
+fn arraystring_unicode_boundary(db: &mut TestDb<PgArrayStringSchema>, schema: PgArrayStringSchema) {
     let PgArrayStringSchema { table } = schema;
 
     // "こんにちは" is 15 bytes (3 bytes per char * 5 chars)
@@ -256,4 +271,4 @@ postgres_test!(arraystring_unicode_boundary, PgArrayStringSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "こんにちは");
-});
+}

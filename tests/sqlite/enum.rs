@@ -2,7 +2,6 @@
 
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 
 // Test enums with different representations
 #[derive(SQLiteEnum, PartialEq, Clone, Default, Debug)]
@@ -86,7 +85,8 @@ struct UserAccountResult {
     status: AccountStatus, // Direct enum type - works with INTEGER storage
 }
 
-sqlite_test!(test_enum_database_roundtrip, Schema, {
+#[drizzle::test]
+fn test_enum_database_roundtrip(db: &mut TestDb<Schema>, schema: Schema) {
     let Schema { user_account } = schema;
 
     // Insert test data with different enum values
@@ -159,4 +159,4 @@ sqlite_test!(test_enum_database_roundtrip, Schema, {
 
     assert_eq!(suspended_users.len(), 1);
     assert_eq!(suspended_users[0].name, "admin_user");
-});
+}

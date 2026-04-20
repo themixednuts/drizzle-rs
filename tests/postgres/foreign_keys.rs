@@ -6,7 +6,6 @@
 
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 
 //------------------------------------------------------------------------------
 // Foreign Key Action Type Schema Definitions
@@ -387,7 +386,8 @@ fn test_constraint_capability_markers() {
 // Child tables have serial id, so new() only requires non-default fields
 //------------------------------------------------------------------------------
 
-postgres_test!(test_cascade_deletes_children, FkCascadeSchema, {
+#[drizzle::test]
+fn test_cascade_deletes_children(db: &mut TestDb<FkCascadeSchema>, schema: FkCascadeSchema) {
     let FkCascadeSchema {
         fk_parent,
         fk_cascade,
@@ -418,9 +418,10 @@ postgres_test!(test_cascade_deletes_children, FkCascadeSchema, {
     // Verify child was deleted by cascade
     let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_cascade) => all);
     assert_eq!(children.len(), 0, "Child should be deleted by CASCADE");
-});
+}
 
-postgres_test!(test_set_null_nullifies_children, FkSetNullSchema, {
+#[drizzle::test]
+fn test_set_null_nullifies_children(db: &mut TestDb<FkSetNullSchema>, schema: FkSetNullSchema) {
     let FkSetNullSchema {
         fk_parent,
         fk_set_null,
@@ -455,9 +456,13 @@ postgres_test!(test_set_null_nullifies_children, FkSetNullSchema, {
         children[0].parent_id, None,
         "Parent ID should be NULL after SET NULL"
     );
-});
+}
 
-postgres_test!(test_set_default_sets_default_value, FkSetDefaultSchema, {
+#[drizzle::test]
+fn test_set_default_sets_default_value(
+    db: &mut TestDb<FkSetDefaultSchema>,
+    schema: FkSetDefaultSchema,
+) {
     let FkSetDefaultSchema {
         fk_parent,
         fk_set_default,
@@ -501,177 +506,173 @@ postgres_test!(test_set_default_sets_default_value, FkSetDefaultSchema, {
         children[0].parent_id, 0,
         "Parent ID should be default (0) after SET DEFAULT"
     );
-});
+}
 
 //------------------------------------------------------------------------------
 // ON UPDATE Integration Tests
 // Uses UpdateModel::default().with_field() pattern
 //------------------------------------------------------------------------------
 
-postgres_test!(
-    test_update_cascade_updates_children,
-    FkUpdateCascadeSchema,
-    {
-        let FkUpdateCascadeSchema {
-            fk_parent,
-            fk_update_cascade,
-        } = schema;
+#[drizzle::test]
+fn test_update_cascade_updates_children(
+    db: &mut TestDb<FkUpdateCascadeSchema>,
+    schema: FkUpdateCascadeSchema,
+) {
+    let FkUpdateCascadeSchema {
+        fk_parent,
+        fk_update_cascade,
+    } = schema;
 
-        // Insert parent with id=1
-        drizzle_exec!(
-            db.insert(fk_parent)
-                .values([InsertFkParent::new(1, "Parent1")])
-                => execute
-        );
+    // Insert parent with id=1
+    drizzle_exec!(
+        db.insert(fk_parent)
+            .values([InsertFkParent::new(1, "Parent1")])
+            => execute
+    );
 
-        // Insert child referencing the parent
-        drizzle_exec!(
-            db.insert(fk_update_cascade)
-                .values([InsertFkUpdateCascade::new("Child1").with_parent_id(1)])
-                => execute
-        );
+    // Insert child referencing the parent
+    drizzle_exec!(
+        db.insert(fk_update_cascade)
+            .values([InsertFkUpdateCascade::new("Child1").with_parent_id(1)])
+            => execute
+    );
 
-        // Verify child has parent_id = 1
-        let children: Vec<ChildResult> =
-            drizzle_exec!(db.select(()).from(fk_update_cascade) => all);
-        assert_eq!(children.len(), 1);
-        assert_eq!(children[0].parent_id, Some(1));
+    // Verify child has parent_id = 1
+    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_update_cascade) => all);
+    assert_eq!(children.len(), 1);
+    assert_eq!(children[0].parent_id, Some(1));
 
-        // Update parent's id from 1 to 100 - should cascade update child
-        drizzle_exec!(
-            db.update(fk_parent)
-                .set(UpdateFkParent::default().with_id(100))
-                .r#where(eq(fk_parent.id, 1))
-                => execute
-        );
+    // Update parent's id from 1 to 100 - should cascade update child
+    drizzle_exec!(
+        db.update(fk_parent)
+            .set(UpdateFkParent::default().with_id(100))
+            .r#where(eq(fk_parent.id, 1))
+            => execute
+    );
 
-        // Verify child's parent_id was cascaded to 100
-        let children: Vec<ChildResult> =
-            drizzle_exec!(db.select(()).from(fk_update_cascade) => all);
-        assert_eq!(children.len(), 1);
-        assert_eq!(
-            children[0].parent_id,
-            Some(100),
-            "Child's parent_id should be updated by CASCADE"
-        );
-    }
-);
+    // Verify child's parent_id was cascaded to 100
+    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_update_cascade) => all);
+    assert_eq!(children.len(), 1);
+    assert_eq!(
+        children[0].parent_id,
+        Some(100),
+        "Child's parent_id should be updated by CASCADE"
+    );
+}
 
-postgres_test!(
-    test_update_set_null_nullifies_children,
-    FkUpdateSetNullSchema,
-    {
-        let FkUpdateSetNullSchema {
-            fk_parent,
-            fk_update_set_null,
-        } = schema;
+#[drizzle::test]
+fn test_update_set_null_nullifies_children(
+    db: &mut TestDb<FkUpdateSetNullSchema>,
+    schema: FkUpdateSetNullSchema,
+) {
+    let FkUpdateSetNullSchema {
+        fk_parent,
+        fk_update_set_null,
+    } = schema;
 
-        // Insert parent with id=1
-        drizzle_exec!(
-            db.insert(fk_parent)
-                .values([InsertFkParent::new(1, "Parent1")])
-                => execute
-        );
+    // Insert parent with id=1
+    drizzle_exec!(
+        db.insert(fk_parent)
+            .values([InsertFkParent::new(1, "Parent1")])
+            => execute
+    );
 
-        // Insert child referencing the parent
-        drizzle_exec!(
-            db.insert(fk_update_set_null)
-                .values([InsertFkUpdateSetNull::new("Child1").with_parent_id(1)])
-                => execute
-        );
+    // Insert child referencing the parent
+    drizzle_exec!(
+        db.insert(fk_update_set_null)
+            .values([InsertFkUpdateSetNull::new("Child1").with_parent_id(1)])
+            => execute
+    );
 
-        // Verify child has parent_id = 1
-        let children: Vec<ChildResult> =
-            drizzle_exec!(db.select(()).from(fk_update_set_null) => all);
-        assert_eq!(children.len(), 1);
-        assert_eq!(children[0].parent_id, Some(1));
+    // Verify child has parent_id = 1
+    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_update_set_null) => all);
+    assert_eq!(children.len(), 1);
+    assert_eq!(children[0].parent_id, Some(1));
 
-        // Update parent's id from 1 to 100 - should set child's parent_id to NULL
-        drizzle_exec!(
-            db.update(fk_parent)
-                .set(UpdateFkParent::default().with_id(100))
-                .r#where(eq(fk_parent.id, 1))
-                => execute
-        );
+    // Update parent's id from 1 to 100 - should set child's parent_id to NULL
+    drizzle_exec!(
+        db.update(fk_parent)
+            .set(UpdateFkParent::default().with_id(100))
+            .r#where(eq(fk_parent.id, 1))
+            => execute
+    );
 
-        // Verify child's parent_id is now NULL
-        let children: Vec<ChildResult> =
-            drizzle_exec!(db.select(()).from(fk_update_set_null) => all);
-        assert_eq!(children.len(), 1);
-        assert_eq!(
-            children[0].parent_id, None,
-            "Child's parent_id should be NULL after ON UPDATE SET NULL"
-        );
-    }
-);
+    // Verify child's parent_id is now NULL
+    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_update_set_null) => all);
+    assert_eq!(children.len(), 1);
+    assert_eq!(
+        children[0].parent_id, None,
+        "Child's parent_id should be NULL after ON UPDATE SET NULL"
+    );
+}
 
 //------------------------------------------------------------------------------
 // Combined ON DELETE + ON UPDATE Tests
 //------------------------------------------------------------------------------
 
-postgres_test!(
-    test_both_delete_cascade_and_update_set_null,
-    FkBothActionsSchema,
-    {
-        let FkBothActionsSchema {
-            fk_parent,
-            fk_both_actions,
-        } = schema;
+#[drizzle::test]
+fn test_both_delete_cascade_and_update_set_null(
+    db: &mut TestDb<FkBothActionsSchema>,
+    schema: FkBothActionsSchema,
+) {
+    let FkBothActionsSchema {
+        fk_parent,
+        fk_both_actions,
+    } = schema;
 
-        // Insert parent records
-        drizzle_exec!(
-            db.insert(fk_parent)
-                .values([
-                    InsertFkParent::new(1, "Parent1"),
-                    InsertFkParent::new(2, "Parent2"),
-                ])
-                => execute
-        );
+    // Insert parent records
+    drizzle_exec!(
+        db.insert(fk_parent)
+            .values([
+                InsertFkParent::new(1, "Parent1"),
+                InsertFkParent::new(2, "Parent2"),
+            ])
+            => execute
+    );
 
-        // Insert children referencing each parent
-        drizzle_exec!(
-            db.insert(fk_both_actions)
-                .values([
-                    InsertFkBothActions::new("Child1").with_parent_id(1),
-                    InsertFkBothActions::new("Child2").with_parent_id(2),
-                ])
-                => execute
-        );
+    // Insert children referencing each parent
+    drizzle_exec!(
+        db.insert(fk_both_actions)
+            .values([
+                InsertFkBothActions::new("Child1").with_parent_id(1),
+                InsertFkBothActions::new("Child2").with_parent_id(2),
+            ])
+            => execute
+    );
 
-        // Test ON UPDATE SET NULL: Update parent1's id using UpdateModel
-        drizzle_exec!(
-            db.update(fk_parent)
-                .set(UpdateFkParent::default().with_id(100))
-                .r#where(eq(fk_parent.id, 1))
-                => execute
-        );
+    // Test ON UPDATE SET NULL: Update parent1's id using UpdateModel
+    drizzle_exec!(
+        db.update(fk_parent)
+            .set(UpdateFkParent::default().with_id(100))
+            .r#where(eq(fk_parent.id, 1))
+            => execute
+    );
 
-        // Verify child1's parent_id is NULL (ON UPDATE SET NULL)
-        let children: Vec<ChildResult> = drizzle_exec!(
-            db.select(())
-                .from(fk_both_actions)
-                .r#where(eq(fk_both_actions.value, "Child1"))
-                => all
-        );
-        assert_eq!(
-            children[0].parent_id, None,
-            "ON UPDATE SET NULL should nullify parent_id"
-        );
+    // Verify child1's parent_id is NULL (ON UPDATE SET NULL)
+    let children: Vec<ChildResult> = drizzle_exec!(
+        db.select(())
+            .from(fk_both_actions)
+            .r#where(eq(fk_both_actions.value, "Child1"))
+            => all
+    );
+    assert_eq!(
+        children[0].parent_id, None,
+        "ON UPDATE SET NULL should nullify parent_id"
+    );
 
-        // Test ON DELETE CASCADE: Delete parent2
-        drizzle_exec!(db.delete(fk_parent).r#where(eq(fk_parent.id, 2)) => execute);
+    // Test ON DELETE CASCADE: Delete parent2
+    drizzle_exec!(db.delete(fk_parent).r#where(eq(fk_parent.id, 2)) => execute);
 
-        // Verify child2 was deleted (ON DELETE CASCADE)
-        let children: Vec<ChildResult> = drizzle_exec!(
-            db.select(())
-                .from(fk_both_actions)
-                .r#where(eq(fk_both_actions.value, "Child2"))
-                => all
-        );
-        assert_eq!(children.len(), 0, "ON DELETE CASCADE should delete child2");
+    // Verify child2 was deleted (ON DELETE CASCADE)
+    let children: Vec<ChildResult> = drizzle_exec!(
+        db.select(())
+            .from(fk_both_actions)
+            .r#where(eq(fk_both_actions.value, "Child2"))
+            => all
+    );
+    assert_eq!(children.len(), 0, "ON DELETE CASCADE should delete child2");
 
-        // Child1 should still exist (parent was updated, not deleted)
-        let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_both_actions) => all);
-        assert_eq!(children.len(), 1, "Child1 should still exist");
-    }
-);
+    // Child1 should still exist (parent was updated, not deleted)
+    let children: Vec<ChildResult> = drizzle_exec!(db.select(()).from(fk_both_actions) => all);
+    assert_eq!(children.len(), 1, "Child1 should still exist");
+}

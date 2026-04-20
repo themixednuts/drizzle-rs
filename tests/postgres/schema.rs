@@ -9,7 +9,6 @@ use crate::common::schema::postgres::*;
 use drizzle::core::expr::eq;
 use drizzle::ddl::postgres::ddl::ViewWithOptionDef;
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 
 #[derive(Debug, PostgresFromRow)]
 #[from(SimpleView)]
@@ -92,7 +91,8 @@ struct PgComplexResult {
     name: String,
 }
 
-postgres_test!(schema_simple_works, SimpleSchema, {
+#[drizzle::test]
+fn schema_simple_works(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("test")]);
@@ -103,9 +103,10 @@ postgres_test!(schema_simple_works, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
-});
+}
 
-postgres_test!(schema_with_view, ViewTestSchema, {
+#[drizzle::test]
+fn schema_with_view(db: &mut TestDb<ViewTestSchema>, schema: ViewTestSchema) {
     let ViewTestSchema {
         simple,
         simple_view,
@@ -159,9 +160,10 @@ postgres_test!(schema_with_view, ViewTestSchema, {
             .any(|sql| sql.contains("existing_simple_view")),
         "Existing view should not be created"
     );
-});
+}
 
-postgres_test!(view_alias_in_from_clause, ViewTestSchema, {
+#[drizzle::test]
+fn view_alias_in_from_clause(db: &mut TestDb<ViewTestSchema>, schema: ViewTestSchema) {
     let ViewTestSchema {
         simple,
         simple_view,
@@ -205,21 +207,23 @@ postgres_test!(view_alias_in_from_clause, ViewTestSchema, {
 
     // Keep schema value used in this test scope.
     let _ = simple_view;
-});
+}
 
 struct SimpleAliasTag;
 impl drizzle::core::Tag for SimpleAliasTag {
     const NAME: &'static str = "s_alias";
 }
 
-postgres_test!(tagged_alias_forwards_alias_metadata, SimpleSchema, {
+#[drizzle::test]
+fn tagged_alias_forwards_alias_metadata(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let tagged = Simple::alias::<SimpleAliasTag>();
     let _base = Simple::new();
 
     assert_eq!(tagged.name(), "s_alias");
-});
+}
 
-postgres_test!(view_definition_with_options_sql, SimpleSchema, {
+#[drizzle::test]
+fn view_definition_with_options_sql(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let sql = SimpleViewWithOptions::create_view_sql();
     assert!(sql.contains("CREATE MATERIALIZED VIEW"));
     assert!(sql.contains("WITH ("));
@@ -229,10 +233,11 @@ postgres_test!(view_definition_with_options_sql, SimpleSchema, {
     assert!(sql.contains("heap"));
     assert!(sql.contains("TABLESPACE"));
     assert!(sql.contains("fast_storage"));
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(schema_complex_works, ComplexSchema, {
+#[drizzle::test]
+fn schema_complex_works(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     let stmt = db
@@ -246,10 +251,11 @@ postgres_test!(schema_complex_works, ComplexSchema, {
     assert_eq!(results.len(), 1);
     assert_ne!(results[0].id, uuid::Uuid::nil());
     assert_eq!(results[0].name, "test");
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(schema_with_enum_works, ComplexSchema, {
+#[drizzle::test]
+fn schema_with_enum_works(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     // Insert with different enum values to verify enum type was created
@@ -264,9 +270,10 @@ postgres_test!(schema_with_enum_works, ComplexSchema, {
     let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 3);
-});
+}
 
-postgres_test!(schema_multiple_inserts, SimpleSchema, {
+#[drizzle::test]
+fn schema_multiple_inserts(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Multiple separate inserts should work
@@ -283,7 +290,7 @@ postgres_test!(schema_multiple_inserts, SimpleSchema, {
     let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 3);
-});
+}
 
 #[PostgresTable(NAME = "cycle_a")]
 struct PgCycleA {

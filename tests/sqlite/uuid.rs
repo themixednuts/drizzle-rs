@@ -5,7 +5,6 @@
 
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 use uuid::Uuid;
 
 // Test table with UUID as TEXT column
@@ -68,7 +67,8 @@ struct UuidBlobDefaultSchema {
     uuid_blob_default: UuidBlobDefault,
 }
 
-sqlite_test!(test_uuid_text_storage, UuidTextSchema, {
+#[drizzle::test]
+fn test_uuid_text_storage(db: &mut TestDb<UuidTextSchema>, schema: UuidTextSchema) {
     let table = schema.uuid_text_test;
 
     // Generate test UUID
@@ -101,9 +101,10 @@ sqlite_test!(test_uuid_text_storage, UuidTextSchema, {
     );
 
     assert_eq!(result.0, "text");
-});
+}
 
-sqlite_test!(test_uuid_blob_storage, UuidBlobSchema, {
+#[drizzle::test]
+fn test_uuid_blob_storage(db: &mut TestDb<UuidBlobSchema>, schema: UuidBlobSchema) {
     let table = schema.uuid_blob_test;
 
     // Generate test UUID
@@ -136,9 +137,10 @@ sqlite_test!(test_uuid_blob_storage, UuidBlobSchema, {
     );
 
     assert_eq!(result.0, "blob");
-});
+}
 
-sqlite_test!(test_uuid_text_vs_blob_roundtrip_text, UuidTextSchema, {
+#[drizzle::test]
+fn test_uuid_text_vs_blob_roundtrip_text(db: &mut TestDb<UuidTextSchema>, schema: UuidTextSchema) {
     // Test TEXT storage
     let test_uuid = Uuid::new_v4();
     let table = schema.uuid_text_test;
@@ -152,9 +154,10 @@ sqlite_test!(test_uuid_text_vs_blob_roundtrip_text, UuidTextSchema, {
             => all
     );
     assert_eq!(results[0].uuid_field, test_uuid);
-});
+}
 
-sqlite_test!(test_uuid_text_vs_blob_roundtrip_blob, UuidBlobSchema, {
+#[drizzle::test]
+fn test_uuid_text_vs_blob_roundtrip_blob(db: &mut TestDb<UuidBlobSchema>, schema: UuidBlobSchema) {
     // Test BLOB storage
     let test_uuid = Uuid::new_v4();
     let table = schema.uuid_blob_test;
@@ -168,9 +171,13 @@ sqlite_test!(test_uuid_text_vs_blob_roundtrip_blob, UuidBlobSchema, {
             => all
     );
     assert_eq!(results[0].uuid_field, test_uuid);
-});
+}
 
-sqlite_test!(test_uuid_text_default_fn, UuidTextDefaultSchema, {
+#[drizzle::test]
+fn test_uuid_text_default_fn(
+    db: &mut TestDb<UuidTextDefaultSchema>,
+    schema: UuidTextDefaultSchema,
+) {
     let table = schema.uuid_text_default;
 
     // Insert without specifying UUID - should use default_fn
@@ -201,9 +208,13 @@ sqlite_test!(test_uuid_text_default_fn, UuidTextDefaultSchema, {
     );
 
     assert_eq!(result.0, "text");
-});
+}
 
-sqlite_test!(test_uuid_blob_default_fn, UuidBlobDefaultSchema, {
+#[drizzle::test]
+fn test_uuid_blob_default_fn(
+    db: &mut TestDb<UuidBlobDefaultSchema>,
+    schema: UuidBlobDefaultSchema,
+) {
     let table = schema.uuid_blob_default;
 
     // Insert without specifying UUID - should use default_fn
@@ -234,56 +245,56 @@ sqlite_test!(test_uuid_blob_default_fn, UuidBlobDefaultSchema, {
     );
 
     assert_eq!(result.0, "blob");
-});
+}
 
-sqlite_test!(
-    test_uuid_text_default_fn_uniqueness,
-    UuidTextDefaultSchema,
-    {
-        // Test TEXT default_fn generates unique UUIDs
-        let table = schema.uuid_text_default;
+#[drizzle::test]
+fn test_uuid_text_default_fn_uniqueness(
+    db: &mut TestDb<UuidTextDefaultSchema>,
+    schema: UuidTextDefaultSchema,
+) {
+    // Test TEXT default_fn generates unique UUIDs
+    let table = schema.uuid_text_default;
 
-        let data1 = InsertUuidTextDefault::new("first");
-        let data2 = InsertUuidTextDefault::new("second");
+    let data1 = InsertUuidTextDefault::new("first");
+    let data2 = InsertUuidTextDefault::new("second");
 
-        drizzle_exec!(db.insert(table).values([data1, data2]) => execute);
+    drizzle_exec!(db.insert(table).values([data1, data2]) => execute);
 
-        let results: Vec<SelectUuidTextDefault> = drizzle_exec!(
-            db.select((table.id, table.uuid_field, table.name))
-                .from(table)
-                => all
-        );
-        assert_eq!(results.len(), 2);
+    let results: Vec<SelectUuidTextDefault> = drizzle_exec!(
+        db.select((table.id, table.uuid_field, table.name))
+            .from(table)
+            => all
+    );
+    assert_eq!(results.len(), 2);
 
-        // Verify UUIDs are different
-        assert_ne!(results[0].uuid_field, results[1].uuid_field);
-        assert_ne!(results[0].uuid_field, Uuid::nil());
-        assert_ne!(results[1].uuid_field, Uuid::nil());
-    }
-);
+    // Verify UUIDs are different
+    assert_ne!(results[0].uuid_field, results[1].uuid_field);
+    assert_ne!(results[0].uuid_field, Uuid::nil());
+    assert_ne!(results[1].uuid_field, Uuid::nil());
+}
 
-sqlite_test!(
-    test_uuid_blob_default_fn_uniqueness,
-    UuidBlobDefaultSchema,
-    {
-        // Test BLOB default_fn generates unique UUIDs
-        let table = schema.uuid_blob_default;
+#[drizzle::test]
+fn test_uuid_blob_default_fn_uniqueness(
+    db: &mut TestDb<UuidBlobDefaultSchema>,
+    schema: UuidBlobDefaultSchema,
+) {
+    // Test BLOB default_fn generates unique UUIDs
+    let table = schema.uuid_blob_default;
 
-        let data1 = InsertUuidBlobDefault::new("first");
-        let data2 = InsertUuidBlobDefault::new("second");
+    let data1 = InsertUuidBlobDefault::new("first");
+    let data2 = InsertUuidBlobDefault::new("second");
 
-        drizzle_exec!(db.insert(table).values([data1, data2]) => execute);
+    drizzle_exec!(db.insert(table).values([data1, data2]) => execute);
 
-        let results: Vec<SelectUuidBlobDefault> = drizzle_exec!(
-            db.select((table.id, table.uuid_field, table.name))
-                .from(table)
-                => all
-        );
-        assert_eq!(results.len(), 2);
+    let results: Vec<SelectUuidBlobDefault> = drizzle_exec!(
+        db.select((table.id, table.uuid_field, table.name))
+            .from(table)
+            => all
+    );
+    assert_eq!(results.len(), 2);
 
-        // Verify UUIDs are different
-        assert_ne!(results[0].uuid_field, results[1].uuid_field);
-        assert_ne!(results[0].uuid_field, Uuid::nil());
-        assert_ne!(results[1].uuid_field, Uuid::nil());
-    }
-);
+    // Verify UUIDs are different
+    assert_ne!(results[0].uuid_field, results[1].uuid_field);
+    assert_ne!(results[0].uuid_field, Uuid::nil());
+    assert_ne!(results[1].uuid_field, Uuid::nil());
+}

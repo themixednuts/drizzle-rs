@@ -5,9 +5,9 @@ use drizzle::core::expr::*;
 use drizzle::error::DrizzleError;
 use drizzle::sqlite::connection::SQLiteTransactionType;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 
-sqlite_test!(test_transaction_commit, SimpleSchema, {
+#[drizzle::test]
+fn test_transaction_commit(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let result = drizzle_try!(db.transaction(
@@ -41,9 +41,10 @@ sqlite_test!(test_transaction_commit, SimpleSchema, {
     assert_eq!(users.len(), 2);
     assert_eq!(users[0].name, "user1");
     assert_eq!(users[1].name, "user2");
-});
+}
 
-sqlite_test!(test_transaction_rollback, SimpleSchema, {
+#[drizzle::test]
+fn test_transaction_rollback(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial record outside transaction
@@ -76,9 +77,10 @@ sqlite_test!(test_transaction_rollback, SimpleSchema, {
     let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].name, "initial_user");
-});
+}
 
-sqlite_test!(test_transaction_types, SimpleSchema, {
+#[drizzle::test]
+fn test_transaction_types(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Test different transaction types
@@ -106,9 +108,10 @@ sqlite_test!(test_transaction_types, SimpleSchema, {
     // Verify all records were inserted
     let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 3);
-});
+}
 
-sqlite_test!(test_transaction_query_builders, SimpleSchema, {
+#[drizzle::test]
+fn test_transaction_query_builders(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -176,9 +179,10 @@ sqlite_test!(test_transaction_query_builders, SimpleSchema, {
     assert!(names.contains(&"updated_bob".to_string()));
     assert!(!names.contains(&"bob".to_string()));
     assert!(!names.contains(&"charlie".to_string()));
-});
+}
 
-sqlite_test!(test_transaction_database_error_rollback, SimpleSchema, {
+#[drizzle::test]
+fn test_transaction_database_error_rollback(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial data
@@ -215,9 +219,10 @@ sqlite_test!(test_transaction_database_error_rollback, SimpleSchema, {
     let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].name, "initial");
-});
+}
 
-sqlite_test!(test_transaction_panic_rollback, SimpleSchema, {
+#[drizzle::test]
+fn test_transaction_panic_rollback(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial data
@@ -249,9 +254,10 @@ sqlite_test!(test_transaction_panic_rollback, SimpleSchema, {
     let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].name, "before_panic");
-});
+}
 
-sqlite_test!(test_nested_transaction_operations, SimpleSchema, {
+#[drizzle::test]
+fn test_nested_transaction_operations(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let result = drizzle_try!(db.transaction(
@@ -311,60 +317,61 @@ sqlite_test!(test_nested_transaction_operations, SimpleSchema, {
     assert!(names.contains(&"user2".to_string()));
     assert!(!names.contains(&"user1".to_string()));
     assert!(!names.contains(&"user3".to_string()));
-});
+}
 
-sqlite_test!(
-    test_transaction_with_failed_query_in_middle,
-    SimpleSchema,
-    {
-        let SimpleSchema { simple } = schema;
+#[drizzle::test]
+fn test_transaction_with_failed_query_in_middle(
+    db: &mut TestDb<SimpleSchema>,
+    schema: SimpleSchema,
+) {
+    let SimpleSchema { simple } = schema;
 
-        // Test transaction where a query fails in the middle
-        let result = drizzle_try!(db.transaction(
-            SQLiteTransactionType::Deferred,
-            drizzle_tx!(tx, {
-                // Insert first record (should succeed)
-                drizzle_try!(
-                    tx.insert(simple)
-                        .values([InsertSimple::new("first")])
-                        .execute()
-                )?;
+    // Test transaction where a query fails in the middle
+    let result = drizzle_try!(db.transaction(
+        SQLiteTransactionType::Deferred,
+        drizzle_tx!(tx, {
+            // Insert first record (should succeed)
+            drizzle_try!(
+                tx.insert(simple)
+                    .values([InsertSimple::new("first")])
+                    .execute()
+            )?;
 
-                // Insert second record (should succeed)
-                drizzle_try!(
-                    tx.insert(simple)
-                        .values([InsertSimple::new("second")])
-                        .execute()
-                )?;
+            // Insert second record (should succeed)
+            drizzle_try!(
+                tx.insert(simple)
+                    .values([InsertSimple::new("second")])
+                    .execute()
+            )?;
 
-                // Try invalid operation that should fail
-                // Attempt to update non-existent record and verify it returns 0 affected rows
-                let affected = drizzle_try!(
-                    tx.update(simple)
-                        .set(UpdateSimple::default().with_name("wont_work"))
-                        .r#where(eq(simple.name, "nonexistent_user"))
-                        .execute()
-                )?;
+            // Try invalid operation that should fail
+            // Attempt to update non-existent record and verify it returns 0 affected rows
+            let affected = drizzle_try!(
+                tx.update(simple)
+                    .set(UpdateSimple::default().with_name("wont_work"))
+                    .r#where(eq(simple.name, "nonexistent_user"))
+                    .execute()
+            )?;
 
-                if affected == 0 {
-                    return Err(DrizzleError::Other(
-                        "No rows affected by update".to_string().into(),
-                    ));
-                }
+            if affected == 0 {
+                return Err(DrizzleError::Other(
+                    "No rows affected by update".to_string().into(),
+                ));
+            }
 
-                Ok(())
-            })
-        ));
+            Ok(())
+        })
+    ));
 
-        assert!(result.is_err());
+    assert!(result.is_err());
 
-        // Verify complete rollback - no records should exist
-        let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
-        assert_eq!(users.len(), 0);
-    }
-);
+    // Verify complete rollback - no records should exist
+    let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
+    assert_eq!(users.len(), 0);
+}
 
-sqlite_test!(test_large_transaction_rollback, SimpleSchema, {
+#[drizzle::test]
+fn test_large_transaction_rollback(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Test rollback of transaction with many operations
@@ -399,9 +406,10 @@ sqlite_test!(test_large_transaction_rollback, SimpleSchema, {
     // Verify complete rollback - no records should exist
     let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 0);
-});
+}
 
-sqlite_test!(test_savepoint_commit, SimpleSchema, {
+#[drizzle::test]
+fn test_savepoint_commit(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let result = drizzle_try!(db.transaction(
@@ -440,9 +448,10 @@ sqlite_test!(test_savepoint_commit, SimpleSchema, {
     let names: Vec<String> = users.into_iter().map(|u| u.name).collect();
     assert!(names.contains(&"outer".to_string()));
     assert!(names.contains(&"inner".to_string()));
-});
+}
 
-sqlite_test!(test_savepoint_rollback_preserves_outer, SimpleSchema, {
+#[drizzle::test]
+fn test_savepoint_rollback_preserves_outer(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let result = drizzle_try!(db.transaction(
@@ -492,9 +501,10 @@ sqlite_test!(test_savepoint_rollback_preserves_outer, SimpleSchema, {
     assert!(names.contains(&"outer".to_string()));
     assert!(names.contains(&"after_sp".to_string()));
     assert!(!names.contains(&"inner_rollback".to_string()));
-});
+}
 
-sqlite_test!(test_savepoint_outer_rollback, SimpleSchema, {
+#[drizzle::test]
+fn test_savepoint_outer_rollback(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let result: Result<(), DrizzleError> = drizzle_try!(db.transaction(
@@ -527,9 +537,10 @@ sqlite_test!(test_savepoint_outer_rollback, SimpleSchema, {
     // Everything should be rolled back
     let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 0);
-});
+}
 
-sqlite_test!(test_nested_savepoints, SimpleSchema, {
+#[drizzle::test]
+fn test_nested_savepoints(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let result = drizzle_try!(db.transaction(
@@ -578,7 +589,7 @@ sqlite_test!(test_nested_savepoints, SimpleSchema, {
     assert!(names.contains(&"level_0".to_string()));
     assert!(names.contains(&"level_1".to_string()));
     assert!(names.contains(&"level_2".to_string()));
-});
+}
 
 // Standalone rusqlite-only stress test for deeply nested savepoints.
 // Tests 50 levels of recursive savepoint nesting via our Transaction::savepoint() method.
@@ -755,7 +766,8 @@ mod test_deep_savepoint_partial_rollback_rusqlite {
     }
 }
 
-sqlite_test!(test_sequential_sibling_savepoints, SimpleSchema, {
+#[drizzle::test]
+fn test_sequential_sibling_savepoints(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let result = drizzle_try!(db.transaction(
@@ -823,9 +835,10 @@ sqlite_test!(test_sequential_sibling_savepoints, SimpleSchema, {
     assert!(names.contains(&"sp2".to_string()));
     assert!(names.contains(&"sp3".to_string()));
     assert!(names.contains(&"after_sp".to_string()));
-});
+}
 
-sqlite_test!(test_sequential_savepoints_mixed_outcomes, SimpleSchema, {
+#[drizzle::test]
+fn test_sequential_savepoints_mixed_outcomes(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let result = drizzle_try!(db.transaction(
@@ -906,9 +919,10 @@ sqlite_test!(test_sequential_savepoints_mixed_outcomes, SimpleSchema, {
     assert!(!names.contains(&"sp4_rolled_back".to_string()));
 
     assert_eq!(users.len(), 3, "exactly 3 committed savepoints");
-});
+}
 
-sqlite_test!(test_savepoint_data_visibility, SimpleSchema, {
+#[drizzle::test]
+fn test_savepoint_data_visibility(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let result = drizzle_try!(db.transaction(
@@ -957,9 +971,13 @@ sqlite_test!(test_savepoint_data_visibility, SimpleSchema, {
         "Savepoint data visibility test should succeed, got: {:?}",
         result.as_ref().err()
     );
-});
+}
 
-sqlite_test!(test_savepoint_rolled_back_data_not_visible, SimpleSchema, {
+#[drizzle::test]
+fn test_savepoint_rolled_back_data_not_visible(
+    db: &mut TestDb<SimpleSchema>,
+    schema: SimpleSchema,
+) {
     let SimpleSchema { simple } = schema;
 
     let result = drizzle_try!(db.transaction(
@@ -1005,9 +1023,10 @@ sqlite_test!(test_savepoint_rolled_back_data_not_visible, SimpleSchema, {
         "Rolled-back savepoint data test should succeed, got: {:?}",
         result.as_ref().err()
     );
-});
+}
 
-sqlite_test!(test_savepoint_update_and_delete_rollback, SimpleSchema, {
+#[drizzle::test]
+fn test_savepoint_update_and_delete_rollback(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let result = drizzle_try!(db.transaction(
@@ -1078,9 +1097,10 @@ sqlite_test!(test_savepoint_update_and_delete_rollback, SimpleSchema, {
     // Verify final committed state matches
     let users: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
     assert_eq!(users.len(), 3);
-});
+}
 
-sqlite_test!(test_nested_savepoint_inner_rollback, SimpleSchema, {
+#[drizzle::test]
+fn test_nested_savepoint_inner_rollback(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let result = drizzle_try!(db.transaction(
@@ -1139,11 +1159,12 @@ sqlite_test!(test_nested_savepoint_inner_rollback, SimpleSchema, {
     assert!(names.contains(&"level_1".to_string()));
     assert!(names.contains(&"after_inner_rollback".to_string()));
     assert!(!names.contains(&"level_2_rollback".to_string()));
-});
+}
 
 // --- Prepared statement + transaction tests ---
 
-sqlite_test!(test_prepared_outside_transaction, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_outside_transaction(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -1191,9 +1212,10 @@ sqlite_test!(test_prepared_outside_transaction, SimpleSchema, {
         "Prepared statement outside transaction should succeed, got: {:?}",
         result.as_ref().err()
     );
-});
+}
 
-sqlite_test!(test_prepared_in_savepoint, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_in_savepoint(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -1243,9 +1265,10 @@ sqlite_test!(test_prepared_in_savepoint, SimpleSchema, {
         "Prepared statement in savepoint should succeed, got: {:?}",
         result.as_ref().err()
     );
-});
+}
 
-sqlite_test!(test_prepared_survives_savepoint_rollback, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_survives_savepoint_rollback(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -1289,7 +1312,7 @@ sqlite_test!(test_prepared_survives_savepoint_rollback, SimpleSchema, {
         "Prepared statement should survive savepoint rollback, got: {:?}",
         result.as_ref().err()
     );
-});
+}
 
 // Static assertion: OwnedPreparedStatement is Send + Sync
 #[cfg(feature = "rusqlite")]

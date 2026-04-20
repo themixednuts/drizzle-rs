@@ -10,7 +10,6 @@ use crate::common::schema::sqlite::{
 use crate::common::schema::sqlite::{UserConfig, UserMetadata};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 
 #[cfg(feature = "uuid")]
 #[allow(dead_code)]
@@ -23,7 +22,8 @@ struct ComplexResult {
     description: Option<String>,
 }
 
-sqlite_test!(simple_update, SimpleSchema, {
+#[drizzle::test]
+fn simple_update(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
     // Insert initial Simple record
     let insert_data = InsertSimple::new("original");
@@ -58,10 +58,11 @@ sqlite_test!(simple_update, SimpleSchema, {
     );
 
     assert_eq!(old_results.len(), 0);
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(complex_update, ComplexSchema, {
+#[drizzle::test]
+fn complex_update(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
 
     // Insert initial Complex record
@@ -116,9 +117,10 @@ sqlite_test!(complex_update, ComplexSchema, {
         results[0].description,
         Some("Updated description".to_string())
     );
-});
+}
 
-sqlite_test!(update_multiple_rows, SimpleSchema, {
+#[drizzle::test]
+fn update_multiple_rows(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
@@ -149,10 +151,11 @@ sqlite_test!(update_multiple_rows, SimpleSchema, {
             => all
     );
     assert_eq!(results.len(), 1);
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(update_with_complex_where, ComplexSchema, {
+#[drizzle::test]
+fn update_with_complex_where(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
 
     let stmt = db.insert(complex).values([
@@ -188,9 +191,10 @@ sqlite_test!(update_with_complex_where, ComplexSchema, {
     );
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "matched");
-});
+}
 
-sqlite_test!(update_with_in_condition, SimpleSchema, {
+#[drizzle::test]
+fn update_with_in_condition(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
@@ -222,9 +226,10 @@ sqlite_test!(update_with_in_condition, SimpleSchema, {
             => all
     );
     assert_eq!(results.len(), 2);
-});
+}
 
-sqlite_test!(update_no_matching_rows, SimpleSchema, {
+#[drizzle::test]
+fn update_no_matching_rows(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
@@ -241,10 +246,11 @@ sqlite_test!(update_no_matching_rows, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
-});
+}
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-sqlite_test!(feature_gated_update, ComplexSchema, {
+#[drizzle::test]
+fn feature_gated_update(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
     // Insert initial Complex record with UUID
     let test_id = uuid::Uuid::new_v4();
@@ -304,4 +310,4 @@ sqlite_test!(feature_gated_update, ComplexSchema, {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "feature_user");
     assert_eq!(results[0].id, test_id);
-});
+}

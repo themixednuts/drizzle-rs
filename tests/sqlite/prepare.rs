@@ -7,11 +7,11 @@
 
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 
 use crate::common::schema::sqlite::{InsertSimple, SelectSimple, SimpleSchema};
 
-sqlite_test!(test_prepare_with_placeholder, SimpleSchema, {
+#[drizzle::test]
+fn test_prepare_with_placeholder(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -40,9 +40,10 @@ sqlite_test!(test_prepare_with_placeholder, SimpleSchema, {
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "Alice");
-});
+}
 
-sqlite_test!(test_prepare_reuse_with_different_params, SimpleSchema, {
+#[drizzle::test]
+fn test_prepare_reuse_with_different_params(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -83,9 +84,10 @@ sqlite_test!(test_prepare_reuse_with_different_params, SimpleSchema, {
     let charlie: Vec<NameOnly> = drizzle_exec!(prepared.all(db.conn(), [name.bind("Charlie")]));
     assert_eq!(charlie.len(), 1);
     assert_eq!(charlie[0].name, "Charlie");
-});
+}
 
-sqlite_test!(test_prepared_get_single_row, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_get_single_row(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -107,9 +109,10 @@ sqlite_test!(test_prepared_get_single_row, SimpleSchema, {
     let result: SelectSimple = drizzle_exec!(prepared.get(db.conn(), [name.bind("UniqueUser")]));
 
     assert_eq!(result.name, "UniqueUser");
-});
+}
 
-sqlite_test!(test_prepared_missing_named_param_fails, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_missing_named_param_fails(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -134,9 +137,10 @@ sqlite_test!(test_prepared_missing_named_param_fails, SimpleSchema, {
         Ok(Err(drizzle::error::DrizzleError::ParameterError(_))) => {} // bind error — expected in release builds
         other => panic!("expected param mismatch failure, got: {other:?}"),
     }
-});
+}
 
-sqlite_test!(test_prepared_extra_named_param_fails, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_extra_named_param_fails(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -165,9 +169,10 @@ sqlite_test!(test_prepared_extra_named_param_fails, SimpleSchema, {
         Ok(Err(drizzle::error::DrizzleError::ParameterError(_))) => {} // bind error — expected in release builds
         other => panic!("expected param mismatch failure, got: {other:?}"),
     }
-});
+}
 
-sqlite_test!(test_prepared_execute_insert, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_execute_insert(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Prepare an insert with values baked in
@@ -187,9 +192,10 @@ sqlite_test!(test_prepared_execute_insert, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "PreparedInsert");
-});
+}
 
-sqlite_test!(test_prepared_select_all_no_params, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_select_all_no_params(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -208,9 +214,10 @@ sqlite_test!(test_prepared_select_all_no_params, SimpleSchema, {
     let results: Vec<SelectSimple> = drizzle_exec!(prepared.all(db.conn(), []));
 
     assert_eq!(results.len(), 3);
-});
+}
 
-sqlite_test!(test_prepared_owned_conversion, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_owned_conversion(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -235,9 +242,10 @@ sqlite_test!(test_prepared_owned_conversion, SimpleSchema, {
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "OwnedTest");
-});
+}
 
-sqlite_test!(test_prepared_performance_comparison, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_performance_comparison(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -284,9 +292,10 @@ sqlite_test!(test_prepared_performance_comparison, SimpleSchema, {
         prepared_duration,
         regular_duration,
     );
-});
+}
 
-sqlite_test!(test_prepared_insert_multiple_times, SimpleSchema, {
+#[drizzle::test]
+fn test_prepared_insert_multiple_times(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Create prepared inserts with different values
@@ -303,4 +312,4 @@ sqlite_test!(test_prepared_insert_multiple_times, SimpleSchema, {
     for i in 0..5 {
         assert!(results.iter().any(|r| r.name == format!("BatchUser{}", i)));
     }
-});
+}

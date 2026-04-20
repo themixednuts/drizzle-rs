@@ -5,7 +5,6 @@
 use crate::common::schema::postgres::*;
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 
 #[cfg(feature = "uuid")]
 #[derive(Debug, PostgresFromRow)]
@@ -17,7 +16,8 @@ struct PgComplexResult {
     active: bool,
 }
 
-postgres_test!(insert_single_row, SimpleSchema, {
+#[drizzle::test]
+fn insert_single_row(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
@@ -29,9 +29,10 @@ postgres_test!(insert_single_row, SimpleSchema, {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
     assert!(results[0].id > 0, "ID should be auto-generated");
-});
+}
 
-postgres_test!(insert_with_table_and_column_refs, SimpleSchema, {
+#[drizzle::test]
+fn insert_with_table_and_column_refs(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
     let simple_ref = &simple;
     let name_ref = &simple.name;
@@ -49,9 +50,10 @@ postgres_test!(insert_with_table_and_column_refs, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "RefAlice");
-});
+}
 
-postgres_test!(insert_multiple_rows, SimpleSchema, {
+#[drizzle::test]
+fn insert_multiple_rows(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
@@ -69,10 +71,11 @@ postgres_test!(insert_multiple_rows, SimpleSchema, {
     assert!(names.contains(&"Alice"));
     assert!(names.contains(&"Bob"));
     assert!(names.contains(&"Charlie"));
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(insert_with_optional_fields, ComplexSchema, {
+#[drizzle::test]
+fn insert_with_optional_fields(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     let stmt = db
@@ -90,10 +93,11 @@ postgres_test!(insert_with_optional_fields, ComplexSchema, {
     assert_eq!(results[0].email, Some("alice@example.com".to_string()));
     assert_eq!(results[0].age, Some(30));
     assert!(results[0].active);
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(insert_with_null_fields, ComplexSchema, {
+#[drizzle::test]
+fn insert_with_null_fields(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     let stmt = db
@@ -109,9 +113,10 @@ postgres_test!(insert_with_null_fields, ComplexSchema, {
     assert_eq!(results[0].email, None);
     assert_eq!(results[0].age, None);
     assert!(!results[0].active);
-});
+}
 
-postgres_test!(insert_special_characters, SimpleSchema, {
+#[drizzle::test]
+fn insert_special_characters(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
@@ -132,10 +137,11 @@ postgres_test!(insert_special_characters, SimpleSchema, {
     assert!(results.iter().any(|r| r.name == "Line1\nLine2"));
     assert!(results.iter().any(|r| r.name == "Tab\there"));
     assert!(results.iter().any(|r| r.name == "Emoji 🎉"));
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(insert_with_custom_uuid, ComplexSchema, {
+#[drizzle::test]
+fn insert_with_custom_uuid(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex, .. } = schema;
 
     let custom_id = uuid::Uuid::new_v4();
@@ -153,9 +159,10 @@ postgres_test!(insert_with_custom_uuid, ComplexSchema, {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, custom_id);
     assert_eq!(results[0].name, "CustomID");
-});
+}
 
-postgres_test!(insert_large_batch, SimpleSchema, {
+#[drizzle::test]
+fn insert_large_batch(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Create a batch of 100 rows
@@ -172,4 +179,4 @@ postgres_test!(insert_large_batch, SimpleSchema, {
     let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
 
     assert_eq!(results.len(), 100);
-});
+}

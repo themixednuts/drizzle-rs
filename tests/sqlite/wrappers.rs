@@ -5,7 +5,6 @@
 
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 
 #[cfg(feature = "compact-str")]
 use compact_str::CompactString;
@@ -32,7 +31,11 @@ struct CompactStringSchema {
 }
 
 #[cfg(feature = "compact-str")]
-sqlite_test!(compact_string_roundtrip_and_storage, CompactStringSchema, {
+#[drizzle::test]
+fn compact_string_roundtrip_and_storage(
+    db: &mut TestDb<CompactStringSchema>,
+    schema: CompactStringSchema,
+) {
     let table = schema.compact_string_test;
 
     let value = CompactString::new("compact hello");
@@ -60,7 +63,7 @@ sqlite_test!(compact_string_roundtrip_and_storage, CompactStringSchema, {
     );
 
     assert_eq!(ty.0, "text");
-});
+}
 
 #[cfg(feature = "bytes")]
 #[SQLiteTable(NAME = "bytes_blob_test")]
@@ -79,7 +82,8 @@ struct BytesBlobSchema {
 }
 
 #[cfg(feature = "bytes")]
-sqlite_test!(bytes_roundtrip_and_storage, BytesBlobSchema, {
+#[drizzle::test]
+fn bytes_roundtrip_and_storage(db: &mut TestDb<BytesBlobSchema>, schema: BytesBlobSchema) {
     let table = schema.bytes_blob_test;
 
     let payload = Bytes::from_static(b"hello-bytes");
@@ -113,7 +117,7 @@ sqlite_test!(bytes_roundtrip_and_storage, BytesBlobSchema, {
 
     assert_eq!(ty.0, "blob");
     assert_eq!(ty.1, "blob");
-});
+}
 
 #[cfg(feature = "smallvec-types")]
 #[SQLiteTable(NAME = "smallvec_blob_test")]
@@ -131,7 +135,8 @@ struct SmallVecBlobSchema {
 }
 
 #[cfg(feature = "smallvec-types")]
-sqlite_test!(smallvec_roundtrip_and_storage, SmallVecBlobSchema, {
+#[drizzle::test]
+fn smallvec_roundtrip_and_storage(db: &mut TestDb<SmallVecBlobSchema>, schema: SmallVecBlobSchema) {
     let table = schema.smallvec_blob_test;
 
     let mut payload = SmallVec::<[u8; 16]>::new();
@@ -160,4 +165,4 @@ sqlite_test!(smallvec_roundtrip_and_storage, SmallVecBlobSchema, {
     );
 
     assert_eq!(ty.0, "blob");
-});
+}

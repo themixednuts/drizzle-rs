@@ -12,7 +12,6 @@ use crate::common::schema::sqlite::{ComplexSchema, InsertComplex};
 use crate::common::schema::sqlite::{InsertSimple, SimpleSchema};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 
 // =============================================================================
 // Result Types
@@ -41,7 +40,8 @@ struct GroupAvgResult {
 // GROUP BY Tests
 // =============================================================================
 
-sqlite_test!(test_group_by_simple_count, SimpleSchema, {
+#[drizzle::test]
+fn test_group_by_simple_count(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -70,10 +70,11 @@ sqlite_test!(test_group_by_simple_count, SimpleSchema, {
     assert_eq!(results[0].count, 2);
     assert_eq!(results[1].name, "bob");
     assert_eq!(results[1].count, 3);
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(test_group_by_with_sum, ComplexSchema, {
+#[drizzle::test]
+fn test_group_by_with_sum(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
 
     let test_data = vec![
@@ -102,10 +103,11 @@ sqlite_test!(test_group_by_with_sum, ComplexSchema, {
     assert_eq!(results[0].total, Some(75)); // 35 + 40
     assert!(results[1].active);
     assert_eq!(results[1].total, Some(55)); // 25 + 30
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(test_group_by_with_avg, ComplexSchema, {
+#[drizzle::test]
+fn test_group_by_with_avg(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
 
     let test_data = vec![
@@ -133,13 +135,14 @@ sqlite_test!(test_group_by_with_avg, ComplexSchema, {
     assert!((results[0].avg_score.unwrap() - 65.0).abs() < 0.01);
     assert!(results[1].active);
     assert!((results[1].avg_score.unwrap() - 85.0).abs() < 0.01);
-});
+}
 
 // =============================================================================
 // HAVING Tests
 // =============================================================================
 
-sqlite_test!(test_having_filters_groups, SimpleSchema, {
+#[drizzle::test]
+fn test_having_filters_groups(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -167,9 +170,10 @@ sqlite_test!(test_having_filters_groups, SimpleSchema, {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "alice");
     assert_eq!(results[0].count, 3);
-});
+}
 
-sqlite_test!(test_having_with_sum, SimpleSchema, {
+#[drizzle::test]
+fn test_having_with_sum(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -202,9 +206,10 @@ sqlite_test!(test_having_with_sum, SimpleSchema, {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "alice");
     assert_eq!(results[0].total, Some(30));
-});
+}
 
-sqlite_test!(test_having_no_matching_groups, SimpleSchema, {
+#[drizzle::test]
+fn test_having_no_matching_groups(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -227,13 +232,14 @@ sqlite_test!(test_having_no_matching_groups, SimpleSchema, {
     );
 
     assert_eq!(results.len(), 0);
-});
+}
 
 // =============================================================================
 // GROUP BY with ORDER BY
 // =============================================================================
 
-sqlite_test!(test_group_by_order_by_aggregate, SimpleSchema, {
+#[drizzle::test]
+fn test_group_by_order_by_aggregate(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -271,13 +277,14 @@ sqlite_test!(test_group_by_order_by_aggregate, SimpleSchema, {
     assert_eq!(results[1].total, Some(30));
     assert_eq!(results[2].name, "charlie");
     assert_eq!(results[2].total, Some(1));
-});
+}
 
 // =============================================================================
 // GROUP BY with LIMIT
 // =============================================================================
 
-sqlite_test!(test_group_by_with_limit, SimpleSchema, {
+#[drizzle::test]
+fn test_group_by_with_limit(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -309,9 +316,10 @@ sqlite_test!(test_group_by_with_limit, SimpleSchema, {
     assert_eq!(results[0].count, 3);
     assert_eq!(results[1].name, "bob");
     assert_eq!(results[1].count, 2);
-});
+}
 
-sqlite_test!(test_group_by_limit_without_order, SimpleSchema, {
+#[drizzle::test]
+fn test_group_by_limit_without_order(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -336,13 +344,14 @@ sqlite_test!(test_group_by_limit_without_order, SimpleSchema, {
     );
 
     assert_eq!(results.len(), 2);
-});
+}
 
 // =============================================================================
 // SELECT with OFFSET directly from FROM
 // =============================================================================
 
-sqlite_test!(test_select_from_offset, SimpleSchema, {
+#[drizzle::test]
+fn test_select_from_offset(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -373,13 +382,14 @@ sqlite_test!(test_select_from_offset, SimpleSchema, {
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "charlie");
     assert_eq!(results[1].name, "diana");
-});
+}
 
 // =============================================================================
 // GROUP BY on empty table
 // =============================================================================
 
-sqlite_test!(test_group_by_empty_table, SimpleSchema, {
+#[drizzle::test]
+fn test_group_by_empty_table(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // No data inserted
@@ -394,7 +404,7 @@ sqlite_test!(test_group_by_empty_table, SimpleSchema, {
     );
 
     assert_eq!(results.len(), 0);
-});
+}
 
 // =============================================================================
 // Set Operation Tests (UNION / UNION ALL / INTERSECT / EXCEPT)
@@ -405,7 +415,8 @@ struct NameResult {
     name: String,
 }
 
-sqlite_test!(test_union_via_drizzle_builder, SimpleSchema, {
+#[drizzle::test]
+fn test_union_via_drizzle_builder(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -435,9 +446,10 @@ sqlite_test!(test_union_via_drizzle_builder, SimpleSchema, {
     assert_eq!(results[0].name, "alice");
     assert_eq!(results[1].name, "bob");
     assert_eq!(results[2].name, "charlie");
-});
+}
 
-sqlite_test!(test_union_all_preserves_duplicates, SimpleSchema, {
+#[drizzle::test]
+fn test_union_all_preserves_duplicates(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -468,9 +480,10 @@ sqlite_test!(test_union_all_preserves_duplicates, SimpleSchema, {
     assert_eq!(results[1].name, "bob");
     assert_eq!(results[2].name, "bob");
     assert_eq!(results[3].name, "charlie");
-});
+}
 
-sqlite_test!(test_union_mixed_drizzle_and_raw, SimpleSchema, {
+#[drizzle::test]
+fn test_union_mixed_drizzle_and_raw(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -500,9 +513,10 @@ sqlite_test!(test_union_mixed_drizzle_and_raw, SimpleSchema, {
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "alice");
     assert_eq!(results[1].name, "charlie");
-});
+}
 
-sqlite_test!(test_chained_set_operations, SimpleSchema, {
+#[drizzle::test]
+fn test_chained_set_operations(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -537,9 +551,10 @@ sqlite_test!(test_chained_set_operations, SimpleSchema, {
     assert_eq!(results[0].name, "alice");
     assert_eq!(results[1].name, "alice");
     assert_eq!(results[2].name, "bob");
-});
+}
 
-sqlite_test!(test_set_op_with_order_limit, SimpleSchema, {
+#[drizzle::test]
+fn test_set_op_with_order_limit(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -570,9 +585,10 @@ sqlite_test!(test_set_op_with_order_limit, SimpleSchema, {
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "diana");
     assert_eq!(results[1].name, "charlie");
-});
+}
 
-sqlite_test!(test_intersect_via_drizzle_builder, SimpleSchema, {
+#[drizzle::test]
+fn test_intersect_via_drizzle_builder(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -598,9 +614,10 @@ sqlite_test!(test_intersect_via_drizzle_builder, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "bob");
-});
+}
 
-sqlite_test!(test_except_via_drizzle_builder, SimpleSchema, {
+#[drizzle::test]
+fn test_except_via_drizzle_builder(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -626,4 +643,4 @@ sqlite_test!(test_except_via_drizzle_builder, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "alice");
-});
+}

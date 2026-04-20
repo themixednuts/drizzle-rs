@@ -9,7 +9,6 @@
 use crate::common::schema::postgres::*;
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 
 // =============================================================================
 // Result Types
@@ -38,7 +37,8 @@ struct GroupAvgResult {
 // =============================================================================
 
 #[cfg(feature = "uuid")]
-postgres_test!(test_group_by_with_count, ComplexSchema, {
+#[drizzle::test]
+fn test_group_by_with_count(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -70,10 +70,11 @@ postgres_test!(test_group_by_with_count, ComplexSchema, {
     // active=true group
     assert!(results[1].active);
     assert_eq!(results[1].total_age, 3);
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(test_group_by_with_sum, ComplexSchema, {
+#[drizzle::test]
+fn test_group_by_with_sum(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -102,10 +103,11 @@ postgres_test!(test_group_by_with_sum, ComplexSchema, {
     assert_eq!(results[0].total_age, Some(75)); // 35 + 40
     assert!(results[1].active);
     assert_eq!(results[1].total_age, Some(55)); // 25 + 30
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(test_group_by_with_avg, ComplexSchema, {
+#[drizzle::test]
+fn test_group_by_with_avg(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -133,14 +135,15 @@ postgres_test!(test_group_by_with_avg, ComplexSchema, {
     assert!((results[0].avg_score.unwrap() - 65.0).abs() < 0.01);
     assert!(results[1].active);
     assert!((results[1].avg_score.unwrap() - 85.0).abs() < 0.01);
-});
+}
 
 // =============================================================================
 // HAVING Tests
 // =============================================================================
 
 #[cfg(feature = "uuid")]
-postgres_test!(test_having_filters_groups, ComplexSchema, {
+#[drizzle::test]
+fn test_having_filters_groups(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -169,10 +172,11 @@ postgres_test!(test_having_filters_groups, ComplexSchema, {
     assert_eq!(results.len(), 1);
     assert!(results[0].active);
     assert_eq!(results[0].total_age, 3);
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(test_having_with_sum, ComplexSchema, {
+#[drizzle::test]
+fn test_having_with_sum(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -199,10 +203,11 @@ postgres_test!(test_having_with_sum, ComplexSchema, {
     assert_eq!(results.len(), 1);
     assert!(results[0].active);
     assert_eq!(results[0].total_age, Some(55));
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(test_having_no_matching_groups, ComplexSchema, {
+#[drizzle::test]
+fn test_having_no_matching_groups(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -225,14 +230,15 @@ postgres_test!(test_having_no_matching_groups, ComplexSchema, {
     );
 
     assert_eq!(results.len(), 0);
-});
+}
 
 // =============================================================================
 // GROUP BY with ORDER BY
 // =============================================================================
 
 #[cfg(feature = "uuid")]
-postgres_test!(test_group_by_order_by, ComplexSchema, {
+#[drizzle::test]
+fn test_group_by_order_by(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -264,14 +270,15 @@ postgres_test!(test_group_by_order_by, ComplexSchema, {
     assert_eq!(results[0].total_age, Some(105));
     assert!(!results[1].active);
     assert_eq!(results[1].total_age, Some(70));
-});
+}
 
 // =============================================================================
 // GROUP BY with LIMIT
 // =============================================================================
 
 #[cfg(feature = "uuid")]
-postgres_test!(test_group_by_with_limit, ComplexSchema, {
+#[drizzle::test]
+fn test_group_by_with_limit(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -301,10 +308,11 @@ postgres_test!(test_group_by_with_limit, ComplexSchema, {
     // active=false: 40+50=90 > active=true: 10+20+30=60
     assert!(!results[0].active);
     assert_eq!(results[0].total_age, Some(90));
-});
+}
 
 #[cfg(feature = "uuid")]
-postgres_test!(test_group_by_limit_without_order, ComplexSchema, {
+#[drizzle::test]
+fn test_group_by_limit_without_order(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -331,14 +339,15 @@ postgres_test!(test_group_by_limit_without_order, ComplexSchema, {
 
     assert_eq!(results.len(), 1);
     assert!(results[0].total_age >= 2);
-});
+}
 
 // =============================================================================
 // GROUP BY on empty table
 // =============================================================================
 
 #[cfg(feature = "uuid")]
-postgres_test!(test_group_by_empty_table, ComplexSchema, {
+#[drizzle::test]
+fn test_group_by_empty_table(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { role: _, complex } = schema;
 
     // No data inserted
@@ -353,4 +362,4 @@ postgres_test!(test_group_by_empty_table, ComplexSchema, {
     );
 
     assert_eq!(results.len(), 0);
-});
+}

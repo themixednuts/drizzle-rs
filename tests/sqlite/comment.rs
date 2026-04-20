@@ -10,9 +10,9 @@
 use crate::common::schema::sqlite::{InsertSimple, Simple, SimpleSchema};
 use drizzle::core::expr::eq;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 
-sqlite_test!(comment_select_prepends_block, SimpleSchema, {
+#[drizzle::test]
+fn comment_select_prepends_block(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let sql = db
@@ -28,9 +28,10 @@ sqlite_test!(comment_select_prepends_block, SimpleSchema, {
         sql,
         r#"/*trace_id=abc*/ SELECT "simple"."id", "simple"."name" FROM "simple""#
     );
-});
+}
 
-sqlite_test!(comment_select_with_where, SimpleSchema, {
+#[drizzle::test]
+fn comment_select_with_where(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let sql = db
@@ -45,9 +46,10 @@ sqlite_test!(comment_select_with_where, SimpleSchema, {
         sql,
         r#"/*slow-query-warn*/ SELECT "simple"."id", "simple"."name" FROM "simple" WHERE "simple"."name" = ?"#
     );
-});
+}
 
-sqlite_test!(comment_tags_sort_and_url_encode, SimpleSchema, {
+#[drizzle::test]
+fn comment_tags_sort_and_url_encode(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Tags are URL-encoded (per encodeURIComponent) and sorted alphabetically.
@@ -62,9 +64,10 @@ sqlite_test!(comment_tags_sort_and_url_encode, SimpleSchema, {
         sql,
         r#"/*action='update',route='%2Fusers%2F%3Aid'*/ SELECT "simple"."id", "simple"."name" FROM "simple""#
     );
-});
+}
 
-sqlite_test!(comment_sanitises_comment_terminators, SimpleSchema, {
+#[drizzle::test]
+fn comment_sanitises_comment_terminators(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // An attacker-controlled trace string containing `/*` / `*/` must not be
@@ -80,9 +83,10 @@ sqlite_test!(comment_sanitises_comment_terminators, SimpleSchema, {
         sql,
         r#"/*evil / * escape * / attempt*/ SELECT "simple"."id", "simple"."name" FROM "simple""#
     );
-});
+}
 
-sqlite_test!(comment_empty_is_noop, SimpleSchema, {
+#[drizzle::test]
+fn comment_empty_is_noop(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let sql = db.select(()).from(simple).comment("").to_sql().sql();
@@ -101,9 +105,10 @@ sqlite_test!(comment_empty_is_noop, SimpleSchema, {
         sql,
         r#"SELECT "simple"."id", "simple"."name" FROM "simple""#
     );
-});
+}
 
-sqlite_test!(comment_on_insert_and_update_and_delete, SimpleSchema, {
+#[drizzle::test]
+fn comment_on_insert_and_update_and_delete(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // INSERT
@@ -142,9 +147,10 @@ sqlite_test!(comment_on_insert_and_update_and_delete, SimpleSchema, {
         delete_sql.starts_with("/*del*/ DELETE"),
         "expected delete SQL to start with /*del*/ DELETE, got: {delete_sql}"
     );
-});
+}
 
-sqlite_test!(comment_roundtrips_through_driver, SimpleSchema, {
+#[drizzle::test]
+fn comment_roundtrips_through_driver(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -159,4 +165,4 @@ sqlite_test!(comment_roundtrips_through_driver, SimpleSchema, {
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].name, "alice");
     assert_eq!(rows[1].name, "bob");
-});
+}

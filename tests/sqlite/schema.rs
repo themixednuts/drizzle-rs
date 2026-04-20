@@ -2,7 +2,6 @@
 
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 
 #[SQLiteTable]
 struct TestTable {
@@ -118,7 +117,8 @@ struct ViewTestSchema {
     existing_users: ExistingUsersView,
 }
 
-sqlite_test!(test_schema_derive, AppTestSchema, {
+#[drizzle::test]
+fn test_schema_derive(db: &mut TestDb<AppTestSchema>, schema: AppTestSchema) {
     // Test table SQL generation (DDL-based format)
     let user_sql = User::create_table_sql();
     assert_eq!(
@@ -157,9 +157,10 @@ sqlite_test!(test_schema_derive, AppTestSchema, {
     assert_eq!(schema.user_name_idx.name(), "user_name_idx");
     assert!(schema.user_email_idx.is_unique());
     assert!(!schema.user_name_idx.is_unique());
-});
+}
 
-sqlite_test!(test_schema_with_drizzle_macro, AppTestSchema, {
+#[drizzle::test]
+fn test_schema_with_drizzle_macro(db: &mut TestDb<AppTestSchema>, schema: AppTestSchema) {
     // Test that we can use the schema for queries
     let insert_data = InsertUser::new("test@example.com", "Test User");
     let result = drizzle_exec!(db.insert(schema.user).values([insert_data]) => execute);
@@ -176,9 +177,10 @@ sqlite_test!(test_schema_with_drizzle_macro, AppTestSchema, {
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].email, "test@example.com");
     assert_eq!(users[0].name, "Test User");
-});
+}
 
-sqlite_test!(test_schema_destructuring, AppTestSchema, {
+#[drizzle::test]
+fn test_schema_destructuring(db: &mut TestDb<AppTestSchema>, schema: AppTestSchema) {
     // Test destructuring the schema into individual components
     let (user, _, _) = schema.into();
 
@@ -198,9 +200,10 @@ sqlite_test!(test_schema_destructuring, AppTestSchema, {
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].email, "destructured@example.com");
     assert_eq!(users[0].name, "Destructured User");
-});
+}
 
-sqlite_test!(test_schema_with_view, ViewTestSchema, {
+#[drizzle::test]
+fn test_schema_with_view(db: &mut TestDb<ViewTestSchema>, schema: ViewTestSchema) {
     let ViewTestSchema {
         user,
         user_emails,
@@ -252,9 +255,10 @@ sqlite_test!(test_schema_with_view, ViewTestSchema, {
         !statements.iter().any(|sql| sql.contains("existing_users")),
         "Existing view should not be created"
     );
-});
+}
 
-sqlite_test!(test_view_alias_in_from_clause, ViewTestSchema, {
+#[drizzle::test]
+fn test_view_alias_in_from_clause(db: &mut TestDb<ViewTestSchema>, schema: ViewTestSchema) {
     let ViewTestSchema {
         user,
         user_emails,
@@ -299,7 +303,7 @@ sqlite_test!(test_view_alias_in_from_clause, ViewTestSchema, {
 
     // Keep schema value used in this test scope.
     let _ = user_emails;
-});
+}
 
 // Multi-table schema with foreign key dependencies for deterministic ordering tests
 #[SQLiteTable(NAME = "departments")]
@@ -352,7 +356,8 @@ struct ComplexTestSchema {
     department: Department,
 }
 
-sqlite_test!(test_deterministic_ordering, ComplexTestSchema, {
+#[drizzle::test]
+fn test_deterministic_ordering(db: &mut TestDb<ComplexTestSchema>, schema: ComplexTestSchema) {
     // Get the create statements - this should be deterministically ordered
     let statements: Vec<_> = schema
         .create_statements()
@@ -466,7 +471,7 @@ sqlite_test!(test_deterministic_ordering, ComplexTestSchema, {
         .unwrap();
     assert_eq!(lead_fk.target_table, "employees");
     assert_eq!(lead_fk.target_columns, &["id"]);
-});
+}
 
 #[SQLiteTable(NAME = "cycle_a")]
 struct CycleA {
@@ -836,7 +841,8 @@ mod view_query {
         );
     }
 
-    sqlite_test!(test_view_query_simple, VqTestSchema, {
+    #[drizzle::test]
+    fn test_view_query_simple(db: &mut TestDb<VqTestSchema>, schema: VqTestSchema) {
         let VqTestSchema {
             complex,
             vq_simple_view,
@@ -860,9 +866,10 @@ mod view_query {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].name, "Alice");
         assert_eq!(results[1].name, "Bob");
-    });
+    }
 
-    sqlite_test!(test_view_query_filter, VqTestSchema, {
+    #[drizzle::test]
+    fn test_view_query_filter(db: &mut TestDb<VqTestSchema>, schema: VqTestSchema) {
         let VqTestSchema {
             complex,
             vq_active_users,
@@ -886,9 +893,10 @@ mod view_query {
         assert_eq!(results.len(), 2, "Should only see active users");
         assert_eq!(results[0].name, "Alice");
         assert_eq!(results[1].name, "Charlie");
-    });
+    }
 
-    sqlite_test!(test_view_query_join, VqTestSchema, {
+    #[drizzle::test]
+    fn test_view_query_join(db: &mut TestDb<VqTestSchema>, schema: VqTestSchema) {
         let VqTestSchema {
             complex,
             post,
@@ -927,9 +935,10 @@ mod view_query {
         assert_eq!(results[1].title, Some("Post 2".to_string()));
         assert_eq!(results[2].name, "Bob");
         assert_eq!(results[2].title, None);
-    });
+    }
 
-    sqlite_test!(test_view_query_aggregate, VqTestSchema, {
+    #[drizzle::test]
+    fn test_view_query_aggregate(db: &mut TestDb<VqTestSchema>, schema: VqTestSchema) {
         let VqTestSchema {
             complex,
             post,
@@ -967,9 +976,10 @@ mod view_query {
         assert_eq!(results[0].post_count, 2);
         assert_eq!(results[1].name, "Bob");
         assert_eq!(results[1].post_count, 1);
-    });
+    }
 
-    sqlite_test!(test_view_query_complex_filter, VqTestSchema, {
+    #[drizzle::test]
+    fn test_view_query_complex_filter(db: &mut TestDb<VqTestSchema>, schema: VqTestSchema) {
         let VqTestSchema {
             complex,
             vq_complex_filter,
@@ -993,9 +1003,10 @@ mod view_query {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].name, "Alice");
         assert_eq!(results[1].name, "Charlie");
-    });
+    }
 
-    sqlite_test!(test_view_query_having, VqTestSchema, {
+    #[drizzle::test]
+    fn test_view_query_having(db: &mut TestDb<VqTestSchema>, schema: VqTestSchema) {
         let VqTestSchema {
             complex,
             post,
@@ -1033,5 +1044,5 @@ mod view_query {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].name, "Alice");
         assert_eq!(results[1].name, "Bob");
-    });
+    }
 }

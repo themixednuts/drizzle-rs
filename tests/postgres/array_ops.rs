@@ -7,10 +7,10 @@
 use crate::common::schema::postgres::*;
 use drizzle::postgres::expr::{array_contained, array_contains, array_overlaps};
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 
 // Test SQL generation for array_contains (@>) operator
-postgres_test!(array_contains_sql_generation, SimpleSchema, {
+#[drizzle::test]
+fn array_contains_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Note: This test verifies SQL generation. The simple.name column is TEXT,
@@ -25,10 +25,11 @@ postgres_test!(array_contains_sql_generation, SimpleSchema, {
 
     // Verify the @> operator is present in the generated SQL
     assert!(sql.contains("@>"), "Expected @> operator in SQL: {}", sql);
-});
+}
 
 // Test SQL generation for array_contained (<@) operator
-postgres_test!(array_contained_sql_generation, SimpleSchema, {
+#[drizzle::test]
+fn array_contained_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -40,10 +41,11 @@ postgres_test!(array_contained_sql_generation, SimpleSchema, {
 
     // Verify the <@ operator is present in the generated SQL
     assert!(sql.contains("<@"), "Expected <@ operator in SQL: {}", sql);
-});
+}
 
 // Test SQL generation for array_overlaps (&&) operator
-postgres_test!(array_overlaps_sql_generation, SimpleSchema, {
+#[drizzle::test]
+fn array_overlaps_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -55,10 +57,11 @@ postgres_test!(array_overlaps_sql_generation, SimpleSchema, {
 
     // Verify the && operator is present in the generated SQL
     assert!(sql.contains("&&"), "Expected && operator in SQL: {}", sql);
-});
+}
 
 // Test that array operators work with method syntax via ArrayExprExt trait
-postgres_test!(array_ops_method_syntax, SimpleSchema, {
+#[drizzle::test]
+fn array_ops_method_syntax(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     use drizzle::postgres::expr::ArrayExprExt;
 
     let SimpleSchema { simple } = schema;
@@ -89,4 +92,4 @@ postgres_test!(array_ops_method_syntax, SimpleSchema, {
 
     let sql = stmt.to_sql().sql();
     assert!(sql.contains("&&"), "Expected && operator in SQL: {}", sql);
-});
+}

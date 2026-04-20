@@ -67,7 +67,6 @@ mod execution {
     use crate::common::schema::postgres::*;
     use drizzle::core::expr::*;
     use drizzle::postgres::prelude::*;
-    use drizzle_macros::postgres_test;
 
     #[allow(dead_code)]
     #[derive(Debug, PostgresFromRow)]
@@ -77,7 +76,8 @@ mod execution {
         active: bool,
     }
 
-    postgres_test!(enum_insert_and_select, ComplexSchema, {
+    #[drizzle::test]
+    fn enum_insert_and_select(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
         let ComplexSchema { complex, .. } = schema;
 
         // Insert with different enum values
@@ -96,9 +96,10 @@ mod execution {
         assert_eq!(results[0].name, "Admin User");
         assert_eq!(results[1].name, "Mod User");
         assert_eq!(results[2].name, "Regular User");
-    });
+    }
 
-    postgres_test!(enum_filter_by_value, ComplexSchema, {
+    #[drizzle::test]
+    fn enum_filter_by_value(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
         let ComplexSchema { complex, .. } = schema;
 
         let stmt = db.insert(complex).values([
@@ -117,9 +118,10 @@ mod execution {
 
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|r| r.name.starts_with("Admin")));
-    });
+    }
 
-    postgres_test!(enum_update, ComplexSchema, {
+    #[drizzle::test]
+    fn enum_update(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
         let ComplexSchema { complex, .. } = schema;
 
         let stmt = db
@@ -143,9 +145,10 @@ mod execution {
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "Test User");
-    });
+    }
 
-    postgres_test!(enum_in_array_condition, ComplexSchema, {
+    #[drizzle::test]
+    fn enum_in_array_condition(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
         let ComplexSchema { complex, .. } = schema;
 
         let stmt = db.insert(complex).values([
@@ -166,5 +169,5 @@ mod execution {
         let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
         assert!(names.contains(&"Admin"));
         assert!(names.contains(&"Moderator"));
-    });
+    }
 }

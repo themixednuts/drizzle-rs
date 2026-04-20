@@ -1,14 +1,14 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use drizzle::core::expr::*;
 use drizzle::{sql, sqlite::prelude::*};
-use drizzle_macros::sqlite_test;
 use drizzle_sqlite::values::SQLiteValue;
 
 #[cfg(feature = "uuid")]
 use crate::common::schema::sqlite::ComplexSchema;
 use crate::common::schema::sqlite::{InsertSimple, SelectSimple, Simple, SimpleSchema};
 
-sqlite_test!(test_simple_select_all_sql_generation, SimpleSchema, {
+#[drizzle::test]
+fn test_simple_select_all_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let sql = db.select(()).from(simple).to_sql();
@@ -27,10 +27,11 @@ sqlite_test!(test_simple_select_all_sql_generation, SimpleSchema, {
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "alice");
     assert_eq!(results[1].name, "bob");
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(test_complex_select_all_sql_generation, ComplexSchema, {
+#[drizzle::test]
+fn test_complex_select_all_sql_generation(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
 
     let sql_string = db.select(()).from(complex).to_sql().sql();
@@ -46,9 +47,10 @@ sqlite_test!(test_complex_select_all_sql_generation, ComplexSchema, {
         sql_string,
         r#"SELECT "complex"."id", "complex"."name", "complex"."email", "complex"."age", "complex"."score", "complex"."active", "complex"."role", "complex"."description", "complex"."metadata", "complex"."config", "complex"."data_blob", "complex"."created_at", "complex"."invited_by" FROM "complex""#
     );
-});
+}
 
-sqlite_test!(test_select_all_with_where_clause, SimpleSchema, {
+#[drizzle::test]
+fn test_select_all_with_where_clause(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let sql = db
@@ -79,9 +81,10 @@ sqlite_test!(test_select_all_with_where_clause, SimpleSchema, {
     );
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
-});
+}
 
-sqlite_test!(test_select_specific_columns_vs_select_all, SimpleSchema, {
+#[drizzle::test]
+fn test_select_specific_columns_vs_select_all(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let select_all_sql = db.select(()).from(simple).to_sql().sql();
@@ -108,9 +111,10 @@ sqlite_test!(test_select_specific_columns_vs_select_all, SimpleSchema, {
     assert_eq!(all_results.len(), specific_results.len());
     assert_eq!(all_results[0].id, specific_results[0].id);
     assert_eq!(all_results[0].name, specific_results[0].name);
-});
+}
 
-sqlite_test!(test_sql_macro, SimpleSchema, {
+#[drizzle::test]
+fn test_sql_macro(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let id = 4;
@@ -132,9 +136,10 @@ sqlite_test!(test_sql_macro, SimpleSchema, {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, id);
     assert_eq!(results[0].name, "test");
-});
+}
 
-sqlite_test!(test_sql_printf_style, SimpleSchema, {
+#[drizzle::test]
+fn test_sql_printf_style(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
     let id = 5;
     let name = "printf_test";
@@ -153,9 +158,10 @@ sqlite_test!(test_sql_printf_style, SimpleSchema, {
     assert_eq!(sql, r#"SELECT * FROM "simple" WHERE "simple"."id" = ?"#);
     assert_eq!(params.len(), 1);
     assert_eq!(params[0], &SQLiteValue::Integer(id as i64));
-});
+}
 
-sqlite_test!(test_sql_mixed_named_positional, SimpleSchema, {
+#[drizzle::test]
+fn test_sql_mixed_named_positional(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
     let id = 6;
     let name = "mixed_test";
@@ -174,92 +180,92 @@ sqlite_test!(test_sql_mixed_named_positional, SimpleSchema, {
     assert_eq!(sql, r#"SELECT * FROM "simple" WHERE "simple"."id" = ?"#);
     assert_eq!(params.len(), 1);
     assert_eq!(params[0], &SQLiteValue::Integer(id as i64));
-});
+}
 
-sqlite_test!(
-    test_with_subquery_parenthesized_in_comparison,
-    SimpleSchema,
-    {
-        let SimpleSchema { simple } = schema;
-        let builder = drizzle::sqlite::builder::QueryBuilder::new::<SimpleSchema>();
-        let SimpleSchema {
-            simple: subquery_simple,
-        } = SimpleSchema::new();
+#[drizzle::test]
+fn test_with_subquery_parenthesized_in_comparison(
+    db: &mut TestDb<SimpleSchema>,
+    schema: SimpleSchema,
+) {
+    let SimpleSchema { simple } = schema;
+    let builder = drizzle::sqlite::builder::QueryBuilder::new::<SimpleSchema>();
+    let SimpleSchema {
+        simple: subquery_simple,
+    } = SimpleSchema::new();
 
-        struct FilteredIdsTag;
-        impl drizzle::core::Tag for FilteredIdsTag {
-            const NAME: &'static str = "filtered_ids";
-        }
-
-        let filtered_ids = builder
-            .select(subquery_simple.id)
-            .from(subquery_simple)
-            .r#where(gt(subquery_simple.id, 10))
-            .into_cte::<FilteredIdsTag>();
-
-        let with_subquery = builder
-            .with(&filtered_ids)
-            .select(filtered_ids.id)
-            .from(&filtered_ids);
-
-        let sql = db
-            .select(simple.id)
-            .from(simple)
-            .r#where(gt(simple.id, with_subquery))
-            .to_sql()
-            .sql();
-
-        assert!(
-            sql.contains(r#""simple"."id" >(WITH filtered_ids AS"#),
-            "sql: {sql}"
-        );
+    struct FilteredIdsTag;
+    impl drizzle::core::Tag for FilteredIdsTag {
+        const NAME: &'static str = "filtered_ids";
     }
-);
 
-sqlite_test!(
-    test_with_subquery_parenthesized_in_set_and_funcs,
-    SimpleSchema,
-    {
-        let SimpleSchema { simple } = schema;
-        let builder = drizzle::sqlite::builder::QueryBuilder::new::<SimpleSchema>();
-        let SimpleSchema {
-            simple: subquery_simple,
-        } = SimpleSchema::new();
+    let filtered_ids = builder
+        .select(subquery_simple.id)
+        .from(subquery_simple)
+        .r#where(gt(subquery_simple.id, 10))
+        .into_cte::<FilteredIdsTag>();
 
-        struct FilteredIdsTag;
-        impl drizzle::core::Tag for FilteredIdsTag {
-            const NAME: &'static str = "filtered_ids";
-        }
+    let with_subquery = builder
+        .with(&filtered_ids)
+        .select(filtered_ids.id)
+        .from(&filtered_ids);
 
-        let filtered_ids = builder
-            .select(subquery_simple.id)
-            .from(subquery_simple)
-            .r#where(gt(subquery_simple.id, 10))
-            .into_cte::<FilteredIdsTag>();
+    let sql = db
+        .select(simple.id)
+        .from(simple)
+        .r#where(gt(simple.id, with_subquery))
+        .to_sql()
+        .sql();
 
-        let with_subquery = builder
-            .with(&filtered_ids)
-            .select(filtered_ids.id)
-            .from(&filtered_ids);
-        let in_sql = db
-            .select(simple.id)
-            .from(simple)
-            .r#where(in_subquery(simple.id, with_subquery))
-            .to_sql()
-            .sql();
-        assert!(
-            in_sql.contains(r#""simple"."id" IN (WITH filtered_ids AS"#),
-            "sql: {in_sql}"
-        );
+    assert!(
+        sql.contains(r#""simple"."id" >(WITH filtered_ids AS"#),
+        "sql: {sql}"
+    );
+}
 
-        let with_subquery = builder
-            .with(&filtered_ids)
-            .select(filtered_ids.id)
-            .from(&filtered_ids);
-        let func_sql = db.select(avg(with_subquery)).from(simple).to_sql().sql();
-        assert!(
-            func_sql.contains(r#"AVG ((WITH filtered_ids AS"#),
-            "sql: {func_sql}"
-        );
+#[drizzle::test]
+fn test_with_subquery_parenthesized_in_set_and_funcs(
+    db: &mut TestDb<SimpleSchema>,
+    schema: SimpleSchema,
+) {
+    let SimpleSchema { simple } = schema;
+    let builder = drizzle::sqlite::builder::QueryBuilder::new::<SimpleSchema>();
+    let SimpleSchema {
+        simple: subquery_simple,
+    } = SimpleSchema::new();
+
+    struct FilteredIdsTag;
+    impl drizzle::core::Tag for FilteredIdsTag {
+        const NAME: &'static str = "filtered_ids";
     }
-);
+
+    let filtered_ids = builder
+        .select(subquery_simple.id)
+        .from(subquery_simple)
+        .r#where(gt(subquery_simple.id, 10))
+        .into_cte::<FilteredIdsTag>();
+
+    let with_subquery = builder
+        .with(&filtered_ids)
+        .select(filtered_ids.id)
+        .from(&filtered_ids);
+    let in_sql = db
+        .select(simple.id)
+        .from(simple)
+        .r#where(in_subquery(simple.id, with_subquery))
+        .to_sql()
+        .sql();
+    assert!(
+        in_sql.contains(r#""simple"."id" IN (WITH filtered_ids AS"#),
+        "sql: {in_sql}"
+    );
+
+    let with_subquery = builder
+        .with(&filtered_ids)
+        .select(filtered_ids.id)
+        .from(&filtered_ids);
+    let func_sql = db.select(avg(with_subquery)).from(simple).to_sql().sql();
+    assert!(
+        func_sql.contains(r#"AVG ((WITH filtered_ids AS"#),
+        "sql: {func_sql}"
+    );
+}

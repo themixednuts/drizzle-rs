@@ -8,7 +8,6 @@
 use crate::common::schema::postgres::*;
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 
 // =============================================================================
 // String Function Result Types
@@ -33,7 +32,8 @@ struct PositionResult {
 // String Function Tests
 // =============================================================================
 
-postgres_test!(test_string_upper_lower, SimpleSchema, {
+#[drizzle::test]
+fn test_string_upper_lower(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -60,9 +60,10 @@ postgres_test!(test_string_upper_lower, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, "hello world");
-});
+}
 
-postgres_test!(test_string_trim, SimpleSchema, {
+#[drizzle::test]
+fn test_string_trim(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -99,9 +100,10 @@ postgres_test!(test_string_trim, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, "right");
-});
+}
 
-postgres_test!(test_string_length, SimpleSchema, {
+#[drizzle::test]
+fn test_string_length(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -128,9 +130,10 @@ postgres_test!(test_string_length, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].length, 0);
-});
+}
 
-postgres_test!(test_string_substr, SimpleSchema, {
+#[drizzle::test]
+fn test_string_substr(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Hello World")];
@@ -151,9 +154,10 @@ postgres_test!(test_string_substr, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, "World");
-});
+}
 
-postgres_test!(test_string_replace, SimpleSchema, {
+#[drizzle::test]
+fn test_string_replace(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Hello World")];
@@ -173,9 +177,10 @@ postgres_test!(test_string_replace, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, "Hello World");
-});
+}
 
-postgres_test!(test_string_strpos, SimpleSchema, {
+#[drizzle::test]
+fn test_string_strpos(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Hello World")];
@@ -196,9 +201,10 @@ postgres_test!(test_string_strpos, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].position, 0);
-});
+}
 
-postgres_test!(test_string_concat, SimpleSchema, {
+#[drizzle::test]
+fn test_string_concat(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Hello")];
@@ -219,9 +225,10 @@ postgres_test!(test_string_concat, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, "Hello there");
-});
+}
 
-postgres_test!(test_string_functions_combined, SimpleSchema, {
+#[drizzle::test]
+fn test_string_functions_combined(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("  Hello World  ")];
@@ -250,7 +257,7 @@ postgres_test!(test_string_functions_combined, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].length, 11);
-});
+}
 
 // =============================================================================
 // Math Function Tests
@@ -266,7 +273,8 @@ struct MathFloatResult {
     result: f64,
 }
 
-postgres_test!(test_math_abs, SimpleSchema, {
+#[drizzle::test]
+fn test_math_abs(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -295,9 +303,10 @@ postgres_test!(test_math_abs, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, 0);
-});
+}
 
-postgres_test!(test_math_round, SimpleSchema, {
+#[drizzle::test]
+fn test_math_round(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Test")];
@@ -310,9 +319,10 @@ postgres_test!(test_math_round, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, 1.0);
-});
+}
 
-postgres_test!(test_math_sign, SimpleSchema, {
+#[drizzle::test]
+fn test_math_sign(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert rows, serial IDs will be 1, 2, 3
@@ -351,9 +361,10 @@ postgres_test!(test_math_sign, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, 1.0);
-});
+}
 
-postgres_test!(test_math_mod, SimpleSchema, {
+#[drizzle::test]
+fn test_math_mod(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert rows, serial IDs: 1, 2, 3, ...
@@ -381,7 +392,7 @@ postgres_test!(test_math_mod, SimpleSchema, {
             => all
     );
     assert_eq!(result[0].result, 0); // 2 % 2 = 0
-});
+}
 
 // =============================================================================
 // Aggregate on Empty Table
@@ -397,7 +408,8 @@ struct SumNullResult {
     total: Option<i64>,
 }
 
-postgres_test!(test_aggregate_empty_table, SimpleSchema, {
+#[drizzle::test]
+fn test_aggregate_empty_table(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // No data inserted — COUNT returns 0
@@ -417,7 +429,7 @@ postgres_test!(test_aggregate_empty_table, SimpleSchema, {
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].total, None);
-});
+}
 
 // =============================================================================
 // CASE / WHEN expressions
@@ -433,7 +445,8 @@ struct CaseNullableResult {
     label: Option<String>,
 }
 
-postgres_test!(test_case_when_with_else, SimpleSchema, {
+#[drizzle::test]
+fn test_case_when_with_else(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -463,9 +476,10 @@ postgres_test!(test_case_when_with_else, SimpleSchema, {
     assert_eq!(results[0].label, "Small"); // id=1
     assert_eq!(results[1].label, "Medium"); // id=2
     assert_eq!(results[2].label, "Big"); // id=3
-});
+}
 
-postgres_test!(test_case_when_no_else, SimpleSchema, {
+#[drizzle::test]
+fn test_case_when_no_else(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("alice"), InsertSimple::new("bob")];
@@ -488,7 +502,7 @@ postgres_test!(test_case_when_no_else, SimpleSchema, {
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].label, None); // id=1, no match
     assert_eq!(results[1].label.as_deref(), Some("Big")); // id=2
-});
+}
 
 // =============================================================================
 // Window Functions
@@ -500,7 +514,8 @@ struct RowNumberResult {
     rn: i64,
 }
 
-postgres_test!(test_window_row_number, SimpleSchema, {
+#[drizzle::test]
+fn test_window_row_number(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -530,7 +545,7 @@ postgres_test!(test_window_row_number, SimpleSchema, {
     assert_eq!(results[1].rn, 2);
     assert_eq!(results[2].name, "charlie");
     assert_eq!(results[2].rn, 3);
-});
+}
 
 #[derive(Debug, PostgresFromRow)]
 struct RunningSumResult {
@@ -538,7 +553,8 @@ struct RunningSumResult {
     running_total: Option<i64>,
 }
 
-postgres_test!(test_window_sum_over, SimpleSchema, {
+#[drizzle::test]
+fn test_window_sum_over(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -577,7 +593,7 @@ postgres_test!(test_window_sum_over, SimpleSchema, {
     assert_eq!(results[1].running_total, Some(3)); // 1+2
     assert_eq!(results[2].name, "charlie");
     assert_eq!(results[2].running_total, Some(6)); // 1+2+3
-});
+}
 
 #[derive(Debug, PostgresFromRow)]
 struct RankResult {
@@ -585,7 +601,8 @@ struct RankResult {
     rnk: i64,
 }
 
-postgres_test!(test_window_dense_rank, SimpleSchema, {
+#[drizzle::test]
+fn test_window_dense_rank(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -616,7 +633,7 @@ postgres_test!(test_window_dense_rank, SimpleSchema, {
     assert_eq!(results[1].rnk, 2);
     assert_eq!(results[2].name, "charlie");
     assert_eq!(results[2].rnk, 3);
-});
+}
 
 // =============================================================================
 // Coalesce and Null handling
@@ -628,7 +645,8 @@ struct CoalesceResult {
 }
 
 #[cfg(feature = "uuid")]
-postgres_test!(test_coalesce_with_null_values, ComplexSchema, {
+#[drizzle::test]
+fn test_coalesce_with_null_values(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { role: _, complex } = schema;
 
     drizzle_exec!(
@@ -652,13 +670,14 @@ postgres_test!(test_coalesce_with_null_values, ComplexSchema, {
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].value, "alice@test.com");
     assert_eq!(results[1].value, "no-email");
-});
+}
 
 // =============================================================================
 // Expression Edge Cases
 // =============================================================================
 
-postgres_test!(test_empty_string_operations, SimpleSchema, {
+#[drizzle::test]
+fn test_empty_string_operations(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new(""), InsertSimple::new("notempty")];
@@ -684,9 +703,10 @@ postgres_test!(test_empty_string_operations, SimpleSchema, {
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].result, "");
-});
+}
 
-postgres_test!(test_arithmetic_on_serial_ids, SimpleSchema, {
+#[drizzle::test]
+fn test_arithmetic_on_serial_ids(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -714,4 +734,4 @@ postgres_test!(test_arithmetic_on_serial_ids, SimpleSchema, {
     assert_eq!(results[0].value, 10);
     assert_eq!(results[1].value, 20);
     assert_eq!(results[2].value, 30);
-});
+}

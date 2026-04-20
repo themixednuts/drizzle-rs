@@ -7,7 +7,6 @@
 use crate::common::schema::postgres::*;
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 use drizzle_postgres::common::PostgresTransactionType;
 
 #[derive(Debug, PostgresFromRow, PartialEq)]
@@ -16,7 +15,8 @@ struct TxSimpleResult {
     name: String,
 }
 
-postgres_test!(transaction_commit, SimpleSchema, {
+#[drizzle::test]
+fn transaction_commit(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial data
@@ -43,9 +43,10 @@ postgres_test!(transaction_commit, SimpleSchema, {
     let results: Vec<TxSimpleResult> =
         drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
     drizzle_assert_eq!(2, results.len());
-});
+}
 
-postgres_test!(transaction_rollback, SimpleSchema, {
+#[drizzle::test]
+fn transaction_rollback(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial data
@@ -74,9 +75,10 @@ postgres_test!(transaction_rollback, SimpleSchema, {
         drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
     drizzle_assert_eq!(1, results.len());
     drizzle_assert_eq!("Alice", results[0].name.as_str());
-});
+}
 
-postgres_test!(transaction_update_and_select, SimpleSchema, {
+#[drizzle::test]
+fn transaction_update_and_select(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial data
@@ -116,9 +118,10 @@ postgres_test!(transaction_update_and_select, SimpleSchema, {
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
     drizzle_assert!(names.contains(&"Charlie"));
     drizzle_assert!(!names.contains(&"Bob"));
-});
+}
 
-postgres_test!(transaction_delete, SimpleSchema, {
+#[drizzle::test]
+fn transaction_delete(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial data
@@ -146,11 +149,12 @@ postgres_test!(transaction_delete, SimpleSchema, {
     drizzle_assert_eq!(2, results.len());
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
     drizzle_assert!(!names.contains(&"Bob"));
-});
+}
 
 // --- Savepoint (nested transaction) tests ---
 
-postgres_test!(savepoint_commit, SimpleSchema, {
+#[drizzle::test]
+fn savepoint_commit(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(db.transaction(
@@ -184,9 +188,10 @@ postgres_test!(savepoint_commit, SimpleSchema, {
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
     drizzle_assert!(names.contains(&"outer"));
     drizzle_assert!(names.contains(&"inner"));
-});
+}
 
-postgres_test!(savepoint_rollback_preserves_outer, SimpleSchema, {
+#[drizzle::test]
+fn savepoint_rollback_preserves_outer(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(db.transaction(
@@ -231,9 +236,10 @@ postgres_test!(savepoint_rollback_preserves_outer, SimpleSchema, {
     drizzle_assert!(names.contains(&"outer"));
     drizzle_assert!(names.contains(&"after_sp"));
     drizzle_assert!(!names.contains(&"inner_rollback"));
-});
+}
 
-postgres_test!(savepoint_nested_two_levels, SimpleSchema, {
+#[drizzle::test]
+fn savepoint_nested_two_levels(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(db.transaction(
@@ -277,11 +283,12 @@ postgres_test!(savepoint_nested_two_levels, SimpleSchema, {
     drizzle_assert!(names.contains(&"level0"));
     drizzle_assert!(names.contains(&"level1"));
     drizzle_assert!(names.contains(&"level2"));
-});
+}
 
 // --- Prepared statement + transaction tests ---
 
-postgres_test!(prepared_outside_transaction, SimpleSchema, {
+#[drizzle::test]
+fn prepared_outside_transaction(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -321,9 +328,10 @@ postgres_test!(prepared_outside_transaction, SimpleSchema, {
             Ok(())
         })
     ));
-});
+}
 
-postgres_test!(prepared_in_savepoint, SimpleSchema, {
+#[drizzle::test]
+fn prepared_in_savepoint(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -358,9 +366,10 @@ postgres_test!(prepared_in_savepoint, SimpleSchema, {
             Ok(())
         })
     ));
-});
+}
 
-postgres_test!(prepared_survives_savepoint_rollback, SimpleSchema, {
+#[drizzle::test]
+fn prepared_survives_savepoint_rollback(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(
@@ -402,7 +411,7 @@ postgres_test!(prepared_survives_savepoint_rollback, SimpleSchema, {
             Ok(())
         })
     ));
-});
+}
 
 // Static assertion: OwnedPreparedStatement is Send + Sync
 #[cfg(feature = "tokio-postgres")]

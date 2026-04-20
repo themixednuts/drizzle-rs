@@ -5,7 +5,6 @@
 use crate::common::schema::postgres::*;
 use drizzle::core::expr::eq;
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 
 #[derive(Debug, PostgresFromRow)]
 #[from(Simple)]
@@ -17,7 +16,8 @@ struct NamedSimple {
 #[derive(Debug, PostgresFromRow)]
 struct TupleNameId(String, i32);
 
-postgres_test!(named_struct_maps_by_name, SimpleSchema, {
+#[drizzle::test]
+fn named_struct_maps_by_name(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
@@ -29,9 +29,10 @@ postgres_test!(named_struct_maps_by_name, SimpleSchema, {
 
     assert_eq!(result.id, 1);
     assert_eq!(result.name, "Alice");
-});
+}
 
-postgres_test!(tuple_struct_maps_by_index, SimpleSchema, {
+#[drizzle::test]
+fn tuple_struct_maps_by_index(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
@@ -43,9 +44,10 @@ postgres_test!(tuple_struct_maps_by_index, SimpleSchema, {
 
     assert_eq!(result.0, "Alice");
     assert_eq!(result.1, 1);
-});
+}
 
-postgres_test!(fromrow_inferred_with_select_target, SimpleSchema, {
+#[drizzle::test]
+fn fromrow_inferred_with_select_target(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
@@ -56,9 +58,10 @@ postgres_test!(fromrow_inferred_with_select_target, SimpleSchema, {
 
     assert_eq!(result.id, 1);
     assert_eq!(result.name, "Alice");
-});
+}
 
-postgres_test!(insert_returning_select_target_infers_row, SimpleSchema, {
+#[drizzle::test]
+fn insert_returning_select_target_infers_row(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -69,9 +72,10 @@ postgres_test!(insert_returning_select_target_infers_row, SimpleSchema, {
 
     assert_eq!(result.id, 1);
     assert_eq!(result.name, "Alice");
-});
+}
 
-postgres_test!(update_returning_select_target_infers_row, SimpleSchema, {
+#[drizzle::test]
+fn update_returning_select_target_infers_row(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("Alice")]) => execute);
@@ -85,9 +89,10 @@ postgres_test!(update_returning_select_target_infers_row, SimpleSchema, {
 
     assert_eq!(result.id, 1);
     assert_eq!(result.name, "Bob");
-});
+}
 
-postgres_test!(delete_returning_select_target_infers_row, SimpleSchema, {
+#[drizzle::test]
+fn delete_returning_select_target_infers_row(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     drizzle_exec!(db.insert(simple).values([InsertSimple::new("Alice")]) => execute);
@@ -100,7 +105,7 @@ postgres_test!(delete_returning_select_target_infers_row, SimpleSchema, {
 
     assert_eq!(result.id, 1);
     assert_eq!(result.name, "Alice");
-});
+}
 
 #[cfg(feature = "tokio-postgres")]
 mod tokio_fromrow_checks {

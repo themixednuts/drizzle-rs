@@ -8,7 +8,6 @@ use crate::common::schema::sqlite::{InsertSimple, UpdateSimple};
 use crate::common::schema::sqlite::{UserConfig, UserMetadata};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-use drizzle_macros::sqlite_test;
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
@@ -27,7 +26,8 @@ struct ComplexResult {
     description: Option<String>,
 }
 
-sqlite_test!(simple_insert, SimpleSchema, {
+#[drizzle::test]
+fn simple_insert(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert Simple record
@@ -46,9 +46,10 @@ sqlite_test!(simple_insert, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
-});
+}
 
-sqlite_test!(insert_with_table_and_column_refs, SimpleSchema, {
+#[drizzle::test]
+fn insert_with_table_and_column_refs(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
     let simple_ref = &simple;
     let name_ref = &simple.name;
@@ -66,10 +67,11 @@ sqlite_test!(insert_with_table_and_column_refs, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "ref_test");
-});
+}
 
 #[cfg(feature = "uuid")]
-sqlite_test!(complex_insert, ComplexSchema, {
+#[drizzle::test]
+fn complex_insert(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
 
     // Insert Complex record with various field types
@@ -113,9 +115,10 @@ sqlite_test!(complex_insert, ComplexSchema, {
     assert_eq!(results[0].email, Some("test@example.com".to_string()));
     assert_eq!(results[0].age, Some(25));
     assert_eq!(results[0].description, Some("Test description".to_string()));
-});
+}
 
-sqlite_test!(conflict_resolution, SimpleSchema, {
+#[drizzle::test]
+fn conflict_resolution(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial Simple record
@@ -143,10 +146,11 @@ sqlite_test!(conflict_resolution, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "conflict_test");
-});
+}
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
-sqlite_test!(feature_gated_insert, ComplexSchema, {
+#[drizzle::test]
+fn feature_gated_insert(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     let ComplexSchema { complex } = schema;
 
     // Insert Complex record using feature-gated fields
@@ -184,10 +188,11 @@ sqlite_test!(feature_gated_insert, ComplexSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "feature_test");
-});
+}
 
 // SQL generation tests for ON CONFLICT variants
-sqlite_test!(on_conflict_do_nothing_no_target_sql, SimpleSchema, {
+#[drizzle::test]
+fn on_conflict_do_nothing_no_target_sql(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -217,9 +222,10 @@ sqlite_test!(on_conflict_do_nothing_no_target_sql, SimpleSchema, {
     );
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "original");
-});
+}
 
-sqlite_test!(on_conflict_column_do_nothing_sql, SimpleSchema, {
+#[drizzle::test]
+fn on_conflict_column_do_nothing_sql(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -251,9 +257,10 @@ sqlite_test!(on_conflict_column_do_nothing_sql, SimpleSchema, {
     );
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "first");
-});
+}
 
-sqlite_test!(on_conflict_do_update_sql, SimpleSchema, {
+#[drizzle::test]
+fn on_conflict_do_update_sql(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -285,9 +292,10 @@ sqlite_test!(on_conflict_do_update_sql, SimpleSchema, {
     );
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "after");
-});
+}
 
-sqlite_test!(on_conflict_do_update_where_sql, SimpleSchema, {
+#[drizzle::test]
+fn on_conflict_do_update_where_sql(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -322,9 +330,10 @@ sqlite_test!(on_conflict_do_update_where_sql, SimpleSchema, {
     );
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "updated_via_where");
-});
+}
 
-sqlite_test!(on_conflict_do_update_e2e, SimpleSchema, {
+#[drizzle::test]
+fn on_conflict_do_update_e2e(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial row
@@ -355,9 +364,10 @@ sqlite_test!(on_conflict_do_update_e2e, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "updated");
-});
+}
 
-sqlite_test!(on_conflict_do_update_excluded_sql, SimpleSchema, {
+#[drizzle::test]
+fn on_conflict_do_update_excluded_sql(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -389,9 +399,10 @@ sqlite_test!(on_conflict_do_update_excluded_sql, SimpleSchema, {
     );
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "new_name");
-});
+}
 
-sqlite_test!(on_conflict_do_update_excluded_e2e, SimpleSchema, {
+#[drizzle::test]
+fn on_conflict_do_update_excluded_e2e(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial row
@@ -422,4 +433,4 @@ sqlite_test!(on_conflict_do_update_excluded_e2e, SimpleSchema, {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "from_excluded");
-});
+}

@@ -5,7 +5,6 @@
 #![allow(clippy::approx_constant)]
 
 use drizzle::postgres::prelude::*;
-use drizzle_macros::postgres_test;
 
 // ============================================================================
 // Basic Types Table - Tests core Rust primitive type inference
@@ -79,7 +78,8 @@ mod uuid_tests {
         uuids: PgUuidTypes,
     }
 
-    postgres_test!(uuid_insert_and_select, PgUuidTypesSchema, {
+    #[drizzle::test]
+    fn uuid_insert_and_select(db: &mut TestDb<PgUuidTypesSchema>, schema: PgUuidTypesSchema) {
         let PgUuidTypesSchema { uuids, .. } = schema;
 
         // Insert with auto-generated UUID
@@ -98,14 +98,15 @@ mod uuid_tests {
         let results: Vec<SelectPgUuidTypes> = drizzle_exec!(stmt => all);
         assert_eq!(results.len(), 2);
         assert_eq!(results[1].id, specific_id);
-    });
+    }
 }
 
 // ============================================================================
 // Basic Types Tests
 // ============================================================================
 
-postgres_test!(basic_types_insert_and_select, PgBasicTypesSchema, {
+#[drizzle::test]
+fn basic_types_insert_and_select(db: &mut TestDb<PgBasicTypesSchema>, schema: PgBasicTypesSchema) {
     let PgBasicTypesSchema { basic, .. } = schema;
 
     let stmt = db.insert(basic).values([InsertPgBasicTypes::new(
@@ -133,9 +134,13 @@ postgres_test!(basic_types_insert_and_select, PgBasicTypesSchema, {
     assert!(row.bool_val);
     assert_eq!(row.text_val, "Hello, PostgreSQL!");
     assert_eq!(row.blob_val, vec![0xDE, 0xAD, 0xBE, 0xEF]);
-});
+}
 
-postgres_test!(optional_types_with_values, PgOptionalTypesSchema, {
+#[drizzle::test]
+fn optional_types_with_values(
+    db: &mut TestDb<PgOptionalTypesSchema>,
+    schema: PgOptionalTypesSchema,
+) {
     let PgOptionalTypesSchema { optional, .. } = schema;
 
     // Insert with all values present
@@ -163,9 +168,13 @@ postgres_test!(optional_types_with_values, PgOptionalTypesSchema, {
     assert_eq!(row.opt_bool, Some(true));
     assert_eq!(row.opt_text, Some("optional text".to_string()));
     assert_eq!(row.opt_blob, Some(vec![1, 2, 3]));
-});
+}
 
-postgres_test!(optional_types_with_nulls, PgOptionalTypesSchema, {
+#[drizzle::test]
+fn optional_types_with_nulls(
+    db: &mut TestDb<PgOptionalTypesSchema>,
+    schema: PgOptionalTypesSchema,
+) {
     let PgOptionalTypesSchema { optional, .. } = schema;
 
     // Insert with no optional values (all NULL)
@@ -185,13 +194,14 @@ postgres_test!(optional_types_with_nulls, PgOptionalTypesSchema, {
     assert!(row.opt_bool.is_none());
     assert!(row.opt_text.is_none());
     assert!(row.opt_blob.is_none());
-});
+}
 
 // ============================================================================
 // Integer Boundary Tests
 // ============================================================================
 
-postgres_test!(integer_boundary_values, PgBasicTypesSchema, {
+#[drizzle::test]
+fn integer_boundary_values(db: &mut TestDb<PgBasicTypesSchema>, schema: PgBasicTypesSchema) {
     let PgBasicTypesSchema { basic, .. } = schema;
 
     // Test min/max values for integer types
@@ -233,13 +243,14 @@ postgres_test!(integer_boundary_values, PgBasicTypesSchema, {
     assert_eq!(results[1].small_val, i16::MAX);
     assert_eq!(results[1].int_val, i32::MAX);
     assert_eq!(results[1].big_val, i64::MAX);
-});
+}
 
 // ============================================================================
 // Text and Binary Edge Cases
 // ============================================================================
 
-postgres_test!(text_special_characters, PgBasicTypesSchema, {
+#[drizzle::test]
+fn text_special_characters(db: &mut TestDb<PgBasicTypesSchema>, schema: PgBasicTypesSchema) {
     let PgBasicTypesSchema { basic, .. } = schema;
 
     let special_text = "Hello! こんにちは 🦀 'quotes' \"double\" \n\t\\backslash";
@@ -259,9 +270,10 @@ postgres_test!(text_special_characters, PgBasicTypesSchema, {
     let stmt = db.select(()).from(basic);
     let results: Vec<SelectPgBasicTypes> = drizzle_exec!(stmt => all);
     assert_eq!(results[0].text_val, special_text);
-});
+}
 
-postgres_test!(binary_data_roundtrip, PgBasicTypesSchema, {
+#[drizzle::test]
+fn binary_data_roundtrip(db: &mut TestDb<PgBasicTypesSchema>, schema: PgBasicTypesSchema) {
     let PgBasicTypesSchema { basic, .. } = schema;
 
     // Test various binary patterns
@@ -282,7 +294,7 @@ postgres_test!(binary_data_roundtrip, PgBasicTypesSchema, {
     let stmt = db.select(()).from(basic);
     let results: Vec<SelectPgBasicTypes> = drizzle_exec!(stmt => all);
     assert_eq!(results[0].blob_val, binary_data);
-});
+}
 
 // ============================================================================
 // Chrono Types Tests (feature-gated)
@@ -308,7 +320,8 @@ mod chrono_tests {
         chrono: PgChronoTypes,
     }
 
-    postgres_test!(chrono_types_roundtrip, PgChronoTypesSchema, {
+    #[drizzle::test]
+    fn chrono_types_roundtrip(db: &mut TestDb<PgChronoTypesSchema>, schema: PgChronoTypesSchema) {
         let PgChronoTypesSchema { chrono, .. } = schema;
 
         let date = NaiveDate::from_ymd_opt(2024, 1, 15).unwrap();
@@ -332,7 +345,7 @@ mod chrono_tests {
         assert_eq!(results[0].time_val, time);
         assert_eq!(results[0].timestamp_val, timestamp);
         // Note: timestamptz comparison may need timezone handling
-    });
+    }
 }
 
 // ============================================================================
@@ -356,7 +369,8 @@ mod geo_tests {
         geo: PgGeoTypes,
     }
 
-    postgres_test!(geo_point_roundtrip, PgGeoTypesSchema, {
+    #[drizzle::test]
+    fn geo_point_roundtrip(db: &mut TestDb<PgGeoTypesSchema>, schema: PgGeoTypesSchema) {
         let PgGeoTypesSchema { geo, .. } = schema;
 
         let point = Point::new(40.7128, -74.0060); // NYC coordinates
@@ -369,7 +383,7 @@ mod geo_tests {
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].point_val, point);
-    });
+    }
 }
 
 // ============================================================================
@@ -396,7 +410,11 @@ mod cidr_tests {
         network: PgNetworkTypes,
     }
 
-    postgres_test!(network_types_roundtrip, PgNetworkTypesSchema, {
+    #[drizzle::test]
+    fn network_types_roundtrip(
+        db: &mut TestDb<PgNetworkTypesSchema>,
+        schema: PgNetworkTypesSchema,
+    ) {
         let PgNetworkTypesSchema { network, .. } = schema;
 
         let inet = IpInet::from_str("192.168.1.100/24").unwrap();
@@ -413,7 +431,7 @@ mod cidr_tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].inet_val, Some(inet));
         assert_eq!(results[0].cidr_val, Some(cidr));
-    });
+    }
 }
 
 // ============================================================================
@@ -437,7 +455,8 @@ mod bitvec_tests {
         bitvec: PgBitVecTypes,
     }
 
-    postgres_test!(bitvec_roundtrip, PgBitVecTypesSchema, {
+    #[drizzle::test]
+    fn bitvec_roundtrip(db: &mut TestDb<PgBitVecTypesSchema>, schema: PgBitVecTypesSchema) {
         let PgBitVecTypesSchema { bitvec, .. } = schema;
 
         let mut bits = BitVec::new();
@@ -460,7 +479,7 @@ mod bitvec_tests {
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].bits, bits);
-    });
+    }
 }
 
 // ============================================================================
@@ -485,7 +504,8 @@ mod arrayvec_tests {
         arrayvec: PgArrayVecTypes,
     }
 
-    postgres_test!(arrayvec_roundtrip, PgArrayVecTypesSchema, {
+    #[drizzle::test]
+    fn arrayvec_roundtrip(db: &mut TestDb<PgArrayVecTypesSchema>, schema: PgArrayVecTypesSchema) {
         let PgArrayVecTypesSchema { arrayvec, .. } = schema;
 
         let fixed_string = ArrayString::try_from("Hello, ArrayString!").unwrap();
@@ -503,7 +523,7 @@ mod arrayvec_tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].fixed_string, fixed_string);
         assert_eq!(results[0].fixed_blob, fixed_blob);
-    });
+    }
 }
 
 // ============================================================================
@@ -564,7 +584,8 @@ mod json_tests {
         jsonb_table: PgJsonbTypes,
     }
 
-    postgres_test!(json_custom_struct_roundtrip, PgJsonTypesSchema, {
+    #[drizzle::test]
+    fn json_custom_struct_roundtrip(db: &mut TestDb<PgJsonTypesSchema>, schema: PgJsonTypesSchema) {
         let PgJsonTypesSchema { json_table, .. } = schema;
 
         let metadata = Metadata {
@@ -586,9 +607,13 @@ mod json_tests {
         assert_eq!(results[0].metadata, metadata);
         assert_eq!(results[0].raw_json, raw_json);
         assert_eq!(results[0].opt_metadata, None);
-    });
+    }
 
-    postgres_test!(jsonb_nested_struct_roundtrip, PgJsonTypesSchema, {
+    #[drizzle::test]
+    fn jsonb_nested_struct_roundtrip(
+        db: &mut TestDb<PgJsonTypesSchema>,
+        schema: PgJsonTypesSchema,
+    ) {
         let PgJsonTypesSchema { jsonb_table, .. } = schema;
 
         let profile = UserProfile {
@@ -614,9 +639,10 @@ mod json_tests {
         assert_eq!(results[0].profile, profile);
         assert_eq!(results[0].raw_jsonb, raw_jsonb);
         assert_eq!(results[0].opt_profile, None);
-    });
+    }
 
-    postgres_test!(json_with_optional_struct, PgJsonTypesSchema, {
+    #[drizzle::test]
+    fn json_with_optional_struct(db: &mut TestDb<PgJsonTypesSchema>, schema: PgJsonTypesSchema) {
         let PgJsonTypesSchema { json_table, .. } = schema;
 
         let metadata = Metadata {
@@ -644,9 +670,10 @@ mod json_tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].metadata, metadata);
         assert_eq!(results[0].opt_metadata, Some(opt_metadata));
-    });
+    }
 
-    postgres_test!(jsonb_with_optional_struct, PgJsonTypesSchema, {
+    #[drizzle::test]
+    fn jsonb_with_optional_struct(db: &mut TestDb<PgJsonTypesSchema>, schema: PgJsonTypesSchema) {
         let PgJsonTypesSchema { jsonb_table, .. } = schema;
 
         let profile = UserProfile {
@@ -678,5 +705,5 @@ mod json_tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].profile, profile);
         assert_eq!(results[0].opt_profile, Some(opt_profile));
-    });
+    }
 }
