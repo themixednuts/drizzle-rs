@@ -2,7 +2,7 @@
 
 use super::PostgresValue;
 use crate::prelude::*;
-use crate::traits::FromPostgresValue;
+use crate::traits::{FromPostgresValue, PostgresEnum};
 use drizzle_core::{SQLParam, error::DrizzleError, sql::SQL};
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
@@ -126,6 +126,9 @@ pub enum OwnedPostgresValue {
     // Array types (using Vec for simplicity)
     /// Array of any `PostgreSQL` type
     Array(Vec<Self>),
+
+    /// `PostgreSQL` ENUM values (native enum types via `CREATE TYPE ... AS ENUM`)
+    Enum(Box<dyn PostgresEnum>),
 
     /// NULL value
     #[default]
@@ -554,6 +557,7 @@ impl OwnedPostgresValue {
             Self::Array(values) => {
                 PostgresValue::Array(values.iter().map(Self::as_value).collect())
             }
+            Self::Enum(value) => PostgresValue::Enum(value.clone()),
             Self::Null => PostgresValue::Null,
         }
     }
@@ -625,6 +629,7 @@ impl OwnedPostgresValue {
                 let values = values.into_iter().map(PostgresValue::from).collect();
                 T::from_postgres_array(values)
             }
+            Self::Enum(value) => T::from_postgres_text(value.variant_name()),
             Self::Null => T::from_postgres_null(),
         }
     }
@@ -696,6 +701,7 @@ impl OwnedPostgresValue {
                 let values = values.iter().map(Self::as_value).collect();
                 T::from_postgres_array(values)
             }
+            Self::Enum(value) => T::from_postgres_text(value.variant_name()),
             Self::Null => T::from_postgres_null(),
         }
     }
@@ -805,6 +811,8 @@ impl core::fmt::Display for OwnedPostgresValue {
                 format!("{{{}}}", elements.join(","))
             }
 
+            Self::Enum(enum_val) => enum_val.variant_name().to_string(),
+
             Self::Null => String::new(),
         };
         write!(f, "{value}")
@@ -831,7 +839,7 @@ impl<'a> From<PostgresValue<'a>> for OwnedPostgresValue {
             PostgresValue::Json(json) => Self::Json(json),
             #[cfg(feature = "serde")]
             PostgresValue::Jsonb(json) => Self::Jsonb(json),
-            PostgresValue::Enum(enum_val) => Self::Text(enum_val.variant_name().to_string()),
+            PostgresValue::Enum(enum_val) => Self::Enum(enum_val),
             PostgresValue::Null => Self::Null,
             #[cfg(feature = "chrono")]
             PostgresValue::Date(date) => Self::Date(date),
@@ -896,7 +904,7 @@ impl<'a> From<&PostgresValue<'a>> for OwnedPostgresValue {
             PostgresValue::Json(json) => Self::Json(json.clone()),
             #[cfg(feature = "serde")]
             PostgresValue::Jsonb(json) => Self::Jsonb(json.clone()),
-            PostgresValue::Enum(enum_val) => Self::Text(enum_val.variant_name().to_string()),
+            PostgresValue::Enum(enum_val) => Self::Enum(enum_val.clone()),
             #[cfg(feature = "chrono")]
             PostgresValue::Date(value) => Self::Date(*value),
             #[cfg(feature = "chrono")]
@@ -1005,6 +1013,8 @@ impl From<OwnedPostgresValue> for PostgresValue<'_> {
                 PostgresValue::Array(postgres_arr)
             }
 
+            OwnedPostgresValue::Enum(enum_val) => PostgresValue::Enum(enum_val),
+
             OwnedPostgresValue::Null => PostgresValue::Null,
         }
     }
@@ -1068,6 +1078,7 @@ impl<'a> From<&'a OwnedPostgresValue> for PostgresValue<'a> {
             OwnedPostgresValue::Array(values) => {
                 PostgresValue::Array(values.iter().map(PostgresValue::from).collect())
             }
+            OwnedPostgresValue::Enum(enum_val) => PostgresValue::Enum(enum_val.clone()),
             OwnedPostgresValue::Null => PostgresValue::Null,
         }
     }
