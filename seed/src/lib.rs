@@ -438,12 +438,10 @@ where
                     continue;
                 };
 
-                if let Some(parent_vals) = generated_values.get(&(rel.target_table, ref_col)) {
-                    if let Some(parent_value) = parent_vals.get(parent_idx) {
-                        row[fk_idx] = parent_value.clone();
-                    } else {
-                        row[fk_idx] = SeedValue::Null;
-                    }
+                if let Some(parent_vals) = generated_values.get(&(rel.target_table, ref_col))
+                    && let Some(parent_value) = parent_vals.get(parent_idx)
+                {
+                    row[fk_idx] = parent_value.clone();
                 } else {
                     row[fk_idx] = SeedValue::Null;
                 }
