@@ -4,7 +4,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(feature = "alloc")]
+#[cfg(not(feature = "std"))]
 extern crate alloc;
 
 #[allow(unused_imports)]
@@ -21,7 +21,7 @@ pub(crate) mod prelude {
         vec::Vec,
     };
 
-    #[cfg(all(feature = "alloc", not(feature = "std")))]
+    #[cfg(not(feature = "std"))]
     pub use alloc::{
         borrow::Cow,
         boxed::Box,

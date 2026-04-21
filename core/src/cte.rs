@@ -27,7 +27,7 @@ macro_rules! impl_cte_types {
             Query: $crate::ToSQL<'a, $ValueType>,
         {
             /// Creates a new `CTEView`.
-            pub fn new(table: Table, name: &'static str, query: Query) -> Self {
+            pub const fn new(table: Table, name: &'static str, query: Query) -> Self {
                 Self {
                     table,
                     name,
@@ -37,12 +37,12 @@ macro_rules! impl_cte_types {
             }
 
             /// Returns the CTE name.
-            pub fn cte_name(&self) -> &'static str {
+            pub const fn cte_name(&self) -> &'static str {
                 self.name
             }
 
             /// Returns a reference to the underlying query.
-            pub fn query(&self) -> &Query {
+            pub const fn query(&self) -> &Query {
                 &self.query
             }
         }

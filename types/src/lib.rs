@@ -49,19 +49,28 @@ pub(crate) mod alloc_prelude {
 }
 
 mod dialect;
+#[cfg(any(feature = "std", feature = "alloc"))]
 mod migration;
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod postgres;
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod serde_helpers;
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod sql;
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod sqlite;
 
 pub use dialect::{Dialect, DialectParseError};
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub use migration::{Casing, MigrationTracking};
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub use sql::*;
 
 /// Prelude module for commonly used types
 pub mod prelude {
     pub use crate::Dialect;
+    #[cfg(any(feature = "std", feature = "alloc"))]
     pub use crate::postgres::{PgTypeCategory, PostgreSQLType, TypeCategory as PgRustTypeCategory};
+    #[cfg(any(feature = "std", feature = "alloc"))]
     pub use crate::sqlite::{SQLTypeCategory, SQLiteType, TypeCategory as SqliteRustTypeCategory};
 }

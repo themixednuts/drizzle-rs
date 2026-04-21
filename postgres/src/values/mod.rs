@@ -270,8 +270,7 @@ impl core::fmt::Display for PostgresValue<'_> {
 
             // Array types
             PostgresValue::Array(arr) => {
-                let elements: Vec<String> =
-                    arr.iter().map(std::string::ToString::to_string).collect();
+                let elements: Vec<String> = arr.iter().map(ToString::to_string).collect();
                 format!("{{{}}}", elements.join(","))
             }
 

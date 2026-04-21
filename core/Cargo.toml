@@ -27,14 +27,14 @@ puffin = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 postgres = { workspace = true, optional = true }
 tokio-postgres = { workspace = true, optional = true }
-drizzle-types = { workspace = true }
+drizzle-types = { workspace = true, features = ["alloc"] }
 arrayvec = { workspace = true, optional = true }
 bytes = { workspace = true, optional = true }
 rust_decimal = { workspace = true, optional = true }
 cidr = { workspace = true, optional = true }
 geo-types = { workspace = true, optional = true }
 bit-vec = { workspace = true, optional = true }
-percent-encoding = { workspace = true }
+percent-encoding = { workspace = true, default-features = false, features = ["alloc"] }
 
 [features]
 default = ["std", "col16"]
@@ -42,8 +42,10 @@ default = ["std", "col16"]
 # Standard library support (enabled by default)
 std = ["compact_str/std", "smallvec/write", "thiserror/std", "drizzle-types/std", "percent-encoding/std"]
 
-# Allocator support for no_std environments (compact_str is no_std by default)
-alloc = ["drizzle-types/alloc", "percent-encoding/alloc"]
+# Allocator support for no_std environments. Kept for API clarity;
+# `drizzle-types/alloc` and `percent-encoding/alloc` are always enabled
+# since this crate requires allocation unconditionally.
+alloc = []
 
 # Serialization
 serde = ["dep:serde_json", "serde_json/alloc", "dep:serde"]

@@ -10,8 +10,8 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-drizzle-core = { workspace = true }
-drizzle-types = { workspace = true }
+drizzle-core = { workspace = true, features = ["alloc"] }
+drizzle-types = { workspace = true, features = ["alloc"] }
 thiserror = { workspace = true }
 compact_str = { workspace = true }
 
@@ -42,7 +42,9 @@ const_format = { workspace = true }
 [features]
 default = ["std"]
 std = ["drizzle-core/std", "drizzle-types/std", "thiserror/std", "compact_str/std"]
-alloc = ["drizzle-core/alloc", "drizzle-types/alloc"]
+# Allocator support for no_std (forwarded features are always enabled since this
+# crate requires allocation unconditionally; flag retained for API clarity).
+alloc = []
 
 rusqlite = ["std", "dep:rusqlite", "drizzle-core/rusqlite"]
 libsql = ["std", "dep:libsql", "drizzle-core/libsql"]

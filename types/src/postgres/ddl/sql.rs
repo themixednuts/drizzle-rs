@@ -4,7 +4,7 @@
 //! unified SQL output from both compile-time and runtime schema definitions.
 
 use crate::alloc_prelude::*;
-use std::fmt::Write;
+use core::fmt::Write;
 
 use super::{
     CheckConstraint, Column, Enum, ForeignKey, Generated, GeneratedType, Identity, IdentityType,

@@ -210,17 +210,17 @@ pub fn plan_migrations(
             feature: "turso or libsql",
         }),
 
-        #[cfg(feature = "postgres-sync")]
-        Credentials::Postgres(creds) => inspect_postgres_sync_migrations(&set, creds),
-
-        #[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
-        Credentials::Postgres(creds) => inspect_postgres_async_migrations(&set, creds),
-
-        #[cfg(all(not(feature = "postgres-sync"), not(feature = "tokio-postgres")))]
-        Credentials::Postgres(_) => Err(CliError::MissingDriver {
-            dialect: "PostgreSQL",
-            feature: "postgres-sync or tokio-postgres",
-        }),
+        Credentials::Postgres(creds) => {
+            let _ = creds;
+            core::cfg_select! {
+                feature = "postgres-sync" => inspect_postgres_sync_migrations(&set, creds),
+                feature = "tokio-postgres" => inspect_postgres_async_migrations(&set, creds),
+                _ => Err(CliError::MissingDriver {
+                    dialect: "PostgreSQL",
+                    feature: "postgres-sync or tokio-postgres",
+                }),
+            }
+        }
 
         #[cfg(feature = "d1-http")]
         Credentials::D1 {
@@ -341,17 +341,17 @@ pub fn run_migrations(
         }),
 
         // PostgreSQL - prefer sync driver if available, fall back to async
-        #[cfg(feature = "postgres-sync")]
-        Credentials::Postgres(creds) => run_postgres_sync_migrations(&set, creds),
-
-        #[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
-        Credentials::Postgres(creds) => run_postgres_async_migrations(&set, creds),
-
-        #[cfg(all(not(feature = "postgres-sync"), not(feature = "tokio-postgres")))]
-        Credentials::Postgres(_) => Err(CliError::MissingDriver {
-            dialect: "PostgreSQL",
-            feature: "postgres-sync or tokio-postgres",
-        }),
+        Credentials::Postgres(creds) => {
+            let _ = creds;
+            core::cfg_select! {
+                feature = "postgres-sync" => run_postgres_sync_migrations(&set, creds),
+                feature = "tokio-postgres" => run_postgres_async_migrations(&set, creds),
+                _ => Err(CliError::MissingDriver {
+                    dialect: "PostgreSQL",
+                    feature: "postgres-sync or tokio-postgres",
+                }),
+            }
+        }
 
         #[cfg(feature = "d1-http")]
         Credentials::D1 {
@@ -1078,17 +1078,17 @@ fn execute_statements(
             feature: "turso or libsql",
         }),
 
-        #[cfg(feature = "postgres-sync")]
-        Credentials::Postgres(creds) => execute_postgres_sync_statements(creds, statements),
-
-        #[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
-        Credentials::Postgres(creds) => execute_postgres_async_statements(creds, statements),
-
-        #[cfg(all(not(feature = "postgres-sync"), not(feature = "tokio-postgres")))]
-        Credentials::Postgres(_) => Err(CliError::MissingDriver {
-            dialect: "PostgreSQL",
-            feature: "postgres-sync or tokio-postgres",
-        }),
+        Credentials::Postgres(creds) => {
+            let _ = (creds, &statements);
+            core::cfg_select! {
+                feature = "postgres-sync" => execute_postgres_sync_statements(creds, statements),
+                feature = "tokio-postgres" => execute_postgres_async_statements(creds, statements),
+                _ => Err(CliError::MissingDriver {
+                    dialect: "PostgreSQL",
+                    feature: "postgres-sync or tokio-postgres",
+                }),
+            }
+        }
 
         #[cfg(feature = "d1-http")]
         Credentials::D1 {
@@ -2384,17 +2384,17 @@ fn apply_init_metadata(
             feature: "turso or libsql",
         }),
 
-        #[cfg(feature = "postgres-sync")]
-        Credentials::Postgres(creds) => init_postgres_sync_metadata(creds, &set),
-
-        #[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
-        Credentials::Postgres(creds) => init_postgres_async_metadata(creds, &set),
-
-        #[cfg(all(not(feature = "postgres-sync"), not(feature = "tokio-postgres")))]
-        Credentials::Postgres(_) => Err(CliError::MissingDriver {
-            dialect: "PostgreSQL",
-            feature: "postgres-sync or tokio-postgres",
-        }),
+        Credentials::Postgres(creds) => {
+            let _ = creds;
+            core::cfg_select! {
+                feature = "postgres-sync" => init_postgres_sync_metadata(creds, &set),
+                feature = "tokio-postgres" => init_postgres_async_metadata(creds, &set),
+                _ => Err(CliError::MissingDriver {
+                    dialect: "PostgreSQL",
+                    feature: "postgres-sync or tokio-postgres",
+                }),
+            }
+        }
 
         #[cfg(feature = "d1-http")]
         Credentials::D1 {
@@ -3045,17 +3045,17 @@ fn introspect_sqlite_dialect(credentials: &Credentials) -> Result<IntrospectResu
 /// Introspect `PostgreSQL` databases
 fn introspect_postgres_dialect(credentials: &Credentials) -> Result<IntrospectResult, CliError> {
     match credentials {
-        #[cfg(feature = "postgres-sync")]
-        Credentials::Postgres(creds) => introspect_postgres_sync(creds),
-
-        #[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
-        Credentials::Postgres(creds) => introspect_postgres_async(creds),
-
-        #[cfg(all(not(feature = "postgres-sync"), not(feature = "tokio-postgres")))]
-        Credentials::Postgres(_) => Err(CliError::MissingDriver {
-            dialect: "PostgreSQL",
-            feature: "postgres-sync or tokio-postgres",
-        }),
+        Credentials::Postgres(creds) => {
+            let _ = creds;
+            core::cfg_select! {
+                feature = "postgres-sync" => introspect_postgres_sync(creds),
+                feature = "tokio-postgres" => introspect_postgres_async(creds),
+                _ => Err(CliError::MissingDriver {
+                    dialect: "PostgreSQL",
+                    feature: "postgres-sync or tokio-postgres",
+                }),
+            }
+        }
 
         _ => Err(CliError::Other(
             "PostgreSQL introspection requires postgres credentials".into(),

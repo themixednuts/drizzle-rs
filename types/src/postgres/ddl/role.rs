@@ -2,11 +2,7 @@
 //!
 //! See: <https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts>
 
-#[cfg(feature = "std")]
-use std::borrow::Cow;
-
-#[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::borrow::Cow;
+use crate::alloc_prelude::*;
 
 #[cfg(feature = "serde")]
 use crate::serde_helpers::{cow_from_string, cow_option_from_string};

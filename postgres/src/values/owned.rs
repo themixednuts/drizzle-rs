@@ -806,8 +806,7 @@ impl core::fmt::Display for OwnedPostgresValue {
 
             // Array types
             Self::Array(arr) => {
-                let elements: Vec<String> =
-                    arr.iter().map(std::string::ToString::to_string).collect();
+                let elements: Vec<String> = arr.iter().map(ToString::to_string).collect();
                 format!("{{{}}}", elements.join(","))
             }
 

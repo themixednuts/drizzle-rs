@@ -4,11 +4,7 @@
 //! - [`TableDef`] - A const-friendly definition type for compile-time schema definitions
 //! - [`Table`] - A runtime type for serde serialization/deserialization
 
-#[cfg(feature = "std")]
-use std::borrow::Cow;
-
-#[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::borrow::Cow;
+use crate::alloc_prelude::*;
 
 #[cfg(feature = "serde")]
 use crate::serde_helpers::cow_from_string;

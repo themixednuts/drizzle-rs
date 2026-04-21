@@ -4,11 +4,7 @@
 //! - [`TableDef`] - A const-friendly definition type for compile-time schema definitions
 //! - [`Table`] - A runtime type for serde serialization/deserialization
 
-#[cfg(feature = "std")]
-use std::borrow::Cow;
-
-#[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::borrow::Cow;
+use crate::alloc_prelude::*;
 
 #[cfg(feature = "serde")]
 use crate::serde_helpers::cow_from_string;
@@ -133,14 +129,14 @@ pub struct Table {
     /// Is this a STRICT table?
     #[cfg_attr(
         feature = "serde",
-        serde(default, skip_serializing_if = "std::ops::Not::not")
+        serde(default, skip_serializing_if = "core::ops::Not::not")
     )]
     pub strict: bool,
 
     /// Is this a WITHOUT ROWID table?
     #[cfg_attr(
         feature = "serde",
-        serde(default, skip_serializing_if = "std::ops::Not::not")
+        serde(default, skip_serializing_if = "core::ops::Not::not")
     )]
     pub without_rowid: bool,
 }

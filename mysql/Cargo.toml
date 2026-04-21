@@ -10,7 +10,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-drizzle-core = { workspace = true }
+drizzle-core = { workspace = true, features = ["alloc"] }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
@@ -18,7 +18,9 @@ uuid = { workspace = true, optional = true }
 [features]
 default = ["std"]
 std = ["drizzle-core/std"]
-alloc = ["drizzle-core/alloc"]
+# Allocator support for no_std (forwarded features are always enabled since this
+# crate requires allocation unconditionally; flag retained for API clarity).
+alloc = []
 
 serde = ["dep:serde_json", "dep:serde"]
 uuid = ["dep:uuid"]

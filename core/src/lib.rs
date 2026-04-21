@@ -15,7 +15,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![recursion_limit = "512"]
 
-#[cfg(feature = "alloc")]
+#[cfg(not(feature = "std"))]
 extern crate alloc;
 
 // Prelude for std/alloc compatibility
@@ -27,12 +27,14 @@ pub(crate) mod prelude {
         boxed::Box,
         collections::{HashMap, HashSet},
         format,
+        rc::Rc,
         string::{String, ToString},
+        sync::Arc,
         vec,
         vec::Vec,
     };
 
-    #[cfg(all(feature = "alloc", not(feature = "std")))]
+    #[cfg(not(feature = "std"))]
     pub use alloc::{
         borrow::Cow,
         boxed::Box,
@@ -42,8 +44,11 @@ pub(crate) mod prelude {
         vec::Vec,
     };
 
+    #[cfg(all(not(feature = "std"), feature = "alloc"))]
+    pub use alloc::{rc::Rc, sync::Arc};
+
     // For no_std, use hashbrown instead of std::collections::{HashMap, HashSet}
-    #[cfg(all(feature = "alloc", not(feature = "std")))]
+    #[cfg(not(feature = "std"))]
     pub use hashbrown::{HashMap, HashSet};
 }
 

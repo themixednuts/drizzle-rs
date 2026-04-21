@@ -4,11 +4,7 @@
 //! - [`EnumDef`] - A const-friendly definition type for compile-time schema definitions
 //! - [`Enum`] - A runtime type for serde serialization/deserialization
 
-#[cfg(feature = "std")]
-use std::borrow::Cow;
-
-#[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::borrow::Cow;
+use crate::alloc_prelude::*;
 
 // =============================================================================
 // Const-friendly Definition Type
@@ -131,7 +127,7 @@ impl From<EnumDef> for Enum {
 
 #[cfg(feature = "serde")]
 mod serde_impl {
-    use super::{Cow, Enum};
+    use super::{Cow, Enum, String, Vec};
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     impl Serialize for Enum {
@@ -144,11 +140,7 @@ mod serde_impl {
             state.serialize_field("schema", &*self.schema)?;
             state.serialize_field("name", &*self.name)?;
             // Serialize values as Vec<&str>
-            let vals: Vec<&str> = self
-                .values
-                .iter()
-                .map(std::convert::AsRef::as_ref)
-                .collect();
+            let vals: Vec<&str> = self.values.iter().map(AsRef::as_ref).collect();
             state.serialize_field("values", &vals)?;
             state.end()
         }

@@ -34,10 +34,12 @@ where
         ));
     }
 
-    // `2.0_f64.powi(127)` is exactly representable in f64 and equals
-    // `i128::MAX + 1` (and `-2^127` equals `i128::MIN`). Building the bounds
-    // directly in f64 space avoids a precision-losing `i128 as f64` cast.
-    let two_pow_127 = 2.0_f64.powi(127);
+    // `2^127` is exactly representable in f64 and equals `i128::MAX + 1`
+    // (and `-2^127` equals `i128::MIN`). Building the bounds directly in f64
+    // space avoids a precision-losing `i128 as f64` cast. The bit pattern
+    // encodes sign=0, biased_exp=127+1023=1150, mantissa=0.
+    const TWO_POW_127: f64 = f64::from_bits(0x47E0_0000_0000_0000);
+    let two_pow_127 = TWO_POW_127;
     if value < -two_pow_127 || value >= two_pow_127 {
         return Err(DrizzleError::ConversionError(
             format!("float {value} out of range for {type_name}").into(),

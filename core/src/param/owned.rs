@@ -12,7 +12,7 @@ impl<'a, V: SQLParam> From<Param<'a, V>> for OwnedParam<V> {
     fn from(value: Param<'a, V>) -> Self {
         Self {
             placeholder: value.placeholder,
-            value: value.value.map(std::borrow::Cow::into_owned),
+            value: value.value.map(crate::prelude::Cow::into_owned),
         }
     }
 }
@@ -21,7 +21,7 @@ impl<'a, V: SQLParam> From<&Param<'a, V>> for OwnedParam<V> {
     fn from(value: &Param<'a, V>) -> Self {
         Self {
             placeholder: value.placeholder,
-            value: value.value.clone().map(std::borrow::Cow::into_owned),
+            value: value.value.clone().map(crate::prelude::Cow::into_owned),
         }
     }
 }

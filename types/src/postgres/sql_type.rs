@@ -2,6 +2,9 @@
 //!
 //! Defines the core `PostgreSQL` data types for schema definition.
 
+#[cfg(feature = "serde")]
+use crate::alloc_prelude::String;
+
 /// Enum representing supported `PostgreSQL` column types.
 ///
 /// These correspond to `PostgreSQL` data types.
@@ -391,13 +394,9 @@ impl PostgreSQLType {
     /// Check if this type supports primary keys
     #[must_use]
     pub const fn supports_primary_key(&self) -> bool {
-        #[cfg(feature = "serde")]
-        {
-            !matches!(self, Self::Json | Self::Jsonb)
-        }
-        #[cfg(not(feature = "serde"))]
-        {
-            true
+        core::cfg_select! {
+            feature = "serde" => !matches!(self, Self::Json | Self::Jsonb),
+            _ => true,
         }
     }
 

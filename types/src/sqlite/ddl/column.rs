@@ -4,11 +4,7 @@
 //! - [`ColumnDef`] - A const-friendly definition type for compile-time schema definitions
 //! - [`Column`] - A runtime type for serde serialization/deserialization
 
-#[cfg(feature = "std")]
-use std::borrow::Cow;
-
-#[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::borrow::Cow;
+use crate::alloc_prelude::*;
 
 #[cfg(feature = "serde")]
 use crate::serde_helpers::{cow_from_string, cow_option_from_string};
@@ -399,22 +395,22 @@ impl Column {
     /// Check if this is a primary key column
     #[inline]
     #[must_use]
-    pub fn is_primary_key(&self) -> bool {
-        self.primary_key.unwrap_or(false)
+    pub const fn is_primary_key(&self) -> bool {
+        matches!(self.primary_key, Some(true))
     }
 
     /// Check if this is an autoincrement column
     #[inline]
     #[must_use]
-    pub fn is_autoincrement(&self) -> bool {
-        self.autoincrement.unwrap_or(false)
+    pub const fn is_autoincrement(&self) -> bool {
+        matches!(self.autoincrement, Some(true))
     }
 
     /// Check if this column has a unique constraint
     #[inline]
     #[must_use]
-    pub fn is_unique(&self) -> bool {
-        self.unique.unwrap_or(false)
+    pub const fn is_unique(&self) -> bool {
+        matches!(self.unique, Some(true))
     }
 }
 

@@ -6,12 +6,6 @@ use crate::{
     traits::SQLParam,
 };
 
-#[cfg(feature = "std")]
-use std::{rc::Rc, sync::Arc};
-
-#[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::{rc::Rc, sync::Arc};
-
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 

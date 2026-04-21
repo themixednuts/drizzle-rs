@@ -5,7 +5,7 @@
 #![allow(unexpected_cfgs)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(feature = "alloc")]
+#[cfg(not(feature = "std"))]
 extern crate alloc;
 
 pub(crate) mod prelude {
@@ -20,7 +20,7 @@ pub(crate) mod prelude {
         vec::Vec,
     };
 
-    #[cfg(all(feature = "alloc", not(feature = "std")))]
+    #[cfg(not(feature = "std"))]
     pub use alloc::{
         borrow::Cow,
         boxed::Box,

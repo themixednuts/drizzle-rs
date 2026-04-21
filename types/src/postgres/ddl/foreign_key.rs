@@ -369,19 +369,11 @@ mod serde_impl {
             state.serialize_field("table", &*self.table)?;
             state.serialize_field("name", &*self.name)?;
             state.serialize_field("nameExplicit", &self.name_explicit)?;
-            let cols: Vec<&str> = self
-                .columns
-                .iter()
-                .map(std::convert::AsRef::as_ref)
-                .collect();
+            let cols: Vec<&str> = self.columns.iter().map(AsRef::as_ref).collect();
             state.serialize_field("columns", &cols)?;
             state.serialize_field("schemaTo", &*self.schema_to)?;
             state.serialize_field("tableTo", &*self.table_to)?;
-            let cols_to: Vec<&str> = self
-                .columns_to
-                .iter()
-                .map(std::convert::AsRef::as_ref)
-                .collect();
+            let cols_to: Vec<&str> = self.columns_to.iter().map(AsRef::as_ref).collect();
             state.serialize_field("columnsTo", &cols_to)?;
             state.serialize_field("onUpdate", &self.on_update.as_deref())?;
             state.serialize_field("onDelete", &self.on_delete.as_deref())?;

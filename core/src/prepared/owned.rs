@@ -32,7 +32,7 @@ impl<'a, V: SQLParam> From<PreparedStatement<'a, V>> for OwnedPreparedStatement<
             params: prepared
                 .params
                 .into_iter()
-                .map(std::convert::Into::into)
+                .map(core::convert::Into::into)
                 .collect(),
             sql: prepared.sql,
         }

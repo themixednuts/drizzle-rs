@@ -1,4 +1,4 @@
-use crate::alloc_prelude::Cow;
+use crate::alloc_prelude::*;
 
 /// Identifier casing strategy for inferred names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]

@@ -3,7 +3,7 @@
 //! See: <https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts>
 
 use crate::alloc_prelude::*;
-use std::fmt::Write;
+use core::fmt::Write;
 
 #[cfg(feature = "serde")]
 use crate::serde_helpers::{cow_from_string, cow_option_from_string};

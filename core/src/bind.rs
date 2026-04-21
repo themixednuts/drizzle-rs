@@ -3,11 +3,7 @@ use crate::traits::SQLParam;
 use crate::types::{Assignable, DataType};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::prelude::{Box, Cow, String, Vec};
-#[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::{rc::Rc, sync::Arc};
-#[cfg(feature = "std")]
-use std::{rc::Rc, sync::Arc};
+use crate::prelude::{Arc, Box, Cow, Rc, String, Vec};
 
 /// Maps a Rust value type to its SQL marker for a specific dialect.
 pub trait ValueTypeForDialect<D> {

@@ -196,7 +196,7 @@ impl<'a, V: SQLParam> PreparedStatement<'a, V> {
             &self.params,
             param_binds,
             |p| p.placeholder.name,
-            |p| p.value.as_ref().map(std::convert::AsRef::as_ref),
+            |p| p.value.as_ref().map(core::convert::AsRef::as_ref),
         )?;
 
         Ok((self.sql.as_str(), bound_params.into_iter()))
