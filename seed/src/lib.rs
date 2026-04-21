@@ -71,10 +71,13 @@ pub struct Postgres;
 
 mod statement {
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
-    use super::{
-        Cow, OwnedPostgresValue, OwnedSQL, OwnedSQLiteValue, Param, PostgresValue, SQL, SQLChunk,
-        SQLiteValue, ToSQL,
-    };
+    use super::{Cow, OwnedSQL, Param, SQL, SQLChunk, ToSQL};
+
+    #[cfg(feature = "sqlite")]
+    use super::{OwnedSQLiteValue, SQLiteValue};
+
+    #[cfg(feature = "postgres")]
+    use super::{OwnedPostgresValue, PostgresValue};
 
     // Generic OwnedSQL → SQL conversion (borrowing)
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
