@@ -46,549 +46,264 @@ where
     }
 }
 
-macro_rules! impl_sqlite_integer {
-    ($($t:ty),+ $(,)?) => {
+// =============================================================================
+// ValueTypeForDialect impl generator
+// =============================================================================
+
+/// Declare `ValueTypeForDialect<$dialect>::SQLType = $sql` for one or more types.
+macro_rules! impl_value_type {
+    ($dialect:ty, $sql:ty => $($ty:ty),+ $(,)?) => {
         $(
-            impl ValueTypeForDialect<SQLiteDialect> for $t {
-                type SQLType = drizzle_types::sqlite::types::Integer;
+            impl ValueTypeForDialect<$dialect> for $ty {
+                type SQLType = $sql;
             }
         )+
     };
 }
 
-impl_sqlite_integer!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize, bool);
-
-impl ValueTypeForDialect<SQLiteDialect> for f32 {
-    type SQLType = drizzle_types::sqlite::types::Real;
+/// Same as `impl_value_type!`, but for types generic over `const N: usize`.
+///
+/// Only referenced under `arrayvec` / `smallvec-types` feature gates, so the
+/// macro definition itself is cfg-gated to match — no broad `#[allow(unused_macros)]`.
+#[cfg(any(feature = "arrayvec", feature = "smallvec-types"))]
+macro_rules! impl_value_type_const_n {
+    ($dialect:ty, $sql:ty => $($ty:ty),+ $(,)?) => {
+        $(
+            impl<const N: usize> ValueTypeForDialect<$dialect> for $ty {
+                type SQLType = $sql;
+            }
+        )+
+    };
 }
 
-impl ValueTypeForDialect<SQLiteDialect> for f64 {
-    type SQLType = drizzle_types::sqlite::types::Real;
-}
+// =============================================================================
+// SQLite mappings
+// =============================================================================
 
-impl ValueTypeForDialect<SQLiteDialect> for &str {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
+use drizzle_types::sqlite::types as sqlite_ty;
 
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<SQLiteDialect> for Cow<'_, str> {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
+impl_value_type!(SQLiteDialect, sqlite_ty::Integer =>
+    i8, i16, i32, i64, isize, u8, u16, u32, u64, usize, bool);
 
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<SQLiteDialect> for String {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
+impl_value_type!(SQLiteDialect, sqlite_ty::Real => f32, f64);
 
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<SQLiteDialect> for Box<String> {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<SQLiteDialect> for Rc<String> {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
+impl_value_type!(SQLiteDialect, sqlite_ty::Text => &str);
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<SQLiteDialect> for Arc<String> {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
+impl_value_type!(SQLiteDialect, sqlite_ty::Text =>
+    Cow<'_, str>,
+    String,
+    Box<String>,
+    Rc<String>,
+    Arc<String>,
+    Box<str>,
+    Rc<str>,
+    Arc<str>,
+);
 
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<SQLiteDialect> for Box<str> {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<SQLiteDialect> for Rc<str> {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<SQLiteDialect> for Arc<str> {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-impl ValueTypeForDialect<SQLiteDialect> for compact_str::CompactString {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
+impl_value_type!(SQLiteDialect, sqlite_ty::Text => compact_str::CompactString);
 
 #[cfg(feature = "arrayvec")]
-impl<const N: usize> ValueTypeForDialect<SQLiteDialect> for arrayvec::ArrayString<N> {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
+impl_value_type_const_n!(SQLiteDialect, sqlite_ty::Text => arrayvec::ArrayString<N>);
 
-impl ValueTypeForDialect<SQLiteDialect> for &[u8] {
-    type SQLType = drizzle_types::sqlite::types::Blob;
-}
+impl_value_type!(SQLiteDialect, sqlite_ty::Blob => &[u8]);
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<SQLiteDialect> for Cow<'_, [u8]> {
-    type SQLType = drizzle_types::sqlite::types::Blob;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<SQLiteDialect> for Vec<u8> {
-    type SQLType = drizzle_types::sqlite::types::Blob;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<SQLiteDialect> for Box<Vec<u8>> {
-    type SQLType = drizzle_types::sqlite::types::Blob;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<SQLiteDialect> for Rc<Vec<u8>> {
-    type SQLType = drizzle_types::sqlite::types::Blob;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<SQLiteDialect> for Arc<Vec<u8>> {
-    type SQLType = drizzle_types::sqlite::types::Blob;
-}
+impl_value_type!(SQLiteDialect, sqlite_ty::Blob =>
+    Cow<'_, [u8]>,
+    Vec<u8>,
+    Box<Vec<u8>>,
+    Rc<Vec<u8>>,
+    Arc<Vec<u8>>,
+);
 
 #[cfg(feature = "arrayvec")]
-impl<const N: usize> ValueTypeForDialect<SQLiteDialect> for arrayvec::ArrayVec<u8, N> {
-    type SQLType = drizzle_types::sqlite::types::Blob;
-}
+impl_value_type_const_n!(SQLiteDialect, sqlite_ty::Blob => arrayvec::ArrayVec<u8, N>);
 
 #[cfg(feature = "bytes")]
-impl ValueTypeForDialect<SQLiteDialect> for bytes::Bytes {
-    type SQLType = drizzle_types::sqlite::types::Blob;
-}
-
-#[cfg(feature = "bytes")]
-impl ValueTypeForDialect<SQLiteDialect> for bytes::BytesMut {
-    type SQLType = drizzle_types::sqlite::types::Blob;
-}
+impl_value_type!(SQLiteDialect, sqlite_ty::Blob => bytes::Bytes, bytes::BytesMut);
 
 #[cfg(feature = "smallvec-types")]
-impl<const N: usize> ValueTypeForDialect<SQLiteDialect> for smallvec::SmallVec<[u8; N]> {
-    type SQLType = drizzle_types::sqlite::types::Blob;
-}
+impl_value_type_const_n!(SQLiteDialect, sqlite_ty::Blob => smallvec::SmallVec<[u8; N]>);
 
 #[cfg(feature = "uuid")]
-impl ValueTypeForDialect<SQLiteDialect> for uuid::Uuid {
-    type SQLType = drizzle_types::sqlite::types::Blob;
-}
+impl_value_type!(SQLiteDialect, sqlite_ty::Blob => uuid::Uuid, &uuid::Uuid);
 
-#[cfg(feature = "uuid")]
-impl ValueTypeForDialect<SQLiteDialect> for &uuid::Uuid {
-    type SQLType = drizzle_types::sqlite::types::Blob;
-}
+#[cfg(feature = "chrono")]
+impl_value_type!(SQLiteDialect, sqlite_ty::Text =>
+    chrono::NaiveDate,
+    chrono::NaiveTime,
+    chrono::NaiveDateTime,
+    chrono::DateTime<chrono::FixedOffset>,
+    chrono::DateTime<chrono::Utc>,
+    chrono::Duration,
+);
 
-impl ValueTypeForDialect<PostgresDialect> for i8 {
-    type SQLType = drizzle_types::postgres::types::Int2;
-}
+#[cfg(feature = "time")]
+impl_value_type!(SQLiteDialect, sqlite_ty::Text =>
+    time::Date,
+    time::Time,
+    time::PrimitiveDateTime,
+    time::OffsetDateTime,
+    time::Duration,
+);
 
-impl ValueTypeForDialect<PostgresDialect> for i16 {
-    type SQLType = drizzle_types::postgres::types::Int2;
-}
+#[cfg(feature = "rust-decimal")]
+impl_value_type!(SQLiteDialect, sqlite_ty::Text =>
+    rust_decimal::Decimal,
+    &rust_decimal::Decimal,
+);
 
-impl ValueTypeForDialect<PostgresDialect> for i32 {
-    type SQLType = drizzle_types::postgres::types::Int4;
-}
+#[cfg(feature = "serde")]
+impl_value_type!(SQLiteDialect, sqlite_ty::Text => serde_json::Value);
 
-impl ValueTypeForDialect<PostgresDialect> for i64 {
-    type SQLType = drizzle_types::postgres::types::Int8;
-}
+// =============================================================================
+// Postgres mappings
+// =============================================================================
 
-impl ValueTypeForDialect<PostgresDialect> for u8 {
-    type SQLType = drizzle_types::postgres::types::Int2;
-}
+use drizzle_types::postgres::types as pg_ty;
 
-impl ValueTypeForDialect<PostgresDialect> for u16 {
-    type SQLType = drizzle_types::postgres::types::Int4;
-}
+impl_value_type!(PostgresDialect, pg_ty::Int2 => i8, i16, u8);
+impl_value_type!(PostgresDialect, pg_ty::Int4 => i32, u16);
+impl_value_type!(PostgresDialect, pg_ty::Int8 => i64, u32, u64, isize, usize);
+impl_value_type!(PostgresDialect, pg_ty::Float4 => f32);
+impl_value_type!(PostgresDialect, pg_ty::Float8 => f64);
+impl_value_type!(PostgresDialect, pg_ty::Boolean => bool);
 
-impl ValueTypeForDialect<PostgresDialect> for u32 {
-    type SQLType = drizzle_types::postgres::types::Int8;
-}
-
-impl ValueTypeForDialect<PostgresDialect> for u64 {
-    type SQLType = drizzle_types::postgres::types::Int8;
-}
-
-impl ValueTypeForDialect<PostgresDialect> for isize {
-    type SQLType = drizzle_types::postgres::types::Int8;
-}
-
-impl ValueTypeForDialect<PostgresDialect> for usize {
-    type SQLType = drizzle_types::postgres::types::Int8;
-}
-
-impl ValueTypeForDialect<PostgresDialect> for f32 {
-    type SQLType = drizzle_types::postgres::types::Float4;
-}
-
-impl ValueTypeForDialect<PostgresDialect> for f64 {
-    type SQLType = drizzle_types::postgres::types::Float8;
-}
-
-impl ValueTypeForDialect<PostgresDialect> for bool {
-    type SQLType = drizzle_types::postgres::types::Boolean;
-}
-
-impl ValueTypeForDialect<PostgresDialect> for &str {
-    type SQLType = drizzle_types::postgres::types::Text;
-}
+impl_value_type!(PostgresDialect, pg_ty::Text => &str);
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Cow<'_, str> {
-    type SQLType = drizzle_types::postgres::types::Text;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for String {
-    type SQLType = drizzle_types::postgres::types::Text;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Box<String> {
-    type SQLType = drizzle_types::postgres::types::Text;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Rc<String> {
-    type SQLType = drizzle_types::postgres::types::Text;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Arc<String> {
-    type SQLType = drizzle_types::postgres::types::Text;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Box<str> {
-    type SQLType = drizzle_types::postgres::types::Text;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Rc<str> {
-    type SQLType = drizzle_types::postgres::types::Text;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Arc<str> {
-    type SQLType = drizzle_types::postgres::types::Text;
-}
+impl_value_type!(PostgresDialect, pg_ty::Text =>
+    Cow<'_, str>,
+    String,
+    Box<String>,
+    Rc<String>,
+    Arc<String>,
+    Box<str>,
+    Rc<str>,
+    Arc<str>,
+);
 
 #[cfg(feature = "compact-str")]
-impl ValueTypeForDialect<PostgresDialect> for compact_str::CompactString {
-    type SQLType = drizzle_types::postgres::types::Text;
-}
+impl_value_type!(PostgresDialect, pg_ty::Text => compact_str::CompactString);
 
 #[cfg(feature = "arrayvec")]
-impl<const N: usize> ValueTypeForDialect<PostgresDialect> for arrayvec::ArrayString<N> {
-    type SQLType = drizzle_types::postgres::types::Text;
-}
+impl_value_type_const_n!(PostgresDialect, pg_ty::Text => arrayvec::ArrayString<N>);
 
-impl ValueTypeForDialect<PostgresDialect> for &[u8] {
-    type SQLType = drizzle_types::postgres::types::Bytea;
-}
+impl_value_type!(PostgresDialect, pg_ty::Bytea => &[u8]);
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Cow<'_, [u8]> {
-    type SQLType = drizzle_types::postgres::types::Bytea;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Vec<u8> {
-    type SQLType = drizzle_types::postgres::types::Bytea;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Box<Vec<u8>> {
-    type SQLType = drizzle_types::postgres::types::Bytea;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Rc<Vec<u8>> {
-    type SQLType = drizzle_types::postgres::types::Bytea;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Arc<Vec<u8>> {
-    type SQLType = drizzle_types::postgres::types::Bytea;
-}
+impl_value_type!(PostgresDialect, pg_ty::Bytea =>
+    Cow<'_, [u8]>,
+    Vec<u8>,
+    Box<Vec<u8>>,
+    Rc<Vec<u8>>,
+    Arc<Vec<u8>>,
+);
 
 #[cfg(feature = "arrayvec")]
-impl<const N: usize> ValueTypeForDialect<PostgresDialect> for arrayvec::ArrayVec<u8, N> {
-    type SQLType = drizzle_types::postgres::types::Bytea;
-}
+impl_value_type_const_n!(PostgresDialect, pg_ty::Bytea => arrayvec::ArrayVec<u8, N>);
 
 #[cfg(feature = "bytes")]
-impl ValueTypeForDialect<PostgresDialect> for bytes::Bytes {
-    type SQLType = drizzle_types::postgres::types::Bytea;
-}
-
-#[cfg(feature = "bytes")]
-impl ValueTypeForDialect<PostgresDialect> for bytes::BytesMut {
-    type SQLType = drizzle_types::postgres::types::Bytea;
-}
+impl_value_type!(PostgresDialect, pg_ty::Bytea => bytes::Bytes, bytes::BytesMut);
 
 #[cfg(feature = "smallvec-types")]
-impl<const N: usize> ValueTypeForDialect<PostgresDialect> for smallvec::SmallVec<[u8; N]> {
-    type SQLType = drizzle_types::postgres::types::Bytea;
-}
+impl_value_type_const_n!(PostgresDialect, pg_ty::Bytea => smallvec::SmallVec<[u8; N]>);
 
 #[cfg(feature = "uuid")]
-impl ValueTypeForDialect<PostgresDialect> for uuid::Uuid {
-    type SQLType = drizzle_types::postgres::types::Uuid;
-}
-
-#[cfg(feature = "uuid")]
-impl ValueTypeForDialect<PostgresDialect> for &uuid::Uuid {
-    type SQLType = drizzle_types::postgres::types::Uuid;
-}
+impl_value_type!(PostgresDialect, pg_ty::Uuid => uuid::Uuid, &uuid::Uuid);
 
 #[cfg(feature = "rust-decimal")]
-impl ValueTypeForDialect<PostgresDialect> for rust_decimal::Decimal {
-    type SQLType = drizzle_types::postgres::types::Numeric;
-}
-
-#[cfg(feature = "rust-decimal")]
-impl ValueTypeForDialect<PostgresDialect> for &rust_decimal::Decimal {
-    type SQLType = drizzle_types::postgres::types::Numeric;
-}
-
-#[cfg(feature = "chrono")]
-impl ValueTypeForDialect<SQLiteDialect> for chrono::NaiveDate {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-#[cfg(feature = "chrono")]
-impl ValueTypeForDialect<SQLiteDialect> for chrono::NaiveTime {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-#[cfg(feature = "chrono")]
-impl ValueTypeForDialect<SQLiteDialect> for chrono::NaiveDateTime {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-#[cfg(feature = "chrono")]
-impl ValueTypeForDialect<SQLiteDialect> for chrono::DateTime<chrono::FixedOffset> {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-#[cfg(feature = "chrono")]
-impl ValueTypeForDialect<SQLiteDialect> for chrono::DateTime<chrono::Utc> {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-#[cfg(feature = "chrono")]
-impl ValueTypeForDialect<SQLiteDialect> for chrono::Duration {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-#[cfg(feature = "time")]
-impl ValueTypeForDialect<SQLiteDialect> for time::Date {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-#[cfg(feature = "time")]
-impl ValueTypeForDialect<SQLiteDialect> for time::Time {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-#[cfg(feature = "time")]
-impl ValueTypeForDialect<SQLiteDialect> for time::PrimitiveDateTime {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-#[cfg(feature = "time")]
-impl ValueTypeForDialect<SQLiteDialect> for time::OffsetDateTime {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-#[cfg(feature = "time")]
-impl ValueTypeForDialect<SQLiteDialect> for time::Duration {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-#[cfg(feature = "rust-decimal")]
-impl ValueTypeForDialect<SQLiteDialect> for rust_decimal::Decimal {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-#[cfg(feature = "rust-decimal")]
-impl ValueTypeForDialect<SQLiteDialect> for &rust_decimal::Decimal {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
+impl_value_type!(PostgresDialect, pg_ty::Numeric =>
+    rust_decimal::Decimal,
+    &rust_decimal::Decimal,
+);
 
 #[cfg(feature = "serde")]
-impl ValueTypeForDialect<SQLiteDialect> for serde_json::Value {
-    type SQLType = drizzle_types::sqlite::types::Text;
-}
-
-#[cfg(feature = "serde")]
-impl ValueTypeForDialect<PostgresDialect> for serde_json::Value {
-    type SQLType = drizzle_types::postgres::types::Json;
-}
+impl_value_type!(PostgresDialect, pg_ty::Json => serde_json::Value);
 
 #[cfg(feature = "chrono")]
-impl ValueTypeForDialect<PostgresDialect> for chrono::NaiveDate {
-    type SQLType = drizzle_types::postgres::types::Date;
-}
-
+impl_value_type!(PostgresDialect, pg_ty::Date => chrono::NaiveDate);
 #[cfg(feature = "chrono")]
-impl ValueTypeForDialect<PostgresDialect> for chrono::NaiveTime {
-    type SQLType = drizzle_types::postgres::types::Time;
-}
-
+impl_value_type!(PostgresDialect, pg_ty::Time => chrono::NaiveTime);
 #[cfg(feature = "chrono")]
-impl ValueTypeForDialect<PostgresDialect> for chrono::NaiveDateTime {
-    type SQLType = drizzle_types::postgres::types::Timestamp;
-}
-
+impl_value_type!(PostgresDialect, pg_ty::Timestamp => chrono::NaiveDateTime);
 #[cfg(feature = "chrono")]
-impl ValueTypeForDialect<PostgresDialect> for chrono::DateTime<chrono::FixedOffset> {
-    type SQLType = drizzle_types::postgres::types::Timestamptz;
-}
-
+impl_value_type!(PostgresDialect, pg_ty::Timestamptz =>
+    chrono::DateTime<chrono::FixedOffset>,
+    chrono::DateTime<chrono::Utc>,
+);
 #[cfg(feature = "chrono")]
-impl ValueTypeForDialect<PostgresDialect> for chrono::DateTime<chrono::Utc> {
-    type SQLType = drizzle_types::postgres::types::Timestamptz;
-}
-
-#[cfg(feature = "chrono")]
-impl ValueTypeForDialect<PostgresDialect> for chrono::Duration {
-    type SQLType = drizzle_types::postgres::types::Interval;
-}
+impl_value_type!(PostgresDialect, pg_ty::Interval => chrono::Duration);
 
 #[cfg(feature = "time")]
-impl ValueTypeForDialect<PostgresDialect> for time::Date {
-    type SQLType = drizzle_types::postgres::types::Date;
-}
-
+impl_value_type!(PostgresDialect, pg_ty::Date => time::Date);
 #[cfg(feature = "time")]
-impl ValueTypeForDialect<PostgresDialect> for time::Time {
-    type SQLType = drizzle_types::postgres::types::Time;
-}
-
+impl_value_type!(PostgresDialect, pg_ty::Time => time::Time);
 #[cfg(feature = "time")]
-impl ValueTypeForDialect<PostgresDialect> for time::PrimitiveDateTime {
-    type SQLType = drizzle_types::postgres::types::Timestamp;
-}
-
+impl_value_type!(PostgresDialect, pg_ty::Timestamp => time::PrimitiveDateTime);
 #[cfg(feature = "time")]
-impl ValueTypeForDialect<PostgresDialect> for time::OffsetDateTime {
-    type SQLType = drizzle_types::postgres::types::Timestamptz;
-}
-
+impl_value_type!(PostgresDialect, pg_ty::Timestamptz => time::OffsetDateTime);
 #[cfg(feature = "time")]
-impl ValueTypeForDialect<PostgresDialect> for time::Duration {
-    type SQLType = drizzle_types::postgres::types::Interval;
-}
+impl_value_type!(PostgresDialect, pg_ty::Interval => time::Duration);
 
 #[cfg(feature = "cidr")]
-impl ValueTypeForDialect<PostgresDialect> for cidr::IpInet {
-    type SQLType = drizzle_types::postgres::types::Inet;
-}
-
+impl_value_type!(PostgresDialect, pg_ty::Inet => cidr::IpInet);
 #[cfg(feature = "cidr")]
-impl ValueTypeForDialect<PostgresDialect> for cidr::IpCidr {
-    type SQLType = drizzle_types::postgres::types::Cidr;
-}
-
+impl_value_type!(PostgresDialect, pg_ty::Cidr => cidr::IpCidr);
 #[cfg(feature = "cidr")]
-impl ValueTypeForDialect<PostgresDialect> for [u8; 6] {
-    type SQLType = drizzle_types::postgres::types::MacAddr;
-}
-
+impl_value_type!(PostgresDialect, pg_ty::MacAddr => [u8; 6]);
 #[cfg(feature = "cidr")]
-impl ValueTypeForDialect<PostgresDialect> for [u8; 8] {
-    type SQLType = drizzle_types::postgres::types::MacAddr8;
-}
+impl_value_type!(PostgresDialect, pg_ty::MacAddr8 => [u8; 8]);
 
 #[cfg(feature = "geo-types")]
-impl ValueTypeForDialect<PostgresDialect> for geo_types::Point<f64> {
-    type SQLType = drizzle_types::postgres::types::Point;
-}
-
+impl_value_type!(PostgresDialect, pg_ty::Point => geo_types::Point<f64>);
 #[cfg(feature = "geo-types")]
-impl ValueTypeForDialect<PostgresDialect> for geo_types::LineString<f64> {
-    type SQLType = drizzle_types::postgres::types::LineString;
-}
-
+impl_value_type!(PostgresDialect, pg_ty::LineString => geo_types::LineString<f64>);
 #[cfg(feature = "geo-types")]
-impl ValueTypeForDialect<PostgresDialect> for geo_types::Rect<f64> {
-    type SQLType = drizzle_types::postgres::types::Rect;
-}
+impl_value_type!(PostgresDialect, pg_ty::Rect => geo_types::Rect<f64>);
 
 #[cfg(feature = "bit-vec")]
-impl ValueTypeForDialect<PostgresDialect> for bit_vec::BitVec {
-    type SQLType = drizzle_types::postgres::types::BitString;
-}
+impl_value_type!(PostgresDialect, pg_ty::BitString => bit_vec::BitVec);
+
+// Postgres Vec<T> → Array<T>
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Vec<String> {
-    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Text>;
-}
+impl_value_type!(PostgresDialect, drizzle_types::Array<pg_ty::Text> =>
+    Vec<String>, Vec<&str>);
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Vec<&str> {
-    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Text>;
-}
+impl_value_type!(PostgresDialect, drizzle_types::Array<pg_ty::Int2> => Vec<i16>);
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Vec<i16> {
-    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Int2>;
-}
+impl_value_type!(PostgresDialect, drizzle_types::Array<pg_ty::Int4> => Vec<i32>);
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Vec<i32> {
-    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Int4>;
-}
+impl_value_type!(PostgresDialect, drizzle_types::Array<pg_ty::Int8> => Vec<i64>);
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Vec<i64> {
-    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Int8>;
-}
+impl_value_type!(PostgresDialect, drizzle_types::Array<pg_ty::Float4> => Vec<f32>);
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Vec<f32> {
-    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Float4>;
-}
+impl_value_type!(PostgresDialect, drizzle_types::Array<pg_ty::Float8> => Vec<f64>);
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Vec<f64> {
-    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Float8>;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ValueTypeForDialect<PostgresDialect> for Vec<bool> {
-    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Boolean>;
-}
+impl_value_type!(PostgresDialect, drizzle_types::Array<pg_ty::Boolean> => Vec<bool>);
 
 #[cfg(all(any(feature = "alloc", feature = "std"), feature = "uuid"))]
-impl ValueTypeForDialect<PostgresDialect> for Vec<uuid::Uuid> {
-    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Uuid>;
-}
+impl_value_type!(PostgresDialect, drizzle_types::Array<pg_ty::Uuid> => Vec<uuid::Uuid>);
 
 #[cfg(all(any(feature = "alloc", feature = "std"), feature = "chrono"))]
-impl ValueTypeForDialect<PostgresDialect> for Vec<chrono::NaiveDate> {
-    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Date>;
-}
+impl_value_type!(PostgresDialect, drizzle_types::Array<pg_ty::Date> => Vec<chrono::NaiveDate>);
 
 #[cfg(all(any(feature = "alloc", feature = "std"), feature = "chrono"))]
-impl ValueTypeForDialect<PostgresDialect> for Vec<chrono::NaiveTime> {
-    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Time>;
-}
+impl_value_type!(PostgresDialect, drizzle_types::Array<pg_ty::Time> => Vec<chrono::NaiveTime>);
 
 #[cfg(all(any(feature = "alloc", feature = "std"), feature = "chrono"))]
-impl ValueTypeForDialect<PostgresDialect> for Vec<chrono::NaiveDateTime> {
-    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Timestamp>;
-}
+impl_value_type!(PostgresDialect, drizzle_types::Array<pg_ty::Timestamp> => Vec<chrono::NaiveDateTime>);
 
 #[cfg(all(any(feature = "alloc", feature = "std"), feature = "chrono"))]
-impl ValueTypeForDialect<PostgresDialect> for Vec<chrono::DateTime<chrono::Utc>> {
-    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Timestamptz>;
-}
+impl_value_type!(PostgresDialect, drizzle_types::Array<pg_ty::Timestamptz> => Vec<chrono::DateTime<chrono::Utc>>);
 
 #[cfg(all(any(feature = "alloc", feature = "std"), feature = "rust-decimal"))]
-impl ValueTypeForDialect<PostgresDialect> for Vec<rust_decimal::Decimal> {
-    type SQLType = drizzle_types::Array<drizzle_types::postgres::types::Numeric>;
-}
+impl_value_type!(PostgresDialect, drizzle_types::Array<pg_ty::Numeric> => Vec<rust_decimal::Decimal>);
