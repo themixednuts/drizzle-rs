@@ -63,9 +63,7 @@ fn query_find_many_no_relations(
     db: &mut TestDb<ComplexPostQuerySchema>,
     schema: ComplexPostQuerySchema,
 ) {
-    let ComplexPostQuerySchema {
-        complex, post: _, ..
-    } = schema;
+    let ComplexPostQuerySchema { complex, .. } = schema;
 
     drizzle_exec!(
         db.insert(complex)
@@ -85,9 +83,7 @@ fn query_find_many_no_relations(
 // -- find_first --
 #[drizzle::test]
 fn query_find_first(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
-    let ComplexPostQuerySchema {
-        complex, post: _, ..
-    } = schema;
+    let ComplexPostQuerySchema { complex, .. } = schema;
 
     drizzle_exec!(
         db.insert(complex)
@@ -106,9 +102,7 @@ fn query_find_first(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPost
 // -- find_first returns None on empty table --
 #[drizzle::test]
 fn query_find_first_empty(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
-    let ComplexPostQuerySchema {
-        complex, post: _, ..
-    } = schema;
+    let ComplexPostQuerySchema { complex, .. } = schema;
 
     let user = drizzle_exec!(db.query(complex).find_first());
     assert!(user.is_none());
@@ -117,9 +111,7 @@ fn query_find_first_empty(db: &mut TestDb<ComplexPostQuerySchema>, schema: Compl
 // -- with limit --
 #[drizzle::test]
 fn query_with_limit(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
-    let ComplexPostQuerySchema {
-        complex, post: _, ..
-    } = schema;
+    let ComplexPostQuerySchema { complex, .. } = schema;
 
     drizzle_exec!(
         db.insert(complex)
@@ -222,9 +214,7 @@ fn query_forward_optional_one(
     db: &mut TestDb<ComplexPostQuerySchema>,
     schema: ComplexPostQuerySchema,
 ) {
-    let ComplexPostQuerySchema {
-        complex, post: _, ..
-    } = schema;
+    let ComplexPostQuerySchema { complex, .. } = schema;
 
     drizzle_exec!(
         db.insert(complex)
@@ -387,9 +377,7 @@ fn query_empty_many_relation(
     db: &mut TestDb<ComplexPostQuerySchema>,
     schema: ComplexPostQuerySchema,
 ) {
-    let ComplexPostQuerySchema {
-        complex, post: _, ..
-    } = schema;
+    let ComplexPostQuerySchema { complex, .. } = schema;
 
     drizzle_exec!(
         db.insert(complex)
@@ -406,9 +394,7 @@ fn query_empty_many_relation(
 // -- Typed WHERE on root query (tests $N placeholder renumbering) --
 #[drizzle::test]
 fn query_where_typed(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
-    let ComplexPostQuerySchema {
-        complex, post: _, ..
-    } = schema;
+    let ComplexPostQuerySchema { complex, .. } = schema;
 
     drizzle_exec!(
         db.insert(complex)
@@ -434,9 +420,7 @@ fn query_where_typed(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPos
 // -- Typed ORDER BY on root query --
 #[drizzle::test]
 fn query_order_by_typed(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
-    let ComplexPostQuerySchema {
-        complex, post: _, ..
-    } = schema;
+    let ComplexPostQuerySchema { complex, .. } = schema;
 
     drizzle_exec!(
         db.insert(complex)
@@ -1194,9 +1178,7 @@ fn query_with_limit_offset(
     db: &mut TestDb<ComplexPostQuerySchema>,
     schema: ComplexPostQuerySchema,
 ) {
-    let ComplexPostQuerySchema {
-        complex, post: _, ..
-    } = schema;
+    let ComplexPostQuerySchema { complex, .. } = schema;
 
     drizzle_exec!(
         db.insert(complex)
@@ -1274,9 +1256,7 @@ fn query_columns_whitelist(
     db: &mut TestDb<ComplexPostQuerySchema>,
     schema: ComplexPostQuerySchema,
 ) {
-    let ComplexPostQuerySchema {
-        complex, post: _, ..
-    } = schema;
+    let ComplexPostQuerySchema { complex, .. } = schema;
 
     drizzle_exec!(
         db.insert(complex)
@@ -1308,9 +1288,7 @@ fn query_columns_whitelist(
 // -- Blacklist: omit specific columns --
 #[drizzle::test]
 fn query_omit_blacklist(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
-    let ComplexPostQuerySchema {
-        complex, post: _, ..
-    } = schema;
+    let ComplexPostQuerySchema { complex, .. } = schema;
 
     drizzle_exec!(
         db.insert(complex)
@@ -1421,9 +1399,7 @@ fn query_columns_find_first(
     db: &mut TestDb<ComplexPostQuerySchema>,
     schema: ComplexPostQuerySchema,
 ) {
-    let ComplexPostQuerySchema {
-        complex, post: _, ..
-    } = schema;
+    let ComplexPostQuerySchema { complex, .. } = schema;
 
     drizzle_exec!(
         db.insert(complex)
@@ -1622,13 +1598,7 @@ fn query_many_to_many_reverse(db: &mut TestDb<M2MQuerySchema>, schema: M2MQueryS
 // -- m2m with no associations returns empty vec --
 #[drizzle::test]
 fn query_many_to_many_empty(db: &mut TestDb<M2MQuerySchema>, schema: M2MQuerySchema) {
-    let M2MQuerySchema {
-        complex,
-        post,
-        category: _,
-        post_category: _,
-        ..
-    } = schema;
+    let M2MQuerySchema { complex, post, .. } = schema;
 
     // Insert author and post with no category links
     drizzle_exec!(
