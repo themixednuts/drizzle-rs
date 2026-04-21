@@ -222,15 +222,12 @@ fn rebind_stmts(
 fn rebind_stmt(pat: &PatIdent, ty: &Type, raw: &TokenStream2) -> TokenStream2 {
     let name = &pat.ident;
     let user_mut = &pat.mutability;
-    if let Type::Reference(tr) = ty {
-        if tr.mutability.is_some() {
-            quote! { #[allow(unused_variables)] let #user_mut #name = &mut #raw; }
-        } else {
-            quote! { #[allow(unused_variables)] let #user_mut #name = & #raw; }
-        }
-    } else {
-        quote! { #[allow(unused_variables)] let #user_mut #name = #raw; }
-    }
+    let rhs = match ty {
+        Type::Reference(tr) if tr.mutability.is_some() => quote! { &mut #raw },
+        Type::Reference(_) => quote! { & #raw },
+        _ => quote! { #raw },
+    };
+    quote! { #[allow(unused_variables)] let #user_mut #name = #rhs; }
 }
 
 fn wrap_with_schema_assertion(fn_input: &FnInput, generated: &TokenStream2) -> TokenStream2 {
@@ -290,6 +287,56 @@ fn generate_postgres_driver_tests_with(
     }
 }
 
+/// Assertion macros (`drizzle_assert_eq!`, `drizzle_assert!`, `drizzle_fail!`)
+/// that are identical across every driver's generated test scope. All three
+/// reference `db` and `__test_name` from the enclosing scope.
+fn common_assertion_macros() -> TokenStream2 {
+    quote! {
+        #[allow(unused_macros)]
+        macro_rules! drizzle_assert_eq {
+            ($expected:expr, $actual:expr) => {
+                if $expected != $actual {
+                    db.fail(
+                        __test_name,
+                        &format!("assertion failed: `(left == right)`"),
+                        Some(&format!("{:#?}", $expected)),
+                        Some(&format!("{:#?}", $actual)),
+                    );
+                }
+            };
+            ($expected:expr, $actual:expr, $($msg:tt)+) => {
+                if $expected != $actual {
+                    db.fail(
+                        __test_name,
+                        &format!($($msg)+),
+                        Some(&format!("{:#?}", $expected)),
+                        Some(&format!("{:#?}", $actual)),
+                    );
+                }
+            };
+        }
+        #[allow(unused_macros)]
+        macro_rules! drizzle_assert {
+            ($cond:expr) => {
+                if !$cond {
+                    db.fail(__test_name, &format!("assertion failed: `{}`", stringify!($cond)), None, None);
+                }
+            };
+            ($cond:expr, $($msg:tt)+) => {
+                if !$cond {
+                    db.fail(__test_name, &format!($($msg)+), None, None);
+                }
+            };
+        }
+        #[allow(unused_macros)]
+        macro_rules! drizzle_fail {
+            ($($msg:tt)+) => {
+                db.fail(__test_name, &format!($($msg)+), None, None);
+            };
+        }
+    }
+}
+
 fn generate_rusqlite_test(
     test_name: &Ident,
     schema_type: &Type,
@@ -301,6 +348,7 @@ fn generate_rusqlite_test(
     let driver_name = "rusqlite";
     let setup_call = quote! { rusqlite_setup::setup_db::<#schema_type>() };
     let prelude = bindings(setup_call);
+    let assertion_macros = common_assertion_macros();
     quote! {
         #[cfg(feature = "rusqlite")]
         mod #test_fn_name {
@@ -477,48 +525,7 @@ fn generate_rusqlite_test(
                         |$tx| $body
                     };
                 }
-                #[allow(unused_macros)]
-                macro_rules! drizzle_assert_eq {
-                    ($expected:expr, $actual:expr) => {
-                        if $expected != $actual {
-                            db.fail(
-                                __test_name,
-                                &format!("assertion failed: `(left == right)`"),
-                                Some(&format!("{:#?}", $expected)),
-                                Some(&format!("{:#?}", $actual)),
-                            );
-                        }
-                    };
-                    ($expected:expr, $actual:expr, $($msg:tt)+) => {
-                        if $expected != $actual {
-                            db.fail(
-                                __test_name,
-                                &format!($($msg)+),
-                                Some(&format!("{:#?}", $expected)),
-                                Some(&format!("{:#?}", $actual)),
-                            );
-                        }
-                    };
-                }
-                #[allow(unused_macros)]
-                macro_rules! drizzle_assert {
-                    ($cond:expr) => {
-                        if !$cond {
-                            db.fail(__test_name, &format!("assertion failed: `{}`", stringify!($cond)), None, None);
-                        }
-                    };
-                    ($cond:expr, $($msg:tt)+) => {
-                        if !$cond {
-                            db.fail(__test_name, &format!($($msg)+), None, None);
-                        }
-                    };
-                }
-                #[allow(unused_macros)]
-                macro_rules! drizzle_fail {
-                    ($($msg:tt)+) => {
-                        db.fail(__test_name, &format!($($msg)+), None, None);
-                    };
-                }
+                #assertion_macros
                 #[allow(unused_macros)]
                 macro_rules! drizzle_catch_unwind {
                     ($operation:expr) => {
@@ -546,6 +553,7 @@ fn generate_libsql_test(
     let driver_name = "libsql";
     let setup_call = quote! { libsql_setup::setup_db::<#schema_type>().await };
     let prelude = bindings(setup_call);
+    let assertion_macros = common_assertion_macros();
     quote! {
         #[cfg(feature = "libsql")]
         mod #test_fn_name {
@@ -722,48 +730,7 @@ fn generate_libsql_test(
                         async |$tx| $body
                     };
                 }
-                #[allow(unused_macros)]
-                macro_rules! drizzle_assert_eq {
-                    ($expected:expr, $actual:expr) => {
-                        if $expected != $actual {
-                            db.fail(
-                                __test_name,
-                                &format!("assertion failed: `(left == right)`"),
-                                Some(&format!("{:#?}", $expected)),
-                                Some(&format!("{:#?}", $actual)),
-                            );
-                        }
-                    };
-                    ($expected:expr, $actual:expr, $($msg:tt)+) => {
-                        if $expected != $actual {
-                            db.fail(
-                                __test_name,
-                                &format!($($msg)+),
-                                Some(&format!("{:#?}", $expected)),
-                                Some(&format!("{:#?}", $actual)),
-                            );
-                        }
-                    };
-                }
-                #[allow(unused_macros)]
-                macro_rules! drizzle_assert {
-                    ($cond:expr) => {
-                        if !$cond {
-                            db.fail(__test_name, &format!("assertion failed: `{}`", stringify!($cond)), None, None);
-                        }
-                    };
-                    ($cond:expr, $($msg:tt)+) => {
-                        if !$cond {
-                            db.fail(__test_name, &format!($($msg)+), None, None);
-                        }
-                    };
-                }
-                #[allow(unused_macros)]
-                macro_rules! drizzle_fail {
-                    ($($msg:tt)+) => {
-                        db.fail(__test_name, &format!($($msg)+), None, None);
-                    };
-                }
+                #assertion_macros
                 #[allow(unused_macros)]
                 macro_rules! drizzle_catch_unwind {
                     ($operation:expr) => {
@@ -793,6 +760,7 @@ fn generate_turso_test(
     let driver_name = "turso";
     let setup_call = quote! { turso_setup::setup_db::<#schema_type>().await };
     let prelude = bindings(setup_call);
+    let assertion_macros = common_assertion_macros();
     quote! {
         #[cfg(feature = "turso")]
         mod #test_fn_name {
@@ -1027,48 +995,7 @@ fn generate_turso_test(
                         async |$tx| $body
                     };
                 }
-                #[allow(unused_macros)]
-                macro_rules! drizzle_assert_eq {
-                    ($expected:expr, $actual:expr) => {
-                        if $expected != $actual {
-                            db.fail(
-                                __test_name,
-                                &format!("assertion failed: `(left == right)`"),
-                                Some(&format!("{:#?}", $expected)),
-                                Some(&format!("{:#?}", $actual)),
-                            );
-                        }
-                    };
-                    ($expected:expr, $actual:expr, $($msg:tt)+) => {
-                        if $expected != $actual {
-                            db.fail(
-                                __test_name,
-                                &format!($($msg)+),
-                                Some(&format!("{:#?}", $expected)),
-                                Some(&format!("{:#?}", $actual)),
-                            );
-                        }
-                    };
-                }
-                #[allow(unused_macros)]
-                macro_rules! drizzle_assert {
-                    ($cond:expr) => {
-                        if !$cond {
-                            db.fail(__test_name, &format!("assertion failed: `{}`", stringify!($cond)), None, None);
-                        }
-                    };
-                    ($cond:expr, $($msg:tt)+) => {
-                        if !$cond {
-                            db.fail(__test_name, &format!($($msg)+), None, None);
-                        }
-                    };
-                }
-                #[allow(unused_macros)]
-                macro_rules! drizzle_fail {
-                    ($($msg:tt)+) => {
-                        db.fail(__test_name, &format!($($msg)+), None, None);
-                    };
-                }
+                #assertion_macros
                 #[allow(unused_macros)]
                 macro_rules! drizzle_catch_unwind {
                     ($operation:expr) => {
@@ -1098,6 +1025,7 @@ fn generate_postgres_sync_test(
     let driver_name = "postgres-sync";
     let setup_call = quote! { postgres_sync_setup::setup_db::<#schema_type>() };
     let prelude = bindings(setup_call);
+    let assertion_macros = common_assertion_macros();
     quote! {
         #[cfg(feature = "postgres-sync")]
         mod #test_fn_name {
@@ -1275,48 +1203,7 @@ fn generate_postgres_sync_test(
                         |$tx| $body
                     };
                 }
-                #[allow(unused_macros)]
-                macro_rules! drizzle_assert_eq {
-                    ($expected:expr, $actual:expr) => {
-                        if $expected != $actual {
-                            db.fail(
-                                __test_name,
-                                &format!("assertion failed: `(left == right)`"),
-                                Some(&format!("{:#?}", $expected)),
-                                Some(&format!("{:#?}", $actual)),
-                            );
-                        }
-                    };
-                    ($expected:expr, $actual:expr, $($msg:tt)+) => {
-                        if $expected != $actual {
-                            db.fail(
-                                __test_name,
-                                &format!($($msg)+),
-                                Some(&format!("{:#?}", $expected)),
-                                Some(&format!("{:#?}", $actual)),
-                            );
-                        }
-                    };
-                }
-                #[allow(unused_macros)]
-                macro_rules! drizzle_assert {
-                    ($cond:expr) => {
-                        if !$cond {
-                            db.fail(__test_name, &format!("assertion failed: `{}`", stringify!($cond)), None, None);
-                        }
-                    };
-                    ($cond:expr, $($msg:tt)+) => {
-                        if !$cond {
-                            db.fail(__test_name, &format!($($msg)+), None, None);
-                        }
-                    };
-                }
-                #[allow(unused_macros)]
-                macro_rules! drizzle_fail {
-                    ($($msg:tt)+) => {
-                        db.fail(__test_name, &format!($($msg)+), None, None);
-                    };
-                }
+                #assertion_macros
                 #[allow(unused_macros)]
                 macro_rules! drizzle_catch_unwind {
                     ($operation:expr) => {
@@ -1348,6 +1235,7 @@ fn generate_tokio_postgres_test(
     let driver_name = "tokio-postgres";
     let setup_call = quote! { tokio_postgres_setup::setup_db::<#schema_type>().await };
     let prelude = bindings(setup_call);
+    let assertion_macros = common_assertion_macros();
     quote! {
         #[cfg(feature = "tokio-postgres")]
         mod #test_fn_name {
@@ -1525,48 +1413,7 @@ fn generate_tokio_postgres_test(
                         async |$tx| $body
                     };
                 }
-                #[allow(unused_macros)]
-                macro_rules! drizzle_assert_eq {
-                    ($expected:expr, $actual:expr) => {
-                        if $expected != $actual {
-                            db.fail(
-                                __test_name,
-                                &format!("assertion failed: `(left == right)`"),
-                                Some(&format!("{:#?}", $expected)),
-                                Some(&format!("{:#?}", $actual)),
-                            );
-                        }
-                    };
-                    ($expected:expr, $actual:expr, $($msg:tt)+) => {
-                        if $expected != $actual {
-                            db.fail(
-                                __test_name,
-                                &format!($($msg)+),
-                                Some(&format!("{:#?}", $expected)),
-                                Some(&format!("{:#?}", $actual)),
-                            );
-                        }
-                    };
-                }
-                #[allow(unused_macros)]
-                macro_rules! drizzle_assert {
-                    ($cond:expr) => {
-                        if !$cond {
-                            db.fail(__test_name, &format!("assertion failed: `{}`", stringify!($cond)), None, None);
-                        }
-                    };
-                    ($cond:expr, $($msg:tt)+) => {
-                        if !$cond {
-                            db.fail(__test_name, &format!($($msg)+), None, None);
-                        }
-                    };
-                }
-                #[allow(unused_macros)]
-                macro_rules! drizzle_fail {
-                    ($($msg:tt)+) => {
-                        db.fail(__test_name, &format!($($msg)+), None, None);
-                    };
-                }
+                #assertion_macros
                 #[allow(unused_macros)]
                 macro_rules! drizzle_catch_unwind {
                     ($operation:expr) => {

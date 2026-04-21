@@ -1,3 +1,4 @@
+use crate::common::ref_gen::ColumnRefFlags;
 use crate::common::view_query::{self, ViewQuery};
 use crate::common::{
     count_primary_keys, make_uppercase_path, required_fields_pattern, struct_fields,
@@ -417,19 +418,12 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         .map(|f| {
             let col_name = &f.column_name;
             let pg_type = f.column_type.to_sql_type();
-            let mut flag_bits: u8 = 0;
-            if !f.is_nullable {
-                flag_bits |= 1 << 0;
-            }
-            if f.is_primary {
-                flag_bits |= 1 << 1;
-            }
-            if f.is_unique {
-                flag_bits |= 1 << 2;
-            }
-            if f.has_default {
-                flag_bits |= 1 << 3;
-            }
+            let flag_bits = ColumnRefFlags::new()
+                .with(ColumnRefFlags::NOT_NULL, !f.is_nullable)
+                .with(ColumnRefFlags::PRIMARY_KEY, f.is_primary)
+                .with(ColumnRefFlags::UNIQUE, f.is_unique)
+                .with(ColumnRefFlags::HAS_DEFAULT, f.has_default)
+                .bits();
             let is_serial = f.is_serial;
             let is_bigserial = false;
             let is_generated_identity = f.is_generated_identity;

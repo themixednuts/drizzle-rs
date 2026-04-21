@@ -30,6 +30,7 @@ pub mod uuid {
 }
 
 /// Error messages for enum field configuration
+#[allow(dead_code)]
 pub mod enums {
     pub const INVALID_COLUMN_TYPE: &str = "Enum fields are only supported with TEXT or INTEGER column types.\n\
          \n\
