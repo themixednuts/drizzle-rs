@@ -49,6 +49,7 @@ pub(crate) mod prelude {
 
 pub mod bind;
 pub mod builder;
+pub mod conv;
 pub mod cte;
 pub mod dialect;
 pub mod error;

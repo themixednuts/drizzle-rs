@@ -5,6 +5,7 @@
 
 use crate::prelude::*;
 use crate::values::SQLiteValue;
+use drizzle_core::conv::checked_float_to_int;
 use drizzle_core::error::DrizzleError;
 
 /// Marker trait for custom Rust types that map to a `SQLite` column.
@@ -127,47 +128,6 @@ pub trait DrizzleRowByName: DrizzleRowByIndex {
     fn get_column_by_name<T: FromSQLiteValue>(&self, name: &str) -> Result<T, DrizzleError>;
 }
 
-fn checked_real_to_int<T>(value: f64, type_name: &str) -> Result<T, DrizzleError>
-where
-    T: TryFrom<i128>,
-    <T as TryFrom<i128>>::Error: core::fmt::Display,
-{
-    if !value.is_finite() {
-        return Err(DrizzleError::ConversionError(
-            format!("cannot convert non-finite REAL {value} to {type_name}").into(),
-        ));
-    }
-
-    if value % 1.0 != 0.0 {
-        return Err(DrizzleError::ConversionError(
-            format!("cannot convert non-integer REAL {value} to {type_name}").into(),
-        ));
-    }
-
-    // `2.0_f64.powi(127)` is exactly representable in f64 and equals
-    // `i128::MAX + 1` (and `-2^127` equals `i128::MIN`). Build the bounds
-    // directly in `f64` space to avoid a precision-losing `i128 as f64` cast.
-    let two_pow_127 = 2.0_f64.powi(127);
-    if value < -two_pow_127 || value >= two_pow_127 {
-        return Err(DrizzleError::ConversionError(
-            format!("REAL {value} out of range for {type_name}").into(),
-        ));
-    }
-
-    // Safe: `value` is finite, integer-valued, and strictly within `[-2^127, 2^127)`.
-    // Round-trip through a decimal string to avoid an f64-as-i128 cast warning.
-    let int_value: i128 = format!("{value:.0}").parse().map_err(|e| {
-        DrizzleError::ConversionError(
-            format!("REAL {value} could not be parsed as integer for {type_name}: {e}").into(),
-        )
-    })?;
-    int_value.try_into().map_err(|e| {
-        DrizzleError::ConversionError(
-            format!("REAL {value} out of range for {type_name}: {e}").into(),
-        )
-    })
-}
-
 // =============================================================================
 // Primitive implementations
 // =============================================================================
@@ -188,7 +148,7 @@ macro_rules! impl_from_sqlite_value_int {
             }
 
             fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
-                checked_real_to_int(value, "i64")
+                checked_float_to_int(value, "i64")
             }
 
             fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
@@ -217,7 +177,7 @@ macro_rules! impl_from_sqlite_value_int {
                 }
 
                 fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
-                    checked_real_to_int(value, stringify!($ty))
+                    checked_float_to_int(value, stringify!($ty))
                 }
 
                 fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {

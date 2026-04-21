@@ -8,6 +8,7 @@
 
 use crate::prelude::*;
 use crate::values::{OwnedPostgresValue, PostgresValue};
+use drizzle_core::conv::checked_float_to_int;
 use drizzle_core::error::DrizzleError;
 
 /// Trait for types that can be converted from `PostgreSQL` values.
@@ -379,39 +380,6 @@ pub trait DrizzleRowByName: DrizzleRowByIndex {
     /// Returns [`DrizzleError`] if the column name is unknown, the value is NULL for a non-nullable target,
     /// or the stored value cannot be converted into `T`.
     fn get_column_by_name<T: FromPostgresValue>(&self, name: &str) -> Result<T, DrizzleError>;
-}
-
-fn checked_float_to_int<T>(value: f64, type_name: &str) -> Result<T, DrizzleError>
-where
-    T: TryFrom<i128>,
-    <T as TryFrom<i128>>::Error: core::fmt::Display,
-{
-    if !value.is_finite() {
-        return Err(DrizzleError::ConversionError(
-            format!("cannot convert non-finite float {value} to {type_name}").into(),
-        ));
-    }
-
-    if value % 1.0 != 0.0 {
-        return Err(DrizzleError::ConversionError(
-            format!("cannot convert non-integer float {value} to {type_name}").into(),
-        ));
-    }
-
-    // Convert via decimal string: `{value:.0}` forces fixed-point integer
-    // formatting, and i128 parse rejects anything outside ±i128 range.
-    // This avoids both the lossy `as i128` cast and the `i128::MAX as f64`
-    // bounds-check cast (which clippy flags for precision loss).
-    let int_value: i128 = format!("{value:.0}").parse().map_err(|e| {
-        DrizzleError::ConversionError(
-            format!("float {value} out of range for {type_name}: {e}").into(),
-        )
-    })?;
-    int_value.try_into().map_err(|e| {
-        DrizzleError::ConversionError(
-            format!("float {value} out of range for {type_name}: {e}").into(),
-        )
-    })
 }
 
 // =============================================================================
