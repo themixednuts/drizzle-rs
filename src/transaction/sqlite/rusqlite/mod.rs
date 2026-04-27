@@ -159,9 +159,9 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns a [`rusqlite::Error`] if the database call fails or the SQL is invalid.
-    pub fn execute<'a, T>(&'a self, query: T) -> rusqlite::Result<usize>
+    pub fn execute<'q, T>(&self, query: T) -> rusqlite::Result<usize>
     where
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx.execute");
@@ -177,12 +177,12 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the query fails or row decoding fails.
-    pub fn all<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Vec<R>>
+    pub fn all<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Vec<R>>
     where
         R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
         for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
             Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
     {
         self.rows(query)?
             .collect::<drizzle_core::error::Result<Vec<R>>>()
@@ -193,12 +193,12 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the query fails or row decoding fails.
-    pub fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    pub fn rows<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
         for<'r> <R as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
             Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx.all");
@@ -226,12 +226,12 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the query fails, no rows match, or decoding fails.
-    pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r rusqlite::Row<'r>>,
         for<'r> <R as TryFrom<&'r rusqlite::Row<'r>>>::Error:
             Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx.get");
@@ -266,8 +266,8 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 }
 
 #[cfg(feature = "rusqlite")]
-impl<'a, S, Schema, State, Table, Mk, Rw, Grouped>
-    TransactionBuilder<'a, '_, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw, Grouped>, State>
+impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
+    TransactionBuilder<'tx, '_, S, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>
 where
     State: builder::ExecutableState,
 {

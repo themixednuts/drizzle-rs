@@ -12,12 +12,12 @@ use drizzle_postgres::common::PostgresSchemaType;
 use drizzle_postgres::values::PostgresValue;
 use std::marker::PhantomData;
 
-impl<'a, 'conn, Schema, M>
+impl<'tx, 'q, 'conn, Schema, M>
     TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectInitial, (), M>,
+        SelectBuilder<'q, Schema, SelectInitial, (), M>,
         SelectInitial,
     >
 {
@@ -26,11 +26,11 @@ impl<'a, 'conn, Schema, M>
         self,
         table: T,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
         SelectBuilder<
-            'a,
+            'q,
             Schema,
             SelectFromSet,
             T,
@@ -40,7 +40,7 @@ impl<'a, 'conn, Schema, M>
         SelectFromSet,
     >
     where
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
         M: drizzle_core::ResolveRow<T>,
     {
         let builder = self.builder.from(table);
@@ -54,43 +54,43 @@ impl<'a, 'conn, Schema, M>
 
 macro_rules! impl_tx_select_methods {
     ($($state:ty => [$($method:ident),* $(,)?]),+ $(,)?) => {
-        $( impl<'a, 'conn, Schema, T, M, R, G>
-            TransactionBuilder<'a, 'conn, Schema, SelectBuilder<'a, Schema, $state, T, M, R, G>, $state>
+        $( impl<'tx, 'q, 'conn, Schema, T, M, R, G>
+            TransactionBuilder<'tx, 'conn, Schema, SelectBuilder<'q, Schema, $state, T, M, R, G>, $state>
         { $( impl_tx_select_methods!(@method $method); )* } )+
     };
     (@method r#where) => {
         #[inline]
-        pub fn r#where<E>(self, condition: E) -> TransactionBuilder<'a, 'conn, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T, M, R, G>, SelectWhereSet>
-        where E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>, E::SQLType: drizzle_core::types::BooleanLike,
+        pub fn r#where<E>(self, condition: E) -> TransactionBuilder<'tx, 'conn, Schema, SelectBuilder<'q, Schema, SelectWhereSet, T, M, R, G>, SelectWhereSet>
+        where E: drizzle_core::expr::Expr<'q, PostgresValue<'q>>, E::SQLType: drizzle_core::types::BooleanLike,
         { let builder = self.builder.r#where(condition); TransactionBuilder { transaction: self.transaction, builder, _phantom: PhantomData } }
     };
     (@method group_by) => {
-        pub fn group_by<Gr>(self, columns: Gr) -> TransactionBuilder<'a, 'conn, Schema, SelectBuilder<'a, Schema, SelectGroupSet, T, M, R, Gr::Columns>, SelectGroupSet>
-        where Gr: drizzle_core::IntoGroupBy<'a, PostgresValue<'a>>,
+        pub fn group_by<Gr>(self, columns: Gr) -> TransactionBuilder<'tx, 'conn, Schema, SelectBuilder<'q, Schema, SelectGroupSet, T, M, R, Gr::Columns>, SelectGroupSet>
+        where Gr: drizzle_core::IntoGroupBy<'q, PostgresValue<'q>>,
         { let builder = self.builder.group_by(columns); TransactionBuilder { transaction: self.transaction, builder, _phantom: PhantomData } }
     };
     (@method having) => {
-        pub fn having<E>(self, condition: E) -> TransactionBuilder<'a, 'conn, Schema, SelectBuilder<'a, Schema, SelectGroupSet, T, M, R, G>, SelectGroupSet>
-        where E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>, E::SQLType: drizzle_core::types::BooleanLike,
+        pub fn having<E>(self, condition: E) -> TransactionBuilder<'tx, 'conn, Schema, SelectBuilder<'q, Schema, SelectGroupSet, T, M, R, G>, SelectGroupSet>
+        where E: drizzle_core::expr::Expr<'q, PostgresValue<'q>>, E::SQLType: drizzle_core::types::BooleanLike,
         { let builder = self.builder.having(condition); TransactionBuilder { transaction: self.transaction, builder, _phantom: PhantomData } }
     };
     (@method order_by) => {
-        pub fn order_by<TOrderBy>(self, expressions: TOrderBy) -> TransactionBuilder<'a, 'conn, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T, M, R, G>, SelectOrderSet>
-        where TOrderBy: drizzle_core::ToSQL<'a, PostgresValue<'a>>,
+        pub fn order_by<TOrderBy>(self, expressions: TOrderBy) -> TransactionBuilder<'tx, 'conn, Schema, SelectBuilder<'q, Schema, SelectOrderSet, T, M, R, G>, SelectOrderSet>
+        where TOrderBy: drizzle_core::ToSQL<'q, PostgresValue<'q>>,
         { let builder = self.builder.order_by(expressions); TransactionBuilder { transaction: self.transaction, builder, _phantom: PhantomData } }
     };
     (@method limit) => {
         #[inline]
-        pub fn limit(self, limit: usize) -> TransactionBuilder<'a, 'conn, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T, M, R, G>, SelectLimitSet>
+        pub fn limit(self, limit: usize) -> TransactionBuilder<'tx, 'conn, Schema, SelectBuilder<'q, Schema, SelectLimitSet, T, M, R, G>, SelectLimitSet>
         { let builder = self.builder.limit(limit); TransactionBuilder { transaction: self.transaction, builder, _phantom: PhantomData } }
     };
     (@method offset) => {
-        pub fn offset(self, offset: usize) -> TransactionBuilder<'a, 'conn, Schema, SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R, G>, SelectOffsetSet>
+        pub fn offset(self, offset: usize) -> TransactionBuilder<'tx, 'conn, Schema, SelectBuilder<'q, Schema, SelectOffsetSet, T, M, R, G>, SelectOffsetSet>
         { let builder = self.builder.offset(offset); TransactionBuilder { transaction: self.transaction, builder, _phantom: PhantomData } }
     };
     (@method join) => {
         #[inline]
-        pub fn join<J: drizzle_postgres::helpers::JoinArg<'a, T>>(self, arg: J) -> TransactionBuilder<'a, 'conn, Schema, SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow, G>, SelectJoinSet>
+        pub fn join<J: drizzle_postgres::helpers::JoinArg<'q, T>>(self, arg: J) -> TransactionBuilder<'tx, 'conn, Schema, SelectBuilder<'q, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow, G>, SelectJoinSet>
         where M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
         { let builder = self.builder.join(arg); TransactionBuilder { transaction: self.transaction, builder, _phantom: PhantomData } }
     };
@@ -110,19 +110,19 @@ impl_tx_select_methods! {
 // Set operations on TransactionBuilder
 //------------------------------------------------------------------------------
 
-impl<'a, 'conn, Schema, State, T, M, R, G>
-    TransactionBuilder<'a, 'conn, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
+impl<'tx, 'q, 'conn, Schema, State, T, M, R, G>
+    TransactionBuilder<'tx, 'conn, Schema, SelectBuilder<'q, Schema, State, T, M, R, G>, State>
 where
     State: ExecutableState,
 {
     pub fn union(
         self,
-        other: impl IntoSelect<'a, Schema, M, R>,
+        other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
     > {
         TransactionBuilder {
@@ -134,12 +134,12 @@ where
 
     pub fn union_all(
         self,
-        other: impl IntoSelect<'a, Schema, M, R>,
+        other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
     > {
         TransactionBuilder {
@@ -151,12 +151,12 @@ where
 
     pub fn intersect(
         self,
-        other: impl IntoSelect<'a, Schema, M, R>,
+        other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
     > {
         TransactionBuilder {
@@ -168,12 +168,12 @@ where
 
     pub fn intersect_all(
         self,
-        other: impl IntoSelect<'a, Schema, M, R>,
+        other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
     > {
         TransactionBuilder {
@@ -185,12 +185,12 @@ where
 
     pub fn except(
         self,
-        other: impl IntoSelect<'a, Schema, M, R>,
+        other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
     > {
         TransactionBuilder {
@@ -202,12 +202,12 @@ where
 
     pub fn except_all(
         self,
-        other: impl IntoSelect<'a, Schema, M, R>,
+        other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
     > {
         TransactionBuilder {
@@ -222,19 +222,19 @@ where
 // into_cte on TransactionBuilder
 //------------------------------------------------------------------------------
 
-impl<'a, Schema, State, T, M, R, G>
-    TransactionBuilder<'a, '_, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
+impl<'tx, 'q, Schema, State, T, M, R, G>
+    TransactionBuilder<'tx, '_, Schema, SelectBuilder<'q, Schema, State, T, M, R, G>, State>
 where
     State: AsCteState,
-    T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
+    T: SQLTable<'q, PostgresSchemaType, PostgresValue<'q>>,
 {
     #[inline]
     pub fn into_cte<Tag: drizzle_core::Tag + 'static>(
         self,
     ) -> CTEView<
-        'a,
-        <T as SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>>::Aliased<Tag>,
-        SelectBuilder<'a, Schema, State, T, M, R, G>,
+        'q,
+        <T as SQLTable<'q, PostgresSchemaType, PostgresValue<'q>>>::Aliased<Tag>,
+        SelectBuilder<'q, Schema, State, T, M, R, G>,
     > {
         self.builder.into_cte::<Tag>()
     }

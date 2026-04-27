@@ -164,9 +164,9 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the database call fails or the SQL is invalid.
-    pub fn execute<'a, T>(&'a self, query: T) -> drizzle_core::error::Result<u64>
+    pub fn execute<'q, T>(&self, query: T) -> drizzle_core::error::Result<u64>
     where
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx.execute");
@@ -226,11 +226,11 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the query fails or row decoding fails.
-    pub fn all<'a, T, R, C>(&'a self, query: T) -> drizzle_core::error::Result<C>
+    pub fn all<'q, T, R, C>(&self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
         C: std::iter::FromIterator<R>,
     {
         self.rows(query)?
@@ -242,11 +242,11 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the query fails.
-    pub fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    pub fn rows<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx.all");
@@ -279,11 +279,11 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the query fails, no rows match, or decoding fails.
-    pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx.get");
@@ -324,12 +324,12 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 }
 
-impl<'a, 'conn, Schema>
+impl<'tx, 'conn, 'q, Schema>
     TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        QueryBuilder<'a, Schema, builder::CTEInit>,
+        QueryBuilder<'q, Schema, builder::CTEInit>,
         builder::CTEInit,
     >
 {
@@ -338,14 +338,14 @@ impl<'a, 'conn, Schema>
         self,
         query: T,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        SelectBuilder<'a, Schema, SelectInitial, (), T::Marker>,
+        SelectBuilder<'q, Schema, SelectInitial, (), T::Marker>,
         SelectInitial,
     >
     where
-        T: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        T: ToSQL<'q, PostgresValue<'q>> + drizzle_core::IntoSelectTarget,
     {
         let builder = self.builder.select(query);
         TransactionBuilder {
@@ -358,7 +358,7 @@ impl<'a, 'conn, Schema>
     #[inline]
     pub fn with<C>(self, cte: &C) -> Self
     where
-        C: builder::CTEDefinition<'a>,
+        C: builder::CTEDefinition<'q>,
     {
         let builder = self.builder.with(cte);
         TransactionBuilder {
@@ -369,8 +369,8 @@ impl<'a, 'conn, Schema>
     }
 }
 
-impl<'a, S, Schema, State, Table, Mk, Rw, Grouped>
-    TransactionBuilder<'a, '_, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw, Grouped>, State>
+impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
+    TransactionBuilder<'tx, '_, S, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>
 where
     State: builder::ExecutableState,
 {
@@ -533,11 +533,11 @@ where
     }
 }
 
-impl<'a, S, T, State> ToSQL<'a, PostgresValue<'a>> for TransactionBuilder<'a, '_, S, T, State>
+impl<'tx, 'q, S, T, State> ToSQL<'q, PostgresValue<'q>> for TransactionBuilder<'tx, '_, S, T, State>
 where
-    T: ToSQL<'a, PostgresValue<'a>>,
+    T: ToSQL<'q, PostgresValue<'q>>,
 {
-    fn to_sql(&self) -> drizzle_core::sql::SQL<'a, PostgresValue<'a>> {
+    fn to_sql(&self) -> drizzle_core::sql::SQL<'q, PostgresValue<'q>> {
         self.builder.to_sql()
     }
 }

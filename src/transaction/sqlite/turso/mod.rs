@@ -159,9 +159,9 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the database call fails or the SQL is invalid.
-    pub async fn execute<'a, T>(&'a self, query: T) -> Result<u64, DrizzleError>
+    pub async fn execute<'q, T>(&self, query: T) -> Result<u64, DrizzleError>
     where
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
     {
         let query = query.to_sql();
         let (sql_str, params) = query.build();
@@ -175,11 +175,11 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the query fails or row decoding fails.
-    pub async fn all<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Vec<R>>
+    pub async fn all<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Vec<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
     {
         self.rows(query).await?.collect().await
     }
@@ -189,11 +189,11 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the query fails.
-    pub async fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    pub async fn rows<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
     {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
@@ -208,11 +208,11 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the query fails, no rows match (returns `DrizzleError::NotFound`), or decoding fails.
-    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
     {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
@@ -246,8 +246,8 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 }
 
 #[cfg(feature = "turso")]
-impl<'a, S, Schema, State, Table, Mk, Rw, Grouped>
-    TransactionBuilder<'a, '_, S, QueryBuilder<'a, Schema, State, Table, Mk, Rw, Grouped>, State>
+impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
+    TransactionBuilder<'tx, '_, S, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>
 where
     State: builder::ExecutableState,
 {

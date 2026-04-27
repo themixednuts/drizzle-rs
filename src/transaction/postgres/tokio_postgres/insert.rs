@@ -16,12 +16,12 @@ type ReturningMarker<Table, Columns> = drizzle_core::Scoped<
 type ReturningRow<Table, Columns> =
     <<Columns as drizzle_core::IntoSelectTarget>::Marker as drizzle_core::ResolveRow<Table>>::Row;
 
-type InsertReturningTxBuilder<'a, 'conn, Schema, Table, Columns> = TransactionBuilder<
-    'a,
+type InsertReturningTxBuilder<'tx, 'conn, 'q, Schema, Table, Columns> = TransactionBuilder<
+    'tx,
     'conn,
     Schema,
     InsertBuilder<
-        'a,
+        'q,
         Schema,
         InsertReturningSet,
         Table,
@@ -32,16 +32,16 @@ type InsertReturningTxBuilder<'a, 'conn, Schema, Table, Columns> = TransactionBu
 >;
 
 /// Intermediate builder for typed ON CONFLICT within a tokio-postgres transaction.
-pub struct TransactionOnConflictBuilder<'a, 'conn, Schema, Table> {
-    transaction: &'a super::Transaction<'conn, Schema>,
-    builder: OnConflictBuilder<'a, Schema, Table>,
+pub struct TransactionOnConflictBuilder<'tx, 'conn, 'q, Schema, Table> {
+    transaction: &'tx super::Transaction<'conn, Schema>,
+    builder: OnConflictBuilder<'q, Schema, Table>,
 }
 
-impl<'a, 'conn, Schema, Table> TransactionOnConflictBuilder<'a, 'conn, Schema, Table> {
+impl<'tx, 'conn, 'q, Schema, Table> TransactionOnConflictBuilder<'tx, 'conn, 'q, Schema, Table> {
     /// Adds a WHERE clause to the conflict target for partial index matching.
     pub fn r#where<E>(mut self, condition: E) -> Self
     where
-        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+        E: drizzle_core::expr::Expr<'q, PostgresValue<'q>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
         self.builder = self.builder.r#where(condition);
@@ -52,10 +52,10 @@ impl<'a, 'conn, Schema, Table> TransactionOnConflictBuilder<'a, 'conn, Schema, T
     pub fn do_nothing(
         self,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        InsertBuilder<'a, Schema, InsertOnConflictSet, Table>,
+        InsertBuilder<'q, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
     > {
         TransactionBuilder {
@@ -68,12 +68,12 @@ impl<'a, 'conn, Schema, Table> TransactionOnConflictBuilder<'a, 'conn, Schema, T
     /// `ON CONFLICT (cols) DO UPDATE SET ...`
     pub fn do_update(
         self,
-        set: impl ToSQL<'a, PostgresValue<'a>>,
+        set: impl ToSQL<'q, PostgresValue<'q>>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        InsertBuilder<'a, Schema, InsertDoUpdateSet, Table>,
+        InsertBuilder<'q, Schema, InsertDoUpdateSet, Table>,
         InsertDoUpdateSet,
     > {
         TransactionBuilder {
@@ -84,12 +84,12 @@ impl<'a, 'conn, Schema, Table> TransactionOnConflictBuilder<'a, 'conn, Schema, T
     }
 }
 
-impl<'a, 'conn, Schema, Table>
+impl<'tx, 'conn, 'q, Schema, Table>
     TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        InsertBuilder<'a, Schema, InsertInitial, Table>,
+        InsertBuilder<'q, Schema, InsertInitial, Table>,
         InsertInitial,
     >
 {
@@ -98,15 +98,15 @@ impl<'a, 'conn, Schema, Table>
         self,
         value: Table::Insert<T>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        InsertBuilder<'a, Schema, InsertValuesSet, Table>,
+        InsertBuilder<'q, Schema, InsertValuesSet, Table>,
         InsertValuesSet,
     >
     where
-        Table: PostgresTable<'a>,
-        Table::Insert<T>: SQLModel<'a, PostgresValue<'a>>,
+        Table: PostgresTable<'q>,
+        Table::Insert<T>: SQLModel<'q, PostgresValue<'q>>,
     {
         self.values([value])
     }
@@ -116,15 +116,15 @@ impl<'a, 'conn, Schema, Table>
         self,
         values: impl IntoIterator<Item = Table::Insert<T>>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        InsertBuilder<'a, Schema, InsertValuesSet, Table>,
+        InsertBuilder<'q, Schema, InsertValuesSet, Table>,
         InsertValuesSet,
     >
     where
-        Table: PostgresTable<'a>,
-        Table::Insert<T>: SQLModel<'a, PostgresValue<'a>>,
+        Table: PostgresTable<'q>,
+        Table::Insert<T>: SQLModel<'q, PostgresValue<'q>>,
     {
         let builder = self.builder.values(values);
         TransactionBuilder {
@@ -135,22 +135,22 @@ impl<'a, 'conn, Schema, Table>
     }
 }
 
-impl<'a, 'conn, Schema, Table>
+impl<'tx, 'conn, 'q, Schema, Table>
     TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        InsertBuilder<'a, Schema, InsertValuesSet, Table>,
+        InsertBuilder<'q, Schema, InsertValuesSet, Table>,
         InsertValuesSet,
     >
 where
-    Table: PostgresTable<'a>,
+    Table: PostgresTable<'q>,
 {
     /// Begins a typed ON CONFLICT clause targeting specific columns.
     pub fn on_conflict<C: ConflictTarget<Table>>(
         self,
         target: C,
-    ) -> TransactionOnConflictBuilder<'a, 'conn, Schema, Table> {
+    ) -> TransactionOnConflictBuilder<'tx, 'conn, 'q, Schema, Table> {
         TransactionOnConflictBuilder {
             transaction: self.transaction,
             builder: self.builder.on_conflict(target),
@@ -161,7 +161,7 @@ where
     pub fn on_conflict_on_constraint<C: NamedConstraint<Table>>(
         self,
         target: C,
-    ) -> TransactionOnConflictBuilder<'a, 'conn, Schema, Table> {
+    ) -> TransactionOnConflictBuilder<'tx, 'conn, 'q, Schema, Table> {
         TransactionOnConflictBuilder {
             transaction: self.transaction,
             builder: self.builder.on_conflict_on_constraint(target),
@@ -172,10 +172,10 @@ where
     pub fn on_conflict_do_nothing(
         self,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        InsertBuilder<'a, Schema, InsertOnConflictSet, Table>,
+        InsertBuilder<'q, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
     > {
         TransactionBuilder {
@@ -189,9 +189,9 @@ where
     pub fn returning<Columns>(
         self,
         columns: Columns,
-    ) -> InsertReturningTxBuilder<'a, 'conn, Schema, Table, Columns>
+    ) -> InsertReturningTxBuilder<'tx, 'conn, 'q, Schema, Table, Columns>
     where
-        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns: ToSQL<'q, PostgresValue<'q>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
         let builder = self.builder.returning(columns);
@@ -203,12 +203,12 @@ where
     }
 }
 
-impl<'a, 'conn, Schema, Table>
+impl<'tx, 'conn, 'q, Schema, Table>
     TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        InsertBuilder<'a, Schema, InsertOnConflictSet, Table>,
+        InsertBuilder<'q, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
     >
 {
@@ -216,9 +216,9 @@ impl<'a, 'conn, Schema, Table>
     pub fn returning<Columns>(
         self,
         columns: Columns,
-    ) -> InsertReturningTxBuilder<'a, 'conn, Schema, Table, Columns>
+    ) -> InsertReturningTxBuilder<'tx, 'conn, 'q, Schema, Table, Columns>
     where
-        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns: ToSQL<'q, PostgresValue<'q>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
         let builder = self.builder.returning(columns);
@@ -230,12 +230,12 @@ impl<'a, 'conn, Schema, Table>
     }
 }
 
-impl<'a, 'conn, Schema, Table>
+impl<'tx, 'conn, 'q, Schema, Table>
     TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        InsertBuilder<'a, Schema, InsertDoUpdateSet, Table>,
+        InsertBuilder<'q, Schema, InsertDoUpdateSet, Table>,
         InsertDoUpdateSet,
     >
 {
@@ -244,14 +244,14 @@ impl<'a, 'conn, Schema, Table>
         self,
         condition: E,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        InsertBuilder<'a, Schema, InsertOnConflictSet, Table>,
+        InsertBuilder<'q, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
     >
     where
-        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+        E: drizzle_core::expr::Expr<'q, PostgresValue<'q>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
         TransactionBuilder {
@@ -265,9 +265,9 @@ impl<'a, 'conn, Schema, Table>
     pub fn returning<Columns>(
         self,
         columns: Columns,
-    ) -> InsertReturningTxBuilder<'a, 'conn, Schema, Table, Columns>
+    ) -> InsertReturningTxBuilder<'tx, 'conn, 'q, Schema, Table, Columns>
     where
-        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns: ToSQL<'q, PostgresValue<'q>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
         let builder = self.builder.returning(columns);

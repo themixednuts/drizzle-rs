@@ -8,8 +8,8 @@ use drizzle_sqlite::values::SQLiteValue;
 
 use crate::transaction::sqlite::libsql::TransactionBuilder;
 
-impl<'a, Schema, Table>
-    TransactionBuilder<'a, Schema, UpdateBuilder<'a, Schema, UpdateInitial, Table>, UpdateInitial>
+impl<'tx, 'a, Schema, Table>
+    TransactionBuilder<'tx, Schema, UpdateBuilder<'a, Schema, UpdateInitial, Table>, UpdateInitial>
 where
     Table: SQLiteTable<'a>,
 {
@@ -18,7 +18,7 @@ where
         self,
         values: Table::Update,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         Schema,
         UpdateBuilder<'a, Schema, UpdateSetClauseSet, Table>,
         UpdateSetClauseSet,
@@ -32,9 +32,9 @@ where
     }
 }
 
-impl<'a, Schema, Table>
+impl<'tx, 'a, Schema, Table>
     TransactionBuilder<
-        'a,
+        'tx,
         Schema,
         UpdateBuilder<'a, Schema, UpdateSetClauseSet, Table>,
         UpdateSetClauseSet,
@@ -44,7 +44,7 @@ impl<'a, Schema, Table>
         self,
         condition: E,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         Schema,
         UpdateBuilder<'a, Schema, UpdateWhereSet, Table>,
         UpdateWhereSet,

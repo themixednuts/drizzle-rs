@@ -160,17 +160,17 @@ impl<Schema> Transaction<Schema> {
     // avoid the `'conn` lifetime (AWS Data API transactions don't borrow).
 
     /// Start a SELECT inside this transaction.
-    pub fn select<'a, 'b, T>(
-        &'a self,
+    pub fn select<'tx, 'q, T>(
+        &'tx self,
         query: T,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         Schema,
-        SelectBuilder<'b, Schema, SelectInitial, (), T::Marker>,
+        SelectBuilder<'q, Schema, SelectInitial, (), T::Marker>,
         SelectInitial,
     >
     where
-        T: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
+        T: ToSQL<'q, PostgresValue<'q>> + drizzle_core::IntoSelectTarget,
     {
         let builder = QueryBuilder::new::<Schema>().select(query);
         TransactionBuilder {
@@ -181,17 +181,17 @@ impl<Schema> Transaction<Schema> {
     }
 
     /// Start a SELECT DISTINCT inside this transaction.
-    pub fn select_distinct<'a, 'b, T>(
-        &'a self,
+    pub fn select_distinct<'tx, 'q, T>(
+        &'tx self,
         query: T,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         Schema,
-        SelectBuilder<'b, Schema, SelectInitial, (), T::Marker>,
+        SelectBuilder<'q, Schema, SelectInitial, (), T::Marker>,
         SelectInitial,
     >
     where
-        T: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
+        T: ToSQL<'q, PostgresValue<'q>> + drizzle_core::IntoSelectTarget,
     {
         let builder = QueryBuilder::new::<Schema>().select_distinct(query);
         TransactionBuilder {
@@ -202,17 +202,17 @@ impl<Schema> Transaction<Schema> {
     }
 
     /// Start an INSERT inside this transaction.
-    pub fn insert<'a, Table>(
-        &'a self,
+    pub fn insert<'tx, 'q, Table>(
+        &'tx self,
         table: Table,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         Schema,
-        InsertBuilder<'a, Schema, InsertInitial, Table>,
+        InsertBuilder<'q, Schema, InsertInitial, Table>,
         InsertInitial,
     >
     where
-        Table: PostgresTable<'a>,
+        Table: PostgresTable<'q>,
     {
         let builder = QueryBuilder::new::<Schema>().insert(table);
         TransactionBuilder {
@@ -223,17 +223,17 @@ impl<Schema> Transaction<Schema> {
     }
 
     /// Start an UPDATE inside this transaction.
-    pub fn update<'a, Table>(
-        &'a self,
+    pub fn update<'tx, 'q, Table>(
+        &'tx self,
         table: Table,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         Schema,
-        UpdateBuilder<'a, Schema, UpdateInitial, Table>,
+        UpdateBuilder<'q, Schema, UpdateInitial, Table>,
         UpdateInitial,
     >
     where
-        Table: PostgresTable<'a>,
+        Table: PostgresTable<'q>,
     {
         let builder = QueryBuilder::new::<Schema>().update(table);
         TransactionBuilder {
@@ -244,12 +244,12 @@ impl<Schema> Transaction<Schema> {
     }
 
     /// Start a DELETE inside this transaction.
-    pub fn delete<'a, T>(
-        &'a self,
+    pub fn delete<'tx, 'q, T>(
+        &'tx self,
         table: T,
-    ) -> TransactionBuilder<'a, Schema, DeleteBuilder<'a, Schema, DeleteInitial, T>, DeleteInitial>
+    ) -> TransactionBuilder<'tx, Schema, DeleteBuilder<'q, Schema, DeleteInitial, T>, DeleteInitial>
     where
-        T: PostgresTable<'a>,
+        T: PostgresTable<'q>,
     {
         let builder = QueryBuilder::new::<Schema>().delete(table);
         TransactionBuilder {
@@ -260,12 +260,12 @@ impl<Schema> Transaction<Schema> {
     }
 
     /// Start a CTE (WITH) query inside this transaction.
-    pub fn with<'a, C>(
-        &'a self,
+    pub fn with<'tx, 'q, C>(
+        &'tx self,
         cte: &C,
-    ) -> TransactionBuilder<'a, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
+    ) -> TransactionBuilder<'tx, Schema, QueryBuilder<'q, Schema, builder::CTEInit>, builder::CTEInit>
     where
-        C: builder::CTEDefinition<'a>,
+        C: builder::CTEDefinition<'q>,
     {
         let builder = QueryBuilder::new::<Schema>().with(cte);
         TransactionBuilder {
@@ -282,9 +282,9 @@ impl<Schema> Transaction<Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the Data API call fails or the SQL is invalid.
-    pub async fn execute<'a, T>(&'a self, query: T) -> drizzle_core::error::Result<u64>
+    pub async fn execute<'q, T>(&self, query: T) -> drizzle_core::error::Result<u64>
     where
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         let sql = query.to_sql();
         let (sql_str, params) = {
@@ -305,11 +305,11 @@ impl<Schema> Transaction<Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the Data API call fails or row decoding fails.
-    pub async fn all<'a, T, R, C>(&'a self, query: T) -> drizzle_core::error::Result<C>
+    pub async fn all<'q, T, R, C>(&self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
         C: core::iter::FromIterator<R>,
     {
         let sql = query.to_sql();
@@ -334,11 +334,11 @@ impl<Schema> Transaction<Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the Data API call fails, no rows match (returns `DrizzleError::NotFound`), or decoding fails.
-    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         let sql = query.to_sql();
         let (sql_str, params) = {
@@ -432,8 +432,8 @@ impl<Schema> Transaction<Schema> {
 // TransactionBuilder trailing-impls (execute / all / get)
 // =============================================================================
 
-impl<'a, Schema, State, Table, Mk, Rw, Grouped>
-    TransactionBuilder<'a, Schema, QueryBuilder<'a, Schema, State, Table, Mk, Rw, Grouped>, State>
+impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
+    TransactionBuilder<'tx, Schema, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>
 where
     State: builder::ExecutableState,
 {

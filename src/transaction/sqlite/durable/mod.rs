@@ -131,9 +131,9 @@ impl<Schema> Transaction<Schema> {
 
     /// Executes a query within the transaction and returns the number of rows
     /// written.
-    pub fn execute<'a, T>(&self, query: T) -> drizzle_core::error::Result<u64>
+    pub fn execute<'q, T>(&self, query: T) -> drizzle_core::error::Result<u64>
     where
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
     {
         let cursor = exec_in_tx(&self.conn, &query)?;
         // Drain so `rows_written` is populated.
@@ -144,10 +144,10 @@ impl<Schema> Transaction<Schema> {
     }
 
     /// Runs a query and returns all matching rows within the transaction.
-    pub fn all<'a, T, R, C>(&self, query: T) -> drizzle_core::error::Result<C>
+    pub fn all<'q, T, R, C>(&self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'de> serde::Deserialize<'de>,
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
         C: Default + Extend<R>,
     {
         let cursor = exec_in_tx(&self.conn, &query)?;
@@ -160,10 +160,10 @@ impl<Schema> Transaction<Schema> {
     }
 
     /// Runs a query and returns a single row within the transaction.
-    pub fn get<'a, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
+    pub fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'de> serde::Deserialize<'de>,
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
     {
         let cursor = exec_in_tx(&self.conn, &query)?;
         cursor
@@ -175,12 +175,12 @@ impl<Schema> Transaction<Schema> {
     }
 }
 
-fn exec_in_tx<'a, T>(
+fn exec_in_tx<'q, T>(
     conn: &SqlStorage,
     query: &T,
 ) -> drizzle_core::error::Result<::worker::SqlCursor>
 where
-    T: ToSQL<'a, SQLiteValue<'a>>,
+    T: ToSQL<'q, SQLiteValue<'q>>,
 {
     let sql = query.to_sql();
     let (sql_str, params) = sql.build();
@@ -194,8 +194,8 @@ where
 // =============================================================================
 
 #[cfg(feature = "durable")]
-impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
-    TransactionBuilder<'a, Schema, QueryBuilder<'b, Schema, State, Table, Mk, Rw, Grouped>, State>
+impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
+    TransactionBuilder<'tx, Schema, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>
 where
     State: builder::ExecutableState,
 {

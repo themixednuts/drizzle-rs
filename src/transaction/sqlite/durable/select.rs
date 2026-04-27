@@ -11,18 +11,18 @@ use drizzle_sqlite::builder::{
 use drizzle_sqlite::values::SQLiteValue;
 use std::marker::PhantomData;
 
-impl<'a, Schema, M>
-    TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectInitial, (), M>, SelectInitial>
+impl<'tx, 'q, Schema, M>
+    TransactionBuilder<'tx, Schema, SelectBuilder<'q, Schema, SelectInitial, (), M>, SelectInitial>
 {
     #[inline]
     pub fn from<T>(
         self,
         table: T,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         Schema,
         SelectBuilder<
-            'a,
+            'q,
             Schema,
             SelectFromSet,
             T,
@@ -32,7 +32,7 @@ impl<'a, Schema, M>
         SelectFromSet,
     >
     where
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'q, SQLiteValue<'q>>,
         M: drizzle_core::ResolveRow<T>,
     {
         let builder = self.builder.from(table);
@@ -46,46 +46,46 @@ impl<'a, Schema, M>
 
 macro_rules! impl_tx_select_methods {
     ($($state:ty => [$($method:ident),* $(,)?]),+ $(,)?) => {
-        $( impl<'a, Schema, T, M, R, G>
-            TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, $state, T, M, R, G>, $state>
+        $( impl<'tx, 'q, Schema, T, M, R, G>
+            TransactionBuilder<'tx, Schema, SelectBuilder<'q, Schema, $state, T, M, R, G>, $state>
         { $( impl_tx_select_methods!(@method $method); )* } )+
     };
     (@method r#where) => {
         #[inline]
-        pub fn r#where<E>(self, condition: E) -> TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T, M, R, G>, SelectWhereSet>
-        where E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>, E::SQLType: drizzle_core::types::BooleanLike,
+        pub fn r#where<E>(self, condition: E) -> TransactionBuilder<'tx, Schema, SelectBuilder<'q, Schema, SelectWhereSet, T, M, R, G>, SelectWhereSet>
+        where E: drizzle_core::expr::Expr<'q, SQLiteValue<'q>>, E::SQLType: drizzle_core::types::BooleanLike,
         { let builder = self.builder.r#where(condition); TransactionBuilder { transaction: self.transaction, builder, _phantom: PhantomData } }
     };
     (@method group_by) => {
-        pub fn group_by<Gr>(self, columns: Gr) -> TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectGroupSet, T, M, R, Gr::Columns>, SelectGroupSet>
-        where Gr: drizzle_core::IntoGroupBy<'a, SQLiteValue<'a>>,
+        pub fn group_by<Gr>(self, columns: Gr) -> TransactionBuilder<'tx, Schema, SelectBuilder<'q, Schema, SelectGroupSet, T, M, R, Gr::Columns>, SelectGroupSet>
+        where Gr: drizzle_core::IntoGroupBy<'q, SQLiteValue<'q>>,
         { let builder = self.builder.group_by(columns); TransactionBuilder { transaction: self.transaction, builder, _phantom: PhantomData } }
     };
     (@method having) => {
-        pub fn having<E>(self, condition: E) -> TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectGroupSet, T, M, R, G>, SelectGroupSet>
-        where E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>, E::SQLType: drizzle_core::types::BooleanLike,
+        pub fn having<E>(self, condition: E) -> TransactionBuilder<'tx, Schema, SelectBuilder<'q, Schema, SelectGroupSet, T, M, R, G>, SelectGroupSet>
+        where E: drizzle_core::expr::Expr<'q, SQLiteValue<'q>>, E::SQLType: drizzle_core::types::BooleanLike,
         { let builder = self.builder.having(condition); TransactionBuilder { transaction: self.transaction, builder, _phantom: PhantomData } }
     };
     (@method order_by) => {
-        pub fn order_by<TOrderBy>(self, expressions: TOrderBy) -> TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T, M, R, G>, SelectOrderSet>
-        where TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
+        pub fn order_by<TOrderBy>(self, expressions: TOrderBy) -> TransactionBuilder<'tx, Schema, SelectBuilder<'q, Schema, SelectOrderSet, T, M, R, G>, SelectOrderSet>
+        where TOrderBy: drizzle_core::ToSQL<'q, SQLiteValue<'q>>,
         { let builder = self.builder.order_by(expressions); TransactionBuilder { transaction: self.transaction, builder, _phantom: PhantomData } }
     };
     (@method limit) => {
         #[inline]
-        pub fn limit(self, limit: usize) -> TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T, M, R, G>, SelectLimitSet>
+        pub fn limit(self, limit: usize) -> TransactionBuilder<'tx, Schema, SelectBuilder<'q, Schema, SelectLimitSet, T, M, R, G>, SelectLimitSet>
         { let builder = self.builder.limit(limit); TransactionBuilder { transaction: self.transaction, builder, _phantom: PhantomData } }
     };
     (@method offset) => {
-        pub fn offset(self, offset: usize) -> TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R, G>, SelectOffsetSet>
+        pub fn offset(self, offset: usize) -> TransactionBuilder<'tx, Schema, SelectBuilder<'q, Schema, SelectOffsetSet, T, M, R, G>, SelectOffsetSet>
         { let builder = self.builder.offset(offset); TransactionBuilder { transaction: self.transaction, builder, _phantom: PhantomData } }
     };
     (@method join) => {
         #[inline]
-        pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(self, arg: J) -> TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow, G>, SelectJoinSet>
+        pub fn join<J: drizzle_sqlite::helpers::JoinArg<'q, T>>(self, arg: J) -> TransactionBuilder<'tx, Schema, SelectBuilder<'q, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow, G>, SelectJoinSet>
         where M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
         { let builder = self.builder.join(arg); TransactionBuilder { transaction: self.transaction, builder, _phantom: PhantomData } }
-        transaction_builder_join_impl!('a);
+        transaction_builder_join_impl!('q; 'tx);
     };
 }
 
@@ -104,18 +104,18 @@ impl_tx_select_methods! {
 //------------------------------------------------------------------------------
 
 #[cfg(feature = "sqlite")]
-impl<'a, Schema, State, T, M, R, G>
-    TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
+impl<'tx, 'q, Schema, State, T, M, R, G>
+    TransactionBuilder<'tx, Schema, SelectBuilder<'q, Schema, State, T, M, R, G>, State>
 where
     State: ExecutableState,
 {
     pub fn union(
         self,
-        other: impl IntoSelect<'a, Schema, M, R>,
+        other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
     > {
         TransactionBuilder {
@@ -127,11 +127,11 @@ where
 
     pub fn union_all(
         self,
-        other: impl IntoSelect<'a, Schema, M, R>,
+        other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
     > {
         TransactionBuilder {
@@ -143,11 +143,11 @@ where
 
     pub fn intersect(
         self,
-        other: impl IntoSelect<'a, Schema, M, R>,
+        other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
     > {
         TransactionBuilder {
@@ -159,11 +159,11 @@ where
 
     pub fn intersect_all(
         self,
-        other: impl IntoSelect<'a, Schema, M, R>,
+        other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
     > {
         TransactionBuilder {
@@ -175,11 +175,11 @@ where
 
     pub fn except(
         self,
-        other: impl IntoSelect<'a, Schema, M, R>,
+        other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
     > {
         TransactionBuilder {
@@ -191,11 +191,11 @@ where
 
     pub fn except_all(
         self,
-        other: impl IntoSelect<'a, Schema, M, R>,
+        other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
         SelectSetOpSet,
     > {
         TransactionBuilder {
@@ -211,27 +211,27 @@ where
 //------------------------------------------------------------------------------
 
 #[cfg(feature = "sqlite")]
-impl<'a, Schema, State, T, M, R, G>
-    TransactionBuilder<'a, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
+impl<'tx, 'q, Schema, State, T, M, R, G>
+    TransactionBuilder<'tx, Schema, SelectBuilder<'q, Schema, State, T, M, R, G>, State>
 where
     State: AsCteState,
     T: drizzle_core::traits::SQLTable<
-            'a,
+            'q,
             drizzle_sqlite::common::SQLiteSchemaType,
-            SQLiteValue<'a>,
+            SQLiteValue<'q>,
         >,
 {
     #[inline]
     pub fn into_cte<Tag: drizzle_core::Tag + 'static>(
         self,
     ) -> CTEView<
-        'a,
+        'q,
         <T as drizzle_core::traits::SQLTable<
-            'a,
+            'q,
             drizzle_sqlite::common::SQLiteSchemaType,
-            SQLiteValue<'a>,
+            SQLiteValue<'q>,
         >>::Aliased<Tag>,
-        SelectBuilder<'a, Schema, State, T, M, R, G>,
+        SelectBuilder<'q, Schema, State, T, M, R, G>,
     > {
         self.builder.into_cte::<Tag>()
     }

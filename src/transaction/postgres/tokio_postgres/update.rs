@@ -16,12 +16,12 @@ type ReturningMarker<Table, Columns> = drizzle_core::Scoped<
 type ReturningRow<Table, Columns> =
     <<Columns as drizzle_core::IntoSelectTarget>::Marker as drizzle_core::ResolveRow<Table>>::Row;
 
-type UpdateReturningTxBuilder<'a, 'conn, Schema, Table, Columns> = TransactionBuilder<
-    'a,
+type UpdateReturningTxBuilder<'tx, 'conn, 'q, Schema, Table, Columns> = TransactionBuilder<
+    'tx,
     'conn,
     Schema,
     UpdateBuilder<
-        'a,
+        'q,
         Schema,
         UpdateReturningSet,
         Table,
@@ -31,26 +31,26 @@ type UpdateReturningTxBuilder<'a, 'conn, Schema, Table, Columns> = TransactionBu
     UpdateReturningSet,
 >;
 
-impl<'a, 'conn, Schema, Table>
+impl<'tx, 'conn, 'q, Schema, Table>
     TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        UpdateBuilder<'a, Schema, UpdateInitial, Table>,
+        UpdateBuilder<'q, Schema, UpdateInitial, Table>,
         UpdateInitial,
     >
 where
-    Table: PostgresTable<'a>,
+    Table: PostgresTable<'q>,
 {
     #[inline]
     pub fn set(
         self,
         values: Table::Update,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        UpdateBuilder<'a, Schema, UpdateSetClauseSet, Table>,
+        UpdateBuilder<'q, Schema, UpdateSetClauseSet, Table>,
         UpdateSetClauseSet,
     > {
         let builder = self.builder.set(values);
@@ -62,12 +62,12 @@ where
     }
 }
 
-impl<'a, 'conn, Schema, Table>
+impl<'tx, 'conn, 'q, Schema, Table>
     TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        UpdateBuilder<'a, Schema, UpdateSetClauseSet, Table>,
+        UpdateBuilder<'q, Schema, UpdateSetClauseSet, Table>,
         UpdateSetClauseSet,
     >
 {
@@ -75,14 +75,14 @@ impl<'a, 'conn, Schema, Table>
         self,
         condition: E,
     ) -> TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        UpdateBuilder<'a, Schema, UpdateWhereSet, Table>,
+        UpdateBuilder<'q, Schema, UpdateWhereSet, Table>,
         UpdateWhereSet,
     >
     where
-        E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
+        E: drizzle_core::expr::Expr<'q, PostgresValue<'q>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
         let builder = self.builder.r#where(condition);
@@ -96,9 +96,9 @@ impl<'a, 'conn, Schema, Table>
     pub fn returning<Columns>(
         self,
         columns: Columns,
-    ) -> UpdateReturningTxBuilder<'a, 'conn, Schema, Table, Columns>
+    ) -> UpdateReturningTxBuilder<'tx, 'conn, 'q, Schema, Table, Columns>
     where
-        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns: ToSQL<'q, PostgresValue<'q>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
         let builder = self.builder.returning(columns);
@@ -110,21 +110,21 @@ impl<'a, 'conn, Schema, Table>
     }
 }
 
-impl<'a, 'conn, Schema, Table>
+impl<'tx, 'conn, 'q, Schema, Table>
     TransactionBuilder<
-        'a,
+        'tx,
         'conn,
         Schema,
-        UpdateBuilder<'a, Schema, UpdateWhereSet, Table>,
+        UpdateBuilder<'q, Schema, UpdateWhereSet, Table>,
         UpdateWhereSet,
     >
 {
     pub fn returning<Columns>(
         self,
         columns: Columns,
-    ) -> UpdateReturningTxBuilder<'a, 'conn, Schema, Table, Columns>
+    ) -> UpdateReturningTxBuilder<'tx, 'conn, 'q, Schema, Table, Columns>
     where
-        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns: ToSQL<'q, PostgresValue<'q>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
         let builder = self.builder.returning(columns);
