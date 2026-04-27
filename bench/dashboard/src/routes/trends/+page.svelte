@@ -1,59 +1,10 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import { page } from '$app/state';
 	import { fmtRps, fmtLatency, fmtCpu, fmtPct } from '$lib/format';
 	import TrendChart from '$lib/components/TrendChart.svelte';
+	import { TrendsPageState } from './trends.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
-
-	class TrendsPageState {
-		#data: () => PageData;
-		suite = $derived(page.url.searchParams.get('suite'));
-		target = $derived(page.url.searchParams.get('target'));
-
-		constructor(data: () => PageData) {
-			this.#data = data;
-		}
-
-		get suites() {
-			return this.#data().suites;
-		}
-
-		get targets() {
-			return this.#data().targets;
-		}
-
-		get trends() {
-			return this.#data().trends;
-		}
-
-		get latest() {
-			return this.trends.at(-1) ?? null;
-		}
-
-		get previous() {
-			return this.trends.length > 1 ? this.trends[this.trends.length - 2] : null;
-		}
-
-		get reversedTrends() {
-			return [...this.trends].reverse();
-		}
-
-		buildUrl = (suite: string | null, target: string | null): string => {
-			const params = new URLSearchParams();
-			if (suite) params.set('suite', suite);
-			if (target) params.set('target', target);
-			const qs = params.toString();
-			return '/trends' + (qs ? '?' + qs : '');
-		};
-
-		selectTarget = (event: Event): void => {
-			const value = (event.currentTarget as HTMLSelectElement).value;
-			void goto(this.buildUrl(this.suite, value || null));
-		};
-	}
-
 	const view = new TrendsPageState(() => data);
 </script>
 

@@ -3,56 +3,10 @@
 	import { loadTimeseries } from '$lib/api.remote';
 	import SparkLine from '$lib/components/SparkLine.svelte';
 	import LatencyBars from '$lib/components/LatencyBars.svelte';
-	import type { Summary } from '$lib/types';
+	import { RunDetailState } from './run-detail.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
-
-	const groupColors: Record<string, string> = {
-		'drizzle-rs': 'var(--accent)',
-		'drizzle-orm': 'var(--cyan)',
-		'prisma': 'var(--green)',
-		'bun-sql': 'var(--text-secondary)',
-		'spacetimedb': 'var(--purple)'
-	};
-
-	function groupSummaries(summaries: Summary[]): [string, Summary[]][] {
-		const map = new Map<string, Summary[]>();
-		for (const s of summaries) {
-			const g = s.group ?? 'other';
-			if (!map.has(g)) map.set(g, []);
-			map.get(g)!.push(s);
-		}
-		return [...map.entries()];
-	}
-
-	class RunDetailState {
-		#data: () => PageData;
-		selectedMetric = $state<'rps' | 'latency' | 'cpu' | 'mem'>('rps');
-
-		constructor(data: () => PageData) {
-			this.#data = data;
-		}
-
-		get manifest() {
-			return this.#data().manifest;
-		}
-
-		get summaries() {
-			return this.#data().summaries;
-		}
-
-		get groups() {
-			return groupSummaries(this.summaries);
-		}
-
-		selectMetric = (metric: 'rps' | 'latency' | 'cpu' | 'mem'): void => {
-			this.selectedMetric = metric;
-		};
-
-		groupColor = (group: string): string => groupColors[group] ?? 'var(--text-muted)';
-	}
-
 	const view = new RunDetailState(() => data);
 </script>
 
