@@ -1,5 +1,4 @@
-/// <reference path="./cloudflare.d.ts" />
-
+import './cloudflare.d.ts';
 import type { ISRRequestScope } from 'cloudflare-isr';
 
 declare global {
