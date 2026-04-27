@@ -7,24 +7,54 @@
 
 	let { data }: { data: PageData } = $props();
 
-	const suite = $derived(page.url.searchParams.get('suite'));
-	const target = $derived(page.url.searchParams.get('target'));
-	const suites = $derived(data.suites);
-	const targets = $derived(data.targets);
-	const trends = $derived(data.trends);
+	class TrendsPageState {
+		#data: () => PageData;
+		suite = $derived(page.url.searchParams.get('suite'));
+		target = $derived(page.url.searchParams.get('target'));
 
-	function buildUrl(s: string | null, t: string | null): string {
-		const params = new URLSearchParams();
-		if (s) params.set('suite', s);
-		if (t) params.set('target', t);
-		const qs = params.toString();
-		return '/trends' + (qs ? '?' + qs : '');
+		constructor(data: () => PageData) {
+			this.#data = data;
+		}
+
+		get suites() {
+			return this.#data().suites;
+		}
+
+		get targets() {
+			return this.#data().targets;
+		}
+
+		get trends() {
+			return this.#data().trends;
+		}
+
+		get latest() {
+			return this.trends.at(-1) ?? null;
+		}
+
+		get previous() {
+			return this.trends.length > 1 ? this.trends[this.trends.length - 2] : null;
+		}
+
+		get reversedTrends() {
+			return [...this.trends].reverse();
+		}
+
+		buildUrl = (suite: string | null, target: string | null): string => {
+			const params = new URLSearchParams();
+			if (suite) params.set('suite', suite);
+			if (target) params.set('target', target);
+			const qs = params.toString();
+			return '/trends' + (qs ? '?' + qs : '');
+		};
+
+		selectTarget = (event: Event): void => {
+			const value = (event.currentTarget as HTMLSelectElement).value;
+			void goto(this.buildUrl(this.suite, value || null));
+		};
 	}
 
-	function selectTarget(event: Event): void {
-		const val = (event.currentTarget as HTMLSelectElement).value;
-		void goto(buildUrl(suite, val || null));
-	}
+	const view = new TrendsPageState(() => data);
 </script>
 
 <svelte:head>
@@ -42,9 +72,9 @@
 		<div class="select-group">
 			<span class="select-label">Suite</span>
 			<div class="filter-pills">
-				<a href={buildUrl(null, target)} class="filter-pill" class:active={!suite}>All</a>
-				{#each suites as s}
-					<a href={buildUrl(s, target)} class="filter-pill" class:active={suite === s}>{s}</a>
+				<a href={view.buildUrl(null, view.target)} class="filter-pill" class:active={!view.suite}>All</a>
+				{#each view.suites as s}
+					<a href={view.buildUrl(s, view.target)} class="filter-pill" class:active={view.suite === s}>{s}</a>
 				{/each}
 			</div>
 		</div>
@@ -53,35 +83,36 @@
 			<span class="select-label">Target</span>
 			<select
 				class="select mono"
-				value={target ?? ''}
-				oninput={selectTarget}
+				value={view.target ?? ''}
+				oninput={view.selectTarget}
 			>
 				<option value="">Select target...</option>
-				{#each targets as t}
+				{#each view.targets as t}
 					<option value={t}>{t}</option>
 				{/each}
 			</select>
 		</div>
 	</div>
 
-	{#if !target}
+	{#if !view.target}
 		<div class="empty">
 			<p class="empty-text">Select a target to view performance trends</p>
 		</div>
-	{:else if trends.length === 0}
+	{:else if view.trends.length === 0}
 			<div class="empty">
-				<p class="empty-text">No trend data for {target}</p>
+				<p class="empty-text">No trend data for {view.target}</p>
 				<p class="empty-sub">Successful runs with this target will appear here</p>
 			</div>
 		{:else}
 			<div class="trend-header">
-				<h2 class="trend-target mono">{target}</h2>
-				<span class="trend-count">{trends.length} runs</span>
+				<h2 class="trend-target mono">{view.target}</h2>
+				<span class="trend-count">{view.trends.length} runs</span>
 			</div>
 
 			<!-- Summary strip: latest values -->
-			{@const latest = trends[trends.length - 1]}
-			{@const prev = trends.length > 1 ? trends[trends.length - 2] : null}
+			{@const latest = view.latest}
+			{@const prev = view.previous}
+			{#if latest}
 			<div class="summary-strip">
 				<div class="summary-item">
 					<span class="metric-label">Latest RPS</span>
@@ -112,32 +143,33 @@
 					<span class="metric-value">{fmtPct(latest.err)}</span>
 				</div>
 			</div>
+			{/if}
 
 			<!-- Charts -->
 			<div class="charts">
 				<TrendChart
-					points={trends}
+					points={view.trends}
 					metric="rps_avg"
 					label="Requests per Second (avg)"
 					color="var(--accent)"
 					formatValue={fmtRps}
 				/>
 				<TrendChart
-					points={trends}
+					points={view.trends}
 					metric="latency_p95"
 					label="P95 Latency"
 					color="var(--cyan)"
 					formatValue={fmtLatency}
 				/>
 				<TrendChart
-					points={trends}
+					points={view.trends}
 					metric="latency_p99"
 					label="P99 Latency"
 					color="var(--blue)"
 					formatValue={fmtLatency}
 				/>
 				<TrendChart
-					points={trends}
+					points={view.trends}
 					metric="cpu_avg"
 					label="CPU Usage (avg)"
 					color="var(--green)"
@@ -156,7 +188,7 @@
 					<span class="th th-right">CPU</span>
 					<span class="th th-right">Err</span>
 				</div>
-				{#each [...trends].reverse() as point, i}
+				{#each view.reversedTrends as point, i}
 					<a href="/runs/{point.run_id}" class="table-row" style="--delay: {i * 25}ms">
 						<span class="td mono git-col">{point.git.slice(0, 7)}</span>
 						<span class="td td-right mono">{fmtRps(point.rps_avg)}</span>

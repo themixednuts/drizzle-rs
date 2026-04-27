@@ -1,9 +1,6 @@
 import type { PageServerLoad } from './$types';
-import { bucket, fetchManifest, fetchAllSummaries } from '$lib/r2';
+import { runDetailPageData } from '$lib/server/bench-data';
+import { runServerEffect } from '$lib/server/effect';
 
-export const load: PageServerLoad = async ({ platform, params }) => {
-	const b = bucket(platform);
-	const manifest = await fetchManifest(b, params.run_id);
-	const summaries = await fetchAllSummaries(b, params.run_id, manifest.targets);
-	return { manifest, summaries };
-};
+export const load: PageServerLoad = ({ platform, params }) =>
+	runServerEffect(runDetailPageData(platform, params.run_id));

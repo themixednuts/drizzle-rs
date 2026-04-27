@@ -1,9 +1,6 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { bucket, fetchManifest } from '$lib/r2';
+import { runManifestApiData } from '$lib/server/bench-data';
+import { runJsonEffect } from '$lib/server/effect';
 
-export const GET: RequestHandler = async ({ platform, params }) => {
-	const b = bucket(platform);
-	const manifest = await fetchManifest(b, params.run_id);
-	return json(manifest);
-};
+export const GET: RequestHandler = ({ platform, params }) =>
+	runJsonEffect(runManifestApiData(platform, params.run_id));

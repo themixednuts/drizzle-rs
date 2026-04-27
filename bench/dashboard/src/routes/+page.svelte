@@ -5,19 +5,37 @@
 
 	let { data }: { data: PageData } = $props();
 
-	const suite = $derived(page.url.searchParams.get('suite'));
-	const status = $derived(page.url.searchParams.get('status'));
-	const runs = $derived(data.runs);
-	const suites = $derived(data.suites);
-	const statuses = $derived(data.statuses);
+	class RunsPageState {
+		#data: () => PageData;
+		suite = $derived(page.url.searchParams.get('suite'));
+		status = $derived(page.url.searchParams.get('status'));
 
-	function buildUrl(s: string | null, st: string | null): string {
-		const params = new URLSearchParams();
-		if (s) params.set('suite', s);
-		if (st) params.set('status', st);
-		const query = params.toString();
-		return '/' + (query ? '?' + query : '');
+		constructor(data: () => PageData) {
+			this.#data = data;
+		}
+
+		get runs() {
+			return this.#data().runs;
+		}
+
+		get suites() {
+			return this.#data().suites;
+		}
+
+		get statuses() {
+			return this.#data().statuses;
+		}
+
+		buildUrl = (suite: string | null, status: string | null): string => {
+			const params = new URLSearchParams();
+			if (suite) params.set('suite', suite);
+			if (status) params.set('status', status);
+			const query = params.toString();
+			return '/' + (query ? '?' + query : '');
+		};
 	}
+
+	const view = new RunsPageState(() => data);
 </script>
 
 <svelte:head>
@@ -35,15 +53,15 @@
 			<span class="filter-label">Suite</span>
 			<div class="filter-pills">
 				<a
-					href={buildUrl(null, status)}
+					href={view.buildUrl(null, view.status)}
 					class="filter-pill"
-					class:active={!suite}
+					class:active={!view.suite}
 				>All</a>
-				{#each suites as s}
+				{#each view.suites as s}
 					<a
-						href={buildUrl(s, status)}
+						href={view.buildUrl(s, view.status)}
 						class="filter-pill"
-						class:active={suite === s}
+						class:active={view.suite === s}
 					>{s}</a>
 				{/each}
 			</div>
@@ -52,22 +70,22 @@
 			<span class="filter-label">Status</span>
 			<div class="filter-pills">
 				<a
-					href={buildUrl(suite, null)}
+					href={view.buildUrl(view.suite, null)}
 					class="filter-pill"
-					class:active={!status}
+					class:active={!view.status}
 				>All</a>
-				{#each statuses as st}
+				{#each view.statuses as st}
 					<a
-						href={buildUrl(suite, st)}
+						href={view.buildUrl(view.suite, st)}
 						class="filter-pill"
-						class:active={status === st}
+						class:active={view.status === st}
 					>{st}</a>
 				{/each}
 			</div>
 		</div>
 	</div>
 
-	{#if runs.length === 0}
+	{#if view.runs.length === 0}
 		<div class="empty">
 			<svg class="empty-icon" width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="var(--text-muted)" stroke-width="1.5">
 				<rect x="8" y="6" width="32" height="36" rx="4" />
@@ -75,7 +93,7 @@
 			</svg>
 			<p class="empty-text">No runs found</p>
 			<p class="empty-sub">
-				{#if suite || status}
+				{#if view.suite || view.status}
 					Try adjusting your filters
 				{:else}
 					Benchmark runs will appear here after CI publishes results to R2
@@ -84,7 +102,7 @@
 		</div>
 	{:else}
 		<div class="run-list">
-			{#each runs as run, i}
+			{#each view.runs as run, i}
 				<a href="/runs/{run.run_id}" class="run-row" style="--delay: {i * 30}ms">
 					<div class="run-left">
 						<span class="dot dot--{run.status}"></span>

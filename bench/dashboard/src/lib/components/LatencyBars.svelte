@@ -8,20 +8,32 @@
 
 	let { latency }: Props = $props();
 
-	const tiers = $derived([
-		{ label: 'avg', value: latency.avg },
-		{ label: 'p90', value: latency.p90 },
-		{ label: 'p95', value: latency.p95 },
-		{ label: 'p99', value: latency.p99 },
-		{ label: 'p999', value: latency.p999 }
-	]);
+	class LatencyBarsState {
+		#latency: () => LatencyPercentiles;
+		tiers = $derived([
+			{ label: 'avg', value: this.latency.avg },
+			{ label: 'p90', value: this.latency.p90 },
+			{ label: 'p95', value: this.latency.p95 },
+			{ label: 'p99', value: this.latency.p99 },
+			{ label: 'p999', value: this.latency.p999 }
+		]);
+		maxValue = $derived(Math.max(...this.tiers.map((tier) => tier.value)) || 1);
 
-	const maxVal = $derived(Math.max(...tiers.map((t) => t.value)) || 1);
+		constructor(latency: () => LatencyPercentiles) {
+			this.#latency = latency;
+		}
+
+		get latency() {
+			return this.#latency();
+		}
+	}
+
+	const view = new LatencyBarsState(() => latency);
 </script>
 
 <div class="bars">
-	{#each tiers as tier}
-		{@const pct = (tier.value / maxVal) * 100}
+	{#each view.tiers as tier}
+		{@const pct = (tier.value / view.maxValue) * 100}
 		<div class="bar-row">
 			<span class="bar-label mono">{tier.label}</span>
 			<div class="bar-track">

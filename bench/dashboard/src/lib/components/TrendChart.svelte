@@ -19,100 +19,185 @@
 	const PAD_L = 60;
 	const PAD_R = 16;
 
-	const chartData = $derived.by(() => {
-		if (points.length === 0) return { path: '', areaPath: '', yTicks: [] as { y: number; label: string }[], xTicks: [] as { x: number; label: string }[], dots: [] as { x: number; y: number; val: number; runId: string; git: string }[] };
+	type ChartDot = { x: number; y: number; val: number; runId: string; git: string };
+	type ChartData = {
+		path: string;
+		areaPath: string;
+		yTicks: { y: number; label: string }[];
+		xTicks: { x: number; label: string }[];
+		dots: ChartDot[];
+	};
 
-		const vals = points.map((p) => p[metric]);
-		const min = Math.min(...vals);
-		const max = Math.max(...vals);
-		const range = max - min || 1;
-
-		const innerW = W - PAD_L - PAD_R;
-		const innerH = H - PAD_T - PAD_B;
-		const stepX = innerW / (vals.length - 1 || 1);
-
-		const dots = vals.map((v, i) => {
-			const x = PAD_L + i * stepX;
-			const y = PAD_T + innerH - ((v - min) / range) * innerH;
-			return { x, y, val: v, runId: points[i].run_id, git: points[i].git };
-		});
-
-		const path = dots.map((d, i) => (i === 0 ? 'M' : 'L') + d.x.toFixed(1) + ',' + d.y.toFixed(1)).join(' ');
-		const lastDot = dots[dots.length - 1];
-		const areaPath = path + ` L${lastDot.x.toFixed(1)},${PAD_T + innerH} L${PAD_L},${PAD_T + innerH} Z`;
-
-		// Y-axis ticks (5 ticks)
-		const yTicks = Array.from({ length: 5 }, (_, i) => {
-			const val = min + (range * i) / 4;
-			const y = PAD_T + innerH - (i / 4) * innerH;
-			return { y, label: formatValue(val) };
-		});
-
-		// X-axis ticks (show ~8 labels max)
-		const step = Math.max(1, Math.floor(points.length / 8));
-		const xTicks = points
-			.filter((_, i) => i % step === 0 || i === points.length - 1)
-			.map((p, _, arr) => {
-				const idx = points.indexOf(p);
-				const x = PAD_L + idx * stepX;
-				return { x, label: shortHash(p.git) };
-			});
-
-		return { path, areaPath, yTicks, xTicks, dots };
+	const emptyChartData = (): ChartData => ({
+		path: '',
+		areaPath: '',
+		yTicks: [],
+		xTicks: [],
+		dots: []
 	});
 
-	let hoveredIdx = $state<number | null>(null);
+	class TrendChartState {
+		#points: () => TrendPoint[];
+		#metric: () => Props['metric'];
+		#label: () => string;
+		#color: () => string;
+		#formatValue: () => Props['formatValue'];
+		hoveredIdx = $state<number | null>(null);
+
+		chartData = $derived.by(() => {
+			if (this.points.length === 0) return emptyChartData();
+
+			const vals = this.points.map((point) => point[this.metric]);
+			const min = Math.min(...vals);
+			const max = Math.max(...vals);
+			const range = max - min || 1;
+
+			const innerW = W - PAD_L - PAD_R;
+			const innerH = H - PAD_T - PAD_B;
+			const stepX = innerW / (vals.length - 1 || 1);
+
+			const dots = vals.map((value, index) => {
+				const x = PAD_L + index * stepX;
+				const y = PAD_T + innerH - ((value - min) / range) * innerH;
+				return {
+					x,
+					y,
+					val: value,
+					runId: this.points[index].run_id,
+					git: this.points[index].git
+				};
+			});
+
+			const path = dots
+				.map((dot, index) => (index === 0 ? 'M' : 'L') + dot.x.toFixed(1) + ',' + dot.y.toFixed(1))
+				.join(' ');
+			const lastDot = dots[dots.length - 1];
+			const areaPath =
+				path + ` L${lastDot.x.toFixed(1)},${PAD_T + innerH} L${PAD_L},${PAD_T + innerH} Z`;
+
+			const yTicks = Array.from({ length: 5 }, (_, index) => {
+				const value = min + (range * index) / 4;
+				const y = PAD_T + innerH - (index / 4) * innerH;
+				return { y, label: this.formatValue(value) };
+			});
+
+			const step = Math.max(1, Math.floor(this.points.length / 8));
+			const xTicks = this.points
+				.map((point, index) => ({ point, index }))
+				.filter(({ index }) => index % step === 0 || index === this.points.length - 1)
+				.map(({ point, index }) => ({
+					x: PAD_L + index * stepX,
+					label: shortHash(point.git)
+				}));
+
+			return { path, areaPath, yTicks, xTicks, dots };
+		});
+
+		hoveredDot = $derived(
+			this.hoveredIdx === null ? null : (this.chartData.dots[this.hoveredIdx] ?? null)
+		);
+
+		constructor(
+			points: () => TrendPoint[],
+			metric: () => Props['metric'],
+			label: () => string,
+			color: () => string,
+			formatValue: () => Props['formatValue']
+		) {
+			this.#points = points;
+			this.#metric = metric;
+			this.#label = label;
+			this.#color = color;
+			this.#formatValue = formatValue;
+		}
+
+		get points() {
+			return this.#points();
+		}
+
+		get metric() {
+			return this.#metric();
+		}
+
+		get label() {
+			return this.#label();
+		}
+
+		get color() {
+			return this.#color();
+		}
+
+		get formatValue() {
+			return this.#formatValue();
+		}
+
+		hover = (index: number): void => {
+			this.hoveredIdx = index;
+		};
+
+		clearHover = (): void => {
+			this.hoveredIdx = null;
+		};
+	}
+
+	const view = new TrendChartState(
+		() => points,
+		() => metric,
+		() => label,
+		() => color,
+		() => formatValue
+	);
 </script>
 
 <div class="trend-chart">
-	<div class="chart-label">{label}</div>
+	<div class="chart-label">{view.label}</div>
 	<svg viewBox="0 0 {W} {H}" preserveAspectRatio="xMidYMid meet">
 		<!-- Grid lines -->
-		{#each chartData.yTicks as tick}
+		{#each view.chartData.yTicks as tick}
 			<line x1={PAD_L} x2={W - PAD_R} y1={tick.y} y2={tick.y} stroke="var(--border)" stroke-width="0.5" />
 			<text x={PAD_L - 8} y={tick.y + 3} fill="var(--text-muted)" font-size="9" text-anchor="end" font-family="var(--font-mono)">{tick.label}</text>
 		{/each}
 
 		<!-- X labels -->
-		{#each chartData.xTicks as tick}
+		{#each view.chartData.xTicks as tick}
 			<text x={tick.x} y={H - 8} fill="var(--text-muted)" font-size="8" text-anchor="middle" font-family="var(--font-mono)">{tick.label}</text>
 		{/each}
 
 		<!-- Area fill -->
-		{#if chartData.areaPath}
+		{#if view.chartData.areaPath}
 			<defs>
-				<linearGradient id="trend-grad-{metric}" x1="0" y1="0" x2="0" y2="1">
-					<stop offset="0%" stop-color={color} stop-opacity="0.15" />
-					<stop offset="100%" stop-color={color} stop-opacity="0" />
+				<linearGradient id="trend-grad-{view.metric}" x1="0" y1="0" x2="0" y2="1">
+					<stop offset="0%" stop-color={view.color} stop-opacity="0.15" />
+					<stop offset="100%" stop-color={view.color} stop-opacity="0" />
 				</linearGradient>
 			</defs>
-			<path d={chartData.areaPath} fill="url(#trend-grad-{metric})" />
+			<path d={view.chartData.areaPath} fill="url(#trend-grad-{view.metric})" />
 		{/if}
 
 		<!-- Line -->
-		{#if chartData.path}
-			<path d={chartData.path} fill="none" stroke={color} stroke-width="2" stroke-linejoin="round" />
+		{#if view.chartData.path}
+			<path d={view.chartData.path} fill="none" stroke={view.color} stroke-width="2" stroke-linejoin="round" />
 		{/if}
 
 		<!-- Dots (interactive) -->
-		{#each chartData.dots as dot, i}
+		{#each view.chartData.dots as dot, i}
 			<circle
 				cx={dot.x}
 				cy={dot.y}
-				r={hoveredIdx === i ? 5 : 2.5}
-				fill={hoveredIdx === i ? color : 'var(--bg-surface)'}
-				stroke={color}
+				r={view.hoveredIdx === i ? 5 : 2.5}
+				fill={view.hoveredIdx === i ? view.color : 'var(--bg-surface)'}
+				stroke={view.color}
 				stroke-width="1.5"
 				role="img"
-				aria-label="{dot.runId}: {formatValue(dot.val)}"
-				onmouseenter={() => hoveredIdx = i}
-				onmouseleave={() => hoveredIdx = null}
+				aria-label="{dot.runId}: {view.formatValue(dot.val)}"
+				onmouseenter={() => view.hover(i)}
+				onmouseleave={view.clearHover}
 			/>
 		{/each}
 
 		<!-- Tooltip -->
-		{#if hoveredIdx !== null}
-			{@const dot = chartData.dots[hoveredIdx]}
+		{#if view.hoveredDot}
+			{@const dot = view.hoveredDot}
 			<g>
 				<rect
 					x={dot.x - 56}
@@ -132,7 +217,7 @@
 					text-anchor="middle"
 					font-family="var(--font-mono)"
 					font-weight="600"
-				>{formatValue(dot.val)}</text>
+				>{view.formatValue(dot.val)}</text>
 				<text
 					x={dot.x}
 					y={dot.y - 18}

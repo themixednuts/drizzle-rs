@@ -4,42 +4,61 @@
 	import {
 		compareMetricOptions,
 		isHigherBetterMetric,
-		parseCompareMetric,
-		type CompareMetric
+		parseCompareMetric
 	} from '$lib/compare';
 	import { fmtDelta } from '$lib/format';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
-	function deltaClass(pct: number, metric: CompareMetric): string {
-		if (Math.abs(pct) < 0.005) return 'delta-neutral';
-		const positive = pct > 0;
-		const good = isHigherBetterMetric(metric) ? positive : !positive;
-		return good ? 'delta-positive' : 'delta-negative';
+	class ComparePageState {
+		#data: () => PageData;
+		base = $derived(page.url.searchParams.get('base'));
+		head = $derived(page.url.searchParams.get('head'));
+		metric = $derived(parseCompareMetric(page.url.searchParams.get('metric')));
+
+		constructor(data: () => PageData) {
+			this.#data = data;
+		}
+
+		get runs() {
+			return this.#data().runs;
+		}
+
+		get items() {
+			return this.#data().items;
+		}
+
+		deltaClass = (pct: number): string => {
+			if (Math.abs(pct) < 0.005) return 'delta-neutral';
+			const positive = pct > 0;
+			const good = isHigherBetterMetric(this.metric) ? positive : !positive;
+			return good ? 'delta-positive' : 'delta-negative';
+		};
+
+		formatMetricValue = (value: number): string => {
+			if (this.metric.startsWith('rps')) {
+				if (value >= 1_000_000) return (value / 1_000_000).toFixed(1) + 'M';
+				if (value >= 1_000) return (value / 1_000).toFixed(1) + 'k';
+				return value.toFixed(0);
+			}
+			if (this.metric.startsWith('latency')) {
+				if (value >= 1_000) return (value / 1_000).toFixed(2) + 's';
+				if (value >= 1) return value.toFixed(1) + 'ms';
+				return (value * 1_000).toFixed(0) + 'us';
+			}
+			if (this.metric.startsWith('cpu')) return value.toFixed(1) + '%';
+			if (this.metric === 'err') return (value * 100).toFixed(2) + '%';
+			return value.toFixed(2);
+		};
+
+		barStyle = (deltaPct: number): string => {
+			const side = deltaPct >= 0 ? 'left: 50%' : 'right: 50%';
+			return `width: ${Math.min(Math.abs(deltaPct) * 100, 100)}%; ${side}`;
+		};
 	}
 
-	function fmtMetricValue(val: number, metric: CompareMetric): string {
-		if (metric.startsWith('rps')) {
-			if (val >= 1_000_000) return (val / 1_000_000).toFixed(1) + 'M';
-			if (val >= 1_000) return (val / 1_000).toFixed(1) + 'k';
-			return val.toFixed(0);
-		}
-		if (metric.startsWith('latency')) {
-			if (val >= 1_000) return (val / 1_000).toFixed(2) + 's';
-			if (val >= 1) return val.toFixed(1) + 'ms';
-			return (val * 1_000).toFixed(0) + 'us';
-		}
-		if (metric.startsWith('cpu')) return val.toFixed(1) + '%';
-		if (metric === 'err') return (val * 100).toFixed(2) + '%';
-		return val.toFixed(2);
-	}
-
-	const base = $derived(page.url.searchParams.get('base'));
-	const head = $derived(page.url.searchParams.get('head'));
-	const metric = $derived(parseCompareMetric(page.url.searchParams.get('metric')));
-	const runs = $derived(data.runs);
-	const items = $derived(data.items);
+	const view = new ComparePageState(() => data);
 </script>
 
 <svelte:head>
@@ -56,10 +75,10 @@
 	<form class="compare-form" {...compareRuns}>
 		<div class="select-group">
 			<label class="select-label" for="base">Base run</label>
-			<select name="base" id="base" class="select mono" value={base ?? ''}>
+			<select name="base" id="base" class="select mono" value={view.base ?? ''}>
 				<option value="">Select base...</option>
-				{#each runs as run}
-					<option value={run.run_id} selected={run.run_id === base}>
+				{#each view.runs as run}
+					<option value={run.run_id} selected={run.run_id === view.base}>
 						{run.run_id} ({run.suite})
 					</option>
 				{/each}
@@ -74,10 +93,10 @@
 
 		<div class="select-group">
 			<label class="select-label" for="head">Head run</label>
-			<select name="head" id="head" class="select mono" value={head ?? ''}>
+			<select name="head" id="head" class="select mono" value={view.head ?? ''}>
 				<option value="">Select head...</option>
-				{#each runs as run}
-					<option value={run.run_id} selected={run.run_id === head}>
+				{#each view.runs as run}
+					<option value={run.run_id} selected={run.run_id === view.head}>
 						{run.run_id} ({run.suite})
 					</option>
 				{/each}
@@ -88,7 +107,7 @@
 			<label class="select-label" for="metric">Metric</label>
 			<select name="metric" id="metric" class="select">
 				{#each compareMetricOptions as m}
-					<option value={m.value} selected={m.value === metric}>{m.label}</option>
+					<option value={m.value} selected={m.value === view.metric}>{m.label}</option>
 				{/each}
 			</select>
 		</div>
@@ -97,8 +116,8 @@
 	</form>
 
 	<!-- Results -->
-	{#if items}
-			{#if items.length === 0}
+	{#if view.items}
+			{#if view.items.length === 0}
 				<div class="empty">
 					<p class="empty-text">No comparable targets found</p>
 				</div>
@@ -111,18 +130,18 @@
 						<span class="th th-right">Delta</span>
 						<span class="th th-center">Change</span>
 					</div>
-					{#each items as item, i}
-						{@const cls = deltaClass(item.delta_pct, metric)}
+					{#each view.items as item, i}
+						{@const cls = view.deltaClass(item.delta_pct)}
 						<div class="table-row" style="--delay: {i * 40}ms">
 							<span class="td target-col mono">{item.target_id}</span>
-							<span class="td td-right mono">{fmtMetricValue(item.base_value, metric)}</span>
-							<span class="td td-right mono">{fmtMetricValue(item.head_value, metric)}</span>
+							<span class="td td-right mono">{view.formatMetricValue(item.base_value)}</span>
+							<span class="td td-right mono">{view.formatMetricValue(item.head_value)}</span>
 							<span class="td td-right mono {cls}">{fmtDelta(item.delta_pct)}</span>
 							<span class="td td-center">
 								<div class="bar-wrap">
 									<div
 										class="bar {cls}"
-										style="width: {Math.min(Math.abs(item.delta_pct) * 100, 100)}%; {item.delta_pct >= 0 ? 'left: 50%' : 'right: 50%'}"
+										style={view.barStyle(item.delta_pct)}
 									></div>
 									<div class="bar-center"></div>
 								</div>
@@ -131,7 +150,7 @@
 					{/each}
 				</div>
 			{/if}
-	{:else if base || head}
+	{:else if view.base || view.head}
 		<div class="empty">
 			<p class="empty-text">Select both a base and head run to compare</p>
 		</div>

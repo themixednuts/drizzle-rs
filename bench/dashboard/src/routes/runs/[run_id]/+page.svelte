@@ -8,16 +8,12 @@
 
 	let { data }: { data: PageData } = $props();
 
-	let selectedMetric = $state<'rps' | 'latency' | 'cpu' | 'mem'>('rps');
-	const m = $derived(data.manifest);
-	const summaries = $derived(data.summaries);
-
 	const groupColors: Record<string, string> = {
 		'drizzle-rs': 'var(--accent)',
 		'drizzle-orm': 'var(--cyan)',
 		'prisma': 'var(--green)',
 		'bun-sql': 'var(--text-secondary)',
-		'spacetimedb': 'var(--purple)',
+		'spacetimedb': 'var(--purple)'
 	};
 
 	function groupSummaries(summaries: Summary[]): [string, Summary[]][] {
@@ -29,6 +25,35 @@
 		}
 		return [...map.entries()];
 	}
+
+	class RunDetailState {
+		#data: () => PageData;
+		selectedMetric = $state<'rps' | 'latency' | 'cpu' | 'mem'>('rps');
+
+		constructor(data: () => PageData) {
+			this.#data = data;
+		}
+
+		get manifest() {
+			return this.#data().manifest;
+		}
+
+		get summaries() {
+			return this.#data().summaries;
+		}
+
+		get groups() {
+			return groupSummaries(this.summaries);
+		}
+
+		selectMetric = (metric: 'rps' | 'latency' | 'cpu' | 'mem'): void => {
+			this.selectedMetric = metric;
+		};
+
+		groupColor = (group: string): string => groupColors[group] ?? 'var(--text-muted)';
+	}
+
+	const view = new RunDetailState(() => data);
 </script>
 
 <svelte:head>
@@ -45,105 +70,105 @@
 				</svg>
 				Runs
 			</a>
-			<span class="badge badge--{m.status}">{m.status}</span>
+			<span class="badge badge--{view.manifest.status}">{view.manifest.status}</span>
 		</div>
 
-		<h1 class="run-title mono">{m.run_id}</h1>
+		<h1 class="run-title mono">{view.manifest.run_id}</h1>
 
 		<div class="run-info-grid">
 			<div class="info-item">
 				<span class="info-label">Suite</span>
-				<span class="suite-tag">{m.suite}</span>
+				<span class="suite-tag">{view.manifest.suite}</span>
 			</div>
 			<div class="info-item">
 				<span class="info-label">Commit</span>
-				<span class="info-value mono">{shortHash(m.git)}</span>
+				<span class="info-value mono">{shortHash(view.manifest.git)}</span>
 			</div>
 			<div class="info-item">
 				<span class="info-label">Started</span>
-				<span class="info-value">{fmtDate(m.start)}</span>
+				<span class="info-value">{fmtDate(view.manifest.start)}</span>
 			</div>
 			<div class="info-item">
 				<span class="info-label">Duration</span>
-				<span class="info-value mono">{fmtDuration(m.start, m.end)}</span>
+				<span class="info-value mono">{fmtDuration(view.manifest.start, view.manifest.end)}</span>
 			</div>
 			<div class="info-item">
 				<span class="info-label">Trials</span>
-				<span class="info-value mono">{m.trials.count} ({m.trials.aggregate})</span>
+				<span class="info-value mono">{view.manifest.trials.count} ({view.manifest.trials.aggregate})</span>
 			</div>
 			<div class="info-item">
 				<span class="info-label">Runner</span>
-				<span class="info-value mono">{m.runner.class} / {m.runner.cores}c / {fmtGb(m.runner.mem_gb)}</span>
+				<span class="info-value mono">{view.manifest.runner.class} / {view.manifest.runner.cores}c / {fmtGb(view.manifest.runner.mem_gb)}</span>
 			</div>
-			{#if m.seed != null}
+			{#if view.manifest.seed != null}
 			<div class="info-item">
 				<span class="info-label">Seed</span>
-				<span class="info-value mono">{m.seed}</span>
+				<span class="info-value mono">{view.manifest.seed}</span>
 			</div>
 			{/if}
 			<div class="info-item">
 				<span class="info-label">Headroom</span>
-				<span class="info-value mono">CPU {fmtCpu(m.runner.headroom.cpu_peak)} / Net {fmtCpu(m.runner.headroom.net_peak)}</span>
+				<span class="info-value mono">CPU {fmtCpu(view.manifest.runner.headroom.cpu_peak)} / Net {fmtCpu(view.manifest.runner.headroom.net_peak)}</span>
 			</div>
 		</div>
 
 		<!-- Load configuration -->
-		{#if m.load}
+		{#if view.manifest.load}
 		<div class="detail-panel">
 			<h3 class="detail-title">Load Profile</h3>
 			<div class="detail-grid">
 				<div class="detail-item">
 					<span class="info-label">Executor</span>
-					<span class="info-value mono">{m.load.executor}</span>
+					<span class="info-value mono">{view.manifest.load.executor}</span>
 				</div>
 				<div class="detail-item">
 					<span class="info-label">Stages</span>
-					<span class="info-value mono">{m.load.stages}</span>
+					<span class="info-value mono">{view.manifest.load.stages}</span>
 				</div>
 				<div class="detail-item">
 					<span class="info-label">Duration</span>
-					<span class="info-value mono">{Math.floor(m.load.duration_s / 60)}m {m.load.duration_s % 60}s</span>
+					<span class="info-value mono">{Math.floor(view.manifest.load.duration_s / 60)}m {view.manifest.load.duration_s % 60}s</span>
 				</div>
 				<div class="detail-item">
 					<span class="info-label">Max VUs</span>
-					<span class="info-value mono">{m.load.max_vus.toLocaleString()}</span>
+					<span class="info-value mono">{view.manifest.load.max_vus.toLocaleString()}</span>
 				</div>
 				<div class="detail-item">
 					<span class="info-label">Requests</span>
-					<span class="info-value mono">{m.load.requests.toLocaleString()}</span>
+					<span class="info-value mono">{view.manifest.load.requests.toLocaleString()}</span>
 				</div>
 			</div>
 		</div>
 		{/if}
 
 		<!-- Dataset configuration -->
-		{#if m.dataset}
+		{#if view.manifest.dataset}
 		<div class="detail-panel">
 			<h3 class="detail-title">Dataset</h3>
 			<div class="detail-grid">
 				<div class="detail-item">
 					<span class="info-label">Customers</span>
-					<span class="info-value mono">{m.dataset.customers.toLocaleString()}</span>
+					<span class="info-value mono">{view.manifest.dataset.customers.toLocaleString()}</span>
 				</div>
 				<div class="detail-item">
 					<span class="info-label">Employees</span>
-					<span class="info-value mono">{m.dataset.employees.toLocaleString()}</span>
+					<span class="info-value mono">{view.manifest.dataset.employees.toLocaleString()}</span>
 				</div>
 				<div class="detail-item">
 					<span class="info-label">Orders</span>
-					<span class="info-value mono">{m.dataset.orders.toLocaleString()}</span>
+					<span class="info-value mono">{view.manifest.dataset.orders.toLocaleString()}</span>
 				</div>
 				<div class="detail-item">
 					<span class="info-label">Suppliers</span>
-					<span class="info-value mono">{m.dataset.suppliers.toLocaleString()}</span>
+					<span class="info-value mono">{view.manifest.dataset.suppliers.toLocaleString()}</span>
 				</div>
 				<div class="detail-item">
 					<span class="info-label">Products</span>
-					<span class="info-value mono">{m.dataset.products.toLocaleString()}</span>
+					<span class="info-value mono">{view.manifest.dataset.products.toLocaleString()}</span>
 				</div>
 				<div class="detail-item">
 					<span class="info-label">Details/Order</span>
-					<span class="info-value mono">~{m.dataset.details_per_order}</span>
+					<span class="info-value mono">~{view.manifest.dataset.details_per_order}</span>
 				</div>
 			</div>
 		</div>
@@ -154,8 +179,8 @@
 	<section class="section">
 		<h2 class="section-title">Targets</h2>
 
-		{#each groupSummaries(summaries) as [groupName, groupItems]}
-			<div class="group-banner" style="--group-color: {groupColors[groupName] ?? 'var(--text-muted)'}">
+		{#each view.groups as [groupName, groupItems]}
+			<div class="group-banner" style="--group-color: {view.groupColor(groupName)}">
 				<span class="group-dot"></span>
 				<span class="group-name">{groupName}</span>
 				<span class="group-count">{groupItems.length}</span>
@@ -209,24 +234,24 @@
 						<div class="sparkline-tabs">
 							<button
 								class="spark-tab"
-								class:active={selectedMetric === 'rps'}
-								onclick={() => selectedMetric = 'rps'}
+								class:active={view.selectedMetric === 'rps'}
+								onclick={() => view.selectMetric('rps')}
 							>RPS</button>
 							<button
 								class="spark-tab"
-								class:active={selectedMetric === 'latency'}
-								onclick={() => selectedMetric = 'latency'}
+								class:active={view.selectedMetric === 'latency'}
+								onclick={() => view.selectMetric('latency')}
 							>P95</button>
 							<button
 								class="spark-tab"
-								class:active={selectedMetric === 'cpu'}
-								onclick={() => selectedMetric = 'cpu'}
+								class:active={view.selectedMetric === 'cpu'}
+								onclick={() => view.selectMetric('cpu')}
 							>CPU</button>
 							{#if p.mem}
 							<button
 								class="spark-tab"
-								class:active={selectedMetric === 'mem'}
-								onclick={() => selectedMetric = 'mem'}
+								class:active={view.selectedMetric === 'mem'}
+								onclick={() => view.selectMetric('mem')}
 							>Mem</button>
 							{/if}
 						</div>
@@ -235,9 +260,9 @@
 								<div class="skeleton" style="height: 48px; margin-top: 4px;"></div>
 							{/snippet}
 
-							{@const ts = await loadTimeseries({ runId: m.run_id, targetId: summary.target_id })}
+							{@const ts = await loadTimeseries({ runId: view.manifest.run_id, targetId: summary.target_id })}
 							{#if ts}
-								<SparkLine points={ts.points} metric={selectedMetric} />
+								<SparkLine points={ts.points} metric={view.selectedMetric} />
 							{:else}
 								<div class="spark-empty">No timeseries data</div>
 							{/if}

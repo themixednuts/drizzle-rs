@@ -1,17 +1,6 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { bucket, fetchManifest, fetchAllSummaries } from '$lib/r2';
+import { runSummaryApiData } from '$lib/server/bench-data';
+import { runJsonEffect } from '$lib/server/effect';
 
-export const GET: RequestHandler = async ({ platform, params, url }) => {
-	const b = bucket(platform);
-	const manifest = await fetchManifest(b, params.run_id);
-
-	const targetsParam = url.searchParams.get('targets');
-	const targets = targetsParam
-		? targetsParam.split(',').filter((t) => manifest.targets.includes(t))
-		: manifest.targets;
-
-	const items = await fetchAllSummaries(b, params.run_id, targets);
-
-	return json({ run_id: params.run_id, items });
-};
+export const GET: RequestHandler = ({ platform, params, url }) =>
+	runJsonEffect(runSummaryApiData(platform, params.run_id, url.searchParams.get('targets')));
