@@ -10,6 +10,14 @@
 	const runs = $derived(data.runs);
 	const suites = $derived(data.suites);
 	const statuses = $derived(data.statuses);
+
+	function buildUrl(s: string | null, st: string | null): string {
+		const params = new URLSearchParams();
+		if (s) params.set('suite', s);
+		if (st) params.set('status', st);
+		const query = params.toString();
+		return '/' + (query ? '?' + query : '');
+	}
 </script>
 
 <svelte:head>
@@ -27,13 +35,13 @@
 			<span class="filter-label">Suite</span>
 			<div class="filter-pills">
 				<a
-					href="/"
+					href={buildUrl(null, status)}
 					class="filter-pill"
 					class:active={!suite}
 				>All</a>
 				{#each suites as s}
 					<a
-						href="/?suite={s}{status ? '&status=' + status : ''}"
+						href={buildUrl(s, status)}
 						class="filter-pill"
 						class:active={suite === s}
 					>{s}</a>
@@ -44,13 +52,13 @@
 			<span class="filter-label">Status</span>
 			<div class="filter-pills">
 				<a
-					href="/{suite ? '?suite=' + suite : ''}"
+					href={buildUrl(suite, null)}
 					class="filter-pill"
 					class:active={!status}
 				>All</a>
 				{#each statuses as st}
 					<a
-						href="/?{suite ? 'suite=' + suite + '&' : ''}status={st}"
+						href={buildUrl(suite, st)}
 						class="filter-pill"
 						class:active={status === st}
 					>{st}</a>

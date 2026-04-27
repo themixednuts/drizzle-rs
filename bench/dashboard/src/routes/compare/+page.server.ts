@@ -1,22 +1,7 @@
 import type { PageServerLoad } from './$types';
 import { bucket, fetchIndex, fetchManifest, fetchAllSummaries } from '$lib/r2';
-import type { Summary, CompareItem } from '$lib/types';
-
-type Metric = 'rps.avg' | 'rps.peak' | 'latency.avg' | 'latency.p95' | 'latency.p99' | 'cpu.avg' | 'cpu.peak' | 'err';
-
-function extractMetric(s: Summary, metric: Metric): number {
-	const p = s.primary;
-	switch (metric) {
-		case 'rps.avg': return p.rps.avg;
-		case 'rps.peak': return p.rps.peak;
-		case 'latency.avg': return p.latency.avg;
-		case 'latency.p95': return p.latency.p95;
-		case 'latency.p99': return p.latency.p99;
-		case 'cpu.avg': return p.cpu.avg;
-		case 'cpu.peak': return p.cpu.peak;
-		case 'err': return p.err;
-	}
-}
+import { extractCompareMetric, parseCompareMetric } from '$lib/compare';
+import type { CompareItem } from '$lib/types';
 
 export const load: PageServerLoad = async ({ platform, url }) => {
 	const b = bucket(platform);
@@ -25,7 +10,7 @@ export const load: PageServerLoad = async ({ platform, url }) => {
 
 	const base = url.searchParams.get('base');
 	const head = url.searchParams.get('head');
-	const metric = url.searchParams.get('metric') ?? 'rps.avg';
+	const metric = parseCompareMetric(url.searchParams.get('metric'));
 
 	if (!base || !head) return { runs, items: null as CompareItem[] | null };
 
@@ -48,8 +33,8 @@ export const load: PageServerLoad = async ({ platform, url }) => {
 			const hs = headSummaries.find((s) => s.target_id === targetId);
 			if (!bs || !hs) return null;
 
-			const baseVal = extractMetric(bs, metric as Metric);
-			const headVal = extractMetric(hs, metric as Metric);
+			const baseVal = extractCompareMetric(bs, metric);
+			const headVal = extractCompareMetric(hs, metric);
 			const delta = headVal - baseVal;
 			const deltaPct = baseVal !== 0 ? delta / baseVal : 0;
 

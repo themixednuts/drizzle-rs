@@ -30,7 +30,7 @@
 		</div>
 	</header>
 
-	<main class="main page-enter">
+	<main class="main">
 		{@render children()}
 	</main>
 </div>

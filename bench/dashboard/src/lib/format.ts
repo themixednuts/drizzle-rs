@@ -23,6 +23,10 @@ export function fmtCpu(n: number): string {
 	return n.toFixed(1) + '%';
 }
 
+export function fmtGb(n: number): string {
+	return n.toFixed(1) + 'GB';
+}
+
 export function fmtDate(iso: string): string {
 	const d = new Date(iso);
 	return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +

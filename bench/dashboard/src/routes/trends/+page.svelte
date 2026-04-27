@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { fmtRps, fmtLatency, fmtCpu, fmtPct } from '$lib/format';
 	import TrendChart from '$lib/components/TrendChart.svelte';
@@ -18,6 +19,11 @@
 		if (t) params.set('target', t);
 		const qs = params.toString();
 		return '/trends' + (qs ? '?' + qs : '');
+	}
+
+	function selectTarget(event: Event): void {
+		const val = (event.currentTarget as HTMLSelectElement).value;
+		void goto(buildUrl(suite, val || null));
 	}
 </script>
 
@@ -48,10 +54,7 @@
 			<select
 				class="select mono"
 				value={target ?? ''}
-				onchange={(e) => {
-					const val = (e.target as HTMLSelectElement).value;
-					window.location.href = buildUrl(suite, val || null);
-				}}
+				oninput={selectTarget}
 			>
 				<option value="">Select target...</option>
 				{#each targets as t}

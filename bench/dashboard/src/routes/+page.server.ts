@@ -8,7 +8,7 @@ export const load: PageServerLoad = async ({ platform, url }) => {
 	const suite = url.searchParams.get('suite');
 	const status = url.searchParams.get('status');
 
-	let runs = index.runs;
+	let runs = [...index.runs];
 	if (suite) runs = runs.filter((r) => r.suite === suite);
 	if (status) runs = runs.filter((r) => r.status === status);
 	runs.sort((a, c) => c.run_id.localeCompare(a.run_id));

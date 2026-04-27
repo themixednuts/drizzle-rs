@@ -11,6 +11,7 @@
 	const W = 360;
 	const H = 60;
 	const PAD = 2;
+	const MID_Y = H / 2;
 
 	function values(pts: TimeseriesPoint[], m: typeof metric): number[] {
 		switch (m) {
@@ -21,30 +22,33 @@
 		}
 	}
 
-	const path = $derived.by(() => {
+	const coordinates = $derived.by(() => {
 		const vals = values(points, metric);
-		if (vals.length === 0) return '';
+		if (vals.length === 0) return [];
 
 		const min = Math.min(...vals);
 		const max = Math.max(...vals);
-		const range = max - min || 1;
+		const range = max - min;
+		const stepX = vals.length > 1 ? (W - PAD * 2) / (vals.length - 1) : 0;
 
-		const stepX = (W - PAD * 2) / (vals.length - 1 || 1);
+		return vals.map((v, i) => {
+			const x = vals.length === 1 ? W / 2 : PAD + i * stepX;
+			const y = range === 0 ? MID_Y : H - PAD - ((v - min) / range) * (H - PAD * 2);
+			return { x, y };
+		});
+	});
 
-		return vals
-			.map((v, i) => {
-				const x = PAD + i * stepX;
-				const y = H - PAD - ((v - min) / range) * (H - PAD * 2);
-				return (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1);
-			})
+	const path = $derived.by(() => {
+		if (coordinates.length < 2) return '';
+
+		return coordinates
+			.map(({ x, y }, i) => (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1))
 			.join(' ');
 	});
 
 	const areaPath = $derived.by(() => {
 		if (!path) return '';
-		const vals = values(points, metric);
-		const stepX = (W - PAD * 2) / (vals.length - 1 || 1);
-		const lastX = PAD + (vals.length - 1) * stepX;
+		const lastX = coordinates[coordinates.length - 1].x;
 		return path + ` L${lastX.toFixed(1)},${H} L${PAD},${H} Z`;
 	});
 
@@ -63,6 +67,14 @@
 	{/if}
 	{#if path}
 		<path d={path} fill="none" stroke={colorMap[metric]} stroke-width="1.5" />
+	{/if}
+	{#if coordinates.length === 1}
+		<circle
+			cx={coordinates[0].x}
+			cy={coordinates[0].y}
+			r="2.5"
+			fill={colorMap[metric]}
+		/>
 	{/if}
 </svg>
 

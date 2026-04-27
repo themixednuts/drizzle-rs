@@ -14,7 +14,7 @@ async function getJson<T>(b: R2Bucket, key: string): Promise<T | null> {
 }
 
 export async function fetchIndex(b: R2Bucket): Promise<RunIndex> {
-	const index = await getJson<RunIndex>(b, 'runs/index.json');
+	const index = await getJson<RunIndex>(b, 'index.json');
 	if (!index) error(404, 'Run index not found');
 	return index;
 }
@@ -30,7 +30,7 @@ export async function fetchSummary(
 	runId: string,
 	targetId: string
 ): Promise<Summary | null> {
-	return getJson<Summary>(b, `runs/${runId}/summary/${targetId}.json`);
+	return getJson<Summary>(b, `runs/${runId}/targets/${targetId}/summary.json`);
 }
 
 export async function fetchAllSummaries(
@@ -47,5 +47,5 @@ export async function fetchTimeseries(
 	runId: string,
 	targetId: string
 ): Promise<Timeseries | null> {
-	return getJson<Timeseries>(b, `runs/${runId}/timeseries/${targetId}.json`);
+	return getJson<Timeseries>(b, `runs/${runId}/targets/${targetId}/timeseries.json`);
 }

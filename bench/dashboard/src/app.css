@@ -169,22 +169,6 @@ a {
 	z-index: 9999;
 }
 
-/* Page entry animation */
-@keyframes pageIn {
-	from {
-		opacity: 0;
-		transform: translateY(12px);
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
-}
-
-.page-enter {
-	animation: pageIn 0.35s ease both;
-}
-
 /* Skeleton shimmer for loading states */
 .skeleton {
 	background: linear-gradient(90deg, var(--bg-raised) 25%, var(--bg-hover) 50%, var(--bg-raised) 75%);

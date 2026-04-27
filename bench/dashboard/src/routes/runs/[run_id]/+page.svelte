@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { fmtRps, fmtLatency, fmtPct, fmtCpu, fmtDate, fmtDuration, shortHash } from '$lib/format';
+	import { fmtRps, fmtLatency, fmtPct, fmtCpu, fmtGb, fmtDate, fmtDuration, shortHash } from '$lib/format';
 	import { loadTimeseries } from '$lib/api.remote';
 	import SparkLine from '$lib/components/SparkLine.svelte';
 	import LatencyBars from '$lib/components/LatencyBars.svelte';
@@ -73,7 +73,7 @@
 			</div>
 			<div class="info-item">
 				<span class="info-label">Runner</span>
-				<span class="info-value mono">{m.runner.class} / {m.runner.cores}c / {m.runner.mem_gb}GB</span>
+				<span class="info-value mono">{m.runner.class} / {m.runner.cores}c / {fmtGb(m.runner.mem_gb)}</span>
 			</div>
 			{#if m.seed != null}
 			<div class="info-item">
@@ -83,7 +83,7 @@
 			{/if}
 			<div class="info-item">
 				<span class="info-label">Headroom</span>
-				<span class="info-value mono">CPU {fmtCpu(m.runner.headroom.cpu_peak)} / Net {fmtPct(m.runner.headroom.net_peak)}</span>
+				<span class="info-value mono">CPU {fmtCpu(m.runner.headroom.cpu_peak)} / Net {fmtCpu(m.runner.headroom.net_peak)}</span>
 			</div>
 		</div>
 

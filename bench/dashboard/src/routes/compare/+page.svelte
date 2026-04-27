@@ -1,34 +1,25 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { compareRuns } from '$lib/compare-form.remote';
+	import {
+		compareMetricOptions,
+		isHigherBetterMetric,
+		parseCompareMetric,
+		type CompareMetric
+	} from '$lib/compare';
 	import { fmtDelta } from '$lib/format';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
-	const metrics = [
-		{ value: 'rps.avg', label: 'RPS (avg)' },
-		{ value: 'rps.peak', label: 'RPS (peak)' },
-		{ value: 'latency.avg', label: 'Latency (avg)' },
-		{ value: 'latency.p95', label: 'Latency (p95)' },
-		{ value: 'latency.p99', label: 'Latency (p99)' },
-		{ value: 'cpu.avg', label: 'CPU (avg)' },
-		{ value: 'cpu.peak', label: 'CPU (peak)' },
-		{ value: 'err', label: 'Error rate' }
-	];
-
-	// For RPS, higher is better; for latency/cpu/err, lower is better
-	function isHigherBetter(metric: string): boolean {
-		return metric.startsWith('rps');
-	}
-
-	function deltaClass(pct: number, metric: string): string {
+	function deltaClass(pct: number, metric: CompareMetric): string {
 		if (Math.abs(pct) < 0.005) return 'delta-neutral';
 		const positive = pct > 0;
-		const good = isHigherBetter(metric) ? positive : !positive;
+		const good = isHigherBetterMetric(metric) ? positive : !positive;
 		return good ? 'delta-positive' : 'delta-negative';
 	}
 
-	function fmtMetricValue(val: number, metric: string): string {
+	function fmtMetricValue(val: number, metric: CompareMetric): string {
 		if (metric.startsWith('rps')) {
 			if (val >= 1_000_000) return (val / 1_000_000).toFixed(1) + 'M';
 			if (val >= 1_000) return (val / 1_000).toFixed(1) + 'k';
@@ -46,7 +37,7 @@
 
 	const base = $derived(page.url.searchParams.get('base'));
 	const head = $derived(page.url.searchParams.get('head'));
-	const metric = $derived(page.url.searchParams.get('metric') ?? 'rps.avg');
+	const metric = $derived(parseCompareMetric(page.url.searchParams.get('metric')));
 	const runs = $derived(data.runs);
 	const items = $derived(data.items);
 </script>
@@ -62,7 +53,7 @@
 	</div>
 
 	<!-- Selectors -->
-	<form class="compare-form" method="get">
+	<form class="compare-form" {...compareRuns}>
 		<div class="select-group">
 			<label class="select-label" for="base">Base run</label>
 			<select name="base" id="base" class="select mono" value={base ?? ''}>
@@ -96,7 +87,7 @@
 		<div class="select-group">
 			<label class="select-label" for="metric">Metric</label>
 			<select name="metric" id="metric" class="select">
-				{#each metrics as m}
+				{#each compareMetricOptions as m}
 					<option value={m.value} selected={m.value === metric}>{m.label}</option>
 				{/each}
 			</select>
