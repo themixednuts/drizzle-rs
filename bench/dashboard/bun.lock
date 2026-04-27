@@ -5,7 +5,7 @@
     "": {
       "name": "drizzle-bench-dashboard",
       "dependencies": {
-        "cloudflare-isr": "link:cloudflare-isr",
+        "cloudflare-isr": "git+https://github.com/themixednuts/cloudflare-isr.git#ae25e331f2179cc49cfbdf4b9415b6c12cd94b51",
         "valibot": "^1.2.0",
       },
       "devDependencies": {
@@ -272,7 +272,7 @@
 
     "chokidar": ["chokidar@4.0.3", "", { "dependencies": { "readdirp": "^4.0.1" } }, "sha512-Qgzu8kfBvo+cA4962jnP1KkS6Dop5NS6g7R5LFYJr4b8Ub94PPQXUksCw9PvXoeXPRRddRNC5C1JQUR2SMGtnA=="],
 
-    "cloudflare-isr": ["cloudflare-isr@link:cloudflare-isr", {}],
+    "cloudflare-isr": ["cloudflare-isr@github:themixednuts/cloudflare-isr#ae25e33", { "peerDependencies": { "@solidjs/start": ">=1", "@sveltejs/kit": ">=2", "nitropack": ">=2" }, "optionalPeers": ["@solidjs/start", "@sveltejs/kit", "nitropack"] }, "themixednuts-cloudflare-isr-ae25e33"],
 
     "clsx": ["clsx@2.1.1", "", {}, "sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA=="],
 

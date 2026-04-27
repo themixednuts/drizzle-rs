@@ -10,6 +10,3 @@ dist/
 .env
 .env.*
 !.env.example
-
-# Local package link used during ISR development.
-cloudflare-isr

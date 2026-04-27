@@ -15,7 +15,7 @@
     "api:types": "openapi-typescript ../../docs/benchmark-spec/openapi/bench-api.v1.yaml -o src/lib/api-types.d.ts"
   },
   "dependencies": {
-    "cloudflare-isr": "link:cloudflare-isr",
+    "cloudflare-isr": "git+https://github.com/themixednuts/cloudflare-isr.git#ae25e331f2179cc49cfbdf4b9415b6c12cd94b51",
     "valibot": "^1.2.0"
   },
   "devDependencies": {
