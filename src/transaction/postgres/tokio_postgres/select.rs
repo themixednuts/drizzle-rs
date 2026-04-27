@@ -14,7 +14,7 @@ use std::marker::PhantomData;
 
 impl<'tx, 'q, 'conn, Schema, M>
     TransactionBuilder<
-        'q,
+        'tx,
         'conn,
         Schema,
         SelectBuilder<'q, Schema, SelectInitial, (), M>,
@@ -26,7 +26,7 @@ impl<'tx, 'q, 'conn, Schema, M>
         self,
         table: T,
     ) -> TransactionBuilder<
-        'q,
+        'tx,
         'conn,
         Schema,
         SelectBuilder<
@@ -119,7 +119,7 @@ where
         self,
         other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'q,
+        'tx,
         'conn,
         Schema,
         SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
@@ -136,7 +136,7 @@ where
         self,
         other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'q,
+        'tx,
         'conn,
         Schema,
         SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
@@ -153,7 +153,7 @@ where
         self,
         other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'q,
+        'tx,
         'conn,
         Schema,
         SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
@@ -170,7 +170,7 @@ where
         self,
         other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'q,
+        'tx,
         'conn,
         Schema,
         SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
@@ -187,7 +187,7 @@ where
         self,
         other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'q,
+        'tx,
         'conn,
         Schema,
         SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
@@ -204,7 +204,7 @@ where
         self,
         other: impl IntoSelect<'q, Schema, M, R>,
     ) -> TransactionBuilder<
-        'q,
+        'tx,
         'conn,
         Schema,
         SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
