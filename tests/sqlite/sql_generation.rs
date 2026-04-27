@@ -8,7 +8,7 @@ use crate::common::schema::sqlite::ComplexSchema;
 use crate::common::schema::sqlite::{InsertSimple, SelectSimple, Simple, SimpleSchema};
 
 #[drizzle::test]
-fn test_simple_select_all_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_simple_select_all_sql_generation(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let sql = db.select(()).from(simple).to_sql();
@@ -18,12 +18,14 @@ fn test_simple_select_all_sql_generation(db: &mut TestDb<SimpleSchema>, schema: 
     );
 
     // Also verify via DB execution
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("alice").with_id(1), InsertSimple::new("bob").with_id(2)])
-            => execute
-    );
-    let results: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alice").with_id(1),
+            InsertSimple::new("bob").with_id(2),
+        ])
+        .execute();
+    let results: Vec<SelectSimple> = db.select(()).from(simple).all();
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "alice");
     assert_eq!(results[1].name, "bob");
@@ -31,7 +33,7 @@ fn test_simple_select_all_sql_generation(db: &mut TestDb<SimpleSchema>, schema: 
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_complex_select_all_sql_generation(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_complex_select_all_sql_generation(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
 
     let sql_string = db.select(()).from(complex).to_sql().sql();
@@ -50,7 +52,7 @@ fn test_complex_select_all_sql_generation(db: &mut TestDb<ComplexSchema>, schema
 }
 
 #[drizzle::test]
-fn test_select_all_with_where_clause(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_select_all_with_where_clause(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let sql = db
@@ -68,23 +70,24 @@ fn test_select_all_with_where_clause(db: &mut TestDb<SimpleSchema>, schema: Simp
     assert_eq!(params[0], &SQLiteValue::Text("test".into()));
 
     // Also verify via DB execution
-    drizzle_exec!(
-        db.insert(simple)
-            .values([
-                InsertSimple::new("test").with_id(1),
-                InsertSimple::new("other").with_id(2),
-            ])
-            => execute
-    );
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select(()).from(simple).r#where(eq(Simple::name, "test")) => all
-    );
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("test").with_id(1),
+            InsertSimple::new("other").with_id(2),
+        ])
+        .execute();
+    let results: Vec<SelectSimple> = db
+        .select(())
+        .from(simple)
+        .r#where(eq(Simple::name, "test"))
+        .all();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
 }
 
 #[drizzle::test]
-fn test_select_specific_columns_vs_select_all(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_select_specific_columns_vs_select_all(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let select_all_sql = db.select(()).from(simple).to_sql().sql();
@@ -99,26 +102,24 @@ fn test_select_specific_columns_vs_select_all(db: &mut TestDb<SimpleSchema>, sch
     assert_eq!(select_specific_sql, expected);
 
     // Also verify both produce identical DB results
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("alice").with_id(1)])
-            => execute
-    );
-    let all_results: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
-    let specific_results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name)).from(simple) => all
-    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("alice").with_id(1)])
+        .execute();
+    let all_results: Vec<SelectSimple> = db.select(()).from(simple).all();
+    let specific_results: Vec<SelectSimple> =
+        db.select((simple.id, simple.name)).from(simple).all();
     assert_eq!(all_results.len(), specific_results.len());
     assert_eq!(all_results[0].id, specific_results[0].id);
     assert_eq!(all_results[0].name, specific_results[0].name);
 }
 
 #[drizzle::test]
-fn test_sql_macro(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_sql_macro(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let id = 4;
-    drizzle_try!(
+    result!(
         db.insert(simple)
             .values([InsertSimple::new("test").with_id(id)])
             .execute()
@@ -132,19 +133,19 @@ fn test_sql_macro(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     assert_eq!(params.len(), 1);
     assert_eq!(params[0], &SQLiteValue::Integer(id as i64));
 
-    let results: Vec<SelectSimple> = drizzle_try!(db.all(query))?;
+    let results: Vec<SelectSimple> = result!(db.all(query))?;
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, id);
     assert_eq!(results[0].name, "test");
 }
 
 #[drizzle::test]
-fn test_sql_printf_style(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_sql_printf_style(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
     let id = 5;
     let name = "printf_test";
 
-    drizzle_try!(
+    result!(
         db.insert(simple)
             .values([InsertSimple::new(name).with_id(id)])
             .execute()
@@ -161,12 +162,12 @@ fn test_sql_printf_style(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
 }
 
 #[drizzle::test]
-fn test_sql_mixed_named_positional(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_sql_mixed_named_positional(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
     let id = 6;
     let name = "mixed_test";
 
-    drizzle_try!(
+    result!(
         db.insert(simple)
             .values([InsertSimple::new(name).with_id(id)])
             .execute()
@@ -183,10 +184,7 @@ fn test_sql_mixed_named_positional(db: &mut TestDb<SimpleSchema>, schema: Simple
 }
 
 #[drizzle::test]
-fn test_with_subquery_parenthesized_in_comparison(
-    db: &mut TestDb<SimpleSchema>,
-    schema: SimpleSchema,
-) {
+fn test_with_subquery_parenthesized_in_comparison(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
     let builder = drizzle::sqlite::builder::QueryBuilder::new::<SimpleSchema>();
     let SimpleSchema {
@@ -223,10 +221,7 @@ fn test_with_subquery_parenthesized_in_comparison(
 }
 
 #[drizzle::test]
-fn test_with_subquery_parenthesized_in_set_and_funcs(
-    db: &mut TestDb<SimpleSchema>,
-    schema: SimpleSchema,
-) {
+fn test_with_subquery_parenthesized_in_set_and_funcs(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
     let builder = drizzle::sqlite::builder::QueryBuilder::new::<SimpleSchema>();
     let SimpleSchema {

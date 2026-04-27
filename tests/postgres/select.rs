@@ -50,7 +50,7 @@ struct PgComplexResult {
 }
 
 #[drizzle::test]
-fn simple_select_with_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn simple_select_with_conditions(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -62,7 +62,7 @@ fn simple_select_with_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSc
     ];
 
     let stmt = db.insert(simple).values(test_data);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     // Test WHERE condition
     let stmt = db
@@ -70,7 +70,7 @@ fn simple_select_with_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSc
         .from(simple)
         .r#where(eq(simple.name, "beta"));
 
-    let where_results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let where_results: Vec<SelectSimple> = stmt.all();
 
     assert_eq!(where_results.len(), 1);
     assert_eq!(where_results[0].name, "beta");
@@ -82,7 +82,7 @@ fn simple_select_with_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSc
         .order_by([asc(simple.name)])
         .limit(2);
 
-    let ordered_results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let ordered_results: Vec<SelectSimple> = stmt.all();
 
     assert_eq!(ordered_results.len(), 2);
     assert_eq!(ordered_results[0].name, "alpha");
@@ -96,7 +96,7 @@ fn simple_select_with_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSc
         .limit(2)
         .offset(2);
 
-    let offset_results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let offset_results: Vec<SelectSimple> = stmt.all();
 
     assert_eq!(offset_results.len(), 2);
     assert_eq!(offset_results[0].name, "delta");
@@ -104,14 +104,12 @@ fn simple_select_with_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSc
 }
 
 #[drizzle::test]
-fn select_all_columns(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn select_all_columns(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(
-        db.insert(simple)
-            .values(vec![InsertSimple::new("test")])
-            => execute
-    );
+    db.insert(simple)
+        .values(vec![InsertSimple::new("test")])
+        .execute();
 
     let sql = db.select(()).from(simple).to_sql().sql();
     assert_eq!(
@@ -120,20 +118,18 @@ fn select_all_columns(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     );
 
     // Also verify via DB execution
-    let results: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
+    let results: Vec<SelectSimple> = db.select(()).from(simple).all();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
 }
 
 #[drizzle::test]
-fn select_with_where(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn select_with_where(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(
-        db.insert(simple)
-            .values(vec![InsertSimple::new("test"), InsertSimple::new("other")])
-            => execute
-    );
+    db.insert(simple)
+        .values(vec![InsertSimple::new("test"), InsertSimple::new("other")])
+        .execute();
 
     let stmt = db
         .select((simple.id, simple.name))
@@ -145,24 +141,22 @@ fn select_with_where(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         r#"SELECT "simple"."id", "simple"."name" FROM "simple" WHERE "simple"."name" = $1"#
     );
 
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = stmt.all();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
 }
 
 #[drizzle::test]
-fn select_with_order_by(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn select_with_order_by(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(
-        db.insert(simple)
-            .values(vec![
-                InsertSimple::new("zebra"),
-                InsertSimple::new("alpha"),
-                InsertSimple::new("beta"),
-            ])
-            => execute
-    );
+    db.insert(simple)
+        .values(vec![
+            InsertSimple::new("zebra"),
+            InsertSimple::new("alpha"),
+            InsertSimple::new("beta"),
+        ])
+        .execute();
 
     let stmt = db
         .select((simple.id, simple.name))
@@ -175,25 +169,23 @@ fn select_with_order_by(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         r#"SELECT "simple"."id", "simple"."name" FROM "simple" ORDER BY "simple"."name" ASC LIMIT 2"#
     );
 
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = stmt.all();
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "alpha");
     assert_eq!(results[1].name, "beta");
 }
 
 #[drizzle::test]
-fn select_with_limit(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn select_with_limit(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(
-        db.insert(simple)
-            .values(vec![
-                InsertSimple::new("one"),
-                InsertSimple::new("two"),
-                InsertSimple::new("three"),
-            ])
-            => execute
-    );
+    db.insert(simple)
+        .values(vec![
+            InsertSimple::new("one"),
+            InsertSimple::new("two"),
+            InsertSimple::new("three"),
+        ])
+        .execute();
 
     let stmt = db.select((simple.id, simple.name)).from(simple).limit(2);
 
@@ -202,24 +194,22 @@ fn select_with_limit(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         r#"SELECT "simple"."id", "simple"."name" FROM "simple" LIMIT 2"#
     );
 
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = stmt.all();
     assert_eq!(results.len(), 2);
 }
 
 #[drizzle::test]
-fn select_with_offset(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn select_with_offset(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(
-        db.insert(simple)
-            .values([
-                InsertSimple::new("one"),
-                InsertSimple::new("two"),
-                InsertSimple::new("three"),
-                InsertSimple::new("four"),
-            ])
-            => execute
-    );
+    db.insert(simple)
+        .values([
+            InsertSimple::new("one"),
+            InsertSimple::new("two"),
+            InsertSimple::new("three"),
+            InsertSimple::new("four"),
+        ])
+        .execute();
 
     let stmt = db
         .select((simple.id, simple.name))
@@ -233,7 +223,7 @@ fn select_with_offset(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         r#"SELECT "simple"."id", "simple"."name" FROM "simple" ORDER BY "simple"."name" ASC LIMIT 2 OFFSET 1"#
     );
 
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = stmt.all();
     assert_eq!(results.len(), 2);
     // After ordering: four, one, three, two - offset 1 skips "four"
     assert_eq!(results[0].name, "one");
@@ -241,7 +231,7 @@ fn select_with_offset(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
 }
 
 #[drizzle::test]
-fn cte_after_join(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn cte_after_join(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = [
@@ -249,7 +239,7 @@ fn cte_after_join(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("beta"),
         InsertSimple::new("gamma"),
     ];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     let results: Vec<SelectSimple> = {
         struct SimpleTag;
@@ -271,13 +261,11 @@ fn cte_after_join(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
             .into_cte::<JoinedSimpleTag>();
         let joined_alias = joined_simple.table;
 
-        drizzle_exec!(
-            db.with(&joined_simple)
-                .select((joined_alias.id, joined_alias.name))
-                .from(&joined_simple)
-                .order_by([asc(joined_alias.id)])
-                .all()
-        )
+        db.with(&joined_simple)
+            .select((joined_alias.id, joined_alias.name))
+            .from(&joined_simple)
+            .order_by([asc(joined_alias.id)])
+            .all()
     };
 
     assert_eq!(results.len(), 3);
@@ -286,7 +274,7 @@ fn cte_after_join(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
 }
 
 #[drizzle::test]
-fn cte_after_order_limit_offset(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn cte_after_order_limit_offset(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = [
@@ -295,7 +283,7 @@ fn cte_after_order_limit_offset(db: &mut TestDb<SimpleSchema>, schema: SimpleSch
         InsertSimple::new("three"),
         InsertSimple::new("four"),
     ];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     let results: Vec<SelectSimple> = {
         struct PagedSimpleTag;
@@ -313,13 +301,11 @@ fn cte_after_order_limit_offset(db: &mut TestDb<SimpleSchema>, schema: SimpleSch
             .into_cte::<PagedSimpleTag>();
         let paged_alias = paged_simple.table;
 
-        drizzle_exec!(
-            db.with(&paged_simple)
-                .select((paged_alias.id, paged_alias.name))
-                .from(&paged_simple)
-                .order_by([asc(paged_alias.id)])
-                .all()
-        )
+        db.with(&paged_simple)
+            .select((paged_alias.id, paged_alias.name))
+            .from(&paged_simple)
+            .order_by([asc(paged_alias.id)])
+            .all()
     };
 
     assert_eq!(results.len(), 2);
@@ -329,17 +315,17 @@ fn cte_after_order_limit_offset(db: &mut TestDb<SimpleSchema>, schema: SimpleSch
 
 // Validate that the generated Select model can be used directly
 #[drizzle::test]
-fn select_with_generated_model(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn select_with_generated_model(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
         .insert(simple)
         .values(vec![InsertSimple::new("sel_a"), InsertSimple::new("sel_b")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(simple).order_by([asc(simple.id)]);
 
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = stmt.all();
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "sel_a");
@@ -348,31 +334,29 @@ fn select_with_generated_model(db: &mut TestDb<SimpleSchema>, schema: SimpleSche
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn select_with_multiple_order_by(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn select_with_multiple_order_by(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values(vec![
-                InsertComplex::new("Alice", true, Role::User)
-                    .with_email("alice@example.com")
-                    .with_age(30),
-                InsertComplex::new("Bob", true, Role::User)
-                    .with_email("bob@example.com")
-                    .with_age(25),
-                InsertComplex::new("Charlie", true, Role::User)
-                    .with_email("charlie@example.com")
-                    .with_age(30),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values(vec![
+            InsertComplex::new("Alice", true, Role::User)
+                .with_email("alice@example.com")
+                .with_age(30),
+            InsertComplex::new("Bob", true, Role::User)
+                .with_email("bob@example.com")
+                .with_age(25),
+            InsertComplex::new("Charlie", true, Role::User)
+                .with_email("charlie@example.com")
+                .with_age(30),
+        ])
+        .execute();
 
     let stmt = db
         .select((complex.id, complex.name, complex.email, complex.age))
         .from(complex)
         .order_by([desc(complex.age), asc(complex.name)]);
 
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = stmt.all();
     assert_eq!(results.len(), 3);
     // age DESC, name ASC: Alice(30), Charlie(30), Bob(25)
     assert_eq!(results[0].name, "Alice");
@@ -381,7 +365,7 @@ fn select_with_multiple_order_by(db: &mut TestDb<ComplexSchema>, schema: Complex
 }
 
 #[drizzle::test]
-fn select_with_in_array(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn select_with_in_array(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values(vec![
@@ -390,7 +374,7 @@ fn select_with_in_array(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("Charlie"),
         InsertSimple::new("David"),
     ]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db
         .select(())
@@ -403,12 +387,12 @@ fn select_with_in_array(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     // Should have PostgreSQL numbered placeholders
     assert!(sql.contains("$1"));
 
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = stmt.all();
     assert_eq!(results.len(), 3);
 }
 
 #[drizzle::test]
-fn select_with_like_pattern(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn select_with_like_pattern(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values(vec![
@@ -416,7 +400,7 @@ fn select_with_like_pattern(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema)
         InsertSimple::new("test_two"),
         InsertSimple::new("other"),
     ]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db
         .select(())
@@ -428,13 +412,13 @@ fn select_with_like_pattern(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema)
     assert!(sql.contains("LIKE"));
     assert!(sql.contains("$1"));
 
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = stmt.all();
     assert_eq!(results.len(), 2);
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn select_with_null_check(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn select_with_null_check(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
     let data1 = InsertComplex::new("Alice", true, Role::User)
@@ -442,11 +426,11 @@ fn select_with_null_check(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema)
         .with_age(30);
 
     let stmt = db.insert(complex).values(vec![data1]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let data2 = InsertComplex::new("Bob", true, Role::User).with_age(25);
     let stmt = db.insert(complex).values(vec![data2]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(complex).r#where(is_null(complex.email));
 
@@ -454,14 +438,14 @@ fn select_with_null_check(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema)
 
     assert!(sql.contains("IS NULL"));
 
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = stmt.all();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Bob");
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn select_with_between(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn select_with_between(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
     let stmt = db.insert(complex).values(vec![
@@ -475,7 +459,7 @@ fn select_with_between(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
             .with_email("senior@example.com")
             .with_age(70),
     ]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db
         .select(())
@@ -488,14 +472,14 @@ fn select_with_between(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     assert!(sql.contains("$1"));
     assert!(sql.contains("$2"));
 
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = stmt.all();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Adult");
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn select_with_enum_condition(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn select_with_enum_condition(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
     let data1 = InsertComplex::new("Alice", true, Role::Admin)
@@ -506,7 +490,7 @@ fn select_with_enum_condition(db: &mut TestDb<ComplexSchema>, schema: ComplexSch
         .with_age(25);
 
     let stmt = db.insert(complex).values(vec![data1, data2]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db
         .select(())
@@ -518,7 +502,7 @@ fn select_with_enum_condition(db: &mut TestDb<ComplexSchema>, schema: ComplexSch
     assert!(sql.contains(r#""complex"."role""#));
     assert!(sql.contains("$1"));
 
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = stmt.all();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
 }
@@ -528,17 +512,19 @@ fn select_with_enum_condition(db: &mut TestDb<ComplexSchema>, schema: ComplexSch
 // This test ensures row.get::<_, Role>(idx) works for native PG enum types.
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn select_full_model_with_enum(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn select_full_model_with_enum(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
     let data1 = InsertComplex::new("Alice", true, Role::Admin);
     let data2 = InsertComplex::new("Bob", true, Role::User);
     let data3 = InsertComplex::new("Charlie", false, Role::Moderator);
 
-    drizzle_exec!(db.insert(complex).values(vec![data1, data2, data3]) => execute);
+    db.insert(complex)
+        .values(vec![data1, data2, data3])
+        .execute();
 
     // Full select returning SelectComplex (includes role enum column)
-    let results: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let results: Vec<SelectComplex> = db.select(()).from(complex).all();
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].role, Role::Admin);
     assert_eq!(results[1].role, Role::User);
@@ -547,16 +533,16 @@ fn select_full_model_with_enum(db: &mut TestDb<ComplexSchema>, schema: ComplexSc
 
 // Verify full SelectTask round-trip with TWO native PG enum columns (priority, status).
 #[drizzle::test]
-fn select_full_model_with_multiple_enums(db: &mut TestDb<TaskSchema>, schema: TaskSchema) {
+fn select_full_model_with_multiple_enums(db: &mut TestDb<TaskSchema>) {
     let TaskSchema { task, .. } = schema;
 
     let t1 = InsertTask::new("Urgent", Priority::High, PostStatus::Published);
     let t2 = InsertTask::new("Normal", Priority::Medium, PostStatus::Draft);
     let t3 = InsertTask::new("Low-pri", Priority::Low, PostStatus::Archived);
 
-    drizzle_exec!(db.insert(task).values(vec![t1, t2, t3]) => execute);
+    db.insert(task).values(vec![t1, t2, t3]).execute();
 
-    let results: Vec<SelectTask> = drizzle_exec!(db.select(()).from(task) => all);
+    let results: Vec<SelectTask> = db.select(()).from(task).all();
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].priority, Priority::High);
     assert_eq!(results[0].status, PostStatus::Published);
@@ -568,7 +554,7 @@ fn select_full_model_with_multiple_enums(db: &mut TestDb<TaskSchema>, schema: Ta
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn select_complex_where(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn select_complex_where(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
     let data1 = InsertComplex::new("Alice", true, Role::Admin)
@@ -584,7 +570,7 @@ fn select_complex_where(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
         .with_age(20);
 
     let stmt = db.insert(complex).values(vec![data1, data2, data3]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(complex).r#where(and(
         eq(complex.active, true),
@@ -596,48 +582,44 @@ fn select_complex_where(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
     assert!(sql.contains("AND"));
     assert!(sql.contains("OR"));
 
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = stmt.all();
     // Should match Alice (active=true, role=Admin) and Bob (active=true, age>21)
     assert_eq!(results.len(), 2);
 }
 
 #[drizzle::test]
-fn select_with_aggregate_count(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn select_with_aggregate_count(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(
-        db.insert(simple)
-            .values(vec![
-                InsertSimple::new("one"),
-                InsertSimple::new("two"),
-                InsertSimple::new("three"),
-            ])
-            => execute
-    );
+    db.insert(simple)
+        .values(vec![
+            InsertSimple::new("one"),
+            InsertSimple::new("two"),
+            InsertSimple::new("three"),
+        ])
+        .execute();
 
     let stmt = db.select(alias(count(simple.id), "count")).from(simple);
 
-    let result: PgCountResult = drizzle_exec!(stmt => get);
+    let result: PgCountResult = stmt.get();
     assert_eq!(result.count, 3);
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn select_with_aggregate_sum(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn select_with_aggregate_sum(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values(vec![
-                InsertComplex::new("Alice", true, Role::User)
-                    .with_email("alice@example.com")
-                    .with_age(30),
-                InsertComplex::new("Bob", true, Role::User)
-                    .with_email("bob@example.com")
-                    .with_age(25),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values(vec![
+            InsertComplex::new("Alice", true, Role::User)
+                .with_email("alice@example.com")
+                .with_age(30),
+            InsertComplex::new("Bob", true, Role::User)
+                .with_email("bob@example.com")
+                .with_age(25),
+        ])
+        .execute();
 
     let stmt = db
         .select(alias(
@@ -646,27 +628,25 @@ fn select_with_aggregate_sum(db: &mut TestDb<ComplexSchema>, schema: ComplexSche
         ))
         .from(complex);
 
-    let result: PgSumResult = drizzle_exec!(stmt => get);
+    let result: PgSumResult = stmt.get();
     assert_eq!(result.total_age, Some(55));
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn select_with_aggregate_avg(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn select_with_aggregate_avg(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values(vec![
-                InsertComplex::new("Alice", true, Role::User)
-                    .with_email("alice@example.com")
-                    .with_age(30),
-                InsertComplex::new("Bob", true, Role::User)
-                    .with_email("bob@example.com")
-                    .with_age(20),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values(vec![
+            InsertComplex::new("Alice", true, Role::User)
+                .with_email("alice@example.com")
+                .with_age(30),
+            InsertComplex::new("Bob", true, Role::User)
+                .with_email("bob@example.com")
+                .with_age(20),
+        ])
+        .execute();
 
     let stmt = db
         .select(alias(
@@ -675,30 +655,28 @@ fn select_with_aggregate_avg(db: &mut TestDb<ComplexSchema>, schema: ComplexSche
         ))
         .from(complex);
 
-    let result: PgAvgResult = drizzle_exec!(stmt => get);
+    let result: PgAvgResult = stmt.get();
     assert!(result.avg_age.is_some_and(|avg| (avg - 25.0).abs() < 0.01));
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn select_with_aggregate_min_max(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn select_with_aggregate_min_max(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values(vec![
-                InsertComplex::new("Alice", true, Role::User)
-                    .with_email("alice@example.com")
-                    .with_age(30),
-                InsertComplex::new("Bob", true, Role::User)
-                    .with_email("bob@example.com")
-                    .with_age(25),
-                InsertComplex::new("Charlie", true, Role::User)
-                    .with_email("charlie@example.com")
-                    .with_age(35),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values(vec![
+            InsertComplex::new("Alice", true, Role::User)
+                .with_email("alice@example.com")
+                .with_age(30),
+            InsertComplex::new("Bob", true, Role::User)
+                .with_email("bob@example.com")
+                .with_age(25),
+            InsertComplex::new("Charlie", true, Role::User)
+                .with_email("charlie@example.com")
+                .with_age(35),
+        ])
+        .execute();
 
     let stmt = db
         .select((
@@ -707,76 +685,69 @@ fn select_with_aggregate_min_max(db: &mut TestDb<ComplexSchema>, schema: Complex
         ))
         .from(complex);
 
-    let result: PgMinMaxResult = drizzle_exec!(stmt => get);
+    let result: PgMinMaxResult = stmt.get();
     assert_eq!(result.min_age, Some(25));
     assert_eq!(result.max_age, Some(35));
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn select_distinct(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn select_distinct(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values(vec![
-                InsertComplex::new("Alice", true, Role::User)
-                    .with_email("alice@example.com")
-                    .with_age(30),
-                InsertComplex::new("Bob", true, Role::Admin)
-                    .with_email("bob@example.com")
-                    .with_age(25),
-                InsertComplex::new("Charlie", true, Role::User)
-                    .with_email("charlie@example.com")
-                    .with_age(35),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values(vec![
+            InsertComplex::new("Alice", true, Role::User)
+                .with_email("alice@example.com")
+                .with_age(30),
+            InsertComplex::new("Bob", true, Role::Admin)
+                .with_email("bob@example.com")
+                .with_age(25),
+            InsertComplex::new("Charlie", true, Role::User)
+                .with_email("charlie@example.com")
+                .with_age(35),
+        ])
+        .execute();
 
     #[allow(dead_code)]
     #[derive(Debug, PostgresFromRow)]
     struct PgDistinctRoleResult {
         role: String,
     }
-    let results: Vec<PgDistinctRoleResult> = drizzle_exec!(
-        db.select(alias(
+    let results: Vec<PgDistinctRoleResult> = db
+        .select(alias(
             distinct(cast(complex.role, drizzle::postgres::types::Varchar)),
             "role",
         ))
-            .from(complex)
-            => all
-    );
+        .from(complex)
+        .all();
     assert_eq!(results.len(), 2);
 }
 
 #[drizzle::test]
-fn select_with_alias(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn select_with_alias(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(
-        db.insert(simple)
-            .values(vec![InsertSimple::new("test")])
-            => execute
-    );
+    db.insert(simple)
+        .values(vec![InsertSimple::new("test")])
+        .execute();
 
     let stmt = db.select(alias(simple.name, "user_name")).from(simple);
 
-    let result: PgAliasResult = drizzle_exec!(stmt => get);
+    let result: PgAliasResult = stmt.get();
     assert_eq!(result.user_name, "test");
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn select_with_coalesce(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn select_with_coalesce(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values(vec![
-                InsertComplex::new("Alice", true, Role::User).with_age(30),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values(vec![
+            InsertComplex::new("Alice", true, Role::User).with_age(30),
+        ])
+        .execute();
 
     let stmt = db
         .select(alias(
@@ -785,7 +756,7 @@ fn select_with_coalesce(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
         ))
         .from(complex);
 
-    let result: PgCoalesceResult = drizzle_exec!(stmt => get);
+    let result: PgCoalesceResult = stmt.get();
     assert_eq!(result.email, "unknown@example.com");
 }
 
@@ -805,12 +776,14 @@ struct PgInferredDateResult {
 // Tests that current_date() deserializes as NaiveDate on PostgreSQL (requires chrono).
 #[cfg(feature = "chrono")]
 #[drizzle::test]
-fn test_inferred_current_date(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_inferred_current_date(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
-    drizzle_exec!(db.insert(simple).values([InsertSimple::new("seed")]) => execute);
+    db.insert(simple)
+        .values([InsertSimple::new("seed")])
+        .execute();
 
     let result: Vec<PgInferredDateResult> =
-        drizzle_exec!(db.select(alias(current_date(), "today")).from(simple) => all);
+        db.select(alias(current_date(), "today")).from(simple).all();
     assert_eq!(result.len(), 1);
     let today = result[0].today;
     assert!(chrono::Datelike::year(&today) >= 2024);
@@ -826,12 +799,16 @@ struct PgInferredTimestampResult {
 
 #[cfg(feature = "chrono")]
 #[drizzle::test]
-fn test_inferred_current_timestamp(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_inferred_current_timestamp(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
-    drizzle_exec!(db.insert(simple).values([InsertSimple::new("seed")]) => execute);
+    db.insert(simple)
+        .values([InsertSimple::new("seed")])
+        .execute();
 
-    let result: Vec<PgInferredTimestampResult> =
-        drizzle_exec!(db.select(alias(current_timestamp(), "now")).from(simple) => all);
+    let result: Vec<PgInferredTimestampResult> = db
+        .select(alias(current_timestamp(), "now"))
+        .from(simple)
+        .all();
     assert_eq!(result.len(), 1);
     assert!(result[0].now.timestamp() > 0);
 }

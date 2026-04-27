@@ -92,21 +92,21 @@ struct PgComplexResult {
 }
 
 #[drizzle::test]
-fn schema_simple_works(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn schema_simple_works(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("test")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
 }
 
 #[drizzle::test]
-fn schema_with_view(db: &mut TestDb<ViewTestSchema>, schema: ViewTestSchema) {
+fn schema_with_view(db: &mut TestDb<ViewTestSchema>) {
     let ViewTestSchema {
         simple,
         simple_view,
@@ -118,13 +118,13 @@ fn schema_with_view(db: &mut TestDb<ViewTestSchema>, schema: ViewTestSchema) {
     let stmt = db
         .insert(simple)
         .values([InsertSimple::new("alpha"), InsertSimple::new("beta")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db
         .select(PgSimpleViewResult::Select)
         .from(simple_view)
         .order_by([asc(simple_view.id)]);
-    let results: Vec<PgSimpleViewResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgSimpleViewResult> = stmt.all();
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].id, 1);
@@ -163,7 +163,7 @@ fn schema_with_view(db: &mut TestDb<ViewTestSchema>, schema: ViewTestSchema) {
 }
 
 #[drizzle::test]
-fn view_alias_in_from_clause(db: &mut TestDb<ViewTestSchema>, schema: ViewTestSchema) {
+fn view_alias_in_from_clause(db: &mut TestDb<ViewTestSchema>) {
     let ViewTestSchema {
         simple,
         simple_view,
@@ -175,7 +175,7 @@ fn view_alias_in_from_clause(db: &mut TestDb<ViewTestSchema>, schema: ViewTestSc
     let stmt = db
         .insert(simple)
         .values([InsertSimple::new("alpha"), InsertSimple::new("beta")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     struct SvTag;
     impl drizzle::core::Tag for SvTag {
@@ -200,7 +200,7 @@ fn view_alias_in_from_clause(db: &mut TestDb<ViewTestSchema>, schema: ViewTestSc
         .r#where(eq(sv2.name, "alpha"))
         .order_by([asc(sv2.id)]);
 
-    let results: Vec<PgSimpleAliasResult> = drizzle_exec!(typed_stmt => all);
+    let results: Vec<PgSimpleAliasResult> = typed_stmt.all();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, 1);
     assert_eq!(results[0].name, "alpha");
@@ -215,7 +215,7 @@ impl drizzle::core::Tag for SimpleAliasTag {
 }
 
 #[drizzle::test]
-fn tagged_alias_forwards_alias_metadata(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn tagged_alias_forwards_alias_metadata(db: &mut TestDb<SimpleSchema>) {
     let tagged = Simple::alias::<SimpleAliasTag>();
     let _base = Simple::new();
 
@@ -223,7 +223,7 @@ fn tagged_alias_forwards_alias_metadata(db: &mut TestDb<SimpleSchema>, schema: S
 }
 
 #[drizzle::test]
-fn view_definition_with_options_sql(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn view_definition_with_options_sql(db: &mut TestDb<SimpleSchema>) {
     let sql = SimpleViewWithOptions::create_view_sql();
     assert!(sql.contains("CREATE MATERIALIZED VIEW"));
     assert!(sql.contains("WITH ("));
@@ -237,16 +237,16 @@ fn view_definition_with_options_sql(db: &mut TestDb<SimpleSchema>, schema: Simpl
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn schema_complex_works(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn schema_complex_works(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
     let stmt = db
         .insert(complex)
         .values([InsertComplex::new("test", true, Role::User)]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(complex);
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_ne!(results[0].id, uuid::Uuid::nil());
@@ -255,7 +255,7 @@ fn schema_complex_works(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn schema_with_enum_works(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn schema_with_enum_works(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
     // Insert with different enum values to verify enum type was created
@@ -264,30 +264,30 @@ fn schema_with_enum_works(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema)
         InsertComplex::new("Regular User", true, Role::User),
         InsertComplex::new("Mod User", true, Role::Moderator),
     ]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(complex);
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = stmt.all();
 
     assert_eq!(results.len(), 3);
 }
 
 #[drizzle::test]
-fn schema_multiple_inserts(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn schema_multiple_inserts(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Multiple separate inserts should work
     let stmt = db.insert(simple).values([InsertSimple::new("First")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.insert(simple).values([InsertSimple::new("Second")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.insert(simple).values([InsertSimple::new("Third")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = stmt.all();
 
     assert_eq!(results.len(), 3);
 }

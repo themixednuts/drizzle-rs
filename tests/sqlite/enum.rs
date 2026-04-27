@@ -86,7 +86,7 @@ struct UserAccountResult {
 }
 
 #[drizzle::test]
-fn test_enum_database_roundtrip(db: &mut TestDb<Schema>, schema: Schema) {
+fn test_enum_database_roundtrip(db: &mut TestDb<Schema>) {
     let Schema { user_account } = schema;
 
     // Insert test data with different enum values
@@ -96,20 +96,19 @@ fn test_enum_database_roundtrip(db: &mut TestDb<Schema>, schema: Schema) {
         InsertUserAccount::new("admin_user", UserRole::Admin, AccountStatus::Suspended),
     ];
 
-    let insert_result = db.insert(user_account).values(test_users);
-    assert_eq!(drizzle_exec!(insert_result.execute()), 3);
+    let inserted = db.insert(user_account).values(test_users).execute();
+    assert_eq!(inserted, 3);
 
     // Select and verify the data
-    let results: Vec<UserAccountResult> = drizzle_exec!(
-        db.select((
+    let results: Vec<UserAccountResult> = db
+        .select((
             user_account.id,
             user_account.name,
             user_account.role,
             user_account.status,
         ))
         .from(user_account)
-        => all
-    );
+        .all();
 
     assert_eq!(results.len(), 3);
 
@@ -129,33 +128,31 @@ fn test_enum_database_roundtrip(db: &mut TestDb<Schema>, schema: Schema) {
     assert_eq!(admin.status, AccountStatus::Suspended);
 
     // Test filtering by enum values
-    let admin_users: Vec<UserAccountResult> = drizzle_exec!(
-        db.select((
+    let admin_users: Vec<UserAccountResult> = db
+        .select((
             user_account.id,
             user_account.name,
             user_account.role,
-            user_account.status
+            user_account.status,
         ))
         .from(user_account)
         .r#where(eq(UserAccount::role, UserRole::Admin))
-        => all
-    );
+        .all();
 
     assert_eq!(admin_users.len(), 1);
     assert_eq!(admin_users[0].name, "admin_user");
 
     // Test filtering by integer enum
-    let suspended_users: Vec<UserAccountResult> = drizzle_exec!(
-        db.select((
+    let suspended_users: Vec<UserAccountResult> = db
+        .select((
             user_account.id,
             user_account.name,
             user_account.role,
-            user_account.status
+            user_account.status,
         ))
         .from(user_account)
         .r#where(eq(UserAccount::status, AccountStatus::Suspended))
-        => all
-    );
+        .all();
 
     assert_eq!(suspended_users.len(), 1);
     assert_eq!(suspended_users[0].name, "admin_user");

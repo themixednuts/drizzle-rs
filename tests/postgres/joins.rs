@@ -28,7 +28,7 @@ struct AuthorPostResult {
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn auto_fk_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSchema) {
+fn auto_fk_join(db: &mut TestDb<ComplexPostSchema>) {
     let ComplexPostSchema { complex, post, .. } = schema;
 
     let [id1, id2, id3]: [Uuid; 3] = array::from_fn(|_| Uuid::new_v4());
@@ -45,7 +45,7 @@ fn auto_fk_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSchema) {
             .with_email("charlie@example.com"),
     ];
 
-    drizzle_exec!(db.insert(complex).values(authors) => execute);
+    db.insert(complex).values(authors).execute();
 
     let posts = vec![
         InsertPost::new("Alice's First Post", true)
@@ -59,15 +59,14 @@ fn auto_fk_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSchema) {
             .with_author_id(id1),
     ];
 
-    drizzle_exec!(db.insert(post).values(posts) => execute);
+    db.insert(post).values(posts).execute();
 
-    let join_results: Vec<AuthorPostResult> = drizzle_exec!(
-        db.select(AuthorPostResult::default())
-            .from(complex)
-            .join(post)
-            .order_by([asc(complex.name), asc(post.title)])
-            => all
-    );
+    let join_results: Vec<AuthorPostResult> = db
+        .select(AuthorPostResult::default())
+        .from(complex)
+        .join(post)
+        .order_by([asc(complex.name), asc(post.title)])
+        .all();
 
     assert_eq!(join_results.len(), 3);
 
@@ -84,13 +83,12 @@ fn auto_fk_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSchema) {
     assert_eq!(join_results[2].author_name, "bob");
     assert_eq!(join_results[2].post_title, "Bob's Adventure");
 
-    let filtered_results: Vec<AuthorPostResult> = drizzle_exec!(
-        db.select(AuthorPostResult::default())
-            .from(complex)
-            .join(post)
-            .r#where(eq(complex.name, "alice"))
-            => all
-    );
+    let filtered_results: Vec<AuthorPostResult> = db
+        .select(AuthorPostResult::default())
+        .from(complex)
+        .join(post)
+        .r#where(eq(complex.name, "alice"))
+        .all();
 
     assert_eq!(filtered_results.len(), 2);
     filtered_results.iter().for_each(|r| {
@@ -109,7 +107,7 @@ struct PostCategoryResult {
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn chained_fk_join(db: &mut TestDb<FullBlogSchema>, schema: FullBlogSchema) {
+fn chained_fk_join(db: &mut TestDb<FullBlogSchema>) {
     let FullBlogSchema {
         post,
         category,
@@ -127,30 +125,29 @@ fn chained_fk_join(db: &mut TestDb<FullBlogSchema>, schema: FullBlogSchema) {
             .with_id(post_id2)
             .with_content("Learn Go"),
     ];
-    drizzle_exec!(db.insert(post).values(posts) => execute);
+    db.insert(post).values(posts).execute();
 
     let categories = vec![
         InsertCategory::new("Programming"),
         InsertCategory::new("Tutorial"),
     ];
-    drizzle_exec!(db.insert(category).values(categories) => execute);
+    db.insert(category).values(categories).execute();
 
     let links = vec![
         InsertPostCategory::new(post_id1, 1),
         InsertPostCategory::new(post_id1, 2),
         InsertPostCategory::new(post_id2, 1),
     ];
-    drizzle_exec!(db.insert(post_category).values(links) => execute);
+    db.insert(post_category).values(links).execute();
 
     // Chained auto-FK: post -> post_category (forward FK) -> category (reverse FK)
-    let results: Vec<PostCategoryResult> = drizzle_exec!(
-        db.select(PostCategoryResult::default())
-            .from(post)
-            .join(post_category)
-            .join(category)
-            .order_by([asc(post.title), asc(category.name)])
-            => all
-    );
+    let results: Vec<PostCategoryResult> = db
+        .select(PostCategoryResult::default())
+        .from(post)
+        .join(post_category)
+        .join(category)
+        .order_by([asc(post.title), asc(category.name)])
+        .all();
 
     // Go Guide -> Programming = 1 row
     // Rust Guide -> Programming, Tutorial = 2 rows

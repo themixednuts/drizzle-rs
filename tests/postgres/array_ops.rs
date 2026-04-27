@@ -10,7 +10,7 @@ use drizzle::postgres::prelude::*;
 
 // Test SQL generation for array_contains (@>) operator
 #[drizzle::test]
-fn array_contains_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn array_contains_sql_generation(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Note: This test verifies SQL generation. The simple.name column is TEXT,
@@ -29,7 +29,7 @@ fn array_contains_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSc
 
 // Test SQL generation for array_contained (<@) operator
 #[drizzle::test]
-fn array_contained_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn array_contained_sql_generation(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -45,7 +45,7 @@ fn array_contained_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleS
 
 // Test SQL generation for array_overlaps (&&) operator
 #[drizzle::test]
-fn array_overlaps_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn array_overlaps_sql_generation(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -61,7 +61,7 @@ fn array_overlaps_sql_generation(db: &mut TestDb<SimpleSchema>, schema: SimpleSc
 
 // Test that array operators work with method syntax via ArrayExprExt trait
 #[drizzle::test]
-fn array_ops_method_syntax(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn array_ops_method_syntax(db: &mut TestDb<SimpleSchema>) {
     use drizzle::postgres::expr::ArrayExprExt;
 
     let SimpleSchema { simple } = schema;

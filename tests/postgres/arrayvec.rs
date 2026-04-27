@@ -53,20 +53,17 @@ struct ArrayVecBlobResult {
 }
 
 #[drizzle::test]
-fn arraystring_insert_and_select(
-    db: &mut TestDb<PgArrayStringSchema>,
-    schema: PgArrayStringSchema,
-) {
+fn arraystring_insert_and_select(db: &mut TestDb<PgArrayStringSchema>) {
     let PgArrayStringSchema { table } = schema;
 
     let name = ArrayString::<16>::from("Hello").unwrap();
     let stmt = db
         .insert(table)
         .values([InsertPgArrayStringTest::new(name, "test description")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt => all);
+    let results: Vec<ArrayStringResult> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "Hello");
@@ -74,10 +71,7 @@ fn arraystring_insert_and_select(
 }
 
 #[drizzle::test]
-fn arrayvec_blob_insert_and_select(
-    db: &mut TestDb<PgArrayVecBlobSchema>,
-    schema: PgArrayVecBlobSchema,
-) {
+fn arrayvec_blob_insert_and_select(db: &mut TestDb<PgArrayVecBlobSchema>) {
     let PgArrayVecBlobSchema { table } = schema;
 
     let mut data = ArrayVec::<u8, 32>::new();
@@ -86,10 +80,10 @@ fn arrayvec_blob_insert_and_select(
     let stmt = db
         .insert(table)
         .values([InsertPgArrayVecBlobTest::new(data.clone(), "blob test")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt => all);
+    let results: Vec<ArrayVecBlobResult> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].data.as_slice(), &[1, 2, 3, 4, 5]);
@@ -97,41 +91,41 @@ fn arrayvec_blob_insert_and_select(
 }
 
 #[drizzle::test]
-fn arraystring_empty(db: &mut TestDb<PgArrayStringSchema>, schema: PgArrayStringSchema) {
+fn arraystring_empty(db: &mut TestDb<PgArrayStringSchema>) {
     let PgArrayStringSchema { table } = schema;
 
     let name = ArrayString::<16>::new();
     let stmt = db
         .insert(table)
         .values([InsertPgArrayStringTest::new(name, "empty name")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt => all);
+    let results: Vec<ArrayStringResult> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "");
 }
 
 #[drizzle::test]
-fn arrayvec_empty(db: &mut TestDb<PgArrayVecBlobSchema>, schema: PgArrayVecBlobSchema) {
+fn arrayvec_empty(db: &mut TestDb<PgArrayVecBlobSchema>) {
     let PgArrayVecBlobSchema { table } = schema;
 
     let data = ArrayVec::<u8, 32>::new();
     let stmt = db
         .insert(table)
         .values([InsertPgArrayVecBlobTest::new(data, "empty blob")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt => all);
+    let results: Vec<ArrayVecBlobResult> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert!(results[0].data.is_empty());
 }
 
 #[drizzle::test]
-fn arraystring_max_capacity(db: &mut TestDb<PgArrayStringSchema>, schema: PgArrayStringSchema) {
+fn arraystring_max_capacity(db: &mut TestDb<PgArrayStringSchema>) {
     let PgArrayStringSchema { table } = schema;
 
     // 16 character string - max capacity
@@ -139,17 +133,17 @@ fn arraystring_max_capacity(db: &mut TestDb<PgArrayStringSchema>, schema: PgArra
     let stmt = db
         .insert(table)
         .values([InsertPgArrayStringTest::new(name, "max capacity")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt => all);
+    let results: Vec<ArrayStringResult> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "1234567890123456");
 }
 
 #[drizzle::test]
-fn arrayvec_max_capacity(db: &mut TestDb<PgArrayVecBlobSchema>, schema: PgArrayVecBlobSchema) {
+fn arrayvec_max_capacity(db: &mut TestDb<PgArrayVecBlobSchema>) {
     let PgArrayVecBlobSchema { table } = schema;
 
     // 32 bytes - max capacity
@@ -161,10 +155,10 @@ fn arrayvec_max_capacity(db: &mut TestDb<PgArrayVecBlobSchema>, schema: PgArrayV
     let stmt = db
         .insert(table)
         .values([InsertPgArrayVecBlobTest::new(data.clone(), "max capacity")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt => all);
+    let results: Vec<ArrayVecBlobResult> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].data.len(), 32);
@@ -174,7 +168,7 @@ fn arrayvec_max_capacity(db: &mut TestDb<PgArrayVecBlobSchema>, schema: PgArrayV
 }
 
 #[drizzle::test]
-fn arrayvec_update(db: &mut TestDb<PgArrayVecBlobSchema>, schema: PgArrayVecBlobSchema) {
+fn arrayvec_update(db: &mut TestDb<PgArrayVecBlobSchema>) {
     let PgArrayVecBlobSchema { table } = schema;
 
     let mut initial = ArrayVec::<u8, 32>::new();
@@ -183,7 +177,7 @@ fn arrayvec_update(db: &mut TestDb<PgArrayVecBlobSchema>, schema: PgArrayVecBlob
     let stmt = db
         .insert(table)
         .values([InsertPgArrayVecBlobTest::new(initial, "to update")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let mut updated = ArrayVec::<u8, 32>::new();
     updated.extend([9, 8, 7, 6, 5]);
@@ -192,10 +186,10 @@ fn arrayvec_update(db: &mut TestDb<PgArrayVecBlobSchema>, schema: PgArrayVecBlob
         .update(table)
         .set(UpdatePgArrayVecBlobTest::default().with_data(updated.clone()))
         .r#where(eq(table.label, "to update"));
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayVecBlobResult> = drizzle_exec!(stmt => all);
+    let results: Vec<ArrayVecBlobResult> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].data.as_slice(), &[9, 8, 7, 6, 5]);
@@ -223,7 +217,7 @@ struct ArrayNullableResult {
 }
 
 #[drizzle::test]
-fn array_nullable_test(db: &mut TestDb<PgArrayNullableSchema>, schema: PgArrayNullableSchema) {
+fn array_nullable_test(db: &mut TestDb<PgArrayNullableSchema>) {
     let PgArrayNullableSchema { table } = schema;
 
     // Test inserting Some values
@@ -234,14 +228,14 @@ fn array_nullable_test(db: &mut TestDb<PgArrayNullableSchema>, schema: PgArrayNu
     let stmt = db.insert(table).values([InsertPgArrayNullableTest::new()
         .with_name(name)
         .with_data(data.clone())]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     // Test inserting None values
     let stmt = db.insert(table).values([InsertPgArrayNullableTest::new()]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(table).order_by(table.id);
-    let results: Vec<ArrayNullableResult> = drizzle_exec!(stmt => all);
+    let results: Vec<ArrayNullableResult> = stmt.all();
 
     assert_eq!(results.len(), 2);
 
@@ -255,7 +249,7 @@ fn array_nullable_test(db: &mut TestDb<PgArrayNullableSchema>, schema: PgArrayNu
 }
 
 #[drizzle::test]
-fn arraystring_unicode_boundary(db: &mut TestDb<PgArrayStringSchema>, schema: PgArrayStringSchema) {
+fn arraystring_unicode_boundary(db: &mut TestDb<PgArrayStringSchema>) {
     let PgArrayStringSchema { table } = schema;
 
     // "こんにちは" is 15 bytes (3 bytes per char * 5 chars)
@@ -264,10 +258,10 @@ fn arraystring_unicode_boundary(db: &mut TestDb<PgArrayStringSchema>, schema: Pg
     let stmt = db
         .insert(table)
         .values([InsertPgArrayStringTest::new(name, "unicode test")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(table);
-    let results: Vec<ArrayStringResult> = drizzle_exec!(stmt => all);
+    let results: Vec<ArrayStringResult> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "こんにちは");

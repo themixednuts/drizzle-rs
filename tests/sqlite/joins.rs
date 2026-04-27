@@ -40,7 +40,7 @@ struct PostCategoryResult {
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn simple_inner_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSchema) {
+fn simple_inner_join(db: &mut TestDb<ComplexPostSchema>) {
     let ComplexPostSchema { complex, post } = schema;
 
     #[cfg(not(feature = "uuid"))]
@@ -61,7 +61,7 @@ fn simple_inner_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSche
             .with_email("charlie@example.com"),
     ];
 
-    let author_result = drizzle_exec!(db.insert(complex).values(authors) => execute);
+    let author_result = db.insert(complex).values(authors).execute();
     assert_eq!(author_result, 3);
 
     let posts = vec![
@@ -76,17 +76,16 @@ fn simple_inner_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSche
             .with_author_id(id1),
     ];
 
-    let post_result = drizzle_exec!(db.insert(post).values(posts) => execute);
+    let post_result = db.insert(post).values(posts).execute();
     assert_eq!(post_result, 3);
 
     // Test inner join: only authors with posts should appear
-    let join_results: Vec<AuthorPostResult> = drizzle_exec!(
-        db.select(AuthorPostResult::default())
-            .from(complex)
-            .inner_join((post, eq(complex.id, post.author_id)))
-            .order_by([asc(complex.name), asc(post.title)])
-            => all
-    );
+    let join_results: Vec<AuthorPostResult> = db
+        .select(AuthorPostResult::default())
+        .from(complex)
+        .inner_join((post, eq(complex.id, post.author_id)))
+        .order_by([asc(complex.name), asc(post.title)])
+        .all();
 
     // Should have 3 results (Alice: 2 posts, Bob: 1 post) - Charlie excluded because no posts
     assert_eq!(join_results.len(), 3);
@@ -115,13 +114,12 @@ fn simple_inner_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSche
     );
 
     // Verify that we can filter join results
-    let alice_posts: Vec<AuthorPostResult> = drizzle_exec!(
-        db.select(AuthorPostResult::default())
-            .from(complex)
-            .inner_join((post, eq(complex.id, post.author_id)))
-            .r#where(eq(complex.name, "alice"))
-            => all
-    );
+    let alice_posts: Vec<AuthorPostResult> = db
+        .select(AuthorPostResult::default())
+        .from(complex)
+        .inner_join((post, eq(complex.id, post.author_id)))
+        .r#where(eq(complex.name, "alice"))
+        .all();
 
     assert_eq!(alice_posts.len(), 2);
     alice_posts.iter().for_each(|result| {
@@ -131,7 +129,7 @@ fn simple_inner_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSche
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn auto_fk_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSchema) {
+fn auto_fk_join(db: &mut TestDb<ComplexPostSchema>) {
     let ComplexPostSchema { complex, post } = schema;
 
     let [id1, id2, id3]: [Uuid; 3] = array::from_fn(|_| Uuid::new_v4());
@@ -148,7 +146,7 @@ fn auto_fk_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSchema) {
             .with_email("charlie@example.com"),
     ];
 
-    drizzle_exec!(db.insert(complex).values(authors) => execute);
+    db.insert(complex).values(authors).execute();
 
     let posts = vec![
         InsertPost::new("Alice's First Post", true)
@@ -162,16 +160,15 @@ fn auto_fk_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSchema) {
             .with_author_id(id1),
     ];
 
-    drizzle_exec!(db.insert(post).values(posts) => execute);
+    db.insert(post).values(posts).execute();
 
     // Auto-FK join: .join(post) auto-derives ON complex.id = post.author_id
-    let join_results: Vec<AuthorPostResult> = drizzle_exec!(
-        db.select(AuthorPostResult::default())
-            .from(complex)
-            .join(post)
-            .order_by([asc(complex.name), asc(post.title)])
-            => all
-    );
+    let join_results: Vec<AuthorPostResult> = db
+        .select(AuthorPostResult::default())
+        .from(complex)
+        .join(post)
+        .order_by([asc(complex.name), asc(post.title)])
+        .all();
 
     // Should have 3 results (Alice: 2 posts, Bob: 1 post) - Charlie excluded
     assert_eq!(join_results.len(), 3);
@@ -186,13 +183,12 @@ fn auto_fk_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSchema) {
     assert_eq!(join_results[2].post_title, "Bob's Adventure");
 
     // Also test auto-FK with inner_join variant
-    let inner_results: Vec<AuthorPostResult> = drizzle_exec!(
-        db.select(AuthorPostResult::default())
-            .from(complex)
-            .inner_join(post)
-            .r#where(eq(complex.name, "alice"))
-            => all
-    );
+    let inner_results: Vec<AuthorPostResult> = db
+        .select(AuthorPostResult::default())
+        .from(complex)
+        .inner_join(post)
+        .r#where(eq(complex.name, "alice"))
+        .all();
 
     assert_eq!(inner_results.len(), 2);
     inner_results.iter().for_each(|r| {
@@ -201,7 +197,7 @@ fn auto_fk_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSchema) {
 }
 
 #[drizzle::test]
-fn many_to_many_join(db: &mut TestDb<FullBlogSchema>, schema: FullBlogSchema) {
+fn many_to_many_join(db: &mut TestDb<FullBlogSchema>) {
     let FullBlogSchema {
         category,
         post,
@@ -235,7 +231,7 @@ fn many_to_many_join(db: &mut TestDb<FullBlogSchema>, schema: FullBlogSchema) {
             .with_content("Not published yet"),
     ];
 
-    let post_result = drizzle_exec!(db.insert(post).values(posts) => execute);
+    let post_result = db.insert(post).values(posts).execute();
     assert_eq!(post_result, 3);
 
     let categories = vec![
@@ -244,7 +240,7 @@ fn many_to_many_join(db: &mut TestDb<FullBlogSchema>, schema: FullBlogSchema) {
         InsertCategory::new("Tutorial").with_description("How-to guides"),
     ];
 
-    let category_result = drizzle_exec!(db.insert(category).values(categories) => execute);
+    let category_result = db.insert(category).values(categories).execute();
     assert_eq!(category_result, 3);
 
     // Create many-to-many relationships (post_id1 -> Tech Tutorial, post_id2 -> Life Hacks, post_id3 -> Draft Post)
@@ -255,8 +251,7 @@ fn many_to_many_join(db: &mut TestDb<FullBlogSchema>, schema: FullBlogSchema) {
         InsertPostCategory::new(post_id3, 1), // Draft Post -> Technology
     ];
 
-    let junction_result =
-        drizzle_exec!(db.insert(post_category).values(post_categories) => execute);
+    let junction_result = db.insert(post_category).values(post_categories).execute();
     assert_eq!(junction_result, 4);
 
     // Test many-to-many join: posts with their categories
@@ -267,7 +262,7 @@ fn many_to_many_join(db: &mut TestDb<FullBlogSchema>, schema: FullBlogSchema) {
         .join((category, eq(post_category.category_id, category.id)))
         .order_by([asc(post.title), asc(category.name)]);
 
-    let join_results: Vec<PostCategoryResult> = drizzle_exec!(join_smt => all);
+    let join_results: Vec<PostCategoryResult> = join_smt.all();
 
     // Should have 4 results (each post-category relationship)
     assert_eq!(join_results.len(), 4);
@@ -297,15 +292,14 @@ fn many_to_many_join(db: &mut TestDb<FullBlogSchema>, schema: FullBlogSchema) {
     assert_eq!(join_results[3].category_name, "Tutorial");
 
     // Test filtering: only published posts
-    let published_results: Vec<PostCategoryResult> = drizzle_exec!(
-        db.select(PostCategoryResult::default())
-            .from(post)
-            .join((post_category, eq(post.id, post_category.post_id)))
-            .join((category, eq(post_category.category_id, category.id)))
-            .r#where(eq(post.published, true))
-            .order_by([asc(post.title), asc(category.name)])
-            => all
-    );
+    let published_results: Vec<PostCategoryResult> = db
+        .select(PostCategoryResult::default())
+        .from(post)
+        .join((post_category, eq(post.id, post_category.post_id)))
+        .join((category, eq(post_category.category_id, category.id)))
+        .r#where(eq(post.published, true))
+        .order_by([asc(post.title), asc(category.name)])
+        .all();
 
     // Should exclude Draft Post (published = false)
     assert_eq!(published_results.len(), 3);
@@ -317,7 +311,7 @@ fn many_to_many_join(db: &mut TestDb<FullBlogSchema>, schema: FullBlogSchema) {
 }
 
 #[drizzle::test]
-fn chained_fk_join(db: &mut TestDb<FullBlogSchema>, schema: FullBlogSchema) {
+fn chained_fk_join(db: &mut TestDb<FullBlogSchema>) {
     let FullBlogSchema {
         post,
         category,
@@ -345,14 +339,14 @@ fn chained_fk_join(db: &mut TestDb<FullBlogSchema>, schema: FullBlogSchema) {
             .with_id(post_id2)
             .with_content("Learn Go"),
     ];
-    drizzle_exec!(db.insert(post).values(posts) => execute);
+    db.insert(post).values(posts).execute();
 
     // Insert categories
     let categories = vec![
         InsertCategory::new("Programming").with_description("Programming posts"),
         InsertCategory::new("Tutorial").with_description("How-to guides"),
     ];
-    drizzle_exec!(db.insert(category).values(categories) => execute);
+    db.insert(category).values(categories).execute();
 
     // Insert post-category links (Rust Guide -> cat 1 & 2, Go Guide -> cat 1)
     let links = vec![
@@ -360,17 +354,16 @@ fn chained_fk_join(db: &mut TestDb<FullBlogSchema>, schema: FullBlogSchema) {
         InsertPostCategory::new(post_id1, 2),
         InsertPostCategory::new(post_id2, 1),
     ];
-    drizzle_exec!(db.insert(post_category).values(links) => execute);
+    db.insert(post_category).values(links).execute();
 
     // Chained auto-FK: post -> post_category (forward FK) -> category (reverse FK)
-    let results: Vec<PostCategoryResult> = drizzle_exec!(
-        db.select(PostCategoryResult::default())
-            .from(post)
-            .join(post_category)
-            .join(category)
-            .order_by([asc(post.title), asc(category.name)])
-            => all
-    );
+    let results: Vec<PostCategoryResult> = db
+        .select(PostCategoryResult::default())
+        .from(post)
+        .join(post_category)
+        .join(category)
+        .order_by([asc(post.title), asc(category.name)])
+        .all();
 
     // Go Guide -> Programming = 1 row
     // Rust Guide -> Programming, Tutorial = 2 rows

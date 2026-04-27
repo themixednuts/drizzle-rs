@@ -79,23 +79,23 @@ mod uuid_tests {
     }
 
     #[drizzle::test]
-    fn uuid_insert_and_select(db: &mut TestDb<PgUuidTypesSchema>, schema: PgUuidTypesSchema) {
+    fn uuid_insert_and_select(db: &mut TestDb<PgUuidTypesSchema>) {
         let PgUuidTypesSchema { uuids, .. } = schema;
 
         // Insert with auto-generated UUID
         let stmt = db.insert(uuids).values([InsertPgUuidTypes::new()]);
-        drizzle_exec!(stmt => execute);
+        stmt.execute();
 
         // Insert with specific UUID
         let specific_id = Uuid::new_v4();
         let stmt = db
             .insert(uuids)
             .values([InsertPgUuidTypes::new().with_id(specific_id)]);
-        drizzle_exec!(stmt => execute);
+        stmt.execute();
 
         // Query and verify
         let stmt = db.select(()).from(uuids);
-        let results: Vec<SelectPgUuidTypes> = drizzle_exec!(stmt => all);
+        let results: Vec<SelectPgUuidTypes> = stmt.all();
         assert_eq!(results.len(), 2);
         assert_eq!(results[1].id, specific_id);
     }
@@ -106,7 +106,7 @@ mod uuid_tests {
 // ============================================================================
 
 #[drizzle::test]
-fn basic_types_insert_and_select(db: &mut TestDb<PgBasicTypesSchema>, schema: PgBasicTypesSchema) {
+fn basic_types_insert_and_select(db: &mut TestDb<PgBasicTypesSchema>) {
     let PgBasicTypesSchema { basic, .. } = schema;
 
     let stmt = db.insert(basic).values([InsertPgBasicTypes::new(
@@ -119,10 +119,10 @@ fn basic_types_insert_and_select(db: &mut TestDb<PgBasicTypesSchema>, schema: Pg
         "Hello, PostgreSQL!",
         vec![0xDE, 0xAD, 0xBE, 0xEF],
     )]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(basic);
-    let results: Vec<SelectPgBasicTypes> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectPgBasicTypes> = stmt.all();
     assert_eq!(results.len(), 1);
 
     let row = &results[0];
@@ -137,10 +137,7 @@ fn basic_types_insert_and_select(db: &mut TestDb<PgBasicTypesSchema>, schema: Pg
 }
 
 #[drizzle::test]
-fn optional_types_with_values(
-    db: &mut TestDb<PgOptionalTypesSchema>,
-    schema: PgOptionalTypesSchema,
-) {
+fn optional_types_with_values(db: &mut TestDb<PgOptionalTypesSchema>) {
     let PgOptionalTypesSchema { optional, .. } = schema;
 
     // Insert with all values present
@@ -153,10 +150,10 @@ fn optional_types_with_values(
         .with_opt_bool(true)
         .with_opt_text("optional text")
         .with_opt_blob(vec![1, 2, 3])]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(optional);
-    let results: Vec<SelectPgOptionalTypes> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectPgOptionalTypes> = stmt.all();
     assert_eq!(results.len(), 1);
 
     let row = &results[0];
@@ -171,18 +168,15 @@ fn optional_types_with_values(
 }
 
 #[drizzle::test]
-fn optional_types_with_nulls(
-    db: &mut TestDb<PgOptionalTypesSchema>,
-    schema: PgOptionalTypesSchema,
-) {
+fn optional_types_with_nulls(db: &mut TestDb<PgOptionalTypesSchema>) {
     let PgOptionalTypesSchema { optional, .. } = schema;
 
     // Insert with no optional values (all NULL)
     let stmt = db.insert(optional).values([InsertPgOptionalTypes::new()]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(optional);
-    let results: Vec<SelectPgOptionalTypes> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectPgOptionalTypes> = stmt.all();
     assert_eq!(results.len(), 1);
 
     let row = &results[0];
@@ -201,7 +195,7 @@ fn optional_types_with_nulls(
 // ============================================================================
 
 #[drizzle::test]
-fn integer_boundary_values(db: &mut TestDb<PgBasicTypesSchema>, schema: PgBasicTypesSchema) {
+fn integer_boundary_values(db: &mut TestDb<PgBasicTypesSchema>) {
     let PgBasicTypesSchema { basic, .. } = schema;
 
     // Test min/max values for integer types
@@ -227,10 +221,10 @@ fn integer_boundary_values(db: &mut TestDb<PgBasicTypesSchema>, schema: PgBasicT
             vec![0xFF; 100],
         ),
     ]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(basic).order_by([asc(basic.id)]);
-    let results: Vec<SelectPgBasicTypes> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectPgBasicTypes> = stmt.all();
 
     assert_eq!(results.len(), 2);
 
@@ -250,7 +244,7 @@ fn integer_boundary_values(db: &mut TestDb<PgBasicTypesSchema>, schema: PgBasicT
 // ============================================================================
 
 #[drizzle::test]
-fn text_special_characters(db: &mut TestDb<PgBasicTypesSchema>, schema: PgBasicTypesSchema) {
+fn text_special_characters(db: &mut TestDb<PgBasicTypesSchema>) {
     let PgBasicTypesSchema { basic, .. } = schema;
 
     let special_text = "Hello! こんにちは 🦀 'quotes' \"double\" \n\t\\backslash";
@@ -265,15 +259,15 @@ fn text_special_characters(db: &mut TestDb<PgBasicTypesSchema>, schema: PgBasicT
         special_text,
         vec![],
     )]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(basic);
-    let results: Vec<SelectPgBasicTypes> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectPgBasicTypes> = stmt.all();
     assert_eq!(results[0].text_val, special_text);
 }
 
 #[drizzle::test]
-fn binary_data_roundtrip(db: &mut TestDb<PgBasicTypesSchema>, schema: PgBasicTypesSchema) {
+fn binary_data_roundtrip(db: &mut TestDb<PgBasicTypesSchema>) {
     let PgBasicTypesSchema { basic, .. } = schema;
 
     // Test various binary patterns
@@ -289,10 +283,10 @@ fn binary_data_roundtrip(db: &mut TestDb<PgBasicTypesSchema>, schema: PgBasicTyp
         "binary test",
         binary_data.clone(),
     )]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(basic);
-    let results: Vec<SelectPgBasicTypes> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectPgBasicTypes> = stmt.all();
     assert_eq!(results[0].blob_val, binary_data);
 }
 
@@ -321,7 +315,7 @@ mod chrono_tests {
     }
 
     #[drizzle::test]
-    fn chrono_types_roundtrip(db: &mut TestDb<PgChronoTypesSchema>, schema: PgChronoTypesSchema) {
+    fn chrono_types_roundtrip(db: &mut TestDb<PgChronoTypesSchema>) {
         let PgChronoTypesSchema { chrono, .. } = schema;
 
         let date = NaiveDate::from_ymd_opt(2024, 1, 15).unwrap();
@@ -335,10 +329,10 @@ mod chrono_tests {
             timestamp,
             timestamptz,
         )]);
-        drizzle_exec!(stmt => execute);
+        stmt.execute();
 
         let stmt = db.select(()).from(chrono);
-        let results: Vec<SelectPgChronoTypes> = drizzle_exec!(stmt => all);
+        let results: Vec<SelectPgChronoTypes> = stmt.all();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].date_val, date);
@@ -370,16 +364,16 @@ mod geo_tests {
     }
 
     #[drizzle::test]
-    fn geo_point_roundtrip(db: &mut TestDb<PgGeoTypesSchema>, schema: PgGeoTypesSchema) {
+    fn geo_point_roundtrip(db: &mut TestDb<PgGeoTypesSchema>) {
         let PgGeoTypesSchema { geo, .. } = schema;
 
         let point = Point::new(40.7128, -74.0060); // NYC coordinates
 
         let stmt = db.insert(geo).values([InsertPgGeoTypes::new(point)]);
-        drizzle_exec!(stmt => execute);
+        stmt.execute();
 
         let stmt = db.select(()).from(geo);
-        let results: Vec<SelectPgGeoTypes> = drizzle_exec!(stmt => all);
+        let results: Vec<SelectPgGeoTypes> = stmt.all();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].point_val, point);
@@ -411,10 +405,7 @@ mod cidr_tests {
     }
 
     #[drizzle::test]
-    fn network_types_roundtrip(
-        db: &mut TestDb<PgNetworkTypesSchema>,
-        schema: PgNetworkTypesSchema,
-    ) {
+    fn network_types_roundtrip(db: &mut TestDb<PgNetworkTypesSchema>) {
         let PgNetworkTypesSchema { network, .. } = schema;
 
         let inet = IpInet::from_str("192.168.1.100/24").unwrap();
@@ -423,10 +414,10 @@ mod cidr_tests {
         let stmt = db.insert(network).values([InsertPgNetworkTypes::new()
             .with_inet_val(inet)
             .with_cidr_val(cidr)]);
-        drizzle_exec!(stmt => execute);
+        stmt.execute();
 
         let stmt = db.select(()).from(network);
-        let results: Vec<SelectPgNetworkTypes> = drizzle_exec!(stmt => all);
+        let results: Vec<SelectPgNetworkTypes> = stmt.all();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].inet_val, Some(inet));
@@ -456,7 +447,7 @@ mod bitvec_tests {
     }
 
     #[drizzle::test]
-    fn bitvec_roundtrip(db: &mut TestDb<PgBitVecTypesSchema>, schema: PgBitVecTypesSchema) {
+    fn bitvec_roundtrip(db: &mut TestDb<PgBitVecTypesSchema>) {
         let PgBitVecTypesSchema { bitvec, .. } = schema;
 
         let mut bits = BitVec::new();
@@ -472,10 +463,10 @@ mod bitvec_tests {
         let stmt = db
             .insert(bitvec)
             .values([InsertPgBitVecTypes::new(bits.clone())]);
-        drizzle_exec!(stmt => execute);
+        stmt.execute();
 
         let stmt = db.select(()).from(bitvec);
-        let results: Vec<SelectPgBitVecTypes> = drizzle_exec!(stmt => all);
+        let results: Vec<SelectPgBitVecTypes> = stmt.all();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].bits, bits);
@@ -505,7 +496,7 @@ mod arrayvec_tests {
     }
 
     #[drizzle::test]
-    fn arrayvec_roundtrip(db: &mut TestDb<PgArrayVecTypesSchema>, schema: PgArrayVecTypesSchema) {
+    fn arrayvec_roundtrip(db: &mut TestDb<PgArrayVecTypesSchema>) {
         let PgArrayVecTypesSchema { arrayvec, .. } = schema;
 
         let fixed_string = ArrayString::try_from("Hello, ArrayString!").unwrap();
@@ -515,10 +506,10 @@ mod arrayvec_tests {
         let stmt = db
             .insert(arrayvec)
             .values([InsertPgArrayVecTypes::new(fixed_string, fixed_blob.clone())]);
-        drizzle_exec!(stmt => execute);
+        stmt.execute();
 
         let stmt = db.select(()).from(arrayvec);
-        let results: Vec<SelectPgArrayVecTypes> = drizzle_exec!(stmt => all);
+        let results: Vec<SelectPgArrayVecTypes> = stmt.all();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].fixed_string, fixed_string);
@@ -585,7 +576,7 @@ mod json_tests {
     }
 
     #[drizzle::test]
-    fn json_custom_struct_roundtrip(db: &mut TestDb<PgJsonTypesSchema>, schema: PgJsonTypesSchema) {
+    fn json_custom_struct_roundtrip(db: &mut TestDb<PgJsonTypesSchema>) {
         let PgJsonTypesSchema { json_table, .. } = schema;
 
         let metadata = Metadata {
@@ -598,10 +589,10 @@ mod json_tests {
         let stmt = db
             .insert(json_table)
             .values([InsertPgJsonTypes::new(metadata.clone(), raw_json.clone())]);
-        drizzle_exec!(stmt => execute);
+        stmt.execute();
 
         let stmt = db.select(()).from(json_table);
-        let results: Vec<SelectPgJsonTypes> = drizzle_exec!(stmt => all);
+        let results: Vec<SelectPgJsonTypes> = stmt.all();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].metadata, metadata);
@@ -610,10 +601,7 @@ mod json_tests {
     }
 
     #[drizzle::test]
-    fn jsonb_nested_struct_roundtrip(
-        db: &mut TestDb<PgJsonTypesSchema>,
-        schema: PgJsonTypesSchema,
-    ) {
+    fn jsonb_nested_struct_roundtrip(db: &mut TestDb<PgJsonTypesSchema>) {
         let PgJsonTypesSchema { jsonb_table, .. } = schema;
 
         let profile = UserProfile {
@@ -630,10 +618,10 @@ mod json_tests {
         let stmt = db
             .insert(jsonb_table)
             .values([InsertPgJsonbTypes::new(profile.clone(), raw_jsonb.clone())]);
-        drizzle_exec!(stmt => execute);
+        stmt.execute();
 
         let stmt = db.select(()).from(jsonb_table);
-        let results: Vec<SelectPgJsonbTypes> = drizzle_exec!(stmt => all);
+        let results: Vec<SelectPgJsonbTypes> = stmt.all();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].profile, profile);
@@ -642,7 +630,7 @@ mod json_tests {
     }
 
     #[drizzle::test]
-    fn json_with_optional_struct(db: &mut TestDb<PgJsonTypesSchema>, schema: PgJsonTypesSchema) {
+    fn json_with_optional_struct(db: &mut TestDb<PgJsonTypesSchema>) {
         let PgJsonTypesSchema { json_table, .. } = schema;
 
         let metadata = Metadata {
@@ -662,10 +650,10 @@ mod json_tests {
             raw_json.clone(),
         )
         .with_opt_metadata(opt_metadata.clone())]);
-        drizzle_exec!(stmt => execute);
+        stmt.execute();
 
         let stmt = db.select(()).from(json_table);
-        let results: Vec<SelectPgJsonTypes> = drizzle_exec!(stmt => all);
+        let results: Vec<SelectPgJsonTypes> = stmt.all();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].metadata, metadata);
@@ -673,7 +661,7 @@ mod json_tests {
     }
 
     #[drizzle::test]
-    fn jsonb_with_optional_struct(db: &mut TestDb<PgJsonTypesSchema>, schema: PgJsonTypesSchema) {
+    fn jsonb_with_optional_struct(db: &mut TestDb<PgJsonTypesSchema>) {
         let PgJsonTypesSchema { jsonb_table, .. } = schema;
 
         let profile = UserProfile {
@@ -697,10 +685,10 @@ mod json_tests {
             raw_jsonb.clone(),
         )
         .with_opt_profile(opt_profile.clone())]);
-        drizzle_exec!(stmt => execute);
+        stmt.execute();
 
         let stmt = db.select(()).from(jsonb_table);
-        let results: Vec<SelectPgJsonbTypes> = drizzle_exec!(stmt => all);
+        let results: Vec<SelectPgJsonbTypes> = stmt.all();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].profile, profile);

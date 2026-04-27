@@ -41,7 +41,7 @@ struct CompactStringRow {
 
 #[cfg(feature = "compact-str")]
 #[drizzle::test]
-fn compact_string_roundtrip(db: &mut TestDb<PgCompactStringSchema>, schema: PgCompactStringSchema) {
+fn compact_string_roundtrip(db: &mut TestDb<PgCompactStringSchema>) {
     let PgCompactStringSchema { table } = schema;
 
     let value = CompactString::new("pg compact");
@@ -49,10 +49,10 @@ fn compact_string_roundtrip(db: &mut TestDb<PgCompactStringSchema>, schema: PgCo
         value.clone(),
         "compact note",
     )]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(table);
-    let rows: Vec<CompactStringRow> = drizzle_exec!(stmt => all);
+    let rows: Vec<CompactStringRow> = stmt.all();
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].name, value);
@@ -87,7 +87,7 @@ struct BytesBlobRow {
 
 #[cfg(feature = "bytes")]
 #[drizzle::test]
-fn bytes_roundtrip(db: &mut TestDb<PgBytesBlobSchema>, schema: PgBytesBlobSchema) {
+fn bytes_roundtrip(db: &mut TestDb<PgBytesBlobSchema>) {
     let PgBytesBlobSchema { table } = schema;
 
     let payload = Bytes::from_static(b"pg-bytes");
@@ -98,10 +98,10 @@ fn bytes_roundtrip(db: &mut TestDb<PgBytesBlobSchema>, schema: PgBytesBlobSchema
         mutable_payload.clone(),
         "bytes note",
     )]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(table);
-    let rows: Vec<BytesBlobRow> = drizzle_exec!(stmt => all);
+    let rows: Vec<BytesBlobRow> = stmt.all();
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].payload.as_ref(), payload.as_ref());
@@ -135,7 +135,7 @@ struct SmallVecBlobRow {
 
 #[cfg(feature = "smallvec-types")]
 #[drizzle::test]
-fn smallvec_roundtrip(db: &mut TestDb<PgSmallVecBlobSchema>, schema: PgSmallVecBlobSchema) {
+fn smallvec_roundtrip(db: &mut TestDb<PgSmallVecBlobSchema>) {
     let PgSmallVecBlobSchema { table } = schema;
 
     let mut payload = SmallVec::<[u8; 16]>::new();
@@ -145,10 +145,10 @@ fn smallvec_roundtrip(db: &mut TestDb<PgSmallVecBlobSchema>, schema: PgSmallVecB
         payload.clone(),
         "smallvec note",
     )]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(table);
-    let rows: Vec<SmallVecBlobRow> = drizzle_exec!(stmt => all);
+    let rows: Vec<SmallVecBlobRow> = stmt.all();
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].payload.as_slice(), payload.as_slice());

@@ -54,7 +54,7 @@ struct MixedArrayVecSchema {
 }
 
 #[drizzle::test]
-fn test_arraystring_text_storage(db: &mut TestDb<ArrayStringSchema>, schema: ArrayStringSchema) {
+fn test_arraystring_text_storage(db: &mut TestDb<ArrayStringSchema>) {
     let table = schema.arraystring_test;
 
     // Create ArrayString (within capacity)
@@ -62,15 +62,14 @@ fn test_arraystring_text_storage(db: &mut TestDb<ArrayStringSchema>, schema: Arr
     let data = InsertArrayStringTest::new(name, "test description");
 
     // Insert data
-    drizzle_exec!(db.insert(table).values([data]) => execute);
+    db.insert(table).values([data]).execute();
 
     // Query back the data
-    let results: Vec<SelectArrayStringTest> = drizzle_exec!(
-        db.select((table.id, table.name, table.description))
-            .from(table)
-            .r#where(eq(table.description, "test description"))
-            => all
-    );
+    let results: Vec<SelectArrayStringTest> = db
+        .select((table.id, table.name, table.description))
+        .from(table)
+        .r#where(eq(table.description, "test description"))
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "Hello");
@@ -79,18 +78,17 @@ fn test_arraystring_text_storage(db: &mut TestDb<ArrayStringSchema>, schema: Arr
     #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(String);
     // Verify it's stored as TEXT in the database
-    let result: ReturnResult = drizzle_exec!(
-        db.select(r#typeof(table.name).alias("name_type"))
-            .from(table)
-            .r#where(eq(table.id, 1))
-            => get
-    );
+    let result: ReturnResult = db
+        .select(r#typeof(table.name).alias("name_type"))
+        .from(table)
+        .r#where(eq(table.id, 1))
+        .get();
 
     assert_eq!(result.0, "text");
 }
 
 #[drizzle::test]
-fn test_arrayvec_blob_storage(db: &mut TestDb<ArrayVecBlobSchema>, schema: ArrayVecBlobSchema) {
+fn test_arrayvec_blob_storage(db: &mut TestDb<ArrayVecBlobSchema>) {
     let table = schema.arrayvec_blob_test;
 
     // Create ArrayVec with some bytes
@@ -100,15 +98,14 @@ fn test_arrayvec_blob_storage(db: &mut TestDb<ArrayVecBlobSchema>, schema: Array
     let data = InsertArrayVecBlobTest::new(data_vec.clone(), "blob test");
 
     // Insert data
-    drizzle_exec!(db.insert(table).values([data]) => execute);
+    db.insert(table).values([data]).execute();
 
     // Query back the data
-    let results: Vec<SelectArrayVecBlobTest> = drizzle_exec!(
-        db.select((table.id, table.data, table.label))
-            .from(table)
-            .r#where(eq(table.label, "blob test"))
-            => all
-    );
+    let results: Vec<SelectArrayVecBlobTest> = db
+        .select((table.id, table.data, table.label))
+        .from(table)
+        .r#where(eq(table.label, "blob test"))
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].data.as_slice(), &[1, 2, 3, 4, 5]);
@@ -117,18 +114,17 @@ fn test_arrayvec_blob_storage(db: &mut TestDb<ArrayVecBlobSchema>, schema: Array
     #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(String);
     // Verify it's stored as BLOB in the database
-    let result: ReturnResult = drizzle_exec!(
-        db.select(r#typeof(table.data).alias("data_type"))
-            .from(table)
-            .r#where(eq(table.id, 1))
-            => get
-    );
+    let result: ReturnResult = db
+        .select(r#typeof(table.data).alias("data_type"))
+        .from(table)
+        .r#where(eq(table.id, 1))
+        .get();
 
     assert_eq!(result.0, "blob");
 }
 
 #[drizzle::test]
-fn test_arraystring_roundtrip(db: &mut TestDb<ArrayStringSchema>, schema: ArrayStringSchema) {
+fn test_arraystring_roundtrip(db: &mut TestDb<ArrayStringSchema>) {
     let table = schema.arraystring_test;
 
     // Test with various string lengths (within capacity)
@@ -139,15 +135,14 @@ fn test_arraystring_roundtrip(db: &mut TestDb<ArrayStringSchema>, schema: ArrayS
         let desc = format!("test_{}", idx);
         let data = InsertArrayStringTest::new(name, &desc);
 
-        drizzle_exec!(db.insert(table).values([data]) => execute);
+        db.insert(table).values([data]).execute();
     }
 
     // Query all back
-    let results: Vec<SelectArrayStringTest> = drizzle_exec!(
-        db.select((table.id, table.name, table.description))
-            .from(table)
-            => all
-    );
+    let results: Vec<SelectArrayStringTest> = db
+        .select((table.id, table.name, table.description))
+        .from(table)
+        .all();
 
     assert_eq!(results.len(), test_strings.len());
     for (idx, result) in results.iter().enumerate() {
@@ -156,7 +151,7 @@ fn test_arraystring_roundtrip(db: &mut TestDb<ArrayStringSchema>, schema: ArrayS
 }
 
 #[drizzle::test]
-fn test_arrayvec_roundtrip(db: &mut TestDb<ArrayVecBlobSchema>, schema: ArrayVecBlobSchema) {
+fn test_arrayvec_roundtrip(db: &mut TestDb<ArrayVecBlobSchema>) {
     let table = schema.arrayvec_blob_test;
 
     // Test with various byte arrays (within capacity)
@@ -174,15 +169,14 @@ fn test_arrayvec_roundtrip(db: &mut TestDb<ArrayVecBlobSchema>, schema: ArrayVec
         let label = format!("test_{}", idx);
         let data = InsertArrayVecBlobTest::new(data_vec, &label);
 
-        drizzle_exec!(db.insert(table).values([data]) => execute);
+        db.insert(table).values([data]).execute();
     }
 
     // Query all back
-    let results: Vec<SelectArrayVecBlobTest> = drizzle_exec!(
-        db.select((table.id, table.data, table.label))
-            .from(table)
-            => all
-    );
+    let results: Vec<SelectArrayVecBlobTest> = db
+        .select((table.id, table.data, table.label))
+        .from(table)
+        .all();
 
     assert_eq!(results.len(), test_data.len());
     for (idx, result) in results.iter().enumerate() {
@@ -191,7 +185,7 @@ fn test_arrayvec_roundtrip(db: &mut TestDb<ArrayVecBlobSchema>, schema: ArrayVec
 }
 
 #[drizzle::test]
-fn test_mixed_arrayvec_types(db: &mut TestDb<MixedArrayVecSchema>, schema: MixedArrayVecSchema) {
+fn test_mixed_arrayvec_types(db: &mut TestDb<MixedArrayVecSchema>) {
     let table = schema.mixed_arrayvec_test;
 
     // Create data with different capacities
@@ -213,20 +207,19 @@ fn test_mixed_arrayvec_types(db: &mut TestDb<MixedArrayVecSchema>, schema: Mixed
     );
 
     // Insert data
-    drizzle_exec!(db.insert(table).values([data]) => execute);
+    db.insert(table).values([data]).execute();
 
     // Query back the data
-    let results: Vec<SelectMixedArrayVecTest> = drizzle_exec!(
-        db.select((
+    let results: Vec<SelectMixedArrayVecTest> = db
+        .select((
             table.id,
             table.short_name,
             table.long_name,
             table.small_data,
-            table.large_data
+            table.large_data,
         ))
         .from(table)
-        => all
-    );
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].short_name.as_str(), "Short");
@@ -242,60 +235,57 @@ fn test_mixed_arrayvec_types(db: &mut TestDb<MixedArrayVecSchema>, schema: Mixed
 }
 
 #[drizzle::test]
-fn test_arraystring_empty(db: &mut TestDb<ArrayStringSchema>, schema: ArrayStringSchema) {
+fn test_arraystring_empty(db: &mut TestDb<ArrayStringSchema>) {
     let table = schema.arraystring_test;
 
     // Test with empty string
     let name = ArrayString::<16>::new();
     let data = InsertArrayStringTest::new(name, "empty test");
 
-    drizzle_exec!(db.insert(table).values([data]) => execute);
+    db.insert(table).values([data]).execute();
 
-    let results: Vec<SelectArrayStringTest> = drizzle_exec!(
-        db.select((table.id, table.name, table.description))
-            .from(table)
-            => all
-    );
+    let results: Vec<SelectArrayStringTest> = db
+        .select((table.id, table.name, table.description))
+        .from(table)
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "");
 }
 
 #[drizzle::test]
-fn test_arrayvec_empty(db: &mut TestDb<ArrayVecBlobSchema>, schema: ArrayVecBlobSchema) {
+fn test_arrayvec_empty(db: &mut TestDb<ArrayVecBlobSchema>) {
     let table = schema.arrayvec_blob_test;
 
     // Test with empty ArrayVec
     let data_vec = ArrayVec::<u8, 32>::new();
     let data = InsertArrayVecBlobTest::new(data_vec, "empty blob");
 
-    drizzle_exec!(db.insert(table).values([data]) => execute);
+    db.insert(table).values([data]).execute();
 
-    let results: Vec<SelectArrayVecBlobTest> = drizzle_exec!(
-        db.select((table.id, table.data, table.label))
-            .from(table)
-            => all
-    );
+    let results: Vec<SelectArrayVecBlobTest> = db
+        .select((table.id, table.data, table.label))
+        .from(table)
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].data.len(), 0);
 }
 
 #[drizzle::test]
-fn test_arraystring_max_capacity(db: &mut TestDb<ArrayStringSchema>, schema: ArrayStringSchema) {
+fn test_arraystring_max_capacity(db: &mut TestDb<ArrayStringSchema>) {
     let table = schema.arraystring_test;
 
     // Test with string at maximum capacity (16 chars)
     let name = ArrayString::<16>::from("1234567890123456").unwrap();
     let data = InsertArrayStringTest::new(name, "max capacity");
 
-    drizzle_exec!(db.insert(table).values([data]) => execute);
+    db.insert(table).values([data]).execute();
 
-    let results: Vec<SelectArrayStringTest> = drizzle_exec!(
-        db.select((table.id, table.name, table.description))
-            .from(table)
-            => all
-    );
+    let results: Vec<SelectArrayStringTest> = db
+        .select((table.id, table.name, table.description))
+        .from(table)
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name.as_str(), "1234567890123456");
@@ -303,7 +293,7 @@ fn test_arraystring_max_capacity(db: &mut TestDb<ArrayStringSchema>, schema: Arr
 }
 
 #[drizzle::test]
-fn test_arrayvec_max_capacity(db: &mut TestDb<ArrayVecBlobSchema>, schema: ArrayVecBlobSchema) {
+fn test_arrayvec_max_capacity(db: &mut TestDb<ArrayVecBlobSchema>) {
     let table = schema.arrayvec_blob_test;
 
     // Test with ArrayVec at maximum capacity (32 bytes)
@@ -313,13 +303,12 @@ fn test_arrayvec_max_capacity(db: &mut TestDb<ArrayVecBlobSchema>, schema: Array
     }
     let data = InsertArrayVecBlobTest::new(data_vec, "max capacity");
 
-    drizzle_exec!(db.insert(table).values([data]) => execute);
+    db.insert(table).values([data]).execute();
 
-    let results: Vec<SelectArrayVecBlobTest> = drizzle_exec!(
-        db.select((table.id, table.data, table.label))
-            .from(table)
-            => all
-    );
+    let results: Vec<SelectArrayVecBlobTest> = db
+        .select((table.id, table.data, table.label))
+        .from(table)
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].data.len(), 32);
@@ -329,7 +318,7 @@ fn test_arrayvec_max_capacity(db: &mut TestDb<ArrayVecBlobSchema>, schema: Array
 }
 
 #[drizzle::test]
-fn test_arrayvec_update(db: &mut TestDb<ArrayVecBlobSchema>, schema: ArrayVecBlobSchema) {
+fn test_arrayvec_update(db: &mut TestDb<ArrayVecBlobSchema>) {
     let table = schema.arrayvec_blob_test;
 
     // Insert initial data
@@ -337,25 +326,22 @@ fn test_arrayvec_update(db: &mut TestDb<ArrayVecBlobSchema>, schema: ArrayVecBlo
     initial_data.extend([1, 2, 3].iter().copied());
     let data = InsertArrayVecBlobTest::new(initial_data, "update test");
 
-    drizzle_exec!(db.insert(table).values([data]) => execute);
+    db.insert(table).values([data]).execute();
 
     // Update with new data
     let mut updated_data = ArrayVec::<u8, 32>::new();
     updated_data.extend([10, 20, 30, 40].iter().copied());
 
-    drizzle_exec!(
-        db.update(table)
-            .set(UpdateArrayVecBlobTest::default().with_data(updated_data.clone()))
-            .r#where(eq(table.id, 1))
-            => execute
-    );
+    db.update(table)
+        .set(UpdateArrayVecBlobTest::default().with_data(updated_data.clone()))
+        .r#where(eq(table.id, 1))
+        .execute();
 
     // Query back
-    let results: Vec<SelectArrayVecBlobTest> = drizzle_exec!(
-        db.select((table.id, table.data, table.label))
-            .from(table)
-            => all
-    );
+    let results: Vec<SelectArrayVecBlobTest> = db
+        .select((table.id, table.data, table.label))
+        .from(table)
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].data.as_slice(), &[10, 20, 30, 40]);

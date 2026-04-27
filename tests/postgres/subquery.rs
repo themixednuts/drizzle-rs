@@ -13,7 +13,7 @@ struct PgSubqueryResult {
 }
 
 #[drizzle::test]
-fn test_typed_scalar_subquery(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_typed_scalar_subquery(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
     let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
     let SimpleSchema {
@@ -25,17 +25,16 @@ fn test_typed_scalar_subquery(db: &mut TestDb<SimpleSchema>, schema: SimpleSchem
         InsertSimple::new("bob"),
         InsertSimple::new("charlie"),
     ];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     let min_id = builder
         .select(min(subquery_simple.id))
         .from(subquery_simple);
-    let results: Vec<PgSubqueryResult> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(gt(simple.id, min_id))
-            => all
-    );
+    let results: Vec<PgSubqueryResult> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(gt(simple.id, min_id))
+        .all();
 
     assert_eq!(2, results.len());
     assert!(results.iter().all(|r| r.id > 1));
@@ -44,7 +43,7 @@ fn test_typed_scalar_subquery(db: &mut TestDb<SimpleSchema>, schema: SimpleSchem
 }
 
 #[drizzle::test]
-fn test_typed_in_subquery_single_column(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_typed_in_subquery_single_column(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
     let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
     let SimpleSchema {
@@ -56,19 +55,18 @@ fn test_typed_in_subquery_single_column(db: &mut TestDb<SimpleSchema>, schema: S
         InsertSimple::new("bob"),
         InsertSimple::new("charlie"),
     ];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     let only_bob_id = builder
         .select(subquery_simple.id)
         .from(subquery_simple)
         .r#where(eq(subquery_simple.name, "bob"));
 
-    let results: Vec<PgSubqueryResult> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(in_subquery(simple.id, only_bob_id))
-            => all
-    );
+    let results: Vec<PgSubqueryResult> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(in_subquery(simple.id, only_bob_id))
+        .all();
 
     assert_eq!(1, results.len());
     assert_eq!(2, results[0].id);
@@ -76,10 +74,7 @@ fn test_typed_in_subquery_single_column(db: &mut TestDb<SimpleSchema>, schema: S
 }
 
 #[drizzle::test]
-fn test_typed_in_subquery_multi_column_row_value(
-    db: &mut TestDb<SimpleSchema>,
-    schema: SimpleSchema,
-) {
+fn test_typed_in_subquery_multi_column_row_value(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
     let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
     let SimpleSchema {
@@ -91,19 +86,18 @@ fn test_typed_in_subquery_multi_column_row_value(
         InsertSimple::new("bob"),
         InsertSimple::new("charlie"),
     ];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     let bob_row = builder
         .select((subquery_simple.id, subquery_simple.name))
         .from(subquery_simple)
         .r#where(eq(subquery_simple.name, "bob"));
 
-    let results: Vec<PgSubqueryResult> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(in_subquery((simple.id, simple.name), bob_row))
-            => all
-    );
+    let results: Vec<PgSubqueryResult> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(in_subquery((simple.id, simple.name), bob_row))
+        .all();
 
     assert_eq!(1, results.len());
     assert_eq!(2, results[0].id);
@@ -111,7 +105,7 @@ fn test_typed_in_subquery_multi_column_row_value(
 }
 
 #[drizzle::test]
-fn test_with_subquery_parenthesization(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_with_subquery_parenthesization(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
     let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
     let SimpleSchema {

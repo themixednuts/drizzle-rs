@@ -20,7 +20,7 @@ struct ConcatResult {
 }
 
 #[drizzle::test]
-fn test_basic_comparison_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_basic_comparison_conditions(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
     let test_data = vec![
         InsertSimple::new("Item A").with_id(1),
@@ -28,50 +28,44 @@ fn test_basic_comparison_conditions(db: &mut TestDb<SimpleSchema>, schema: Simpl
         InsertSimple::new("Item C").with_id(3),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test eq condition
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select(())
-            .from(simple)
-            .r#where(eq(simple.name, "Item A"))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select(())
+        .from(simple)
+        .r#where(eq(simple.name, "Item A"))
+        .all();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "Item A");
 
     // Test neq condition
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select(())
-            .from(simple)
-            .r#where(neq(simple.name, "Item A"))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select(())
+        .from(simple)
+        .r#where(neq(simple.name, "Item A"))
+        .all();
     assert_eq!(result.len(), 2);
 
     // Test gt condition
-    let result: Vec<SelectSimple> =
-        drizzle_exec!(db.select(()).from(simple).r#where(gt(simple.id, 1)) => all);
+    let result: Vec<SelectSimple> = db.select(()).from(simple).r#where(gt(simple.id, 1)).all();
     assert_eq!(result.len(), 2);
 
     // Test gte condition
-    let result: Vec<SelectSimple> =
-        drizzle_exec!(db.select(()).from(simple).r#where(gte(simple.id, 2)) => all);
+    let result: Vec<SelectSimple> = db.select(()).from(simple).r#where(gte(simple.id, 2)).all();
     assert_eq!(result.len(), 2);
 
     // Test lt condition
-    let result: Vec<SelectSimple> =
-        drizzle_exec!(db.select(()).from(simple).r#where(lt(simple.id, 3)) => all);
+    let result: Vec<SelectSimple> = db.select(()).from(simple).r#where(lt(simple.id, 3)).all();
     assert_eq!(result.len(), 2);
 
     // Test lte condition
-    let result: Vec<SelectSimple> =
-        drizzle_exec!(db.select(()).from(simple).r#where(lte(simple.id, 2)) => all);
+    let result: Vec<SelectSimple> = db.select(()).from(simple).r#where(lte(simple.id, 2)).all();
     assert_eq!(result.len(), 2);
 }
 
 #[drizzle::test]
-fn test_in_array_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_in_array_conditions(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -80,109 +74,99 @@ fn test_in_array_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema)
         InsertSimple::new("Cherry").with_id(3),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test in_array condition
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select(())
-            .from(simple)
-            .r#where(in_array(simple.name, ["Apple", "Cherry"]))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select(())
+        .from(simple)
+        .r#where(in_array(simple.name, ["Apple", "Cherry"]))
+        .all();
     assert_eq!(result.len(), 2);
 
     // Test not_in_array condition
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select(())
-            .from(simple)
-            .r#where(not_in_array(simple.name, ["Apple"]))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select(())
+        .from(simple)
+        .r#where(not_in_array(simple.name, ["Apple"]))
+        .all();
     assert_eq!(result.len(), 2);
 
     // Test empty array
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select(())
-            .from(simple)
-            .r#where(in_array(simple.name, Vec::<String>::new()))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select(())
+        .from(simple)
+        .r#where(in_array(simple.name, Vec::<String>::new()))
+        .all();
     assert_eq!(result.len(), 0);
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_null_conditions(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_null_conditions(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
 
     // Insert data with separate operations since each has different column patterns
     // User A: has email set
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("User A", true, Role::User).with_email("user@example.com")])
-            => execute
-    );
+
+    db.insert(complex)
+        .values([InsertComplex::new("User A", true, Role::User).with_email("user@example.com")])
+        .execute();
 
     // User B: has no optional fields set
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("User B", false, Role::Admin)])
-            => execute
-    );
+
+    db.insert(complex)
+        .values([InsertComplex::new("User B", false, Role::Admin)])
+        .execute();
 
     // User C: has age set
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("User C", true, Role::User).with_age(25)])
-            => execute
-    );
+
+    db.insert(complex)
+        .values([InsertComplex::new("User C", true, Role::User).with_age(25)])
+        .execute();
 
     // Test is_null condition
-    let result: Vec<SelectComplex> = drizzle_exec!(
-        db.select(())
-            .from(complex)
-            .r#where(is_null(complex.email))
-            => all
-    );
+    let result: Vec<SelectComplex> = db
+        .select(())
+        .from(complex)
+        .r#where(is_null(complex.email))
+        .all();
     assert_eq!(result.len(), 2);
     // Verify TEXT enum round-trip: role field deserialized correctly
     assert!(result.iter().any(|r| r.role == Role::Admin));
     assert!(result.iter().any(|r| r.role == Role::User));
 
     // Test is_not_null condition
-    let result: Vec<SelectComplex> = drizzle_exec!(
-        db.select(())
-            .from(complex)
-            .r#where(is_not_null(complex.email))
-            => all
-    );
+    let result: Vec<SelectComplex> = db
+        .select(())
+        .from(complex)
+        .r#where(is_not_null(complex.email))
+        .all();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].role, Role::User);
     assert_eq!(result[0].name, "User A");
 
     // Test is_null with integer field
-    let result: Vec<SelectComplex> = drizzle_exec!(
-        db.select(())
-            .from(complex)
-            .r#where(is_null(complex.age))
-            => all
-    );
+    let result: Vec<SelectComplex> = db
+        .select(())
+        .from(complex)
+        .r#where(is_null(complex.age))
+        .all();
     assert_eq!(result.len(), 2);
 
     // Test is_not_null with integer field
-    let result: Vec<SelectComplex> = drizzle_exec!(
-        db.select(())
-            .from(complex)
-            .r#where(is_not_null(complex.age))
-            => all
-    );
+    let result: Vec<SelectComplex> = db
+        .select(())
+        .from(complex)
+        .r#where(is_not_null(complex.age))
+        .all();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "User C");
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_between_conditions(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_between_conditions(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
 
     let test_data = vec![
@@ -197,39 +181,36 @@ fn test_between_conditions(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema
             .with_score(78.3),
     ];
 
-    drizzle_exec!(db.insert(complex).values(test_data) => execute);
+    db.insert(complex).values(test_data).execute();
 
     // Test between condition with integers
-    let result: Vec<SelectComplex> = drizzle_exec!(
-        db.select(())
-            .from(complex)
-            .r#where(between(complex.age, 22, 28))
-            => all
-    );
+    let result: Vec<SelectComplex> = db
+        .select(())
+        .from(complex)
+        .r#where(between(complex.age, 22, 28))
+        .all();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "User C");
 
     // Test between condition with floats
-    let result: Vec<SelectComplex> = drizzle_exec!(
-        db.select(())
-            .from(complex)
-            .r#where(between(complex.score, 80.0, 95.0))
-            => all
-    );
+    let result: Vec<SelectComplex> = db
+        .select(())
+        .from(complex)
+        .r#where(between(complex.score, 80.0, 95.0))
+        .all();
     assert_eq!(result.len(), 2);
 
     // Test not_between condition
-    let result: Vec<SelectComplex> = drizzle_exec!(
-        db.select(())
-            .from(complex)
-            .r#where(not_between(complex.age, 22, 28))
-            => all
-    );
+    let result: Vec<SelectComplex> = db
+        .select(())
+        .from(complex)
+        .r#where(not_between(complex.age, 22, 28))
+        .all();
     assert_eq!(result.len(), 2);
 }
 
 #[drizzle::test]
-fn test_like_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_like_conditions(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -239,48 +220,44 @@ fn test_like_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("Berry Split").with_id(4),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test like condition with prefix
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select(())
-            .from(simple)
-            .r#where(like(simple.name, "Apple%"))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select(())
+        .from(simple)
+        .r#where(like(simple.name, "Apple%"))
+        .all();
     assert_eq!(result.len(), 2);
 
     // Test like condition with suffix
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select(())
-            .from(simple)
-            .r#where(like(simple.name, "%Juice"))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select(())
+        .from(simple)
+        .r#where(like(simple.name, "%Juice"))
+        .all();
     assert_eq!(result.len(), 2);
 
     // Test like condition with wildcard in middle
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select(())
-            .from(simple)
-            .r#where(like(simple.name, "%a%"))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select(())
+        .from(simple)
+        .r#where(like(simple.name, "%a%"))
+        .all();
     assert_eq!(result.len(), 3);
 
     // Test not_like condition
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select(())
-            .from(simple)
-            .r#where(not_like(simple.name, "Apple%"))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select(())
+        .from(simple)
+        .r#where(not_like(simple.name, "Apple%"))
+        .all();
     assert_eq!(result.len(), 2);
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_logical_conditions(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_logical_conditions(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
 
     let test_data = vec![
@@ -290,93 +267,83 @@ fn test_logical_conditions(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema
         InsertComplex::new("Inactive User", false, Role::User).with_age(20),
     ];
 
-    drizzle_exec!(db.insert(complex).values(test_data) => execute);
+    db.insert(complex).values(test_data).execute();
 
     // Test and condition
-    let result: Vec<SelectComplex> = drizzle_exec!(
-        db.select(())
-            .from(complex)
-            .r#where(and(
-                eq(complex.active, true),
-                eq(complex.role, Role::Admin)
-            ))
-            => all
-    );
+    let result: Vec<SelectComplex> = db
+        .select(())
+        .from(complex)
+        .r#where(and(eq(complex.active, true), eq(complex.role, Role::Admin)))
+        .all();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "Active Admin");
 
     // Test or condition
-    let result: Vec<SelectComplex> = drizzle_exec!(
-        db.select(())
-            .from(complex)
-            .r#where(or(eq(complex.role, Role::Admin), gt(complex.age, 30)))
-            => all
-    );
+    let result: Vec<SelectComplex> = db
+        .select(())
+        .from(complex)
+        .r#where(or(eq(complex.role, Role::Admin), gt(complex.age, 30)))
+        .all();
     assert_eq!(result.len(), 2);
 
     // Test not condition
-    let result: Vec<SelectComplex> = drizzle_exec!(
-        db.select(())
-            .from(complex)
-            .r#where(not(eq(complex.active, true)))
-            => all
-    );
+    let result: Vec<SelectComplex> = db
+        .select(())
+        .from(complex)
+        .r#where(not(eq(complex.active, true)))
+        .all();
     assert_eq!(result.len(), 2);
 
     // Test complex nested conditions
-    let result: Vec<SelectComplex> = drizzle_exec!(
-        db.select(())
-            .from(complex)
-            .r#where(and(
-                or(eq(complex.role, Role::Admin), gt(complex.age, 23)),
-                eq(complex.active, true)
-            ))
-            => all
-    );
+    let result: Vec<SelectComplex> = db
+        .select(())
+        .from(complex)
+        .r#where(and(
+            or(eq(complex.role, Role::Admin), gt(complex.age, 23)),
+            eq(complex.active, true),
+        ))
+        .all();
     assert_eq!(result.len(), 2);
 }
 
 #[drizzle::test]
-fn test_single_condition_logical_operations(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_single_condition_logical_operations(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data - both have same pattern (both set id)
-    drizzle_exec!(
-        db.insert(simple)
-            .values([
-                InsertSimple::new("Test").with_id(1),
-                InsertSimple::new("Other").with_id(2),
-            ])
-            => execute
-    );
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("Test").with_id(1),
+            InsertSimple::new("Other").with_id(2),
+        ])
+        .execute();
 
     // Test single condition in and() - should not add extra parentheses
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select(())
-            .from(simple)
-            .r#where(eq(simple.name, "Test"))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select(())
+        .from(simple)
+        .r#where(eq(simple.name, "Test"))
+        .all();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "Test");
 
     // Test single condition in or() - should not add extra parentheses
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select(())
-            .from(simple)
-            .r#where(eq(simple.name, "Other"))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select(())
+        .from(simple)
+        .r#where(eq(simple.name, "Other"))
+        .all();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].name, "Other");
 
     // Test no condition (get all records)
-    let result: Vec<SelectSimple> = drizzle_exec!(db.select(()).from(simple) => all);
+    let result: Vec<SelectSimple> = db.select(()).from(simple).all();
     assert_eq!(result.len(), 2); // No condition should return all
 }
 
 #[drizzle::test]
-fn test_string_operations(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_string_operations(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -384,14 +351,13 @@ fn test_string_operations(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("World").with_id(2),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test string concatenation
-    let result: Vec<ConcatResult> = drizzle_exec!(
-        db.select(alias(string_concat(simple.name, " - Suffix"), "concat"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<ConcatResult> = db
+        .select(alias(string_concat(simple.name, " - Suffix"), "concat"))
+        .from(simple)
+        .all();
     assert_eq!(result.len(), 2);
     let concats: Vec<String> = result.iter().map(|r| r.concat.clone()).collect();
     assert!(concats.contains(&"Hello - Suffix".to_string()));
@@ -400,7 +366,7 @@ fn test_string_operations(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
 
 #[cfg(all(feature = "sqlite", feature = "serde", feature = "uuid"))]
 #[drizzle::test]
-fn test_sqlite_json_conditions(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_sqlite_json_conditions(db: &mut TestDb<ComplexSchema>) {
     use crate::common::schema::sqlite::{ComplexSchema, UserMetadata};
 
     let ComplexSchema { complex } = schema;
@@ -412,63 +378,54 @@ fn test_sqlite_json_conditions(db: &mut TestDb<ComplexSchema>, schema: ComplexSc
         theme: "dark".to_string(),
     };
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([
-                InsertComplex::new("User A", true, Role::User).with_metadata(metadata.clone()),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("User A", true, Role::User).with_metadata(metadata.clone())])
+        .execute();
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("User B", false, Role::Admin),])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("User B", false, Role::Admin)])
+        .execute();
 
     // Test json_extract helper on the metadata field
-    let result: Vec<JsonExtractResult> = drizzle_exec!(
-        db.select(alias(
+    let result: Vec<JsonExtractResult> = db
+        .select(alias(
             cast(
                 json_extract(complex.metadata, "theme"),
                 drizzle::sqlite::types::Text,
             ),
             "extract",
         ))
-            .from(complex)
-            .r#where(is_not_null(complex.metadata))
-            => all
-    );
+        .from(complex)
+        .r#where(is_not_null(complex.metadata))
+        .all();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].extract, Some("dark".to_string()));
 }
 
 #[drizzle::test]
-fn test_condition_edge_cases(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_condition_edge_cases(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Test").with_id(1)];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test condition with empty string
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select(())
-            .from(simple)
-            .r#where(neq(simple.name, ""))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select(())
+        .from(simple)
+        .r#where(neq(simple.name, ""))
+        .all();
     assert_eq!(result.len(), 1);
 
     // Test condition with special characters
     let special_data = InsertSimple::new("Test's \"quoted\" string").with_id(2);
-    drizzle_exec!(db.insert(simple).values([special_data]) => execute);
+    db.insert(simple).values([special_data]).execute();
 
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select(())
-            .from(simple)
-            .r#where(like(simple.name, "%quoted%"))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select(())
+        .from(simple)
+        .r#where(like(simple.name, "%quoted%"))
+        .all();
     assert_eq!(result.len(), 1);
 }

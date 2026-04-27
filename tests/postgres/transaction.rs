@@ -16,287 +16,255 @@ struct TxSimpleResult {
 }
 
 #[drizzle::test]
-fn transaction_commit(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn transaction_commit(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial data
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("Alice")])
-            => execute
-    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("Alice")])
+        .execute();
 
     // Insert inside a transaction that commits
-    drizzle_exec!(db.transaction(
-        PostgresTransactionType::default(),
-        drizzle_tx!(tx, {
-            drizzle_try!(
-                tx.insert(simple)
-                    .values([InsertSimple::new("Bob")])
-                    .execute()
-            )?;
-            Ok(())
-        })
-    ));
+    db.transaction(PostgresTransactionType::default(), |tx| {
+        result!(
+            tx.insert(simple)
+                .values([InsertSimple::new("Bob")])
+                .execute()
+        )?;
+        Ok(())
+    });
 
     // Both rows should be visible
-    let results: Vec<TxSimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
-    drizzle_assert_eq!(2, results.len());
+    let results: Vec<TxSimpleResult> = db.select((simple.id, simple.name)).from(simple).all();
+    assert_eq!(2, results.len());
 }
 
 #[drizzle::test]
-fn transaction_rollback(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn transaction_rollback(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial data
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("Alice")])
-            => execute
-    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("Alice")])
+        .execute();
 
     // Transaction that returns an error should rollback
-    let result: Result<(), drizzle::error::DrizzleError> = drizzle_try!(db.transaction(
-        PostgresTransactionType::default(),
-        drizzle_tx!(tx, {
-            drizzle_try!(
+    let result: Result<(), drizzle::error::DrizzleError> =
+        result!(db.transaction(PostgresTransactionType::default(), |tx| {
+            result!(
                 tx.insert(simple)
                     .values([InsertSimple::new("Bob")])
                     .execute()
             )?;
             Err(drizzle::error::DrizzleError::Other("rollback".into()))
-        })
-    ));
+        }));
     let _ = result; // Ignore the Err — we expect rollback
 
     // Only the first row should be visible (transaction was rolled back)
-    let results: Vec<TxSimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
-    drizzle_assert_eq!(1, results.len());
-    drizzle_assert_eq!("Alice", results[0].name.as_str());
+    let results: Vec<TxSimpleResult> = db.select((simple.id, simple.name)).from(simple).all();
+    assert_eq!(1, results.len());
+    assert_eq!("Alice", results[0].name.as_str());
 }
 
 #[drizzle::test]
-fn transaction_update_and_select(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn transaction_update_and_select(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial data
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("Alice"), InsertSimple::new("Bob"),])
-            => execute
-    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")])
+        .execute();
 
     // Update inside a transaction
-    drizzle_exec!(db.transaction(
-        PostgresTransactionType::default(),
-        drizzle_tx!(tx, {
-            drizzle_try!(
-                tx.update(simple)
-                    .set(UpdateSimple::default().with_name("Charlie"))
-                    .r#where(eq(simple.name, "Bob"))
-                    .execute()
-            )?;
+    db.transaction(PostgresTransactionType::default(), |tx| {
+        result!(
+            tx.update(simple)
+                .set(UpdateSimple::default().with_name("Charlie"))
+                .r#where(eq(simple.name, "Bob"))
+                .execute()
+        )?;
 
-            // Verify the update is visible within the transaction
-            let results: Vec<TxSimpleResult> =
-                drizzle_try!(tx.select((simple.id, simple.name)).from(simple).all())?;
+        // Verify the update is visible within the transaction
+        let results: Vec<TxSimpleResult> =
+            result!(tx.select((simple.id, simple.name)).from(simple).all())?;
 
-            let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
-            assert!(names.contains(&"Alice"));
-            assert!(names.contains(&"Charlie"));
-            assert!(!names.contains(&"Bob"));
+        let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+        assert!(names.contains(&"Alice"));
+        assert!(names.contains(&"Charlie"));
+        assert!(!names.contains(&"Bob"));
 
-            Ok(())
-        })
-    ));
+        Ok(())
+    });
 
     // Verify persisted after commit
-    let results: Vec<TxSimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
+    let results: Vec<TxSimpleResult> = db.select((simple.id, simple.name)).from(simple).all();
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
-    drizzle_assert!(names.contains(&"Charlie"));
-    drizzle_assert!(!names.contains(&"Bob"));
+    assert!(names.contains(&"Charlie"));
+    assert!(!names.contains(&"Bob"));
 }
 
 #[drizzle::test]
-fn transaction_delete(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn transaction_delete(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial data
-    drizzle_exec!(
-        db.insert(simple)
-            .values([
-                InsertSimple::new("Alice"),
-                InsertSimple::new("Bob"),
-                InsertSimple::new("Charlie"),
-            ])
-            => execute
-    );
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("Alice"),
+            InsertSimple::new("Bob"),
+            InsertSimple::new("Charlie"),
+        ])
+        .execute();
 
     // Delete inside a transaction
-    drizzle_exec!(db.transaction(
-        PostgresTransactionType::default(),
-        drizzle_tx!(tx, {
-            drizzle_try!(tx.delete(simple).r#where(eq(simple.name, "Bob")).execute())?;
-            Ok(())
-        })
-    ));
+    db.transaction(PostgresTransactionType::default(), |tx| {
+        result!(tx.delete(simple).r#where(eq(simple.name, "Bob")).execute())?;
+        Ok(())
+    });
 
-    let results: Vec<TxSimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
-    drizzle_assert_eq!(2, results.len());
+    let results: Vec<TxSimpleResult> = db.select((simple.id, simple.name)).from(simple).all();
+    assert_eq!(2, results.len());
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
-    drizzle_assert!(!names.contains(&"Bob"));
+    assert!(!names.contains(&"Bob"));
 }
 
 // --- Savepoint (nested transaction) tests ---
 
 #[drizzle::test]
-fn savepoint_commit(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn savepoint_commit(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(db.transaction(
-        PostgresTransactionType::default(),
-        drizzle_tx!(tx, {
-            // Insert in outer transaction
-            drizzle_try!(
+    db.transaction(PostgresTransactionType::default(), |tx| {
+        // Insert in outer transaction
+        result!(
+            tx.insert(simple)
+                .values([InsertSimple::new("outer")])
+                .execute()
+        )?;
+
+        // Savepoint that commits
+        result!(tx.savepoint(|tx| {
+            result!(
                 tx.insert(simple)
-                    .values([InsertSimple::new("outer")])
+                    .values([InsertSimple::new("inner")])
                     .execute()
             )?;
-
-            // Savepoint that commits
-            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
-                drizzle_try!(
-                    tx.insert(simple)
-                        .values([InsertSimple::new("inner")])
-                        .execute()
-                )?;
-                Ok(())
-            })))?;
-
             Ok(())
-        })
-    ));
+        }))?;
+
+        Ok(())
+    });
 
     // Both records should exist
-    let results: Vec<TxSimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
-    drizzle_assert_eq!(2, results.len());
+    let results: Vec<TxSimpleResult> = db.select((simple.id, simple.name)).from(simple).all();
+    assert_eq!(2, results.len());
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
-    drizzle_assert!(names.contains(&"outer"));
-    drizzle_assert!(names.contains(&"inner"));
+    assert!(names.contains(&"outer"));
+    assert!(names.contains(&"inner"));
 }
 
 #[drizzle::test]
-fn savepoint_rollback_preserves_outer(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn savepoint_rollback_preserves_outer(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(db.transaction(
-        PostgresTransactionType::default(),
-        drizzle_tx!(tx, {
-            // Insert in outer transaction
-            drizzle_try!(
+    db.transaction(PostgresTransactionType::default(), |tx| {
+        // Insert in outer transaction
+        result!(
+            tx.insert(simple)
+                .values([InsertSimple::new("outer")])
+                .execute()
+        )?;
+
+        // Savepoint that rolls back
+        let sp_result: Result<(), _> = result!(tx.savepoint(|tx| {
+            result!(
                 tx.insert(simple)
-                    .values([InsertSimple::new("outer")])
+                    .values([InsertSimple::new("inner_rollback")])
                     .execute()
             )?;
+            Err(drizzle::error::DrizzleError::Other("rollback inner".into()))
+        }));
 
-            // Savepoint that rolls back
-            let sp_result: Result<(), _> = drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
-                drizzle_try!(
-                    tx.insert(simple)
-                        .values([InsertSimple::new("inner_rollback")])
-                        .execute()
-                )?;
-                Err(drizzle::error::DrizzleError::Other("rollback inner".into()))
-            })));
+        // Savepoint error should not abort the outer transaction
+        assert!(sp_result.is_err());
 
-            // Savepoint error should not abort the outer transaction
-            assert!(sp_result.is_err());
+        // Insert another record after the rolled-back savepoint
+        result!(
+            tx.insert(simple)
+                .values([InsertSimple::new("after_sp")])
+                .execute()
+        )?;
 
-            // Insert another record after the rolled-back savepoint
-            drizzle_try!(
-                tx.insert(simple)
-                    .values([InsertSimple::new("after_sp")])
-                    .execute()
-            )?;
-
-            Ok(())
-        })
-    ));
+        Ok(())
+    });
 
     // Only outer + after_sp should exist, inner_rollback should be gone
-    let results: Vec<TxSimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
-    drizzle_assert_eq!(2, results.len());
+    let results: Vec<TxSimpleResult> = db.select((simple.id, simple.name)).from(simple).all();
+    assert_eq!(2, results.len());
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
-    drizzle_assert!(names.contains(&"outer"));
-    drizzle_assert!(names.contains(&"after_sp"));
-    drizzle_assert!(!names.contains(&"inner_rollback"));
+    assert!(names.contains(&"outer"));
+    assert!(names.contains(&"after_sp"));
+    assert!(!names.contains(&"inner_rollback"));
 }
 
 #[drizzle::test]
-fn savepoint_nested_two_levels(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn savepoint_nested_two_levels(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(db.transaction(
-        PostgresTransactionType::default(),
-        drizzle_tx!(tx, {
-            drizzle_try!(
+    db.transaction(PostgresTransactionType::default(), |tx| {
+        result!(
+            tx.insert(simple)
+                .values([InsertSimple::new("level0")])
+                .execute()
+        )?;
+
+        // First savepoint
+        result!(tx.savepoint(|tx| {
+            result!(
                 tx.insert(simple)
-                    .values([InsertSimple::new("level0")])
+                    .values([InsertSimple::new("level1")])
                     .execute()
             )?;
 
-            // First savepoint
-            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
-                drizzle_try!(
+            // Nested savepoint
+            result!(tx.savepoint(|tx| {
+                result!(
                     tx.insert(simple)
-                        .values([InsertSimple::new("level1")])
+                        .values([InsertSimple::new("level2")])
                         .execute()
                 )?;
-
-                // Nested savepoint
-                drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
-                    drizzle_try!(
-                        tx.insert(simple)
-                            .values([InsertSimple::new("level2")])
-                            .execute()
-                    )?;
-                    Ok(())
-                })))?;
-
                 Ok(())
-            })))?;
+            }))?;
 
             Ok(())
-        })
-    ));
+        }))?;
 
-    let results: Vec<TxSimpleResult> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
-    drizzle_assert_eq!(3, results.len());
+        Ok(())
+    });
+
+    let results: Vec<TxSimpleResult> = db.select((simple.id, simple.name)).from(simple).all();
+    assert_eq!(3, results.len());
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
-    drizzle_assert!(names.contains(&"level0"));
-    drizzle_assert!(names.contains(&"level1"));
-    drizzle_assert!(names.contains(&"level2"));
+    assert!(names.contains(&"level0"));
+    assert!(names.contains(&"level1"));
+    assert!(names.contains(&"level2"));
 }
 
 // --- Prepared statement + transaction tests ---
 
 #[drizzle::test]
-fn prepared_outside_transaction(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn prepared_outside_transaction(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")])
-            => execute
-    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")])
+        .execute();
 
     // Create an owned prepared statement OUTSIDE the transaction (baked-in filter)
     let find_alice = db
@@ -314,31 +282,26 @@ fn prepared_outside_transaction(db: &mut TestDb<SimpleSchema>, schema: SimpleSch
         .into_owned();
 
     // Use the prepared statements INSIDE a transaction via tx.all()
-    drizzle_exec!(db.transaction(
-        PostgresTransactionType::default(),
-        drizzle_tx!(tx, {
-            let alice: Vec<TxSimpleResult> = drizzle_try!(tx.all(&find_alice))?;
-            assert_eq!(alice.len(), 1);
-            assert_eq!(alice[0].name, "Alice");
+    db.transaction(PostgresTransactionType::default(), |tx| {
+        let alice: Vec<TxSimpleResult> = result!(tx.all(&find_alice))?;
+        assert_eq!(alice.len(), 1);
+        assert_eq!(alice[0].name, "Alice");
 
-            let bob: Vec<TxSimpleResult> = drizzle_try!(tx.all(&find_bob))?;
-            assert_eq!(bob.len(), 1);
-            assert_eq!(bob[0].name, "Bob");
+        let bob: Vec<TxSimpleResult> = result!(tx.all(&find_bob))?;
+        assert_eq!(bob.len(), 1);
+        assert_eq!(bob[0].name, "Bob");
 
-            Ok(())
-        })
-    ));
+        Ok(())
+    });
 }
 
 #[drizzle::test]
-fn prepared_in_savepoint(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn prepared_in_savepoint(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("Alice")])
-            => execute
-    );
+    db.insert(simple)
+        .values([InsertSimple::new("Alice")])
+        .execute();
 
     // Prepared statement with baked-in select-all
     let select_all = db
@@ -347,36 +310,31 @@ fn prepared_in_savepoint(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         .prepare()
         .into_owned();
 
-    drizzle_exec!(db.transaction(
-        PostgresTransactionType::default(),
-        drizzle_tx!(tx, {
-            drizzle_try!(
-                tx.insert(simple)
-                    .values([InsertSimple::new("Bob")])
-                    .execute()
-            )?;
+    db.transaction(PostgresTransactionType::default(), |tx| {
+        result!(
+            tx.insert(simple)
+                .values([InsertSimple::new("Bob")])
+                .execute()
+        )?;
 
-            // Use prepared statement inside a savepoint
-            drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
-                let rows: Vec<TxSimpleResult> = drizzle_try!(tx.all(&select_all))?;
-                assert_eq!(rows.len(), 2);
-                Ok(())
-            })))?;
-
+        // Use prepared statement inside a savepoint
+        result!(tx.savepoint(|tx| {
+            let rows: Vec<TxSimpleResult> = result!(tx.all(&select_all))?;
+            assert_eq!(rows.len(), 2);
             Ok(())
-        })
-    ));
+        }))?;
+
+        Ok(())
+    });
 }
 
 #[drizzle::test]
-fn prepared_survives_savepoint_rollback(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn prepared_survives_savepoint_rollback(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("Alice")])
-            => execute
-    );
+    db.insert(simple)
+        .values([InsertSimple::new("Alice")])
+        .execute();
 
     let select_all = db
         .select((simple.id, simple.name))
@@ -384,33 +342,30 @@ fn prepared_survives_savepoint_rollback(db: &mut TestDb<SimpleSchema>, schema: S
         .prepare()
         .into_owned();
 
-    drizzle_exec!(db.transaction(
-        PostgresTransactionType::default(),
-        drizzle_tx!(tx, {
-            // Savepoint that inserts then rolls back
-            let sp_result: Result<(), _> = drizzle_try!(tx.savepoint(drizzle_tx!(tx, {
-                drizzle_try!(
-                    tx.insert(simple)
-                        .values([InsertSimple::new("Ghost")])
-                        .execute()
-                )?;
+    db.transaction(PostgresTransactionType::default(), |tx| {
+        // Savepoint that inserts then rolls back
+        let sp_result: Result<(), _> = result!(tx.savepoint(|tx| {
+            result!(
+                tx.insert(simple)
+                    .values([InsertSimple::new("Ghost")])
+                    .execute()
+            )?;
 
-                // Prepared statement sees both inside the savepoint
-                let rows: Vec<TxSimpleResult> = drizzle_try!(tx.all(&select_all))?;
-                assert_eq!(rows.len(), 2);
+            // Prepared statement sees both inside the savepoint
+            let rows: Vec<TxSimpleResult> = result!(tx.all(&select_all))?;
+            assert_eq!(rows.len(), 2);
 
-                Err(drizzle::error::DrizzleError::Other("rollback".into()))
-            })));
-            assert!(sp_result.is_err());
+            Err(drizzle::error::DrizzleError::Other("rollback".into()))
+        }));
+        assert!(sp_result.is_err());
 
-            // After rollback, prepared statement sees only Alice
-            let rows: Vec<TxSimpleResult> = drizzle_try!(tx.all(&select_all))?;
-            assert_eq!(rows.len(), 1);
-            assert_eq!(rows[0].name, "Alice");
+        // After rollback, prepared statement sees only Alice
+        let rows: Vec<TxSimpleResult> = result!(tx.all(&select_all))?;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "Alice");
 
-            Ok(())
-        })
-    ));
+        Ok(())
+    });
 }
 
 // Static assertion: OwnedPreparedStatement is Send + Sync

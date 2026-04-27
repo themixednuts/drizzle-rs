@@ -16,7 +16,7 @@ doctest = true
 [dependencies]
 quote = { version = "1.0" }
 proc-macro2 = { version = "1.0" }
-syn = { version = "2.0", features = ["full"] }
+syn = { version = "2.0", features = ["full", "visit-mut"] }
 rand = { workspace = true }
 heck = { version = "0.5" }
 pluralizer = { version = "0.5" }

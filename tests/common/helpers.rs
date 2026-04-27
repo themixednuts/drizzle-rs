@@ -51,6 +51,111 @@ pub struct CapturedStatement {
     pub error: Option<String>,
 }
 
+/// Process-global panic hook that prints the SQL trail for the currently
+/// running `#[drizzle::test]` function.
+///
+/// The naive approach — `take_hook` / `set_hook` on every test entry — races
+/// under parallel test execution: Test B's `take_hook` can capture Test A's
+/// hook, and the saved `__prev_hook` chain ends up pointing at closures owned
+/// by other tests. The result is cross-test SQL trails on panic.
+///
+/// Instead we install one global hook, keyed on a `thread_local!` that each
+/// test sets via a RAII guard. The default `#[tokio::test]` runtime is
+/// `flavor = "current_thread"`, so the whole test body (including async
+/// polling) runs on the thread that constructed the guard. `#[test]` is
+/// obviously single-threaded. Either way the hook finds the right trail.
+pub mod panic_hook {
+    use super::CapturedStatement;
+    use std::cell::RefCell;
+    use std::sync::{Arc, Mutex, Once};
+
+    type StatementTrail = Arc<Mutex<Vec<CapturedStatement>>>;
+    type TrailSlot = RefCell<Option<(String, StatementTrail)>>;
+
+    thread_local! {
+        static CURRENT_TRAIL: TrailSlot = const { RefCell::new(None) };
+    }
+
+    static INSTALL: Once = Once::new();
+
+    /// Install the process-global panic hook. Idempotent — safe to call from
+    /// every test's setup; the `Once` gate means the `take_hook`/`set_hook`
+    /// swap happens exactly once for the whole process.
+    pub fn install_once() {
+        INSTALL.call_once(|| {
+            let prev = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                let mut buf = String::new();
+                CURRENT_TRAIL.with(|cell| {
+                    // `try_borrow` (not `borrow`) — if the panic fires while
+                    // the cell is borrowed mutably elsewhere we want to fall
+                    // through to the default hook rather than double-panic.
+                    let Ok(guard) = cell.try_borrow() else { return };
+                    let Some((name, arc)) = guard.as_ref() else { return };
+                    use std::fmt::Write as _;
+                    let _ = writeln!(buf, "[{}] panicked", name);
+                    // `try_lock` guards against deadlock if the panic happens
+                    // while a `record_sql` / `report` caller holds the mutex.
+                    match arc.try_lock() {
+                        Ok(stmts) => {
+                            if !stmts.is_empty() {
+                                let _ = writeln!(buf, "captured statements ({}):", stmts.len());
+                                for (i, s) in stmts.iter().enumerate() {
+                                    if let Some(src) = &s.source {
+                                        let _ = writeln!(buf, "  #{} {}", i + 1, src);
+                                    }
+                                    let _ = writeln!(buf, "     sql: {}", s.sql);
+                                    if let Some(p) = &s.params {
+                                        let _ = writeln!(buf, "     params: {}", p);
+                                    }
+                                    if let Some(e) = &s.error {
+                                        let _ = writeln!(buf, "     error: {}", e);
+                                    }
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            let _ = writeln!(
+                                buf,
+                                "(statements mutex was locked at time of panic; SQL trail unavailable)"
+                            );
+                        }
+                    }
+                });
+                if !buf.is_empty() {
+                    eprintln!("{}", buf);
+                }
+                prev(info);
+            }));
+        });
+    }
+
+    /// RAII guard that stashes `(test_name, statements)` in the thread-local
+    /// on construction and restores the previous value on drop (normal exit
+    /// or unwinding). Tests never nest today, but the save-and-restore keeps
+    /// us safe if they ever do.
+    pub struct TrailGuard {
+        prev: Option<(String, StatementTrail)>,
+    }
+
+    impl TrailGuard {
+        pub fn new(test_name: String, statements: StatementTrail) -> Self {
+            let prev =
+                CURRENT_TRAIL.with(|cell| cell.borrow_mut().replace((test_name, statements)));
+            Self { prev }
+        }
+    }
+
+    impl Drop for TrailGuard {
+        fn drop(&mut self) {
+            let prev = self.prev.take();
+            CURRENT_TRAIL.with(|cell| {
+                *cell.borrow_mut() = prev;
+            });
+        }
+    }
+}
+
 /// Calculate display width accounting for special characters
 fn display_width(s: &str) -> usize {
     s.chars()
@@ -384,17 +489,19 @@ pub fn failure_report(ctx: &FailureContext<'_>) -> String {
 /// Test database wrapper that captures execution context for failure reports
 pub mod test_db {
     use super::{CapturedStatement, FailureContext, failure_report};
-    use std::cell::RefCell;
     use std::ops::{Deref, DerefMut};
 
     use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
 
     /// Generic test database wrapper
     pub struct TestDb<D> {
         pub db: D,
         pub driver_name: String,
         pub schema_ddl: Vec<String>,
-        pub statements: RefCell<Vec<CapturedStatement>>,
+        // `Arc<Mutex<_>>` (not `RefCell`) so the statements trail can be shared
+        // into the `set_hook` panic closure, which requires `Send + Sync`.
+        pub statements: Arc<Mutex<Vec<CapturedStatement>>>,
         pub db_path: Option<PathBuf>,
     }
 
@@ -429,7 +536,7 @@ pub mod test_db {
                 db,
                 driver_name: driver_name.into(),
                 schema_ddl,
-                statements: RefCell::new(Vec::new()),
+                statements: Arc::new(Mutex::new(Vec::new())),
                 db_path: None,
             }
         }
@@ -441,7 +548,7 @@ pub mod test_db {
 
         /// Record a SQL statement execution
         pub fn record(&self, sql: impl Into<String>, error: Option<String>) {
-            self.statements.borrow_mut().push(CapturedStatement {
+            self.statements.lock().unwrap().push(CapturedStatement {
                 sql: sql.into(),
                 params: None,
                 source: None,
@@ -451,7 +558,7 @@ pub mod test_db {
 
         /// Record a SQL statement with source expression and params
         pub fn record_sql(&self, source: &str, sql: &str, params: &str, error: Option<String>) {
-            self.statements.borrow_mut().push(CapturedStatement {
+            self.statements.lock().unwrap().push(CapturedStatement {
                 sql: sql.into(),
                 params: Some(params.into()),
                 source: Some(source.into()),
@@ -468,6 +575,7 @@ pub mod test_db {
             actual: Option<&str>,
             failed_operation: Option<&str>,
         ) -> String {
+            let stmts = self.statements.lock().unwrap();
             failure_report(&FailureContext {
                 driver_name: &self.driver_name,
                 test_name,
@@ -476,7 +584,7 @@ pub mod test_db {
                 actual,
                 failed_operation,
                 schema_ddl: &self.schema_ddl,
-                statements: &self.statements.borrow(),
+                statements: &stmts,
             })
         }
 
@@ -872,11 +980,11 @@ pub mod postgres_sync_setup {
     use drizzle::postgres::sync::Drizzle;
     use drizzle_migrations::{Migration, Tracking};
     use postgres::{Client, NoTls};
-    use std::cell::RefCell;
     use std::ops::{Deref, DerefMut};
     use std::process::Command;
     use std::sync::Once;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
 
@@ -945,7 +1053,9 @@ pub mod postgres_sync_setup {
         pub db: Drizzle<S>,
         schema_name: String,
         schema_ddl: Vec<String>,
-        statements: RefCell<Vec<CapturedStatement>>,
+        // `Arc<Mutex<_>>` (not `RefCell`) so the statements trail can be shared
+        // into the `set_hook` panic closure, which requires `Send + Sync`.
+        pub statements: Arc<Mutex<Vec<CapturedStatement>>>,
     }
 
     impl<S> Deref for TestDb<S> {
@@ -967,7 +1077,7 @@ pub mod postgres_sync_setup {
         }
 
         pub fn record(&self, sql: impl Into<String>, error: Option<String>) {
-            self.statements.borrow_mut().push(CapturedStatement {
+            self.statements.lock().unwrap().push(CapturedStatement {
                 sql: sql.into(),
                 params: None,
                 source: None,
@@ -976,7 +1086,7 @@ pub mod postgres_sync_setup {
         }
 
         pub fn record_sql(&self, source: &str, sql: &str, params: &str, error: Option<String>) {
-            self.statements.borrow_mut().push(CapturedStatement {
+            self.statements.lock().unwrap().push(CapturedStatement {
                 sql: sql.into(),
                 params: Some(params.into()),
                 source: Some(source.into()),
@@ -992,6 +1102,7 @@ pub mod postgres_sync_setup {
             actual: Option<&str>,
             failed_operation: Option<&str>,
         ) -> String {
+            let stmts = self.statements.lock().unwrap();
             failure_report(&FailureContext {
                 driver_name: "postgres-sync",
                 test_name,
@@ -1000,7 +1111,7 @@ pub mod postgres_sync_setup {
                 actual,
                 failed_operation,
                 schema_ddl: &self.schema_ddl,
-                statements: &self.statements.borrow(),
+                statements: &stmts,
             })
         }
 
@@ -1060,7 +1171,7 @@ pub mod postgres_sync_setup {
             db,
             schema_name,
             schema_ddl: Vec::new(),
-            statements: RefCell::new(Vec::new()),
+            statements: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -1092,7 +1203,7 @@ pub mod postgres_sync_setup {
             db,
             schema_name,
             schema_ddl,
-            statements: RefCell::new(Vec::new()),
+            statements: Arc::new(Mutex::new(Vec::new())),
         };
         (test_db, schema)
     }
@@ -1166,7 +1277,7 @@ pub mod postgres_sync_setup {
                 db,
                 schema_name,
                 schema_ddl,
-                statements: RefCell::new(Vec::new()),
+                statements: Arc::new(Mutex::new(Vec::new())),
             };
             test_db.fail(
                 "schema_creation",
@@ -1180,7 +1291,7 @@ pub mod postgres_sync_setup {
             db,
             schema_name,
             schema_ddl,
-            statements: RefCell::new(Vec::new()),
+            statements: Arc::new(Mutex::new(Vec::new())),
         };
         (test_db, schema)
     }
@@ -1191,11 +1302,11 @@ pub mod tokio_postgres_setup {
     use super::{CapturedStatement, FailureContext, failure_report};
     use drizzle::postgres::tokio::Drizzle;
     use drizzle_migrations::{Migration, Tracking};
-    use std::cell::RefCell;
     use std::ops::{Deref, DerefMut};
     use std::process::Command;
     use std::sync::Once;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
     use tokio_postgres::NoTls;
@@ -1275,7 +1386,9 @@ pub mod tokio_postgres_setup {
         pub db: Drizzle<S>,
         schema_name: String,
         schema_ddl: Vec<String>,
-        statements: RefCell<Vec<CapturedStatement>>,
+        // `Arc<Mutex<_>>` (not `RefCell`) so the statements trail can be shared
+        // into the `set_hook` panic closure, which requires `Send + Sync`.
+        pub statements: Arc<Mutex<Vec<CapturedStatement>>>,
     }
 
     impl<S> Deref for TestDb<S> {
@@ -1297,7 +1410,7 @@ pub mod tokio_postgres_setup {
         }
 
         pub fn record(&self, sql: impl Into<String>, error: Option<String>) {
-            self.statements.borrow_mut().push(CapturedStatement {
+            self.statements.lock().unwrap().push(CapturedStatement {
                 sql: sql.into(),
                 params: None,
                 source: None,
@@ -1306,7 +1419,7 @@ pub mod tokio_postgres_setup {
         }
 
         pub fn record_sql(&self, source: &str, sql: &str, params: &str, error: Option<String>) {
-            self.statements.borrow_mut().push(CapturedStatement {
+            self.statements.lock().unwrap().push(CapturedStatement {
                 sql: sql.into(),
                 params: Some(params.into()),
                 source: Some(source.into()),
@@ -1322,6 +1435,7 @@ pub mod tokio_postgres_setup {
             actual: Option<&str>,
             failed_operation: Option<&str>,
         ) -> String {
+            let stmts = self.statements.lock().unwrap();
             failure_report(&FailureContext {
                 driver_name: "tokio-postgres",
                 test_name,
@@ -1330,7 +1444,7 @@ pub mod tokio_postgres_setup {
                 actual,
                 failed_operation,
                 schema_ddl: &self.schema_ddl,
-                statements: &self.statements.borrow(),
+                statements: &stmts,
             })
         }
 
@@ -1415,7 +1529,7 @@ pub mod tokio_postgres_setup {
             db,
             schema_name,
             schema_ddl: Vec::new(),
-            statements: RefCell::new(Vec::new()),
+            statements: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -1456,7 +1570,7 @@ pub mod tokio_postgres_setup {
             db,
             schema_name,
             schema_ddl,
-            statements: RefCell::new(Vec::new()),
+            statements: Arc::new(Mutex::new(Vec::new())),
         };
         (test_db, schema)
     }
@@ -1550,7 +1664,7 @@ pub mod tokio_postgres_setup {
                 db,
                 schema_name,
                 schema_ddl,
-                statements: RefCell::new(Vec::new()),
+                statements: Arc::new(Mutex::new(Vec::new())),
             };
             test_db.fail(
                 "schema_creation",
@@ -1564,7 +1678,7 @@ pub mod tokio_postgres_setup {
             db,
             schema_name,
             schema_ddl,
-            statements: RefCell::new(Vec::new()),
+            statements: Arc::new(Mutex::new(Vec::new())),
         };
         (test_db, schema)
     }

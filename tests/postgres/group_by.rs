@@ -38,7 +38,7 @@ struct GroupAvgResult {
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_group_by_with_count(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_group_by_with_count(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -49,19 +49,15 @@ fn test_group_by_with_count(db: &mut TestDb<ComplexSchema>, schema: ComplexSchem
         InsertComplex::new("eve", false, Role::Admin),
     ];
 
-    drizzle_exec!(db.insert(complex).values(test_data) => execute);
+    db.insert(complex).values(test_data).execute();
 
     // GROUP BY active, COUNT per group
-    let results: Vec<GroupCountActiveResult> = drizzle_exec!(
-        db.select((
-            complex.active,
-            alias(count(complex.id), "total_age"),
-        ))
+    let results: Vec<GroupCountActiveResult> = db
+        .select((complex.active, alias(count(complex.id), "total_age")))
         .from(complex)
         .group_by(complex.active)
         .order_by(asc(complex.active))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 2);
     // active=false group
@@ -74,7 +70,7 @@ fn test_group_by_with_count(db: &mut TestDb<ComplexSchema>, schema: ComplexSchem
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_group_by_with_sum(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_group_by_with_sum(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -84,19 +80,15 @@ fn test_group_by_with_sum(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema)
         InsertComplex::new("diana", false, Role::User).with_age(40),
     ];
 
-    drizzle_exec!(db.insert(complex).values(test_data) => execute);
+    db.insert(complex).values(test_data).execute();
 
     // GROUP BY active, SUM(age)
-    let results: Vec<GroupSumResult> = drizzle_exec!(
-        db.select((
-            complex.active,
-            alias(sum(complex.age), "total_age"),
-        ))
+    let results: Vec<GroupSumResult> = db
+        .select((complex.active, alias(sum(complex.age), "total_age")))
         .from(complex)
         .group_by(complex.active)
         .order_by(asc(complex.active))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 2);
     assert!(!results[0].active);
@@ -107,7 +99,7 @@ fn test_group_by_with_sum(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema)
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_group_by_with_avg(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_group_by_with_avg(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -117,18 +109,14 @@ fn test_group_by_with_avg(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema)
         InsertComplex::new("diana", false, Role::User).with_score(60.0),
     ];
 
-    drizzle_exec!(db.insert(complex).values(test_data) => execute);
+    db.insert(complex).values(test_data).execute();
 
-    let results: Vec<GroupAvgResult> = drizzle_exec!(
-        db.select((
-            complex.active,
-            alias(avg(complex.score), "avg_score"),
-        ))
+    let results: Vec<GroupAvgResult> = db
+        .select((complex.active, alias(avg(complex.score), "avg_score")))
         .from(complex)
         .group_by(complex.active)
         .order_by(asc(complex.active))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 2);
     assert!(!results[0].active);
@@ -143,7 +131,7 @@ fn test_group_by_with_avg(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema)
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_having_filters_groups(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_having_filters_groups(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -153,21 +141,17 @@ fn test_having_filters_groups(db: &mut TestDb<ComplexSchema>, schema: ComplexSch
         InsertComplex::new("diana", false, Role::User),
     ];
 
-    drizzle_exec!(db.insert(complex).values(test_data) => execute);
+    db.insert(complex).values(test_data).execute();
 
     // GROUP BY active HAVING COUNT(*) > 2
     // active=true has 3 rows, active=false has 1 row
     // Only active=true should appear
-    let results: Vec<GroupCountActiveResult> = drizzle_exec!(
-        db.select((
-            complex.active,
-            alias(count(complex.id), "total_age"),
-        ))
+    let results: Vec<GroupCountActiveResult> = db
+        .select((complex.active, alias(count(complex.id), "total_age")))
         .from(complex)
         .group_by(complex.active)
         .having(gt(count(complex.id), 2_i64))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 1);
     assert!(results[0].active);
@@ -176,7 +160,7 @@ fn test_having_filters_groups(db: &mut TestDb<ComplexSchema>, schema: ComplexSch
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_having_with_sum(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_having_with_sum(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -185,20 +169,16 @@ fn test_having_with_sum(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
         InsertComplex::new("charlie", false, Role::User).with_age(10),
     ];
 
-    drizzle_exec!(db.insert(complex).values(test_data) => execute);
+    db.insert(complex).values(test_data).execute();
 
     // GROUP BY active HAVING SUM(age) > 20
     // active=true has sum=55, active=false has sum=10
-    let results: Vec<GroupSumResult> = drizzle_exec!(
-        db.select((
-            complex.active,
-            alias(sum(complex.age), "total_age"),
-        ))
+    let results: Vec<GroupSumResult> = db
+        .select((complex.active, alias(sum(complex.age), "total_age")))
         .from(complex)
         .group_by(complex.active)
         .having(gt(sum(complex.age), 20_i64))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 1);
     assert!(results[0].active);
@@ -207,7 +187,7 @@ fn test_having_with_sum(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_having_no_matching_groups(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_having_no_matching_groups(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -215,19 +195,15 @@ fn test_having_no_matching_groups(db: &mut TestDb<ComplexSchema>, schema: Comple
         InsertComplex::new("bob", false, Role::User),
     ];
 
-    drizzle_exec!(db.insert(complex).values(test_data) => execute);
+    db.insert(complex).values(test_data).execute();
 
     // GROUP BY active HAVING COUNT(*) > 10 — no group qualifies
-    let results: Vec<GroupCountActiveResult> = drizzle_exec!(
-        db.select((
-            complex.active,
-            alias(count(complex.id), "total_age"),
-        ))
+    let results: Vec<GroupCountActiveResult> = db
+        .select((complex.active, alias(count(complex.id), "total_age")))
         .from(complex)
         .group_by(complex.active)
         .having(gt(count(complex.id), 10_i64))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 0);
 }
@@ -238,7 +214,7 @@ fn test_having_no_matching_groups(db: &mut TestDb<ComplexSchema>, schema: Comple
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_group_by_order_by(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_group_by_order_by(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -249,19 +225,15 @@ fn test_group_by_order_by(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema)
         InsertComplex::new("eve", true, Role::Admin).with_age(45),
     ];
 
-    drizzle_exec!(db.insert(complex).values(test_data) => execute);
+    db.insert(complex).values(test_data).execute();
 
     // GROUP BY active, ORDER BY SUM(age) DESC
-    let results: Vec<GroupSumResult> = drizzle_exec!(
-        db.select((
-            complex.active,
-            alias(sum(complex.age), "total_age"),
-        ))
+    let results: Vec<GroupSumResult> = db
+        .select((complex.active, alias(sum(complex.age), "total_age")))
         .from(complex)
         .group_by(complex.active)
         .order_by(desc(sum(complex.age)))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 2);
     // active=true: 25+35+45=105, active=false: 30+40=70
@@ -278,7 +250,7 @@ fn test_group_by_order_by(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema)
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_group_by_with_limit(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_group_by_with_limit(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -289,20 +261,16 @@ fn test_group_by_with_limit(db: &mut TestDb<ComplexSchema>, schema: ComplexSchem
         InsertComplex::new("eve", false, Role::Admin).with_age(50),
     ];
 
-    drizzle_exec!(db.insert(complex).values(test_data) => execute);
+    db.insert(complex).values(test_data).execute();
 
     // GROUP BY active ORDER BY SUM(age) DESC LIMIT 1 — top 1 group only
-    let results: Vec<GroupSumResult> = drizzle_exec!(
-        db.select((
-            complex.active,
-            alias(sum(complex.age), "total_age"),
-        ))
+    let results: Vec<GroupSumResult> = db
+        .select((complex.active, alias(sum(complex.age), "total_age")))
         .from(complex)
         .group_by(complex.active)
         .order_by(desc(sum(complex.age)))
         .limit(1)
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 1);
     // active=false: 40+50=90 > active=true: 10+20+30=60
@@ -312,7 +280,7 @@ fn test_group_by_with_limit(db: &mut TestDb<ComplexSchema>, schema: ComplexSchem
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_group_by_limit_without_order(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_group_by_limit_without_order(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { role: _, complex } = schema;
 
     let test_data = vec![
@@ -323,19 +291,15 @@ fn test_group_by_limit_without_order(db: &mut TestDb<ComplexSchema>, schema: Com
         InsertComplex::new("eve", false, Role::Admin),
     ];
 
-    drizzle_exec!(db.insert(complex).values(test_data) => execute);
+    db.insert(complex).values(test_data).execute();
 
     // GROUP BY active LIMIT 1 — direct LIMIT on GROUP BY
-    let results: Vec<GroupCountActiveResult> = drizzle_exec!(
-        db.select((
-            complex.active,
-            alias(count(complex.id), "total_age"),
-        ))
+    let results: Vec<GroupCountActiveResult> = db
+        .select((complex.active, alias(count(complex.id), "total_age")))
         .from(complex)
         .group_by(complex.active)
         .limit(1)
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 1);
     assert!(results[0].total_age >= 2);
@@ -347,19 +311,15 @@ fn test_group_by_limit_without_order(db: &mut TestDb<ComplexSchema>, schema: Com
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_group_by_empty_table(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_group_by_empty_table(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { role: _, complex } = schema;
 
     // No data inserted
-    let results: Vec<GroupCountActiveResult> = drizzle_exec!(
-        db.select((
-            complex.active,
-            alias(count(complex.id), "total_age"),
-        ))
+    let results: Vec<GroupCountActiveResult> = db
+        .select((complex.active, alias(count(complex.id), "total_age")))
         .from(complex)
         .group_by(complex.active)
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 0);
 }

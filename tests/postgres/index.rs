@@ -11,7 +11,7 @@ use drizzle::postgres::prelude::*;
 
 // Test queries that would benefit from indexes
 #[drizzle::test]
-fn query_by_name_column(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn query_by_name_column(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
@@ -19,14 +19,14 @@ fn query_by_name_column(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("Bob"),
         InsertSimple::new("Charlie"),
     ]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     // Query by name (would use index if one existed)
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(eq(simple.name, "Bob"));
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Bob");
@@ -34,19 +34,19 @@ fn query_by_name_column(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn query_by_nullable_column(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn query_by_nullable_column(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
     // Insert rows with and without email
     let stmt = db.insert(complex).values([
         InsertComplex::new("With Email", true, Role::User).with_email("test@example.com")
     ]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db
         .insert(complex)
         .values([InsertComplex::new("No Email", true, Role::User)]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     #[derive(Debug, PostgresFromRow)]
     struct Result {
@@ -58,14 +58,14 @@ fn query_by_nullable_column(db: &mut TestDb<ComplexSchema>, schema: ComplexSchem
         .select(())
         .from(complex)
         .r#where(eq(complex.email, "test@example.com"));
-    let results: Vec<Result> = drizzle_exec!(stmt => all);
+    let results: Vec<Result> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "With Email");
 }
 
 #[drizzle::test]
-fn query_large_dataset(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn query_large_dataset(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Insert many rows
@@ -75,14 +75,14 @@ fn query_large_dataset(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         .map(|n| InsertSimple::new(n.as_str()))
         .collect();
     let stmt = db.insert(simple).values(rows);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     // Query specific row (index would speed this up)
     let stmt = db
         .select((simple.id, simple.name))
         .from(simple)
         .r#where(eq(simple.name, "User_025"));
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "User_025");

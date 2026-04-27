@@ -215,29 +215,26 @@ struct NullableTestSchema {
 }
 
 #[drizzle::test]
-fn test_all_column_types(db: &mut TestDb<AllTypesSchema>, schema: AllTypesSchema) {
+fn test_all_column_types(db: &mut TestDb<AllTypesSchema>) {
     let all_types = schema.all_types;
 
     // Test insertion with all column types
     let test_data = InsertAllTypes::new("test text", 123, 45.67, [1, 2, 3, 4, 5], true);
 
-    let result = drizzle_exec!(db.insert(all_types).values([test_data]) => execute);
+    let result = db.insert(all_types).values([test_data]).execute();
     assert_eq!(result, 1);
 }
 
 #[drizzle::test]
-fn test_primary_key_autoincrement(
-    db: &mut TestDb<PrimaryKeyVariationsSchema>,
-    schema: PrimaryKeyVariationsSchema,
-) {
+fn test_primary_key_autoincrement(db: &mut TestDb<PrimaryKeyVariationsSchema>) {
     let pk_table = schema.pk_variations;
 
     // Insert multiple records to test autoincrement
     let data1 = InsertPrimaryKeyVariations::new("first");
     let data2 = InsertPrimaryKeyVariations::new("second");
 
-    drizzle_exec!(db.insert(pk_table).values([data1]) => execute);
-    drizzle_exec!(db.insert(pk_table).values([data2]) => execute);
+    db.insert(pk_table).values([data1]).execute();
+    db.insert(pk_table).values([data2]).execute();
 
     // Verify autoincrement worked using unified approach
     let select_query = db
@@ -248,7 +245,7 @@ fn test_primary_key_autoincrement(
     #[derive(SQLiteFromRow, Debug, PartialEq)]
     struct ReturnResult(i32, String);
 
-    let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
+    let results: Vec<ReturnResult> = db.all(select_query);
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0], ReturnResult(1, "first".to_string()));
@@ -256,15 +253,12 @@ fn test_primary_key_autoincrement(
 }
 
 #[drizzle::test]
-fn test_manual_primary_key(
-    db: &mut TestDb<ManualPrimaryKeySchema>,
-    schema: ManualPrimaryKeySchema,
-) {
+fn test_manual_primary_key(db: &mut TestDb<ManualPrimaryKeySchema>) {
     let manual_pk = schema.manual_pk;
 
     let data = InsertManualPrimaryKey::new("custom_id_123", "Test description");
 
-    let result = drizzle_exec!(db.insert(manual_pk).values([data]) => execute);
+    let result = db.insert(manual_pk).values([data]).execute();
     assert_eq!(result, 1);
 
     // Verify the manual primary key using unified query approach
@@ -276,7 +270,7 @@ fn test_manual_primary_key(
     #[derive(SQLiteFromRow, Debug, PartialEq)]
     struct ReturnResult(String, String);
 
-    let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
+    let results: Vec<ReturnResult> = db.all(select_query);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, "custom_id_123");
@@ -284,35 +278,32 @@ fn test_manual_primary_key(
 }
 
 #[drizzle::test]
-fn test_unique_constraints(db: &mut TestDb<UniqueFieldsSchema>, schema: UniqueFieldsSchema) {
+fn test_unique_constraints(db: &mut TestDb<UniqueFieldsSchema>) {
     let unique_table = schema.unique_fields;
 
     // Insert first record
     let data1 =
         InsertUniqueFields::new("test@example.com", "testuser").with_display_name("Test User");
 
-    let result1 = drizzle_exec!(db.insert(unique_table).values([data1]) => execute);
+    let result1 = db.insert(unique_table).values([data1]).execute();
     assert_eq!(result1, 1);
 
     // Try to insert duplicate email - should fail
     let data2 = InsertUniqueFields::new("test@example.com", "anotheruser")
         .with_display_name("Another User");
 
-    let result2 = drizzle_try!(db.insert(unique_table).values([data2]).execute());
+    let result2 = result!(db.insert(unique_table).values([data2]).execute());
     assert!(result2.is_err()); // Should fail due to unique constraint
 }
 
 #[drizzle::test]
-fn test_compile_time_defaults(
-    db: &mut TestDb<CompileTimeDefaultsSchema>,
-    schema: CompileTimeDefaultsSchema,
-) {
+fn test_compile_time_defaults(db: &mut TestDb<CompileTimeDefaultsSchema>) {
     let defaults_table = schema.compile_defaults;
 
     // Insert with minimal data - defaults should be used
     let data = InsertCompileTimeDefaults::new();
 
-    let result = drizzle_exec!(db.insert(defaults_table).values([data]) => execute);
+    let result = db.insert(defaults_table).values([data]).execute();
     assert_eq!(result, 1);
 
     // Verify compile-time defaults were applied
@@ -329,7 +320,7 @@ fn test_compile_time_defaults(
 
     #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(String, i32, f64, bool, String);
-    let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
+    let results: Vec<ReturnResult> = db.all(select_query);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, "default_name");
@@ -340,13 +331,13 @@ fn test_compile_time_defaults(
 }
 
 #[drizzle::test]
-fn test_runtime_defaults(db: &mut TestDb<RuntimeDefaultsSchema>, schema: RuntimeDefaultsSchema) {
+fn test_runtime_defaults(db: &mut TestDb<RuntimeDefaultsSchema>) {
     let RuntimeDefaultsSchema { runtime_defaults } = schema;
 
     // Insert with minimal data - runtime defaults should be used
     let data = InsertRuntimeDefaults::new("test");
 
-    let result = drizzle_exec!(db.insert(runtime_defaults).values([data]) => execute);
+    let result = db.insert(runtime_defaults).values([data]).execute();
     assert_eq!(result, 1);
 
     // Verify runtime defaults were applied
@@ -361,7 +352,7 @@ fn test_runtime_defaults(db: &mut TestDb<RuntimeDefaultsSchema>, schema: Runtime
 
     #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(String, i32, String);
-    let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
+    let results: Vec<ReturnResult> = db.all(select_query);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, ""); // String::new() returns empty string
@@ -370,13 +361,13 @@ fn test_runtime_defaults(db: &mut TestDb<RuntimeDefaultsSchema>, schema: Runtime
 }
 
 #[drizzle::test]
-fn test_enum_storage_types(db: &mut TestDb<EnumFieldsSchema>, schema: EnumFieldsSchema) {
+fn test_enum_storage_types(db: &mut TestDb<EnumFieldsSchema>) {
     let enum_table = schema.enum_fields;
 
     // Test different enum storage types
     let data = InsertEnumFields::new(Priority::High, TaskStatus::InProgress, "Test task");
 
-    let result = drizzle_exec!(db.insert(enum_table).values([data]) => execute);
+    let result = db.insert(enum_table).values([data]).execute();
     assert_eq!(result, 1);
 
     // Verify enum storage using typeof helper
@@ -394,7 +385,7 @@ fn test_enum_storage_types(db: &mut TestDb<EnumFieldsSchema>, schema: EnumFields
 
     #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(i32, String, String, String);
-    let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
+    let results: Vec<ReturnResult> = db.all(select_query);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, 3); // Priority::High = 3
@@ -406,7 +397,7 @@ fn test_enum_storage_types(db: &mut TestDb<EnumFieldsSchema>, schema: EnumFields
 // Verify full SelectEnumFields round-trip: INTEGER enum (Priority) and TEXT enum (TaskStatus)
 // are correctly deserialized back to their Rust enum types.
 #[drizzle::test]
-fn test_enum_full_round_trip(db: &mut TestDb<EnumFieldsSchema>, schema: EnumFieldsSchema) {
+fn test_enum_full_round_trip(db: &mut TestDb<EnumFieldsSchema>) {
     let enum_table = schema.enum_fields;
 
     // Insert all variants of both enums
@@ -415,12 +406,14 @@ fn test_enum_full_round_trip(db: &mut TestDb<EnumFieldsSchema>, schema: EnumFiel
         InsertEnumFields::new(Priority::Medium, TaskStatus::InProgress, "normal"),
         InsertEnumFields::new(Priority::Low, TaskStatus::Todo, "backlog"),
     ];
-    drizzle_exec!(db.insert(enum_table).values(data) => execute);
+    db.insert(enum_table).values(data).execute();
 
     // Full select returning SelectEnumFields (includes both enum columns)
-    let results: Vec<SelectEnumFields> = drizzle_exec!(
-        db.select(()).from(enum_table).order_by(asc(enum_table.id)) => all
-    );
+    let results: Vec<SelectEnumFields> = db
+        .select(())
+        .from(enum_table)
+        .order_by(asc(enum_table.id))
+        .all();
     assert_eq!(results.len(), 3);
 
     // Verify INTEGER-stored enum (Priority) round-trips correctly
@@ -436,7 +429,7 @@ fn test_enum_full_round_trip(db: &mut TestDb<EnumFieldsSchema>, schema: EnumFiel
 
 // Verify enum WHERE conditions work with both INTEGER and TEXT storage.
 #[drizzle::test]
-fn test_enum_where_conditions(db: &mut TestDb<EnumFieldsSchema>, schema: EnumFieldsSchema) {
+fn test_enum_where_conditions(db: &mut TestDb<EnumFieldsSchema>) {
     let enum_table = schema.enum_fields;
 
     let data = vec![
@@ -444,30 +437,30 @@ fn test_enum_where_conditions(db: &mut TestDb<EnumFieldsSchema>, schema: EnumFie
         InsertEnumFields::new(Priority::High, TaskStatus::Todo, "task 2"),
         InsertEnumFields::new(Priority::Low, TaskStatus::Done, "task 3"),
     ];
-    drizzle_exec!(db.insert(enum_table).values(data) => execute);
+    db.insert(enum_table).values(data).execute();
 
     // Filter by INTEGER enum
-    let results: Vec<SelectEnumFields> = drizzle_exec!(
-        db.select(()).from(enum_table)
-            .r#where(eq(enum_table.priority, Priority::High))
-            => all
-    );
+    let results: Vec<SelectEnumFields> = db
+        .select(())
+        .from(enum_table)
+        .r#where(eq(enum_table.priority, Priority::High))
+        .all();
     assert_eq!(results.len(), 2);
     assert!(results.iter().all(|r| r.priority == Priority::High));
 
     // Filter by TEXT enum
-    let results: Vec<SelectEnumFields> = drizzle_exec!(
-        db.select(()).from(enum_table)
-            .r#where(eq(enum_table.status, TaskStatus::Done))
-            => all
-    );
+    let results: Vec<SelectEnumFields> = db
+        .select(())
+        .from(enum_table)
+        .r#where(eq(enum_table.status, TaskStatus::Done))
+        .all();
     assert_eq!(results.len(), 2);
     assert!(results.iter().all(|r| r.status == TaskStatus::Done));
 }
 
 #[cfg(feature = "serde")]
 #[drizzle::test]
-fn test_json_storage_types(db: &mut TestDb<JsonFieldsSchema>, schema: JsonFieldsSchema) {
+fn test_json_storage_types(db: &mut TestDb<JsonFieldsSchema>) {
     let json_table = schema.json_fields;
 
     let json_data = JsonData {
@@ -477,7 +470,7 @@ fn test_json_storage_types(db: &mut TestDb<JsonFieldsSchema>, schema: JsonFields
 
     let data = InsertJsonFields::new("regular").with_text_json(json_data);
 
-    let result = drizzle_exec!(db.insert(json_table).values([data]) => execute);
+    let result = db.insert(json_table).values([data]).execute();
 
     assert_eq!(result, 1);
 
@@ -490,7 +483,7 @@ fn test_json_storage_types(db: &mut TestDb<JsonFieldsSchema>, schema: JsonFields
 
     #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(String);
-    let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
+    let results: Vec<ReturnResult> = db.all(select_query);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, "text"); // text(json) stores as TEXT
@@ -498,16 +491,13 @@ fn test_json_storage_types(db: &mut TestDb<JsonFieldsSchema>, schema: JsonFields
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_uuid_primary_key_with_default_fn(
-    db: &mut TestDb<UuidFieldsSchema>,
-    schema: UuidFieldsSchema,
-) {
+fn test_uuid_primary_key_with_default_fn(db: &mut TestDb<UuidFieldsSchema>) {
     let uuid_table = schema.uuid_fields;
 
     // Insert without specifying UUID - default_fn should generate one
     let data = InsertUuidFields::new("uuid test");
 
-    let result = drizzle_exec!(db.insert(uuid_table).values([data]) => execute);
+    let result = db.insert(uuid_table).values([data]).execute();
 
     assert_eq!(result, 1);
 
@@ -519,7 +509,7 @@ fn test_uuid_primary_key_with_default_fn(
 
     #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(uuid::Uuid, String);
-    let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
+    let results: Vec<ReturnResult> = db.all(select_query);
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].1, "uuid test");
@@ -538,20 +528,20 @@ fn test_uuid_primary_key_with_default_fn(
 
     #[derive(SQLiteFromRow, Debug)]
     struct TypeResult(String);
-    let type_results: Vec<TypeResult> = drizzle_exec!(db.all(type_query));
+    let type_results: Vec<TypeResult> = db.all(type_query);
 
     assert_eq!(type_results.len(), 1);
     assert_eq!(type_results[0].0, "blob"); // blob(primary) stores UUIDs as BLOB
 }
 
 #[drizzle::test]
-fn test_nullable_vs_non_nullable(db: &mut TestDb<NullableTestSchema>, schema: NullableTestSchema) {
+fn test_nullable_vs_non_nullable(db: &mut TestDb<NullableTestSchema>) {
     let nullable_table = schema.nullable_test;
 
     // Test 1: Insert with all required fields, no optional fields
     let minimal_data = InsertNullableTest::new("required", 123, true);
 
-    let result = drizzle_exec!(db.insert(nullable_table).values([minimal_data]) => execute);
+    let result = db.insert(nullable_table).values([minimal_data]).execute();
 
     assert_eq!(result, 1);
 
@@ -563,7 +553,7 @@ fn test_nullable_vs_non_nullable(db: &mut TestDb<NullableTestSchema>, schema: Nu
         .with_optional_blob([9, 8, 7])
         .with_optional_bool(true);
 
-    let result = drizzle_exec!(db.insert(nullable_table).values([full_data]) => execute);
+    let result = db.insert(nullable_table).values([full_data]).execute();
 
     assert_eq!(result, 1);
 
@@ -579,7 +569,7 @@ fn test_nullable_vs_non_nullable(db: &mut TestDb<NullableTestSchema>, schema: Nu
 
     #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(String, Option<String>, Option<i32>);
-    let results: Vec<ReturnResult> = drizzle_exec!(db.all(select_query));
+    let results: Vec<ReturnResult> = db.all(select_query);
 
     assert_eq!(results.len(), 2);
 

@@ -118,7 +118,7 @@ struct ViewTestSchema {
 }
 
 #[drizzle::test]
-fn test_schema_derive(db: &mut TestDb<AppTestSchema>, schema: AppTestSchema) {
+fn test_schema_derive(db: &mut TestDb<AppTestSchema>) {
     // Test table SQL generation (DDL-based format)
     let user_sql = User::create_table_sql();
     assert_eq!(
@@ -160,19 +160,18 @@ fn test_schema_derive(db: &mut TestDb<AppTestSchema>, schema: AppTestSchema) {
 }
 
 #[drizzle::test]
-fn test_schema_with_drizzle_macro(db: &mut TestDb<AppTestSchema>, schema: AppTestSchema) {
+fn test_schema_with_drizzle_macro(db: &mut TestDb<AppTestSchema>) {
     // Test that we can use the schema for queries
     let insert_data = InsertUser::new("test@example.com", "Test User");
-    let result = drizzle_exec!(db.insert(schema.user).values([insert_data]) => execute);
+    let result = db.insert(schema.user).values([insert_data]).execute();
     assert_eq!(result, 1);
 
     // Test that the indexes work (this would fail if indexes weren't created)
-    let users: Vec<SelectUser> = drizzle_exec!(
-        db.select(())
-            .from(schema.user)
-            .r#where(eq(schema.user.email, "test@example.com"))
-            => all
-    );
+    let users: Vec<SelectUser> = db
+        .select(())
+        .from(schema.user)
+        .r#where(eq(schema.user.email, "test@example.com"))
+        .all();
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].email, "test@example.com");
@@ -180,22 +179,21 @@ fn test_schema_with_drizzle_macro(db: &mut TestDb<AppTestSchema>, schema: AppTes
 }
 
 #[drizzle::test]
-fn test_schema_destructuring(db: &mut TestDb<AppTestSchema>, schema: AppTestSchema) {
+fn test_schema_destructuring(db: &mut TestDb<AppTestSchema>) {
     // Test destructuring the schema into individual components
     let (user, _, _) = schema.into();
 
     // Test that we can use the destructured components
     let insert_data = InsertUser::new("destructured@example.com", "Destructured User");
-    let result = drizzle_exec!(db.insert(user).values([insert_data]) => execute);
+    let result = db.insert(user).values([insert_data]).execute();
     assert_eq!(result, 1);
 
     // Query using the destructured table
-    let users: Vec<SelectUser> = drizzle_exec!(
-        db.select(())
-            .from(user)
-            .r#where(eq(user.email, "destructured@example.com"))
-            => all
-    );
+    let users: Vec<SelectUser> = db
+        .select(())
+        .from(user)
+        .r#where(eq(user.email, "destructured@example.com"))
+        .all();
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].email, "destructured@example.com");
@@ -203,7 +201,7 @@ fn test_schema_destructuring(db: &mut TestDb<AppTestSchema>, schema: AppTestSche
 }
 
 #[drizzle::test]
-fn test_schema_with_view(db: &mut TestDb<ViewTestSchema>, schema: ViewTestSchema) {
+fn test_schema_with_view(db: &mut TestDb<ViewTestSchema>) {
     let ViewTestSchema {
         user,
         user_emails,
@@ -215,15 +213,14 @@ fn test_schema_with_view(db: &mut TestDb<ViewTestSchema>, schema: ViewTestSchema
         InsertUser::new("a@example.com", "User A"),
         InsertUser::new("b@example.com", "User B"),
     ];
-    let result = drizzle_exec!(db.insert(user).values(insert_data) => execute);
+    let result = db.insert(user).values(insert_data).execute();
     assert_eq!(result, 2);
 
-    let results: Vec<UserEmailRow> = drizzle_exec!(
-        db.select(UserEmailRow::Select)
-            .from(user_emails)
-            .order_by(asc(user_emails.id))
-            => all
-    );
+    let results: Vec<UserEmailRow> = db
+        .select(UserEmailRow::Select)
+        .from(user_emails)
+        .order_by(asc(user_emails.id))
+        .all();
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].email, "a@example.com");
@@ -258,7 +255,7 @@ fn test_schema_with_view(db: &mut TestDb<ViewTestSchema>, schema: ViewTestSchema
 }
 
 #[drizzle::test]
-fn test_view_alias_in_from_clause(db: &mut TestDb<ViewTestSchema>, schema: ViewTestSchema) {
+fn test_view_alias_in_from_clause(db: &mut TestDb<ViewTestSchema>) {
     let ViewTestSchema {
         user,
         user_emails,
@@ -270,7 +267,7 @@ fn test_view_alias_in_from_clause(db: &mut TestDb<ViewTestSchema>, schema: ViewT
         InsertUser::new("a@example.com", "User A"),
         InsertUser::new("b@example.com", "User B"),
     ];
-    let result = drizzle_exec!(db.insert(user).values(insert_data) => execute);
+    let result = db.insert(user).values(insert_data).execute();
     assert_eq!(result, 2);
 
     struct UeTag;
@@ -297,7 +294,7 @@ fn test_view_alias_in_from_clause(db: &mut TestDb<ViewTestSchema>, schema: ViewT
         .from(ue2)
         .r#where(eq(ue2.email, "a@example.com"))
         .order_by([asc(ue2.id)]);
-    let results: Vec<UserEmailAliasRow> = drizzle_exec!(alias_stmt => all);
+    let results: Vec<UserEmailAliasRow> = alias_stmt.all();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].email, "a@example.com");
 
@@ -357,7 +354,7 @@ struct ComplexTestSchema {
 }
 
 #[drizzle::test]
-fn test_deterministic_ordering(db: &mut TestDb<ComplexTestSchema>, schema: ComplexTestSchema) {
+fn test_deterministic_ordering(db: &mut TestDb<ComplexTestSchema>) {
     // Get the create statements - this should be deterministically ordered
     let statements: Vec<_> = schema
         .create_statements()
@@ -842,7 +839,7 @@ mod view_query {
     }
 
     #[drizzle::test]
-    fn test_view_query_simple(db: &mut TestDb<VqTestSchema>, schema: VqTestSchema) {
+    fn test_view_query_simple(db: &mut TestDb<VqTestSchema>) {
         let VqTestSchema {
             complex,
             vq_simple_view,
@@ -853,15 +850,14 @@ mod view_query {
             InsertComplex::new("Alice", true, Role::User).with_email("alice@example.com"),
             InsertComplex::new("Bob", false, Role::User).with_email("bob@example.com"),
         ];
-        let result = drizzle_exec!(db.insert(complex).values(insert_data) => execute);
+        let result = db.insert(complex).values(insert_data).execute();
         assert_eq!(result, 2);
 
-        let results: Vec<SelectVqSimpleView> = drizzle_exec!(
-            db.select(())
-                .from(vq_simple_view)
-                .order_by([asc(vq_simple_view.name)])
-                => all
-        );
+        let results: Vec<SelectVqSimpleView> = db
+            .select(())
+            .from(vq_simple_view)
+            .order_by([asc(vq_simple_view.name)])
+            .all();
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].name, "Alice");
@@ -869,7 +865,7 @@ mod view_query {
     }
 
     #[drizzle::test]
-    fn test_view_query_filter(db: &mut TestDb<VqTestSchema>, schema: VqTestSchema) {
+    fn test_view_query_filter(db: &mut TestDb<VqTestSchema>) {
         let VqTestSchema {
             complex,
             vq_active_users,
@@ -881,14 +877,13 @@ mod view_query {
             InsertComplex::new("Bob", false, Role::User).with_email("bob@example.com"),
             InsertComplex::new("Charlie", true, Role::User).with_email("charlie@example.com"),
         ];
-        drizzle_exec!(db.insert(complex).values(insert_data) => execute);
+        db.insert(complex).values(insert_data).execute();
 
-        let results: Vec<SelectVqActiveUsersView> = drizzle_exec!(
-            db.select(())
-                .from(vq_active_users)
-                .order_by([asc(vq_active_users.name)])
-                => all
-        );
+        let results: Vec<SelectVqActiveUsersView> = db
+            .select(())
+            .from(vq_active_users)
+            .order_by([asc(vq_active_users.name)])
+            .all();
 
         assert_eq!(results.len(), 2, "Should only see active users");
         assert_eq!(results[0].name, "Alice");
@@ -896,7 +891,7 @@ mod view_query {
     }
 
     #[drizzle::test]
-    fn test_view_query_join(db: &mut TestDb<VqTestSchema>, schema: VqTestSchema) {
+    fn test_view_query_join(db: &mut TestDb<VqTestSchema>) {
         let VqTestSchema {
             complex,
             post,
@@ -904,28 +899,33 @@ mod view_query {
             ..
         } = schema;
 
-        drizzle_exec!(db.insert(complex).values([
-            InsertComplex::new("Alice", true, Role::User).with_email("alice@example.com"),
-            InsertComplex::new("Bob", true, Role::User).with_email("bob@example.com"),
-        ]) => execute);
+        db.insert(complex)
+            .values([
+                InsertComplex::new("Alice", true, Role::User).with_email("alice@example.com"),
+                InsertComplex::new("Bob", true, Role::User).with_email("bob@example.com"),
+            ])
+            .execute();
 
         // Get inserted user IDs for FK references
-        let users: Vec<SelectComplex> = drizzle_exec!(
-            db.select(()).from(complex).order_by([asc(complex.name)]) => all
-        );
+        let users: Vec<SelectComplex> = db
+            .select(())
+            .from(complex)
+            .order_by([asc(complex.name)])
+            .all();
         let alice_id = users[0].id;
 
-        drizzle_exec!(db.insert(post).values([
-            InsertPost::new("Post 1", true).with_author_id(alice_id),
-            InsertPost::new("Post 2", false).with_author_id(alice_id),
-        ]) => execute);
+        db.insert(post)
+            .values([
+                InsertPost::new("Post 1", true).with_author_id(alice_id),
+                InsertPost::new("Post 2", false).with_author_id(alice_id),
+            ])
+            .execute();
 
-        let results: Vec<SelectVqUserPostsView> = drizzle_exec!(
-            db.select(())
-                .from(vq_user_posts)
-                .order_by([asc(vq_user_posts.name), asc(vq_user_posts.title)])
-                => all
-        );
+        let results: Vec<SelectVqUserPostsView> = db
+            .select(())
+            .from(vq_user_posts)
+            .order_by([asc(vq_user_posts.name), asc(vq_user_posts.title)])
+            .all();
 
         // Alice has 2 posts, Bob has 0 (LEFT JOIN -> Bob row with NULL title)
         assert_eq!(results.len(), 3);
@@ -938,7 +938,7 @@ mod view_query {
     }
 
     #[drizzle::test]
-    fn test_view_query_aggregate(db: &mut TestDb<VqTestSchema>, schema: VqTestSchema) {
+    fn test_view_query_aggregate(db: &mut TestDb<VqTestSchema>) {
         let VqTestSchema {
             complex,
             post,
@@ -946,30 +946,35 @@ mod view_query {
             ..
         } = schema;
 
-        drizzle_exec!(db.insert(complex).values([
-            InsertComplex::new("Alice", true, Role::User).with_email("alice@example.com"),
-            InsertComplex::new("Bob", true, Role::User).with_email("bob@example.com"),
-        ]) => execute);
+        db.insert(complex)
+            .values([
+                InsertComplex::new("Alice", true, Role::User).with_email("alice@example.com"),
+                InsertComplex::new("Bob", true, Role::User).with_email("bob@example.com"),
+            ])
+            .execute();
 
         // Get inserted user IDs for FK references
-        let users: Vec<SelectComplex> = drizzle_exec!(
-            db.select(()).from(complex).order_by([asc(complex.name)]) => all
-        );
+        let users: Vec<SelectComplex> = db
+            .select(())
+            .from(complex)
+            .order_by([asc(complex.name)])
+            .all();
         let alice_id = users[0].id;
         let bob_id = users[1].id;
 
-        drizzle_exec!(db.insert(post).values([
-            InsertPost::new("Post A", true).with_author_id(alice_id),
-            InsertPost::new("Post B", false).with_author_id(alice_id),
-            InsertPost::new("Post C", true).with_author_id(bob_id),
-        ]) => execute);
+        db.insert(post)
+            .values([
+                InsertPost::new("Post A", true).with_author_id(alice_id),
+                InsertPost::new("Post B", false).with_author_id(alice_id),
+                InsertPost::new("Post C", true).with_author_id(bob_id),
+            ])
+            .execute();
 
-        let results: Vec<SelectVqPostCountsView> = drizzle_exec!(
-            db.select(())
-                .from(vq_post_counts)
-                .order_by([desc(vq_post_counts.post_count)])
-                => all
-        );
+        let results: Vec<SelectVqPostCountsView> = db
+            .select(())
+            .from(vq_post_counts)
+            .order_by([desc(vq_post_counts.post_count)])
+            .all();
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].name, "Alice");
@@ -979,25 +984,26 @@ mod view_query {
     }
 
     #[drizzle::test]
-    fn test_view_query_complex_filter(db: &mut TestDb<VqTestSchema>, schema: VqTestSchema) {
+    fn test_view_query_complex_filter(db: &mut TestDb<VqTestSchema>) {
         let VqTestSchema {
             complex,
             vq_complex_filter,
             ..
         } = schema;
 
-        drizzle_exec!(db.insert(complex).values([
-            InsertComplex::new("Alice", true, Role::User).with_email("alice@example.com"),
-            InsertComplex::new("Bob", false, Role::User).with_email("bob@example.com"),
-            InsertComplex::new("Charlie", true, Role::User).with_email("charlie@example.com"),
-        ]) => execute);
+        db.insert(complex)
+            .values([
+                InsertComplex::new("Alice", true, Role::User).with_email("alice@example.com"),
+                InsertComplex::new("Bob", false, Role::User).with_email("bob@example.com"),
+                InsertComplex::new("Charlie", true, Role::User).with_email("charlie@example.com"),
+            ])
+            .execute();
 
-        let results: Vec<SelectVqComplexFilterView> = drizzle_exec!(
-            db.select(())
-                .from(vq_complex_filter)
-                .order_by([asc(vq_complex_filter.name)])
-                => all
-        );
+        let results: Vec<SelectVqComplexFilterView> = db
+            .select(())
+            .from(vq_complex_filter)
+            .order_by([asc(vq_complex_filter.name)])
+            .all();
 
         // active=true AND (age>0 OR age IS NULL) — Alice and Charlie match
         assert_eq!(results.len(), 2);
@@ -1006,7 +1012,7 @@ mod view_query {
     }
 
     #[drizzle::test]
-    fn test_view_query_having(db: &mut TestDb<VqTestSchema>, schema: VqTestSchema) {
+    fn test_view_query_having(db: &mut TestDb<VqTestSchema>) {
         let VqTestSchema {
             complex,
             post,
@@ -1014,31 +1020,36 @@ mod view_query {
             ..
         } = schema;
 
-        drizzle_exec!(db.insert(complex).values([
-            InsertComplex::new("Alice", true, Role::User).with_email("alice@example.com"),
-            InsertComplex::new("Bob", true, Role::User).with_email("bob@example.com"),
-            InsertComplex::new("Charlie", true, Role::User).with_email("charlie@example.com"),
-        ]) => execute);
+        db.insert(complex)
+            .values([
+                InsertComplex::new("Alice", true, Role::User).with_email("alice@example.com"),
+                InsertComplex::new("Bob", true, Role::User).with_email("bob@example.com"),
+                InsertComplex::new("Charlie", true, Role::User).with_email("charlie@example.com"),
+            ])
+            .execute();
 
         // Get inserted user IDs for FK references
-        let users: Vec<SelectComplex> = drizzle_exec!(
-            db.select(()).from(complex).order_by([asc(complex.name)]) => all
-        );
+        let users: Vec<SelectComplex> = db
+            .select(())
+            .from(complex)
+            .order_by([asc(complex.name)])
+            .all();
         let alice_id = users[0].id;
         let bob_id = users[1].id;
 
         // Only Alice and Bob get posts
-        drizzle_exec!(db.insert(post).values([
-            InsertPost::new("Post 1", true).with_author_id(alice_id),
-            InsertPost::new("Post 2", true).with_author_id(bob_id),
-        ]) => execute);
+        db.insert(post)
+            .values([
+                InsertPost::new("Post 1", true).with_author_id(alice_id),
+                InsertPost::new("Post 2", true).with_author_id(bob_id),
+            ])
+            .execute();
 
-        let results: Vec<SelectVqHavingView> = drizzle_exec!(
-            db.select(())
-                .from(vq_having_view)
-                .order_by([asc(vq_having_view.name)])
-                => all
-        );
+        let results: Vec<SelectVqHavingView> = db
+            .select(())
+            .from(vq_having_view)
+            .order_by([asc(vq_having_view.name)])
+            .all();
 
         // HAVING COUNT(posts.id) > 0 — Charlie has 0 posts, so excluded
         assert_eq!(results.len(), 2);

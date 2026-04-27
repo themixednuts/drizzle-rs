@@ -40,7 +40,7 @@ pub struct JsonReadResult {
 }
 
 #[drizzle::test]
-fn json_storage(db: &mut TestDb<Schema>, schema: Schema) {
+fn json_storage(db: &mut TestDb<Schema>) {
     let Schema { jsonuser } = schema;
 
     let profile = Profile {
@@ -59,7 +59,7 @@ fn json_storage(db: &mut TestDb<Schema>, schema: Schema) {
     //     db.insert(jsonuser)
     //         .values([InsertJsonUser::new(id, "john@test.com", jsonb(profile))]);
 
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db
         .select((
@@ -73,7 +73,7 @@ fn json_storage(db: &mut TestDb<Schema>, schema: Schema) {
         .from(jsonuser)
         .r#where(eq(jsonuser.id, id));
 
-    let user: UserResult = drizzle_exec!(stmt => get);
+    let user: UserResult = stmt.get();
 
     assert_eq!(user.id, id);
     assert_eq!(user.age, Some(30));
@@ -84,7 +84,7 @@ fn json_storage(db: &mut TestDb<Schema>, schema: Schema) {
         .from(jsonuser)
         .r#where(eq(jsonuser.id, id));
 
-    let result: JsonReadResult = drizzle_exec!(stmt => get);
+    let result: JsonReadResult = stmt.get();
 
     assert_eq!(result.id, id);
     assert_eq!(result.email, "john@test.com");

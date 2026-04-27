@@ -23,11 +23,11 @@ struct ComplexResult {
 }
 
 #[drizzle::test]
-fn simple_update(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn simple_update(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
     // Insert initial Simple record
     let insert_data = InsertSimple::new("original");
-    let insert_result = drizzle_exec!(db.insert(simple).values([insert_data]) => execute);
+    let insert_result = db.insert(simple).values([insert_data]).execute();
     assert_eq!(insert_result, 1);
 
     // Update the record
@@ -35,34 +35,32 @@ fn simple_update(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         .update(simple)
         .set(UpdateSimple::default().with_name("updated"))
         .r#where(eq(Simple::name, "original"));
-    let update_result = drizzle_exec!(stmt => execute);
+    let update_result = stmt.execute();
     assert_eq!(update_result, 1);
 
     // Verify the update by selecting the record
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.name, "updated"))
-            => all
-    );
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "updated"))
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "updated");
 
     // Verify original name is gone
-    let old_results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.name, "original"))
-            => all
-    );
+    let old_results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "original"))
+        .all();
 
     assert_eq!(old_results.len(), 0);
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn complex_update(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn complex_update(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
 
     // Insert initial Complex record
@@ -79,7 +77,7 @@ fn complex_update(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
         .with_age(25)
         .with_description("Original description".to_string());
 
-    let insert_result = drizzle_exec!(db.insert(complex).values([insert_data]) => execute);
+    let insert_result = db.insert(complex).values([insert_data]).execute();
     assert_eq!(insert_result, 1);
 
     // Update multiple fields
@@ -92,12 +90,12 @@ fn complex_update(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
                 .with_description("Updated description".to_string()),
         )
         .r#where(eq(Complex::name, "user"));
-    let update_result = drizzle_exec!(stmt => execute);
+    let update_result = stmt.execute();
     assert_eq!(update_result, 1);
 
     // Verify the update by selecting the record
-    let results: Vec<ComplexResult> = drizzle_exec!(
-        db.select((
+    let results: Vec<ComplexResult> = db
+        .select((
             complex.id,
             complex.name,
             complex.email,
@@ -106,8 +104,7 @@ fn complex_update(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
         ))
         .from(complex)
         .r#where(eq(complex.name, "user"))
-        => all
-    );
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "user");
@@ -120,7 +117,7 @@ fn complex_update(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
 }
 
 #[drizzle::test]
-fn update_multiple_rows(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn update_multiple_rows(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
@@ -128,34 +125,32 @@ fn update_multiple_rows(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("test_two"),
         InsertSimple::new("other"),
     ]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db
         .update(simple)
         .set(UpdateSimple::default().with_name("updated"))
         .r#where(like(Simple::name, "test%"));
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.name, "updated"))
-            => all
-    );
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "updated"))
+        .all();
     assert_eq!(results.len(), 2);
 
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.name, "other"))
-            => all
-    );
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "other"))
+        .all();
     assert_eq!(results.len(), 1);
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn update_with_complex_where(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn update_with_complex_where(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
 
     let stmt = db.insert(complex).values([
@@ -169,16 +164,16 @@ fn update_with_complex_where(db: &mut TestDb<ComplexSchema>, schema: ComplexSche
             .with_id(uuid::Uuid::new_v4())
             .with_age(70),
     ]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db
         .update(complex)
         .set(UpdateComplex::default().with_name("matched"))
         .r#where(and(gte(complex.age, 18), lte(complex.age, 65)));
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
-    let results: Vec<ComplexResult> = drizzle_exec!(
-        db.select((
+    let results: Vec<ComplexResult> = db
+        .select((
             complex.id,
             complex.name,
             complex.email,
@@ -187,14 +182,13 @@ fn update_with_complex_where(db: &mut TestDb<ComplexSchema>, schema: ComplexSche
         ))
         .from(complex)
         .r#where(eq(complex.name, "matched"))
-        => all
-    );
+        .all();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "matched");
 }
 
 #[drizzle::test]
-fn update_with_in_condition(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn update_with_in_condition(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
@@ -203,46 +197,43 @@ fn update_with_in_condition(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema)
         InsertSimple::new("Charlie"),
         InsertSimple::new("David"),
     ]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db
         .update(simple)
         .set(UpdateSimple::default().with_name("Updated"))
         .r#where(in_array(simple.name, ["Alice", "Charlie"]));
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.name, "Updated"))
-            => all
-    );
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "Updated"))
+        .all();
     assert_eq!(results.len(), 2);
 
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(in_array(simple.name, ["Bob", "David"]))
-            => all
-    );
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(in_array(simple.name, ["Bob", "David"]))
+        .all();
     assert_eq!(results.len(), 2);
 }
 
 #[drizzle::test]
-fn update_no_matching_rows(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn update_no_matching_rows(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db
         .update(simple)
         .set(UpdateSimple::default().with_name("Updated"))
         .r#where(eq(simple.name, "NonExistent"));
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
-    let results: Vec<SelectSimple> =
-        drizzle_exec!(db.select((simple.id, simple.name)).from(simple) => all);
+    let results: Vec<SelectSimple> = db.select((simple.id, simple.name)).from(simple).all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
@@ -250,7 +241,7 @@ fn update_no_matching_rows(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) 
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
 #[drizzle::test]
-fn feature_gated_update(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn feature_gated_update(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
     // Insert initial Complex record with UUID
     let test_id = uuid::Uuid::new_v4();
@@ -267,7 +258,7 @@ fn feature_gated_update(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
             settings: std::collections::HashMap::new(),
         });
 
-    let insert_result = drizzle_exec!(db.insert(complex).values([insert_data]) => execute);
+    let insert_result = db.insert(complex).values([insert_data]).execute();
     assert_eq!(insert_result, 1);
 
     // Update feature-gated fields using UUID primary key
@@ -290,12 +281,12 @@ fn feature_gated_update(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
                 }),
         )
         .r#where(eq(Complex::id, test_id));
-    let update_result = drizzle_exec!(stmt => execute);
+    let update_result = stmt.execute();
     assert_eq!(update_result, 1);
 
     // Verify the update by selecting with UUID
-    let results: Vec<ComplexResult> = drizzle_exec!(
-        db.select((
+    let results: Vec<ComplexResult> = db
+        .select((
             complex.id,
             complex.name,
             complex.email,
@@ -304,8 +295,7 @@ fn feature_gated_update(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
         ))
         .from(complex)
         .r#where(eq(complex.id, test_id))
-        => all
-    );
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "feature_user");

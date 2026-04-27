@@ -102,7 +102,7 @@ struct CoalesceAvgResult {
 }
 
 #[drizzle::test]
-fn test_aggregate_functions(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_aggregate_functions(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -112,43 +112,35 @@ fn test_aggregate_functions(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema)
         InsertSimple::new("Item D").with_id(40),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test count function
-    let result: Vec<CountResult> = drizzle_exec!(
-        db.select(alias(count(simple.id), "count"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<CountResult> = db
+        .select(alias(count(simple.id), "count"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].count, 4);
 
     // Test sum function
-    let result: Vec<SumResult> =
-        drizzle_exec!(db.select(alias(sum(simple.id), "sum")).from(simple) => all);
+    let result: Vec<SumResult> = db.select(alias(sum(simple.id), "sum")).from(simple).all();
     assert_eq!(result[0].sum, Some(100));
 
     // Test min function
-    let result: Vec<MinResult> =
-        drizzle_exec!(db.select(alias(min(simple.id), "min")).from(simple) => all);
+    let result: Vec<MinResult> = db.select(alias(min(simple.id), "min")).from(simple).all();
     assert_eq!(result[0].min, Some(10));
 
     // Test max function
-    let result: Vec<MaxResult> =
-        drizzle_exec!(db.select(alias(max(simple.id), "max")).from(simple) => all);
+    let result: Vec<MaxResult> = db.select(alias(max(simple.id), "max")).from(simple).all();
     assert_eq!(result[0].max, Some(40));
 
     // Test avg function
-    let result: Vec<AvgResult> =
-        drizzle_exec!(db.select(alias(avg(simple.id), "avg")).from(simple) => all);
+    let result: Vec<AvgResult> = db.select(alias(avg(simple.id), "avg")).from(simple).all();
     assert_eq!(result[0].avg, Some(25.0));
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_aggregate_functions_with_real_numbers(
-    db: &mut TestDb<ComplexSchema>,
-    schema: ComplexSchema,
-) {
+fn test_aggregate_functions_with_real_numbers(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
 
     let test_data = vec![
@@ -158,51 +150,46 @@ fn test_aggregate_functions_with_real_numbers(
         InsertComplex::new("User D", false, Role::User).with_score(88.7),
     ];
 
-    drizzle_exec!(db.insert(complex).values(test_data) => execute);
+    db.insert(complex).values(test_data).execute();
 
     // Test count with non-null values
-    let result: Vec<CountResult> = drizzle_exec!(
-        db.select(alias(count(complex.score), "count"))
-            .from(complex)
-            => all
-    );
+    let result: Vec<CountResult> = db
+        .select(alias(count(complex.score), "count"))
+        .from(complex)
+        .all();
     assert_eq!(result[0].count, 4);
 
     // Test sum with real numbers
-    let result: Vec<SumRealResult> = drizzle_exec!(
-        db.select(alias(sum(complex.score), "sum"))
-            .from(complex)
-            => all
-    );
+    let result: Vec<SumRealResult> = db
+        .select(alias(sum(complex.score), "sum"))
+        .from(complex)
+        .all();
     assert!((result[0].sum.expect("sum") - 344.5).abs() < 0.1);
 
     // Test avg with real numbers
-    let result: Vec<AvgResult> = drizzle_exec!(
-        db.select(alias(avg(complex.score), "avg"))
-            .from(complex)
-            => all
-    );
+    let result: Vec<AvgResult> = db
+        .select(alias(avg(complex.score), "avg"))
+        .from(complex)
+        .all();
     assert!((result[0].avg.expect("avg") - 86.125).abs() < 0.1);
 
     // Test min with real numbers
-    let result: Vec<MinRealResult> = drizzle_exec!(
-        db.select(alias(min(complex.score), "min"))
-            .from(complex)
-            => all
-    );
+    let result: Vec<MinRealResult> = db
+        .select(alias(min(complex.score), "min"))
+        .from(complex)
+        .all();
     assert!((result[0].min.expect("min") - 78.3).abs() < 0.1);
 
     // Test max with real numbers
-    let result: Vec<MaxRealResult> = drizzle_exec!(
-        db.select(alias(max(complex.score), "max"))
-            .from(complex)
-            => all
-    );
+    let result: Vec<MaxRealResult> = db
+        .select(alias(max(complex.score), "max"))
+        .from(complex)
+        .all();
     assert!((result[0].max.expect("max") - 92.0).abs() < 0.1);
 }
 
 #[drizzle::test]
-fn test_distinct_expression(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_distinct_expression(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -213,14 +200,13 @@ fn test_distinct_expression(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema)
         InsertSimple::new("Cherry").with_id(5),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test distinct function
-    let result: Vec<DistinctResult> = drizzle_exec!(
-        db.select(alias(distinct(simple.name), "name"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<DistinctResult> = db
+        .select(alias(distinct(simple.name), "name"))
+        .from(simple)
+        .all();
     assert_eq!(result.len(), 3);
     let names: Vec<String> = result.iter().map(|r| r.name.clone()).collect();
     assert!(names.contains(&"Apple".to_string()));
@@ -228,48 +214,44 @@ fn test_distinct_expression(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema)
     assert!(names.contains(&"Cherry".to_string()));
 
     // Test count with distinct
-    let result: Vec<CountResult> = drizzle_exec!(
-        db.select(alias(count(distinct(simple.name)), "count"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<CountResult> = db
+        .select(alias(count(distinct(simple.name)), "count"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].count, 3);
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_coalesce_expression(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_coalesce_expression(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
 
     // Insert data with separate operations since each has different column patterns
     // Users A and C: have email set
-    drizzle_exec!(
-        db.insert(complex)
-            .values([
-                InsertComplex::new("User A", true, Role::User)
-                    .with_email("user@example.com".to_string()),
-                InsertComplex::new("User C", true, Role::User)
-                    .with_email("user3@example.com".to_string()),
-            ])
-            => execute
-    );
+
+    db.insert(complex)
+        .values([
+            InsertComplex::new("User A", true, Role::User)
+                .with_email("user@example.com".to_string()),
+            InsertComplex::new("User C", true, Role::User)
+                .with_email("user3@example.com".to_string()),
+        ])
+        .execute();
 
     // User B: has no optional fields set
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("User B", false, Role::Admin)])
-            => execute
-    );
+
+    db.insert(complex)
+        .values([InsertComplex::new("User B", false, Role::Admin)])
+        .execute();
 
     // Test coalesce with email field (some null, some not)
-    let result: Vec<CoalesceStringResult> = drizzle_exec!(
-        db.select(alias(
+    let result: Vec<CoalesceStringResult> = db
+        .select(alias(
             coalesce(complex.email, "no-email@example.com"),
-            "coalesce"
+            "coalesce",
         ))
         .from(complex)
-        => all
-    );
+        .all();
     assert_eq!(result.len(), 3);
     let emails: Vec<String> = result.iter().map(|r| r.coalesce.clone()).collect();
     assert!(emails.contains(&"user@example.com".to_string()));
@@ -277,11 +259,10 @@ fn test_coalesce_expression(db: &mut TestDb<ComplexSchema>, schema: ComplexSchem
     assert!(emails.contains(&"no-email@example.com".to_string()));
 
     // Test coalesce with age field
-    let result: Vec<CoalesceIntResult> = drizzle_exec!(
-        db.select(alias(coalesce(complex.age, 0), "coalesce"))
-            .from(complex)
-            => all
-    );
+    let result: Vec<CoalesceIntResult> = db
+        .select(alias(coalesce(complex.age, 0), "coalesce"))
+        .from(complex)
+        .all();
     assert_eq!(result.len(), 3);
     // All should be 0 since we didn't set any ages
     assert!(result.iter().all(|r| r.coalesce == 0));
@@ -289,30 +270,25 @@ fn test_coalesce_expression(db: &mut TestDb<ComplexSchema>, schema: ComplexSchem
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_coalesce_many_expression(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_coalesce_many_expression(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("User A", true, Role::User)
-                .with_email("user@example.com".to_string()),])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("User A", true, Role::User)
+            .with_email("user@example.com".to_string())])
+        .execute();
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("User B", false, Role::Admin)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("User B", false, Role::Admin)])
+        .execute();
 
-    let result: Vec<CoalesceManyStringResult> = drizzle_exec!(
-        db.select(alias(
+    let result: Vec<CoalesceManyStringResult> = db
+        .select(alias(
             coalesce_many(complex.email, ["no-email@example.com"]),
             "value",
         ))
         .from(complex)
-            => all
-    );
+        .all();
 
     assert_eq!(result.len(), 2);
     let values: Vec<String> = result.iter().map(|r| r.value.clone()).collect();
@@ -321,92 +297,85 @@ fn test_coalesce_many_expression(db: &mut TestDb<ComplexSchema>, schema: Complex
 }
 
 #[drizzle::test]
-fn test_alias_expression(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_alias_expression(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Test Item").with_id(1)];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test alias with simple column
-    let result: Vec<AliasResult> = drizzle_exec!(
-        db.select(alias(simple.name, "item_name"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<AliasResult> = db
+        .select(alias(simple.name, "item_name"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].item_name, "Test Item");
 
     // Test alias with aggregate function
-    let result: Vec<CountAliasResult> = drizzle_exec!(
-        db.select(alias(count(simple.id), "total_count"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<CountAliasResult> = db
+        .select(alias(count(simple.id), "total_count"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].total_count, 1);
 
     // Test alias with expression
-    let result: Vec<SumAliasResult> = drizzle_exec!(
-        db.select(alias(sum(simple.id), "id_sum"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<SumAliasResult> = db
+        .select(alias(sum(simple.id), "id_sum"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].id_sum, Some(1));
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_complex_expressions(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_complex_expressions(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
 
     // Insert data with separate operations since each has different column patterns
     // Users A and B: have both age and score set
-    drizzle_exec!(
-        db.insert(complex)
-            .values([
-                InsertComplex::new("User A", true, Role::User)
-                    .with_age(25)
-                    .with_score(85.5),
-                InsertComplex::new("User B", false, Role::Admin)
-                    .with_age(30)
-                    .with_score(92.0),
-            ])
-            => execute
-    );
+
+    db.insert(complex)
+        .values([
+            InsertComplex::new("User A", true, Role::User)
+                .with_age(25)
+                .with_score(85.5),
+            InsertComplex::new("User B", false, Role::Admin)
+                .with_age(30)
+                .with_score(92.0),
+        ])
+        .execute();
 
     // User C: has only score set
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("User C", true, Role::User).with_score(78.3)])
-            => execute
-    );
+
+    db.insert(complex)
+        .values([InsertComplex::new("User C", true, Role::User).with_score(78.3)])
+        .execute();
 
     // Test multiple expressions in one query
-    let result: Vec<ComplexAggregateResult> = drizzle_exec!(
-        db.select((
+    let result: Vec<ComplexAggregateResult> = db
+        .select((
             alias(count(complex.id), "count"),
             alias(avg(complex.score), "avg"),
-            alias(coalesce(max(complex.age), 0), "max_age")
+            alias(coalesce(max(complex.age), 0), "max_age"),
         ))
         .from(complex)
-        => all
-    );
+        .all();
     assert_eq!(result[0].count, 3); // count
     assert!((result[0].avg.expect("avg") - 85.266).abs() < 0.1); // avg score
     assert_eq!(result[0].max_age, 30); // max age (coalesced)
 
     // Test nested expressions
-    let result: Vec<CoalesceAvgResult> = drizzle_exec!(
-        db.select(alias(coalesce(avg(complex.score), 0.0), "coalesce"))
-            .from(complex)
-            .r#where(is_not_null(complex.score))
-            => all
-    );
+    let result: Vec<CoalesceAvgResult> = db
+        .select(alias(coalesce(avg(complex.score), 0.0), "coalesce"))
+        .from(complex)
+        .r#where(is_not_null(complex.score))
+        .all();
     assert!((result[0].coalesce - 85.266).abs() < 0.1);
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_expressions_with_conditions(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_expressions_with_conditions(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
 
     let test_data = [
@@ -416,48 +385,44 @@ fn test_expressions_with_conditions(db: &mut TestDb<ComplexSchema>, schema: Comp
         InsertComplex::new("Inactive Admin", false, Role::Admin).with_score(88.7),
     ];
 
-    drizzle_exec!(db.insert(complex).values(test_data) => execute);
+    db.insert(complex).values(test_data).execute();
 
     // Test count with condition
-    let result: Vec<CountResult> = drizzle_exec!(
-        db.select(alias(count(complex.id), "count"))
-            .from(complex)
-            .r#where(eq(complex.active, true))
-            => all
-    );
+    let result: Vec<CountResult> = db
+        .select(alias(count(complex.id), "count"))
+        .from(complex)
+        .r#where(eq(complex.active, true))
+        .all();
     assert_eq!(result[0].count, 2);
 
     // Test avg with condition
-    let result: Vec<AvgResult> = drizzle_exec!(
-        db.select(alias(avg(complex.score), "avg"))
-            .from(complex)
-            .r#where(eq(complex.role, Role::Admin))
-            => all
-    );
+    let result: Vec<AvgResult> = db
+        .select(alias(avg(complex.score), "avg"))
+        .from(complex)
+        .r#where(eq(complex.role, Role::Admin))
+        .all();
     assert!((result[0].avg.expect("avg") - 90.35).abs() < 0.1);
 
     // Test max with condition
-    let result: Vec<MaxRealResult> = drizzle_exec!(
-        db.select(alias(max(complex.score), "max"))
-            .from(complex)
-            .r#where(eq(complex.active, false))
-            => all
-    );
+    let result: Vec<MaxRealResult> = db
+        .select(alias(max(complex.score), "max"))
+        .from(complex)
+        .r#where(eq(complex.active, false))
+        .all();
     assert!((result[0].max.expect("max") - 88.7).abs() < 0.1);
 }
 
 #[drizzle::test]
-fn test_aggregate_with_empty_result(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_aggregate_with_empty_result(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // No data inserted, test aggregate functions on empty table
 
     // Count should return 0
-    let result: Vec<CountResult> = drizzle_exec!(
-        db.select(alias(count(simple.id), "count"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<CountResult> = db
+        .select(alias(count(simple.id), "count"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].count, 0);
 
     // Other aggregates on empty table should handle NULL appropriately
@@ -466,7 +431,7 @@ fn test_aggregate_with_empty_result(db: &mut TestDb<SimpleSchema>, schema: Simpl
 }
 
 #[drizzle::test]
-fn test_expression_edge_cases(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_expression_edge_cases(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = [
@@ -474,44 +439,40 @@ fn test_expression_edge_cases(db: &mut TestDb<SimpleSchema>, schema: SimpleSchem
         InsertSimple::new("Test").with_id(1),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test count with all rows
-    let result: Vec<CountResult> = drizzle_exec!(
-        db.select(alias(count(simple.id), "count"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<CountResult> = db
+        .select(alias(count(simple.id), "count"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].count, 2);
 
     // Test distinct with empty string
-    let result: Vec<DistinctResult> = drizzle_exec!(
-        db.select(alias(distinct(simple.name), "name"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<DistinctResult> = db
+        .select(alias(distinct(simple.name), "name"))
+        .from(simple)
+        .all();
     assert_eq!(result.len(), 2);
     let names: Vec<String> = result.iter().map(|r| r.name.clone()).collect();
     assert!(names.contains(&"".to_string()));
     assert!(names.contains(&"Test".to_string()));
 
     // Test sum with zero
-    let result: Vec<SumResult> =
-        drizzle_exec!(db.select(alias(sum(simple.id), "sum")).from(simple) => all);
+    let result: Vec<SumResult> = db.select(alias(sum(simple.id), "sum")).from(simple).all();
     assert_eq!(result[0].sum, Some(1));
 
     // Test coalesce with empty string
-    let result: Vec<CoalesceStringResult> = drizzle_exec!(
-        db.select(alias(coalesce(simple.name, "default"), "coalesce"))
-            .from(simple)
-            .r#where(eq(simple.name, ""))
-            => all
-    );
+    let result: Vec<CoalesceStringResult> = db
+        .select(alias(coalesce(simple.name, "default"), "coalesce"))
+        .from(simple)
+        .r#where(eq(simple.name, ""))
+        .all();
     assert_eq!(result[0].coalesce, ""); // Empty string is not NULL, so coalesce returns it
 }
 
 #[drizzle::test]
-fn test_multiple_aliases(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_multiple_aliases(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = [
@@ -519,7 +480,7 @@ fn test_multiple_aliases(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("Item B").with_id(2),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     #[derive(SQLiteFromRow)]
     struct ResultRow {
@@ -528,16 +489,15 @@ fn test_multiple_aliases(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         total: i64,
     }
     // Test multiple aliases in same query (GROUP BY required when mixing scalar + aggregate)
-    let result: Vec<ResultRow> = drizzle_exec!(
-        db.select((
+    let result: Vec<ResultRow> = db
+        .select((
             alias(simple.id, "identifier"),
             alias(simple.name, "item_name"),
-            alias(count(simple.id), "total")
+            alias(count(simple.id), "total"),
         ))
         .from(simple)
         .group_by((simple.id, simple.name))
-        => all
-    );
+        .all();
 
     assert_eq!(result[0].identifier, 1);
     assert_eq!(result[0].item_name, "Item A");
@@ -547,7 +507,7 @@ fn test_multiple_aliases(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
 // CTE tests have moved to use .into_cte() API - see test_cte_integration_* tests below
 
 #[drizzle::test]
-fn test_cte_integration_simple(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_cte_integration_simple(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     struct FilteredUsersTag;
@@ -567,7 +527,7 @@ fn test_cte_integration_simple(db: &mut TestDb<SimpleSchema>, schema: SimpleSche
         InsertSimple::new("Bob").with_id(2),
         InsertSimple::new("Charlie").with_id(3),
     ];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Create a CTE with typed field access using .into_cte()
     let filtered_users = db
@@ -577,12 +537,11 @@ fn test_cte_integration_simple(db: &mut TestDb<SimpleSchema>, schema: SimpleSche
         .into_cte::<FilteredUsersTag>();
 
     // Use the CTE with typed column access via Deref
-    let result: Vec<CteSimpleRow> = drizzle_exec!(
-        db.with(&filtered_users)
-            .select(CteSimpleRow::Select)
-            .from(&filtered_users)
-            => all
-    );
+    let result: Vec<CteSimpleRow> = db
+        .with(&filtered_users)
+        .select(CteSimpleRow::Select)
+        .from(&filtered_users)
+        .all();
 
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].id, 2);
@@ -592,7 +551,7 @@ fn test_cte_integration_simple(db: &mut TestDb<SimpleSchema>, schema: SimpleSche
 }
 
 #[drizzle::test]
-fn test_cte_integration_with_aggregation(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_cte_integration_with_aggregation(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     struct UserCountTag;
@@ -606,7 +565,7 @@ fn test_cte_integration_with_aggregation(db: &mut TestDb<SimpleSchema>, schema: 
         InsertSimple::new("Test2").with_id(2),
         InsertSimple::new("Test3").with_id(3),
     ];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Create a CTE with count using .into_cte()
     // Note: For aggregations, select the computed column using sql!() or SELECT *
@@ -621,19 +580,18 @@ fn test_cte_integration_with_aggregation(db: &mut TestDb<SimpleSchema>, schema: 
     }
 
     // Use the CTE with inferred FromRow selector columns
-    let result: Vec<CountResult> = drizzle_exec!(
-        db.with(&user_count)
-            .select(CountResult::Select)
-            .from(&user_count)
-            => all
-    );
+    let result: Vec<CountResult> = db
+        .with(&user_count)
+        .select(CountResult::Select)
+        .from(&user_count)
+        .all();
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].count, 3);
 }
 
 #[drizzle::test]
-fn test_cte_complex_two_levels(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_cte_complex_two_levels(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     struct FilteredUsersTag;
@@ -649,7 +607,7 @@ fn test_cte_complex_two_levels(db: &mut TestDb<SimpleSchema>, schema: SimpleSche
         InsertSimple::new("David").with_id(4),
         InsertSimple::new("Eve").with_id(5),
     ];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Level 1 CTE: Filter users with id > 2 using .into_cte() for typed field access
     let filtered_users = db
@@ -666,15 +624,14 @@ fn test_cte_complex_two_levels(db: &mut TestDb<SimpleSchema>, schema: SimpleSche
 
     // Final query: Use the CTE with aggregation
     // Note: For computed columns, we use sql!() since they're not table fields
-    let result: Vec<StatsResult> = drizzle_exec!(
-        db.with(&filtered_users)
-            .select((
-                count(filtered_users.id).alias("count"),
-                min(filtered_users.name).alias("category"),
-            ))
-            .from(&filtered_users)
-            => all
-    );
+    let result: Vec<StatsResult> = db
+        .with(&filtered_users)
+        .select((
+            count(filtered_users.id).alias("count"),
+            min(filtered_users.name).alias("category"),
+        ))
+        .from(&filtered_users)
+        .all();
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].count, 3); // Should have 3 users with id > 2 (Charlie, David, Eve)
@@ -682,7 +639,7 @@ fn test_cte_complex_two_levels(db: &mut TestDb<SimpleSchema>, schema: SimpleSche
 }
 
 #[drizzle::test]
-fn test_cte_after_join(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_cte_after_join(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     struct SimpleTag;
@@ -699,7 +656,7 @@ fn test_cte_after_join(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("Beta").with_id(2),
         InsertSimple::new("Gamma").with_id(3),
     ];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     let simple_alias = Simple::alias::<SimpleTag>();
     let joined_simple = db
@@ -708,13 +665,12 @@ fn test_cte_after_join(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         .join((simple_alias, eq(simple.id, simple_alias.id)))
         .into_cte::<JoinedSimpleTag>();
 
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.with(&joined_simple)
-            .select((joined_simple.id, joined_simple.name))
-            .from(&joined_simple)
-            .order_by([asc(joined_simple.id)])
-            => all
-    );
+    let results: Vec<SelectSimple> = db
+        .with(&joined_simple)
+        .select((joined_simple.id, joined_simple.name))
+        .from(&joined_simple)
+        .order_by([asc(joined_simple.id)])
+        .all();
 
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].name, "Alpha");
@@ -722,7 +678,7 @@ fn test_cte_after_join(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
 }
 
 #[drizzle::test]
-fn test_cte_after_order_limit_offset(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_cte_after_order_limit_offset(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     struct PagedSimpleTag;
@@ -736,7 +692,7 @@ fn test_cte_after_order_limit_offset(db: &mut TestDb<SimpleSchema>, schema: Simp
         InsertSimple::new("Three").with_id(3),
         InsertSimple::new("Four").with_id(4),
     ];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     let paged_simple = db
         .select((simple.id, simple.name))
@@ -746,13 +702,12 @@ fn test_cte_after_order_limit_offset(db: &mut TestDb<SimpleSchema>, schema: Simp
         .offset(1)
         .into_cte::<PagedSimpleTag>();
 
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.with(&paged_simple)
-            .select((paged_simple.id, paged_simple.name))
-            .from(&paged_simple)
-            .order_by([asc(paged_simple.id)])
-            => all
-    );
+    let results: Vec<SelectSimple> = db
+        .with(&paged_simple)
+        .select((paged_simple.id, paged_simple.name))
+        .from(&paged_simple)
+        .order_by([asc(paged_simple.id)])
+        .all();
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].id, 2);
@@ -764,7 +719,7 @@ fn test_cte_after_order_limit_offset(db: &mut TestDb<SimpleSchema>, schema: Simp
 // =============================================================================
 
 #[drizzle::test]
-fn test_modulo_operator(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_modulo_operator(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -773,33 +728,31 @@ fn test_modulo_operator(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("Item C").with_id(23),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test modulo operator - find items where id % 5 == 0
     // Numeric columns now have arithmetic operators directly!
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.id % 5, 0))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id % 5, 0))
+        .all();
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].id, 10);
     assert_eq!(result[1].id, 15);
 
     // Test modulo with different values
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.id % 10, 3))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id % 10, 3))
+        .all();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].id, 23);
 }
 
 #[drizzle::test]
-fn test_between_method(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_between_method(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -810,34 +763,32 @@ fn test_between_method(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("Item E").with_id(25),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test between method - find items with id between 10 and 20 (inclusive)
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(simple.id.between(10, 20))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(simple.id.between(10, 20))
+        .all();
     assert_eq!(result.len(), 3);
     assert_eq!(result[0].id, 10);
     assert_eq!(result[1].id, 15);
     assert_eq!(result[2].id, 20);
 
     // Test not_between method
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(simple.id.not_between(10, 20))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(simple.id.not_between(10, 20))
+        .all();
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].id, 5);
     assert_eq!(result[1].id, 25);
 }
 
 #[drizzle::test]
-fn test_in_array_method(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_in_array_method(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -848,45 +799,42 @@ fn test_in_array_method(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("Eve").with_id(5),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test in_array method with integers
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(simple.id.in_array([1, 3, 5]))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(simple.id.in_array([1, 3, 5]))
+        .all();
     assert_eq!(result.len(), 3);
     assert_eq!(result[0].name, "Alice");
     assert_eq!(result[1].name, "Charlie");
     assert_eq!(result[2].name, "Eve");
 
     // Test not_in_array method
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(simple.id.not_in_array([1, 3, 5]))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(simple.id.not_in_array([1, 3, 5]))
+        .all();
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].name, "Bob");
     assert_eq!(result[1].name, "David");
 
     // Test in_array with strings
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(simple.name.in_array(["Alice", "Eve"]))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(simple.name.in_array(["Alice", "Eve"]))
+        .all();
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].name, "Alice");
     assert_eq!(result[1].name, "Eve");
 }
 
 #[drizzle::test]
-fn test_column_arithmetic(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_column_arithmetic(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -895,7 +843,7 @@ fn test_column_arithmetic(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("Item C").with_id(30),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     #[derive(Debug, SQLiteFromRow)]
     struct ComputedResult {
@@ -903,23 +851,21 @@ fn test_column_arithmetic(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
     }
 
     // Test direct column arithmetic: simple.id * 2
-    let result: Vec<ComputedResult> = drizzle_exec!(
-        db.select(alias(simple.id * 2, "computed"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<ComputedResult> = db
+        .select(alias(simple.id * 2, "computed"))
+        .from(simple)
+        .all();
     assert_eq!(result.len(), 3);
     assert_eq!(result[0].computed, 20); // 10 * 2
     assert_eq!(result[1].computed, 40); // 20 * 2
     assert_eq!(result[2].computed, 60); // 30 * 2
 
     // Test column arithmetic in comparison
-    let result: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(lt(simple.id, 25))
-            => all
-    );
+    let result: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(lt(simple.id, 25))
+        .all();
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].id, 10);
     assert_eq!(result[1].id, 20);
@@ -945,7 +891,7 @@ struct InstrResult {
 }
 
 #[drizzle::test]
-fn test_string_upper_lower(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_string_upper_lower(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -953,29 +899,27 @@ fn test_string_upper_lower(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) 
         InsertSimple::new("Test String").with_id(2),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test UPPER function
-    let result: Vec<StringResult> = drizzle_exec!(
-        db.select(alias(upper(simple.name), "result"))
-            .from(simple)
-            .r#where(eq(simple.id, 1))
-            => all
-    );
+    let result: Vec<StringResult> = db
+        .select(alias(upper(simple.name), "result"))
+        .from(simple)
+        .r#where(eq(simple.id, 1))
+        .all();
     assert_eq!(result[0].result, "HELLO WORLD");
 
     // Test LOWER function
-    let result: Vec<StringResult> = drizzle_exec!(
-        db.select(alias(lower(simple.name), "result"))
-            .from(simple)
-            .r#where(eq(simple.id, 1))
-            => all
-    );
+    let result: Vec<StringResult> = db
+        .select(alias(lower(simple.name), "result"))
+        .from(simple)
+        .r#where(eq(simple.id, 1))
+        .all();
     assert_eq!(result[0].result, "hello world");
 }
 
 #[drizzle::test]
-fn test_string_trim(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_string_trim(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -984,38 +928,35 @@ fn test_string_trim(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("right  ").with_id(3),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test TRIM function
-    let result: Vec<StringResult> = drizzle_exec!(
-        db.select(alias(trim(simple.name), "result"))
-            .from(simple)
-            .r#where(eq(simple.id, 1))
-            => all
-    );
+    let result: Vec<StringResult> = db
+        .select(alias(trim(simple.name), "result"))
+        .from(simple)
+        .r#where(eq(simple.id, 1))
+        .all();
     assert_eq!(result[0].result, "trimmed");
 
     // Test LTRIM function
-    let result: Vec<StringResult> = drizzle_exec!(
-        db.select(alias(ltrim(simple.name), "result"))
-            .from(simple)
-            .r#where(eq(simple.id, 2))
-            => all
-    );
+    let result: Vec<StringResult> = db
+        .select(alias(ltrim(simple.name), "result"))
+        .from(simple)
+        .r#where(eq(simple.id, 2))
+        .all();
     assert_eq!(result[0].result, "left");
 
     // Test RTRIM function
-    let result: Vec<StringResult> = drizzle_exec!(
-        db.select(alias(rtrim(simple.name), "result"))
-            .from(simple)
-            .r#where(eq(simple.id, 3))
-            => all
-    );
+    let result: Vec<StringResult> = db
+        .select(alias(rtrim(simple.name), "result"))
+        .from(simple)
+        .r#where(eq(simple.id, 3))
+        .all();
     assert_eq!(result[0].result, "right");
 }
 
 #[drizzle::test]
-fn test_string_length(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_string_length(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1024,104 +965,96 @@ fn test_string_length(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("test string").with_id(3),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test LENGTH function
-    let result: Vec<LengthResult> = drizzle_exec!(
-        db.select(alias(length(simple.name), "length"))
-            .from(simple)
-            .r#where(eq(simple.id, 1))
-            => all
-    );
+    let result: Vec<LengthResult> = db
+        .select(alias(length(simple.name), "length"))
+        .from(simple)
+        .r#where(eq(simple.id, 1))
+        .all();
     assert_eq!(result[0].length, 5);
 
     // Test LENGTH with empty string
-    let result: Vec<LengthResult> = drizzle_exec!(
-        db.select(alias(length(simple.name), "length"))
-            .from(simple)
-            .r#where(eq(simple.id, 2))
-            => all
-    );
+    let result: Vec<LengthResult> = db
+        .select(alias(length(simple.name), "length"))
+        .from(simple)
+        .r#where(eq(simple.id, 2))
+        .all();
     assert_eq!(result[0].length, 0);
 }
 
 #[drizzle::test]
-fn test_string_substr(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_string_substr(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Hello World").with_id(1)];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test SUBSTR function - extract "Hello"
-    let result: Vec<StringResult> = drizzle_exec!(
-        db.select(alias(substr(simple.name, 1, 5), "result"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<StringResult> = db
+        .select(alias(substr(simple.name, 1, 5), "result"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].result, "Hello");
 
     // Test SUBSTR function - extract "World"
-    let result: Vec<StringResult> = drizzle_exec!(
-        db.select(alias(substr(simple.name, 7, 5), "result"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<StringResult> = db
+        .select(alias(substr(simple.name, 7, 5), "result"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].result, "World");
 }
 
 #[drizzle::test]
-fn test_string_replace(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_string_replace(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Hello World").with_id(1)];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test REPLACE function
-    let result: Vec<StringResult> = drizzle_exec!(
-        db.select(alias(replace(simple.name, "World", "Rust"), "result"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<StringResult> = db
+        .select(alias(replace(simple.name, "World", "Rust"), "result"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].result, "Hello Rust");
 
     // Test REPLACE with non-existent pattern (should return original)
-    let result: Vec<StringResult> = drizzle_exec!(
-        db.select(alias(replace(simple.name, "xyz", "abc"), "result"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<StringResult> = db
+        .select(alias(replace(simple.name, "xyz", "abc"), "result"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].result, "Hello World");
 }
 
 #[drizzle::test]
-fn test_string_instr(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_string_instr(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Hello World").with_id(1)];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test INSTR function - find position of "World"
-    let result: Vec<InstrResult> = drizzle_exec!(
-        db.select(alias(instr(simple.name, "World"), "position"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<InstrResult> = db
+        .select(alias(instr(simple.name, "World"), "position"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].position, 7);
 
     // Test INSTR with non-existent pattern (should return 0)
-    let result: Vec<InstrResult> = drizzle_exec!(
-        db.select(alias(instr(simple.name, "xyz"), "position"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<InstrResult> = db
+        .select(alias(instr(simple.name, "xyz"), "position"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].position, 0);
 }
 
 #[drizzle::test]
-fn test_string_concat(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_string_concat(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1129,57 +1062,52 @@ fn test_string_concat(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("World").with_id(2),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test concat function with literal
-    let result: Vec<StringResult> = drizzle_exec!(
-        db.select(alias(concat(simple.name, "!"), "result"))
-            .from(simple)
-            .r#where(eq(simple.id, 1))
-            => all
-    );
+    let result: Vec<StringResult> = db
+        .select(alias(concat(simple.name, "!"), "result"))
+        .from(simple)
+        .r#where(eq(simple.id, 1))
+        .all();
     assert_eq!(result[0].result, "Hello!");
 
     // Test chained concat
-    let result: Vec<StringResult> = drizzle_exec!(
-        db.select(alias(concat(concat(simple.name, " "), "there"), "result"))
-            .from(simple)
-            .r#where(eq(simple.id, 1))
-            => all
-    );
+    let result: Vec<StringResult> = db
+        .select(alias(concat(concat(simple.name, " "), "there"), "result"))
+        .from(simple)
+        .r#where(eq(simple.id, 1))
+        .all();
     assert_eq!(result[0].result, "Hello there");
 }
 
 #[drizzle::test]
-fn test_string_functions_combined(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_string_functions_combined(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("  Hello World  ").with_id(1)];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test combined: UPPER(TRIM(name))
-    let result: Vec<StringResult> = drizzle_exec!(
-        db.select(alias(upper(trim(simple.name)), "result"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<StringResult> = db
+        .select(alias(upper(trim(simple.name)), "result"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].result, "HELLO WORLD");
 
     // Test combined: LOWER(TRIM(name))
-    let result: Vec<StringResult> = drizzle_exec!(
-        db.select(alias(lower(trim(simple.name)), "result"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<StringResult> = db
+        .select(alias(lower(trim(simple.name)), "result"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].result, "hello world");
 
     // Test combined: LENGTH(TRIM(name))
-    let result: Vec<LengthResult> = drizzle_exec!(
-        db.select(alias(length(trim(simple.name)), "length"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<LengthResult> = db
+        .select(alias(length(trim(simple.name)), "length"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].length, 11); // "Hello World" without leading/trailing spaces
 }
 
@@ -1198,7 +1126,7 @@ struct MathFloatResult {
 }
 
 #[drizzle::test]
-fn test_math_abs(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_math_abs(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1207,49 +1135,46 @@ fn test_math_abs(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("Positive").with_id(10),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test ABS function
-    let result: Vec<MathIntResult> = drizzle_exec!(
-        db.select(alias(abs(simple.id), "result"))
-            .from(simple)
-            .r#where(eq(simple.name, "Negative"))
-            => all
-    );
+    let result: Vec<MathIntResult> = db
+        .select(alias(abs(simple.id), "result"))
+        .from(simple)
+        .r#where(eq(simple.name, "Negative"))
+        .all();
     assert_eq!(result[0].result, 10);
 
     // Test ABS with zero
-    let result: Vec<MathIntResult> = drizzle_exec!(
-        db.select(alias(abs(simple.id), "result"))
-            .from(simple)
-            .r#where(eq(simple.name, "Zero"))
-            => all
-    );
+    let result: Vec<MathIntResult> = db
+        .select(alias(abs(simple.id), "result"))
+        .from(simple)
+        .r#where(eq(simple.name, "Zero"))
+        .all();
     assert_eq!(result[0].result, 0);
 }
 
 #[drizzle::test]
-fn test_math_round(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_math_round(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Use a table with float values - we'll compute from integer for simplicity
     let test_data = vec![InsertSimple::new("Test").with_id(37)];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test ROUND function with computed expression (id / 10.0)
     // 37 / 10.0 = 3.7, ROUND(3.7) = 4.0
-    let result: Vec<MathFloatResult> = drizzle_exec!(
-        db.select(alias(round(simple.id / 10), "result"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<MathFloatResult> = db
+        .select(alias(round(simple.id / 10), "result"))
+        .from(simple)
+        .all();
     // Integer division: 37 / 10 = 3, ROUND(3) = 3.0
     assert_eq!(result[0].result, 3.0);
 }
 
 #[drizzle::test]
-fn test_math_sign(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_math_sign(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1258,38 +1183,35 @@ fn test_math_sign(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("Positive").with_id(5),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test SIGN function with negative (SIGN returns a float type)
-    let result: Vec<MathFloatResult> = drizzle_exec!(
-        db.select(alias(sign(simple.id), "result"))
-            .from(simple)
-            .r#where(eq(simple.name, "Negative"))
-            => all
-    );
+    let result: Vec<MathFloatResult> = db
+        .select(alias(sign(simple.id), "result"))
+        .from(simple)
+        .r#where(eq(simple.name, "Negative"))
+        .all();
     assert_eq!(result[0].result, -1.0);
 
     // Test SIGN with zero
-    let result: Vec<MathFloatResult> = drizzle_exec!(
-        db.select(alias(sign(simple.id), "result"))
-            .from(simple)
-            .r#where(eq(simple.name, "Zero"))
-            => all
-    );
+    let result: Vec<MathFloatResult> = db
+        .select(alias(sign(simple.id), "result"))
+        .from(simple)
+        .r#where(eq(simple.name, "Zero"))
+        .all();
     assert_eq!(result[0].result, 0.0);
 
     // Test SIGN with positive
-    let result: Vec<MathFloatResult> = drizzle_exec!(
-        db.select(alias(sign(simple.id), "result"))
-            .from(simple)
-            .r#where(eq(simple.name, "Positive"))
-            => all
-    );
+    let result: Vec<MathFloatResult> = db
+        .select(alias(sign(simple.id), "result"))
+        .from(simple)
+        .r#where(eq(simple.name, "Positive"))
+        .all();
     assert_eq!(result[0].result, 1.0);
 }
 
 #[drizzle::test]
-fn test_math_mod(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_math_mod(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1298,24 +1220,22 @@ fn test_math_mod(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("Fifteen").with_id(15),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test MOD function (10 % 3 = 1)
-    let result: Vec<MathIntResult> = drizzle_exec!(
-        db.select(alias(mod_(simple.id, 3), "result"))
-            .from(simple)
-            .r#where(eq(simple.name, "Ten"))
-            => all
-    );
+    let result: Vec<MathIntResult> = db
+        .select(alias(mod_(simple.id, 3), "result"))
+        .from(simple)
+        .r#where(eq(simple.name, "Ten"))
+        .all();
     assert_eq!(result[0].result, 1);
 
     // Test MOD function (15 % 4 = 3)
-    let result: Vec<MathIntResult> = drizzle_exec!(
-        db.select(alias(mod_(simple.id, 4), "result"))
-            .from(simple)
-            .r#where(eq(simple.name, "Fifteen"))
-            => all
-    );
+    let result: Vec<MathIntResult> = db
+        .select(alias(mod_(simple.id, 4), "result"))
+        .from(simple)
+        .r#where(eq(simple.name, "Fifteen"))
+        .all();
     assert_eq!(result[0].result, 3);
 }
 
@@ -1334,36 +1254,37 @@ struct CurrentDateResult {
 }
 
 #[drizzle::test]
-fn test_datetime_current(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_datetime_current(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Test").with_id(1)];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test CURRENT_DATE - returns format YYYY-MM-DD
-    let result: Vec<CurrentDateResult> = drizzle_exec!(
-        db.select(alias(cast(current_date(), drizzle::sqlite::types::Text), "today"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<CurrentDateResult> = db
+        .select(alias(
+            cast(current_date(), drizzle::sqlite::types::Text),
+            "today",
+        ))
+        .from(simple)
+        .all();
     // Just verify it's in the expected format (YYYY-MM-DD)
     assert!(result[0].today.len() == 10);
     assert!(result[0].today.contains('-'));
 }
 
 #[drizzle::test]
-fn test_datetime_strftime(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_datetime_strftime(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("Test").with_id(1)];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test STRFTIME to format current date
-    let result: Vec<DateResult> = drizzle_exec!(
-        db.select(alias(strftime("%Y", current_date()), "result"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<DateResult> = db
+        .select(alias(strftime("%Y", current_date()), "result"))
+        .from(simple)
+        .all();
     // Should return 4-digit year
     assert!(result[0].result.len() == 4);
     assert!(result[0].result.starts_with("20")); // Years 2000-2099
@@ -1384,15 +1305,19 @@ struct InferredDateResult {
 // Tests that current_date() infers String (or chrono::NaiveDate with chrono)
 // and deserializes correctly from SQLite's TEXT representation.
 #[drizzle::test]
-fn test_inferred_current_date(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_inferred_current_date(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
-    drizzle_exec!(db.insert(simple).values([InsertSimple::new("seed")]) => execute);
+    db.insert(simple)
+        .values([InsertSimple::new("seed")])
+        .execute();
 
-    let result: Vec<InferredDateResult> = drizzle_exec!(
-        db.select(alias(cast(current_date(), drizzle::sqlite::types::Text), "today"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<InferredDateResult> = db
+        .select(alias(
+            cast(current_date(), drizzle::sqlite::types::Text),
+            "today",
+        ))
+        .from(simple)
+        .all();
     assert_eq!(result.len(), 1);
     // SQLite returns YYYY-MM-DD for CURRENT_DATE
     assert_eq!(result[0].today.len(), 10);
@@ -1406,18 +1331,19 @@ struct InferredTimestampResult {
 
 // Tests that current_timestamp() infers correctly and deserializes from SQLite.
 #[drizzle::test]
-fn test_inferred_current_timestamp(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_inferred_current_timestamp(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
-    drizzle_exec!(db.insert(simple).values([InsertSimple::new("seed")]) => execute);
+    db.insert(simple)
+        .values([InsertSimple::new("seed")])
+        .execute();
 
-    let result: Vec<InferredTimestampResult> = drizzle_exec!(
-        db.select(alias(
+    let result: Vec<InferredTimestampResult> = db
+        .select(alias(
             cast(current_timestamp(), drizzle::sqlite::types::Text),
             "now",
         ))
         .from(simple)
-            => all
-    );
+        .all();
     assert_eq!(result.len(), 1);
     // SQLite returns YYYY-MM-DD HH:MM:SS for CURRENT_TIMESTAMP
     assert!(result[0].now.contains(' '));
@@ -1439,7 +1365,7 @@ struct CaseNullableResult {
 }
 
 #[drizzle::test]
-fn test_case_when_with_else(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_case_when_with_else(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1448,11 +1374,11 @@ fn test_case_when_with_else(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema)
         InsertSimple::new("charlie").with_id(70),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // CASE with ELSE where all branches are NonNull → result is NonNull
-    let results: Vec<CaseNonNullResult> = drizzle_exec!(
-        db.select(alias(
+    let results: Vec<CaseNonNullResult> = db
+        .select(alias(
             case()
                 .when(gt(simple.id, 65), "Senior")
                 .when(gt(simple.id, 18), "Adult")
@@ -1461,8 +1387,7 @@ fn test_case_when_with_else(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema)
         ))
         .from(simple)
         .order_by(asc(simple.id))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].label, "Minor"); // id=10
@@ -1471,7 +1396,7 @@ fn test_case_when_with_else(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema)
 }
 
 #[drizzle::test]
-fn test_case_when_no_else(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_case_when_no_else(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1479,20 +1404,14 @@ fn test_case_when_no_else(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("bob").with_id(25),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Without ELSE, unmatched rows produce NULL → result is always Null
-    let results: Vec<CaseNullableResult> = drizzle_exec!(
-        db.select(alias(
-            case()
-                .when(gt(simple.id, 20), "Big")
-                .end(),
-            "label",
-        ))
+    let results: Vec<CaseNullableResult> = db
+        .select(alias(case().when(gt(simple.id, 20), "Big").end(), "label"))
         .from(simple)
         .order_by(asc(simple.id))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].label, None); // id=10, no match
@@ -1510,7 +1429,7 @@ struct RowNumberResult {
 }
 
 #[drizzle::test]
-fn test_window_row_number(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_window_row_number(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1519,19 +1438,15 @@ fn test_window_row_number(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("charlie").with_id(3),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
-    let results: Vec<RowNumberResult> = drizzle_exec!(
-        db.select((
+    let results: Vec<RowNumberResult> = db
+        .select((
             simple.name,
-            alias(
-                row_number().over(window().order_by(asc(simple.id))),
-                "rn",
-            ),
+            alias(row_number().over(window().order_by(asc(simple.id))), "rn"),
         ))
         .from(simple)
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].name, "alice");
@@ -1549,7 +1464,7 @@ struct RunningSumResult {
 }
 
 #[drizzle::test]
-fn test_window_sum_over(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_window_sum_over(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1558,27 +1473,23 @@ fn test_window_sum_over(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("charlie").with_id(30),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Running sum of id ordered by id
-    let results: Vec<RunningSumResult> = drizzle_exec!(
-        db.select((
+    let results: Vec<RunningSumResult> = db
+        .select((
             simple.name,
             alias(
                 sum(simple.id).over(
                     window()
                         .order_by(asc(simple.id))
-                        .rows_between(
-                            FrameBound::UnboundedPreceding,
-                            FrameBound::CurrentRow,
-                        )
+                        .rows_between(FrameBound::UnboundedPreceding, FrameBound::CurrentRow),
                 ),
                 "running_total",
             ),
         ))
         .from(simple)
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].name, "alice");
@@ -1596,7 +1507,7 @@ struct RankResult {
 }
 
 #[drizzle::test]
-fn test_window_dense_rank(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_window_dense_rank(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1605,20 +1516,16 @@ fn test_window_dense_rank(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("charlie").with_id(3),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
-    let results: Vec<RankResult> = drizzle_exec!(
-        db.select((
+    let results: Vec<RankResult> = db
+        .select((
             simple.name,
-            alias(
-                dense_rank().over(window().order_by(asc(simple.id))),
-                "rnk",
-            ),
+            alias(dense_rank().over(window().order_by(asc(simple.id))), "rnk"),
         ))
         .from(simple)
         .order_by(asc(simple.id))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].name, "alice");
@@ -1636,7 +1543,7 @@ struct PercentRankResult {
 }
 
 #[drizzle::test]
-fn test_window_percent_rank(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_window_percent_rank(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1645,10 +1552,10 @@ fn test_window_percent_rank(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema)
         InsertSimple::new("charlie").with_id(3),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
-    let results: Vec<PercentRankResult> = drizzle_exec!(
-        db.select((
+    let results: Vec<PercentRankResult> = db
+        .select((
             simple.name,
             alias(
                 percent_rank().over(window().order_by(asc(simple.id))),
@@ -1656,8 +1563,7 @@ fn test_window_percent_rank(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema)
             ),
         ))
         .from(simple)
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].name, "alice");
@@ -1673,7 +1579,7 @@ struct CumeDistResult {
 }
 
 #[drizzle::test]
-fn test_window_cume_dist(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_window_cume_dist(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1682,19 +1588,15 @@ fn test_window_cume_dist(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("charlie").with_id(3),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
-    let results: Vec<CumeDistResult> = drizzle_exec!(
-        db.select((
+    let results: Vec<CumeDistResult> = db
+        .select((
             simple.name,
-            alias(
-                cume_dist().over(window().order_by(asc(simple.id))),
-                "cd",
-            ),
+            alias(cume_dist().over(window().order_by(asc(simple.id))), "cd"),
         ))
         .from(simple)
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].name, "alice");
@@ -1709,18 +1611,17 @@ fn test_window_cume_dist(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
 // =============================================================================
 
 #[drizzle::test]
-fn test_concat_ws(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_concat_ws(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("World").with_id(1)];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test CONCAT_WS with literal separator and mixed values
-    let result: Vec<StringResult> = drizzle_exec!(
-        db.select(alias(concat_ws(", ", ["Hello", "Beautiful"]), "result"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<StringResult> = db
+        .select(alias(concat_ws(", ", ["Hello", "Beautiful"]), "result"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].result, "Hello, Beautiful");
 }
 
@@ -1734,49 +1635,55 @@ struct BoolIntResult {
 }
 
 #[drizzle::test]
-fn test_is_distinct_from(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_is_distinct_from(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
         InsertSimple::new("alice").with_id(10),
         InsertSimple::new("bob").with_id(20),
     ];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // 10 IS DISTINCT FROM 10 → false (0)
-    let result: Vec<BoolIntResult> = drizzle_exec!(
-        db.select(alias(
-            cast(is_distinct_from(simple.id, 10), drizzle::sqlite::types::Integer),
+    let result: Vec<BoolIntResult> = db
+        .select(alias(
+            cast(
+                is_distinct_from(simple.id, 10),
+                drizzle::sqlite::types::Integer,
+            ),
             "result",
         ))
         .from(simple)
         .r#where(eq(simple.id, 10))
-        => all
-    );
+        .all();
     assert_eq!(result[0].result, 0);
 
     // 10 IS DISTINCT FROM 20 → true (1)
-    let result: Vec<BoolIntResult> = drizzle_exec!(
-        db.select(alias(
-            cast(is_distinct_from(simple.id, 20), drizzle::sqlite::types::Integer),
+    let result: Vec<BoolIntResult> = db
+        .select(alias(
+            cast(
+                is_distinct_from(simple.id, 20),
+                drizzle::sqlite::types::Integer,
+            ),
             "result",
         ))
         .from(simple)
         .r#where(eq(simple.id, 10))
-        => all
-    );
+        .all();
     assert_eq!(result[0].result, 1);
 
     // 10 IS NOT DISTINCT FROM 10 → true (1)
-    let result: Vec<BoolIntResult> = drizzle_exec!(
-        db.select(alias(
-            cast(is_not_distinct_from(simple.id, 10), drizzle::sqlite::types::Integer),
+    let result: Vec<BoolIntResult> = db
+        .select(alias(
+            cast(
+                is_not_distinct_from(simple.id, 10),
+                drizzle::sqlite::types::Integer,
+            ),
             "result",
         ))
         .from(simple)
         .r#where(eq(simple.id, 10))
-        => all
-    );
+        .all();
     assert_eq!(result[0].result, 1);
 }
 
@@ -1785,49 +1692,46 @@ fn test_is_distinct_from(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
 // =============================================================================
 
 #[drizzle::test]
-fn test_is_true_is_false(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_is_true_is_false(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
         InsertSimple::new("truthy").with_id(1),
         InsertSimple::new("falsy").with_id(0),
     ];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // (1 > 0) IS TRUE → true (1)
-    let result: Vec<BoolIntResult> = drizzle_exec!(
-        db.select(alias(
+    let result: Vec<BoolIntResult> = db
+        .select(alias(
             cast(is_true(gt(simple.id, 0)), drizzle::sqlite::types::Integer),
             "result",
         ))
         .from(simple)
         .r#where(eq(simple.name, "truthy"))
-        => all
-    );
+        .all();
     assert_eq!(result[0].result, 1);
 
     // (0 > 0) IS TRUE → false (0)
-    let result: Vec<BoolIntResult> = drizzle_exec!(
-        db.select(alias(
+    let result: Vec<BoolIntResult> = db
+        .select(alias(
             cast(is_true(gt(simple.id, 0)), drizzle::sqlite::types::Integer),
             "result",
         ))
         .from(simple)
         .r#where(eq(simple.name, "falsy"))
-        => all
-    );
+        .all();
     assert_eq!(result[0].result, 0);
 
     // (0 > 0) IS FALSE → true (1)
-    let result: Vec<BoolIntResult> = drizzle_exec!(
-        db.select(alias(
+    let result: Vec<BoolIntResult> = db
+        .select(alias(
             cast(is_false(gt(simple.id, 0)), drizzle::sqlite::types::Integer),
             "result",
         ))
         .from(simple)
         .r#where(eq(simple.name, "falsy"))
-        => all
-    );
+        .all();
     assert_eq!(result[0].result, 1);
 }
 
@@ -1841,7 +1745,7 @@ struct TotalResult {
 }
 
 #[drizzle::test]
-fn test_total_aggregate(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_total_aggregate(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -1849,23 +1753,21 @@ fn test_total_aggregate(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("b").with_id(20),
         InsertSimple::new("c").with_id(30),
     ];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // TOTAL returns 0.0 for empty sets (unlike SUM which returns NULL)
-    let result: Vec<TotalResult> = drizzle_exec!(
-        db.select(alias(total(simple.id), "total"))
-            .from(simple)
-            .r#where(eq(simple.id, 999))
-            => all
-    );
+    let result: Vec<TotalResult> = db
+        .select(alias(total(simple.id), "total"))
+        .from(simple)
+        .r#where(eq(simple.id, 999))
+        .all();
     assert_eq!(result[0].total, 0.0);
 
     // TOTAL with actual data
-    let result: Vec<TotalResult> = drizzle_exec!(
-        db.select(alias(total(simple.id), "total"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<TotalResult> = db
+        .select(alias(total(simple.id), "total"))
+        .from(simple)
+        .all();
     assert_eq!(result[0].total, 60.0);
 }
 
@@ -1874,44 +1776,41 @@ fn test_total_aggregate(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
 // =============================================================================
 
 #[drizzle::test]
-fn test_char_length(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_char_length(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
         InsertSimple::new("hello").with_id(1),
         InsertSimple::new("").with_id(2),
     ];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
-    let result: Vec<LengthResult> = drizzle_exec!(
-        db.select(alias(char_length(simple.name), "length"))
-            .from(simple)
-            .r#where(eq(simple.id, 1))
-            => all
-    );
+    let result: Vec<LengthResult> = db
+        .select(alias(char_length(simple.name), "length"))
+        .from(simple)
+        .r#where(eq(simple.id, 1))
+        .all();
     assert_eq!(result[0].length, 5);
 
-    let result: Vec<LengthResult> = drizzle_exec!(
-        db.select(alias(char_length(simple.name), "length"))
-            .from(simple)
-            .r#where(eq(simple.id, 2))
-            => all
-    );
+    let result: Vec<LengthResult> = db
+        .select(alias(char_length(simple.name), "length"))
+        .from(simple)
+        .r#where(eq(simple.id, 2))
+        .all();
     assert_eq!(result[0].length, 0);
 }
 
 #[drizzle::test]
-fn test_octet_length(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_octet_length(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("hello").with_id(1)];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
-    let result: Vec<LengthResult> = drizzle_exec!(
-        db.select(alias(octet_length(simple.name), "length"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<LengthResult> = db
+        .select(alias(octet_length(simple.name), "length"))
+        .from(simple)
+        .all();
     // ASCII "hello" = 5 bytes
     assert_eq!(result[0].length, 5);
 }
@@ -1928,18 +1827,14 @@ struct RandomIntResult {
 }
 
 #[drizzle::test]
-fn test_random(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_random(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("seed").with_id(1)];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // SQLite RANDOM() returns an integer — just verify it doesn't error
-    let result: Vec<RandomIntResult> = drizzle_exec!(
-        db.select(alias(random(), "result"))
-            .from(simple)
-            => all
-    );
+    let result: Vec<RandomIntResult> = db.select(alias(random(), "result")).from(simple).all();
     assert_eq!(result.len(), 1);
     // We can't assert a specific value, but we can verify it's a number
     let _ = result[0].result;
@@ -1952,15 +1847,15 @@ fn test_random(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
 // =============================================================================
 
 #[drizzle::test]
-fn test_timediff(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_timediff(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![InsertSimple::new("seed").with_id(1)];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // TIMEDIFF('2024-01-02', '2024-01-01') = '+1 00:00:00.000'
-    let result: Vec<StringResult> = drizzle_exec!(
-        db.select(alias(
+    let result: Vec<StringResult> = db
+        .select(alias(
             timediff(
                 cast("2024-01-02", drizzle::sqlite::types::Text),
                 cast("2024-01-01", drizzle::sqlite::types::Text),
@@ -1968,7 +1863,6 @@ fn test_timediff(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
             "result",
         ))
         .from(simple)
-        => all
-    );
+        .all();
     assert!(result[0].result.contains("1"));
 }

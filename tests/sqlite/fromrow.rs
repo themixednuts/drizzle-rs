@@ -68,15 +68,15 @@ pub struct TypeTestSchema {
 }
 
 #[drizzle::test]
-fn test_fromrow_with_all_data_types(db: &mut TestDb<TypeTestSchema>, schema: TypeTestSchema) {
+fn test_fromrow_with_all_data_types(db: &mut TestDb<TypeTestSchema>) {
     let TypeTestSchema { type_test } = schema;
 
     // Insert test data with all data types
     let test_data = InsertTypeTest::new("test_user", 25, 98.5, true, [1, 2, 3, 4, 5]);
-    drizzle_exec!(db.insert(type_test).values([test_data]) => execute);
+    db.insert(type_test).values([test_data]).execute();
 
     // Test FromRow with all data types
-    let result: AllDataTypes = drizzle_exec!(db.select(()).from(type_test) => get);
+    let result: AllDataTypes = db.select(()).from(type_test).get();
 
     let expected = AllDataTypes {
         id: 1,
@@ -96,15 +96,15 @@ struct IntegerSchema {
 }
 
 #[drizzle::test]
-fn test_fromrow_with_integer_sizes(db: &mut TestDb<IntegerSchema>, schema: IntegerSchema) {
+fn test_fromrow_with_integer_sizes(db: &mut TestDb<IntegerSchema>) {
     let IntegerSchema { integer_test } = schema;
 
     // Insert test data with different integer sizes
     let test_data = InsertIntegerTest::new(9223372036854775806i64, 32000i16, 100i8);
-    drizzle_exec!(db.insert(integer_test).values([test_data]) => execute);
+    db.insert(integer_test).values([test_data]).execute();
 
     // Test FromRow with different integer types
-    let result: IntegerTypes = drizzle_exec!(db.select(()).from(integer_test) => get);
+    let result: IntegerTypes = db.select(()).from(integer_test).get();
 
     let expected = IntegerTypes {
         id: 1,
@@ -121,15 +121,15 @@ struct FloatSchema {
     float_test: FloatTest,
 }
 #[drizzle::test]
-fn test_fromrow_with_float_types(db: &mut TestDb<FloatSchema>, schema: FloatSchema) {
+fn test_fromrow_with_float_types(db: &mut TestDb<FloatSchema>) {
     let FloatSchema { float_test } = schema;
 
     // Insert test data with different float types
     let test_data = InsertFloatTest::new(3.141592653589793, 2.718f32);
-    drizzle_exec!(db.insert(float_test).values([test_data]) => execute);
+    db.insert(float_test).values([test_data]).execute();
 
     // Test FromRow with different float types
-    let result: FloatTypes = drizzle_exec!(db.select(()).from(float_test) => get);
+    let result: FloatTypes = db.select(()).from(float_test).get();
 
     let expected = FloatTypes {
         id: 1,
@@ -141,18 +141,15 @@ fn test_fromrow_with_float_types(db: &mut TestDb<FloatSchema>, schema: FloatSche
 }
 
 #[drizzle::test]
-fn test_fromrow_type_conversion_edge_cases(
-    db: &mut TestDb<TypeTestSchema>,
-    schema: TypeTestSchema,
-) {
+fn test_fromrow_type_conversion_edge_cases(db: &mut TestDb<TypeTestSchema>) {
     let TypeTestSchema { type_test } = schema;
 
     // Insert test data with edge case values
     let test_data = InsertTypeTest::new("edge_case", 0, 0.0, false, []);
-    drizzle_exec!(db.insert(type_test).values([test_data]) => execute);
+    db.insert(type_test).values([test_data]).execute();
 
     // Test FromRow with edge case values
-    let result: AllDataTypes = drizzle_exec!(db.select(()).from(type_test) => get);
+    let result: AllDataTypes = db.select(()).from(type_test).get();
 
     let expected = AllDataTypes {
         id: 1,
@@ -184,47 +181,39 @@ struct DerivedSimpleWithColumns {
 }
 
 #[drizzle::test]
-fn test_fromrow_derive_with_partial_selection(
-    db: &mut TestDb<TypeTestSchema>,
-    schema: TypeTestSchema,
-) {
+fn test_fromrow_derive_with_partial_selection(db: &mut TestDb<TypeTestSchema>) {
     let TypeTestSchema { type_test } = schema;
 
     let test_data = InsertTypeTest::new("derive_test", 25, 98.5, true, [1, 2, 3]);
-    drizzle_exec!(db.insert(type_test).values([test_data]) => execute);
+    db.insert(type_test).values([test_data]).execute();
 
     // Test the derived implementation with partial selection
-    let result: DerivedPartialSimple = drizzle_exec!(
-        db.select(DerivedPartialSimple::Select)
-            .from(type_test)
-            => get
-    );
+    let result: DerivedPartialSimple = db
+        .select(DerivedPartialSimple::Select)
+        .from(type_test)
+        .get();
     assert_eq!(result.name, "derive_test");
 }
 
 #[drizzle::test]
-fn test_fromrow_with_column_mapping(db: &mut TestDb<TypeTestSchema>, schema: TypeTestSchema) {
+fn test_fromrow_with_column_mapping(db: &mut TestDb<TypeTestSchema>) {
     let TypeTestSchema { type_test } = schema;
 
     let test_data = InsertTypeTest::new("column_test", 25, 98.5, true, [1, 2, 3]).with_id(42);
-    drizzle_exec!(db.insert(type_test).values([test_data]) => execute);
+    db.insert(type_test).values([test_data]).execute();
 
     // Test the column-mapped FromRow implementation
-    let result: DerivedSimpleWithColumns = drizzle_exec!(
-        db.select(DerivedSimpleWithColumns::Select)
-            .from(type_test)
-            => get
-    );
+    let result: DerivedSimpleWithColumns = db
+        .select(DerivedSimpleWithColumns::Select)
+        .from(type_test)
+        .get();
 
     assert_eq!(result.table_id, 42);
     assert_eq!(result.table_name, "column_test");
 }
 
 #[drizzle::test]
-fn test_insert_returning_select_target_infers_row(
-    db: &mut TestDb<TypeTestSchema>,
-    schema: TypeTestSchema,
-) {
+fn test_insert_returning_select_target_infers_row(db: &mut TestDb<TypeTestSchema>) {
     let TypeTestSchema { type_test } = schema;
 
     let stmt = db
@@ -238,7 +227,7 @@ fn test_insert_returning_select_target_infers_row(
         )])
         .returning(DerivedPartialSimple::Select);
 
-    let result: DerivedPartialSimple = drizzle_exec!(stmt => get);
+    let result: DerivedPartialSimple = stmt.get();
     assert_eq!(result.name, "returning_test");
 }
 
@@ -252,7 +241,7 @@ struct NamedNameId {
 struct TupleNameId(String, i32);
 
 #[drizzle::test]
-fn test_fromrow_named_struct_maps_by_name(db: &mut TestDb<TypeTestSchema>, schema: TypeTestSchema) {
+fn test_fromrow_named_struct_maps_by_name(db: &mut TestDb<TypeTestSchema>) {
     // Turso row API does not expose column names, so named decoding is index-based there.
     if __driver_name == "turso" {
         return Ok(());
@@ -261,29 +250,26 @@ fn test_fromrow_named_struct_maps_by_name(db: &mut TestDb<TypeTestSchema>, schem
     let TypeTestSchema { type_test } = schema;
 
     let row = InsertTypeTest::new("order_test", 25, 98.5, true, [1, 2, 3]).with_id(42);
-    drizzle_exec!(db.insert(type_test).values([row]) => execute);
+    db.insert(type_test).values([row]).execute();
 
     // Strict typed decode follows selected column order.
     let stmt = db.select((type_test.id, type_test.name)).from(type_test);
-    let result: NamedNameId = drizzle_exec!(stmt => get);
+    let result: NamedNameId = stmt.get();
 
     assert_eq!(result.id, 42);
     assert_eq!(result.name, "order_test");
 }
 
 #[drizzle::test]
-fn test_fromrow_tuple_struct_maps_by_index(
-    db: &mut TestDb<TypeTestSchema>,
-    schema: TypeTestSchema,
-) {
+fn test_fromrow_tuple_struct_maps_by_index(db: &mut TestDb<TypeTestSchema>) {
     let TypeTestSchema { type_test } = schema;
 
     let row = InsertTypeTest::new("order_test", 25, 98.5, true, [1, 2, 3]).with_id(42);
-    drizzle_exec!(db.insert(type_test).values([row]) => execute);
+    db.insert(type_test).values([row]).execute();
 
     // Tuple structs decode positionally, following SELECT order.
     let stmt = db.select((type_test.name, type_test.id)).from(type_test);
-    let result: TupleNameId = drizzle_exec!(stmt => get);
+    let result: TupleNameId = stmt.get();
 
     assert_eq!(result.0, "order_test");
     assert_eq!(result.1, 42);

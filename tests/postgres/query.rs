@@ -59,22 +59,17 @@ struct DeepQuerySchema {
 
 // -- Basic find_many without relations --
 #[drizzle::test]
-fn query_find_many_no_relations(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_find_many_no_relations(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([
-                InsertComplex::new("Alice", true, Role::User),
-                InsertComplex::new("Bob", true, Role::User),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values([
+            InsertComplex::new("Alice", true, Role::User),
+            InsertComplex::new("Bob", true, Role::User),
+        ])
+        .execute();
 
-    let users = drizzle_exec!(db.query(complex).order_by(asc(complex.name)).find_many());
+    let users = db.query(complex).order_by(asc(complex.name)).find_many();
     assert_eq!(users.len(), 2);
     assert_eq!(users[0].name, "Alice");
     assert_eq!(users[1].name, "Bob");
@@ -82,86 +77,77 @@ fn query_find_many_no_relations(
 
 // -- find_first --
 #[drizzle::test]
-fn query_find_first(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
+fn query_find_first(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([
-                InsertComplex::new("Alice", true, Role::User),
-                InsertComplex::new("Bob", true, Role::User),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values([
+            InsertComplex::new("Alice", true, Role::User),
+            InsertComplex::new("Bob", true, Role::User),
+        ])
+        .execute();
 
-    let user = drizzle_exec!(db.query(complex).order_by(asc(complex.name)).find_first());
+    let user = db.query(complex).order_by(asc(complex.name)).find_first();
     assert!(user.is_some());
     assert_eq!(user.unwrap().name, "Alice");
 }
 
 // -- find_first returns None on empty table --
 #[drizzle::test]
-fn query_find_first_empty(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
+fn query_find_first_empty(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, .. } = schema;
 
-    let user = drizzle_exec!(db.query(complex).find_first());
+    let user = db.query(complex).find_first();
     assert!(user.is_none());
 }
 
 // -- with limit --
 #[drizzle::test]
-fn query_with_limit(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
+fn query_with_limit(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([
-                InsertComplex::new("Alice", true, Role::User),
-                InsertComplex::new("Bob", true, Role::User),
-                InsertComplex::new("Charlie", true, Role::User),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values([
+            InsertComplex::new("Alice", true, Role::User),
+            InsertComplex::new("Bob", true, Role::User),
+            InsertComplex::new("Charlie", true, Role::User),
+        ])
+        .execute();
 
-    let users = drizzle_exec!(db.query(complex).limit(2).find_many());
+    let users = db.query(complex).limit(2).find_many();
     assert_eq!(users.len(), 2);
 }
 
 // -- Reverse relation: Complex -> Posts (Many) --
 #[drizzle::test]
-fn query_reverse_relation_many(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_reverse_relation_many(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
     // Insert users
-    drizzle_exec!(
-        db.insert(complex)
-            .values([
-                InsertComplex::new("Alice", true, Role::User),
-                InsertComplex::new("Bob", true, Role::User),
-            ])
-            => execute
-    );
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    db.insert(complex)
+        .values([
+            InsertComplex::new("Alice", true, Role::User),
+            InsertComplex::new("Bob", true, Role::User),
+        ])
+        .execute();
+
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users.iter().find(|u| u.name == "Alice").unwrap().id;
     let bob_id = all_users.iter().find(|u| u.name == "Bob").unwrap().id;
 
     // Insert posts
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("Alice Post 1", true).with_author_id(alice_id),
-                InsertPost::new("Alice Post 2", true).with_author_id(alice_id),
-                InsertPost::new("Bob Post 1", true).with_author_id(bob_id),
-            ])
-            => execute
-    );
+
+    db.insert(post)
+        .values([
+            InsertPost::new("Alice Post 1", true).with_author_id(alice_id),
+            InsertPost::new("Alice Post 2", true).with_author_id(alice_id),
+            InsertPost::new("Bob Post 1", true).with_author_id(bob_id),
+        ])
+        .execute();
 
     // Query users with their posts
-    let users = drizzle_exec!(db.query(complex).with(complex.posts()).find_many());
+    let users = db.query(complex).with(complex.posts()).find_many();
 
     assert_eq!(users.len(), 2);
 
@@ -179,29 +165,22 @@ fn query_reverse_relation_many(
 
 // -- Forward relation: Post -> Author (OptionalOne since author_id is nullable) --
 #[drizzle::test]
-fn query_forward_relation_one(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_forward_relation_one(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
-    drizzle_exec!(
-        db.insert(post)
-            .values([InsertPost::new("Hello World", true).with_author_id(alice_id)])
-            => execute
-    );
+    db.insert(post)
+        .values([InsertPost::new("Hello World", true).with_author_id(alice_id)])
+        .execute();
 
     // Query posts with their author
-    let posts = drizzle_exec!(db.query(post).with(post.author()).find_many());
+    let posts = db.query(post).with(post.author()).find_many();
 
     assert_eq!(posts.len(), 1);
     assert_eq!(posts[0].title, "Hello World");
@@ -210,30 +189,24 @@ fn query_forward_relation_one(
 
 // -- Forward relation: OptionalOne (nullable FK, self-referential) --
 #[drizzle::test]
-fn query_forward_optional_one(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_forward_optional_one(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
     // Bob was invited by Alice
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Bob", true, Role::User).with_invited_by(alice_id)])
-            => execute
-    );
+
+    db.insert(complex)
+        .values([InsertComplex::new("Bob", true, Role::User).with_invited_by(alice_id)])
+        .execute();
 
     // Query users with their inviter
-    let users = drizzle_exec!(db.query(complex).with(complex.invited_by()).find_many());
+    let users = db.query(complex).with(complex.invited_by()).find_many();
 
     assert_eq!(users.len(), 2);
 
@@ -249,7 +222,7 @@ fn query_forward_optional_one(
 
 // -- Nested relations: Complex -> Posts -> Comments --
 #[drizzle::test]
-fn query_nested_relations(db: &mut TestDb<FullQuerySchema>, schema: FullQuerySchema) {
+fn query_nested_relations(db: &mut TestDb<FullQuerySchema>) {
     let FullQuerySchema {
         complex,
         post,
@@ -258,46 +231,42 @@ fn query_nested_relations(db: &mut TestDb<FullQuerySchema>, schema: FullQuerySch
     } = schema;
 
     // Insert user
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
+
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
     // Insert posts
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("Post 1", true).with_author_id(alice_id),
-                InsertPost::new("Post 2", true).with_author_id(alice_id),
-            ])
-            => execute
-    );
 
-    let all_posts: Vec<SelectPost> = drizzle_exec!(db.select(()).from(post) => all);
+    db.insert(post)
+        .values([
+            InsertPost::new("Post 1", true).with_author_id(alice_id),
+            InsertPost::new("Post 2", true).with_author_id(alice_id),
+        ])
+        .execute();
+
+    let all_posts: Vec<SelectPost> = db.select(()).from(post).all();
     let post1_id = all_posts.iter().find(|p| p.title == "Post 1").unwrap().id;
     let post2_id = all_posts.iter().find(|p| p.title == "Post 2").unwrap().id;
 
     // Insert comments
-    drizzle_exec!(
-        db.insert(comment)
-            .values([
-                InsertComment::new("Comment on P1-A", post1_id),
-                InsertComment::new("Comment on P1-B", post1_id),
-                InsertComment::new("Comment on P2", post2_id),
-            ])
-            => execute
-    );
+
+    db.insert(comment)
+        .values([
+            InsertComment::new("Comment on P1-A", post1_id),
+            InsertComment::new("Comment on P1-B", post1_id),
+            InsertComment::new("Comment on P2", post2_id),
+        ])
+        .execute();
 
     // Query: users -> posts -> comments
-    let users = drizzle_exec!(
-        db.query(complex)
-            .with(complex.posts().with(post.comments()))
-            .find_many()
-    );
+    let users = db
+        .query(complex)
+        .with(complex.posts().with(post.comments()))
+        .find_many();
 
     assert_eq!(users.len(), 1);
     let alice = &users[0];
@@ -315,46 +284,39 @@ fn query_nested_relations(db: &mut TestDb<FullQuerySchema>, schema: FullQuerySch
 
 // -- Multiple relations: Complex with posts AND invited_by --
 #[drizzle::test]
-fn query_multiple_relations(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_multiple_relations(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
     // Alice (no inviter)
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
+
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
     // Bob (invited by Alice)
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Bob", true, Role::User).with_invited_by(alice_id)])
-            => execute
-    );
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    db.insert(complex)
+        .values([InsertComplex::new("Bob", true, Role::User).with_invited_by(alice_id)])
+        .execute();
+
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let bob_id = all_users.iter().find(|u| u.name == "Bob").unwrap().id;
 
     // Posts by Bob
-    drizzle_exec!(
-        db.insert(post)
-            .values([InsertPost::new("Bob's Post", true).with_author_id(bob_id)])
-            => execute
-    );
+
+    db.insert(post)
+        .values([InsertPost::new("Bob's Post", true).with_author_id(bob_id)])
+        .execute();
 
     // Query users with both posts AND invited_by
-    let users = drizzle_exec!(
-        db.query(complex)
-            .with(complex.posts())
-            .with(complex.invited_by())
-            .find_many()
-    );
+    let users = db
+        .query(complex)
+        .with(complex.posts())
+        .with(complex.invited_by())
+        .find_many();
 
     assert_eq!(users.len(), 2);
 
@@ -373,19 +335,14 @@ fn query_multiple_relations(
 
 // -- Empty relation (Many with no rows) --
 #[drizzle::test]
-fn query_empty_many_relation(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_empty_many_relation(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
 
-    let users = drizzle_exec!(db.query(complex).with(complex.posts()).find_many());
+    let users = db.query(complex).with(complex.posts()).find_many();
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].posts().len(), 0);
@@ -393,25 +350,22 @@ fn query_empty_many_relation(
 
 // -- Typed WHERE on root query (tests $N placeholder renumbering) --
 #[drizzle::test]
-fn query_where_typed(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
+fn query_where_typed(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([
-                InsertComplex::new("Alice", true, Role::User),
-                InsertComplex::new("Bob", true, Role::User),
-                InsertComplex::new("Charlie", true, Role::User),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values([
+            InsertComplex::new("Alice", true, Role::User),
+            InsertComplex::new("Bob", true, Role::User),
+            InsertComplex::new("Charlie", true, Role::User),
+        ])
+        .execute();
 
     // Filter with typed expression
-    let users = drizzle_exec!(
-        db.query(complex)
-            .r#where(eq(complex.name, "Bob"))
-            .find_many()
-    );
+    let users = db
+        .query(complex)
+        .r#where(eq(complex.name, "Bob"))
+        .find_many();
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].name, "Bob");
@@ -419,28 +373,26 @@ fn query_where_typed(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPos
 
 // -- Typed ORDER BY on root query --
 #[drizzle::test]
-fn query_order_by_typed(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
+fn query_order_by_typed(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([
-                InsertComplex::new("Charlie", true, Role::User),
-                InsertComplex::new("Alice", true, Role::User),
-                InsertComplex::new("Bob", true, Role::User),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values([
+            InsertComplex::new("Charlie", true, Role::User),
+            InsertComplex::new("Alice", true, Role::User),
+            InsertComplex::new("Bob", true, Role::User),
+        ])
+        .execute();
 
     // Order by name ascending
-    let users = drizzle_exec!(db.query(complex).order_by(asc(complex.name)).find_many());
+    let users = db.query(complex).order_by(asc(complex.name)).find_many();
 
     assert_eq!(users[0].name, "Alice");
     assert_eq!(users[1].name, "Bob");
     assert_eq!(users[2].name, "Charlie");
 
     // Order by name descending
-    let users = drizzle_exec!(db.query(complex).order_by(desc(complex.name)).find_many());
+    let users = db.query(complex).order_by(desc(complex.name)).find_many();
 
     assert_eq!(users[0].name, "Charlie");
     assert_eq!(users[1].name, "Bob");
@@ -449,38 +401,30 @@ fn query_order_by_typed(db: &mut TestDb<ComplexPostQuerySchema>, schema: Complex
 
 // -- Typed WHERE on relation subquery (tests $N renumbering in subqueries) --
 #[drizzle::test]
-fn query_relation_where_typed(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_relation_where_typed(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("Post A", true).with_author_id(alice_id),
-                InsertPost::new("Post B", true).with_author_id(alice_id),
-                InsertPost::new("Post C", true).with_author_id(alice_id),
-            ])
-            => execute
-    );
+    db.insert(post)
+        .values([
+            InsertPost::new("Post A", true).with_author_id(alice_id),
+            InsertPost::new("Post B", true).with_author_id(alice_id),
+            InsertPost::new("Post C", true).with_author_id(alice_id),
+        ])
+        .execute();
 
     // Only include posts with title > "Post A" (should exclude "Post A")
     // Note: using title (deterministic String) instead of id (random UUID).
-    let users = drizzle_exec!(
-        db.query(complex)
-            .with(complex.posts().r#where(gt(post.title, "Post A")))
-            .find_many()
-    );
+    let users = db
+        .query(complex)
+        .with(complex.posts().r#where(gt(post.title, "Post A")))
+        .find_many();
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].posts().len(), 2);
@@ -488,37 +432,29 @@ fn query_relation_where_typed(
 
 // -- Typed ORDER BY + LIMIT on relation subquery --
 #[drizzle::test]
-fn query_relation_order_limit_typed(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_relation_order_limit_typed(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("Post C", true).with_author_id(alice_id),
-                InsertPost::new("Post A", true).with_author_id(alice_id),
-                InsertPost::new("Post B", true).with_author_id(alice_id),
-            ])
-            => execute
-    );
+    db.insert(post)
+        .values([
+            InsertPost::new("Post C", true).with_author_id(alice_id),
+            InsertPost::new("Post A", true).with_author_id(alice_id),
+            InsertPost::new("Post B", true).with_author_id(alice_id),
+        ])
+        .execute();
 
     // Order posts by title desc, take first 2
-    let users = drizzle_exec!(
-        db.query(complex)
-            .with(complex.posts().order_by(desc(post.title)).limit(2),)
-            .find_many()
-    );
+    let users = db
+        .query(complex)
+        .with(complex.posts().order_by(desc(post.title)).limit(2))
+        .find_many();
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].posts().len(), 2);
@@ -528,40 +464,32 @@ fn query_relation_order_limit_typed(
 
 // -- Forward relation with NULL FK --
 #[drizzle::test]
-fn query_forward_relation_null_fk(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_forward_relation_null_fk(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
     // Post with author
-    drizzle_exec!(
-        db.insert(post)
-            .values([InsertPost::new("With Author", true).with_author_id(alice_id)])
-            => execute
-    );
-    // Post without author (NULL FK)
-    drizzle_exec!(
-        db.insert(post)
-            .values([InsertPost::new("No Author", true)])
-            => execute
-    );
 
-    let posts = drizzle_exec!(
-        db.query(post)
-            .with(post.author())
-            .order_by(asc(post.title))
-            .find_many()
-    );
+    db.insert(post)
+        .values([InsertPost::new("With Author", true).with_author_id(alice_id)])
+        .execute();
+    // Post without author (NULL FK)
+
+    db.insert(post)
+        .values([InsertPost::new("No Author", true)])
+        .execute();
+
+    let posts = db
+        .query(post)
+        .with(post.author())
+        .order_by(asc(post.title))
+        .find_many();
 
     assert_eq!(posts.len(), 2);
     // "No Author" comes first alphabetically
@@ -572,42 +500,34 @@ fn query_forward_relation_null_fk(
 
 // -- Combined root WHERE + relation WHERE (tests param ordering) --
 #[drizzle::test]
-fn query_root_and_relation_where_combined(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_root_and_relation_where_combined(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([
-                InsertComplex::new("Alice", true, Role::User),
-                InsertComplex::new("Bob", true, Role::User),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values([
+            InsertComplex::new("Alice", true, Role::User),
+            InsertComplex::new("Bob", true, Role::User),
+        ])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users.iter().find(|u| u.name == "Alice").unwrap().id;
     let bob_id = all_users.iter().find(|u| u.name == "Bob").unwrap().id;
 
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("Alice Draft", false).with_author_id(alice_id),
-                InsertPost::new("Alice Published", true).with_author_id(alice_id),
-                InsertPost::new("Bob Post", true).with_author_id(bob_id),
-            ])
-            => execute
-    );
+    db.insert(post)
+        .values([
+            InsertPost::new("Alice Draft", false).with_author_id(alice_id),
+            InsertPost::new("Alice Published", true).with_author_id(alice_id),
+            InsertPost::new("Bob Post", true).with_author_id(bob_id),
+        ])
+        .execute();
 
     // Root WHERE filters to Alice, relation WHERE filters to published posts
-    let users = drizzle_exec!(
-        db.query(complex)
-            .with(complex.posts().r#where(eq(post.published, true)))
-            .r#where(eq(complex.name, "Alice"))
-            .find_many()
-    );
+    let users = db
+        .query(complex)
+        .with(complex.posts().r#where(eq(post.published, true)))
+        .r#where(eq(complex.name, "Alice"))
+        .find_many();
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].name, "Alice");
@@ -636,7 +556,7 @@ struct ViewQuerySchema {
 
 // -- Basic view query without relations --
 #[drizzle::test]
-fn query_view_find_many(db: &mut TestDb<ViewQuerySchema>, schema: ViewQuerySchema) {
+fn query_view_find_many(db: &mut TestDb<ViewQuerySchema>) {
     let ViewQuerySchema {
         complex,
         post,
@@ -644,25 +564,21 @@ fn query_view_find_many(db: &mut TestDb<ViewQuerySchema>, schema: ViewQuerySchem
         ..
     } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("Post 1", true).with_author_id(alice_id),
-                InsertPost::new("Post 2", true).with_author_id(alice_id),
-            ])
-            => execute
-    );
+    db.insert(post)
+        .values([
+            InsertPost::new("Post 1", true).with_author_id(alice_id),
+            InsertPost::new("Post 2", true).with_author_id(alice_id),
+        ])
+        .execute();
 
-    let posts = drizzle_exec!(db.query(post_view).find_many());
+    let posts = db.query(post_view).find_many();
     assert_eq!(posts.len(), 2);
     assert_eq!(posts[0].title, "Post 1");
     assert_eq!(posts[1].title, "Post 2");
@@ -670,7 +586,7 @@ fn query_view_find_many(db: &mut TestDb<ViewQuerySchema>, schema: ViewQuerySchem
 
 // -- View with find_first --
 #[drizzle::test]
-fn query_view_find_first(db: &mut TestDb<ViewQuerySchema>, schema: ViewQuerySchema) {
+fn query_view_find_first(db: &mut TestDb<ViewQuerySchema>) {
     let ViewQuerySchema {
         complex,
         post,
@@ -678,36 +594,31 @@ fn query_view_find_first(db: &mut TestDb<ViewQuerySchema>, schema: ViewQuerySche
         ..
     } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("First Post", true).with_author_id(alice_id),
-                InsertPost::new("Second Post", true).with_author_id(alice_id),
-            ])
-            => execute
-    );
+    db.insert(post)
+        .values([
+            InsertPost::new("First Post", true).with_author_id(alice_id),
+            InsertPost::new("Second Post", true).with_author_id(alice_id),
+        ])
+        .execute();
 
-    let found = drizzle_exec!(
-        db.query(post_view)
-            .order_by(asc(post_view.title))
-            .find_first()
-    );
+    let found = db
+        .query(post_view)
+        .order_by(asc(post_view.title))
+        .find_first();
     assert!(found.is_some());
     assert_eq!(found.unwrap().title, "First Post");
 }
 
 // -- View with WHERE and ORDER BY --
 #[drizzle::test]
-fn query_view_where_order(db: &mut TestDb<ViewQuerySchema>, schema: ViewQuerySchema) {
+fn query_view_where_order(db: &mut TestDb<ViewQuerySchema>) {
     let ViewQuerySchema {
         complex,
         post,
@@ -715,43 +626,37 @@ fn query_view_where_order(db: &mut TestDb<ViewQuerySchema>, schema: ViewQuerySch
         ..
     } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("Charlie Post", true).with_author_id(alice_id),
-                InsertPost::new("Alpha Post", true).with_author_id(alice_id),
-                InsertPost::new("Bravo Post", true).with_author_id(alice_id),
-            ])
-            => execute
-    );
+    db.insert(post)
+        .values([
+            InsertPost::new("Charlie Post", true).with_author_id(alice_id),
+            InsertPost::new("Alpha Post", true).with_author_id(alice_id),
+            InsertPost::new("Bravo Post", true).with_author_id(alice_id),
+        ])
+        .execute();
 
     // Order by title ascending
-    let posts = drizzle_exec!(
-        db.query(post_view)
-            .order_by(asc(post_view.title))
-            .find_many()
-    );
+    let posts = db
+        .query(post_view)
+        .order_by(asc(post_view.title))
+        .find_many();
 
     assert_eq!(posts[0].title, "Alpha Post");
     assert_eq!(posts[1].title, "Bravo Post");
     assert_eq!(posts[2].title, "Charlie Post");
 
     // ORDER BY DESC + LIMIT
-    let posts = drizzle_exec!(
-        db.query(post_view)
-            .order_by(desc(post_view.title))
-            .limit(2)
-            .find_many()
-    );
+    let posts = db
+        .query(post_view)
+        .order_by(desc(post_view.title))
+        .limit(2)
+        .find_many();
 
     assert_eq!(posts.len(), 2);
     assert_eq!(posts[0].title, "Charlie Post");
@@ -777,7 +682,7 @@ struct ViewFkQuerySchema {
 
 // -- View with forward relation (view -> table) --
 #[drizzle::test]
-fn query_view_with_forward_relation(db: &mut TestDb<ViewFkQuerySchema>, schema: ViewFkQuerySchema) {
+fn query_view_with_forward_relation(db: &mut TestDb<ViewFkQuerySchema>) {
     let ViewFkQuerySchema {
         complex,
         post,
@@ -785,35 +690,30 @@ fn query_view_with_forward_relation(db: &mut TestDb<ViewFkQuerySchema>, schema: 
         ..
     } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([
-                InsertComplex::new("Alice", true, Role::User),
-                InsertComplex::new("Bob", true, Role::User),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values([
+            InsertComplex::new("Alice", true, Role::User),
+            InsertComplex::new("Bob", true, Role::User),
+        ])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users.iter().find(|u| u.name == "Alice").unwrap().id;
     let bob_id = all_users.iter().find(|u| u.name == "Bob").unwrap().id;
 
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("Alice's Post", true).with_author_id(alice_id),
-                InsertPost::new("Bob's Post", true).with_author_id(bob_id),
-            ])
-            => execute
-    );
+    db.insert(post)
+        .values([
+            InsertPost::new("Alice's Post", true).with_author_id(alice_id),
+            InsertPost::new("Bob's Post", true).with_author_id(bob_id),
+        ])
+        .execute();
 
     // Query the view with its forward relation (author)
-    let posts = drizzle_exec!(
-        db.query(post_view_fk)
-            .with(post_view_fk.author())
-            .order_by(asc(post_view_fk.title))
-            .find_many()
-    );
+    let posts = db
+        .query(post_view_fk)
+        .with(post_view_fk.author())
+        .order_by(asc(post_view_fk.title))
+        .find_many();
 
     assert_eq!(posts.len(), 2);
     assert_eq!(posts[0].title, "Alice's Post");
@@ -824,7 +724,7 @@ fn query_view_with_forward_relation(db: &mut TestDb<ViewFkQuerySchema>, schema: 
 
 // -- Combo: query regular tables and views in the same schema --
 #[drizzle::test]
-fn query_combo_tables_and_views(db: &mut TestDb<ViewFkQuerySchema>, schema: ViewFkQuerySchema) {
+fn query_combo_tables_and_views(db: &mut TestDb<ViewFkQuerySchema>) {
     let ViewFkQuerySchema {
         complex,
         post,
@@ -832,36 +732,31 @@ fn query_combo_tables_and_views(db: &mut TestDb<ViewFkQuerySchema>, schema: View
         ..
     } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([
-                InsertComplex::new("Alice", true, Role::User),
-                InsertComplex::new("Bob", true, Role::User),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values([
+            InsertComplex::new("Alice", true, Role::User),
+            InsertComplex::new("Bob", true, Role::User),
+        ])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users.iter().find(|u| u.name == "Alice").unwrap().id;
     let bob_id = all_users.iter().find(|u| u.name == "Bob").unwrap().id;
 
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("Post A", true).with_author_id(alice_id),
-                InsertPost::new("Post B", true).with_author_id(alice_id),
-                InsertPost::new("Post C", true).with_author_id(bob_id),
-            ])
-            => execute
-    );
+    db.insert(post)
+        .values([
+            InsertPost::new("Post A", true).with_author_id(alice_id),
+            InsertPost::new("Post B", true).with_author_id(alice_id),
+            InsertPost::new("Post C", true).with_author_id(bob_id),
+        ])
+        .execute();
 
     // 1) Query regular table with relations
-    let users = drizzle_exec!(
-        db.query(complex)
-            .with(complex.posts())
-            .order_by(asc(complex.name))
-            .find_many()
-    );
+    let users = db
+        .query(complex)
+        .with(complex.posts())
+        .order_by(asc(complex.name))
+        .find_many();
     assert_eq!(users.len(), 2);
     assert_eq!(users[0].name, "Alice");
     assert_eq!(users[0].posts().len(), 2);
@@ -869,12 +764,11 @@ fn query_combo_tables_and_views(db: &mut TestDb<ViewFkQuerySchema>, schema: View
     assert_eq!(users[1].posts().len(), 1);
 
     // 2) Query view with relations from the same schema
-    let view_posts = drizzle_exec!(
-        db.query(post_view_fk)
-            .with(post_view_fk.author())
-            .order_by(asc(post_view_fk.title))
-            .find_many()
-    );
+    let view_posts = db
+        .query(post_view_fk)
+        .with(post_view_fk.author())
+        .order_by(asc(post_view_fk.title))
+        .find_many();
     assert_eq!(view_posts.len(), 3);
     assert_eq!(view_posts[0].title, "Post A");
     assert_eq!(view_posts[0].author().as_ref().unwrap().name, "Alice");
@@ -882,18 +776,17 @@ fn query_combo_tables_and_views(db: &mut TestDb<ViewFkQuerySchema>, schema: View
     assert_eq!(view_posts[2].author().as_ref().unwrap().name, "Bob");
 
     // 3) Query view standalone (no relations)
-    let view_first = drizzle_exec!(
-        db.query(post_view_fk)
-            .r#where(eq(post_view_fk.title, "Post B"))
-            .find_first()
-    );
+    let view_first = db
+        .query(post_view_fk)
+        .r#where(eq(post_view_fk.title, "Post B"))
+        .find_first();
     assert!(view_first.is_some());
     assert_eq!(view_first.unwrap().title, "Post B");
 }
 
 // -- Complex deeply nested: 4-level deep, multiple siblings, all cardinalities --
 #[drizzle::test]
-fn query_deep_nested_complex(db: &mut TestDb<DeepQuerySchema>, schema: DeepQuerySchema) {
+fn query_deep_nested_complex(db: &mut TestDb<DeepQuerySchema>) {
     let DeepQuerySchema {
         complex,
         post,
@@ -905,43 +798,38 @@ fn query_deep_nested_complex(db: &mut TestDb<DeepQuerySchema>, schema: DeepQuery
     // === Seed data ===
 
     // Users: Alice (no inviter), then Bob/Charlie (invited by Alice), Dave (no inviter)
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([
-                InsertComplex::new("Bob", true, Role::User).with_invited_by(alice_id),
-                InsertComplex::new("Charlie", true, Role::User).with_invited_by(alice_id),
-            ])
-            => execute
-    );
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Dave", true, Role::User)])
-            => execute
-    );
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    db.insert(complex)
+        .values([
+            InsertComplex::new("Bob", true, Role::User).with_invited_by(alice_id),
+            InsertComplex::new("Charlie", true, Role::User).with_invited_by(alice_id),
+        ])
+        .execute();
+
+    db.insert(complex)
+        .values([InsertComplex::new("Dave", true, Role::User)])
+        .execute();
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let bob_id = all_users.iter().find(|u| u.name == "Bob").unwrap().id;
 
     // Posts: Alice has 4 posts, Bob has 1, Charlie/Dave have none
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("Alice Draft", true).with_author_id(alice_id),
-                InsertPost::new("Alice Thoughts", true).with_author_id(alice_id),
-                InsertPost::new("Alice Update", true).with_author_id(alice_id),
-                InsertPost::new("Alice Announcement", true).with_author_id(alice_id),
-                InsertPost::new("Bob First Post", true).with_author_id(bob_id),
-            ])
-            => execute
-    );
-    let all_posts: Vec<SelectPost> = drizzle_exec!(db.select(()).from(post) => all);
+
+    db.insert(post)
+        .values([
+            InsertPost::new("Alice Draft", true).with_author_id(alice_id),
+            InsertPost::new("Alice Thoughts", true).with_author_id(alice_id),
+            InsertPost::new("Alice Update", true).with_author_id(alice_id),
+            InsertPost::new("Alice Announcement", true).with_author_id(alice_id),
+            InsertPost::new("Bob First Post", true).with_author_id(bob_id),
+        ])
+        .execute();
+    let all_posts: Vec<SelectPost> = db.select(()).from(post).all();
     let alice_draft_id = all_posts
         .iter()
         .find(|p| p.title == "Alice Draft")
@@ -959,18 +847,17 @@ fn query_deep_nested_complex(db: &mut TestDb<DeepQuerySchema>, schema: DeepQuery
         .id;
 
     // Comments: 3 on Alice's Draft, 1 on Thoughts, 1 on Bob's post, 0 on others
-    drizzle_exec!(
-        db.insert(comment)
-            .values([
-                InsertComment::new("Great draft!", alice_draft_id),
-                InsertComment::new("Needs work", alice_draft_id),
-                InsertComment::new("Love this", alice_draft_id),
-                InsertComment::new("Interesting thoughts", alice_thoughts_id),
-                InsertComment::new("Welcome Bob!", bob_post_id),
-            ])
-            => execute
-    );
-    let all_comments: Vec<SelectComment> = drizzle_exec!(db.select(()).from(comment) => all);
+
+    db.insert(comment)
+        .values([
+            InsertComment::new("Great draft!", alice_draft_id),
+            InsertComment::new("Needs work", alice_draft_id),
+            InsertComment::new("Love this", alice_draft_id),
+            InsertComment::new("Interesting thoughts", alice_thoughts_id),
+            InsertComment::new("Welcome Bob!", bob_post_id),
+        ])
+        .execute();
+    let all_comments: Vec<SelectComment> = db.select(()).from(comment).all();
     let great_draft_id = all_comments
         .iter()
         .find(|c| c.body == "Great draft!")
@@ -988,15 +875,14 @@ fn query_deep_nested_complex(db: &mut TestDb<DeepQuerySchema>, schema: DeepQuery
         .id;
 
     // Replies: on "Great draft!" (1), "Needs work" (1), "Welcome Bob!" (1), others (0)
-    drizzle_exec!(
-        db.insert(reply)
-            .values([
-                InsertReply::new("Thanks!", great_draft_id),
-                InsertReply::new("Will revise", needs_work_id),
-                InsertReply::new("Glad to be here", welcome_bob_id),
-            ])
-            => execute
-    );
+
+    db.insert(reply)
+        .values([
+            InsertReply::new("Thanks!", great_draft_id),
+            InsertReply::new("Will revise", needs_work_id),
+            InsertReply::new("Glad to be here", welcome_bob_id),
+        ])
+        .execute();
 
     // === Complex query ===
     // 4-level deep: Complex -> Posts -> Comments -> Replies
@@ -1004,19 +890,18 @@ fn query_deep_nested_complex(db: &mut TestDb<DeepQuerySchema>, schema: DeepQuery
     // ORDER BY + LIMIT on nested Many relation (triggers inner subquery)
     // ORDER BY on comments
     // Root ORDER BY
-    let users = drizzle_exec!(
-        db.query(complex)
-            .with(
-                complex.posts().order_by(desc(post.title)).limit(3).with(
-                    post.comments()
-                        .order_by(asc(comment.body))
-                        .with(comment.replies()),
-                ),
-            )
-            .with(complex.invited_by())
-            .order_by(asc(complex.name))
-            .find_many()
-    );
+    let users = db
+        .query(complex)
+        .with(
+            complex.posts().order_by(desc(post.title)).limit(3).with(
+                post.comments()
+                    .order_by(asc(comment.body))
+                    .with(comment.replies()),
+            ),
+        )
+        .with(complex.invited_by())
+        .order_by(asc(complex.name))
+        .find_many();
 
     // === Assertions ===
     assert_eq!(users.len(), 4); // Alice, Bob, Charlie, Dave (ordered by name)
@@ -1107,43 +992,33 @@ fn get_inviter_name(user: &ComplexWithPostsAndInviter) -> Option<&str> {
 }
 
 #[drizzle::test]
-fn query_type_alias_in_fn_signature(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_type_alias_in_fn_signature(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Bob", true, Role::User).with_invited_by(alice_id)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Bob", true, Role::User).with_invited_by(alice_id)])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let bob_id = all_users.iter().find(|u| u.name == "Bob").unwrap().id;
 
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("Post 1", true).with_author_id(alice_id),
-                InsertPost::new("Post 2", true).with_author_id(alice_id),
-                InsertPost::new("Bob Post", true).with_author_id(bob_id),
-            ])
-            => execute
-    );
+    db.insert(post)
+        .values([
+            InsertPost::new("Post 1", true).with_author_id(alice_id),
+            InsertPost::new("Post 2", true).with_author_id(alice_id),
+            InsertPost::new("Bob Post", true).with_author_id(bob_id),
+        ])
+        .execute();
 
     // Use type alias with single relation
-    let users: Vec<ComplexWithPostsRow> =
-        drizzle_exec!(db.query(complex).with(complex.posts()).find_many());
+    let users: Vec<ComplexWithPostsRow> = db.query(complex).with(complex.posts()).find_many();
 
     let alice = users.iter().find(|u| u.name == "Alice").unwrap();
     assert_eq!(count_posts(alice), 2);
@@ -1154,12 +1029,11 @@ fn query_type_alias_in_fn_signature(
     // Use type alias with composed relations
     // .with() order: posts first, then invited_by
     // Type order: InvitedBy<Posts> (last .with() is outermost in the store)
-    let users: Vec<ComplexWithPostsAndInviter> = drizzle_exec!(
-        db.query(complex)
-            .with(complex.posts())
-            .with(complex.invited_by())
-            .find_many()
-    );
+    let users: Vec<ComplexWithPostsAndInviter> = db
+        .query(complex)
+        .with(complex.posts())
+        .with(complex.invited_by())
+        .find_many();
 
     let bob = users.iter().find(|u| u.name == "Bob").unwrap();
     assert_eq!(get_inviter_name(bob), Some("Alice"));
@@ -1174,31 +1048,25 @@ fn query_type_alias_in_fn_signature(
 
 // -- Root query offset --
 #[drizzle::test]
-fn query_with_limit_offset(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_with_limit_offset(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([
-                InsertComplex::new("Alice", true, Role::User),
-                InsertComplex::new("Bob", true, Role::User),
-                InsertComplex::new("Charlie", true, Role::User),
-                InsertComplex::new("Dave", true, Role::User),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values([
+            InsertComplex::new("Alice", true, Role::User),
+            InsertComplex::new("Bob", true, Role::User),
+            InsertComplex::new("Charlie", true, Role::User),
+            InsertComplex::new("Dave", true, Role::User),
+        ])
+        .execute();
 
     // LIMIT 2 OFFSET 1 with ORDER BY to ensure determinism
-    let users = drizzle_exec!(
-        db.query(complex)
-            .order_by(asc(complex.name))
-            .limit(2)
-            .offset(1)
-            .find_many()
-    );
+    let users = db
+        .query(complex)
+        .order_by(asc(complex.name))
+        .limit(2)
+        .offset(1)
+        .find_many();
 
     assert_eq!(users.len(), 2);
     assert_eq!(users[0].name, "Bob");
@@ -1207,38 +1075,30 @@ fn query_with_limit_offset(
 
 // -- Relation handle offset --
 #[drizzle::test]
-fn query_relation_limit_offset(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_relation_limit_offset(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("AAA", true).with_author_id(alice_id),
-                InsertPost::new("BBB", true).with_author_id(alice_id),
-                InsertPost::new("CCC", true).with_author_id(alice_id),
-                InsertPost::new("DDD", true).with_author_id(alice_id),
-            ])
-            => execute
-    );
+    db.insert(post)
+        .values([
+            InsertPost::new("AAA", true).with_author_id(alice_id),
+            InsertPost::new("BBB", true).with_author_id(alice_id),
+            InsertPost::new("CCC", true).with_author_id(alice_id),
+            InsertPost::new("DDD", true).with_author_id(alice_id),
+        ])
+        .execute();
 
     // Relation subquery with ORDER BY + LIMIT + OFFSET
-    let users = drizzle_exec!(
-        db.query(complex)
-            .with(complex.posts().order_by(asc(post.title)).limit(2).offset(1))
-            .find_many()
-    );
+    let users = db
+        .query(complex)
+        .with(complex.posts().order_by(asc(post.title)).limit(2).offset(1))
+        .find_many();
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].posts().len(), 2);
@@ -1252,27 +1112,21 @@ fn query_relation_limit_offset(
 
 // -- Whitelist: select only specific columns --
 #[drizzle::test]
-fn query_columns_whitelist(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_columns_whitelist(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([
-                InsertComplex::new("Alice", true, Role::User),
-                InsertComplex::new("Bob", true, Role::User),
-            ])
-            => execute
-    );
+    db.insert(complex)
+        .values([
+            InsertComplex::new("Alice", true, Role::User),
+            InsertComplex::new("Bob", true, Role::User),
+        ])
+        .execute();
 
     // Select only id and name (omitting invited_by and others)
-    let users = drizzle_exec!(
-        db.query(complex)
-            .columns(complex.columns().id().name())
-            .find_many()
-    );
+    let users = db
+        .query(complex)
+        .columns(complex.columns().id().name())
+        .find_many();
 
     assert_eq!(users.len(), 2);
     // Selected columns are Some
@@ -1287,21 +1141,18 @@ fn query_columns_whitelist(
 
 // -- Blacklist: omit specific columns --
 #[drizzle::test]
-fn query_omit_blacklist(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
+fn query_omit_blacklist(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
 
     // Omit invited_by — should still return id, name, etc.
-    let users = drizzle_exec!(
-        db.query(complex)
-            .omit(complex.columns().invited_by())
-            .find_many()
-    );
+    let users = db
+        .query(complex)
+        .omit(complex.columns().invited_by())
+        .find_many();
 
     assert_eq!(users.len(), 1);
     assert!(users[0].id.is_some());
@@ -1312,37 +1163,29 @@ fn query_omit_blacklist(db: &mut TestDb<ComplexPostQuerySchema>, schema: Complex
 
 // -- Partial columns with relations --
 #[drizzle::test]
-fn query_columns_with_relations(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_columns_with_relations(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("Post 1", true).with_author_id(alice_id),
-                InsertPost::new("Post 2", true).with_author_id(alice_id),
-            ])
-            => execute
-    );
+    db.insert(post)
+        .values([
+            InsertPost::new("Post 1", true).with_author_id(alice_id),
+            InsertPost::new("Post 2", true).with_author_id(alice_id),
+        ])
+        .execute();
 
     // Partial columns on base, full relations
-    let users = drizzle_exec!(
-        db.query(complex)
-            .columns(complex.columns().id().name())
-            .with(complex.posts())
-            .find_many()
-    );
+    let users = db
+        .query(complex)
+        .columns(complex.columns().id().name())
+        .with(complex.posts())
+        .find_many();
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].name.as_deref(), Some("Alice"));
@@ -1354,33 +1197,28 @@ fn query_columns_with_relations(
 
 // -- Partial columns on a relation --
 #[drizzle::test]
-fn query_relation_columns(db: &mut TestDb<ComplexPostQuerySchema>, schema: ComplexPostQuerySchema) {
+fn query_relation_columns(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("Post 1", true).with_author_id(alice_id),
-                InsertPost::new("Post 2", true).with_author_id(alice_id),
-            ])
-            => execute
-    );
+    db.insert(post)
+        .values([
+            InsertPost::new("Post 1", true).with_author_id(alice_id),
+            InsertPost::new("Post 2", true).with_author_id(alice_id),
+        ])
+        .execute();
 
     // Full base, partial columns on relation
-    let users = drizzle_exec!(
-        db.query(complex)
-            .with(complex.posts().columns(post.columns().id().title()))
-            .find_many()
-    );
+    let users = db
+        .query(complex)
+        .with(complex.posts().columns(post.columns().id().title()))
+        .find_many();
 
     assert_eq!(users.len(), 1);
     // Base is full SelectModel
@@ -1395,23 +1233,17 @@ fn query_relation_columns(db: &mut TestDb<ComplexPostQuerySchema>, schema: Compl
 
 // -- find_first with partial columns --
 #[drizzle::test]
-fn query_columns_find_first(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_columns_find_first(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
 
-    let user = drizzle_exec!(
-        db.query(complex)
-            .columns(complex.columns().name())
-            .find_first()
-    );
+    let user = db
+        .query(complex)
+        .columns(complex.columns().name())
+        .find_first();
 
     assert!(user.is_some());
     let user = user.unwrap();
@@ -1425,32 +1257,25 @@ fn query_columns_find_first(
 
 // -- .first() limits relation to at most 1 element --
 #[drizzle::test]
-fn query_first_limits_to_one(
-    db: &mut TestDb<ComplexPostQuerySchema>,
-    schema: ComplexPostQuerySchema,
-) {
+fn query_first_limits_to_one(db: &mut TestDb<ComplexPostQuerySchema>) {
     let ComplexPostQuerySchema { complex, post, .. } = schema;
 
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
 
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("Post 1", true).with_author_id(alice_id),
-                InsertPost::new("Post 2", true).with_author_id(alice_id),
-                InsertPost::new("Post 3", true).with_author_id(alice_id),
-            ])
-            => execute
-    );
+    db.insert(post)
+        .values([
+            InsertPost::new("Post 1", true).with_author_id(alice_id),
+            InsertPost::new("Post 2", true).with_author_id(alice_id),
+            InsertPost::new("Post 3", true).with_author_id(alice_id),
+        ])
+        .execute();
 
-    let users = drizzle_exec!(db.query(complex).with(complex.posts().first()).find_many());
+    let users = db.query(complex).with(complex.posts().first()).find_many();
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].posts().len(), 1);
@@ -1471,7 +1296,7 @@ struct M2MQuerySchema {
 
 // -- basic m2m: post.categories() returns categories through junction --
 #[drizzle::test]
-fn query_many_to_many_basic(db: &mut TestDb<M2MQuerySchema>, schema: M2MQuerySchema) {
+fn query_many_to_many_basic(db: &mut TestDb<M2MQuerySchema>) {
     let M2MQuerySchema {
         complex,
         post,
@@ -1481,46 +1306,39 @@ fn query_many_to_many_basic(db: &mut TestDb<M2MQuerySchema>, schema: M2MQuerySch
     } = schema;
 
     // Insert author
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
     // Insert post
-    drizzle_exec!(
-        db.insert(post)
-            .values([InsertPost::new("My Post", true).with_author_id(alice_id)])
-            => execute
-    );
-    let all_posts: Vec<SelectPost> = drizzle_exec!(db.select(()).from(post) => all);
+
+    db.insert(post)
+        .values([InsertPost::new("My Post", true).with_author_id(alice_id)])
+        .execute();
+    let all_posts: Vec<SelectPost> = db.select(()).from(post).all();
     let post_id = all_posts[0].id;
 
     // Insert categories
-    drizzle_exec!(
-        db.insert(category)
-            .values([
-                InsertCategory::new("Tech"),
-                InsertCategory::new("Science"),
-            ])
-            => execute
-    );
-    let all_cats: Vec<SelectCategory> = drizzle_exec!(db.select(()).from(category) => all);
+
+    db.insert(category)
+        .values([InsertCategory::new("Tech"), InsertCategory::new("Science")])
+        .execute();
+    let all_cats: Vec<SelectCategory> = db.select(()).from(category).all();
 
     // Link post to both categories
-    drizzle_exec!(
-        db.insert(post_category)
-            .values([
-                InsertPostCategory::new(post_id, all_cats[0].id),
-                InsertPostCategory::new(post_id, all_cats[1].id),
-            ])
-            => execute
-    );
+
+    db.insert(post_category)
+        .values([
+            InsertPostCategory::new(post_id, all_cats[0].id),
+            InsertPostCategory::new(post_id, all_cats[1].id),
+        ])
+        .execute();
 
     // Query posts with their categories through the junction
-    let posts = drizzle_exec!(db.query(post).with(post.categories()).find_many());
+    let posts = db.query(post).with(post.categories()).find_many();
 
     assert_eq!(posts.len(), 1);
     assert_eq!(posts[0].title, "My Post");
@@ -1536,7 +1354,7 @@ fn query_many_to_many_basic(db: &mut TestDb<M2MQuerySchema>, schema: M2MQuerySch
 
 // -- reverse m2m: category.posts() returns posts through junction --
 #[drizzle::test]
-fn query_many_to_many_reverse(db: &mut TestDb<M2MQuerySchema>, schema: M2MQuerySchema) {
+fn query_many_to_many_reverse(db: &mut TestDb<M2MQuerySchema>) {
     let M2MQuerySchema {
         complex,
         post,
@@ -1546,46 +1364,42 @@ fn query_many_to_many_reverse(db: &mut TestDb<M2MQuerySchema>, schema: M2MQueryS
     } = schema;
 
     // Insert author
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
     // Insert posts
-    drizzle_exec!(
-        db.insert(post)
-            .values([
-                InsertPost::new("Post A", true).with_author_id(alice_id),
-                InsertPost::new("Post B", true).with_author_id(alice_id),
-            ])
-            => execute
-    );
-    let all_posts: Vec<SelectPost> = drizzle_exec!(db.select(()).from(post) => all);
+
+    db.insert(post)
+        .values([
+            InsertPost::new("Post A", true).with_author_id(alice_id),
+            InsertPost::new("Post B", true).with_author_id(alice_id),
+        ])
+        .execute();
+    let all_posts: Vec<SelectPost> = db.select(()).from(post).all();
 
     // Insert category
-    drizzle_exec!(
-        db.insert(category)
-            .values([InsertCategory::new("Tech")])
-            => execute
-    );
-    let all_cats: Vec<SelectCategory> = drizzle_exec!(db.select(()).from(category) => all);
+
+    db.insert(category)
+        .values([InsertCategory::new("Tech")])
+        .execute();
+    let all_cats: Vec<SelectCategory> = db.select(()).from(category).all();
     let cat_id = all_cats[0].id;
 
     // Link category to both posts
-    drizzle_exec!(
-        db.insert(post_category)
-            .values([
-                InsertPostCategory::new(all_posts[0].id, cat_id),
-                InsertPostCategory::new(all_posts[1].id, cat_id),
-            ])
-            => execute
-    );
+
+    db.insert(post_category)
+        .values([
+            InsertPostCategory::new(all_posts[0].id, cat_id),
+            InsertPostCategory::new(all_posts[1].id, cat_id),
+        ])
+        .execute();
 
     // Query categories with their posts
-    let cats = drizzle_exec!(db.query(category).with(category.posts()).find_many());
+    let cats = db.query(category).with(category.posts()).find_many();
 
     assert_eq!(cats.len(), 1);
     assert_eq!(cats[0].name, "Tech");
@@ -1597,25 +1411,22 @@ fn query_many_to_many_reverse(db: &mut TestDb<M2MQuerySchema>, schema: M2MQueryS
 
 // -- m2m with no associations returns empty vec --
 #[drizzle::test]
-fn query_many_to_many_empty(db: &mut TestDb<M2MQuerySchema>, schema: M2MQuerySchema) {
+fn query_many_to_many_empty(db: &mut TestDb<M2MQuerySchema>) {
     let M2MQuerySchema { complex, post, .. } = schema;
 
     // Insert author and post with no category links
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
-    drizzle_exec!(
-        db.insert(post)
-            .values([InsertPost::new("Lonely Post", true).with_author_id(alice_id)])
-            => execute
-    );
+    db.insert(post)
+        .values([InsertPost::new("Lonely Post", true).with_author_id(alice_id)])
+        .execute();
 
-    let posts = drizzle_exec!(db.query(post).with(post.categories()).find_many());
+    let posts = db.query(post).with(post.categories()).find_many();
 
     assert_eq!(posts.len(), 1);
     assert_eq!(posts[0].categories().len(), 0);
@@ -1623,7 +1434,7 @@ fn query_many_to_many_empty(db: &mut TestDb<M2MQuerySchema>, schema: M2MQuerySch
 
 // -- m2m with limit --
 #[drizzle::test]
-fn query_many_to_many_with_limit(db: &mut TestDb<M2MQuerySchema>, schema: M2MQuerySchema) {
+fn query_many_to_many_with_limit(db: &mut TestDb<M2MQuerySchema>) {
     let M2MQuerySchema {
         complex,
         post,
@@ -1633,46 +1444,41 @@ fn query_many_to_many_with_limit(db: &mut TestDb<M2MQuerySchema>, schema: M2MQue
     } = schema;
 
     // Insert author
-    drizzle_exec!(
-        db.insert(complex)
-            .values([InsertComplex::new("Alice", true, Role::User)])
-            => execute
-    );
-    let all_users: Vec<SelectComplex> = drizzle_exec!(db.select(()).from(complex) => all);
+
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
     let alice_id = all_users[0].id;
 
     // Insert post
-    drizzle_exec!(
-        db.insert(post)
-            .values([InsertPost::new("My Post", true).with_author_id(alice_id)])
-            => execute
-    );
-    let all_posts: Vec<SelectPost> = drizzle_exec!(db.select(()).from(post) => all);
+
+    db.insert(post)
+        .values([InsertPost::new("My Post", true).with_author_id(alice_id)])
+        .execute();
+    let all_posts: Vec<SelectPost> = db.select(()).from(post).all();
     let post_id = all_posts[0].id;
 
     // Insert 3 categories and link all to the post
-    drizzle_exec!(
-        db.insert(category)
-            .values([
-                InsertCategory::new("A"),
-                InsertCategory::new("B"),
-                InsertCategory::new("C"),
-            ])
-            => execute
-    );
-    let all_cats: Vec<SelectCategory> = drizzle_exec!(db.select(()).from(category) => all);
 
-    drizzle_exec!(
-        db.insert(post_category)
-            .values([
-                InsertPostCategory::new(post_id, all_cats[0].id),
-                InsertPostCategory::new(post_id, all_cats[1].id),
-                InsertPostCategory::new(post_id, all_cats[2].id),
-            ])
-            => execute
-    );
+    db.insert(category)
+        .values([
+            InsertCategory::new("A"),
+            InsertCategory::new("B"),
+            InsertCategory::new("C"),
+        ])
+        .execute();
+    let all_cats: Vec<SelectCategory> = db.select(()).from(category).all();
 
-    let posts = drizzle_exec!(db.query(post).with(post.categories().limit(2)).find_many());
+    db.insert(post_category)
+        .values([
+            InsertPostCategory::new(post_id, all_cats[0].id),
+            InsertPostCategory::new(post_id, all_cats[1].id),
+            InsertPostCategory::new(post_id, all_cats[2].id),
+        ])
+        .execute();
+
+    let posts = db.query(post).with(post.categories().limit(2)).find_many();
 
     assert_eq!(posts.len(), 1);
     assert_eq!(posts[0].categories().len(), 2);

@@ -68,7 +68,7 @@ struct UuidBlobDefaultSchema {
 }
 
 #[drizzle::test]
-fn test_uuid_text_storage(db: &mut TestDb<UuidTextSchema>, schema: UuidTextSchema) {
+fn test_uuid_text_storage(db: &mut TestDb<UuidTextSchema>) {
     let table = schema.uuid_text_test;
 
     // Generate test UUID
@@ -76,15 +76,14 @@ fn test_uuid_text_storage(db: &mut TestDb<UuidTextSchema>, schema: UuidTextSchem
     let data = InsertUuidTextTest::new(test_uuid, "text storage test");
 
     // Insert data
-    drizzle_exec!(db.insert(table).values([data]) => execute);
+    db.insert(table).values([data]).execute();
 
     // Query back the data using Drizzle
-    let results: Vec<SelectUuidTextTest> = drizzle_exec!(
-        db.select((table.id, table.uuid_field, table.name))
-            .from(table)
-            .r#where(eq(table.name, "text storage test"))
-            => all
-    );
+    let results: Vec<SelectUuidTextTest> = db
+        .select((table.id, table.uuid_field, table.name))
+        .from(table)
+        .r#where(eq(table.name, "text storage test"))
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].uuid_field, test_uuid);
@@ -93,18 +92,17 @@ fn test_uuid_text_storage(db: &mut TestDb<UuidTextSchema>, schema: UuidTextSchem
     #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(String);
     // Verify it's stored as TEXT in the database
-    let result: ReturnResult = drizzle_exec!(
-        db.select(r#typeof(table.uuid_field).alias("uuid_type"))
-            .from(table)
-            .r#where(eq(table.id, 1))
-            => get
-    );
+    let result: ReturnResult = db
+        .select(r#typeof(table.uuid_field).alias("uuid_type"))
+        .from(table)
+        .r#where(eq(table.id, 1))
+        .get();
 
     assert_eq!(result.0, "text");
 }
 
 #[drizzle::test]
-fn test_uuid_blob_storage(db: &mut TestDb<UuidBlobSchema>, schema: UuidBlobSchema) {
+fn test_uuid_blob_storage(db: &mut TestDb<UuidBlobSchema>) {
     let table = schema.uuid_blob_test;
 
     // Generate test UUID
@@ -112,15 +110,14 @@ fn test_uuid_blob_storage(db: &mut TestDb<UuidBlobSchema>, schema: UuidBlobSchem
     let data = InsertUuidBlobTest::new(test_uuid, "blob storage test");
 
     // Insert data
-    drizzle_exec!(db.insert(table).values([data]) => execute);
+    db.insert(table).values([data]).execute();
 
     // Query back the data using Drizzle
-    let results: Vec<SelectUuidBlobTest> = drizzle_exec!(
-        db.select((table.id, table.uuid_field, table.name))
-            .from(table)
-            .r#where(eq(table.name, "blob storage test"))
-            => all
-    );
+    let results: Vec<SelectUuidBlobTest> = db
+        .select((table.id, table.uuid_field, table.name))
+        .from(table)
+        .r#where(eq(table.name, "blob storage test"))
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].uuid_field, test_uuid);
@@ -129,67 +126,60 @@ fn test_uuid_blob_storage(db: &mut TestDb<UuidBlobSchema>, schema: UuidBlobSchem
     #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(String);
     // Verify it's stored as BLOB in the database
-    let result: ReturnResult = drizzle_exec!(
-        db.select(r#typeof(table.uuid_field).alias("uuid_type"))
-            .from(table)
-            .r#where(eq(table.id, 1))
-            => get
-    );
+    let result: ReturnResult = db
+        .select(r#typeof(table.uuid_field).alias("uuid_type"))
+        .from(table)
+        .r#where(eq(table.id, 1))
+        .get();
 
     assert_eq!(result.0, "blob");
 }
 
 #[drizzle::test]
-fn test_uuid_text_vs_blob_roundtrip_text(db: &mut TestDb<UuidTextSchema>, schema: UuidTextSchema) {
+fn test_uuid_text_vs_blob_roundtrip_text(db: &mut TestDb<UuidTextSchema>) {
     // Test TEXT storage
     let test_uuid = Uuid::new_v4();
     let table = schema.uuid_text_test;
 
     let data = InsertUuidTextTest::new(test_uuid, "roundtrip test");
-    drizzle_exec!(db.insert(table).values([data]) => execute);
+    db.insert(table).values([data]).execute();
 
-    let results: Vec<SelectUuidTextTest> = drizzle_exec!(
-        db.select((table.id, table.uuid_field, table.name))
-            .from(table)
-            => all
-    );
+    let results: Vec<SelectUuidTextTest> = db
+        .select((table.id, table.uuid_field, table.name))
+        .from(table)
+        .all();
     assert_eq!(results[0].uuid_field, test_uuid);
 }
 
 #[drizzle::test]
-fn test_uuid_text_vs_blob_roundtrip_blob(db: &mut TestDb<UuidBlobSchema>, schema: UuidBlobSchema) {
+fn test_uuid_text_vs_blob_roundtrip_blob(db: &mut TestDb<UuidBlobSchema>) {
     // Test BLOB storage
     let test_uuid = Uuid::new_v4();
     let table = schema.uuid_blob_test;
 
     let data = InsertUuidBlobTest::new(test_uuid, "roundtrip test");
-    drizzle_exec!(db.insert(table).values([data]) => execute);
+    db.insert(table).values([data]).execute();
 
-    let results: Vec<SelectUuidBlobTest> = drizzle_exec!(
-        db.select((table.id, table.uuid_field, table.name))
-            .from(table)
-            => all
-    );
+    let results: Vec<SelectUuidBlobTest> = db
+        .select((table.id, table.uuid_field, table.name))
+        .from(table)
+        .all();
     assert_eq!(results[0].uuid_field, test_uuid);
 }
 
 #[drizzle::test]
-fn test_uuid_text_default_fn(
-    db: &mut TestDb<UuidTextDefaultSchema>,
-    schema: UuidTextDefaultSchema,
-) {
+fn test_uuid_text_default_fn(db: &mut TestDb<UuidTextDefaultSchema>) {
     let table = schema.uuid_text_default;
 
     // Insert without specifying UUID - should use default_fn
     let data = InsertUuidTextDefault::new("auto-generated text uuid");
-    drizzle_exec!(db.insert(table).values([data]) => execute);
+    db.insert(table).values([data]).execute();
 
     // Query back the data
-    let results: Vec<SelectUuidTextDefault> = drizzle_exec!(
-        db.select((table.id, table.uuid_field, table.name))
-            .from(table)
-            => all
-    );
+    let results: Vec<SelectUuidTextDefault> = db
+        .select((table.id, table.uuid_field, table.name))
+        .from(table)
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "auto-generated text uuid");
@@ -200,33 +190,28 @@ fn test_uuid_text_default_fn(
     #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(String);
     // Verify it's stored as TEXT
-    let result: ReturnResult = drizzle_exec!(
-        db.select(r#typeof(table.uuid_field).alias("uuid_type"))
-            .from(table)
-            .r#where(eq(table.id, 1))
-            => get
-    );
+    let result: ReturnResult = db
+        .select(r#typeof(table.uuid_field).alias("uuid_type"))
+        .from(table)
+        .r#where(eq(table.id, 1))
+        .get();
 
     assert_eq!(result.0, "text");
 }
 
 #[drizzle::test]
-fn test_uuid_blob_default_fn(
-    db: &mut TestDb<UuidBlobDefaultSchema>,
-    schema: UuidBlobDefaultSchema,
-) {
+fn test_uuid_blob_default_fn(db: &mut TestDb<UuidBlobDefaultSchema>) {
     let table = schema.uuid_blob_default;
 
     // Insert without specifying UUID - should use default_fn
     let data = InsertUuidBlobDefault::new("auto-generated blob uuid");
-    drizzle_exec!(db.insert(table).values([data]) => execute);
+    db.insert(table).values([data]).execute();
 
     // Query back the data
-    let results: Vec<SelectUuidBlobDefault> = drizzle_exec!(
-        db.select((table.id, table.uuid_field, table.name))
-            .from(table)
-            => all
-    );
+    let results: Vec<SelectUuidBlobDefault> = db
+        .select((table.id, table.uuid_field, table.name))
+        .from(table)
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "auto-generated blob uuid");
@@ -237,34 +222,29 @@ fn test_uuid_blob_default_fn(
     #[derive(SQLiteFromRow, Debug)]
     struct ReturnResult(String);
     // Verify it's stored as BLOB
-    let result: ReturnResult = drizzle_exec!(
-        db.select(r#typeof(table.uuid_field).alias("uuid_type"))
-            .from(table)
-            .r#where(eq(table.id, 1))
-            => get
-    );
+    let result: ReturnResult = db
+        .select(r#typeof(table.uuid_field).alias("uuid_type"))
+        .from(table)
+        .r#where(eq(table.id, 1))
+        .get();
 
     assert_eq!(result.0, "blob");
 }
 
 #[drizzle::test]
-fn test_uuid_text_default_fn_uniqueness(
-    db: &mut TestDb<UuidTextDefaultSchema>,
-    schema: UuidTextDefaultSchema,
-) {
+fn test_uuid_text_default_fn_uniqueness(db: &mut TestDb<UuidTextDefaultSchema>) {
     // Test TEXT default_fn generates unique UUIDs
     let table = schema.uuid_text_default;
 
     let data1 = InsertUuidTextDefault::new("first");
     let data2 = InsertUuidTextDefault::new("second");
 
-    drizzle_exec!(db.insert(table).values([data1, data2]) => execute);
+    db.insert(table).values([data1, data2]).execute();
 
-    let results: Vec<SelectUuidTextDefault> = drizzle_exec!(
-        db.select((table.id, table.uuid_field, table.name))
-            .from(table)
-            => all
-    );
+    let results: Vec<SelectUuidTextDefault> = db
+        .select((table.id, table.uuid_field, table.name))
+        .from(table)
+        .all();
     assert_eq!(results.len(), 2);
 
     // Verify UUIDs are different
@@ -274,23 +254,19 @@ fn test_uuid_text_default_fn_uniqueness(
 }
 
 #[drizzle::test]
-fn test_uuid_blob_default_fn_uniqueness(
-    db: &mut TestDb<UuidBlobDefaultSchema>,
-    schema: UuidBlobDefaultSchema,
-) {
+fn test_uuid_blob_default_fn_uniqueness(db: &mut TestDb<UuidBlobDefaultSchema>) {
     // Test BLOB default_fn generates unique UUIDs
     let table = schema.uuid_blob_default;
 
     let data1 = InsertUuidBlobDefault::new("first");
     let data2 = InsertUuidBlobDefault::new("second");
 
-    drizzle_exec!(db.insert(table).values([data1, data2]) => execute);
+    db.insert(table).values([data1, data2]).execute();
 
-    let results: Vec<SelectUuidBlobDefault> = drizzle_exec!(
-        db.select((table.id, table.uuid_field, table.name))
-            .from(table)
-            => all
-    );
+    let results: Vec<SelectUuidBlobDefault> = db
+        .select((table.id, table.uuid_field, table.name))
+        .from(table)
+        .all();
     assert_eq!(results.len(), 2);
 
     // Verify UUIDs are different

@@ -27,43 +27,41 @@ struct ComplexResult {
 }
 
 #[drizzle::test]
-fn simple_insert(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn simple_insert(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Insert Simple record
     let data = InsertSimple::new("test");
-    let result = drizzle_exec!(db.insert(simple).values([data]) => execute);
+    let result = db.insert(simple).values([data]).execute();
 
     assert_eq!(result, 1);
 
     // Verify insertion by selecting the record
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.name, "test"))
-            => all
-    );
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "test"))
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test");
 }
 
 #[drizzle::test]
-fn insert_with_table_and_column_refs(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn insert_with_table_and_column_refs(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
     let simple_ref = &simple;
     let name_ref = &simple.name;
 
     let data = InsertSimple::new("ref_test");
-    let result = drizzle_exec!(db.insert(simple_ref).values([data]) => execute);
+    let result = db.insert(simple_ref).values([data]).execute();
     assert_eq!(result, 1);
 
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple_ref.id, simple_ref.name))
-            .from(simple_ref)
-            .r#where(eq(name_ref, "ref_test"))
-            => all
-    );
+    let results: Vec<SelectSimple> = db
+        .select((simple_ref.id, simple_ref.name))
+        .from(simple_ref)
+        .r#where(eq(name_ref, "ref_test"))
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "ref_test");
@@ -71,7 +69,7 @@ fn insert_with_table_and_column_refs(db: &mut TestDb<SimpleSchema>, schema: Simp
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn complex_insert(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn complex_insert(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
 
     // Insert Complex record with various field types
@@ -92,13 +90,13 @@ fn complex_insert(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
         .with_description("Test description".to_string())
         .with_data_blob(vec![1, 2, 3, 4]);
 
-    let result = drizzle_exec!(db.insert(complex).values([data]) => execute);
+    let result = db.insert(complex).values([data]).execute();
 
     assert_eq!(result, 1);
 
     // Verify insertion by selecting the record
-    let results: Vec<ComplexResult> = drizzle_exec!(
-        db.select((
+    let results: Vec<ComplexResult> = db
+        .select((
             complex.id,
             complex.name,
             complex.email,
@@ -107,8 +105,7 @@ fn complex_insert(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
         ))
         .from(complex)
         .r#where(eq(Complex::name, "complex_user"))
-        => all
-    );
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "complex_user");
@@ -118,13 +115,13 @@ fn complex_insert(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
 }
 
 #[drizzle::test]
-fn conflict_resolution(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn conflict_resolution(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial Simple record
     let initial_data = InsertSimple::new("conflict_test").with_id(1);
 
-    drizzle_exec!(db.insert(simple).values([initial_data]) => execute);
+    db.insert(simple).values([initial_data]).execute();
 
     // Try to insert duplicate - should conflict and be ignored
     let duplicate_data = InsertSimple::new("conflict_test").with_id(1);
@@ -132,17 +129,16 @@ fn conflict_resolution(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         .insert(simple)
         .values([duplicate_data])
         .on_conflict_do_nothing();
-    let result = drizzle_exec!(stmt => execute);
+    let result = stmt.execute();
 
     assert_eq!(result, 0); // No rows affected due to conflict
 
     // Verify only one record exists
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.name, "conflict_test"))
-            => all
-    );
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "conflict_test"))
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "conflict_test");
@@ -150,7 +146,7 @@ fn conflict_resolution(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
 #[drizzle::test]
-fn feature_gated_insert(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn feature_gated_insert(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
 
     // Insert Complex record using feature-gated fields
@@ -168,13 +164,13 @@ fn feature_gated_insert(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
         });
 
     let stmt = db.insert(complex).values([data]);
-    let result = drizzle_exec!(stmt => execute);
+    let result = stmt.execute();
 
     assert_eq!(result, 1);
 
     // Verify insertion
-    let results: Vec<ComplexResult> = drizzle_exec!(
-        db.select((
+    let results: Vec<ComplexResult> = db
+        .select((
             complex.id,
             complex.name,
             complex.email,
@@ -183,8 +179,7 @@ fn feature_gated_insert(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
         ))
         .from(complex)
         .r#where(eq(complex.name, "feature_test"))
-        => all
-    );
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "feature_test");
@@ -192,7 +187,7 @@ fn feature_gated_insert(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
 
 // SQL generation tests for ON CONFLICT variants
 #[drizzle::test]
-fn on_conflict_do_nothing_no_target_sql(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn on_conflict_do_nothing_no_target_sql(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -206,26 +201,26 @@ fn on_conflict_do_nothing_no_target_sql(db: &mut TestDb<SimpleSchema>, schema: S
     );
 
     // Also verify via DB execution: insert then conflict should be silently ignored
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("original").with_id(10)])
-            => execute
-    );
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("duplicate").with_id(10)])
-            .on_conflict_do_nothing()
-            => execute
-    );
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name)).from(simple).r#where(eq(simple.id, 10)) => all
-    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("original").with_id(10)])
+        .execute();
+
+    db.insert(simple)
+        .values([InsertSimple::new("duplicate").with_id(10)])
+        .on_conflict_do_nothing()
+        .execute();
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, 10))
+        .all();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "original");
 }
 
 #[drizzle::test]
-fn on_conflict_column_do_nothing_sql(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn on_conflict_column_do_nothing_sql(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -240,27 +235,27 @@ fn on_conflict_column_do_nothing_sql(db: &mut TestDb<SimpleSchema>, schema: Simp
     );
 
     // Also verify via DB execution
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("first").with_id(20)])
-            => execute
-    );
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("second").with_id(20)])
-            .on_conflict(simple.id)
-            .do_nothing()
-            => execute
-    );
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name)).from(simple).r#where(eq(simple.id, 20)) => all
-    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("first").with_id(20)])
+        .execute();
+
+    db.insert(simple)
+        .values([InsertSimple::new("second").with_id(20)])
+        .on_conflict(simple.id)
+        .do_nothing()
+        .execute();
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, 20))
+        .all();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "first");
 }
 
 #[drizzle::test]
-fn on_conflict_do_update_sql(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn on_conflict_do_update_sql(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -275,27 +270,27 @@ fn on_conflict_do_update_sql(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema
     );
 
     // Also verify via DB execution
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("before").with_id(30)])
-            => execute
-    );
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("ignored").with_id(30)])
-            .on_conflict(simple.id)
-            .do_update(UpdateSimple::default().with_name("after"))
-            => execute
-    );
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name)).from(simple).r#where(eq(simple.id, 30)) => all
-    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("before").with_id(30)])
+        .execute();
+
+    db.insert(simple)
+        .values([InsertSimple::new("ignored").with_id(30)])
+        .on_conflict(simple.id)
+        .do_update(UpdateSimple::default().with_name("after"))
+        .execute();
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, 30))
+        .all();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "after");
 }
 
 #[drizzle::test]
-fn on_conflict_do_update_where_sql(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn on_conflict_do_update_where_sql(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -311,63 +306,60 @@ fn on_conflict_do_update_where_sql(db: &mut TestDb<SimpleSchema>, schema: Simple
     );
 
     // Also verify via DB execution: WHERE condition should gate the update
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("original").with_id(40)])
-            => execute
-    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("original").with_id(40)])
+        .execute();
     // Conflict with WHERE id > 0 (true) — should update
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("ignored").with_id(40)])
-            .on_conflict(simple.id)
-            .do_update(UpdateSimple::default().with_name("updated_via_where"))
-            .r#where(gt(simple.id, 0))
-            => execute
-    );
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name)).from(simple).r#where(eq(simple.id, 40)) => all
-    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("ignored").with_id(40)])
+        .on_conflict(simple.id)
+        .do_update(UpdateSimple::default().with_name("updated_via_where"))
+        .r#where(gt(simple.id, 0))
+        .execute();
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, 40))
+        .all();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "updated_via_where");
 }
 
 #[drizzle::test]
-fn on_conflict_do_update_e2e(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn on_conflict_do_update_e2e(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial row
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("original").with_id(1)])
-            => execute
-    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("original").with_id(1)])
+        .execute();
 
     // Insert conflicting row with do_update — should update the name
-    let result = drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("ignored").with_id(1)])
-            .on_conflict(simple.id)
-            .do_update(UpdateSimple::default().with_name("updated"))
-            => execute
-    );
+    let result = db
+        .insert(simple)
+        .values([InsertSimple::new("ignored").with_id(1)])
+        .on_conflict(simple.id)
+        .do_update(UpdateSimple::default().with_name("updated"))
+        .execute();
 
     assert_eq!(result, 1);
 
     // Verify the name was updated
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.id, 1))
-            => all
-    );
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, 1))
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "updated");
 }
 
 #[drizzle::test]
-fn on_conflict_do_update_excluded_sql(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn on_conflict_do_update_excluded_sql(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
@@ -382,54 +374,51 @@ fn on_conflict_do_update_excluded_sql(db: &mut TestDb<SimpleSchema>, schema: Sim
     );
 
     // Also verify via DB execution: EXCLUDED refers to the proposed insert value
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("old_name").with_id(50)])
-            => execute
-    );
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("new_name").with_id(50)])
-            .on_conflict(simple.id)
-            .do_update(UpdateSimple::default().with_name(excluded(simple.name)))
-            => execute
-    );
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name)).from(simple).r#where(eq(simple.id, 50)) => all
-    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("old_name").with_id(50)])
+        .execute();
+
+    db.insert(simple)
+        .values([InsertSimple::new("new_name").with_id(50)])
+        .on_conflict(simple.id)
+        .do_update(UpdateSimple::default().with_name(excluded(simple.name)))
+        .execute();
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, 50))
+        .all();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "new_name");
 }
 
 #[drizzle::test]
-fn on_conflict_do_update_excluded_e2e(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn on_conflict_do_update_excluded_e2e(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial row
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("original").with_id(1)])
-            => execute
-    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("original").with_id(1)])
+        .execute();
 
     // Upsert with excluded — should update name to the proposed insert value
-    let result = drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("from_excluded").with_id(1)])
-            .on_conflict(simple.id)
-            .do_update(UpdateSimple::default().with_name(excluded(simple.name)))
-            => execute
-    );
+    let result = db
+        .insert(simple)
+        .values([InsertSimple::new("from_excluded").with_id(1)])
+        .on_conflict(simple.id)
+        .do_update(UpdateSimple::default().with_name(excluded(simple.name)))
+        .execute();
 
     assert_eq!(result, 1);
 
     // Verify the name was updated to the EXCLUDED value
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.id, 1))
-            => all
-    );
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, 1))
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "from_excluded");

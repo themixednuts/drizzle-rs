@@ -77,7 +77,7 @@ mod execution {
     }
 
     #[drizzle::test]
-    fn enum_insert_and_select(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+    fn enum_insert_and_select(db: &mut TestDb<ComplexSchema>) {
         let ComplexSchema { complex, .. } = schema;
 
         // Insert with different enum values
@@ -86,11 +86,11 @@ mod execution {
             InsertComplex::new("Regular User", true, Role::User),
             InsertComplex::new("Mod User", true, Role::Moderator),
         ]);
-        drizzle_exec!(stmt => execute);
+        stmt.execute();
 
         // Select and verify enum was stored correctly
         let stmt = db.select(()).from(complex).order_by([asc(complex.name)]);
-        let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+        let results: Vec<PgComplexResult> = stmt.all();
 
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].name, "Admin User");
@@ -99,7 +99,7 @@ mod execution {
     }
 
     #[drizzle::test]
-    fn enum_filter_by_value(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+    fn enum_filter_by_value(db: &mut TestDb<ComplexSchema>) {
         let ComplexSchema { complex, .. } = schema;
 
         let stmt = db.insert(complex).values([
@@ -107,48 +107,48 @@ mod execution {
             InsertComplex::new("Admin 2", true, Role::Admin),
             InsertComplex::new("User 1", true, Role::User),
         ]);
-        drizzle_exec!(stmt => execute);
+        stmt.execute();
 
         // Filter by enum value
         let stmt = db
             .select(())
             .from(complex)
             .r#where(eq(complex.role, Role::Admin));
-        let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+        let results: Vec<PgComplexResult> = stmt.all();
 
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|r| r.name.starts_with("Admin")));
     }
 
     #[drizzle::test]
-    fn enum_update(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+    fn enum_update(db: &mut TestDb<ComplexSchema>) {
         let ComplexSchema { complex, .. } = schema;
 
         let stmt = db
             .insert(complex)
             .values([InsertComplex::new("Test User", true, Role::User)]);
-        drizzle_exec!(stmt => execute);
+        stmt.execute();
 
         // Update enum value
         let stmt = db
             .update(complex)
             .set(UpdateComplex::default().with_role(Role::Admin))
             .r#where(eq(complex.name, "Test User"));
-        drizzle_exec!(stmt => execute);
+        stmt.execute();
 
         // Verify update by filtering
         let stmt = db
             .select(())
             .from(complex)
             .r#where(eq(complex.role, Role::Admin));
-        let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+        let results: Vec<PgComplexResult> = stmt.all();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "Test User");
     }
 
     #[drizzle::test]
-    fn enum_in_array_condition(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+    fn enum_in_array_condition(db: &mut TestDb<ComplexSchema>) {
         let ComplexSchema { complex, .. } = schema;
 
         let stmt = db.insert(complex).values([
@@ -156,14 +156,14 @@ mod execution {
             InsertComplex::new("Moderator", true, Role::Moderator),
             InsertComplex::new("User", true, Role::User),
         ]);
-        drizzle_exec!(stmt => execute);
+        stmt.execute();
 
         // Filter by multiple enum values
         let stmt = db.select(()).from(complex).r#where(or(
             eq(complex.role, Role::Admin),
             eq(complex.role, Role::Moderator),
         ));
-        let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+        let results: Vec<PgComplexResult> = stmt.all();
 
         assert_eq!(results.len(), 2);
         let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();

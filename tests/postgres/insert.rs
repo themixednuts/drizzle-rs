@@ -17,14 +17,14 @@ struct PgComplexResult {
 }
 
 #[drizzle::test]
-fn insert_single_row(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn insert_single_row(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
@@ -32,7 +32,7 @@ fn insert_single_row(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
 }
 
 #[drizzle::test]
-fn insert_with_table_and_column_refs(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn insert_with_table_and_column_refs(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
     let simple_ref = &simple;
     let name_ref = &simple.name;
@@ -40,20 +40,20 @@ fn insert_with_table_and_column_refs(db: &mut TestDb<SimpleSchema>, schema: Simp
     let stmt = db
         .insert(simple_ref)
         .values([InsertSimple::new("RefAlice")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db
         .select((simple_ref.id, simple_ref.name))
         .from(simple_ref)
         .r#where(eq(name_ref, "RefAlice"));
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "RefAlice");
 }
 
 #[drizzle::test]
-fn insert_multiple_rows(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn insert_multiple_rows(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
@@ -61,10 +61,10 @@ fn insert_multiple_rows(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("Bob"),
         InsertSimple::new("Charlie"),
     ]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = stmt.all();
 
     assert_eq!(results.len(), 3);
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
@@ -75,7 +75,7 @@ fn insert_multiple_rows(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn insert_with_optional_fields(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn insert_with_optional_fields(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
     let stmt = db
@@ -83,10 +83,10 @@ fn insert_with_optional_fields(db: &mut TestDb<ComplexSchema>, schema: ComplexSc
         .values([InsertComplex::new("Alice", true, Role::Admin)
             .with_email("alice@example.com")
             .with_age(30)]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(complex);
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Alice");
@@ -97,16 +97,16 @@ fn insert_with_optional_fields(db: &mut TestDb<ComplexSchema>, schema: ComplexSc
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn insert_with_null_fields(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn insert_with_null_fields(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
     let stmt = db
         .insert(complex)
         .values([InsertComplex::new("Bob", false, Role::User)]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(()).from(complex);
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Bob");
@@ -116,7 +116,7 @@ fn insert_with_null_fields(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema
 }
 
 #[drizzle::test]
-fn insert_special_characters(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn insert_special_characters(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([
@@ -126,10 +126,10 @@ fn insert_special_characters(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema
         InsertSimple::new("Tab\there"),
         InsertSimple::new("Emoji 🎉"),
     ]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = stmt.all();
 
     assert_eq!(results.len(), 5);
     assert!(results.iter().any(|r| r.name == "O'Brien"));
@@ -141,20 +141,20 @@ fn insert_special_characters(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn insert_with_custom_uuid(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn insert_with_custom_uuid(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
     let custom_id = uuid::Uuid::new_v4();
     let stmt = db
         .insert(complex)
         .values([InsertComplex::new("CustomID", true, Role::User).with_id(custom_id)]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db
         .select(())
         .from(complex)
         .r#where(eq(complex.id, custom_id));
-    let results: Vec<PgComplexResult> = drizzle_exec!(stmt => all);
+    let results: Vec<PgComplexResult> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, custom_id);
@@ -162,7 +162,7 @@ fn insert_with_custom_uuid(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema
 }
 
 #[drizzle::test]
-fn insert_large_batch(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn insert_large_batch(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Create a batch of 100 rows
@@ -173,10 +173,10 @@ fn insert_large_batch(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         .collect();
 
     let stmt = db.insert(simple).values(rows);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let results: Vec<SelectSimple> = drizzle_exec!(stmt => all);
+    let results: Vec<SelectSimple> = stmt.all();
 
     assert_eq!(results.len(), 100);
 }

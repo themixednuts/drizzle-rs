@@ -41,7 +41,7 @@ struct GroupAvgResult {
 // =============================================================================
 
 #[drizzle::test]
-fn test_group_by_simple_count(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_group_by_simple_count(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -52,18 +52,14 @@ fn test_group_by_simple_count(db: &mut TestDb<SimpleSchema>, schema: SimpleSchem
         InsertSimple::new("bob").with_id(5),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
-    let results: Vec<GroupCountResult> = drizzle_exec!(
-        db.select((
-            simple.name,
-            alias(count(simple.id), "count"),
-        ))
+    let results: Vec<GroupCountResult> = db
+        .select((simple.name, alias(count(simple.id), "count")))
         .from(simple)
         .group_by(simple.name)
         .order_by(asc(simple.name))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "alice");
@@ -74,7 +70,7 @@ fn test_group_by_simple_count(db: &mut TestDb<SimpleSchema>, schema: SimpleSchem
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_group_by_with_sum(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_group_by_with_sum(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
 
     let test_data = vec![
@@ -84,18 +80,14 @@ fn test_group_by_with_sum(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema)
         InsertComplex::new("diana", false, Role::User).with_age(40),
     ];
 
-    drizzle_exec!(db.insert(complex).values(test_data) => execute);
+    db.insert(complex).values(test_data).execute();
 
-    let results: Vec<BoolGroupResult> = drizzle_exec!(
-        db.select((
-            complex.active,
-            alias(sum(complex.age), "total"),
-        ))
+    let results: Vec<BoolGroupResult> = db
+        .select((complex.active, alias(sum(complex.age), "total")))
         .from(complex)
         .group_by(complex.active)
         .order_by(asc(complex.active))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 2);
     // SQLite: false = 0, true = 1; order_by(asc) puts false first
@@ -107,7 +99,7 @@ fn test_group_by_with_sum(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema)
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_group_by_with_avg(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_group_by_with_avg(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
 
     let test_data = vec![
@@ -117,18 +109,14 @@ fn test_group_by_with_avg(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema)
         InsertComplex::new("diana", false, Role::User).with_score(60.0),
     ];
 
-    drizzle_exec!(db.insert(complex).values(test_data) => execute);
+    db.insert(complex).values(test_data).execute();
 
-    let results: Vec<GroupAvgResult> = drizzle_exec!(
-        db.select((
-            complex.active,
-            alias(avg(complex.score), "avg_score"),
-        ))
+    let results: Vec<GroupAvgResult> = db
+        .select((complex.active, alias(avg(complex.score), "avg_score")))
         .from(complex)
         .group_by(complex.active)
         .order_by(asc(complex.active))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 2);
     assert!(!results[0].active);
@@ -142,7 +130,7 @@ fn test_group_by_with_avg(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema)
 // =============================================================================
 
 #[drizzle::test]
-fn test_having_filters_groups(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_having_filters_groups(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -152,20 +140,16 @@ fn test_having_filters_groups(db: &mut TestDb<SimpleSchema>, schema: SimpleSchem
         InsertSimple::new("bob").with_id(4),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // GROUP BY name HAVING COUNT(*) > 2
     // alice has 3, bob has 1 — only alice should appear
-    let results: Vec<GroupCountResult> = drizzle_exec!(
-        db.select((
-            simple.name,
-            alias(count(simple.id), "count"),
-        ))
+    let results: Vec<GroupCountResult> = db
+        .select((simple.name, alias(count(simple.id), "count")))
         .from(simple)
         .group_by(simple.name)
         .having(gt(count(simple.id), 2_i64))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "alice");
@@ -173,7 +157,7 @@ fn test_having_filters_groups(db: &mut TestDb<SimpleSchema>, schema: SimpleSchem
 }
 
 #[drizzle::test]
-fn test_having_with_sum(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_having_with_sum(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -182,7 +166,7 @@ fn test_having_with_sum(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("bob").with_id(5),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // GROUP BY name HAVING SUM(id) > 10
     // alice sum=30, bob sum=5 — only alice
@@ -192,16 +176,12 @@ fn test_having_with_sum(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         total: Option<i32>,
     }
 
-    let results: Vec<SumGroupResult> = drizzle_exec!(
-        db.select((
-            simple.name,
-            alias(sum(simple.id), "total"),
-        ))
+    let results: Vec<SumGroupResult> = db
+        .select((simple.name, alias(sum(simple.id), "total")))
         .from(simple)
         .group_by(simple.name)
         .having(gt(sum(simple.id), 10))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "alice");
@@ -209,7 +189,7 @@ fn test_having_with_sum(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
 }
 
 #[drizzle::test]
-fn test_having_no_matching_groups(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_having_no_matching_groups(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -217,19 +197,15 @@ fn test_having_no_matching_groups(db: &mut TestDb<SimpleSchema>, schema: SimpleS
         InsertSimple::new("bob").with_id(2),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // HAVING COUNT(*) > 10 — no group qualifies
-    let results: Vec<GroupCountResult> = drizzle_exec!(
-        db.select((
-            simple.name,
-            alias(count(simple.id), "count"),
-        ))
+    let results: Vec<GroupCountResult> = db
+        .select((simple.name, alias(count(simple.id), "count")))
         .from(simple)
         .group_by(simple.name)
         .having(gt(count(simple.id), 10_i64))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 0);
 }
@@ -239,7 +215,7 @@ fn test_having_no_matching_groups(db: &mut TestDb<SimpleSchema>, schema: SimpleS
 // =============================================================================
 
 #[drizzle::test]
-fn test_group_by_order_by_aggregate(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_group_by_order_by_aggregate(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -249,7 +225,7 @@ fn test_group_by_order_by_aggregate(db: &mut TestDb<SimpleSchema>, schema: Simpl
         InsertSimple::new("charlie").with_id(1),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // GROUP BY name, ORDER BY SUM(id) DESC
     #[derive(Debug, SQLiteFromRow)]
@@ -258,16 +234,12 @@ fn test_group_by_order_by_aggregate(db: &mut TestDb<SimpleSchema>, schema: Simpl
         total: Option<i32>,
     }
 
-    let results: Vec<SumGroupResult> = drizzle_exec!(
-        db.select((
-            simple.name,
-            alias(sum(simple.id), "total"),
-        ))
+    let results: Vec<SumGroupResult> = db
+        .select((simple.name, alias(sum(simple.id), "total")))
         .from(simple)
         .group_by(simple.name)
         .order_by(desc(sum(simple.id)))
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 3);
     // bob=100, alice=30, charlie=1
@@ -284,7 +256,7 @@ fn test_group_by_order_by_aggregate(db: &mut TestDb<SimpleSchema>, schema: Simpl
 // =============================================================================
 
 #[drizzle::test]
-fn test_group_by_with_limit(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_group_by_with_limit(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -296,20 +268,16 @@ fn test_group_by_with_limit(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema)
         InsertSimple::new("charlie").with_id(6),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // GROUP BY name ORDER BY count DESC LIMIT 2 — top 2 groups
-    let results: Vec<GroupCountResult> = drizzle_exec!(
-        db.select((
-            simple.name,
-            alias(count(simple.id), "count"),
-        ))
+    let results: Vec<GroupCountResult> = db
+        .select((simple.name, alias(count(simple.id), "count")))
         .from(simple)
         .group_by(simple.name)
         .order_by(desc(count(simple.id)))
         .limit(2)
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "charlie");
@@ -319,7 +287,7 @@ fn test_group_by_with_limit(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema)
 }
 
 #[drizzle::test]
-fn test_group_by_limit_without_order(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_group_by_limit_without_order(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -329,19 +297,15 @@ fn test_group_by_limit_without_order(db: &mut TestDb<SimpleSchema>, schema: Simp
         InsertSimple::new("charlie").with_id(4),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // GROUP BY name LIMIT 2 — direct LIMIT on GROUP BY without ORDER BY
-    let results: Vec<GroupCountResult> = drizzle_exec!(
-        db.select((
-            simple.name,
-            alias(count(simple.id), "count"),
-        ))
+    let results: Vec<GroupCountResult> = db
+        .select((simple.name, alias(count(simple.id), "count")))
         .from(simple)
         .group_by(simple.name)
         .limit(2)
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 2);
 }
@@ -351,7 +315,7 @@ fn test_group_by_limit_without_order(db: &mut TestDb<SimpleSchema>, schema: Simp
 // =============================================================================
 
 #[drizzle::test]
-fn test_select_from_offset(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_select_from_offset(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -362,7 +326,7 @@ fn test_select_from_offset(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) 
         InsertSimple::new("eve").with_id(5),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // SELECT ... FROM simple LIMIT 2 OFFSET 2
     #[derive(Debug, SQLiteFromRow)]
@@ -370,14 +334,13 @@ fn test_select_from_offset(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) 
         name: String,
     }
 
-    let results: Vec<NameResult> = drizzle_exec!(
-        db.select(simple.name)
+    let results: Vec<NameResult> = db
+        .select(simple.name)
         .from(simple)
         .order_by(asc(simple.id))
         .limit(2)
         .offset(2)
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "charlie");
@@ -389,19 +352,15 @@ fn test_select_from_offset(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) 
 // =============================================================================
 
 #[drizzle::test]
-fn test_group_by_empty_table(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_group_by_empty_table(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // No data inserted
-    let results: Vec<GroupCountResult> = drizzle_exec!(
-        db.select((
-            simple.name,
-            alias(count(simple.id), "count"),
-        ))
+    let results: Vec<GroupCountResult> = db
+        .select((simple.name, alias(count(simple.id), "count")))
         .from(simple)
         .group_by(simple.name)
-            => all
-    );
+        .all();
 
     assert_eq!(results.len(), 0);
 }
@@ -416,7 +375,7 @@ struct NameResult {
 }
 
 #[drizzle::test]
-fn test_union_via_drizzle_builder(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_union_via_drizzle_builder(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -425,21 +384,20 @@ fn test_union_via_drizzle_builder(db: &mut TestDb<SimpleSchema>, schema: SimpleS
         InsertSimple::new("charlie").with_id(3),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // UNION two DrizzleBuilder selects: names where id <= 2 UNION names where id >= 2
-    let results: Vec<NameResult> = drizzle_exec!(
-        db.select(simple.name)
-          .from(simple)
-          .r#where(lte(simple.id, 2))
-          .union(
-              db.select(simple.name)
+    let results: Vec<NameResult> = db
+        .select(simple.name)
+        .from(simple)
+        .r#where(lte(simple.id, 2))
+        .union(
+            db.select(simple.name)
                 .from(simple)
-                .r#where(gte(simple.id, 2))
-          )
-          .order_by(asc(simple.name))
-            => all
-    );
+                .r#where(gte(simple.id, 2)),
+        )
+        .order_by(asc(simple.name))
+        .all();
 
     // UNION deduplicates: alice, bob (from left), bob, charlie (from right) → alice, bob, charlie
     assert_eq!(results.len(), 3);
@@ -449,7 +407,7 @@ fn test_union_via_drizzle_builder(db: &mut TestDb<SimpleSchema>, schema: SimpleS
 }
 
 #[drizzle::test]
-fn test_union_all_preserves_duplicates(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_union_all_preserves_duplicates(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -458,21 +416,20 @@ fn test_union_all_preserves_duplicates(db: &mut TestDb<SimpleSchema>, schema: Si
         InsertSimple::new("charlie").with_id(3),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // UNION ALL keeps duplicates: bob appears in both sets
-    let results: Vec<NameResult> = drizzle_exec!(
-        db.select(simple.name)
-          .from(simple)
-          .r#where(lte(simple.id, 2))
-          .union_all(
-              db.select(simple.name)
+    let results: Vec<NameResult> = db
+        .select(simple.name)
+        .from(simple)
+        .r#where(lte(simple.id, 2))
+        .union_all(
+            db.select(simple.name)
                 .from(simple)
-                .r#where(gte(simple.id, 2))
-          )
-          .order_by(asc(simple.name))
-            => all
-    );
+                .r#where(gte(simple.id, 2)),
+        )
+        .order_by(asc(simple.name))
+        .all();
 
     // UNION ALL: alice, bob + bob, charlie → alice, bob, bob, charlie
     assert_eq!(results.len(), 4);
@@ -483,7 +440,7 @@ fn test_union_all_preserves_duplicates(db: &mut TestDb<SimpleSchema>, schema: Si
 }
 
 #[drizzle::test]
-fn test_union_mixed_drizzle_and_raw(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_union_mixed_drizzle_and_raw(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -492,23 +449,22 @@ fn test_union_mixed_drizzle_and_raw(db: &mut TestDb<SimpleSchema>, schema: Simpl
         InsertSimple::new("charlie").with_id(3),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // DrizzleBuilder.union(raw SelectBuilder) — interop test
     let qb = drizzle_sqlite::builder::QueryBuilder::new::<SimpleSchema>();
 
-    let results: Vec<NameResult> = drizzle_exec!(
-        db.select(simple.name)
-          .from(simple)
-          .r#where(eq(simple.id, 1))
-          .union(
-              qb.select(simple.name)
+    let results: Vec<NameResult> = db
+        .select(simple.name)
+        .from(simple)
+        .r#where(eq(simple.id, 1))
+        .union(
+            qb.select(simple.name)
                 .from(simple)
-                .r#where(eq(simple.id, 3))
-          )
-          .order_by(asc(simple.name))
-            => all
-    );
+                .r#where(eq(simple.id, 3)),
+        )
+        .order_by(asc(simple.name))
+        .all();
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].name, "alice");
@@ -516,7 +472,7 @@ fn test_union_mixed_drizzle_and_raw(db: &mut TestDb<SimpleSchema>, schema: Simpl
 }
 
 #[drizzle::test]
-fn test_chained_set_operations(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_chained_set_operations(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -525,26 +481,25 @@ fn test_chained_set_operations(db: &mut TestDb<SimpleSchema>, schema: SimpleSche
         InsertSimple::new("charlie").with_id(3),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Chain multiple set ops: q1 UNION q2 UNION ALL q3
-    let results: Vec<NameResult> = drizzle_exec!(
-        db.select(simple.name)
-          .from(simple)
-          .r#where(eq(simple.id, 1))
-          .union(
-              db.select(simple.name)
+    let results: Vec<NameResult> = db
+        .select(simple.name)
+        .from(simple)
+        .r#where(eq(simple.id, 1))
+        .union(
+            db.select(simple.name)
                 .from(simple)
-                .r#where(eq(simple.id, 2))
-          )
-          .union_all(
-              db.select(simple.name)
+                .r#where(eq(simple.id, 2)),
+        )
+        .union_all(
+            db.select(simple.name)
                 .from(simple)
-                .r#where(eq(simple.id, 1))
-          )
-          .order_by(asc(simple.name))
-            => all
-    );
+                .r#where(eq(simple.id, 1)),
+        )
+        .order_by(asc(simple.name))
+        .all();
 
     // (alice UNION bob) UNION ALL alice → alice, alice, bob
     assert_eq!(results.len(), 3);
@@ -554,7 +509,7 @@ fn test_chained_set_operations(db: &mut TestDb<SimpleSchema>, schema: SimpleSche
 }
 
 #[drizzle::test]
-fn test_set_op_with_order_limit(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_set_op_with_order_limit(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -564,22 +519,21 @@ fn test_set_op_with_order_limit(db: &mut TestDb<SimpleSchema>, schema: SimpleSch
         InsertSimple::new("diana").with_id(4),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // UNION with ORDER BY and LIMIT on the combined result
-    let results: Vec<NameResult> = drizzle_exec!(
-        db.select(simple.name)
-          .from(simple)
-          .r#where(lte(simple.id, 2))
-          .union(
-              db.select(simple.name)
+    let results: Vec<NameResult> = db
+        .select(simple.name)
+        .from(simple)
+        .r#where(lte(simple.id, 2))
+        .union(
+            db.select(simple.name)
                 .from(simple)
-                .r#where(gte(simple.id, 3))
-          )
-          .order_by(desc(simple.name))
-          .limit(2)
-            => all
-    );
+                .r#where(gte(simple.id, 3)),
+        )
+        .order_by(desc(simple.name))
+        .limit(2)
+        .all();
 
     // All 4 names combined, ordered desc, limited to 2: diana, charlie
     assert_eq!(results.len(), 2);
@@ -588,7 +542,7 @@ fn test_set_op_with_order_limit(db: &mut TestDb<SimpleSchema>, schema: SimpleSch
 }
 
 #[drizzle::test]
-fn test_intersect_via_drizzle_builder(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_intersect_via_drizzle_builder(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -597,27 +551,26 @@ fn test_intersect_via_drizzle_builder(db: &mut TestDb<SimpleSchema>, schema: Sim
         InsertSimple::new("charlie").with_id(3),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // INTERSECT: rows in both sets (id <= 2) AND (id >= 2) → only bob (id=2)
-    let results: Vec<NameResult> = drizzle_exec!(
-        db.select(simple.name)
-          .from(simple)
-          .r#where(lte(simple.id, 2))
-          .intersect(
-              db.select(simple.name)
+    let results: Vec<NameResult> = db
+        .select(simple.name)
+        .from(simple)
+        .r#where(lte(simple.id, 2))
+        .intersect(
+            db.select(simple.name)
                 .from(simple)
-                .r#where(gte(simple.id, 2))
-          )
-            => all
-    );
+                .r#where(gte(simple.id, 2)),
+        )
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "bob");
 }
 
 #[drizzle::test]
-fn test_except_via_drizzle_builder(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_except_via_drizzle_builder(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let test_data = vec![
@@ -626,20 +579,19 @@ fn test_except_via_drizzle_builder(db: &mut TestDb<SimpleSchema>, schema: Simple
         InsertSimple::new("charlie").with_id(3),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // EXCEPT: rows in left set (id <= 2) but NOT in right set (id >= 2) → alice only
-    let results: Vec<NameResult> = drizzle_exec!(
-        db.select(simple.name)
-          .from(simple)
-          .r#where(lte(simple.id, 2))
-          .except(
-              db.select(simple.name)
+    let results: Vec<NameResult> = db
+        .select(simple.name)
+        .from(simple)
+        .r#where(lte(simple.id, 2))
+        .except(
+            db.select(simple.name)
                 .from(simple)
-                .r#where(gte(simple.id, 2))
-          )
-            => all
-    );
+                .r#where(gte(simple.id, 2)),
+        )
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "alice");

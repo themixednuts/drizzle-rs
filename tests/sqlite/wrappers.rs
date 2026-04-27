@@ -32,22 +32,18 @@ struct CompactStringSchema {
 
 #[cfg(feature = "compact-str")]
 #[drizzle::test]
-fn compact_string_roundtrip_and_storage(
-    db: &mut TestDb<CompactStringSchema>,
-    schema: CompactStringSchema,
-) {
+fn compact_string_roundtrip_and_storage(db: &mut TestDb<CompactStringSchema>) {
     let table = schema.compact_string_test;
 
     let value = CompactString::new("compact hello");
     let row = InsertCompactStringTest::new(value.clone(), "compact note");
-    drizzle_exec!(db.insert(table).values([row]) => execute);
+    db.insert(table).values([row]).execute();
 
-    let out: Vec<SelectCompactStringTest> = drizzle_exec!(
-        db.select((table.id, table.name, table.note))
-            .from(table)
-            .r#where(eq(table.id, 1))
-            => all
-    );
+    let out: Vec<SelectCompactStringTest> = db
+        .select((table.id, table.name, table.note))
+        .from(table)
+        .r#where(eq(table.id, 1))
+        .all();
 
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].name, value);
@@ -55,12 +51,11 @@ fn compact_string_roundtrip_and_storage(
 
     #[derive(SQLiteFromRow, Debug)]
     struct Ty(String);
-    let ty: Ty = drizzle_exec!(
-        db.select(r#typeof(table.name).alias("name_type"))
-            .from(table)
-            .r#where(eq(table.id, 1))
-            => get
-    );
+    let ty: Ty = db
+        .select(r#typeof(table.name).alias("name_type"))
+        .from(table)
+        .r#where(eq(table.id, 1))
+        .get();
 
     assert_eq!(ty.0, "text");
 }
@@ -83,20 +78,19 @@ struct BytesBlobSchema {
 
 #[cfg(feature = "bytes")]
 #[drizzle::test]
-fn bytes_roundtrip_and_storage(db: &mut TestDb<BytesBlobSchema>, schema: BytesBlobSchema) {
+fn bytes_roundtrip_and_storage(db: &mut TestDb<BytesBlobSchema>) {
     let table = schema.bytes_blob_test;
 
     let payload = Bytes::from_static(b"hello-bytes");
     let mutable_payload = BytesMut::from(&b"hello-bytes-mut"[..]);
     let row = InsertBytesBlobTest::new(payload.clone(), mutable_payload.clone(), "bytes note");
-    drizzle_exec!(db.insert(table).values([row]) => execute);
+    db.insert(table).values([row]).execute();
 
-    let out: Vec<SelectBytesBlobTest> = drizzle_exec!(
-        db.select((table.id, table.payload, table.mutable_payload, table.note))
-            .from(table)
-            .r#where(eq(table.id, 1))
-            => all
-    );
+    let out: Vec<SelectBytesBlobTest> = db
+        .select((table.id, table.payload, table.mutable_payload, table.note))
+        .from(table)
+        .r#where(eq(table.id, 1))
+        .all();
 
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].payload.as_ref(), payload.as_ref());
@@ -105,15 +99,14 @@ fn bytes_roundtrip_and_storage(db: &mut TestDb<BytesBlobSchema>, schema: BytesBl
 
     #[derive(SQLiteFromRow, Debug)]
     struct Ty(String, String);
-    let ty: Ty = drizzle_exec!(
-        db.select((
+    let ty: Ty = db
+        .select((
             r#typeof(table.payload).alias("payload_type"),
-            r#typeof(table.mutable_payload).alias("mutable_payload_type")
+            r#typeof(table.mutable_payload).alias("mutable_payload_type"),
         ))
         .from(table)
         .r#where(eq(table.id, 1))
-        => get
-    );
+        .get();
 
     assert_eq!(ty.0, "blob");
     assert_eq!(ty.1, "blob");
@@ -136,20 +129,19 @@ struct SmallVecBlobSchema {
 
 #[cfg(feature = "smallvec-types")]
 #[drizzle::test]
-fn smallvec_roundtrip_and_storage(db: &mut TestDb<SmallVecBlobSchema>, schema: SmallVecBlobSchema) {
+fn smallvec_roundtrip_and_storage(db: &mut TestDb<SmallVecBlobSchema>) {
     let table = schema.smallvec_blob_test;
 
     let mut payload = SmallVec::<[u8; 16]>::new();
     payload.extend_from_slice(&[1, 2, 3, 4, 5, 6]);
     let row = InsertSmallVecBlobTest::new(payload.clone(), "smallvec note");
-    drizzle_exec!(db.insert(table).values([row]) => execute);
+    db.insert(table).values([row]).execute();
 
-    let out: Vec<SelectSmallVecBlobTest> = drizzle_exec!(
-        db.select((table.id, table.payload, table.note))
-            .from(table)
-            .r#where(eq(table.id, 1))
-            => all
-    );
+    let out: Vec<SelectSmallVecBlobTest> = db
+        .select((table.id, table.payload, table.note))
+        .from(table)
+        .r#where(eq(table.id, 1))
+        .all();
 
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].payload.as_slice(), payload.as_slice());
@@ -157,12 +149,11 @@ fn smallvec_roundtrip_and_storage(db: &mut TestDb<SmallVecBlobSchema>, schema: S
 
     #[derive(SQLiteFromRow, Debug)]
     struct Ty(String);
-    let ty: Ty = drizzle_exec!(
-        db.select(r#typeof(table.payload).alias("payload_type"))
-            .from(table)
-            .r#where(eq(table.id, 1))
-            => get
-    );
+    let ty: Ty = db
+        .select(r#typeof(table.payload).alias("payload_type"))
+        .from(table)
+        .r#where(eq(table.id, 1))
+        .get();
 
     assert_eq!(ty.0, "blob");
 }

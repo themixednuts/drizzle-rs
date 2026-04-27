@@ -17,91 +17,95 @@ struct NamedSimple {
 struct TupleNameId(String, i32);
 
 #[drizzle::test]
-fn named_struct_maps_by_name(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn named_struct_maps_by_name(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     // Strict row-shape checks require selected column order to match struct field order.
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let result: NamedSimple = drizzle_exec!(stmt => get);
+    let result: NamedSimple = stmt.get();
 
     assert_eq!(result.id, 1);
     assert_eq!(result.name, "Alice");
 }
 
 #[drizzle::test]
-fn tuple_struct_maps_by_index(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn tuple_struct_maps_by_index(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     // Tuple structs decode positionally, so this follows SELECT order.
     let stmt = db.select((simple.name, simple.id)).from(simple);
-    let result: TupleNameId = drizzle_exec!(stmt => get);
+    let result: TupleNameId = stmt.get();
 
     assert_eq!(result.0, "Alice");
     assert_eq!(result.1, 1);
 }
 
 #[drizzle::test]
-fn fromrow_inferred_with_select_target(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn fromrow_inferred_with_select_target(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db.insert(simple).values([InsertSimple::new("Alice")]);
-    drizzle_exec!(stmt => execute);
+    stmt.execute();
 
     let stmt = db.select(NamedSimple::Select).from(simple);
-    let result: NamedSimple = drizzle_exec!(stmt => get);
+    let result: NamedSimple = stmt.get();
 
     assert_eq!(result.id, 1);
     assert_eq!(result.name, "Alice");
 }
 
 #[drizzle::test]
-fn insert_returning_select_target_infers_row(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn insert_returning_select_target_infers_row(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let stmt = db
         .insert(simple)
         .values([InsertSimple::new("Alice")])
         .returning(NamedSimple::Select);
-    let result: NamedSimple = drizzle_exec!(stmt => get);
+    let result: NamedSimple = stmt.get();
 
     assert_eq!(result.id, 1);
     assert_eq!(result.name, "Alice");
 }
 
 #[drizzle::test]
-fn update_returning_select_target_infers_row(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn update_returning_select_target_infers_row(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(db.insert(simple).values([InsertSimple::new("Alice")]) => execute);
+    db.insert(simple)
+        .values([InsertSimple::new("Alice")])
+        .execute();
 
     let stmt = db
         .update(simple)
         .set(UpdateSimple::default().with_name("Bob"))
         .r#where(eq(simple.id, 1))
         .returning(NamedSimple::Select);
-    let result: NamedSimple = drizzle_exec!(stmt => get);
+    let result: NamedSimple = stmt.get();
 
     assert_eq!(result.id, 1);
     assert_eq!(result.name, "Bob");
 }
 
 #[drizzle::test]
-fn delete_returning_select_target_infers_row(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn delete_returning_select_target_infers_row(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(db.insert(simple).values([InsertSimple::new("Alice")]) => execute);
+    db.insert(simple)
+        .values([InsertSimple::new("Alice")])
+        .execute();
 
     let stmt = db
         .delete(simple)
         .r#where(eq(simple.id, 1))
         .returning(NamedSimple::Select);
-    let result: NamedSimple = drizzle_exec!(stmt => get);
+    let result: NamedSimple = stmt.get();
 
     assert_eq!(result.id, 1);
     assert_eq!(result.name, "Alice");

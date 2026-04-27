@@ -12,7 +12,7 @@ use drizzle::core::expr::eq;
 use drizzle::sqlite::prelude::*;
 
 #[drizzle::test]
-fn comment_select_prepends_block(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn comment_select_prepends_block(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let sql = db
@@ -31,7 +31,7 @@ fn comment_select_prepends_block(db: &mut TestDb<SimpleSchema>, schema: SimpleSc
 }
 
 #[drizzle::test]
-fn comment_select_with_where(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn comment_select_with_where(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let sql = db
@@ -49,7 +49,7 @@ fn comment_select_with_where(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema
 }
 
 #[drizzle::test]
-fn comment_tags_sort_and_url_encode(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn comment_tags_sort_and_url_encode(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Tags are URL-encoded (per encodeURIComponent) and sorted alphabetically.
@@ -67,7 +67,7 @@ fn comment_tags_sort_and_url_encode(db: &mut TestDb<SimpleSchema>, schema: Simpl
 }
 
 #[drizzle::test]
-fn comment_sanitises_comment_terminators(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn comment_sanitises_comment_terminators(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // An attacker-controlled trace string containing `/*` / `*/` must not be
@@ -86,7 +86,7 @@ fn comment_sanitises_comment_terminators(db: &mut TestDb<SimpleSchema>, schema: 
 }
 
 #[drizzle::test]
-fn comment_empty_is_noop(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn comment_empty_is_noop(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     let sql = db.select(()).from(simple).comment("").to_sql().sql();
@@ -108,7 +108,7 @@ fn comment_empty_is_noop(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
 }
 
 #[drizzle::test]
-fn comment_on_insert_and_update_and_delete(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn comment_on_insert_and_update_and_delete(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // INSERT
@@ -150,18 +150,20 @@ fn comment_on_insert_and_update_and_delete(db: &mut TestDb<SimpleSchema>, schema
 }
 
 #[drizzle::test]
-fn comment_roundtrips_through_driver(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn comment_roundtrips_through_driver(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    drizzle_exec!(
-        db.insert(simple).values([InsertSimple::new("alice"), InsertSimple::new("bob")])
-            => execute
-    );
+    db.insert(simple)
+        .values([InsertSimple::new("alice"), InsertSimple::new("bob")])
+        .execute();
 
     // The comment is a valid SQL block comment, so the query must still
     // execute and return the expected rows.
-    let rows: Vec<crate::common::schema::sqlite::SelectSimple> =
-        drizzle_exec!(db.select(()).from(simple).comment("observability-demo") => all);
+    let rows: Vec<crate::common::schema::sqlite::SelectSimple> = db
+        .select(())
+        .from(simple)
+        .comment("observability-demo")
+        .all();
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].name, "alice");
     assert_eq!(rows[1].name, "bob");

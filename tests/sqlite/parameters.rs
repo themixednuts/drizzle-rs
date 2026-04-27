@@ -8,7 +8,7 @@ use drizzle::sqlite::prelude::*;
 
 #[cfg(all(feature = "serde", feature = "uuid"))]
 #[drizzle::test]
-fn test_insert_with_placeholders(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_insert_with_placeholders(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Create a typed placeholder from the column
@@ -39,10 +39,7 @@ fn test_insert_with_placeholders(db: &mut TestDb<SimpleSchema>, schema: SimpleSc
 }
 
 #[drizzle::test]
-fn test_insert_with_placeholders_execute_and_retrieve(
-    db: &mut TestDb<SimpleSchema>,
-    schema: SimpleSchema,
-) {
+fn test_insert_with_placeholders_execute_and_retrieve(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Create a typed placeholder from the column
@@ -55,16 +52,15 @@ fn test_insert_with_placeholders_execute_and_retrieve(
     let prepared_insert = db.insert(simple).values([insert_data]).prepare();
 
     // Execute the prepared insert with bound parameters
-    let row_count = drizzle_exec!(prepared_insert.execute(db.conn(), [user_name.bind("Alice")]));
+    let row_count = prepared_insert.execute(db.conn(), [user_name.bind("Alice")]);
     assert_eq!(row_count, 1, "Should have inserted one row");
 
     // Retrieve the data to verify it was inserted correctly
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.name, "Alice"))
-            => all
-    );
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "Alice"))
+        .all();
 
     assert_eq!(results.len(), 1, "Should have found one result");
     assert_eq!(
@@ -74,10 +70,7 @@ fn test_insert_with_placeholders_execute_and_retrieve(
 }
 
 #[drizzle::test]
-fn test_parameter_integration_with_query_builder(
-    db: &mut TestDb<SimpleSchema>,
-    schema: SimpleSchema,
-) {
+fn test_parameter_integration_with_query_builder(db: &mut TestDb<SimpleSchema>) {
     #[derive(SQLiteFromRow, Default)]
     struct SimpleResult(String);
     let SimpleSchema { simple } = schema;
@@ -88,33 +81,30 @@ fn test_parameter_integration_with_query_builder(
         InsertSimple::new("bob"),
         InsertSimple::new("charlie"),
     ];
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test that normal query builder still works (this uses internal parameter binding)
-    let results: Vec<SimpleResult> = drizzle_exec!(
-        db.select(simple.name)
-            .from(simple)
-            .r#where(eq(simple.name, "alice"))
-            => all
-    );
+    let results: Vec<SimpleResult> = db
+        .select(simple.name)
+        .from(simple)
+        .r#where(eq(simple.name, "alice"))
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, "alice");
 
     // Test multiple parameter conditions using multiple queries
-    let alice_results: Vec<SimpleResult> = drizzle_exec!(
-        db.select(simple.name)
-            .from(simple)
-            .r#where(eq(simple.name, "alice"))
-            => all
-    );
+    let alice_results: Vec<SimpleResult> = db
+        .select(simple.name)
+        .from(simple)
+        .r#where(eq(simple.name, "alice"))
+        .all();
 
-    let bob_results: Vec<SimpleResult> = drizzle_exec!(
-        db.select(simple.name)
-            .from(simple)
-            .r#where(eq(simple.name, "bob"))
-            => all
-    );
+    let bob_results: Vec<SimpleResult> = db
+        .select(simple.name)
+        .from(simple)
+        .r#where(eq(simple.name, "bob"))
+        .all();
 
     assert_eq!(alice_results.len(), 1);
     assert_eq!(bob_results.len(), 1);
@@ -123,7 +113,7 @@ fn test_parameter_integration_with_query_builder(
 }
 
 #[drizzle::test]
-fn test_update_with_placeholders_sql(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_update_with_placeholders_sql(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Create typed placeholders from columns
@@ -172,15 +162,14 @@ fn test_update_with_placeholders_sql(db: &mut TestDb<SimpleSchema>, schema: Simp
 }
 
 #[drizzle::test]
-fn test_update_with_placeholders_execute(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn test_update_with_placeholders_execute(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Insert initial data
-    drizzle_exec!(
-        db.insert(simple)
-            .values([InsertSimple::new("original_name")])
-            => execute
-    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("original_name")])
+        .execute();
 
     // Create typed placeholders from columns
     let new_name = simple.name.placeholder("new_name");
@@ -195,41 +184,36 @@ fn test_update_with_placeholders_execute(db: &mut TestDb<SimpleSchema>, schema: 
         .prepare();
 
     // Execute with bound parameters
-    let update_count = drizzle_exec!(prepared.execute(
+    let update_count = prepared.execute(
         db.conn(),
         [
             new_name.bind("updated_name"),
-            old_name.bind("original_name")
-        ]
-    ));
-    drizzle_assert_eq!(1, update_count, "Should have updated one row");
+            old_name.bind("original_name"),
+        ],
+    );
+    assert_eq!(1, update_count, "Should have updated one row");
 
     // Verify the new name exists
-    let results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.name, "updated_name"))
-            => all
-    );
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "updated_name"))
+        .all();
     assert_eq!(results.len(), 1, "Should find the updated row");
     assert_eq!(results[0].name, "updated_name");
 
     // Verify the original name is gone
-    let old_results: Vec<SelectSimple> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.name, "original_name"))
-            => all
-    );
+    let old_results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "original_name"))
+        .all();
     assert_eq!(old_results.len(), 0, "Original name should no longer exist");
 }
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_update_with_mixed_values_and_placeholders(
-    db: &mut TestDb<ComplexSchema>,
-    schema: ComplexSchema,
-) {
+fn test_update_with_mixed_values_and_placeholders(db: &mut TestDb<ComplexSchema>) {
     #[allow(dead_code)]
     #[derive(SQLiteFromRow, Debug)]
     struct ComplexResult {
@@ -247,7 +231,7 @@ fn test_update_with_mixed_values_and_placeholders(
         .with_email("alice@old.com".to_string())
         .with_age(25)
         .with_score(90.5);
-    drizzle_exec!(db.insert(complex).values([insert_data]) => execute);
+    db.insert(complex).values([insert_data]).execute();
 
     // Create typed placeholder from column
     let new_age = complex.age.placeholder("new_age");
@@ -264,16 +248,15 @@ fn test_update_with_mixed_values_and_placeholders(
         .prepare();
 
     // Execute — only the placeholder needs to be bound
-    let update_count = drizzle_exec!(prepared.execute(db.conn(), [new_age.bind(30)]));
-    drizzle_assert_eq!(1, update_count, "Should have updated one row");
+    let update_count = prepared.execute(db.conn(), [new_age.bind(30)]);
+    assert_eq!(1, update_count, "Should have updated one row");
 
     // Verify both concrete and placeholder-bound fields were updated
-    let results: Vec<ComplexResult> = drizzle_exec!(
-        db.select((complex.name, complex.email, complex.age, complex.score))
-            .from(complex)
-            .r#where(eq(complex.name, "alice"))
-            => all
-    );
+    let results: Vec<ComplexResult> = db
+        .select((complex.name, complex.email, complex.age, complex.score))
+        .from(complex)
+        .r#where(eq(complex.name, "alice"))
+        .all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(
@@ -295,7 +278,7 @@ fn test_update_with_mixed_values_and_placeholders(
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn test_update_skip_excludes_unset_fields(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn test_update_skip_excludes_unset_fields(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex } = schema;
 
     // Set only email — all other fields remain Skip (default)

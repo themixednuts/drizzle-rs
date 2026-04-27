@@ -50,7 +50,7 @@ impl drizzle::core::Tag for AliasP {
 }
 
 #[drizzle::test]
-fn basic_table_alias(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn basic_table_alias(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -60,7 +60,7 @@ fn basic_table_alias(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         InsertSimple::new("charlie"),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test basic table alias
     let s = Simple::alias::<AliasS>();
@@ -68,14 +68,14 @@ fn basic_table_alias(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
         .select(SimpleResult::Select)
         .from(s)
         .r#where(eq(s.name, "bob"));
-    let results: Vec<SimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SimpleResult> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "bob");
 }
 
 #[drizzle::test]
-fn table_alias_with_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn table_alias_with_conditions(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
@@ -85,7 +85,7 @@ fn table_alias_with_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSche
         InsertSimple::new("test3"),
     ];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Test alias with WHERE conditions
     let s_alias = Simple::alias::<AliasSimple>();
@@ -93,7 +93,7 @@ fn table_alias_with_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSche
         .select((s_alias.id, s_alias.name))
         .from(s_alias)
         .r#where(and(gt(s_alias.id, 1), neq(s_alias.name, "test3")));
-    let results: Vec<SimpleResult> = drizzle_exec!(stmt => all);
+    let results: Vec<SimpleResult> = stmt.all();
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "test2");
@@ -101,7 +101,7 @@ fn table_alias_with_conditions(db: &mut TestDb<SimpleSchema>, schema: SimpleSche
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn self_join_with_aliases(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema) {
+fn self_join_with_aliases(db: &mut TestDb<ComplexSchema>) {
     let ComplexSchema { complex, .. } = schema;
 
     // Insert test data with same email domain
@@ -117,7 +117,7 @@ fn self_join_with_aliases(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema)
             .with_email("other@domain.com"),
     ];
 
-    drizzle_exec!(db.insert(complex).values(test_data) => execute);
+    db.insert(complex).values(test_data).execute();
 
     // Self-join using aliases to find users with same email
     let c1 = Complex::alias::<AliasC1>();
@@ -128,7 +128,7 @@ fn self_join_with_aliases(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema)
         .from(c1)
         .inner_join((c2, eq(c1.email, c2.email)))
         .r#where(neq(c1.id, c2.id));
-    let results: Vec<NamePair> = drizzle_exec!(stmt => all);
+    let results: Vec<NamePair> = stmt.all();
 
     // Should find the pair of users with same email
     assert_eq!(results.len(), 2); // Both directions of the join
@@ -144,7 +144,7 @@ fn self_join_with_aliases(db: &mut TestDb<ComplexSchema>, schema: ComplexSchema)
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]
-fn multiple_table_aliases_join(db: &mut TestDb<ComplexPostSchema>, schema: ComplexPostSchema) {
+fn multiple_table_aliases_join(db: &mut TestDb<ComplexPostSchema>) {
     let ComplexPostSchema { complex, post } = schema;
 
     // Insert test users
@@ -156,7 +156,7 @@ fn multiple_table_aliases_join(db: &mut TestDb<ComplexPostSchema>, schema: Compl
         InsertComplex::new("author2", true, Role::User).with_id(user_id2),
     ];
 
-    drizzle_exec!(db.insert(complex).values(users) => execute);
+    db.insert(complex).values(users).execute();
 
     // Insert test posts
     let posts = vec![
@@ -165,7 +165,7 @@ fn multiple_table_aliases_join(db: &mut TestDb<ComplexPostSchema>, schema: Compl
         InsertPost::new("Third Post", false).with_author_id(user_id1),
     ];
 
-    drizzle_exec!(db.insert(post).values(posts) => execute);
+    db.insert(post).values(posts).execute();
 
     // Join with aliases
     let u = Complex::alias::<AliasU>();
@@ -177,7 +177,7 @@ fn multiple_table_aliases_join(db: &mut TestDb<ComplexPostSchema>, schema: Compl
         .inner_join((p, eq(u.id, p.author_id)))
         .r#where(eq(p.published, true))
         .order_by([asc(u.name)]);
-    let results: Vec<JoinResult> = drizzle_exec!(stmt => all);
+    let results: Vec<JoinResult> = stmt.all();
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].user_name, "author1");
@@ -187,21 +187,20 @@ fn multiple_table_aliases_join(db: &mut TestDb<ComplexPostSchema>, schema: Compl
 }
 
 #[drizzle::test]
-fn alias_with_original_table_comparison(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn alias_with_original_table_comparison(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
     // Insert test data
     let test_data = vec![InsertSimple::new("original"), InsertSimple::new("aliased")];
 
-    drizzle_exec!(db.insert(simple).values(test_data) => execute);
+    db.insert(simple).values(test_data).execute();
 
     // Query using original table reference
-    let original_results: Vec<SimpleResult> = drizzle_exec!(
-        db.select((simple.id, simple.name))
-            .from(simple)
-            .r#where(eq(simple.name, "original"))
-            => all
-    );
+    let original_results: Vec<SimpleResult> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "original"))
+        .all();
 
     // Query using table alias
     let s_alias = Simple::alias::<AliasSimple>();
@@ -209,7 +208,7 @@ fn alias_with_original_table_comparison(db: &mut TestDb<SimpleSchema>, schema: S
         .select((s_alias.id, s_alias.name))
         .from(s_alias)
         .r#where(eq(s_alias.name, "aliased"));
-    let alias_results: Vec<SimpleResult> = drizzle_exec!(alias_stmt => all);
+    let alias_results: Vec<SimpleResult> = alias_stmt.all();
 
     assert_eq!(original_results.len(), 1);
     assert_eq!(original_results[0].name, "original");
@@ -219,7 +218,7 @@ fn alias_with_original_table_comparison(db: &mut TestDb<SimpleSchema>, schema: S
 }
 
 #[drizzle::test]
-fn tagged_alias_forwards_alias_metadata(db: &mut TestDb<SimpleSchema>, schema: SimpleSchema) {
+fn tagged_alias_forwards_alias_metadata(db: &mut TestDb<SimpleSchema>) {
     let tagged = Simple::alias::<AliasSimple>();
     let _base = Simple::new();
 
