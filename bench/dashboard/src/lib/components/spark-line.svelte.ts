@@ -55,9 +55,9 @@ export class SparkLineState {
 
 	colorMap = {
 		rps: 'var(--accent)',
-		latency: 'var(--cyan)',
-		cpu: 'var(--green)',
-		mem: 'var(--purple, #a78bfa)'
+		latency: 'var(--ink-2)',
+		cpu: 'var(--ink-2)',
+		mem: 'var(--ink-2)'
 	};
 	color = $derived(this.colorMap[this.metric]);
 

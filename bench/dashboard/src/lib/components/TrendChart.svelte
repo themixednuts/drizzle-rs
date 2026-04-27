@@ -29,7 +29,7 @@
 	<svg viewBox="0 0 {TREND_CHART_VIEWBOX.width} {TREND_CHART_VIEWBOX.height}" preserveAspectRatio="xMidYMid meet">
 		<!-- Grid lines -->
 		{#each view.chartData.yTicks as tick}
-			<line x1={TREND_CHART_VIEWBOX.paddingLeft} x2={TREND_CHART_VIEWBOX.width - TREND_CHART_VIEWBOX.paddingRight} y1={tick.y} y2={tick.y} stroke="var(--border)" stroke-width="0.5" />
+			<line x1={TREND_CHART_VIEWBOX.paddingLeft} x2={TREND_CHART_VIEWBOX.width - TREND_CHART_VIEWBOX.paddingRight} y1={tick.y} y2={tick.y} stroke="var(--rule-soft)" stroke-width="0.5" />
 			<text x={TREND_CHART_VIEWBOX.paddingLeft - 8} y={tick.y + 3} fill="var(--text-muted)" font-size="9" text-anchor="end" font-family="var(--font-mono)">{tick.label}</text>
 		{/each}
 
@@ -124,9 +124,9 @@
 		width: 100%;
 		height: auto;
 		display: block;
-		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
+		background: var(--bg);
+		border: 1px solid var(--rule);
+		border-radius: 2px;
 	}
 
 	circle {

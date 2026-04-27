@@ -51,7 +51,7 @@
 
 	.bar-track {
 		height: 6px;
-		background: var(--bg-root);
+		background: var(--bg-2);
 		border-radius: 3px;
 		overflow: hidden;
 	}
@@ -59,8 +59,7 @@
 	.bar-fill {
 		height: 100%;
 		border-radius: 3px;
-		background: var(--cyan);
-		opacity: 0.7;
+		background: var(--ink-4);
 		transition: width 0.4s ease;
 	}
 

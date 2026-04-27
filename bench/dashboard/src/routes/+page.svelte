@@ -1,318 +1,153 @@
 <script lang="ts">
-	import { fmtDate, fmtDuration, shortHash } from '$lib/format';
+	import { fmtCpu, fmtDate, fmtDuration, fmtLatency, fmtPct, fmtRps, shortHash } from '$lib/format';
 	import { RunsPageState } from './home.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 	const view = new RunsPageState(() => data);
+	let latest = $derived(view.latest);
 </script>
 
 <svelte:head>
-	<title>drizzle-rs bench</title>
+	<title>drizzle-rs/bench</title>
 </svelte:head>
 
-<div class="container">
-	<div class="page-header">
-		<h1 class="page-title">Benchmark Runs</h1>
-		<p class="page-desc">Performance tracking for drizzle-rs query builders</p>
+<main class="wrap">
+	<div class="ph">
+		<div>
+			<div class="ph-l">/ overview</div>
+			<h1 class="ph-h">drizzle-rs/bench</h1>
+			<div class="ph-sub">{view.overviewMeta}</div>
+		</div>
+		{#if latest}
+			<div class="ph-sub">
+				last run <a class="acc" href="/runs/{latest.run.run_id}">{shortHash(latest.run.git)}</a>
+				/ {fmtDate(latest.run.start)}
+			</div>
+		{/if}
 	</div>
 
-	<div class="filters">
-		<div class="filter-group">
-			<span class="filter-label">Suite</span>
-			<div class="filter-pills">
-				<a
-					href={view.buildUrl(null, view.status)}
-					class="filter-pill"
-					class:active={!view.suite}
-				>All</a>
-				{#each view.suites as s}
-					<a
-						href={view.buildUrl(s, view.status)}
-						class="filter-pill"
-						class:active={view.suite === s}
-					>{s}</a>
-				{/each}
-			</div>
-		</div>
-		<div class="filter-group">
-			<span class="filter-label">Status</span>
-			<div class="filter-pills">
-				<a
-					href={view.buildUrl(view.suite, null)}
-					class="filter-pill"
-					class:active={!view.status}
-				>All</a>
-				{#each view.statuses as st}
-					<a
-						href={view.buildUrl(view.suite, st)}
-						class="filter-pill"
-						class:active={view.status === st}
-					>{st}</a>
-				{/each}
-			</div>
-		</div>
-	</div>
-
-	{#if view.runs.length === 0}
-		<div class="empty">
-			<svg class="empty-icon" width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="var(--text-muted)" stroke-width="1.5">
-				<rect x="8" y="6" width="32" height="36" rx="4" />
-				<path d="M16 16h16M16 22h12M16 28h8" stroke-linecap="round" opacity="0.5" />
-			</svg>
-			<p class="empty-text">No runs found</p>
-			<p class="empty-sub">
-				{#if view.suite || view.status}
-					Try adjusting your filters
-				{:else}
-					Benchmark runs will appear here after CI publishes results to R2
-				{/if}
-			</p>
-		</div>
-	{:else}
-		<div class="run-list">
-			{#each view.runs as run, i}
-				<a href="/runs/{run.run_id}" class="run-row" style="--delay: {i * 30}ms">
-					<div class="run-left">
-						<span class="dot dot--{run.status}"></span>
-						<div class="run-meta">
-							<div class="run-id mono">{run.run_id}</div>
-							<div class="run-details">
-								<span class="suite-tag">{run.suite}</span>
-								<span class="badge badge--{run.status}">{run.status}</span>
-								<span class="run-git mono">
-									<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" opacity="0.5">
-										<path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.8 5.3L7.5 11.1a.7.7 0 0 1-1 .1L4.2 9a.7.7 0 0 1 1-1l1.8 1.7 3.8-5.3a.7.7 0 0 1 1 1z"/>
-									</svg>
-									{shortHash(run.git)}
-								</span>
-							</div>
-						</div>
-					</div>
-					<div class="run-right">
-						<div class="run-targets mono">
-							{run.targets.length} target{run.targets.length !== 1 ? 's' : ''}
-						</div>
-						<div class="run-time">
-							<span class="run-date">{fmtDate(run.start)}</span>
-							<span class="run-duration mono">{fmtDuration(run.start, run.end)}</span>
-						</div>
-					</div>
-				</a>
+	{#if view.ours}
+		<div class="kpi">
+			{#each view.kpis as item}
+				<div class="k">
+					<div class="k-l">{item.label}</div>
+					<div class="k-v">{item.value}</div>
+					<div class="k-d">{item.detail}</div>
+				</div>
 			{/each}
 		</div>
 	{/if}
-</div>
 
-<style>
-	.page-header {
-		margin-bottom: 32px;
-	}
+	<div class="filt">
+		<span class="filt-l">suite</span>
+		<div class="filt-pills">
+			<a href={view.buildUrl(null, view.status)} class="pill" class:on={!view.suite}>all</a>
+			{#each view.suites as suite}
+				<a href={view.buildUrl(suite, view.status)} class="pill" class:on={view.suite === suite}>{suite}</a>
+			{/each}
+		</div>
+		<span class="filt-l">status</span>
+		<div class="filt-pills">
+			<a href={view.buildUrl(view.suite, null)} class="pill" class:on={!view.status}>all</a>
+			{#each view.statuses as status}
+				<a href={view.buildUrl(view.suite, status)} class="pill" class:on={view.status === status}>{status}</a>
+			{/each}
+		</div>
+		<span class="spacer"></span>
+		<span class="filt-l">{view.filterMeta}</span>
+	</div>
 
-	.page-title {
-		font-size: 28px;
-		font-weight: 700;
-		letter-spacing: -0.02em;
-	}
+	<section class="sec">
+		<div class="sec-h">
+			<span>latest leaderboard</span>
+			{#if latest}<a href="/runs/{latest.run.run_id}">run detail</a>{/if}
+		</div>
+		{#if view.leaderboard.length === 0}
+			<div class="empty">
+				<p class="empty-text">No successful run summaries are available.</p>
+			</div>
+		{:else}
+			<div class="table-scroll">
+				<table class="t">
+					<thead>
+						<tr>
+							<th class="n" style="width: 24px">#</th>
+							<th>target</th>
+							<th class="n">rps</th>
+							<th class="n">avg</th>
+							<th class="n">p95</th>
+							<th class="n">p99</th>
+							<th class="n">cpu</th>
+							<th class="n">err</th>
+							<th style="width: 160px">throughput</th>
+							<th class="n">vs ours</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each view.leaderboard as summary, i}
+							{@const p = summary.primary}
+							<tr class={view.rowClass(summary)}>
+								<td class="n mu">{String(i + 1).padStart(2, '0')}</td>
+								<td>
+									<a href="/runs/{summary.run_id}" class="acc">{summary.target_id}</a>
+									{#if summary.group}<span class="mu"> / {summary.group}</span>{/if}
+								</td>
+								<td class="n">{fmtRps(p.rps.avg)}</td>
+								<td class="n fade">{fmtLatency(p.latency.avg)}</td>
+								<td class="n">{fmtLatency(p.latency.p95)}</td>
+								<td class="n fade">{fmtLatency(p.latency.p99)}</td>
+								<td class="n mu">{fmtCpu(p.cpu.avg)}</td>
+								<td class="n mu">{fmtPct(p.err)}</td>
+								<td><span class="bar" class:acc={summary === view.ours} style={view.barStyle(summary)}></span></td>
+								<td class="n {view.deltaClass(summary)}">{view.deltaText(summary)}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	</section>
 
-	.page-desc {
-		color: var(--text-secondary);
-		font-size: 14px;
-		margin-top: 4px;
-	}
-
-	.filters {
-		display: flex;
-		gap: 24px;
-		margin-bottom: 24px;
-		padding-bottom: 20px;
-		border-bottom: 1px solid var(--border);
-	}
-
-	.filter-group {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-	}
-
-	.filter-label {
-		font-size: 11px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: var(--text-muted);
-	}
-
-	.filter-pills {
-		display: flex;
-		gap: 4px;
-	}
-
-	.filter-pill {
-		padding: 4px 12px;
-		border-radius: 100px;
-		font-size: 12px;
-		font-weight: 500;
-		color: var(--text-secondary);
-		border: 1px solid var(--border);
-		transition: all 0.15s;
-	}
-
-	.filter-pill:hover {
-		border-color: var(--border-accent);
-		color: var(--text-primary);
-	}
-
-	.filter-pill.active {
-		background: var(--accent-dim);
-		border-color: var(--accent);
-		color: var(--accent);
-	}
-
-	.run-list {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-
-	.run-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 14px 18px;
-		border-radius: var(--radius);
-		border: 1px solid transparent;
-		transition: all 0.15s;
-		animation: fadeSlideIn 0.3s ease both;
-		animation-delay: var(--delay);
-	}
-
-	.run-row:hover {
-		background: var(--bg-surface);
-		border-color: var(--border);
-	}
-
-	.run-left {
-		display: flex;
-		align-items: center;
-		gap: 14px;
-	}
-
-	.run-meta {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-	}
-
-	.run-id {
-		font-size: 13px;
-		font-weight: 500;
-		color: var(--text-primary);
-	}
-
-	.run-details {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-	}
-
-	.run-git {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		font-size: 11px;
-		color: var(--text-secondary);
-	}
-
-	.run-right {
-		display: flex;
-		align-items: center;
-		gap: 24px;
-		text-align: right;
-	}
-
-	.run-targets {
-		font-size: 12px;
-		color: var(--text-secondary);
-		padding: 2px 10px;
-		background: var(--bg-raised);
-		border-radius: var(--radius);
-	}
-
-	.run-time {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		gap: 2px;
-	}
-
-	.run-date {
-		font-size: 12px;
-		color: var(--text-secondary);
-	}
-
-	.run-duration {
-		font-size: 11px;
-		color: var(--text-muted);
-	}
-
-	.empty {
-		text-align: center;
-		padding: 80px 24px;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 12px;
-	}
-
-	.empty-icon {
-		opacity: 0.4;
-		margin-bottom: 4px;
-	}
-
-	.empty-text {
-		font-size: 18px;
-		font-weight: 600;
-		color: var(--text-secondary);
-	}
-
-	.empty-sub {
-		font-size: 13px;
-		color: var(--text-muted);
-		margin-top: 8px;
-	}
-
-	@keyframes fadeSlideIn {
-		from {
-			opacity: 0;
-			transform: translateY(8px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	@media (max-width: 768px) {
-		.page-title {
-			font-size: 22px;
-		}
-
-		.filters {
-			flex-direction: column;
-			gap: 12px;
-		}
-
-		.run-row {
-			flex-direction: column;
-			align-items: flex-start;
-			gap: 10px;
-			padding: 12px 14px;
-		}
-
-		.run-right {
-			width: 100%;
-			justify-content: space-between;
-		}
-	}
-</style>
+	<section class="sec">
+		<div class="sec-h">
+			<span>recent runs</span>
+			<a href="/runs">all {view.totalRuns}</a>
+		</div>
+		{#if view.runs.length === 0}
+			<div class="empty">
+				<p class="empty-text">No runs match the selected filters.</p>
+				<p class="empty-sub">Try changing suite or status.</p>
+			</div>
+		{:else}
+			<div class="table-scroll">
+				<table class="t">
+					<thead>
+						<tr>
+							<th>run</th>
+							<th>suite</th>
+							<th>status</th>
+							<th class="n">targets</th>
+							<th>commit</th>
+							<th class="n">duration</th>
+							<th class="n">started</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each view.recentRuns as run}
+							<tr>
+								<td><a class="acc" href="/runs/{run.run_id}">{run.run_id}</a></td>
+								<td class="mu">{run.suite}</td>
+								<td><span class="badge badge--{run.status}">{run.status}</span></td>
+								<td class="n">{run.targets.length}</td>
+								<td class="mu">{shortHash(run.git)}</td>
+								<td class="n mu">{fmtDuration(run.start, run.end)}</td>
+								<td class="n mu">{fmtDate(run.start)}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	</section>
+</main>

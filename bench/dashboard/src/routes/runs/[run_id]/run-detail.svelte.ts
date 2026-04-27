@@ -1,14 +1,6 @@
 import type { Summary } from '$lib/types';
 import type { PageData } from './$types';
 
-const groupColors: Record<string, string> = {
-	'drizzle-rs': 'var(--accent)',
-	'drizzle-orm': 'var(--cyan)',
-	prisma: 'var(--green)',
-	'bun-sql': 'var(--text-secondary)',
-	spacetimedb: 'var(--purple)'
-};
-
 function groupSummaries(summaries: Summary[]): [string, Summary[]][] {
 	const map = new Map<string, Summary[]>();
 	for (const summary of summaries) {
@@ -17,6 +9,12 @@ function groupSummaries(summaries: Summary[]): [string, Summary[]][] {
 		map.get(group)!.push(summary);
 	}
 	return [...map.entries()];
+}
+
+function isOurs(summary: Summary): boolean {
+	const group = summary.group?.toLowerCase();
+	const target = summary.target_id.toLowerCase();
+	return group === 'drizzle-rs' || target.includes('drizzle-rs');
 }
 
 export class RunDetailState {
@@ -35,6 +33,18 @@ export class RunDetailState {
 		return this.#data().summaries;
 	}
 
+	get sortedSummaries() {
+		return [...this.summaries].sort((a, b) => b.primary.rps.avg - a.primary.rps.avg);
+	}
+
+	get primarySummary() {
+		return this.sortedSummaries.find(isOurs) ?? this.sortedSummaries[0] ?? null;
+	}
+
+	get maxRps() {
+		return Math.max(1, ...this.summaries.map((summary) => summary.primary.rps.avg));
+	}
+
 	get groups() {
 		return groupSummaries(this.summaries);
 	}
@@ -43,5 +53,8 @@ export class RunDetailState {
 		this.selectedMetric = metric;
 	};
 
-	groupColor = (group: string): string => groupColors[group] ?? 'var(--text-muted)';
+	rowClass = (summary: Summary): string => (isOurs(summary) ? 'us' : '');
+
+	barStyle = (summary: Summary): string =>
+		`width: ${Math.max(4, Math.round((summary.primary.rps.avg / this.maxRps) * 140))}px`;
 }

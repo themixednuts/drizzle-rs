@@ -13,10 +13,16 @@ import {
 	parseCompareMetric,
 	type CompareMetric
 } from '$lib/compare';
-import type { CompareItem, Summary, Timeseries, TrendPoint } from '$lib/types';
+import type { CompareItem, Manifest, RunIndexEntry, Summary, Timeseries, TrendPoint } from '$lib/types';
 import { failHttp } from './effect';
 
 type MaybeFilter = string | null;
+
+export interface LatestRunOverview {
+	run: RunIndexEntry;
+	manifest: Manifest;
+	summaries: Summary[];
+}
 
 export function runsPageData(
 	platform: App.Platform | undefined,
@@ -31,8 +37,23 @@ export function runsPageData(
 		if (filters.status) runs = runs.filter((run) => run.status === filters.status);
 		runs.sort((a, b) => b.run_id.localeCompare(a.run_id));
 
+		const latestRun = index.runs
+			.filter((run) => run.status === 'success')
+			.filter((run) => (filters.suite ? run.suite === filters.suite : true))
+			.sort((a, b) => b.run_id.localeCompare(a.run_id))[0];
+
+		let latest: LatestRunOverview | null = null;
+		if (latestRun) {
+			const manifest = yield* readManifest(bucket, latestRun.run_id);
+			const summaries = yield* readAllSummaries(bucket, latestRun.run_id, manifest.targets);
+			latest = { run: latestRun, manifest, summaries };
+		}
+
 		return {
 			runs,
+			latest,
+			totalRuns: index.runs.length,
+			totalTargets: new Set(index.runs.flatMap((run) => run.targets)).size,
 			suites: [...new Set(index.runs.map((run) => run.suite))].sort(),
 			statuses: [...new Set(index.runs.map((run) => run.status))].sort()
 		};

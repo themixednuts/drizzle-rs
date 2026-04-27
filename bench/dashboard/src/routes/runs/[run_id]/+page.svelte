@@ -1,572 +1,282 @@
 <script lang="ts">
-	import { fmtRps, fmtLatency, fmtPct, fmtCpu, fmtGb, fmtDate, fmtDuration, shortHash } from '$lib/format';
 	import { loadTimeseries } from '$lib/api.remote';
-	import SparkLine from '$lib/components/SparkLine.svelte';
 	import LatencyBars from '$lib/components/LatencyBars.svelte';
+	import SparkLine from '$lib/components/SparkLine.svelte';
+	import { fmtCpu, fmtDate, fmtDuration, fmtGb, fmtLatency, fmtPct, fmtRps, shortHash } from '$lib/format';
 	import { RunDetailState } from './run-detail.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 	const view = new RunDetailState(() => data);
+	let primary = $derived(view.primarySummary);
 </script>
 
 <svelte:head>
-	<title>Run Detail - drizzle-rs bench</title>
+	<title>{view.manifest.run_id} - drizzle-rs/bench</title>
 </svelte:head>
 
-<div class="container">
-	<!-- Run header -->
-	<div class="run-header">
-		<div class="run-header-top">
-			<a href="/" class="back-link">
-				<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-					<path d="M10 12L6 8l4-4" />
-				</svg>
-				Runs
-			</a>
+<main class="wrap">
+	<div class="ph">
+		<div>
+			<div class="ph-l">/ runs / detail</div>
+			<h1 class="ph-h mono">{view.manifest.run_id}</h1>
+			<div class="ph-sub">
+				{view.manifest.suite} / {shortHash(view.manifest.git)} / {fmtDate(view.manifest.start)}
+			</div>
+		</div>
+		<div class="ph-sub">
 			<span class="badge badge--{view.manifest.status}">{view.manifest.status}</span>
+			<span class="mu"> / </span>
+			<a class="acc" href="/runs">all runs</a>
 		</div>
-
-		<h1 class="run-title mono">{view.manifest.run_id}</h1>
-
-		<div class="run-info-grid">
-			<div class="info-item">
-				<span class="info-label">Suite</span>
-				<span class="suite-tag">{view.manifest.suite}</span>
-			</div>
-			<div class="info-item">
-				<span class="info-label">Commit</span>
-				<span class="info-value mono">{shortHash(view.manifest.git)}</span>
-			</div>
-			<div class="info-item">
-				<span class="info-label">Started</span>
-				<span class="info-value">{fmtDate(view.manifest.start)}</span>
-			</div>
-			<div class="info-item">
-				<span class="info-label">Duration</span>
-				<span class="info-value mono">{fmtDuration(view.manifest.start, view.manifest.end)}</span>
-			</div>
-			<div class="info-item">
-				<span class="info-label">Trials</span>
-				<span class="info-value mono">{view.manifest.trials.count} ({view.manifest.trials.aggregate})</span>
-			</div>
-			<div class="info-item">
-				<span class="info-label">Runner</span>
-				<span class="info-value mono">{view.manifest.runner.class} / {view.manifest.runner.cores}c / {fmtGb(view.manifest.runner.mem_gb)}</span>
-			</div>
-			{#if view.manifest.seed != null}
-			<div class="info-item">
-				<span class="info-label">Seed</span>
-				<span class="info-value mono">{view.manifest.seed}</span>
-			</div>
-			{/if}
-			<div class="info-item">
-				<span class="info-label">Headroom</span>
-				<span class="info-value mono">CPU {fmtCpu(view.manifest.runner.headroom.cpu_peak)} / Net {fmtCpu(view.manifest.runner.headroom.net_peak)}</span>
-			</div>
-		</div>
-
-		<!-- Load configuration -->
-		{#if view.manifest.load}
-		<div class="detail-panel">
-			<h3 class="detail-title">Load Profile</h3>
-			<div class="detail-grid">
-				<div class="detail-item">
-					<span class="info-label">Executor</span>
-					<span class="info-value mono">{view.manifest.load.executor}</span>
-				</div>
-				<div class="detail-item">
-					<span class="info-label">Stages</span>
-					<span class="info-value mono">{view.manifest.load.stages}</span>
-				</div>
-				<div class="detail-item">
-					<span class="info-label">Duration</span>
-					<span class="info-value mono">{Math.floor(view.manifest.load.duration_s / 60)}m {view.manifest.load.duration_s % 60}s</span>
-				</div>
-				<div class="detail-item">
-					<span class="info-label">Max VUs</span>
-					<span class="info-value mono">{view.manifest.load.max_vus.toLocaleString()}</span>
-				</div>
-				<div class="detail-item">
-					<span class="info-label">Requests</span>
-					<span class="info-value mono">{view.manifest.load.requests.toLocaleString()}</span>
-				</div>
-			</div>
-		</div>
-		{/if}
-
-		<!-- Dataset configuration -->
-		{#if view.manifest.dataset}
-		<div class="detail-panel">
-			<h3 class="detail-title">Dataset</h3>
-			<div class="detail-grid">
-				<div class="detail-item">
-					<span class="info-label">Customers</span>
-					<span class="info-value mono">{view.manifest.dataset.customers.toLocaleString()}</span>
-				</div>
-				<div class="detail-item">
-					<span class="info-label">Employees</span>
-					<span class="info-value mono">{view.manifest.dataset.employees.toLocaleString()}</span>
-				</div>
-				<div class="detail-item">
-					<span class="info-label">Orders</span>
-					<span class="info-value mono">{view.manifest.dataset.orders.toLocaleString()}</span>
-				</div>
-				<div class="detail-item">
-					<span class="info-label">Suppliers</span>
-					<span class="info-value mono">{view.manifest.dataset.suppliers.toLocaleString()}</span>
-				</div>
-				<div class="detail-item">
-					<span class="info-label">Products</span>
-					<span class="info-value mono">{view.manifest.dataset.products.toLocaleString()}</span>
-				</div>
-				<div class="detail-item">
-					<span class="info-label">Details/Order</span>
-					<span class="info-value mono">~{view.manifest.dataset.details_per_order}</span>
-				</div>
-			</div>
-		</div>
-		{/if}
 	</div>
 
-	<!-- Target summaries -->
-	<section class="section">
-		<h2 class="section-title">Targets</h2>
-
-		{#each view.groups as [groupName, groupItems]}
-			<div class="group-banner" style="--group-color: {view.groupColor(groupName)}">
-				<span class="group-dot"></span>
-				<span class="group-name">{groupName}</span>
-				<span class="group-count">{groupItems.length}</span>
+	{#if primary}
+		{@const p = primary.primary}
+		<div class="kpi">
+			<div class="k">
+				<div class="k-l">rps</div>
+				<div class="k-v">{fmtRps(p.rps.avg)}</div>
+				<div class="k-d">peak {fmtRps(p.rps.peak)}</div>
 			</div>
-			<div class="target-grid">
-			{#each groupItems as summary, idx}
-				{@const p = summary.primary}
-				<div class="target-card card" style="--delay: {idx * 60}ms">
-					<div class="target-header">
-						<h3 class="target-name mono">{summary.target_id}</h3>
-						{#if p.err > 0}
-							<span class="badge badge--failed">{fmtPct(p.err)} err</span>
-						{:else}
-							<span class="badge badge--success">0% err</span>
-						{/if}
-					</div>
+			<div class="k">
+				<div class="k-l">avg</div>
+				<div class="k-v">{fmtLatency(p.latency.avg)}</div>
+				<div class="k-d">latency</div>
+			</div>
+			<div class="k">
+				<div class="k-l">p95</div>
+				<div class="k-v">{fmtLatency(p.latency.p95)}</div>
+				<div class="k-d">latency</div>
+			</div>
+			<div class="k">
+				<div class="k-l">p99</div>
+				<div class="k-v">{fmtLatency(p.latency.p99)}</div>
+				<div class="k-d">latency</div>
+			</div>
+			<div class="k">
+				<div class="k-l">cpu</div>
+				<div class="k-v">{fmtCpu(p.cpu.avg)}</div>
+				<div class="k-d">peak {fmtCpu(p.cpu.peak)}</div>
+			</div>
+			<div class="k">
+				<div class="k-l">{p.mem ? 'mem' : 'err'}</div>
+				<div class="k-v">{p.mem ? `${p.mem.avg.toFixed(1)}MB` : fmtPct(p.err)}</div>
+				<div class="k-d">{p.mem ? `peak ${p.mem.peak.toFixed(1)}MB` : 'error rate'}</div>
+			</div>
+		</div>
+	{/if}
 
-					<div class="metrics-row">
-						<div class="metric">
-							<span class="metric-label">RPS avg</span>
-							<span class="metric-value">{fmtRps(p.rps.avg)}</span>
-							<span class="metric-sub">peak {fmtRps(p.rps.peak)}</span>
-						</div>
-						<div class="metric">
-							<span class="metric-label">P95 latency</span>
-							<span class="metric-value">{fmtLatency(p.latency.p95)}</span>
-							<span class="metric-sub">avg {fmtLatency(p.latency.avg)}</span>
-						</div>
-						<div class="metric">
-							<span class="metric-label">CPU avg</span>
-							<span class="metric-value">{fmtCpu(p.cpu.avg)}</span>
-							<span class="metric-sub">peak {fmtCpu(p.cpu.peak)}</span>
-						</div>
-						{#if p.mem}
-						<div class="metric">
-							<span class="metric-label">Memory avg</span>
-							<span class="metric-value">{p.mem.avg.toFixed(1)} MB</span>
-							<span class="metric-sub">peak {p.mem.peak.toFixed(1)} MB</span>
-						</div>
-						{/if}
-					</div>
+	<section class="sec">
+		<div class="sec-h"><span>run metadata</span></div>
+		<div class="table-scroll">
+			<table class="t meta-table">
+				<tbody>
+					<tr><td class="mu">suite</td><td>{view.manifest.suite}</td><td class="mu">workload</td><td>{view.manifest.workload}</td></tr>
+					<tr><td class="mu">commit</td><td>{view.manifest.git}</td><td class="mu">duration</td><td>{fmtDuration(view.manifest.start, view.manifest.end)}</td></tr>
+					<tr><td class="mu">runner</td><td>{view.manifest.runner.class} / {view.manifest.runner.os}</td><td class="mu">hardware</td><td>{view.manifest.runner.cpu} / {view.manifest.runner.cores}c / {fmtGb(view.manifest.runner.mem_gb)}</td></tr>
+					<tr><td class="mu">trials</td><td>{view.manifest.trials.count} / {view.manifest.trials.aggregate}</td><td class="mu">seed</td><td>{view.manifest.seed}</td></tr>
+					<tr><td class="mu">headroom</td><td>cpu {fmtCpu(view.manifest.runner.headroom.cpu_peak)} / net {fmtCpu(view.manifest.runner.headroom.net_peak)}</td><td class="mu">targets</td><td>{view.manifest.targets.length}</td></tr>
+				</tbody>
+			</table>
+		</div>
+	</section>
 
-					<!-- Latency distribution -->
-					<div class="latency-section">
-						<span class="metric-label">Latency distribution</span>
-						<LatencyBars latency={p.latency} />
-					</div>
+	<section class="sec">
+		<div class="sec-h"><span>load and dataset</span></div>
+		<div class="table-scroll">
+			<table class="t meta-table">
+				<tbody>
+					<tr><td class="mu">executor</td><td>{view.manifest.load.executor}</td><td class="mu">stages</td><td>{view.manifest.load.stages}</td></tr>
+					<tr><td class="mu">load duration</td><td>{view.manifest.load.duration_s}s</td><td class="mu">max vus</td><td>{view.manifest.load.max_vus.toLocaleString()}</td></tr>
+					<tr><td class="mu">requests</td><td>{view.manifest.load.requests.toLocaleString()}</td><td class="mu">orders</td><td>{view.manifest.dataset.orders.toLocaleString()}</td></tr>
+					<tr><td class="mu">customers</td><td>{view.manifest.dataset.customers.toLocaleString()}</td><td class="mu">products</td><td>{view.manifest.dataset.products.toLocaleString()}</td></tr>
+					<tr><td class="mu">suppliers</td><td>{view.manifest.dataset.suppliers.toLocaleString()}</td><td class="mu">details/order</td><td>{view.manifest.dataset.details_per_order}</td></tr>
+				</tbody>
+			</table>
+		</div>
+	</section>
 
-					<!-- Sparkline (lazy-loaded via remote function) -->
-					<div class="sparkline-section">
-						<div class="sparkline-tabs">
-							<button
-								class="spark-tab"
-								class:active={view.selectedMetric === 'rps'}
-								onclick={() => view.selectMetric('rps')}
-							>RPS</button>
-							<button
-								class="spark-tab"
-								class:active={view.selectedMetric === 'latency'}
-								onclick={() => view.selectMetric('latency')}
-							>P95</button>
-							<button
-								class="spark-tab"
-								class:active={view.selectedMetric === 'cpu'}
-								onclick={() => view.selectMetric('cpu')}
-							>CPU</button>
-							{#if p.mem}
-							<button
-								class="spark-tab"
-								class:active={view.selectedMetric === 'mem'}
-								onclick={() => view.selectMetric('mem')}
-							>Mem</button>
-							{/if}
+	<section class="sec">
+		<div class="sec-h"><span>target summary</span></div>
+		<div class="table-scroll">
+			<table class="t">
+				<thead>
+					<tr>
+						<th>target</th>
+						<th>group</th>
+						<th class="n">rps</th>
+						<th class="n">peak</th>
+						<th class="n">avg</th>
+						<th class="n">p95</th>
+						<th class="n">p99</th>
+						<th class="n">cpu</th>
+						<th class="n">err</th>
+						<th style="width: 160px">throughput</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each view.sortedSummaries as summary}
+						{@const p = summary.primary}
+						<tr class={view.rowClass(summary)}>
+							<td>{summary.target_id}</td>
+							<td class="mu">{summary.group ?? 'other'}</td>
+							<td class="n">{fmtRps(p.rps.avg)}</td>
+							<td class="n fade">{fmtRps(p.rps.peak)}</td>
+							<td class="n fade">{fmtLatency(p.latency.avg)}</td>
+							<td class="n">{fmtLatency(p.latency.p95)}</td>
+							<td class="n fade">{fmtLatency(p.latency.p99)}</td>
+							<td class="n mu">{fmtCpu(p.cpu.avg)}</td>
+							<td class="n mu">{fmtPct(p.err)}</td>
+							<td><span class="bar" class:acc={summary === primary} style={view.barStyle(summary)}></span></td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	</section>
+
+	{#each view.groups as [groupName, groupItems]}
+		<section class="sec">
+			<div class="sec-h">
+				<span>{groupName} detail</span>
+				<span class="mu">{groupItems.length} target{groupItems.length === 1 ? '' : 's'}</span>
+			</div>
+			<div class="target-detail">
+				{#each groupItems as summary}
+					{@const p = summary.primary}
+					<article class="target-row">
+						<div class="target-head">
+							<h2 class="mono">{summary.target_id}</h2>
+							<span class="badge badge--{p.err > 0 ? 'failed' : 'success'}">{fmtPct(p.err)} err</span>
 						</div>
-						<svelte:boundary>
-							{#snippet pending()}
-								<div class="skeleton" style="height: 48px; margin-top: 4px;"></div>
-							{/snippet}
 
-							{@const ts = await loadTimeseries({ runId: view.manifest.run_id, targetId: summary.target_id })}
-							{#if ts}
-								<SparkLine points={ts.points} metric={view.selectedMetric} />
-							{:else}
-								<div class="spark-empty">No timeseries data</div>
-							{/if}
-						</svelte:boundary>
-					</div>
+						<div class="mini-grid">
+							<div><span class="mu">rps</span><strong>{fmtRps(p.rps.avg)}</strong></div>
+							<div><span class="mu">p95</span><strong>{fmtLatency(p.latency.p95)}</strong></div>
+							<div><span class="mu">p99</span><strong>{fmtLatency(p.latency.p99)}</strong></div>
+							<div><span class="mu">cpu</span><strong>{fmtCpu(p.cpu.avg)}</strong></div>
+						</div>
 
-					<!-- Spread -->
-					{#if summary.spread.trials > 1}
-						<div class="spread-section">
-							<span class="metric-label">Spread ({summary.spread.trials} trials, {summary.spread.aggregate})</span>
-							<div class="spread-grid">
-								<div class="spread-item">
-									<span class="spread-label">RPS</span>
-									<span class="spread-range mono">{fmtRps(summary.spread.rps.min)} - {fmtRps(summary.spread.rps.max)}</span>
+						<div class="detail-split">
+							<div>
+								<div class="metric-label">latency distribution</div>
+								<LatencyBars latency={p.latency} />
+							</div>
+							<div>
+								<div class="sparkline-tabs">
+									<button class="pill" class:on={view.selectedMetric === 'rps'} onclick={() => view.selectMetric('rps')}>rps</button>
+									<button class="pill" class:on={view.selectedMetric === 'latency'} onclick={() => view.selectMetric('latency')}>p95</button>
+									<button class="pill" class:on={view.selectedMetric === 'cpu'} onclick={() => view.selectMetric('cpu')}>cpu</button>
+									{#if p.mem}
+										<button class="pill" class:on={view.selectedMetric === 'mem'} onclick={() => view.selectMetric('mem')}>mem</button>
+									{/if}
 								</div>
-								<div class="spread-item">
-									<span class="spread-label">P95</span>
-									<span class="spread-range mono">{fmtLatency(summary.spread.p95.min)} - {fmtLatency(summary.spread.p95.max)}</span>
-								</div>
-								{#if summary.spread.ci95?.rps}
-									<div class="spread-item">
-										<span class="spread-label">CI95 RPS</span>
-										<span class="spread-range mono">{fmtRps(summary.spread.ci95.rps.min)} - {fmtRps(summary.spread.ci95.rps.max)}</span>
-									</div>
-								{/if}
+								<svelte:boundary>
+									{#snippet pending()}
+										<div class="skeleton" style="height: 48px"></div>
+									{/snippet}
+
+									{@const ts = await loadTimeseries({ runId: view.manifest.run_id, targetId: summary.target_id })}
+									{#if ts}
+										<SparkLine points={ts.points} metric={view.selectedMetric} />
+									{:else}
+										<div class="spark-empty">no timeseries data</div>
+									{/if}
+								</svelte:boundary>
 							</div>
 						</div>
-					{/if}
 
-					<!-- Saturation -->
-					<div class="sat-section">
-						<span class="metric-label">Saturation point</span>
-						<div class="sat-row">
-							<span class="sat-item mono">knee RPS: {fmtRps(summary.saturation.knee_rps)}</span>
-							<span class="sat-item mono">knee P95: {fmtLatency(summary.saturation.knee_p95)}</span>
+						<div class="table-scroll">
+							<table class="t">
+								<tbody>
+									<tr><td class="mu">spread rps</td><td>{fmtRps(summary.spread.rps.min)} - {fmtRps(summary.spread.rps.max)}</td><td class="mu">spread p95</td><td>{fmtLatency(summary.spread.p95.min)} - {fmtLatency(summary.spread.p95.max)}</td></tr>
+									<tr><td class="mu">saturation rps</td><td>{fmtRps(summary.saturation.knee_rps)}</td><td class="mu">saturation p95</td><td>{fmtLatency(summary.saturation.knee_p95)}</td></tr>
+								</tbody>
+							</table>
 						</div>
-					</div>
-				</div>
-			{/each}
+					</article>
+				{/each}
 			</div>
-		{/each}
-	</section>
-</div>
+		</section>
+	{/each}
+</main>
 
 <style>
-	.run-header {
-		margin-bottom: 40px;
+	.meta-table td:nth-child(odd) {
+		width: 140px;
 	}
 
-	.run-header-top {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 12px;
-	}
-
-	.back-link {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		font-size: 13px;
-		color: var(--text-secondary);
-		transition: color 0.15s;
-	}
-
-	.back-link:hover {
-		color: var(--text-primary);
-	}
-
-	.run-title {
-		font-size: 20px;
-		font-weight: 600;
-		margin-bottom: 16px;
-		color: var(--accent);
-	}
-
-	.run-info-grid {
+	.target-detail {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-		gap: 12px;
-		padding: 16px;
-		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
+		gap: 18px;
 	}
 
-	.info-item {
+	.target-row {
+		padding-bottom: 18px;
+		border-bottom: 1px solid var(--rule-soft);
+	}
+
+	.target-head {
 		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.info-label {
-		font-size: 11px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: var(--text-muted);
-	}
-
-	.info-value {
-		font-size: 13px;
-		color: var(--text-primary);
-	}
-
-	.detail-panel {
-		margin-top: 12px;
-		padding: 14px 16px;
-		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-	}
-
-	.detail-title {
-		font-size: 12px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: var(--text-muted);
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 16px;
 		margin-bottom: 10px;
 	}
 
-	.detail-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-		gap: 10px;
+	.target-head h2 {
+		color: var(--ink);
+		font-size: 14px;
+		font-weight: 500;
 	}
 
-	.detail-item {
+	.mini-grid {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 12px;
+		margin-bottom: 14px;
+		font-family: var(--font-mono);
+	}
+
+	.mini-grid div {
 		display: flex;
 		flex-direction: column;
 		gap: 3px;
 	}
 
-	.section {
-		margin-bottom: 40px;
-	}
-
-	.section-title {
-		font-size: 18px;
-		font-weight: 600;
-		margin-bottom: 16px;
-		display: flex;
-		align-items: center;
-		gap: 8px;
-	}
-
-	.section-title::before {
-		content: '';
-		display: block;
-		width: 3px;
-		height: 18px;
-		background: var(--accent);
-		border-radius: 2px;
-	}
-
-	.group-banner {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		margin-bottom: 14px;
-		margin-top: 24px;
-		padding: 10px 16px;
-		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-left: 3px solid var(--group-color);
-		border-radius: var(--radius);
-	}
-
-	.group-banner:first-child {
-		margin-top: 0;
-	}
-
-	.group-dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: var(--group-color);
-	}
-
-	.group-name {
-		font-size: 14px;
-		font-weight: 600;
-		color: var(--group-color);
-		text-transform: capitalize;
-	}
-
-	.group-count {
-		font-size: 11px;
-		font-family: var(--font-mono);
-		color: var(--text-muted);
-		padding: 1px 6px;
-		background: var(--bg-raised);
-		border-radius: var(--radius);
-	}
-
-	.target-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-		gap: 16px;
-	}
-
-	.target-card {
-		padding: 20px;
-		animation: fadeSlideIn 0.4s ease both;
-		animation-delay: var(--delay);
-	}
-
-	.target-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 20px;
-		padding-bottom: 12px;
-		border-bottom: 1px solid var(--border);
-	}
-
-	.target-name {
+	.mini-grid strong {
 		font-size: 16px;
-		font-weight: 600;
-		color: var(--cyan);
+		font-weight: 500;
 	}
 
-	.metrics-row {
+	.detail-split {
 		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		gap: 16px;
-		margin-bottom: 20px;
-	}
-
-	.metric {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.latency-section,
-	.sparkline-section,
-	.spread-section,
-	.sat-section {
-		margin-top: 16px;
-		padding-top: 14px;
-		border-top: 1px solid var(--border);
+		grid-template-columns: minmax(220px, 0.9fr) minmax(260px, 1.1fr);
+		gap: 24px;
+		margin-bottom: 12px;
 	}
 
 	.sparkline-tabs {
 		display: flex;
-		gap: 2px;
-		margin: 8px 0;
-	}
-
-	.spark-tab {
-		padding: 3px 10px;
-		border: none;
-		border-radius: var(--radius);
-		background: transparent;
-		color: var(--text-muted);
+		gap: 0;
+		margin-bottom: 8px;
 		font-family: var(--font-mono);
-		font-size: 11px;
-		cursor: pointer;
-		transition: all 0.15s;
-	}
-
-	.spark-tab:hover {
-		color: var(--text-secondary);
-		background: var(--bg-hover);
-	}
-
-	.spark-tab.active {
-		color: var(--accent);
-		background: rgba(212, 160, 23, 0.1);
 	}
 
 	.spark-empty {
 		height: 48px;
 		display: flex;
 		align-items: center;
-		font-size: 11px;
-		color: var(--text-muted);
+		color: var(--ink-3);
 		font-family: var(--font-mono);
+		font-size: 11.5px;
 	}
 
-	.spread-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-		gap: 8px;
-		margin-top: 8px;
-	}
-
-	.spread-item {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-
-	.spread-label {
-		font-size: 11px;
-		color: var(--text-muted);
-		font-weight: 500;
-	}
-
-	.spread-range {
-		font-size: 12px;
-		color: var(--text-secondary);
-	}
-
-	.sat-row {
-		display: flex;
-		gap: 24px;
-		margin-top: 6px;
-	}
-
-	.sat-item {
-		font-size: 12px;
-		color: var(--text-secondary);
-	}
-
-	@keyframes fadeSlideIn {
-		from {
-			opacity: 0;
-			transform: translateY(8px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	@media (max-width: 768px) {
-		.run-title {
-			font-size: 16px;
-			word-break: break-all;
-		}
-
-		.run-info-grid {
-			grid-template-columns: repeat(2, 1fr);
-		}
-
-		.target-grid {
+	@media (max-width: 760px) {
+		.mini-grid,
+		.detail-split {
 			grid-template-columns: 1fr;
-		}
-
-		.metrics-row {
-			grid-template-columns: 1fr;
-			gap: 12px;
-		}
-
-		.sat-row {
-			flex-direction: column;
-			gap: 8px;
 		}
 	}
 </style>
