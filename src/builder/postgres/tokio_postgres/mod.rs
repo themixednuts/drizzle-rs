@@ -255,7 +255,7 @@ impl<Schema> Drizzle<Schema> {
     /// Returns a [`tokio_postgres::Error`] if the database connection fails or the SQL is invalid.
     pub async fn execute<'q, T>(&self, query: T) -> Result<u64, tokio_postgres::Error>
     where
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         let query = query.to_sql();
         let (sql, param_refs) = {
@@ -283,7 +283,7 @@ impl<Schema> Drizzle<Schema> {
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
         C: std::iter::FromIterator<R>,
     {
         self.rows(query)
@@ -300,7 +300,7 @@ impl<Schema> Drizzle<Schema> {
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         let sql = query.to_sql();
         let (sql_str, param_refs) = {
@@ -330,7 +330,7 @@ impl<Schema> Drizzle<Schema> {
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         let sql = query.to_sql();
         let (sql_str, param_refs) = {

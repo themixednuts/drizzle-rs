@@ -203,7 +203,7 @@ impl<Schema> Drizzle<Schema> {
     /// Returns a [`postgres::Error`] if the database connection fails or the SQL is invalid.
     pub fn execute<'q, T>(&mut self, query: T) -> Result<u64, postgres::Error>
     where
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.execute");
@@ -233,7 +233,7 @@ impl<Schema> Drizzle<Schema> {
         for p in &params {
             if let Some(ty) = crate::builder::postgres::prepared_common::postgres_sync_param_type(p)
             {
-                typed_params.push((*p as &(dyn postgres::types::ToSql + Sync), ty));
+                typed_params.push((p as &(dyn postgres::types::ToSql + Sync), ty));
             } else {
                 all_typed = false;
                 break;
@@ -262,7 +262,7 @@ impl<Schema> Drizzle<Schema> {
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
         C: std::iter::FromIterator<R>,
     {
         self.rows(query)?
@@ -278,7 +278,7 @@ impl<Schema> Drizzle<Schema> {
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.all");
@@ -312,7 +312,7 @@ impl<Schema> Drizzle<Schema> {
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.get");
@@ -1028,7 +1028,7 @@ where
         for p in &params {
             if let Some(ty) = crate::builder::postgres::prepared_common::postgres_sync_param_type(p)
             {
-                typed_params.push((*p as &(dyn postgres::types::ToSql + Sync), ty));
+                typed_params.push((p as &(dyn postgres::types::ToSql + Sync), ty));
             } else {
                 all_typed = false;
                 break;
