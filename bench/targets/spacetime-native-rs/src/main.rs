@@ -114,9 +114,7 @@ impl QueryParams {
         self.idx.map(|i| i % 64).unwrap_or(0)
     }
     fn user_id(&self, n: i32) -> u32 {
-        self.id
-            .map(|i| i.rem_euclid(n).max(1) as u32)
-            .unwrap_or(1)
+        self.id.map(|i| i.rem_euclid(n).max(1) as u32).unwrap_or(1)
     }
 }
 
@@ -194,9 +192,7 @@ async fn seed_via_pgwire(data: &SeedData) -> Result<(), Box<dyn std::error::Erro
     let config = spacetime_pg_config();
     eprintln!("spacetime-native-rs: connecting to PGWire for seeding...");
 
-    let (client, connection) = config
-        .connect(tokio_postgres::NoTls)
-        .await?;
+    let (client, connection) = config.connect(tokio_postgres::NoTls).await?;
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -212,9 +208,8 @@ async fn seed_via_pgwire(data: &SeedData) -> Result<(), Box<dyn std::error::Erro
     for user in &data.users {
         let name = sql_escape(&user.name);
         let email = sql_escape(&user.email);
-        let sql = format!(
-            "INSERT INTO bench_users (id, name, email) VALUES (0, '{name}', '{email}')"
-        );
+        let sql =
+            format!("INSERT INTO bench_users (id, name, email) VALUES (0, '{name}', '{email}')");
         client.simple_query(&sql).await?;
     }
 
@@ -249,7 +244,11 @@ fn sql_escape(s: &str) -> String {
 async fn stats(_: State<AppState>) -> Json<Vec<f64>> {
     let mut sys = System::new_all();
     sys.refresh_cpu_usage();
-    let cpu: Vec<f64> = sys.cpus().iter().map(|c| f64::from(c.cpu_usage())).collect();
+    let cpu: Vec<f64> = sys
+        .cpus()
+        .iter()
+        .map(|c| f64::from(c.cpu_usage()))
+        .collect();
     Json(if cpu.is_empty() { vec![0.0] } else { cpu })
 }
 
@@ -366,17 +365,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     conn.run_threaded();
 
-    ready_rx.await.map_err(|_| "connection callback never fired")?;
+    ready_rx
+        .await
+        .map_err(|_| "connection callback never fired")?;
 
     // 3. Subscribe to benchmark tables (picks up PGWire-seeded data)
     conn.subscription_builder()
         .on_applied(|_ctx| {
             eprintln!("spacetime-native-rs: subscription applied");
         })
-        .subscribe([
-            "SELECT * FROM bench_users",
-            "SELECT * FROM bench_posts",
-        ]);
+        .subscribe(["SELECT * FROM bench_users", "SELECT * FROM bench_posts"]);
 
     // Wait for subscription to reflect seeded data
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;

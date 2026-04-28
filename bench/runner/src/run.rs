@@ -1,10 +1,10 @@
 use crate::cli::{Class, Cli, Cmd, Run, Validate};
 use crate::code::{Code, Fail};
 use crate::model::{
-    Artifacts, AvgPeakDoc, CiDoc, Compat, DatasetSummary, Event, Exec, Gate, Gates, Headroom,
-    LatencyDoc, Limits, LoadSummary, ManifestDoc, Point, PrimaryDoc, RangeDoc, RequestDoc,
-    ResultDoc, Runner, SaturationDoc, SpreadDoc, Status, SummaryDoc, Target, TimeseriesDoc,
-    TrialMeta, Workload,
+    Artifacts, AvgPeakDoc, CiDoc, DatasetSummary, Event, Exec, Gate, Gates, Headroom, LatencyDoc,
+    Limits, LoadSummary, ManifestDoc, Point, PrimaryDoc, QueryDoc, QueryShapeDoc, RangeDoc,
+    RequestDoc, ResultDoc, Runner, SaturationDoc, SpreadDoc, Status, SummaryDoc, Target,
+    TargetMetaDoc, TimeseriesDoc, TrialMeta, Workload,
 };
 use parquet::data_type::{ByteArray, ByteArrayType, DoubleType};
 use parquet::file::properties::WriterProperties;
@@ -131,6 +131,7 @@ fn run(args: Run) -> Result<Code, Fail> {
             end: &end,
             seed,
             requests_count: requests.len(),
+            requests: &requests,
             workload: &workload_for_manifest,
         },
     )?;
@@ -203,6 +204,7 @@ struct ManifestContext<'a> {
     end: &'a str,
     seed: u64,
     requests_count: usize,
+    requests: &'a [RequestDoc],
     workload: &'a Workload,
 }
 
@@ -221,6 +223,20 @@ struct Baseline {
     run_id: String,
     summaries: BTreeMap<String, PrimaryDoc>,
 }
+
+const MIX_CUSTOMER_BY_ID: usize = 20_000;
+const MIX_EMPLOYEE_WITH_RECIPIENT: usize = 5_000;
+const MIX_SUPPLIER_BY_ID: usize = 30_000;
+const MIX_PRODUCT_WITH_SUPPLIER: usize = 100_000;
+const MIX_ORDER_WITH_DETAILS: usize = 100_000;
+const MIX_ORDER_WITH_DETAILS_AND_PRODUCTS: usize = 100_000;
+const MIX_CUSTOMERS: usize = 2_000;
+const MIX_EMPLOYEES: usize = 1_000;
+const MIX_SUPPLIERS: usize = 1_000;
+const MIX_PRODUCTS: usize = 3_000;
+const MIX_ORDERS_WITH_DETAILS: usize = 10_000;
+const MIX_SEARCH_CUSTOMER: usize = 5_000;
+const MIX_SEARCH_PRODUCT: usize = 50_000;
 
 fn validate_cli(args: &Run) -> Result<(), Fail> {
     if let Some(trials) = args.trials
@@ -353,7 +369,7 @@ fn materialize_requests(
     let n_orders = crate::load::SEED_ORDERS; // 50_000
 
     let mut out = if input.is_empty() {
-        let mut pool = Vec::with_capacity(hint.max(430_000));
+        let mut pool = Vec::with_capacity(hint.max(query_catalog_total_mix()));
 
         // Helper to make a GET request
         let req = |path: &str, query: BTreeMap<String, String>| RequestDoc {
@@ -363,7 +379,7 @@ fn materialize_requests(
         };
 
         // 20k customer-by-id (IDs 1..=n_customers)
-        for i in 0..20_000_usize {
+        for i in 0..MIX_CUSTOMER_BY_ID {
             let id = (i % n_customers) + 1;
             let mut q = BTreeMap::new();
             q.insert("id".to_string(), id.to_string());
@@ -371,7 +387,7 @@ fn materialize_requests(
         }
 
         // 5k employee-with-recipient (IDs 1..=n_employees)
-        for i in 0..5_000_usize {
+        for i in 0..MIX_EMPLOYEE_WITH_RECIPIENT {
             let id = (i % n_employees) + 1;
             let mut q = BTreeMap::new();
             q.insert("id".to_string(), id.to_string());
@@ -379,7 +395,7 @@ fn materialize_requests(
         }
 
         // 30k supplier-by-id (IDs 1..=n_suppliers)
-        for i in 0..30_000_usize {
+        for i in 0..MIX_SUPPLIER_BY_ID {
             let id = (i % n_suppliers) + 1;
             let mut q = BTreeMap::new();
             q.insert("id".to_string(), id.to_string());
@@ -387,7 +403,7 @@ fn materialize_requests(
         }
 
         // 100k product-with-supplier (IDs 1..=n_products)
-        for i in 0..100_000_usize {
+        for i in 0..MIX_PRODUCT_WITH_SUPPLIER {
             let id = (i % n_products) + 1;
             let mut q = BTreeMap::new();
             q.insert("id".to_string(), id.to_string());
@@ -395,7 +411,7 @@ fn materialize_requests(
         }
 
         // 100k order-with-details (IDs 1..=n_orders)
-        for i in 0..100_000_usize {
+        for i in 0..MIX_ORDER_WITH_DETAILS {
             let id = (i % n_orders) + 1;
             let mut q = BTreeMap::new();
             q.insert("id".to_string(), id.to_string());
@@ -403,7 +419,7 @@ fn materialize_requests(
         }
 
         // 100k order-with-details-and-products (IDs 1..=n_orders)
-        for i in 0..100_000_usize {
+        for i in 0..MIX_ORDER_WITH_DETAILS_AND_PRODUCTS {
             let id = (i % n_orders) + 1;
             let mut q = BTreeMap::new();
             q.insert("id".to_string(), id.to_string());
@@ -411,7 +427,7 @@ fn materialize_requests(
         }
 
         // 2k paginated customers (limit=50, random pages)
-        for _ in 0..2_000_usize {
+        for _ in 0..MIX_CUSTOMERS {
             let pages = n_customers / 50;
             let page = 1 + (rng.random_range(0..pages as u64) as usize);
             let offset = page * 50 - 50;
@@ -422,7 +438,7 @@ fn materialize_requests(
         }
 
         // 1k paginated employees (limit=20, random pages)
-        for _ in 0..1_000_usize {
+        for _ in 0..MIX_EMPLOYEES {
             let pages = (n_employees / 20).max(1);
             let page = 1 + (rng.random_range(0..pages as u64) as usize);
             let offset = page * 20 - 20;
@@ -433,7 +449,7 @@ fn materialize_requests(
         }
 
         // 1k paginated suppliers (limit=50, random pages)
-        for _ in 0..1_000_usize {
+        for _ in 0..MIX_SUPPLIERS {
             let pages = (n_suppliers / 50).max(1);
             let page = 1 + (rng.random_range(0..pages as u64) as usize);
             let offset = page * 50 - 50;
@@ -444,7 +460,7 @@ fn materialize_requests(
         }
 
         // 3k paginated products (limit=50, random pages)
-        for _ in 0..3_000_usize {
+        for _ in 0..MIX_PRODUCTS {
             let pages = (n_products / 50).max(1);
             let page = 1 + (rng.random_range(0..pages as u64) as usize);
             let offset = page * 50 - 50;
@@ -455,7 +471,7 @@ fn materialize_requests(
         }
 
         // 10k paginated orders-with-details (limit=50, random pages)
-        for _ in 0..10_000_usize {
+        for _ in 0..MIX_ORDERS_WITH_DETAILS {
             let pages = (n_orders / 50).max(1);
             let page = 1 + (rng.random_range(0..pages as u64) as usize);
             let offset = page * 50 - 50;
@@ -472,7 +488,7 @@ fn materialize_requests(
             "os", "ri", "on", "ha", "il", "to", "as", "io", "di", "zy", "az", "la", "ko", "st",
             "gh", "ug", "ac", "cc", "ch", "hu", "re", "an",
         ];
-        for i in 0..5_000_usize {
+        for i in 0..MIX_SEARCH_CUSTOMER {
             let term = customer_searches[i % customer_searches.len()];
             let mut q = BTreeMap::new();
             q.insert("term".to_string(), term.to_string());
@@ -486,7 +502,7 @@ fn materialize_requests(
             "os", "ri", "on", "ka", "il", "to", "as", "io", "di", "za", "fa", "la", "ko", "st",
             "gh", "ug", "ac", "cc", "ch", "pa", "re", "an",
         ];
-        for i in 0..50_000_usize {
+        for i in 0..MIX_SEARCH_PRODUCT {
             let term = product_searches[i % product_searches.len()];
             let mut q = BTreeMap::new();
             q.insert("term".to_string(), term.to_string());
@@ -1506,6 +1522,289 @@ fn write_compare_report(
     })
 }
 
+fn run_name(suite: &str, class: Class) -> String {
+    format!("{} ({})", suite_label(suite), class_name(class))
+}
+
+fn suite_label(suite: &str) -> String {
+    match suite {
+        "throughput-http" => "Throughput HTTP".to_string(),
+        "mvcc-contention" => "MVCC Contention".to_string(),
+        other => humanize_slug(other),
+    }
+}
+
+fn humanize_slug(value: &str) -> String {
+    value
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn target_meta_doc(target: &Target) -> TargetMetaDoc {
+    TargetMetaDoc {
+        id: target.id.clone(),
+        name: target.display.name.clone(),
+        description: target.display.description.clone(),
+        group: target.group.clone(),
+        lang: target.lang.clone(),
+        runtime: target.runtime.clone(),
+        orm: target.orm.clone(),
+        driver: target.driver.clone(),
+        proc: target.proc.clone(),
+        pool: target.pool.clone(),
+        db: target.db.clone(),
+        wire: target.wire.clone(),
+        fair: target.fair.clone(),
+        contract: target.contract.clone(),
+    }
+}
+
+fn query_catalog_total_mix() -> usize {
+    [
+        MIX_CUSTOMER_BY_ID,
+        MIX_EMPLOYEE_WITH_RECIPIENT,
+        MIX_SUPPLIER_BY_ID,
+        MIX_PRODUCT_WITH_SUPPLIER,
+        MIX_ORDER_WITH_DETAILS,
+        MIX_ORDER_WITH_DETAILS_AND_PRODUCTS,
+        MIX_CUSTOMERS,
+        MIX_EMPLOYEES,
+        MIX_SUPPLIERS,
+        MIX_PRODUCTS,
+        MIX_ORDERS_WITH_DETAILS,
+        MIX_SEARCH_CUSTOMER,
+        MIX_SEARCH_PRODUCT,
+    ]
+    .iter()
+    .sum()
+}
+
+fn query_catalog() -> Vec<QueryDoc> {
+    vec![
+        query_doc(
+            "customer-by-id",
+            "Customer by id",
+            "/customer-by-id",
+            MIX_CUSTOMER_BY_ID,
+            &["id"],
+            &[
+                "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE id = :id",
+            ],
+        ),
+        query_doc(
+            "employee-with-recipient",
+            "Employee with manager",
+            "/employee-with-recipient",
+            MIX_EMPLOYEE_WITH_RECIPIENT,
+            &["id"],
+            &[
+                "SELECT e.*, r.last_name AS recipient_last_name, r.first_name AS recipient_first_name FROM employees e LEFT JOIN employees r ON e.recipient_id = r.id WHERE e.id = :id",
+            ],
+        ),
+        query_doc(
+            "supplier-by-id",
+            "Supplier by id",
+            "/supplier-by-id",
+            MIX_SUPPLIER_BY_ID,
+            &["id"],
+            &[
+                "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers WHERE id = :id",
+            ],
+        ),
+        query_doc(
+            "product-with-supplier",
+            "Product with supplier",
+            "/product-with-supplier",
+            MIX_PRODUCT_WITH_SUPPLIER,
+            &["id"],
+            &[
+                "SELECT p.*, s.* FROM products p INNER JOIN suppliers s ON p.supplier_id = s.id WHERE p.id = :id",
+            ],
+        ),
+        query_doc(
+            "order-with-details",
+            "Order with details",
+            "/order-with-details",
+            MIX_ORDER_WITH_DETAILS,
+            &["id"],
+            &[
+                "SELECT id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id FROM orders WHERE id = :id",
+                "SELECT unit_price, quantity, discount, order_id, product_id FROM order_details WHERE order_id = :id",
+            ],
+        ),
+        query_doc(
+            "order-with-details-and-products",
+            "Order with details and products",
+            "/order-with-details-and-products",
+            MIX_ORDER_WITH_DETAILS_AND_PRODUCTS,
+            &["id"],
+            &[
+                "SELECT id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id FROM orders WHERE id = :id",
+                "SELECT d.unit_price, d.quantity, d.discount, d.order_id, d.product_id, p.name FROM order_details d LEFT JOIN products p ON d.product_id = p.id WHERE d.order_id = :id",
+            ],
+        ),
+        query_doc(
+            "customers",
+            "Customers page",
+            "/customers",
+            MIX_CUSTOMERS,
+            &["limit", "offset"],
+            &[
+                "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers ORDER BY id LIMIT :limit OFFSET :offset",
+            ],
+        ),
+        query_doc(
+            "employees",
+            "Employees page",
+            "/employees",
+            MIX_EMPLOYEES,
+            &["limit", "offset"],
+            &[
+                "SELECT id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, address, city, postal_code, country, home_phone, extension, notes, recipient_id FROM employees ORDER BY id LIMIT :limit OFFSET :offset",
+            ],
+        ),
+        query_doc(
+            "suppliers",
+            "Suppliers page",
+            "/suppliers",
+            MIX_SUPPLIERS,
+            &["limit", "offset"],
+            &[
+                "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers ORDER BY id LIMIT :limit OFFSET :offset",
+            ],
+        ),
+        query_doc(
+            "products",
+            "Products page",
+            "/products",
+            MIX_PRODUCTS,
+            &["limit", "offset"],
+            &[
+                "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products ORDER BY id LIMIT :limit OFFSET :offset",
+            ],
+        ),
+        query_doc(
+            "orders-with-details",
+            "Orders with detail totals",
+            "/orders-with-details",
+            MIX_ORDERS_WITH_DETAILS,
+            &["limit", "offset"],
+            &[
+                "SELECT o.id, o.shipped_date, o.ship_name, o.ship_city, o.ship_country, count(d.product_id), COALESCE(sum(d.quantity), 0), COALESCE(sum(d.quantity * d.unit_price), 0) FROM orders o LEFT JOIN order_details d ON o.id = d.order_id GROUP BY o.id ORDER BY o.id LIMIT :limit OFFSET :offset",
+            ],
+        ),
+        query_doc(
+            "search-customer",
+            "Search customers",
+            "/search-customer",
+            MIX_SEARCH_CUSTOMER,
+            &["term"],
+            &[
+                "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE company_name LIKE :term",
+            ],
+        ),
+        query_doc(
+            "search-product",
+            "Search products",
+            "/search-product",
+            MIX_SEARCH_PRODUCT,
+            &["term"],
+            &[
+                "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products WHERE name LIKE :term",
+            ],
+        ),
+    ]
+}
+
+fn query_catalog_for_requests(requests: &[RequestDoc]) -> Vec<QueryDoc> {
+    let mut counts = BTreeMap::<&str, usize>::new();
+    for request in requests {
+        *counts.entry(request.path.as_str()).or_default() += 1;
+    }
+
+    let mut known_paths = BTreeSet::new();
+    let mut docs = query_catalog()
+        .into_iter()
+        .map(|mut query| {
+            known_paths.insert(query.path.clone());
+            query.mix = counts.get(query.path.as_str()).copied().unwrap_or(0);
+            query
+        })
+        .filter(|query| query.mix > 0)
+        .collect::<Vec<_>>();
+
+    for (path, mix) in counts {
+        if known_paths.contains(path) {
+            continue;
+        }
+        docs.push(query_doc(
+            &query_id_from_path(path),
+            path.trim_start_matches('/'),
+            path,
+            mix,
+            &[],
+            &["Custom request path; SQL shape is not defined in the benchmark catalog."],
+        ));
+    }
+
+    docs
+}
+
+fn query_id_from_path(path: &str) -> String {
+    let id = path
+        .trim_start_matches('/')
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-' {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+    if id.is_empty() {
+        "custom".to_string()
+    } else {
+        id
+    }
+}
+
+fn query_doc(
+    id: &str,
+    name: &str,
+    path: &str,
+    mix: usize,
+    params: &[&str],
+    sql: &[&str],
+) -> QueryDoc {
+    QueryDoc {
+        id: id.to_string(),
+        name: name.to_string(),
+        method: "GET".to_string(),
+        path: path.to_string(),
+        mix,
+        params: params.iter().map(|param| (*param).to_string()).collect(),
+        sql: sql
+            .iter()
+            .map(|text| QueryShapeDoc {
+                dialect: "sql".to_string(),
+                text: (*text).to_string(),
+            })
+            .collect(),
+    }
+}
+
 fn write_manifest(
     run_dir: &Path,
     run_id: &str,
@@ -1528,6 +1827,7 @@ fn write_manifest(
     let manifest = ManifestDoc {
         version: "v1",
         run_id: run_id.to_string(),
+        name: run_name(input.suite, ctx.class),
         suite: input.suite.to_string(),
         git: input.git.clone(),
         workload: input.workload_hash.clone(),
@@ -1536,6 +1836,8 @@ fn write_manifest(
             .iter()
             .map(|target| target.id.clone())
             .collect(),
+        target_meta: input.targets.iter().map(target_meta_doc).collect(),
+        queries: query_catalog_for_requests(ctx.requests),
         start: ctx.start.to_string(),
         end: ctx.end.to_string(),
         status: Status::Success,
@@ -1578,15 +1880,6 @@ fn write_manifest(
             count: input.trials,
             aggregate: "median",
         },
-        compat: Some(Compat {
-            workload: input.workload_hash.clone(),
-            class: class_name(ctx.class).to_string(),
-            targets: input
-                .targets
-                .iter()
-                .map(|target| target.id.clone())
-                .collect(),
-        }),
     };
     write_json(
         run_dir.join("manifest.json"),
@@ -1827,6 +2120,26 @@ fn validate_targets(targets: &[Target]) -> Result<(), Fail> {
                 format!("target id must match [a-z0-9][a-z0-9-]*: {}", target.id),
             ));
         }
+        if target.display.name.trim().is_empty() {
+            return Err(Fail::new(
+                Code::InvalidInput,
+                format!("target {} display.name must not be empty", target.id),
+            ));
+        }
+        if target
+            .display
+            .description
+            .as_ref()
+            .is_some_and(|description| description.trim().is_empty())
+        {
+            return Err(Fail::new(
+                Code::InvalidInput,
+                format!(
+                    "target {} display.description must not be empty when set",
+                    target.id
+                ),
+            ));
+        }
         if target.proc.workers == 0 {
             return Err(Fail::new(
                 Code::InvalidInput,
@@ -1868,6 +2181,24 @@ fn validate_targets(targets: &[Target]) -> Result<(), Fail> {
             return Err(Fail::new(
                 Code::InvalidInput,
                 format!("target {} fair.workers/fair.pool must be >= 1", target.id),
+            ));
+        }
+        if target.fair.workers != target.proc.workers {
+            return Err(Fail::new(
+                Code::InvalidInput,
+                format!(
+                    "target {} fair.workers ({}) must match proc.workers ({})",
+                    target.id, target.fair.workers, target.proc.workers
+                ),
+            ));
+        }
+        if target.fair.pool != target.pool.max {
+            return Err(Fail::new(
+                Code::InvalidInput,
+                format!(
+                    "target {} fair.pool ({}) must match pool.max ({})",
+                    target.id, target.fair.pool, target.pool.max
+                ),
             ));
         }
         if target.fair.db.is_empty() || target.fair.contract.is_empty() {
@@ -1945,6 +2276,15 @@ fn validate_targets(targets: &[Target]) -> Result<(), Fail> {
             return Err(Fail::new(
                 Code::InvalidInput,
                 format!("target {} contract.ver must not be empty", target.id),
+            ));
+        }
+        if target.fair.contract != target.contract.ver {
+            return Err(Fail::new(
+                Code::InvalidInput,
+                format!(
+                    "target {} fair.contract ({}) must match contract.ver ({})",
+                    target.id, target.fair.contract, target.contract.ver
+                ),
             ));
         }
         if !ids.insert(target.id.clone()) {

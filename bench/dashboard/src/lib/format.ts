@@ -48,3 +48,32 @@ export function fmtDuration(start: string, end: string): string {
 export function shortHash(git: string): string {
 	return git.slice(0, 7);
 }
+
+export function humanizeId(id: string): string {
+	return id
+		.split('-')
+		.filter(Boolean)
+		.map((part) => {
+			const known = part.toLowerCase();
+			if (known === 'rs') return 'RS';
+			if (known === 'pg') return 'PostgreSQL';
+			if (known === 'ts') return 'TypeScript';
+			if (known === 'orm') return 'ORM';
+			if (known === 'sqlx') return 'SQLx';
+			if (known === 'seaorm') return 'SeaORM';
+			if (known === 'sqlite') return 'SQLite';
+			if (known === 'pgwire') return 'PGWire';
+			return part.charAt(0).toUpperCase() + part.slice(1);
+		})
+		.join(' ');
+}
+
+export function suiteLabel(suite: string): string {
+	if (suite === 'throughput-http') return 'Throughput HTTP';
+	if (suite === 'mvcc-contention') return 'MVCC Contention';
+	return humanizeId(suite);
+}
+
+export function runDisplayName(run: { name: string }): string {
+	return run.name;
+}

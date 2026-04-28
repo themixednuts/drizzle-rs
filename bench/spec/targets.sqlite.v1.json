@@ -2,11 +2,15 @@
   {
     "version": "v1",
     "id": "drizzle-rs-sqlite",
+    "display": {
+      "name": "Drizzle RS SQLite",
+      "description": "drizzle-rs using the rusqlite SQLite driver"
+    },
     "group": "drizzle-rs",
     "lang": "rust",
     "runtime": {
       "name": "rust",
-      "ver": "1.91"
+      "ver": "1.95.0"
     },
     "orm": {
       "name": "drizzle-rs",
@@ -43,20 +47,24 @@
       "ver": "v1"
     },
     "parity": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "parity"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]
     },
     "load": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "load"]
     }
   },
   {
     "version": "v1",
     "id": "rusqlite-sqlite",
+    "display": {
+      "name": "rusqlite SQLite",
+      "description": "raw rusqlite baseline using the same SQLite schema and request contract"
+    },
     "group": "rusqlite",
     "lang": "rust",
     "runtime": {
       "name": "rust",
-      "ver": "1.91"
+      "ver": "1.95.0"
     },
     "orm": {
       "name": "rusqlite",
@@ -93,10 +101,10 @@
       "ver": "v1"
     },
     "parity": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "parity"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]
     },
     "load": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "load"]
     }
   }
 ]

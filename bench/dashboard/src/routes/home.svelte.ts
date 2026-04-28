@@ -1,17 +1,20 @@
 import { page } from '$app/state';
-import { fmtCpu, fmtLatency, fmtPct, fmtRps } from '$lib/format';
-import type { Manifest, RunIndexEntry, Summary } from '$lib/types';
+import { fmtCpu, fmtLatency, fmtPct, fmtRps, runDisplayName } from '$lib/format';
+import type { Manifest, RunCohort, RunIndexEntry, SummaryResult } from '$lib/types';
 
 interface RunsPageData {
 	runs: RunIndexEntry[];
-	latest: { run: RunIndexEntry; manifest: Manifest; summaries: Summary[] } | null;
+	cohorts: RunCohort[];
+	latest: { cohort: RunCohort; manifest: Manifest; summaries: SummaryResult[] } | null;
 	totalRuns: number;
+	totalCohorts: number;
+	totalResults: number;
 	totalTargets: number;
 	suites: string[];
 	statuses: string[];
 }
 
-function isOurs(summary: Summary): boolean {
+function isOurs(summary: SummaryResult): boolean {
 	const group = summary.group?.toLowerCase();
 	const target = summary.target_id.toLowerCase();
 	return group === 'drizzle-rs' || target.includes('drizzle-rs');
@@ -20,6 +23,17 @@ function isOurs(summary: Summary): boolean {
 function deltaClass(value: number): string {
 	if (Math.abs(value) < 0.005) return 'flat';
 	return value > 0 ? 'up' : 'down';
+}
+
+function hasMaterialErrors(summary: SummaryResult): boolean {
+	return summary.primary.err > 0.005;
+}
+
+function compareLeaderboard(a: SummaryResult, b: SummaryResult): number {
+	const aBad = hasMaterialErrors(a);
+	const bBad = hasMaterialErrors(b);
+	if (aBad !== bBad) return aBad ? 1 : -1;
+	return b.primary.rps.avg - a.primary.rps.avg;
 }
 
 export class RunsPageState {
@@ -42,17 +56,44 @@ export class RunsPageState {
 		return this.runs.slice(0, 12);
 	}
 
+	get cohorts() {
+		return this.#data().cohorts;
+	}
+
+	get recentCohorts() {
+		return this.cohorts.slice(0, 12);
+	}
+
 	get filteredRuns() {
 		const query = this.query.trim().toLowerCase();
 		if (!query) return this.runs;
 		return this.runs.filter((run) => {
 			const text = [
 				run.run_id,
+				runDisplayName(run),
 				run.git,
 				run.suite,
 				run.status,
 				run.class,
 				...run.targets
+			].join(' ').toLowerCase();
+			return text.includes(query);
+		});
+	}
+
+	get filteredCohorts() {
+		const query = this.query.trim().toLowerCase();
+		if (!query) return this.cohorts;
+		return this.cohorts.filter((cohort) => {
+			const text = [
+				cohort.id,
+				runDisplayName(cohort),
+				cohort.git,
+				cohort.suite,
+				cohort.status,
+				cohort.class,
+				...cohort.targets,
+				...cohort.run_ids
 			].join(' ').toLowerCase();
 			return text.includes(query);
 		});
@@ -74,12 +115,20 @@ export class RunsPageState {
 		return this.#data().totalRuns;
 	}
 
+	get totalCohorts() {
+		return this.#data().totalCohorts;
+	}
+
+	get totalResults() {
+		return this.#data().totalResults;
+	}
+
 	get totalTargets() {
 		return this.#data().totalTargets;
 	}
 
 	get leaderboard() {
-		return [...(this.latest?.summaries ?? [])].sort((a, b) => b.primary.rps.avg - a.primary.rps.avg);
+		return [...(this.latest?.summaries ?? [])].sort(compareLeaderboard);
 	}
 
 	get ours() {
@@ -91,23 +140,23 @@ export class RunsPageState {
 	}
 
 	get trendTarget() {
-		return this.ours?.target_id ?? this.leaderboard[0]?.target_id ?? null;
+		return this.ours?.target_key ?? this.leaderboard[0]?.target_key ?? null;
 	}
 
 	get overviewMeta() {
-		const run = this.latest?.run;
-		if (!run) return `${this.totalRuns} runs / ${this.totalTargets} targets`;
+		const cohort = this.latest?.cohort;
+		if (!cohort) return `${this.totalCohorts} sets / ${this.totalResults} results / ${this.totalTargets} target ids`;
 		const runner = this.latest.manifest.runner;
-		return `${this.totalRuns} runs / ${this.totalTargets} targets / ${runner.class} / ${runner.cores} cores`;
+		return `${this.totalCohorts} set / ${this.totalResults} results / ${this.totalTargets} target ids / ${runner.class} / ${runner.cores} cores`;
 	}
 
 	get filterMeta() {
 		const latest = this.latest;
-		if (!latest) return `${this.runs.length} matching runs`;
+		if (!latest) return `${this.cohorts.length} matching sets`;
 
 		const load = latest.manifest.load;
 		const trials = latest.manifest.trials;
-		return `${latest.manifest.targets.length} targets / n=${trials.count} ${trials.aggregate} / ${load.duration_s}s / ${load.max_vus} max vus`;
+		return `${latest.cohort.result_count} results / ${latest.cohort.run_ids.length} shards / n=${trials.count} ${trials.aggregate} / ${load.duration_s}s / ${load.max_vus} max vus`;
 	}
 
 	get kpis() {
@@ -127,24 +176,26 @@ export class RunsPageState {
 		];
 	}
 
-	rowClass(summary: Summary): string {
+	rowClass(summary: SummaryResult): string {
 		return isOurs(summary) ? 'us' : '';
 	}
 
-	barStyle(summary: Summary): string {
+	barStyle(summary: SummaryResult): string {
 		return `width: ${Math.max(4, Math.round((summary.primary.rps.avg / this.maxRps) * 140))}px`;
 	}
 
-	deltaText(summary: Summary): string {
+	deltaText(summary: SummaryResult): string {
 		const ours = this.ours;
 		if (!ours || summary === ours) return 'base';
+		if (hasMaterialErrors(summary)) return 'errored';
 		const delta = (summary.primary.rps.avg - ours.primary.rps.avg) / ours.primary.rps.avg;
 		return `${delta >= 0 ? '+' : ''}${(delta * 100).toFixed(1)}%`;
 	}
 
-	deltaClass(summary: Summary): string {
+	deltaClass(summary: SummaryResult): string {
 		const ours = this.ours;
 		if (!ours || summary === ours) return 'flat';
+		if (hasMaterialErrors(summary)) return 'down';
 		const delta = (summary.primary.rps.avg - ours.primary.rps.avg) / ours.primary.rps.avg;
 		return deltaClass(delta);
 	}

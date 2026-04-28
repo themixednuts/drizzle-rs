@@ -7,7 +7,11 @@ use drizzle::core::expr::eq;
 use drizzle::sqlite::prelude::*;
 use drizzle_seed::SeedConfig;
 use std::collections::BTreeMap;
+use std::ops::Deref;
 use std::sync::Arc;
+use tokio::sync::{Mutex as TokioMutex, mpsc as tokio_mpsc};
+
+const TURSO_POOL_SIZE: usize = 4;
 
 /// Collect all rows from a turso `Rows` into a `Vec<turso::Row>`.
 async fn collect_rows(mut rows: ::turso::Rows) -> Result<Vec<::turso::Row>, StatusCode> {
@@ -351,10 +355,68 @@ type SupplierRow = (
 );
 
 type ProductRow = (i32, String, String, f64, i32, i32, i32, i32, i32);
+type TursoDb = drizzle::sqlite::turso::Drizzle<Schema>;
+
+#[derive(Clone)]
+struct TursoPool {
+    inner: Arc<TursoPoolInner>,
+}
+
+struct TursoPoolInner {
+    tx: tokio_mpsc::Sender<TursoDb>,
+    rx: TokioMutex<tokio_mpsc::Receiver<TursoDb>>,
+}
+
+struct PooledTursoDb {
+    db: Option<TursoDb>,
+    tx: tokio_mpsc::Sender<TursoDb>,
+}
+
+impl TursoPool {
+    fn new(connections: Vec<TursoDb>) -> Self {
+        let (tx, rx) = tokio_mpsc::channel(connections.len());
+        for db in connections {
+            tx.try_send(db)
+                .expect("new Turso pool channel must have capacity");
+        }
+
+        Self {
+            inner: Arc::new(TursoPoolInner {
+                tx,
+                rx: TokioMutex::new(rx),
+            }),
+        }
+    }
+
+    async fn acquire(&self) -> Result<PooledTursoDb, StatusCode> {
+        let mut rx = self.inner.rx.lock().await;
+        let db = rx.recv().await.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        Ok(PooledTursoDb {
+            db: Some(db),
+            tx: self.inner.tx.clone(),
+        })
+    }
+}
+
+impl Deref for PooledTursoDb {
+    type Target = TursoDb;
+
+    fn deref(&self) -> &Self::Target {
+        self.db.as_ref().expect("pooled Turso connection missing")
+    }
+}
+
+impl Drop for PooledTursoDb {
+    fn drop(&mut self) {
+        if let Some(db) = self.db.take() {
+            let _ = self.tx.try_send(db);
+        }
+    }
+}
 
 #[derive(Clone)]
 struct AppState {
-    db: Arc<tokio::sync::Mutex<drizzle::sqlite::turso::Drizzle<Schema>>>,
+    db: TursoPool,
 }
 
 pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
@@ -399,6 +461,16 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
             .map_err(|err| Fail::new(Code::RunFail, format!("turso seed failed: {err}")))?;
     }
 
+    let mut connections = Vec::with_capacity(TURSO_POOL_SIZE);
+    connections.push(db);
+    for _ in 1..TURSO_POOL_SIZE {
+        let conn = builder
+            .connect()
+            .map_err(|err| Fail::new(Code::RunFail, format!("turso connect failed: {err}")))?;
+        let (db, _) = drizzle::sqlite::turso::Drizzle::new(conn, Schema::new());
+        connections.push(db);
+    }
+
     let router = Router::new()
         .route("/stats", get(stats))
         .route("/customers", get(customers_handler))
@@ -418,7 +490,7 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         .route("/search-customer", get(search_customer))
         .route("/search-product", get(search_product))
         .with_state(AppState {
-            db: Arc::new(tokio::sync::Mutex::new(db)),
+            db: TursoPool::new(connections),
         });
     spawn_server(router).await
 }
@@ -437,9 +509,9 @@ async fn stats(_: State<AppState>) -> Json<Vec<f64>> {
 async fn customers_handler(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
     let schema = Schema::new();
-    let db = state.db.lock().await;
+    let db = state.db.acquire().await?;
     let rows: Vec<CustomerRow> = db
         .select((
             schema.customer.id,
@@ -491,16 +563,16 @@ async fn customers_handler(
             },
         )
         .collect();
-    Ok(Json(serde_json::to_value(&resp).unwrap()))
+    Ok(Json(resp))
 }
 
 #[debug_handler(state = AppState)]
 async fn customer_by_id(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
     let schema = Schema::new();
-    let db = state.db.lock().await;
+    let db = state.db.acquire().await?;
     let target_id = params.user_id(10000);
     let rows: Vec<CustomerRow> = db
         .select((
@@ -551,16 +623,16 @@ async fn customer_by_id(
             },
         )
         .collect();
-    Ok(Json(serde_json::to_value(&resp).unwrap()))
+    Ok(Json(resp))
 }
 
 #[debug_handler(state = AppState)]
 async fn employees_handler(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<Vec<EmployeeResponse>>, StatusCode> {
     let schema = Schema::new();
-    let db = state.db.lock().await;
+    let db = state.db.acquire().await?;
     let rows: Vec<EmployeeRow> = db
         .select((
             schema.employee.id,
@@ -624,16 +696,16 @@ async fn employees_handler(
             },
         )
         .collect();
-    Ok(Json(serde_json::to_value(&resp).unwrap()))
+    Ok(Json(resp))
 }
 
 #[debug_handler(state = AppState)]
 async fn suppliers_handler(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
     let schema = Schema::new();
-    let db = state.db.lock().await;
+    let db = state.db.acquire().await?;
     let rows: Vec<SupplierRow> = db
         .select((
             schema.supplier.id,
@@ -682,16 +754,16 @@ async fn suppliers_handler(
             },
         )
         .collect();
-    Ok(Json(serde_json::to_value(&resp).unwrap()))
+    Ok(Json(resp))
 }
 
 #[debug_handler(state = AppState)]
 async fn supplier_by_id(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
     let schema = Schema::new();
-    let db = state.db.lock().await;
+    let db = state.db.acquire().await?;
     let target_id = params.user_id(1000);
     let rows: Vec<SupplierRow> = db
         .select((
@@ -739,16 +811,16 @@ async fn supplier_by_id(
             },
         )
         .collect();
-    Ok(Json(serde_json::to_value(&resp).unwrap()))
+    Ok(Json(resp))
 }
 
 #[debug_handler(state = AppState)]
 async fn products_handler(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<Vec<ProductResponse>>, StatusCode> {
     let schema = Schema::new();
-    let db = state.db.lock().await;
+    let db = state.db.acquire().await?;
     let rows: Vec<ProductRow> = db
         .select((
             schema.product.id,
@@ -794,7 +866,7 @@ async fn products_handler(
             },
         )
         .collect();
-    Ok(Json(serde_json::to_value(&resp).unwrap()))
+    Ok(Json(resp))
 }
 
 // Complex queries use raw SQL via turso connection
@@ -802,9 +874,9 @@ async fn products_handler(
 async fn employee_with_recipient(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<Vec<EmployeeWithRecipientResponse>>, StatusCode> {
     let target_id = params.user_id(200);
-    let db = state.db.lock().await;
+    let db = state.db.acquire().await?;
     let rows = db.conn().query(
         "SELECT e.id, e.last_name, e.first_name, e.title, e.title_of_courtesy, e.birth_date, e.hire_date, e.address, e.city, e.postal_code, e.country, e.home_phone, e.extension, e.notes, e.recipient_id, r.last_name, r.first_name FROM employees e LEFT JOIN employees r ON e.recipient_id = r.id WHERE e.id = ?1",
         [::turso::Value::from(target_id)],
@@ -832,16 +904,16 @@ async fn employee_with_recipient(
             recipient_first_name: r.get::<String>(16).ok(),
         })
         .collect();
-    Ok(Json(serde_json::to_value(&resp).unwrap()))
+    Ok(Json(resp))
 }
 
 #[debug_handler(state = AppState)]
 async fn product_with_supplier(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<Vec<ProductWithSupplierResponse>>, StatusCode> {
     let target_id = params.user_id(5000);
-    let db = state.db.lock().await;
+    let db = state.db.acquire().await?;
     let rows = db.conn().query(
         "SELECT p.id, p.name, p.qt_per_unit, p.unit_price, p.units_in_stock, p.units_on_order, p.reorder_level, p.discontinued, p.supplier_id, s.id, s.company_name, s.contact_name, s.contact_title, s.address, s.city, s.region, s.postal_code, s.country, s.phone FROM products p INNER JOIN suppliers s ON p.supplier_id = s.id WHERE p.id = ?1",
         [::turso::Value::from(target_id)],
@@ -873,24 +945,24 @@ async fn product_with_supplier(
             },
         })
         .collect();
-    Ok(Json(serde_json::to_value(&resp).unwrap()))
+    Ok(Json(resp))
 }
 
 #[debug_handler(state = AppState)]
 async fn orders_with_details(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<Vec<OrderWithDetailsResponse>>, StatusCode> {
     let lim = params.limit_or(50) as i64;
     let off = params.offset() as i64;
-    let db = state.db.lock().await;
+    let db = state.db.acquire().await?;
     let order_rows = db.conn().query(
         "SELECT id, shipped_date, ship_name, ship_city, ship_country FROM orders ORDER BY id LIMIT ?1 OFFSET ?2",
         [::turso::Value::from(lim), ::turso::Value::from(off)],
     ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let orders = collect_rows(order_rows).await?;
     if orders.is_empty() {
-        return Ok(Json(serde_json::json!([])));
+        return Ok(Json(Vec::new()));
     }
 
     let min_id = orders
@@ -935,16 +1007,16 @@ async fn orders_with_details(
             }
         })
         .collect();
-    Ok(Json(serde_json::to_value(&resp).unwrap()))
+    Ok(Json(resp))
 }
 
 #[debug_handler(state = AppState)]
 async fn order_with_details(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<Vec<SingleOrderWithDetailsResponse>>, StatusCode> {
     let target_id = params.user_id(50000);
-    let db = state.db.lock().await;
+    let db = state.db.acquire().await?;
     let order_rows = db.conn().query(
         "SELECT id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id FROM orders WHERE id = ?1",
         [::turso::Value::from(target_id)],
@@ -984,16 +1056,16 @@ async fn order_with_details(
             details: details.clone(),
         })
         .collect();
-    Ok(Json(serde_json::to_value(&resp).unwrap()))
+    Ok(Json(resp))
 }
 
 #[debug_handler(state = AppState)]
 async fn order_with_details_and_products(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<Vec<SingleOrderWithDetailsAndProductsResponse>>, StatusCode> {
     let target_id = params.user_id(50000);
-    let db = state.db.lock().await;
+    let db = state.db.acquire().await?;
     let order_rows = db.conn().query(
         "SELECT id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id FROM orders WHERE id = ?1",
         [::turso::Value::from(target_id)],
@@ -1034,17 +1106,17 @@ async fn order_with_details_and_products(
             details: details.clone(),
         })
         .collect();
-    Ok(Json(serde_json::to_value(&resp).unwrap()))
+    Ok(Json(resp))
 }
 
 #[debug_handler(state = AppState)]
 async fn search_customer(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
     let term = params.term.as_deref().unwrap_or("");
     let pattern = format!("%{term}%");
-    let db = state.db.lock().await;
+    let db = state.db.acquire().await?;
     let rows = db.conn().query(
         "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE company_name LIKE ?1",
         [::turso::Value::from(pattern)],
@@ -1066,17 +1138,17 @@ async fn search_customer(
             fax: r.get::<String>(10).ok(),
         })
         .collect();
-    Ok(Json(serde_json::to_value(&resp).unwrap()))
+    Ok(Json(resp))
 }
 
 #[debug_handler(state = AppState)]
 async fn search_product(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<Vec<ProductResponse>>, StatusCode> {
     let term = params.term.as_deref().unwrap_or("");
     let pattern = format!("%{term}%");
-    let db = state.db.lock().await;
+    let db = state.db.acquire().await?;
     let rows = db.conn().query(
         "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products WHERE name LIKE ?1",
         [::turso::Value::from(pattern)],
@@ -1096,5 +1168,5 @@ async fn search_product(
             supplier_id: r.get::<i32>(8).unwrap_or_default(),
         })
         .collect();
-    Ok(Json(serde_json::to_value(&resp).unwrap()))
+    Ok(Json(resp))
 }

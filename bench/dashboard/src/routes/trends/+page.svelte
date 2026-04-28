@@ -1,6 +1,6 @@
 <script lang="ts">
 	import TrendChart from '$lib/components/TrendChart.svelte';
-	import { fmtCpu, fmtLatency, fmtPct, fmtRps, shortHash } from '$lib/format';
+	import { fmtCpu, fmtLatency, fmtPct, fmtRps, shortHash, suiteLabel } from '$lib/format';
 	import { TrendsPageState } from './trends.svelte';
 	import type { PageData } from './$types';
 
@@ -17,7 +17,7 @@
 		<div>
 			<div class="ph-l">/ trends</div>
 			<h1 class="ph-h">performance trends</h1>
-			<div class="ph-sub">{view.trends.length} runs{view.target ? ` / ${view.target}` : ''}</div>
+			<div class="ph-sub">{view.trends.length} sets{view.targetLabel ? ` / ${view.targetLabel}` : ''}</div>
 		</div>
 		{#if view.latest}
 			<div class="ph-sub">latest <a class="acc" href="/runs/{view.latest.run_id}">{shortHash(view.latest.git)}</a></div>
@@ -27,27 +27,27 @@
 	<div class="filt">
 		<span class="filt-l">suite</span>
 		<div class="filt-pills">
-			<a href={view.buildUrl(null, view.target)} class="pill" class:on={!view.suite}>all</a>
+			<a href={view.buildUrl(null, view.targetKey)} class="pill" class:on={!view.suite}>all</a>
 			{#each view.suites as suite}
-				<a href={view.buildUrl(suite, view.target)} class="pill" class:on={view.suite === suite}>{suite}</a>
+				<a href={view.buildUrl(suite, view.targetKey)} class="pill" class:on={view.suite === suite}>{suiteLabel(suite)}</a>
 			{/each}
 		</div>
 		<span class="filt-l">target</span>
-		<select class="sel" value={view.target ?? ''} oninput={view.selectTarget}>
+		<select class="sel" value={view.targetKey ?? ''} onchange={view.selectTarget}>
 			<option value="">select target...</option>
 			{#each view.targets as target}
-				<option value={target}>{target}</option>
+				<option value={target.key}>{target.label}</option>
 			{/each}
 		</select>
 	</div>
 
-	{#if !view.target}
+	{#if !view.targetKey}
 		<div class="empty">
 			<p class="empty-text">Select a target to view trend data.</p>
 		</div>
 	{:else if view.trends.length === 0}
 		<div class="empty">
-			<p class="empty-text">No successful trend data for {view.target}.</p>
+			<p class="empty-text">No successful trend data for {view.targetLabel}.</p>
 			<p class="empty-sub">Runs with this target will appear after CI publishes summaries.</p>
 		</div>
 	{:else}
@@ -91,6 +91,13 @@
 					<div class="k-v">{fmtPct(latest.err)}</div>
 					<div class="k-d">rate</div>
 				</div>
+				{#if latest.mem_avg !== undefined}
+					<div class="k">
+						<div class="k-l">mem</div>
+						<div class="k-v">{latest.mem_avg.toFixed(1)}MB</div>
+						<div class="k-d">{latest.mem_peak?.toFixed(1) ?? latest.mem_avg.toFixed(1)}MB peak</div>
+					</div>
+				{/if}
 			</div>
 		{/if}
 
@@ -100,6 +107,9 @@
 			<TrendChart points={view.trends} metric="latency_p95" label="p95 latency" color="var(--ink-2)" formatValue={fmtLatency} />
 			<TrendChart points={view.trends} metric="latency_p99" label="p99 latency" color="var(--ink-2)" formatValue={fmtLatency} />
 			<TrendChart points={view.trends} metric="cpu_avg" label="cpu avg" color="var(--ink-2)" formatValue={fmtCpu} />
+			{#if latest?.mem_avg !== undefined}
+				<TrendChart points={view.trends} metric="mem_avg" label="memory avg" color="var(--ink-2)" formatValue={(n) => `${n.toFixed(1)}MB`} />
+			{/if}
 		</section>
 
 		<section class="sec">

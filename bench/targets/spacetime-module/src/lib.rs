@@ -6,7 +6,7 @@
 //! Tables mirror the Northwind "micro" schema used by all benchmark targets
 //! (customers, employees, suppliers, products, orders, order_details).
 
-use spacetimedb::{reducer, table, ReducerContext, Table};
+use spacetimedb::{ReducerContext, Table, reducer, table};
 
 #[table(accessor = customers, public)]
 pub struct Customer {
@@ -133,12 +133,12 @@ pub fn seed(ctx: &ReducerContext, seed_val: u64, _trial: u32) {
         ctx.db.customers().id().delete(&row.id);
     }
 
-    // Simple deterministic seed based on seed_val
-    let n_customers = 200_u32;
-    let n_employees = 50_u32;
-    let n_suppliers = 30_u32;
-    let n_products = 100_u32;
-    let n_orders = 500_u32;
+    // Same cardinalities as the shared benchmark dataset.
+    let n_customers = 10_000_u32;
+    let n_employees = 200_u32;
+    let n_suppliers = 1_000_u32;
+    let n_products = 5_000_u32;
+    let n_orders = 50_000_u32;
 
     for i in 0..n_customers {
         let s = seed_val.wrapping_add(i as u64);
@@ -153,7 +153,11 @@ pub fn seed(ctx: &ReducerContext, seed_val: u64, _trial: u32) {
             region: format!("Region{}", i % 5),
             country: format!("Country{}", i % 10),
             phone: format!("+1-555-{i:04}"),
-            fax: if i % 3 == 0 { format!("+1-555-{i:04}-fax") } else { String::new() },
+            fax: if i % 3 == 0 {
+                format!("+1-555-{i:04}-fax")
+            } else {
+                String::new()
+            },
         });
     }
 
@@ -174,7 +178,11 @@ pub fn seed(ctx: &ReducerContext, seed_val: u64, _trial: u32) {
             home_phone: format!("+1-555-{i:04}"),
             extension: 100 + i as i32,
             notes: format!("Notes for employee {i}"),
-            recipient_id: if i > 0 { ((i - 1) % n_employees + 1) as i32 } else { 0 },
+            recipient_id: if i > 0 {
+                ((i - 1) % n_employees + 1) as i32
+            } else {
+                0
+            },
         });
     }
 
@@ -214,21 +222,33 @@ pub fn seed(ctx: &ReducerContext, seed_val: u64, _trial: u32) {
             id: 0,
             order_date: base + i as i64 * 3600,
             required_date: base + i as i64 * 3600 + 86400 * 14,
-            shipped_date: if i % 3 != 0 { base + i as i64 * 3600 + 86400 * 7 } else { 0 },
+            shipped_date: if i % 3 != 0 {
+                base + i as i64 * 3600 + 86400 * 7
+            } else {
+                0
+            },
             ship_via: (1 + i % 3) as i32,
             freight: 10.0 + i as f64 * 0.25,
             ship_name: format!("Ship-{i}"),
             ship_city: format!("City{}", i % 20),
-            ship_region: if i % 4 == 0 { format!("Region{}", i % 5) } else { String::new() },
-            ship_postal_code: if i % 4 == 0 { format!("{:05}", i % 100000) } else { String::new() },
+            ship_region: if i % 4 == 0 {
+                format!("Region{}", i % 5)
+            } else {
+                String::new()
+            },
+            ship_postal_code: if i % 4 == 0 {
+                format!("{:05}", i % 100000)
+            } else {
+                String::new()
+            },
             ship_country: format!("Country{}", i % 10),
             customer_id: (i % n_customers) + 1,
             employee_id: (i % n_employees) + 1,
         });
     }
 
-    // ~3 details per order
-    for i in 0..(n_orders * 3) {
+    // Six details per order, matching the run manifest dataset metadata.
+    for i in 0..(n_orders * 6) {
         ctx.db.order_details().insert(OrderDetail {
             id: 0,
             unit_price: 10.0 + (i as f64 * 0.5),

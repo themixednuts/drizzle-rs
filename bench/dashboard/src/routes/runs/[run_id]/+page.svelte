@@ -2,7 +2,17 @@
 	import { loadTimeseries } from '$lib/api.remote';
 	import LatencyBars from '$lib/components/LatencyBars.svelte';
 	import SparkLine from '$lib/components/SparkLine.svelte';
-	import { fmtCpu, fmtDate, fmtDuration, fmtGb, fmtLatency, fmtPct, fmtRps, shortHash } from '$lib/format';
+	import {
+		fmtCpu,
+		fmtDate,
+		fmtDuration,
+		fmtGb,
+		fmtLatency,
+		fmtPct,
+		fmtRps,
+		shortHash,
+		suiteLabel
+	} from '$lib/format';
 	import { RunDetailState } from './run-detail.svelte';
 	import type { PageData } from './$types';
 
@@ -12,16 +22,16 @@
 </script>
 
 <svelte:head>
-	<title>{view.manifest.run_id} - drizzle-rs/bench</title>
+	<title>{view.runName} - drizzle-rs/bench</title>
 </svelte:head>
 
 <main class="wrap">
 	<div class="ph">
 		<div>
 			<div class="ph-l">/ runs / detail</div>
-			<h1 class="ph-h mono">{view.manifest.run_id}</h1>
+			<h1 class="ph-h">{view.runName}</h1>
 			<div class="ph-sub">
-				{view.manifest.suite} / {shortHash(view.manifest.git)} / {fmtDate(view.manifest.start)}
+				<span class="mono">{view.manifest.run_id}</span> / {suiteLabel(view.manifest.suite)} / {shortHash(view.manifest.git)} / {fmtDate(view.manifest.start)}
 			</div>
 		</div>
 		<div class="ph-sub">
@@ -72,7 +82,7 @@
 		<div class="table-scroll">
 			<table class="t meta-table">
 				<tbody>
-					<tr><td class="mu">suite</td><td>{view.manifest.suite}</td><td class="mu">workload</td><td>{view.manifest.workload}</td></tr>
+					<tr><td class="mu">suite</td><td>{suiteLabel(view.manifest.suite)}</td><td class="mu">workload</td><td>{view.manifest.workload}</td></tr>
 					<tr><td class="mu">commit</td><td>{view.manifest.git}</td><td class="mu">duration</td><td>{fmtDuration(view.manifest.start, view.manifest.end)}</td></tr>
 					<tr><td class="mu">runner</td><td>{view.manifest.runner.class} / {view.manifest.runner.os}</td><td class="mu">hardware</td><td>{view.manifest.runner.cpu} / {view.manifest.runner.cores}c / {fmtGb(view.manifest.runner.mem_gb)}</td></tr>
 					<tr><td class="mu">trials</td><td>{view.manifest.trials.count} / {view.manifest.trials.aggregate}</td><td class="mu">seed</td><td>{view.manifest.seed}</td></tr>
@@ -97,6 +107,32 @@
 		</div>
 	</section>
 
+	{#if view.queries.length > 0}
+		<section class="sec">
+			<div class="sec-h">
+				<span>query catalog</span>
+				<span class="mu">{view.queries.length} operations / {view.manifest.load.requests.toLocaleString()} requests</span>
+			</div>
+			<div class="query-list">
+				{#each view.queries as query}
+					<details class="query-card">
+						<summary>
+							<span>{query.name}</span>
+							<span class="mu mono">{query.method} {query.path} / {query.mix.toLocaleString()}</span>
+						</summary>
+						<div class="query-meta">
+							<span class="mu">params</span>
+							<span>{query.params.length ? query.params.join(', ') : 'none'}</span>
+						</div>
+						{#each query.sql as shape}
+							<pre class="sql"><code>{shape.text}</code></pre>
+						{/each}
+					</details>
+				{/each}
+			</div>
+		</section>
+	{/if}
+
 	<section class="sec">
 		<div class="sec-h"><span>target summary</span></div>
 		<div class="table-scroll">
@@ -119,8 +155,11 @@
 					{#each view.sortedSummaries as summary}
 						{@const p = summary.primary}
 						<tr class={view.rowClass(summary)}>
-							<td>{summary.target_id}</td>
-							<td class="mu">{summary.group ?? 'other'}</td>
+							<td>
+								{view.targetName(summary.target_id)}
+								<div class="mu mono">{summary.target_id}</div>
+							</td>
+							<td class="mu">{view.targetGroup(summary)}</td>
 							<td class="n">{fmtRps(p.rps.avg)}</td>
 							<td class="n fade">{fmtRps(p.rps.peak)}</td>
 							<td class="n fade">{fmtLatency(p.latency.avg)}</td>
@@ -145,11 +184,18 @@
 			<div class="target-detail">
 				{#each groupItems as summary}
 					{@const p = summary.primary}
+					{@const meta = view.targetMeta(summary.target_id)}
 					<article class="target-row">
 						<div class="target-head">
-							<h2 class="mono">{summary.target_id}</h2>
+							<h2>
+								{view.targetName(summary.target_id)}
+								<span class="mu mono"> / {summary.target_id}</span>
+							</h2>
 							<span class="badge badge--{p.err > 0 ? 'failed' : 'success'}">{fmtPct(p.err)} err</span>
 						</div>
+						{#if view.targetDescription(summary.target_id)}
+							<p class="target-desc">{view.targetDescription(summary.target_id)}</p>
+						{/if}
 
 						<div class="mini-grid">
 							<div><span class="mu">rps</span><strong>{fmtRps(p.rps.avg)}</strong></div>
@@ -190,6 +236,11 @@
 						<div class="table-scroll">
 							<table class="t">
 								<tbody>
+									{#if meta}
+										<tr><td class="mu">runtime</td><td>{meta.runtime.name} {meta.runtime.ver}</td><td class="mu">orm</td><td>{meta.orm.name} {meta.orm.ver}</td></tr>
+										<tr><td class="mu">driver</td><td>{meta.driver.name} {meta.driver.ver}</td><td class="mu">wire</td><td>{meta.wire.format}</td></tr>
+										<tr><td class="mu">workers / pool</td><td>{meta.proc.workers} / {meta.pool.max}</td><td class="mu">fair contract</td><td>{meta.fair.contract} / {meta.contract.ver}</td></tr>
+									{/if}
 									<tr><td class="mu">spread rps</td><td>{fmtRps(summary.spread.rps.min)} - {fmtRps(summary.spread.rps.max)}</td><td class="mu">spread p95</td><td>{fmtLatency(summary.spread.p95.min)} - {fmtLatency(summary.spread.p95.max)}</td></tr>
 									<tr><td class="mu">saturation rps</td><td>{fmtRps(summary.saturation.knee_rps)}</td><td class="mu">saturation p95</td><td>{fmtLatency(summary.saturation.knee_p95)}</td></tr>
 								</tbody>
@@ -217,6 +268,46 @@
 		border-bottom: 1px solid var(--rule-soft);
 	}
 
+	.query-list {
+		display: grid;
+		gap: 10px;
+	}
+
+	.query-card {
+		border: 1px solid var(--rule-soft);
+		background: color-mix(in srgb, var(--bg-2) 55%, transparent);
+		padding: 12px 14px;
+	}
+
+	.query-card summary {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 16px;
+		cursor: pointer;
+	}
+
+	.query-meta {
+		display: grid;
+		grid-template-columns: 90px 1fr;
+		gap: 12px;
+		margin-top: 12px;
+		font-family: var(--font-mono);
+		font-size: 12px;
+	}
+
+	.sql {
+		margin: 10px 0 0;
+		padding: 10px;
+		overflow-x: auto;
+		background: var(--bg);
+		border: 1px solid var(--rule-soft);
+		color: var(--ink-2);
+		font-family: var(--font-mono);
+		font-size: 11.5px;
+		line-height: 1.45;
+	}
+
 	.target-head {
 		display: flex;
 		align-items: baseline;
@@ -229,6 +320,12 @@
 		color: var(--ink);
 		font-size: 14px;
 		font-weight: 500;
+	}
+
+	.target-desc {
+		margin: -3px 0 12px;
+		color: var(--ink-3);
+		font-size: 12px;
 	}
 
 	.mini-grid {

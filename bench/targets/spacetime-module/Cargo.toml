@@ -10,4 +10,4 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-spacetimedb = "2.0"
+spacetimedb = "2.1.0"

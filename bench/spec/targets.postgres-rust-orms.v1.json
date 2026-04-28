@@ -2,11 +2,15 @@
   {
     "version": "v1",
     "id": "sqlx-pg",
+    "display": {
+      "name": "SQLx PostgreSQL",
+      "description": "SQLx PostgreSQL baseline using the shared schema and seed data"
+    },
     "group": "sqlx",
     "lang": "rust",
     "runtime": {
       "name": "rust",
-      "ver": "1.95"
+      "ver": "1.95.0"
     },
     "orm": {
       "name": "sqlx",
@@ -44,23 +48,27 @@
       "ver": "v1"
     },
     "server": {
-      "cmd": ["cargo", "run", "-q", "--manifest-path", "bench/targets/rust-pg-orms/Cargo.toml", "--", "sqlx-pg"]
+      "cmd": ["cargo", "run", "-q", "--release", "--manifest-path", "bench/targets/rust-pg-orms/Cargo.toml", "--", "sqlx-pg"]
     },
     "parity": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "parity"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]
     },
     "load": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "load"]
     }
   },
   {
     "version": "v1",
     "id": "diesel-pg",
+    "display": {
+      "name": "Diesel PostgreSQL",
+      "description": "Diesel PostgreSQL baseline using the shared schema and seed data"
+    },
     "group": "diesel",
     "lang": "rust",
     "runtime": {
       "name": "rust",
-      "ver": "1.95"
+      "ver": "1.95.0"
     },
     "orm": {
       "name": "diesel",
@@ -98,23 +106,27 @@
       "ver": "v1"
     },
     "server": {
-      "cmd": ["cargo", "run", "-q", "--manifest-path", "bench/targets/rust-pg-orms/Cargo.toml", "--", "diesel-pg"]
+      "cmd": ["cargo", "run", "-q", "--release", "--manifest-path", "bench/targets/rust-pg-orms/Cargo.toml", "--", "diesel-pg"]
     },
     "parity": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "parity"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]
     },
     "load": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "load"]
     }
   },
   {
     "version": "v1",
     "id": "seaorm-pg",
+    "display": {
+      "name": "SeaORM PostgreSQL",
+      "description": "SeaORM PostgreSQL baseline using the shared schema and seed data"
+    },
     "group": "sea-orm",
     "lang": "rust",
     "runtime": {
       "name": "rust",
-      "ver": "1.95"
+      "ver": "1.95.0"
     },
     "orm": {
       "name": "sea-orm",
@@ -152,13 +164,13 @@
       "ver": "v1"
     },
     "server": {
-      "cmd": ["cargo", "run", "-q", "--manifest-path", "bench/targets/rust-pg-orms/Cargo.toml", "--", "seaorm-pg"]
+      "cmd": ["cargo", "run", "-q", "--release", "--manifest-path", "bench/targets/rust-pg-orms/Cargo.toml", "--", "seaorm-pg"]
     },
     "parity": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "parity"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]
     },
     "load": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "load"]
     }
   }
 ]

@@ -5,6 +5,7 @@ export interface RunIndex {
 
 export interface RunIndexEntry {
 	run_id: string;
+	name: string;
 	suite: string;
 	status: string;
 	class: string;
@@ -14,13 +15,31 @@ export interface RunIndexEntry {
 	targets: string[];
 }
 
+export interface RunCohort {
+	id: string;
+	name: string;
+	suite: string;
+	status: string;
+	class: string;
+	git: string;
+	start: string;
+	end: string;
+	run_ids: string[];
+	representative_run_id: string;
+	targets: string[];
+	result_count: number;
+}
+
 export interface Manifest {
 	version: string;
 	run_id: string;
+	name: string;
 	suite: string;
 	git: string;
 	workload: string;
 	targets: string[];
+	target_meta: TargetMeta[];
+	queries: QueryDoc[];
 	start: string;
 	end: string;
 	status: string;
@@ -55,11 +74,79 @@ export interface Manifest {
 		headroom: { cpu_peak: number; net_peak: number };
 	};
 	trials: { count: number; aggregate: string };
-	compat?: {
-		workload: string;
-		class: string;
-		targets: string[];
-	};
+}
+
+export interface TargetMeta {
+	id: string;
+	name: string;
+	description?: string;
+	group?: string;
+	lang: string;
+	runtime: NameVer;
+	orm: NameVer;
+	driver: DriverMeta;
+	proc: ProcMeta;
+	pool: PoolMeta;
+	db: DbMeta;
+	wire: WireMeta;
+	fair: FairMeta;
+	contract: ContractMeta;
+}
+
+export interface NameVer {
+	name: string;
+	ver: string;
+}
+
+export interface DriverMeta extends NameVer {
+	transport?: string;
+}
+
+export interface ProcMeta {
+	mode: string;
+	workers: number;
+}
+
+export interface PoolMeta {
+	max: number;
+	min?: number;
+	acquire_ms?: number;
+}
+
+export interface DbMeta {
+	profile: string;
+	hash: string;
+}
+
+export interface WireMeta {
+	format: string;
+}
+
+export interface FairMeta {
+	workers: number;
+	pool: number;
+	db: string;
+	schema: string;
+	contract: string;
+}
+
+export interface ContractMeta {
+	ver: string;
+}
+
+export interface QueryDoc {
+	id: string;
+	name: string;
+	method: string;
+	path: string;
+	mix: number;
+	params: string[];
+	sql: QueryShape[];
+}
+
+export interface QueryShape {
+	dialect: string;
+	text: string;
 }
 
 export interface Summary {
@@ -71,6 +158,17 @@ export interface Summary {
 	primary: Primary;
 	spread: Spread;
 	saturation: Saturation;
+}
+
+export interface SummaryResult extends Summary {
+	cohort_id: string;
+	target_key: string;
+	target_name: string;
+	target_description?: string;
+	target_meta: TargetMeta;
+	runner_os: string;
+	runner_class: string;
+	runner_label: string;
 }
 
 export interface Primary {
@@ -131,14 +229,40 @@ export interface TimeseriesPoint {
 }
 
 export interface CompareItem {
+	target_key: string;
 	target_id: string;
+	target_name: string;
+	group?: string;
+	runner_os?: string;
 	base_value: number;
 	head_value: number;
 	delta: number;
 	delta_pct: number;
 }
 
+export interface TargetCompareItem {
+	target_key: string;
+	target_id: string;
+	target_name: string;
+	target_description?: string;
+	group?: string;
+	runner_os: string;
+	value: number;
+	baseline_value: number;
+	err: number;
+	delta: number;
+	delta_pct: number;
+}
+
+export interface TargetOption {
+	key: string;
+	label: string;
+	target_id: string;
+	runner_os: string;
+}
+
 export interface TrendPoint {
+	cohort_id: string;
 	run_id: string;
 	start: string;
 	git: string;
@@ -147,5 +271,7 @@ export interface TrendPoint {
 	latency_p95: number;
 	latency_p99: number;
 	cpu_avg: number;
+	mem_avg?: number;
+	mem_peak?: number;
 	err: number;
 }

@@ -1,5 +1,15 @@
 <script lang="ts">
-	import { fmtCpu, fmtDate, fmtDuration, fmtLatency, fmtPct, fmtRps, shortHash } from '$lib/format';
+	import {
+		fmtCpu,
+		fmtDate,
+		fmtDuration,
+		fmtLatency,
+		fmtPct,
+		fmtRps,
+		runDisplayName,
+		shortHash,
+		suiteLabel
+	} from '$lib/format';
 	import { RunsPageState } from './home.svelte';
 	import type { PageData } from './$types';
 
@@ -21,8 +31,8 @@
 		</div>
 		{#if latest}
 			<div class="ph-sub">
-				last run <a class="acc" href="/runs/{latest.run.run_id}">{shortHash(latest.run.git)}</a>
-				/ {fmtDate(latest.run.start)}
+				latest set <a class="acc" href="/runs/{latest.cohort.representative_run_id}">{shortHash(latest.cohort.git)}</a>
+				/ {fmtDate(latest.cohort.start)}
 			</div>
 		{/if}
 	</div>
@@ -44,7 +54,7 @@
 		<div class="filt-pills">
 			<a href={view.buildUrl(null, view.status)} class="pill" class:on={!view.suite}>all</a>
 			{#each view.suites as suite}
-				<a href={view.buildUrl(suite, view.status)} class="pill" class:on={view.suite === suite}>{suite}</a>
+				<a href={view.buildUrl(suite, view.status)} class="pill" class:on={view.suite === suite}>{suiteLabel(suite)}</a>
 			{/each}
 		</div>
 		<span class="filt-l">status</span>
@@ -61,7 +71,7 @@
 	<section class="sec">
 		<div class="sec-h">
 			<span>latest leaderboard</span>
-			{#if latest}<a href="/runs/{latest.run.run_id}">run detail</a>{/if}
+			{#if latest}<a href="/compare?cohort={latest.cohort.id}">compare all</a>{/if}
 		</div>
 		{#if view.leaderboard.length === 0}
 			<div class="empty">
@@ -90,8 +100,10 @@
 							<tr class={view.rowClass(summary)}>
 								<td class="n mu">{String(i + 1).padStart(2, '0')}</td>
 								<td>
-									<a href="/runs/{summary.run_id}" class="acc">{summary.target_id}</a>
+									<a href="/runs/{summary.run_id}" class="acc">{summary.target_name}</a>
+									<span class="mu mono"> / {summary.target_id}</span>
 									{#if summary.group}<span class="mu"> / {summary.group}</span>{/if}
+									<span class="mu"> / {summary.runner_os}</span>
 								</td>
 								<td class="n">{fmtRps(p.rps.avg)}</td>
 								<td class="n fade">{fmtLatency(p.latency.avg)}</td>
@@ -111,10 +123,10 @@
 
 	<section class="sec">
 		<div class="sec-h">
-			<span>recent runs</span>
-			<a href="/runs">all {view.totalRuns}</a>
+			<span>recent benchmark sets</span>
+			<a href="/runs">all {view.totalCohorts}</a>
 		</div>
-		{#if view.runs.length === 0}
+		{#if view.cohorts.length === 0}
 			<div class="empty">
 				<p class="empty-text">No runs match the selected filters.</p>
 				<p class="empty-sub">Try changing suite or status.</p>
@@ -124,22 +136,29 @@
 				<table class="t">
 					<thead>
 						<tr>
-							<th>run</th>
+							<th>set</th>
 							<th>suite</th>
 							<th>status</th>
 							<th class="n">targets</th>
+							<th class="n">results</th>
+							<th class="n">shards</th>
 							<th>commit</th>
 							<th class="n">duration</th>
 							<th class="n">started</th>
 						</tr>
 					</thead>
 					<tbody>
-						{#each view.recentRuns as run}
+						{#each view.recentCohorts as run}
 							<tr>
-								<td><a class="acc" href="/runs/{run.run_id}">{run.run_id}</a></td>
-								<td class="mu">{run.suite}</td>
+								<td>
+									<a class="acc" href="/compare?cohort={run.id}">{runDisplayName(run)}</a>
+									<div class="mu mono">{run.id}</div>
+								</td>
+								<td class="mu">{suiteLabel(run.suite)}</td>
 								<td><span class="badge badge--{run.status}">{run.status}</span></td>
 								<td class="n">{run.targets.length}</td>
+								<td class="n">{run.result_count}</td>
+								<td class="n">{run.run_ids.length}</td>
 								<td class="mu">{shortHash(run.git)}</td>
 								<td class="n mu">{fmtDuration(run.start, run.end)}</td>
 								<td class="n mu">{fmtDate(run.start)}</td>

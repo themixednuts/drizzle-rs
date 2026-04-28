@@ -2,11 +2,15 @@
   {
     "version": "v1",
     "id": "drizzle-rs-pg-sync",
+    "display": {
+      "name": "Drizzle RS PostgreSQL (sync)",
+      "description": "drizzle-rs using the synchronous postgres driver"
+    },
     "group": "drizzle-rs",
     "lang": "rust",
     "runtime": {
       "name": "rust",
-      "ver": "1.91"
+      "ver": "1.95.0"
     },
     "orm": {
       "name": "drizzle-rs",
@@ -14,7 +18,7 @@
     },
     "driver": {
       "name": "postgres",
-      "ver": "0.19.12"
+      "ver": "0.19.13"
     },
     "proc": {
       "mode": "single",
@@ -43,20 +47,24 @@
       "ver": "v1"
     },
     "parity": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "parity"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]
     },
     "load": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "load"]
     }
   },
   {
     "version": "v1",
     "id": "drizzle-rs-pg-tokio",
+    "display": {
+      "name": "Drizzle RS PostgreSQL (tokio)",
+      "description": "drizzle-rs using the tokio-postgres driver"
+    },
     "group": "drizzle-rs",
     "lang": "rust",
     "runtime": {
       "name": "rust",
-      "ver": "1.91"
+      "ver": "1.95.0"
     },
     "orm": {
       "name": "drizzle-rs",
@@ -64,7 +72,7 @@
     },
     "driver": {
       "name": "tokio-postgres",
-      "ver": "0.7.15"
+      "ver": "0.7.17"
     },
     "proc": {
       "mode": "single",
@@ -93,10 +101,10 @@
       "ver": "v1"
     },
     "parity": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "parity"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]
     },
     "load": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "load"]
     }
   }
 ]

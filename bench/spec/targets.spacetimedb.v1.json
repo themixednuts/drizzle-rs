@@ -2,11 +2,15 @@
   {
     "version": "v1",
     "id": "spacetime-pgwire-rs",
+    "display": {
+      "name": "SpacetimeDB PGWire",
+      "description": "SpacetimeDB PGWire target using tokio-postgres simple query protocol"
+    },
     "group": "spacetimedb",
     "lang": "rust",
     "runtime": {
       "name": "rust",
-      "ver": "1.95"
+      "ver": "1.95.0"
     },
     "orm": {
       "name": "none",
@@ -14,7 +18,7 @@
     },
     "driver": {
       "name": "tokio-postgres-simple",
-      "ver": "0.7.15"
+      "ver": "0.7.17"
     },
     "proc": {
       "mode": "single",
@@ -43,7 +47,7 @@
       "ver": "v1"
     },
     "load": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "load"]
     }
   }
 ]

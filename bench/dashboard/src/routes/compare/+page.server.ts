@@ -5,8 +5,8 @@ import { runServerEffect } from '$lib/server/effect';
 export const load: PageServerLoad = ({ platform, url }) =>
 	runServerEffect(
 		comparePageData(platform, {
-			base: url.searchParams.get('base'),
-			head: url.searchParams.get('head'),
+			cohort: url.searchParams.get('cohort'),
+			baseline: url.searchParams.get('baseline'),
 			metric: url.searchParams.get('metric')
 		})
 	);

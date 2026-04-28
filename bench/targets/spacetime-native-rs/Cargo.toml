@@ -9,7 +9,7 @@ name = "spacetime-native-rs"
 path = "src/main.rs"
 
 [dependencies]
-spacetimedb-sdk = "2.0"
+spacetimedb-sdk = "2.1.0"
 axum = { version = "0.6.20", default-features = false, features = ["http1", "json", "macros", "query", "tokio"] }
 tokio = { version = "1", features = ["full"] }
 tokio-postgres = "0.7"

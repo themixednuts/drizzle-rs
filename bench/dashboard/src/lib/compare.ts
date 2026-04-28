@@ -10,6 +10,8 @@ export const compareMetricOptions = [
 	{ value: 'latency.p999', label: 'Latency (p999)' },
 	{ value: 'cpu.avg', label: 'CPU (avg)' },
 	{ value: 'cpu.peak', label: 'CPU (peak)' },
+	{ value: 'mem.avg', label: 'Memory (avg)' },
+	{ value: 'mem.peak', label: 'Memory (peak)' },
 	{ value: 'err', label: 'Error rate' }
 ] as const;
 
@@ -31,7 +33,7 @@ export function isHigherBetterMetric(metric: CompareMetric): boolean {
 	return metric.startsWith('rps');
 }
 
-export function extractCompareMetric(summary: Summary, metric: CompareMetric): number {
+export function extractCompareMetric(summary: Summary, metric: CompareMetric): number | null {
 	const primary = summary.primary;
 
 	switch (metric) {
@@ -53,6 +55,10 @@ export function extractCompareMetric(summary: Summary, metric: CompareMetric): n
 			return primary.cpu.avg;
 		case 'cpu.peak':
 			return primary.cpu.peak;
+		case 'mem.avg':
+			return primary.mem?.avg ?? null;
+		case 'mem.peak':
+			return primary.mem?.peak ?? null;
 		case 'err':
 			return primary.err;
 	}

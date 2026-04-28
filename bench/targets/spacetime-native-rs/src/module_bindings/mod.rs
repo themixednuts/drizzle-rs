@@ -4,22 +4,17 @@
 // This was generated using spacetimedb cli version 2.0.3 (commit 5836c268a7307f864b33636357b0869ecc40bc0a).
 
 #![allow(unused, clippy::all)]
-use spacetimedb_sdk::__codegen::{
-	self as __sdk,
-	__lib,
-	__sats,
-	__ws,
-};
+use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
 pub mod bench_post_type;
-pub mod bench_user_type;
-pub mod seed_reducer;
 pub mod bench_posts_table;
+pub mod bench_user_type;
 pub mod bench_users_table;
+pub mod seed_reducer;
 
 pub use bench_post_type::BenchPost;
-pub use bench_user_type::BenchUser;
 pub use bench_posts_table::*;
+pub use bench_user_type::BenchUser;
 pub use bench_users_table::*;
 pub use seed_reducer::seed;
 
@@ -31,12 +26,8 @@ pub use seed_reducer::seed;
 /// to indicate which reducer caused the event.
 
 pub enum Reducer {
-        Seed {
-        seed_val: u64,
-        trial: u32,
-}    ,
+    Seed { seed_val: u64, trial: u32 },
 }
-
 
 impl __sdk::InModule for Reducer {
     type Module = RemoteModule;
@@ -45,33 +36,29 @@ impl __sdk::InModule for Reducer {
 impl __sdk::Reducer for Reducer {
     fn reducer_name(&self) -> &'static str {
         match self {
-                        Reducer::Seed { .. } => "seed",
+            Reducer::Seed { .. } => "seed",
             _ => unreachable!(),
-}
-}
+        }
+    }
     #[allow(clippy::clone_on_copy)]
-fn args_bsatn(&self) -> Result<Vec<u8>, __sats::bsatn::EncodeError> {
+    fn args_bsatn(&self) -> Result<Vec<u8>, __sats::bsatn::EncodeError> {
         match self {
-                        Reducer::Seed{
-                seed_val,
-                trial,
-}             => __sats::bsatn::to_vec(&seed_reducer::SeedArgs {
+            Reducer::Seed { seed_val, trial } => __sats::bsatn::to_vec(&seed_reducer::SeedArgs {
                 seed_val: seed_val.clone(),
                 trial: trial.clone(),
-}),
+            }),
             _ => unreachable!(),
-}
-}
+        }
+    }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 #[allow(non_snake_case)]
 #[doc(hidden)]
 pub struct DbUpdate {
-        bench_posts: __sdk::TableUpdate<BenchPost>,
+    bench_posts: __sdk::TableUpdate<BenchPost>,
     bench_users: __sdk::TableUpdate<BenchUser>,
 }
-
 
 impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
     type Error = __sdk::Error;
@@ -79,16 +66,20 @@ impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
         let mut db_update = DbUpdate::default();
         for table_update in __sdk::transaction_update_iter_table_updates(raw) {
             match &table_update.table_name[..] {
-
-        "bench_posts" => db_update.bench_posts.append(bench_posts_table::parse_table_update(table_update)?),
-    "bench_users" => db_update.bench_users.append(bench_users_table::parse_table_update(table_update)?),
+                "bench_posts" => db_update
+                    .bench_posts
+                    .append(bench_posts_table::parse_table_update(table_update)?),
+                "bench_users" => db_update
+                    .bench_users
+                    .append(bench_users_table::parse_table_update(table_update)?),
 
                 unknown => {
                     return Err(__sdk::InternalError::unknown_name(
                         "table",
                         unknown,
                         "DatabaseUpdate",
-                    ).into());
+                    )
+                    .into());
                 }
             }
         }
@@ -101,57 +92,87 @@ impl __sdk::InModule for DbUpdate {
 }
 
 impl __sdk::DbUpdate for DbUpdate {
-    fn apply_to_client_cache(&self, cache: &mut __sdk::ClientCache<RemoteModule>) -> AppliedDiff<'_> {
-                    let mut diff = AppliedDiff::default();
-                
-                diff.bench_posts = cache.apply_diff_to_table::<BenchPost>("bench_posts", &self.bench_posts).with_updates_by_pk(|row| &row.id);
-        diff.bench_users = cache.apply_diff_to_table::<BenchUser>("bench_users", &self.bench_users).with_updates_by_pk(|row| &row.id);
+    fn apply_to_client_cache(
+        &self,
+        cache: &mut __sdk::ClientCache<RemoteModule>,
+    ) -> AppliedDiff<'_> {
+        let mut diff = AppliedDiff::default();
 
-                    diff
+        diff.bench_posts = cache
+            .apply_diff_to_table::<BenchPost>("bench_posts", &self.bench_posts)
+            .with_updates_by_pk(|row| &row.id);
+        diff.bench_users = cache
+            .apply_diff_to_table::<BenchUser>("bench_users", &self.bench_users)
+            .with_updates_by_pk(|row| &row.id);
+
+        diff
+    }
+    fn parse_initial_rows(raw: __ws::v2::QueryRows) -> __sdk::Result<Self> {
+        let mut db_update = DbUpdate::default();
+        for table_rows in raw.tables {
+            match &table_rows.table[..] {
+                "bench_posts" => db_update
+                    .bench_posts
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "bench_users" => db_update
+                    .bench_users
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                unknown => {
+                    return Err(
+                        __sdk::InternalError::unknown_name("table", unknown, "QueryRows").into(),
+                    );
                 }
-fn parse_initial_rows(raw: __ws::v2::QueryRows) -> __sdk::Result<Self> {
-                let mut db_update = DbUpdate::default();
-for table_rows in raw.tables {
+            }
+        }
+        Ok(db_update)
+    }
+    fn parse_unsubscribe_rows(raw: __ws::v2::QueryRows) -> __sdk::Result<Self> {
+        let mut db_update = DbUpdate::default();
+        for table_rows in raw.tables {
             match &table_rows.table[..] {
-                                "bench_posts" => db_update.bench_posts.append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
-                "bench_users" => db_update.bench_users.append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
-                unknown => { return Err(__sdk::InternalError::unknown_name("table", unknown, "QueryRows").into()); }
-}}        Ok(db_update)
-}
-fn parse_unsubscribe_rows(raw: __ws::v2::QueryRows) -> __sdk::Result<Self> {
-                let mut db_update = DbUpdate::default();
-for table_rows in raw.tables {
-            match &table_rows.table[..] {
-                                "bench_posts" => db_update.bench_posts.append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
-                "bench_users" => db_update.bench_users.append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
-                unknown => { return Err(__sdk::InternalError::unknown_name("table", unknown, "QueryRows").into()); }
-}}        Ok(db_update)
-}
+                "bench_posts" => db_update
+                    .bench_posts
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "bench_users" => db_update
+                    .bench_users
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                unknown => {
+                    return Err(
+                        __sdk::InternalError::unknown_name("table", unknown, "QueryRows").into(),
+                    );
+                }
+            }
+        }
+        Ok(db_update)
+    }
 }
 
 #[derive(Default)]
 #[allow(non_snake_case)]
 #[doc(hidden)]
 pub struct AppliedDiff<'r> {
-        bench_posts: __sdk::TableAppliedDiff<'r, BenchPost>,
+    bench_posts: __sdk::TableAppliedDiff<'r, BenchPost>,
     bench_users: __sdk::TableAppliedDiff<'r, BenchUser>,
     __unused: std::marker::PhantomData<&'r ()>,
 }
-
 
 impl __sdk::InModule for AppliedDiff<'_> {
     type Module = RemoteModule;
 }
 
 impl<'r> __sdk::AppliedDiff<'r> for AppliedDiff<'r> {
-    fn invoke_row_callbacks(&self, event: &EventContext, callbacks: &mut __sdk::DbCallbacks<RemoteModule>) {
-                callbacks.invoke_table_row_callbacks::<BenchPost>("bench_posts", &self.bench_posts, event);
+    fn invoke_row_callbacks(
+        &self,
+        event: &EventContext,
+        callbacks: &mut __sdk::DbCallbacks<RemoteModule>,
+    ) {
+        callbacks.invoke_table_row_callbacks::<BenchPost>("bench_posts", &self.bench_posts, event);
         callbacks.invoke_table_row_callbacks::<BenchUser>("bench_users", &self.bench_users, event);
+    }
 }
-}
-
 
 #[doc(hidden)]
+#[derive(Debug)]
 pub struct RemoteModule;
 
 impl __sdk::InModule for RemoteModule {
@@ -378,7 +399,6 @@ impl __sdk::SubscriptionHandle for SubscriptionHandle {
     fn unsubscribe(self) -> __sdk::Result<()> {
         self.imp.unsubscribe_then(None)
     }
-
 }
 
 /// Alias trait for a [`__sdk::DbContext`] connected to this module,
@@ -386,17 +406,23 @@ impl __sdk::SubscriptionHandle for SubscriptionHandle {
 ///
 /// Users can use this trait as a boundary on definitions which should accept
 /// either a [`DbConnection`] or an [`EventContext`] and operate on either.
-pub trait RemoteDbContext: __sdk::DbContext<
-    DbView = RemoteTables,
-    Reducers = RemoteReducers,
-    SubscriptionBuilder = __sdk::SubscriptionBuilder<RemoteModule>,
-> {}
-impl<Ctx: __sdk::DbContext<
-    DbView = RemoteTables,
-    Reducers = RemoteReducers,
-    SubscriptionBuilder = __sdk::SubscriptionBuilder<RemoteModule>,
->> RemoteDbContext for Ctx {}
-
+pub trait RemoteDbContext:
+    __sdk::DbContext<
+        DbView = RemoteTables,
+        Reducers = RemoteReducers,
+        SubscriptionBuilder = __sdk::SubscriptionBuilder<RemoteModule>,
+    >
+{
+}
+impl<
+    Ctx: __sdk::DbContext<
+            DbView = RemoteTables,
+            Reducers = RemoteReducers,
+            SubscriptionBuilder = __sdk::SubscriptionBuilder<RemoteModule>,
+        >,
+> RemoteDbContext for Ctx
+{
+}
 
 /// An [`__sdk::DbContext`] augmented with a [`__sdk::Event`],
 /// passed to [`__sdk::Table::on_insert`], [`__sdk::Table::on_delete`] and [`__sdk::TableWithPrimaryKey::on_update`] callbacks.
@@ -771,7 +797,6 @@ impl __sdk::DbContext for ErrorContext {
 impl __sdk::ErrorContext for ErrorContext {}
 
 impl __sdk::SpacetimeModule for RemoteModule {
-    
     type DbConnection = DbConnection;
     type EventContext = EventContext;
     type ReducerEventContext = ReducerEventContext;
@@ -787,12 +812,9 @@ impl __sdk::SpacetimeModule for RemoteModule {
     type SubscriptionHandle = SubscriptionHandle;
     type QueryBuilder = __sdk::QueryBuilder;
 
-fn register_tables(client_cache: &mut __sdk::ClientCache<Self>) {
-                bench_posts_table::register_table(client_cache);
+    fn register_tables(client_cache: &mut __sdk::ClientCache<Self>) {
+        bench_posts_table::register_table(client_cache);
         bench_users_table::register_table(client_cache);
-}
-const ALL_TABLE_NAMES: &'static [&'static str] = &[
-                "bench_posts",
-        "bench_users",
-];
+    }
+    const ALL_TABLE_NAMES: &'static [&'static str] = &["bench_posts", "bench_users"];
 }

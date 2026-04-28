@@ -3,16 +3,16 @@ import { redirect } from '@sveltejs/kit';
 import * as v from 'valibot';
 import { parseCompareMetric } from './compare';
 
-export const compareRuns = form(
+export const compareTargets = form(
 	v.object({
-		base: v.string(),
-		head: v.string(),
+		cohort: v.string(),
+		baseline: v.string(),
 		metric: v.string()
 	}),
-	({ base, head, metric }) => {
+	({ cohort, baseline, metric }) => {
 		const params = new URLSearchParams();
-		if (base) params.set('base', base);
-		if (head) params.set('head', head);
+		if (cohort) params.set('cohort', cohort);
+		if (baseline) params.set('baseline', baseline);
 		params.set('metric', parseCompareMetric(metric));
 
 		const query = params.toString();

@@ -2,13 +2,7 @@
 // WILL NOT BE SAVED. MODIFY TABLES IN YOUR MODULE SOURCE CODE INSTEAD.
 
 #![allow(unused, clippy::all)]
-use spacetimedb_sdk::__codegen::{
-	self as __sdk,
-	__lib,
-	__sats,
-	__ws,
-};
-
+use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
 #[derive(__lib::ser::Serialize, __lib::de::Deserialize, Clone, PartialEq, Debug)]
 #[sats(crate = __lib)]
@@ -22,8 +16,8 @@ impl From<SeedArgs> for super::Reducer {
         Self::Seed {
             seed_val: args.seed_val,
             trial: args.trial,
-}
-}
+        }
+    }
 }
 
 impl __sdk::InModule for SeedArgs {
@@ -41,10 +35,8 @@ pub trait seed {
     /// The reducer will run asynchronously in the future,
     ///  and this method provides no way to listen for its completion status.
     /// /// Use [`seed:seed_then`] to run a callback after the reducer completes.
-    fn seed(&self, seed_val: u64,
-trial: u32,
-) -> __sdk::Result<()> {
-        self.seed_then(seed_val, trial,  |_, _| {})
+    fn seed(&self, seed_val: u64, trial: u32) -> __sdk::Result<()> {
+        self.seed_then(seed_val, trial, |_, _| {})
     }
 
     /// Request that the remote module invoke the reducer `seed` to run as soon as possible,
@@ -56,11 +48,13 @@ trial: u32,
     fn seed_then(
         &self,
         seed_val: u64,
-trial: u32,
+        trial: u32,
 
-        callback: impl FnOnce(&super::ReducerEventContext, Result<Result<(), String>, __sdk::InternalError>)
-            + Send
-            + 'static,
+        callback: impl FnOnce(
+            &super::ReducerEventContext,
+            Result<Result<(), String>, __sdk::InternalError>,
+        ) + Send
+        + 'static,
     ) -> __sdk::Result<()>;
 }
 
@@ -68,13 +62,15 @@ impl seed for super::RemoteReducers {
     fn seed_then(
         &self,
         seed_val: u64,
-trial: u32,
+        trial: u32,
 
-        callback: impl FnOnce(&super::ReducerEventContext, Result<Result<(), String>, __sdk::InternalError>)
-            + Send
-            + 'static,
+        callback: impl FnOnce(
+            &super::ReducerEventContext,
+            Result<Result<(), String>, __sdk::InternalError>,
+        ) + Send
+        + 'static,
     ) -> __sdk::Result<()> {
-        self.imp.invoke_reducer_with_callback(SeedArgs { seed_val, trial,  }, callback)
+        self.imp
+            .invoke_reducer_with_callback(SeedArgs { seed_val, trial }, callback)
     }
 }
-

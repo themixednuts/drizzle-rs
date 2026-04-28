@@ -2,11 +2,15 @@
   {
     "version": "v1",
     "id": "drizzle-rs-turso",
+    "display": {
+      "name": "Drizzle RS Turso",
+      "description": "drizzle-rs using the async Turso/libSQL-compatible driver"
+    },
     "group": "drizzle-rs",
     "lang": "rust",
     "runtime": {
       "name": "rust",
-      "ver": "1.91"
+      "ver": "1.95.0"
     },
     "orm": {
       "name": "drizzle-rs",
@@ -14,14 +18,14 @@
     },
     "driver": {
       "name": "turso",
-      "ver": "0.5.0"
+      "ver": "0.6.0-pre.23"
     },
     "proc": {
       "mode": "single",
       "workers": 1
     },
     "pool": {
-      "max": 8,
+      "max": 4,
       "min": 1,
       "acquire_ms": 50
     },
@@ -34,7 +38,7 @@
     },
     "fair": {
       "workers": 1,
-      "pool": 8,
+      "pool": 4,
       "db": "sqlite",
       "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
       "contract": "v1"
@@ -43,10 +47,10 @@
       "ver": "v1"
     },
     "parity": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "parity"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]
     },
     "load": {
-      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "load"]
     }
   }
 ]

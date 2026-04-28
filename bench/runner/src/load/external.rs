@@ -30,8 +30,7 @@ pub async fn serve(cmd_json: &str) -> Result<(ServerHandle, Child), Fail> {
     if let Some(dir) = &cwd {
         builder.current_dir(dir);
     }
-    // Forward seed file path so external targets can read pre-generated data.
-    // BENCH_SEED and BENCH_TRIAL are still passed for backwards compatibility.
+    // Forward run identity so external targets can load the shared seed data.
     if let Ok(seed_file) = std::env::var("BENCH_SEED_FILE") {
         builder.env("BENCH_SEED_FILE", seed_file);
     }

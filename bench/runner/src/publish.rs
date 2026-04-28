@@ -15,6 +15,7 @@ pub fn run(args: Publish) -> Result<Code, Fail> {
     #[derive(serde::Deserialize)]
     struct Manifest {
         run_id: String,
+        name: String,
         suite: String,
         status: String,
         git: String,
@@ -66,6 +67,7 @@ pub fn run(args: Publish) -> Result<Code, Fail> {
 
     index.runs.push(RunIndexEntry {
         run_id: manifest.run_id.clone(),
+        name: manifest.name,
         suite: manifest.suite,
         status: manifest.status,
         class: manifest.runner.class,

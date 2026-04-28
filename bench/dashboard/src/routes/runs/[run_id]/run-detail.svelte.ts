@@ -1,10 +1,13 @@
 import type { Summary } from '$lib/types';
 import type { PageData } from './$types';
 
-function groupSummaries(summaries: Summary[]): [string, Summary[]][] {
+function groupSummaries(
+	summaries: Summary[],
+	groupFor: (summary: Summary) => string
+): [string, Summary[]][] {
 	const map = new Map<string, Summary[]>();
 	for (const summary of summaries) {
-		const group = summary.group ?? 'other';
+		const group = groupFor(summary);
 		if (!map.has(group)) map.set(group, []);
 		map.get(group)!.push(summary);
 	}
@@ -29,6 +32,14 @@ export class RunDetailState {
 		return this.#data().manifest;
 	}
 
+	get runName() {
+		return this.manifest.name;
+	}
+
+	get queries() {
+		return this.manifest.queries;
+	}
+
 	get summaries() {
 		return this.#data().summaries;
 	}
@@ -46,7 +57,25 @@ export class RunDetailState {
 	}
 
 	get groups() {
-		return groupSummaries(this.summaries);
+		return groupSummaries(this.summaries, (summary) => this.targetGroup(summary));
+	}
+
+	targetMeta(targetId: string) {
+		const meta = this.manifest.target_meta.find((target) => target.id === targetId);
+		if (!meta) throw new Error(`manifest ${this.manifest.run_id} missing target_meta for ${targetId}`);
+		return meta;
+	}
+
+	targetName(targetId: string): string {
+		return this.targetMeta(targetId).name;
+	}
+
+	targetDescription(targetId: string): string | undefined {
+		return this.targetMeta(targetId).description;
+	}
+
+	targetGroup(summary: Summary): string {
+		return this.targetMeta(summary.target_id).group ?? summary.group ?? 'other';
 	}
 
 	selectMetric = (metric: 'rps' | 'latency' | 'cpu' | 'mem'): void => {

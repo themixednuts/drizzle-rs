@@ -1,4 +1,5 @@
 import type { TimeseriesPoint } from '$lib/types';
+import { fmtCpu, fmtLatency, fmtRps } from '$lib/format';
 
 export type SparkLineMetric = 'rps' | 'latency' | 'cpu' | 'mem';
 
@@ -60,6 +61,28 @@ export class SparkLineState {
 		mem: 'var(--ink-2)'
 	};
 	color = $derived(this.colorMap[this.metric]);
+
+	latestValue = $derived.by(() => {
+		const vals = values(this.points, this.metric);
+		return vals.at(-1) ?? null;
+	});
+
+	valueText = $derived.by(() => {
+		const value = this.latestValue;
+		if (value === null) return 'no samples';
+		switch (this.metric) {
+			case 'rps':
+				return fmtRps(value);
+			case 'latency':
+				return fmtLatency(value);
+			case 'cpu':
+				return fmtCpu(value);
+			case 'mem':
+				return `${value.toFixed(1)}MB`;
+		}
+	});
+
+	sampleText = $derived(`${this.points.length} sample${this.points.length === 1 ? '' : 's'}`);
 
 	constructor(points: () => TimeseriesPoint[], metric: () => SparkLineMetric) {
 		this.#points = points;

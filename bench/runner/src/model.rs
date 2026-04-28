@@ -74,6 +74,7 @@ pub struct Limits {
 pub struct Target {
     pub version: String,
     pub id: String,
+    pub display: DisplayMeta,
     pub lang: String,
     #[serde(default)]
     pub group: Option<String>,
@@ -96,6 +97,14 @@ pub struct Target {
     pub server: Option<Exec>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct DisplayMeta {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Exec {
@@ -108,53 +117,56 @@ pub struct Exec {
     pub timeout_s: Option<u64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct NameVer {
     pub name: String,
     pub ver: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Driver {
     pub name: String,
     pub ver: String,
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub transport: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Proc {
     pub mode: String,
     pub workers: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Pool {
     pub max: u32,
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub min: Option<u32>,
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub acquire_ms: Option<u32>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Db {
     pub profile: String,
     pub hash: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Wire {
     pub format: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Fair {
     pub workers: u32,
@@ -164,7 +176,7 @@ pub struct Fair {
     pub contract: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Contract {
     pub ver: String,
@@ -325,10 +337,13 @@ pub struct Latency {
 pub struct ManifestDoc {
     pub version: &'static str,
     pub run_id: String,
+    pub name: String,
     pub suite: String,
     pub git: String,
     pub workload: String,
     pub targets: Vec<String>,
+    pub target_meta: Vec<TargetMetaDoc>,
+    pub queries: Vec<QueryDoc>,
     pub start: String,
     pub end: String,
     pub status: Status,
@@ -338,8 +353,43 @@ pub struct ManifestDoc {
     pub artifacts: Artifacts,
     pub runner: Runner,
     pub trials: TrialMeta,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TargetMetaDoc {
+    pub id: String,
+    pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub compat: Option<Compat>,
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    pub lang: String,
+    pub runtime: NameVer,
+    pub orm: NameVer,
+    pub driver: Driver,
+    pub proc: Proc,
+    pub pool: Pool,
+    pub db: Db,
+    pub wire: Wire,
+    pub fair: Fair,
+    pub contract: Contract,
+}
+
+#[derive(Debug, Serialize)]
+pub struct QueryDoc {
+    pub id: String,
+    pub name: String,
+    pub method: String,
+    pub path: String,
+    pub mix: usize,
+    pub params: Vec<String>,
+    pub sql: Vec<QueryShapeDoc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct QueryShapeDoc {
+    pub dialect: String,
+    pub text: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -391,13 +441,6 @@ pub struct TrialMeta {
     pub aggregate: &'static str,
 }
 
-#[derive(Debug, Serialize)]
-pub struct Compat {
-    pub workload: String,
-    pub class: String,
-    pub targets: Vec<String>,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RunIndex {
     pub version: String,
@@ -407,6 +450,7 @@ pub struct RunIndex {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RunIndexEntry {
     pub run_id: String,
+    pub name: String,
     pub suite: String,
     pub status: String,
     pub class: String,

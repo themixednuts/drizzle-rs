@@ -203,6 +203,29 @@ struct AppState {
     client: Arc<tokio_postgres::Client>,
 }
 
+const INSERT_BATCH_ROWS: usize = 500;
+const DETAILS_PER_ORDER: usize = 6;
+
+async fn insert_rows(
+    client: &tokio_postgres::Client,
+    table: &str,
+    columns: &str,
+    rows: &mut Vec<String>,
+) -> Result<(), Fail> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let values = rows.join(", ");
+    let sql = format!("INSERT INTO {table} ({columns}) VALUES {values}");
+    client
+        .simple_query(&sql)
+        .await
+        .map_err(|e| Fail::new(Code::RunFail, format!("seed {table}: {e}")))?;
+    rows.clear();
+    Ok(())
+}
+
 pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
     let config = spacetime_pg_config();
     eprintln!(
@@ -243,16 +266,17 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
             })?;
     }
 
-    // Generate deterministic seed data internally (smaller counts for SpacetimeDB)
+    // Generate deterministic seed data with the same cardinalities used by every target.
     let mut rng = StdRng::seed_from_u64(seed);
 
-    const NUM_CUSTOMERS: usize = 200;
-    const NUM_EMPLOYEES: usize = 50;
-    const NUM_SUPPLIERS: usize = 30;
-    const NUM_PRODUCTS: usize = 100;
-    const NUM_ORDERS: usize = 500;
+    const NUM_CUSTOMERS: usize = SEED_CUSTOMERS;
+    const NUM_EMPLOYEES: usize = SEED_EMPLOYEES;
+    const NUM_SUPPLIERS: usize = SEED_SUPPLIERS;
+    const NUM_PRODUCTS: usize = SEED_PRODUCTS;
+    const NUM_ORDERS: usize = SEED_ORDERS;
 
     // Seed customers
+    let mut customer_rows = Vec::with_capacity(INSERT_BATCH_ROWS);
     for i in 0..NUM_CUSTOMERS {
         let postal_code = if rng.random_bool(0.8) {
             format!("{:05}", rng.random_range(10000..99999))
@@ -269,8 +293,8 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         } else {
             String::new()
         };
-        let sql = format!(
-            "INSERT INTO customers (id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax) VALUES (0, '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}')",
+        let row = format!(
+            "(0, '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}')",
             sql_escape(&format!("Company-{i}")),
             sql_escape(&format!("Contact-{i}")),
             sql_escape(&format!("Title-{i}")),
@@ -282,13 +306,27 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
             sql_escape(&format!("555-{i:04}")),
             sql_escape(&fax),
         );
-        client
-            .simple_query(&sql)
-            .await
-            .map_err(|e| Fail::new(Code::RunFail, format!("seed customer {i}: {e}")))?;
+        customer_rows.push(row);
+        if customer_rows.len() >= INSERT_BATCH_ROWS {
+            insert_rows(
+                &client,
+                "customers",
+                "id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax",
+                &mut customer_rows,
+            )
+            .await?;
+        }
     }
+    insert_rows(
+        &client,
+        "customers",
+        "id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax",
+        &mut customer_rows,
+    )
+    .await?;
 
     // Seed employees
+    let mut employee_rows = Vec::with_capacity(INSERT_BATCH_ROWS);
     for i in 0..NUM_EMPLOYEES {
         let first_name = if rng.random_bool(0.9) {
             format!("First-{i}")
@@ -306,8 +344,8 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         } else {
             0
         };
-        let sql = format!(
-            "INSERT INTO employees (id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, address, city, postal_code, country, home_phone, extension, notes, recipient_id) VALUES (0, '{}', '{}', '{}', '{}', {}, {}, '{}', '{}', '{}', '{}', '{}', {}, '{}', {})",
+        let row = format!(
+            "(0, '{}', '{}', '{}', '{}', {}, {}, '{}', '{}', '{}', '{}', '{}', {}, '{}', {})",
             sql_escape(&format!("Last-{i}")),
             sql_escape(&first_name),
             sql_escape(&format!("Title-{i}")),
@@ -323,21 +361,35 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
             sql_escape(&format!("Notes for employee {i}")),
             recipient_id,
         );
-        client
-            .simple_query(&sql)
-            .await
-            .map_err(|e2| Fail::new(Code::RunFail, format!("seed employee {i}: {e2}")))?;
+        employee_rows.push(row);
+        if employee_rows.len() >= INSERT_BATCH_ROWS {
+            insert_rows(
+                &client,
+                "employees",
+                "id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, address, city, postal_code, country, home_phone, extension, notes, recipient_id",
+                &mut employee_rows,
+            )
+            .await?;
+        }
     }
+    insert_rows(
+        &client,
+        "employees",
+        "id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, address, city, postal_code, country, home_phone, extension, notes, recipient_id",
+        &mut employee_rows,
+    )
+    .await?;
 
     // Seed suppliers
+    let mut supplier_rows = Vec::with_capacity(INSERT_BATCH_ROWS);
     for i in 0..NUM_SUPPLIERS {
         let region = if rng.random_bool(0.5) {
             format!("Region-{}", rng.random_range(1..50))
         } else {
             String::new()
         };
-        let sql = format!(
-            "INSERT INTO suppliers (id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone) VALUES (0, '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}')",
+        let row = format!(
+            "(0, '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}')",
             sql_escape(&format!("Supplier-{i}")),
             sql_escape(&format!("Contact-{i}")),
             sql_escape(&format!("Title-{i}")),
@@ -348,13 +400,27 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
             sql_escape(&format!("Country-{}", i % 20)),
             sql_escape(&format!("555-{i:04}")),
         );
-        client
-            .simple_query(&sql)
-            .await
-            .map_err(|e| Fail::new(Code::RunFail, format!("seed supplier {i}: {e}")))?;
+        supplier_rows.push(row);
+        if supplier_rows.len() >= INSERT_BATCH_ROWS {
+            insert_rows(
+                &client,
+                "suppliers",
+                "id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone",
+                &mut supplier_rows,
+            )
+            .await?;
+        }
     }
+    insert_rows(
+        &client,
+        "suppliers",
+        "id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone",
+        &mut supplier_rows,
+    )
+    .await?;
 
     // Seed products
+    let mut product_rows = Vec::with_capacity(INSERT_BATCH_ROWS);
     for i in 0..NUM_PRODUCTS {
         let unit_price = (rng.random_range(1.0..500.0_f64) * 100.0).round() / 100.0;
         let units_in_stock = rng.random_range(0..200_i32);
@@ -362,8 +428,8 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         let reorder_level = rng.random_range(0..50_i32);
         let discontinued: i32 = if rng.random_bool(0.1) { 1 } else { 0 };
         let supplier_id = rng.random_range(1..=NUM_SUPPLIERS as i32);
-        let sql = format!(
-            "INSERT INTO products (id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id) VALUES (0, '{}', '{}', {}, {}, {}, {}, {}, {})",
+        let row = format!(
+            "(0, '{}', '{}', {}, {}, {}, {}, {}, {})",
             sql_escape(&format!("Product-{i}")),
             sql_escape(&format!(
                 "{} boxes x {} bags",
@@ -377,13 +443,27 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
             discontinued,
             supplier_id,
         );
-        client
-            .simple_query(&sql)
-            .await
-            .map_err(|e| Fail::new(Code::RunFail, format!("seed product {i}: {e}")))?;
+        product_rows.push(row);
+        if product_rows.len() >= INSERT_BATCH_ROWS {
+            insert_rows(
+                &client,
+                "products",
+                "id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id",
+                &mut product_rows,
+            )
+            .await?;
+        }
     }
+    insert_rows(
+        &client,
+        "products",
+        "id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id",
+        &mut product_rows,
+    )
+    .await?;
 
     // Seed orders
+    let mut order_rows = Vec::with_capacity(INSERT_BATCH_ROWS);
     for i in 0..NUM_ORDERS {
         let order_date = rng.random_range(946_684_800..1_672_531_200_i64);
         let required_date = order_date + rng.random_range(604_800..2_592_000);
@@ -406,8 +486,8 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         };
         let customer_id = rng.random_range(1..=NUM_CUSTOMERS as i32);
         let employee_id = rng.random_range(1..=NUM_EMPLOYEES as i32);
-        let sql = format!(
-            "INSERT INTO orders (id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id) VALUES (0, {}, {}, {}, {}, {}, '{}', '{}', '{}', '{}', '{}', {}, {})",
+        let row = format!(
+            "(0, {}, {}, {}, {}, {}, '{}', '{}', '{}', '{}', '{}', {}, {})",
             order_date,
             required_date,
             shipped_date,
@@ -421,18 +501,30 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
             customer_id,
             employee_id,
         );
-        client
-            .simple_query(&sql)
-            .await
-            .map_err(|e| Fail::new(Code::RunFail, format!("seed order {i}: {e}")))?;
+        order_rows.push(row);
+        if order_rows.len() >= INSERT_BATCH_ROWS {
+            insert_rows(
+                &client,
+                "orders",
+                "id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id",
+                &mut order_rows,
+            )
+            .await?;
+        }
     }
+    insert_rows(
+        &client,
+        "orders",
+        "id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id",
+        &mut order_rows,
+    )
+    .await?;
 
-    // Seed order details (~3 per order = ~1500 details)
-    let mut detail_idx = 0;
+    // Seed order details with the same fixed details-per-order cardinality as the shared dataset.
+    let mut detail_rows = Vec::with_capacity(INSERT_BATCH_ROWS);
     for order_i in 0..NUM_ORDERS {
         let order_id = (order_i + 1) as i32;
-        let count = rng.random_range(1..=5_usize);
-        for _ in 0..count {
+        for _ in 0..DETAILS_PER_ORDER {
             let unit_price = (rng.random_range(1.0..200.0_f64) * 100.0).round() / 100.0;
             let quantity = rng.random_range(1..=100_i32);
             let discount = if rng.random_bool(0.3) {
@@ -441,17 +533,29 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
                 0.0
             };
             let product_id = rng.random_range(1..=NUM_PRODUCTS as i32);
-            let sql = format!(
-                "INSERT INTO order_details (id, unit_price, quantity, discount, order_id, product_id) VALUES (0, {}, {}, {}, {}, {})",
+            let row = format!(
+                "(0, {}, {}, {}, {}, {})",
                 unit_price, quantity, discount, order_id, product_id,
             );
-            client
-                .simple_query(&sql)
-                .await
-                .map_err(|e| Fail::new(Code::RunFail, format!("seed detail {detail_idx}: {e}")))?;
-            detail_idx += 1;
+            detail_rows.push(row);
+            if detail_rows.len() >= INSERT_BATCH_ROWS {
+                insert_rows(
+                    &client,
+                    "order_details",
+                    "id, unit_price, quantity, discount, order_id, product_id",
+                    &mut detail_rows,
+                )
+                .await?;
+            }
         }
     }
+    insert_rows(
+        &client,
+        "order_details",
+        "id, unit_price, quantity, discount, order_id, product_id",
+        &mut detail_rows,
+    )
+    .await?;
 
     let state = AppState {
         client: Arc::new(client),

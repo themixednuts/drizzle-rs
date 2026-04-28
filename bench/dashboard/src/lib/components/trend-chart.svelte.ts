@@ -7,6 +7,8 @@ export type TrendChartMetric =
 	| 'latency_p95'
 	| 'latency_p99'
 	| 'cpu_avg'
+	| 'mem_avg'
+	| 'mem_peak'
 	| 'err';
 
 const W = 800;
@@ -44,43 +46,60 @@ export class TrendChartState {
 	chartData = $derived.by(() => {
 		if (this.points.length === 0) return emptyChartData();
 
-		const vals = this.points.map((point) => point[this.metric]);
+		const samples = this.points
+			.map((point, index) => ({ point, index, value: point[this.metric] }))
+			.filter(
+				(sample): sample is { point: TrendPoint; index: number; value: number } =>
+					typeof sample.value === 'number' && Number.isFinite(sample.value)
+			);
+		if (samples.length === 0) return emptyChartData();
+
+		const vals = samples.map((sample) => sample.value);
 		const min = Math.min(...vals);
 		const max = Math.max(...vals);
-		const range = max - min || 1;
+		const rawRange = max - min;
+		const range = rawRange || Math.max(Math.abs(max) * 0.1, 1);
 
 		const innerW = W - PAD_L - PAD_R;
 		const innerH = H - PAD_T - PAD_B;
-		const stepX = innerW / (vals.length - 1 || 1);
+		const stepX = vals.length > 1 ? innerW / (vals.length - 1) : 0;
 
 		const dots = vals.map((value, index) => {
-			const x = PAD_L + index * stepX;
-			const y = PAD_T + innerH - ((value - min) / range) * innerH;
+			const x = vals.length === 1 ? PAD_L + innerW / 2 : PAD_L + index * stepX;
+			const y =
+				rawRange === 0 ? PAD_T + innerH / 2 : PAD_T + innerH - ((value - min) / range) * innerH;
 			return {
 				x,
 				y,
 				val: value,
-				runId: this.points[index].run_id,
-				git: this.points[index].git
+				runId: samples[index].point.run_id,
+				git: samples[index].point.git
 			};
 		});
 
-		const path = dots
-			.map((dot, index) => (index === 0 ? 'M' : 'L') + dot.x.toFixed(1) + ',' + dot.y.toFixed(1))
-			.join(' ');
+		const path =
+			dots.length === 1
+				? `M${PAD_L},${dots[0].y.toFixed(1)} L${W - PAD_R},${dots[0].y.toFixed(1)}`
+				: dots
+						.map(
+							(dot, index) =>
+								(index === 0 ? 'M' : 'L') + dot.x.toFixed(1) + ',' + dot.y.toFixed(1)
+						)
+						.join(' ');
 		const lastDot = dots[dots.length - 1];
 		const areaPath =
 			path + ` L${lastDot.x.toFixed(1)},${PAD_T + innerH} L${PAD_L},${PAD_T + innerH} Z`;
 
 		const yTicks = Array.from({ length: 5 }, (_, index) => {
-			const value = min + (range * index) / 4;
+			const tickMin = rawRange === 0 ? min - range / 2 : min;
+			const value = tickMin + (range * index) / 4;
 			const y = PAD_T + innerH - (index / 4) * innerH;
 			return { y, label: this.formatValue(value) };
 		});
 
-		const step = Math.max(1, Math.floor(this.points.length / 8));
-		const xTicks = this.points
-			.map((point, index) => ({ point, index }))
+		const step = Math.max(1, Math.floor(samples.length / 8));
+		const xTicks = samples
+			.map((sample, index) => ({ point: sample.point, index }))
 			.filter(({ index }) => index % step === 0 || index === this.points.length - 1)
 			.map(({ point, index }) => ({
 				x: PAD_L + index * stepX,

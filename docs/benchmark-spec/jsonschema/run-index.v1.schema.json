@@ -17,9 +17,10 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "run_id",
-          "suite",
+          "required": [
+            "run_id",
+            "name",
+            "suite",
           "status",
           "class",
           "git",
@@ -31,6 +32,10 @@
           "run_id": {
             "type": "string",
             "pattern": "^[0-9]{8}T[0-9]{6}Z_[a-f0-9]{7,40}_[a-z0-9-]+$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
           },
           "suite": {
             "type": "string",

@@ -19,6 +19,20 @@ export class TrendsPageState {
 		return this.#data().targets;
 	}
 
+	get targetKey() {
+		const target = this.target;
+		if (!target) return null;
+		const exact = this.targets.find((option) => option.key === target);
+		if (exact) return exact.key;
+		const matches = this.targets.filter((option) => option.target_id === target);
+		return matches.length === 1 ? matches[0].key : target;
+	}
+
+	get targetLabel() {
+		const targetKey = this.targetKey;
+		return this.targets.find((option) => option.key === targetKey)?.label ?? targetKey;
+	}
+
 	get trends() {
 		return this.#data().trends;
 	}

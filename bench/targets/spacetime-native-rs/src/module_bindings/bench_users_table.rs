@@ -2,13 +2,8 @@
 // WILL NOT BE SAVED. MODIFY TABLES IN YOUR MODULE SOURCE CODE INSTEAD.
 
 #![allow(unused, clippy::all)]
-use spacetimedb_sdk::__codegen::{
-	self as __sdk,
-	__lib,
-	__sats,
-	__ws,
-};
 use super::bench_user_type::BenchUser;
+use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
 /// Table handle for the table `bench_users`.
 ///
@@ -49,8 +44,12 @@ impl<'ctx> __sdk::Table for BenchUsersTableHandle<'ctx> {
     type Row = BenchUser;
     type EventContext = super::EventContext;
 
-    fn count(&self) -> u64 { self.imp.count() }
-    fn iter(&self) -> impl Iterator<Item = BenchUser> + '_ { self.imp.iter() }
+    fn count(&self) -> u64 {
+        self.imp.count()
+    }
+    fn iter(&self) -> impl Iterator<Item = BenchUser> + '_ {
+        self.imp.iter()
+    }
 
     type InsertCallbackId = BenchUsersInsertCallbackId;
 
@@ -96,39 +95,38 @@ impl<'ctx> __sdk::TableWithPrimaryKey for BenchUsersTableHandle<'ctx> {
     }
 }
 
-        /// Access to the `id` unique index on the table `bench_users`,
-        /// which allows point queries on the field of the same name
-        /// via the [`BenchUsersIdUnique::find`] method.
-        ///
-        /// Users are encouraged not to explicitly reference this type,
-        /// but to directly chain method calls,
-        /// like `ctx.db.bench_users().id().find(...)`.
-        pub struct BenchUsersIdUnique<'ctx> {
-            imp: __sdk::UniqueConstraintHandle<BenchUser, u32>,
-            phantom: std::marker::PhantomData<&'ctx super::RemoteTables>,
-        }
+/// Access to the `id` unique index on the table `bench_users`,
+/// which allows point queries on the field of the same name
+/// via the [`BenchUsersIdUnique::find`] method.
+///
+/// Users are encouraged not to explicitly reference this type,
+/// but to directly chain method calls,
+/// like `ctx.db.bench_users().id().find(...)`.
+pub struct BenchUsersIdUnique<'ctx> {
+    imp: __sdk::UniqueConstraintHandle<BenchUser, u32>,
+    phantom: std::marker::PhantomData<&'ctx super::RemoteTables>,
+}
 
-        impl<'ctx> BenchUsersTableHandle<'ctx> {
-            /// Get a handle on the `id` unique index on the table `bench_users`.
-            pub fn id(&self) -> BenchUsersIdUnique<'ctx> {
-                BenchUsersIdUnique {
-                    imp: self.imp.get_unique_constraint::<u32>("id"),
-                    phantom: std::marker::PhantomData,
-                }
-            }
+impl<'ctx> BenchUsersTableHandle<'ctx> {
+    /// Get a handle on the `id` unique index on the table `bench_users`.
+    pub fn id(&self) -> BenchUsersIdUnique<'ctx> {
+        BenchUsersIdUnique {
+            imp: self.imp.get_unique_constraint::<u32>("id"),
+            phantom: std::marker::PhantomData,
         }
+    }
+}
 
-        impl<'ctx> BenchUsersIdUnique<'ctx> {
-            /// Find the subscribed row whose `id` column value is equal to `col_val`,
-            /// if such a row is present in the client cache.
-            pub fn find(&self, col_val: &u32) -> Option<BenchUser> {
-                self.imp.find(col_val)
-            }
-        }
-        
+impl<'ctx> BenchUsersIdUnique<'ctx> {
+    /// Find the subscribed row whose `id` column value is equal to `col_val`,
+    /// if such a row is present in the client cache.
+    pub fn find(&self, col_val: &u32) -> Option<BenchUser> {
+        self.imp.find(col_val)
+    }
+}
+
 #[doc(hidden)]
 pub(super) fn register_table(client_cache: &mut __sdk::ClientCache<super::RemoteModule>) {
-
     let _table = client_cache.get_or_make_table::<BenchUser>("bench_users");
     _table.add_unique_constraint::<u32>("id", |row| &row.id);
 }
@@ -138,26 +136,24 @@ pub(super) fn parse_table_update(
     raw_updates: __ws::v2::TableUpdate,
 ) -> __sdk::Result<__sdk::TableUpdate<BenchUser>> {
     __sdk::TableUpdate::parse_table_update(raw_updates).map_err(|e| {
-        __sdk::InternalError::failed_parse(
-            "TableUpdate<BenchUser>",
-            "TableUpdate",
-        ).with_cause(e).into()
+        __sdk::InternalError::failed_parse("TableUpdate<BenchUser>", "TableUpdate")
+            .with_cause(e)
+            .into()
     })
 }
 
-        #[allow(non_camel_case_types)]
-        /// Extension trait for query builder access to the table `BenchUser`.
-        ///
-        /// Implemented for [`__sdk::QueryTableAccessor`].
-        pub trait bench_usersQueryTableAccess {
-            #[allow(non_snake_case)]
-            /// Get a query builder for the table `BenchUser`.
-            fn bench_users(&self) -> __sdk::__query_builder::Table<BenchUser>;
-        }
+#[allow(non_camel_case_types)]
+/// Extension trait for query builder access to the table `BenchUser`.
+///
+/// Implemented for [`__sdk::QueryTableAccessor`].
+pub trait bench_usersQueryTableAccess {
+    #[allow(non_snake_case)]
+    /// Get a query builder for the table `BenchUser`.
+    fn bench_users(&self) -> __sdk::__query_builder::Table<BenchUser>;
+}
 
-        impl bench_usersQueryTableAccess for __sdk::QueryTableAccessor {
-            fn bench_users(&self) -> __sdk::__query_builder::Table<BenchUser> {
-                __sdk::__query_builder::Table::new("bench_users")
-            }
-        }
-
+impl bench_usersQueryTableAccess for __sdk::QueryTableAccessor {
+    fn bench_users(&self) -> __sdk::__query_builder::Table<BenchUser> {
+        __sdk::__query_builder::Table::new("bench_users")
+    }
+}

@@ -1,19 +1,34 @@
+import { goto } from '$app/navigation';
 import { page } from '$app/state';
 import { isHigherBetterMetric, parseCompareMetric } from '$lib/compare';
 import type { PageData } from './$types';
 
 export class ComparePageState {
 	#data: () => PageData;
-	base = $derived(page.url.searchParams.get('base'));
-	head = $derived(page.url.searchParams.get('head'));
 	metric = $derived(parseCompareMetric(page.url.searchParams.get('metric')));
 
 	constructor(data: () => PageData) {
 		this.#data = data;
 	}
 
-	get runs() {
-		return this.#data().runs;
+	get cohorts() {
+		return this.#data().cohorts;
+	}
+
+	get cohort() {
+		return this.#data().cohort;
+	}
+
+	get cohortId() {
+		return this.cohort?.id ?? page.url.searchParams.get('cohort');
+	}
+
+	get baseline() {
+		return this.#data().baseline ?? page.url.searchParams.get('baseline');
+	}
+
+	get targets() {
+		return this.#data().targets;
 	}
 
 	get items() {
@@ -41,6 +56,7 @@ export class ComparePageState {
 			return sign + (abs * 1_000).toFixed(0) + 'us';
 		}
 		if (this.metric.startsWith('cpu')) return sign + abs.toFixed(1) + '%';
+		if (this.metric.startsWith('mem')) return sign + abs.toFixed(1) + 'MB';
 		if (this.metric === 'err') return sign + (abs * 100).toFixed(2) + '%';
 		return sign + abs.toFixed(2);
 	};
@@ -48,5 +64,21 @@ export class ComparePageState {
 	barStyle = (deltaPct: number): string => {
 		const side = deltaPct >= 0 ? 'left: 50%' : 'right: 50%';
 		return `width: ${Math.min(Math.abs(deltaPct) * 100, 100)}%; ${side}`;
+	};
+
+	updateComparison = (event: Event): void => {
+		const form = (event.currentTarget as HTMLSelectElement).form;
+		if (!form) return;
+
+		const data = new FormData(form);
+		const params = new URLSearchParams();
+		const cohort = data.get('cohort');
+		const baseline = data.get('baseline');
+		const metric = data.get('metric');
+		if (typeof cohort === 'string' && cohort) params.set('cohort', cohort);
+		if (typeof baseline === 'string' && baseline) params.set('baseline', baseline);
+		params.set('metric', parseCompareMetric(typeof metric === 'string' ? metric : null));
+
+		void goto('/compare?' + params.toString());
 	};
 }
