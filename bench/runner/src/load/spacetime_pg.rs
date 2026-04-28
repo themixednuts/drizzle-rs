@@ -203,7 +203,9 @@ struct AppState {
     client: Arc<tokio_postgres::Client>,
 }
 
-const INSERT_BATCH_ROWS: usize = 500;
+// SpacetimeDB PGWire has a low maximum SQL string length. Keep batches
+// conservative so wide customer/order rows stay under the query limit.
+const INSERT_BATCH_ROWS: usize = 100;
 const DETAILS_PER_ORDER: usize = 6;
 
 async fn insert_rows(
