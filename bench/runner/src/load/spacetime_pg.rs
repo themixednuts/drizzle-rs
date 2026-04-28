@@ -685,7 +685,7 @@ async fn customers(
     let limit = params.limit_or(50);
     let offset = params.offset();
     let sql = format!(
-        "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers ORDER BY id LIMIT {limit} OFFSET {offset}"
+        "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE id > {offset} ORDER BY id LIMIT {limit}"
     );
     let messages = pg_query(&state, &sql).await?;
     let resp: Vec<CustomerResponse> = extract_rows(messages)
@@ -744,7 +744,7 @@ async fn employees_handler(
     let limit = params.limit_or(50);
     let offset = params.offset();
     let sql = format!(
-        "SELECT id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, address, city, postal_code, country, home_phone, extension, notes, recipient_id FROM employees ORDER BY id LIMIT {limit} OFFSET {offset}"
+        "SELECT id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, address, city, postal_code, country, home_phone, extension, notes, recipient_id FROM employees WHERE id > {offset} ORDER BY id LIMIT {limit}"
     );
     let messages = pg_query(&state, &sql).await?;
     let resp: Vec<EmployeeResponse> = extract_rows(messages)
@@ -778,7 +778,7 @@ async fn suppliers_handler(
     let limit = params.limit_or(50);
     let offset = params.offset();
     let sql = format!(
-        "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers ORDER BY id LIMIT {limit} OFFSET {offset}"
+        "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers WHERE id > {offset} ORDER BY id LIMIT {limit}"
     );
     let messages = pg_query(&state, &sql).await?;
     let resp: Vec<SupplierResponse> = extract_rows(messages)
@@ -835,7 +835,7 @@ async fn products_handler(
     let limit = params.limit_or(50);
     let offset = params.offset();
     let sql = format!(
-        "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products ORDER BY id LIMIT {limit} OFFSET {offset}"
+        "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products WHERE id > {offset} ORDER BY id LIMIT {limit}"
     );
     let messages = pg_query(&state, &sql).await?;
     let resp: Vec<ProductResponse> = extract_rows(messages)
@@ -957,7 +957,7 @@ async fn orders_with_details(
     let limit = params.limit_or(50);
     let offset = params.offset();
     let order_sql = format!(
-        "SELECT id, shipped_date, ship_name, ship_city, ship_country FROM orders ORDER BY id LIMIT {limit} OFFSET {offset}"
+        "SELECT id, shipped_date, ship_name, ship_city, ship_country FROM orders WHERE id > {offset} ORDER BY id LIMIT {limit}"
     );
     let orders = extract_rows(pg_query(&state, &order_sql).await?);
     if orders.is_empty() {
