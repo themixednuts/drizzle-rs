@@ -1264,18 +1264,25 @@ fn normalize_database_url() -> String {
 }
 
 fn seed_postgres(seed: u64) -> Result<(), DynError> {
-    let status = Command::new("cargo")
-        .args([
-            "run",
-            "-q",
-            "-p",
-            "bench-runner",
-            "--",
-            "seed-postgres",
-            "--seed",
-            &seed.to_string(),
-        ])
-        .status()?;
+    let seed = seed.to_string();
+    let status = if let Ok(runner) = std::env::var("BENCH_RUNNER_BIN") {
+        Command::new(runner)
+            .args(["seed-postgres", "--seed", &seed])
+            .status()?
+    } else {
+        Command::new("cargo")
+            .args([
+                "run",
+                "-q",
+                "-p",
+                "bench-runner",
+                "--",
+                "seed-postgres",
+                "--seed",
+                &seed,
+            ])
+            .status()?
+    };
     if status.success() {
         Ok(())
     } else {

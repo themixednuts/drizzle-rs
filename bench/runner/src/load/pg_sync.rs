@@ -11,6 +11,29 @@ use std::sync::{
     mpsc,
 };
 
+const SEED_CACHE_VERSION: &str = "postgres-v3";
+const SEED_CACHE_LOCK_KEY: i64 = 0x6472_7a6c_5f62_6e63;
+
+const DROP_PUBLIC_TABLES_SQL: &str = "DROP TABLE IF EXISTS public.order_details;
+     DROP TABLE IF EXISTS public.orders;
+     DROP TABLE IF EXISTS public.products;
+     DROP TABLE IF EXISTS public.suppliers;
+     DROP TABLE IF EXISTS public.employees;
+     DROP TABLE IF EXISTS public.customers;";
+
+const CREATE_INDEXES_SQL: &str =
+    "CREATE INDEX IF NOT EXISTS idx_employees_recipient ON employees(recipient_id);
+     CREATE INDEX IF NOT EXISTS idx_products_supplier ON products(supplier_id);
+     CREATE INDEX IF NOT EXISTS idx_details_order ON order_details(order_id);
+     CREATE INDEX IF NOT EXISTS idx_details_product ON order_details(product_id);";
+
+const RESET_SEQUENCES_SQL: &str =
+    "SELECT setval(pg_get_serial_sequence('customers', 'id'), COALESCE((SELECT max(id) FROM customers), 1), true);
+     SELECT setval(pg_get_serial_sequence('employees', 'id'), COALESCE((SELECT max(id) FROM employees), 1), true);
+     SELECT setval(pg_get_serial_sequence('suppliers', 'id'), COALESCE((SELECT max(id) FROM suppliers), 1), true);
+     SELECT setval(pg_get_serial_sequence('products', 'id'), COALESCE((SELECT max(id) FROM products), 1), true);
+     SELECT setval(pg_get_serial_sequence('orders', 'id'), COALESCE((SELECT max(id) FROM orders), 1), true);";
+
 #[PostgresTable(name = "customers")]
 struct Customer {
     #[column(serial, primary)]
@@ -448,30 +471,45 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
 }
 
 pub(crate) fn seed_database_url(database_url: &str, seed: u64) -> Result<(), String> {
-    create_seeded_db(database_url, seed).map(drop)
+    seed_database_url_from_schema_cache(database_url, seed)
 }
 
-fn create_seeded_db(
-    database_url: &str,
-    seed: u64,
-) -> Result<drizzle::postgres::sync::Drizzle<Schema>, String> {
-    let mut conn = ::postgres::Client::connect(database_url, ::postgres::NoTls)
+fn seed_database_url_from_schema_cache(database_url: &str, seed: u64) -> Result<(), String> {
+    let conn = ::postgres::Client::connect(database_url, ::postgres::NoTls)
         .map_err(|err| format!("postgres connect failed: {err}"))?;
-    conn.batch_execute(
-        "DROP TABLE IF EXISTS order_details;
-         DROP TABLE IF EXISTS orders;
-         DROP TABLE IF EXISTS products;
-         DROP TABLE IF EXISTS suppliers;
-         DROP TABLE IF EXISTS employees;
-         DROP TABLE IF EXISTS customers;",
-    )
-    .map_err(|err| format!("postgres drop failed: {err}"))?;
-
     let (mut db, schema) = drizzle::postgres::sync::Drizzle::new(conn, Schema::new());
-    db.create()
-        .map_err(|err| format!("postgres create failed: {err}"))?;
 
-    let stmts = drizzle_seed::SeedConfig::postgres(&schema)
+    db.conn_mut()
+        .execute("SELECT pg_advisory_lock($1)", &[&SEED_CACHE_LOCK_KEY])
+        .map_err(|err| format!("postgres seed cache lock failed: {err}"))?;
+
+    let result = (|| {
+        ensure_seed_cache(&mut db, &schema, seed)?;
+        reset_public_from_cache(&mut db, seed)
+    })();
+
+    let unlock = db
+        .conn_mut()
+        .execute("SELECT pg_advisory_unlock($1)", &[&SEED_CACHE_LOCK_KEY])
+        .map_err(|err| format!("postgres seed cache unlock failed: {err}"));
+
+    match (result, unlock) {
+        (Ok(()), Ok(_)) => Ok(()),
+        (Err(err), Ok(_)) => Err(err),
+        (Ok(()), Err(err)) => Err(err),
+        (Err(seed_err), Err(unlock_err)) => Err(format!("{seed_err}; {unlock_err}")),
+    }
+}
+
+fn seed_cache_schema(seed: u64) -> String {
+    format!("bench_seed_{SEED_CACHE_VERSION}_{seed}").replace('-', "_")
+}
+
+fn postgres_seed_statements(
+    schema: &Schema,
+    seed: u64,
+) -> Vec<drizzle_seed::PostgresSeedStatement> {
+    drizzle_seed::SeedConfig::postgres(schema)
         .seed(seed)
         .count(&schema.customer, super::SEED_CUSTOMERS)
         .count(&schema.employee, super::SEED_EMPLOYEES)
@@ -479,23 +517,219 @@ fn create_seeded_db(
         .count(&schema.product, super::SEED_PRODUCTS)
         .count(&schema.order, super::SEED_ORDERS)
         .relation(&schema.order, &schema.detail, 6)
-        .generate();
-    for stmt in stmts {
-        let preview = stmt.sql();
-        db.execute(stmt)
-            .map_err(|err| format!("postgres seed failed in `{preview}`: {err:?}"))?;
+        .generate()
+}
+
+fn ensure_seed_cache(
+    db: &mut drizzle::postgres::sync::Drizzle<Schema>,
+    schema: &Schema,
+    seed: u64,
+) -> Result<(), String> {
+    let cache_schema = seed_cache_schema(seed);
+    if seed_cache_ready(db, &cache_schema, seed)? {
+        return Ok(());
     }
 
+    let cache_ident = quote_ident(&cache_schema);
+    db.conn_mut()
+        .batch_execute(&format!(
+            "BEGIN;
+             DROP SCHEMA IF EXISTS {cache_ident} CASCADE;
+             CREATE SCHEMA {cache_ident};
+             SET LOCAL search_path TO {cache_ident};"
+        ))
+        .map_err(|err| format!("postgres seed cache init failed: {err}"))?;
+
+    let result = (|| {
+        db.create()
+            .map_err(|err| format!("postgres seed cache create failed: {err}"))?;
+
+        for stmt in postgres_seed_statements(schema, seed) {
+            let preview = stmt.sql();
+            db.execute(stmt).map_err(|err| {
+                format!("postgres seed cache insert failed in `{preview}`: {err:?}")
+            })?;
+        }
+
+        db.conn_mut()
+            .batch_execute(CREATE_INDEXES_SQL)
+            .map_err(|err| format!("postgres seed cache indexes failed: {err}"))?;
+        write_seed_cache_meta(db, &cache_ident, seed)
+    })();
+
+    finish_transaction(db, result, "postgres seed cache")
+}
+
+fn seed_cache_ready(
+    db: &mut drizzle::postgres::sync::Drizzle<Schema>,
+    cache_schema: &str,
+    seed: u64,
+) -> Result<bool, String> {
+    let row = db
+        .conn_mut()
+        .query_one(
+            "SELECT EXISTS (
+               SELECT 1
+               FROM pg_class c
+               JOIN pg_namespace n ON n.oid = c.relnamespace
+               WHERE n.nspname = $1 AND c.relname = '__bench_seed_meta'
+             )",
+            &[&cache_schema],
+        )
+        .map_err(|err| format!("postgres seed cache lookup failed: {err}"))?;
+    if !row.get::<_, bool>(0) {
+        return Ok(false);
+    }
+
+    let cache_ident = quote_ident(cache_schema);
+    let Ok(meta) = db.conn_mut().query_one(
+        &format!(
+            "SELECT version, seed, customers, employees, suppliers, products, orders
+             FROM {cache_ident}.__bench_seed_meta
+             LIMIT 1"
+        ),
+        &[],
+    ) else {
+        return Ok(false);
+    };
+
+    Ok(meta.get::<_, String>(0) == SEED_CACHE_VERSION
+        && meta.get::<_, i64>(1) == seed as i64
+        && meta.get::<_, i64>(2) == super::SEED_CUSTOMERS as i64
+        && meta.get::<_, i64>(3) == super::SEED_EMPLOYEES as i64
+        && meta.get::<_, i64>(4) == super::SEED_SUPPLIERS as i64
+        && meta.get::<_, i64>(5) == super::SEED_PRODUCTS as i64
+        && meta.get::<_, i64>(6) == super::SEED_ORDERS as i64)
+}
+
+fn write_seed_cache_meta(
+    db: &mut drizzle::postgres::sync::Drizzle<Schema>,
+    cache_ident: &str,
+    seed: u64,
+) -> Result<(), String> {
+    db.conn_mut()
+        .batch_execute(&format!(
+            "CREATE TABLE {cache_ident}.__bench_seed_meta (
+               version text PRIMARY KEY,
+               seed bigint NOT NULL,
+               customers bigint NOT NULL,
+               employees bigint NOT NULL,
+               suppliers bigint NOT NULL,
+               products bigint NOT NULL,
+               orders bigint NOT NULL
+             );"
+        ))
+        .map_err(|err| format!("postgres seed cache metadata create failed: {err}"))?;
+
+    db.conn_mut()
+        .execute(
+            &format!(
+                "INSERT INTO {cache_ident}.__bench_seed_meta
+                 (version, seed, customers, employees, suppliers, products, orders)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)"
+            ),
+            &[
+                &SEED_CACHE_VERSION,
+                &(seed as i64),
+                &(super::SEED_CUSTOMERS as i64),
+                &(super::SEED_EMPLOYEES as i64),
+                &(super::SEED_SUPPLIERS as i64),
+                &(super::SEED_PRODUCTS as i64),
+                &(super::SEED_ORDERS as i64),
+            ],
+        )
+        .map(|_| ())
+        .map_err(|err| format!("postgres seed cache metadata insert failed: {err}"))
+}
+
+fn reset_public_from_cache(
+    db: &mut drizzle::postgres::sync::Drizzle<Schema>,
+    seed: u64,
+) -> Result<(), String> {
+    let cache_ident = quote_ident(&seed_cache_schema(seed));
+    let replica_role = set_replication_role_replica(db);
     db.conn_mut()
         .batch_execute(
-            "CREATE INDEX IF NOT EXISTS idx_employees_recipient ON employees(recipient_id);
-             CREATE INDEX IF NOT EXISTS idx_products_supplier ON products(supplier_id);
-             CREATE INDEX IF NOT EXISTS idx_details_order ON order_details(order_id);
-             CREATE INDEX IF NOT EXISTS idx_details_product ON order_details(product_id);",
+            "BEGIN;
+             SET LOCAL search_path TO public;
+             SET LOCAL synchronous_commit TO off;",
         )
-        .map_err(|err| format!("postgres create indexes failed: {err}"))?;
+        .map_err(|err| {
+            reset_replication_role(db, replica_role);
+            format!("postgres reset begin failed: {err}")
+        })?;
 
-    Ok(db)
+    let result = (|| {
+        db.conn_mut()
+            .batch_execute(DROP_PUBLIC_TABLES_SQL)
+            .map_err(|err| format!("postgres drop failed: {err}"))?;
+        db.create()
+            .map_err(|err| format!("postgres create failed: {err}"))?;
+
+        for table in [
+            "customers",
+            "employees",
+            "suppliers",
+            "products",
+            "orders",
+            "order_details",
+        ] {
+            db.conn_mut()
+                .batch_execute(&format!(
+                    "INSERT INTO public.{table} SELECT * FROM {cache_ident}.{table};"
+                ))
+                .map_err(|err| format!("postgres copy {table} from seed cache failed: {err}"))?;
+        }
+
+        db.conn_mut()
+            .batch_execute(CREATE_INDEXES_SQL)
+            .map_err(|err| format!("postgres create indexes failed: {err}"))?;
+        db.conn_mut()
+            .batch_execute(RESET_SEQUENCES_SQL)
+            .map_err(|err| format!("postgres reset sequences failed: {err}"))?;
+
+        Ok(())
+    })();
+
+    let result = finish_transaction(db, result, "postgres public reset");
+    reset_replication_role(db, replica_role);
+    result
+}
+
+fn finish_transaction(
+    db: &mut drizzle::postgres::sync::Drizzle<Schema>,
+    result: Result<(), String>,
+    context: &str,
+) -> Result<(), String> {
+    let end = if result.is_ok() { "COMMIT" } else { "ROLLBACK" };
+    let tx = db
+        .conn_mut()
+        .batch_execute(end)
+        .map_err(|err| format!("{context} {end} failed: {err}"));
+    match (result, tx) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(err), Ok(())) => Err(err),
+        (Ok(()), Err(err)) => Err(err),
+        (Err(err), Err(tx_err)) => Err(format!("{err}; {tx_err}")),
+    }
+}
+
+fn quote_ident(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+fn set_replication_role_replica(db: &mut drizzle::postgres::sync::Drizzle<Schema>) -> bool {
+    db.conn_mut()
+        .batch_execute("SET session_replication_role = replica;")
+        .is_ok()
+}
+
+fn reset_replication_role(db: &mut drizzle::postgres::sync::Drizzle<Schema>, enabled: bool) {
+    if enabled {
+        let _ = db
+            .conn_mut()
+            .batch_execute("SET session_replication_role = DEFAULT;");
+    }
 }
 
 fn connect_db(database_url: &str) -> Result<drizzle::postgres::sync::Drizzle<Schema>, String> {

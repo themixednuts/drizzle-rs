@@ -5,7 +5,6 @@ use axum::routing::get;
 use axum::{Json, Router, debug_handler};
 use chrono::NaiveDate;
 use drizzle::postgres::prelude::*;
-use drizzle_seed::SeedConfig;
 use std::sync::Arc;
 
 #[PostgresTable(name = "customers")]
@@ -305,61 +304,14 @@ impl AppState {
 }
 
 pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
-    let (client, driver) = ::tokio_postgres::connect(&pg_url(), ::tokio_postgres::NoTls)
+    let database_url = pg_url();
+    tokio::task::spawn_blocking(move || super::pg_sync::seed_database_url(&database_url, seed))
         .await
-        .map_err(|err| Fail::new(Code::RunFail, format!("postgres connect failed: {err}")))?;
-    tokio::spawn(async move {
-        let _ = driver.await;
-    });
-
-    client
-        .batch_execute(
-            "DROP TABLE IF EXISTS order_details;
-         DROP TABLE IF EXISTS orders;
-         DROP TABLE IF EXISTS products;
-         DROP TABLE IF EXISTS suppliers;
-         DROP TABLE IF EXISTS employees;
-         DROP TABLE IF EXISTS customers;",
-        )
-        .await
-        .map_err(|err| Fail::new(Code::RunFail, format!("postgres drop failed: {err}")))?;
-
-    // Use drizzle for DDL
-    let (db, schema) = drizzle::postgres::tokio::Drizzle::new(client, Schema::new());
-    db.create()
-        .await
-        .map_err(|err| Fail::new(Code::RunFail, format!("postgres create failed: {err}")))?;
-
-    // Seed via drizzle-seed (deterministic from seed value)
-    let stmts = SeedConfig::postgres(&schema)
-        .seed(seed)
-        .count(&schema.customer, super::SEED_CUSTOMERS)
-        .count(&schema.employee, super::SEED_EMPLOYEES)
-        .count(&schema.supplier, super::SEED_SUPPLIERS)
-        .count(&schema.product, super::SEED_PRODUCTS)
-        .count(&schema.order, super::SEED_ORDERS)
-        .relation(&schema.order, &schema.detail, 6)
-        .generate();
-    for stmt in stmts {
-        db.execute(stmt)
-            .await
-            .map_err(|err| Fail::new(Code::RunFail, format!("pg seed failed: {err}")))?;
-    }
-
-    // Create indexes
-    db.conn()
-        .batch_execute(
-            "CREATE INDEX IF NOT EXISTS idx_employees_recipient ON employees(recipient_id);
-         CREATE INDEX IF NOT EXISTS idx_products_supplier ON products(supplier_id);
-         CREATE INDEX IF NOT EXISTS idx_details_order ON order_details(order_id);
-         CREATE INDEX IF NOT EXISTS idx_details_product ON order_details(product_id);",
-        )
-        .await
-        .map_err(|err| Fail::new(Code::RunFail, format!("pg create indexes failed: {err}")))?;
+        .map_err(|err| Fail::new(Code::RunFail, format!("pg_tokio seed panicked: {err}")))?
+        .map_err(|msg| Fail::new(Code::RunFail, msg))?;
 
     let mut dbs = Vec::with_capacity(super::POSTGRES_POOL_SIZE);
-    dbs.push(Arc::new(db));
-    for _ in 1..super::POSTGRES_POOL_SIZE {
+    for _ in 0..super::POSTGRES_POOL_SIZE {
         let (client, driver) = ::tokio_postgres::connect(&pg_url(), ::tokio_postgres::NoTls)
             .await
             .map_err(|err| Fail::new(Code::RunFail, format!("postgres connect failed: {err}")))?;

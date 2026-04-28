@@ -30,6 +30,8 @@ Last updated: 2026-04-28.
 
 PostgreSQL targets use the runner-owned Northwind micro schema and deterministic `drizzle_seed::SeedConfig::postgres` seed path. External PostgreSQL targets seed by invoking `bench-runner seed-postgres` before printing `LISTENING`, so setup stays outside measured load and parity/load exercise the same table layout and rows. The shared seed path now binds PostgreSQL date/time values as typed parameters instead of text, which keeps the schema identical across Drizzle-RS, SQLx, Diesel, SeaORM, Bun SQL, Drizzle TS, and Prisma.
 
+PostgreSQL setup caches generated seed data per seed/version in a private `bench_seed_*` schema. The first setup for a seed builds that cache with the normal constrained seeder; later target resets replay from the cache into `public`, reset serial sequences, and recreate the same indexes. External targets receive `BENCH_RUNNER_BIN` from the parent runner and call that binary directly for seeding, avoiding a nested `cargo run` per target.
+
 PostgreSQL concurrency is explicit in the target specs. Drizzle-RS sync/tokio, SQLx, SeaORM, Bun SQL, Drizzle TS, and Prisma all advertise and use pool size `8`; Diesel remains pool size `1` because the current Diesel benchmark uses a single synchronous libpq connection behind a mutex. The Diesel target bundles libpq 18.3 through `pq-sys`/`pq-src` so CI and local Windows runs do not depend on a system `libpq` import library.
 
 The Drizzle TS comparator is pinned to `drizzle-orm@1.0.0-beta.22`, matching the current npm `beta` dist-tag and the v1 feature surface Drizzle-RS is benchmarking against.

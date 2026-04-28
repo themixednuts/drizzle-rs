@@ -41,6 +41,9 @@ pub async fn serve(cmd_json: &str) -> Result<(ServerHandle, Child), Fail> {
     if let Ok(trial) = std::env::var("BENCH_TRIAL") {
         builder.env("BENCH_TRIAL", trial);
     }
+    if let Ok(current_exe) = std::env::current_exe() {
+        builder.env("BENCH_RUNNER_BIN", current_exe);
+    }
     builder
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())

@@ -33,10 +33,11 @@ export function buildUrl(): string {
 
 export async function seedPostgres(): Promise<void> {
   const seed = process.env.BENCH_SEED ?? "42";
-  const proc = Bun.spawn(
-    ["cargo", "run", "-q", "-p", "bench-runner", "--", "seed-postgres", "--seed", seed],
-    { stdout: "inherit", stderr: "inherit" },
-  );
+  const runner = process.env.BENCH_RUNNER_BIN;
+  const cmd = runner
+    ? [runner, "seed-postgres", "--seed", seed]
+    : ["cargo", "run", "-q", "-p", "bench-runner", "--", "seed-postgres", "--seed", seed];
+  const proc = Bun.spawn(cmd, { stdout: "inherit", stderr: "inherit" });
   const code = await proc.exited;
   if (code !== 0) {
     throw new Error(`bench-runner seed-postgres exited with ${code}`);
