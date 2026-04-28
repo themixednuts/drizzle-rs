@@ -15,4 +15,5 @@ tmpclaude-*
 /bench/targets/**/target/
 /bench/dashboard/.svelte-kit/
 /bench/dashboard/.wrangler/
+/bench/dashboard/.codex-logs/
 /bench/dashboard/node_modules/
