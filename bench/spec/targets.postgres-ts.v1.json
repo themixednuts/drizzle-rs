@@ -63,7 +63,7 @@
     },
     "orm": {
       "name": "drizzle-orm",
-      "ver": "0.45"
+      "ver": "1.0.0-beta.22"
     },
     "driver": {
       "name": "bun:sql",

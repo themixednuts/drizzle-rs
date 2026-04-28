@@ -1,6 +1,6 @@
 # Benchmark Runner Audit
 
-Last updated: 2026-04-27.
+Last updated: 2026-04-28.
 
 ## Execution Surfaces
 
@@ -28,7 +28,11 @@ Last updated: 2026-04-27.
 
 ## Data Contract
 
-PostgreSQL targets use the runner-owned Northwind micro schema and deterministic `drizzle_seed::SeedConfig::postgres` seed path. External PostgreSQL targets seed by invoking `bench-runner seed-postgres` before printing `LISTENING`, so setup stays outside measured load and parity/load exercise the same table layout and rows.
+PostgreSQL targets use the runner-owned Northwind micro schema and deterministic `drizzle_seed::SeedConfig::postgres` seed path. External PostgreSQL targets seed by invoking `bench-runner seed-postgres` before printing `LISTENING`, so setup stays outside measured load and parity/load exercise the same table layout and rows. The shared seed path now binds PostgreSQL date/time values as typed parameters instead of text, which keeps the schema identical across Drizzle-RS, SQLx, Diesel, SeaORM, Bun SQL, Drizzle TS, and Prisma.
+
+PostgreSQL concurrency is explicit in the target specs. Drizzle-RS sync/tokio, SQLx, SeaORM, Bun SQL, Drizzle TS, and Prisma all advertise and use pool size `8`; Diesel remains pool size `1` because the current Diesel benchmark uses a single synchronous libpq connection behind a mutex. The Diesel target bundles libpq 18.3 through `pq-sys`/`pq-src` so CI and local Windows runs do not depend on a system `libpq` import library.
+
+The Drizzle TS comparator is pinned to `drizzle-orm@1.0.0-beta.22`, matching the current npm `beta` dist-tag and the v1 feature surface Drizzle-RS is benchmarking against.
 
 SQLite targets use the same in-memory SQLite connection model and report pool size `1` in fairness metadata.
 

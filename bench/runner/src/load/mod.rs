@@ -15,7 +15,7 @@ use std::io::{BufRead, BufReader, Read as _, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
@@ -34,6 +34,7 @@ pub(crate) const SEED_EMPLOYEES: usize = 200;
 pub(crate) const SEED_ORDERS: usize = 50_000;
 pub(crate) const SEED_SUPPLIERS: usize = 1_000;
 pub(crate) const SEED_PRODUCTS: usize = 5_000;
+pub(crate) const POSTGRES_POOL_SIZE: usize = 8;
 // Details per order: controlled via SeedConfig::relation() (~6 per order, matching upstream avg)
 
 /// Start the adapter server for the given target. Used by both `load` and `parity`.
@@ -64,7 +65,7 @@ pub(crate) async fn serve_target(target: &str, seed: u64) -> Result<ServerHandle
     }
 }
 
-pub(crate) fn seed_postgres(args: SeedPostgres) -> Result<Code, Fail> {
+pub(crate) async fn seed_postgres(args: SeedPostgres) -> Result<Code, Fail> {
     let seed = args
         .seed
         .or_else(|| {
@@ -73,7 +74,10 @@ pub(crate) fn seed_postgres(args: SeedPostgres) -> Result<Code, Fail> {
                 .and_then(|raw| raw.parse().ok())
         })
         .unwrap_or(42);
-    pg_sync::seed_database_url(&pg_url(), seed)
+    let database_url = pg_url();
+    tokio::task::spawn_blocking(move || pg_sync::seed_database_url(&database_url, seed))
+        .await
+        .map_err(|err| Fail::new(Code::RunFail, format!("postgres seed panicked: {err}")))?
         .map_err(|msg| Fail::new(Code::RunFail, format!("postgres seed failed: {msg}")))?;
     Ok(Code::Success)
 }

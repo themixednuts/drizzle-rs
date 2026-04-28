@@ -20,8 +20,8 @@ import {
 await seedPostgres();
 
 process.env.DATABASE_URL = buildUrl();
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
-const adapter = new PrismaPg({ pool });
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
+const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 const customerSelect = {

@@ -165,6 +165,7 @@ dependencies = [
  "chrono",
  "diesel",
  "postgres",
+ "pq-sys",
  "sea-orm",
  "serde",
  "serde_json",
@@ -1571,6 +1572,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pq-src"
+version = "0.3.11+libpq-18.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fb5bfbe0c3445d371dd8acf7d6c912ece8baf2f61f7c571af85a1d7687c2d0f"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "pq-sys"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1578,6 +1588,7 @@ checksum = "574ddd6a267294433f140b02a726b0640c43cf7c6f717084684aaa3b285aba61"
 dependencies = [
  "libc",
  "pkg-config",
+ "pq-src",
  "vcpkg",
 ]
 

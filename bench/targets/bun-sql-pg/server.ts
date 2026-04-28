@@ -33,7 +33,7 @@ import {
 
 await seedPostgres();
 
-const sql = new SQL(buildUrl());
+const sql = new SQL({ url: buildUrl(), max: 8 });
 
 async function rows(query: string, params: unknown[] = []) {
   return await sql.unsafe(query, params);

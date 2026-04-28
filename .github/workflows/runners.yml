@@ -314,12 +314,6 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install libpq
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libpq-dev
-
       - name: Cache Rust dependencies
         if: ${{ !env.ACT }}
         uses: Swatinem/rust-cache@v2

@@ -104,7 +104,7 @@ const recipient = alias(employees, "recipient");
 
 await seedPostgres();
 
-const client = new SQL(buildUrl());
+const client = new SQL({ url: buildUrl(), max: 8 });
 const db = drizzle({ client });
 
 const customerColumns = {

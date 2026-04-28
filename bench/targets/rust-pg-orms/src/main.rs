@@ -1104,8 +1104,8 @@ async fn sea_order_with_details(
 
 fn row_to_json(row: &sea_orm::QueryResult) -> Result<serde_json::Value, sea_orm::DbErr> {
     let mut map = serde_json::Map::new();
+
     for (snake, camel) in [
-        ("id", "id"),
         ("company_name", "companyName"),
         ("contact_name", "contactName"),
         ("contact_title", "contactTitle"),
@@ -1120,52 +1120,124 @@ fn row_to_json(row: &sea_orm::QueryResult) -> Result<serde_json::Value, sea_orm:
         ("first_name", "firstName"),
         ("title", "title"),
         ("title_of_courtesy", "titleOfCourtesy"),
-        ("birth_date", "birthDate"),
-        ("hire_date", "hireDate"),
         ("home_phone", "homePhone"),
-        ("extension", "extension"),
         ("notes", "notes"),
-        ("recipient_id", "recipientId"),
         ("recipient_last_name", "recipientLastName"),
         ("recipient_first_name", "recipientFirstName"),
         ("name", "name"),
         ("qt_per_unit", "qtPerUnit"),
-        ("unit_price", "unitPrice"),
+        ("ship_name", "shipName"),
+        ("ship_city", "shipCity"),
+        ("ship_country", "shipCountry"),
+    ] {
+        insert_sea_opt_string(row, &mut map, snake, camel)?;
+    }
+
+    for (snake, camel) in [
+        ("id", "id"),
+        ("extension", "extension"),
+        ("recipient_id", "recipientId"),
         ("units_in_stock", "unitsInStock"),
         ("units_on_order", "unitsOnOrder"),
         ("reorder_level", "reorderLevel"),
         ("discontinued", "discontinued"),
         ("supplier_id", "supplierId"),
-        ("shipped_date", "shippedDate"),
-        ("ship_name", "shipName"),
-        ("ship_city", "shipCity"),
-        ("ship_country", "shipCountry"),
-        ("products_count", "productsCount"),
-        ("quantity_sum", "quantitySum"),
-        ("total_price", "totalPrice"),
     ] {
-        if let Ok(value) = row.try_get::<serde_json::Value>("", snake) {
-            map.insert(camel.to_string(), value);
-        }
+        insert_sea_i32(row, &mut map, snake, camel)?;
     }
 
-    if let Ok(s_id) = row.try_get::<serde_json::Value>("", "s_id") {
+    insert_sea_i64(row, &mut map, "products_count", "productsCount")?;
+    insert_sea_f64(row, &mut map, "unit_price", "unitPrice")?;
+    insert_sea_f64(row, &mut map, "quantity_sum", "quantitySum")?;
+    insert_sea_f64(row, &mut map, "total_price", "totalPrice")?;
+    insert_sea_opt_date(row, &mut map, "birth_date", "birthDate")?;
+    insert_sea_opt_date(row, &mut map, "hire_date", "hireDate")?;
+    insert_sea_opt_date(row, &mut map, "shipped_date", "shippedDate")?;
+
+    if let Ok(s_id) = row.try_get::<i32>("", "s_id") {
         let supplier = serde_json::json!({
             "id": s_id,
-            "companyName": row.try_get::<serde_json::Value>("", "s_company_name").ok(),
-            "contactName": row.try_get::<serde_json::Value>("", "s_contact_name").ok(),
-            "contactTitle": row.try_get::<serde_json::Value>("", "s_contact_title").ok(),
-            "address": row.try_get::<serde_json::Value>("", "s_address").ok(),
-            "city": row.try_get::<serde_json::Value>("", "s_city").ok(),
-            "region": row.try_get::<serde_json::Value>("", "s_region").ok(),
-            "postalCode": row.try_get::<serde_json::Value>("", "s_postal_code").ok(),
-            "country": row.try_get::<serde_json::Value>("", "s_country").ok(),
-            "phone": row.try_get::<serde_json::Value>("", "s_phone").ok()
+            "companyName": sea_opt_string(row, "s_company_name")?,
+            "contactName": sea_opt_string(row, "s_contact_name")?,
+            "contactTitle": sea_opt_string(row, "s_contact_title")?,
+            "address": sea_opt_string(row, "s_address")?,
+            "city": sea_opt_string(row, "s_city")?,
+            "region": sea_opt_string(row, "s_region")?,
+            "postalCode": sea_opt_string(row, "s_postal_code")?,
+            "country": sea_opt_string(row, "s_country")?,
+            "phone": sea_opt_string(row, "s_phone")?
         });
         map.insert("supplier".to_string(), supplier);
     }
 
     Ok(serde_json::Value::Object(map))
+}
+
+fn insert_sea_i32(
+    row: &sea_orm::QueryResult,
+    map: &mut serde_json::Map<String, serde_json::Value>,
+    snake: &str,
+    camel: &str,
+) -> Result<(), sea_orm::DbErr> {
+    if let Ok(value) = row.try_get::<Option<i32>>("", snake) {
+        map.insert(camel.to_string(), serde_json::json!(value));
+    }
+    Ok(())
+}
+
+fn insert_sea_i64(
+    row: &sea_orm::QueryResult,
+    map: &mut serde_json::Map<String, serde_json::Value>,
+    snake: &str,
+    camel: &str,
+) -> Result<(), sea_orm::DbErr> {
+    if let Ok(value) = row.try_get::<Option<i64>>("", snake) {
+        map.insert(camel.to_string(), serde_json::json!(value));
+    }
+    Ok(())
+}
+
+fn insert_sea_f64(
+    row: &sea_orm::QueryResult,
+    map: &mut serde_json::Map<String, serde_json::Value>,
+    snake: &str,
+    camel: &str,
+) -> Result<(), sea_orm::DbErr> {
+    if let Ok(value) = row.try_get::<Option<f64>>("", snake) {
+        map.insert(camel.to_string(), serde_json::json!(value));
+    }
+    Ok(())
+}
+
+fn insert_sea_opt_string(
+    row: &sea_orm::QueryResult,
+    map: &mut serde_json::Map<String, serde_json::Value>,
+    snake: &str,
+    camel: &str,
+) -> Result<(), sea_orm::DbErr> {
+    if let Ok(value) = sea_opt_string(row, snake) {
+        map.insert(camel.to_string(), serde_json::json!(value));
+    }
+    Ok(())
+}
+
+fn insert_sea_opt_date(
+    row: &sea_orm::QueryResult,
+    map: &mut serde_json::Map<String, serde_json::Value>,
+    snake: &str,
+    camel: &str,
+) -> Result<(), sea_orm::DbErr> {
+    if let Ok(value) = row.try_get::<Option<NaiveDate>>("", snake) {
+        map.insert(camel.to_string(), serde_json::json!(value));
+    }
+    Ok(())
+}
+
+fn sea_opt_string(
+    row: &sea_orm::QueryResult,
+    column: &str,
+) -> Result<Option<String>, sea_orm::DbErr> {
+    row.try_get::<Option<String>>("", column)
 }
 
 fn normalize_database_url() -> String {

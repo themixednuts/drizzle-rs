@@ -293,7 +293,15 @@ struct EmployeeWithRecipientResponse {
 
 #[derive(Clone)]
 struct AppState {
-    db: Arc<drizzle::postgres::tokio::Drizzle<Schema>>,
+    dbs: Arc<Vec<Arc<drizzle::postgres::tokio::Drizzle<Schema>>>>,
+    next: Arc<AtomicUsize>,
+}
+
+impl AppState {
+    fn db(&self) -> &drizzle::postgres::tokio::Drizzle<Schema> {
+        let idx = self.next.fetch_add(1, Ordering::Relaxed) % self.dbs.len();
+        self.dbs[idx].as_ref()
+    }
 }
 
 pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
@@ -349,8 +357,19 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         .await
         .map_err(|err| Fail::new(Code::RunFail, format!("pg create indexes failed: {err}")))?;
 
-    // Use the client through drizzle's conn() accessor for raw queries
-    let client = Arc::new(db);
+    let mut dbs = Vec::with_capacity(super::POSTGRES_POOL_SIZE);
+    dbs.push(Arc::new(db));
+    for _ in 1..super::POSTGRES_POOL_SIZE {
+        let (client, driver) = ::tokio_postgres::connect(&pg_url(), ::tokio_postgres::NoTls)
+            .await
+            .map_err(|err| Fail::new(Code::RunFail, format!("postgres connect failed: {err}")))?;
+        tokio::spawn(async move {
+            let _ = driver.await;
+        });
+        dbs.push(Arc::new(
+            drizzle::postgres::tokio::Drizzle::new(client, Schema::new()).0,
+        ));
+    }
 
     let router = Router::new()
         .route("/stats", get(stats))
@@ -370,7 +389,10 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         )
         .route("/search-customer", get(search_customer))
         .route("/search-product", get(search_product))
-        .with_state(AppState { db: client });
+        .with_state(AppState {
+            dbs: Arc::new(dbs),
+            next: Arc::new(AtomicUsize::new(0)),
+        });
     spawn_server(router).await
 }
 
@@ -392,7 +414,7 @@ async fn customers_handler(
         params.offset()
     );
     let rows = state
-        .db
+        .db()
         .conn()
         .query(&sql, &[])
         .await
@@ -422,7 +444,7 @@ async fn customer_by_id(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let id = params.user_id(10000);
-    let rows = state.db.conn().query("SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE id = $1", &[&id]).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = state.db().conn().query("SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE id = $1", &[&id]).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let resp: Vec<CustomerResponse> = rows
         .iter()
         .map(|r| CustomerResponse {
@@ -453,7 +475,7 @@ async fn employees_handler(
         params.offset()
     );
     let rows = state
-        .db
+        .db()
         .conn()
         .query(&sql, &[])
         .await
@@ -492,7 +514,7 @@ async fn suppliers_handler(
         params.offset()
     );
     let rows = state
-        .db
+        .db()
         .conn()
         .query(&sql, &[])
         .await
@@ -521,7 +543,7 @@ async fn supplier_by_id(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let id = params.user_id(1000);
-    let rows = state.db.conn().query("SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers WHERE id = $1", &[&id]).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = state.db().conn().query("SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers WHERE id = $1", &[&id]).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let resp: Vec<SupplierResponse> = rows
         .iter()
         .map(|r| SupplierResponse {
@@ -551,7 +573,7 @@ async fn products_handler(
         params.offset()
     );
     let rows = state
-        .db
+        .db()
         .conn()
         .query(&sql, &[])
         .await
@@ -579,7 +601,7 @@ async fn employee_with_recipient(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let id = params.user_id(200);
-    let rows = state.db.conn().query(
+    let rows = state.db().conn().query(
         "SELECT e.id, e.last_name, e.first_name, e.title, e.title_of_courtesy, e.birth_date, e.hire_date, e.address, e.city, e.postal_code, e.country, e.home_phone, e.extension, e.notes, e.recipient_id, r.last_name, r.first_name FROM employees e LEFT JOIN employees r ON e.recipient_id = r.id WHERE e.id = $1",
         &[&id],
     ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -614,7 +636,7 @@ async fn product_with_supplier(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let id = params.user_id(5000);
-    let rows = state.db.conn().query(
+    let rows = state.db().conn().query(
         "SELECT p.id, p.name, p.qt_per_unit, p.unit_price, p.units_in_stock, p.units_on_order, p.reorder_level, p.discontinued, p.supplier_id, s.id, s.company_name, s.contact_name, s.contact_title, s.address, s.city, s.region, s.postal_code, s.country, s.phone FROM products p INNER JOIN suppliers s ON p.supplier_id = s.id WHERE p.id = $1",
         &[&id],
     ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -654,14 +676,14 @@ async fn orders_with_details(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let sql = format!(
         "SELECT o.id, o.shipped_date, o.ship_name, o.ship_city, o.ship_country, \
-         count(d.product_id), COALESCE(sum(d.quantity), 0), COALESCE(sum(d.quantity::float8 * d.unit_price), 0) \
+         count(d.product_id), COALESCE(sum(d.quantity)::float8, 0), COALESCE(sum(d.quantity::float8 * d.unit_price), 0) \
          FROM orders o LEFT JOIN order_details d ON o.id = d.order_id \
          GROUP BY o.id ORDER BY o.id LIMIT {} OFFSET {}",
         params.limit_or(50),
         params.offset()
     );
     let rows = state
-        .db
+        .db()
         .conn()
         .query(&sql, &[])
         .await
@@ -688,11 +710,11 @@ async fn order_with_details(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let id = params.user_id(50000);
-    let order_rows = state.db.conn().query(
+    let order_rows = state.db().conn().query(
         "SELECT id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id FROM orders WHERE id = $1",
         &[&id],
     ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let detail_rows = state.db.conn().query(
+    let detail_rows = state.db().conn().query(
         "SELECT unit_price, quantity, discount, order_id, product_id FROM order_details WHERE order_id = $1",
         &[&id],
     ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -734,11 +756,11 @@ async fn order_with_details_and_products(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let id = params.user_id(50000);
-    let order_rows = state.db.conn().query(
+    let order_rows = state.db().conn().query(
         "SELECT id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id FROM orders WHERE id = $1",
         &[&id],
     ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let detail_rows = state.db.conn().query(
+    let detail_rows = state.db().conn().query(
         "SELECT d.unit_price, d.quantity, d.discount, d.order_id, d.product_id, p.name FROM order_details d LEFT JOIN products p ON d.product_id = p.id WHERE d.order_id = $1",
         &[&id],
     ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -782,7 +804,7 @@ async fn search_customer(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let term = params.term.as_deref().unwrap_or("");
     let pattern = format!("%{term}%");
-    let rows = state.db.conn().query(
+    let rows = state.db().conn().query(
         "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE company_name ILIKE $1",
         &[&pattern],
     ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -812,7 +834,7 @@ async fn search_product(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let term = params.term.as_deref().unwrap_or("");
     let pattern = format!("%{term}%");
-    let rows = state.db.conn().query(
+    let rows = state.db().conn().query(
         "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products WHERE name ILIKE $1",
         &[&pattern],
     ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

@@ -68,7 +68,7 @@
     },
     "driver": {
       "name": "libpq",
-      "ver": "16",
+      "ver": "18.3",
       "transport": "postgres"
     },
     "proc": {

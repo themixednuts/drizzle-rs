@@ -53,6 +53,9 @@ use drizzle_sqlite::values::{OwnedSQLiteValue, SQLiteValue};
 #[cfg(feature = "postgres")]
 use drizzle_postgres::values::{OwnedPostgresValue, PostgresValue};
 
+#[cfg(all(feature = "postgres", feature = "chrono"))]
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+
 // ---------------------------------------------------------------------------
 // Dialect marker types — encode the target database in the type system
 // ---------------------------------------------------------------------------
@@ -611,7 +614,14 @@ fn seed_value_to_postgres_sql(
             SQL::param(Cow::Owned(owned))
         }
         SeedValue::Float(v) => SQL::param(Cow::Owned(OwnedPostgresValue::DoublePrecision(*v))),
-        SeedValue::Text(v) => SQL::param(Cow::Owned(OwnedPostgresValue::Text(v.clone()))),
+        SeedValue::Text(v) => {
+            #[cfg(feature = "chrono")]
+            if let Some(value) = text_to_typed_postgres_value(v, col) {
+                return SQL::param(Cow::Owned(value));
+            }
+
+            SQL::param(Cow::Owned(OwnedPostgresValue::Text(v.clone())))
+        }
         SeedValue::Bool(v) => SQL::param(Cow::Owned(OwnedPostgresValue::Boolean(*v))),
         SeedValue::Blob(v) => SQL::param(Cow::Owned(OwnedPostgresValue::Bytea(v.clone()))),
         SeedValue::CurrentTime => SQL::raw("now()"),
@@ -634,6 +644,34 @@ fn normalize_pg_type(sql_type: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(all(feature = "postgres", feature = "chrono"))]
+fn text_to_typed_postgres_value(value: &str, col: &ColumnRef) -> Option<OwnedPostgresValue> {
+    let ty = normalize_pg_type(col.sql_type);
+
+    if ty.contains("DATE") && !ty.contains("TIME") {
+        return NaiveDate::parse_from_str(value, "%Y-%m-%d")
+            .ok()
+            .map(OwnedPostgresValue::Date);
+    }
+
+    if ty.contains("TIMESTAMP") {
+        let timestamp = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S").ok()?;
+        if ty.contains("TIME ZONE") || ty.contains("TIMESTAMPTZ") {
+            let utc = DateTime::<Utc>::from_naive_utc_and_offset(timestamp, Utc);
+            return Some(OwnedPostgresValue::TimestampTz(utc.fixed_offset()));
+        }
+        return Some(OwnedPostgresValue::Timestamp(timestamp));
+    }
+
+    if ty == "TIME" || ty.starts_with("TIME(") || ty.starts_with("TIME ") {
+        return NaiveTime::parse_from_str(value, "%H:%M:%S")
+            .ok()
+            .map(OwnedPostgresValue::Time);
+    }
+
+    None
 }
 
 #[cfg(feature = "postgres")]
@@ -881,6 +919,31 @@ mod tests {
         // With limit 2, we should fit 2 rows per batch.
         let ranges = batch_ranges_by_param_limit(&rows, 2);
         assert_eq!(ranges, vec![(0, 2), (2, 3)]);
+    }
+
+    #[cfg(all(feature = "postgres", feature = "chrono"))]
+    #[test]
+    fn postgres_date_text_binds_as_date_param() {
+        use drizzle_core::{ColumnDialect, ColumnFlags};
+
+        let col = ColumnRef {
+            table: "employees",
+            name: "birth_date",
+            sql_type: "DATE",
+            flags: ColumnFlags::empty(),
+            dialect: ColumnDialect::PostgreSQL {
+                postgres_type: "DATE",
+                is_serial: false,
+                is_bigserial: false,
+                is_generated_identity: false,
+                is_identity_always: false,
+            },
+        };
+
+        let sql = seed_value_to_postgres_sql(&SeedValue::Text("2024-03-09".to_string()), &col);
+        let (_, params) = sql.build();
+
+        assert!(matches!(params[0], OwnedPostgresValue::Date(_)));
     }
 
     #[test]

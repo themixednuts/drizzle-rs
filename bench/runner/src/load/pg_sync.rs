@@ -5,7 +5,11 @@ use axum::routing::get;
 use axum::{Json, Router, debug_handler};
 use chrono::NaiveDate;
 use drizzle::postgres::prelude::*;
-use std::sync::mpsc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+    mpsc,
+};
 
 #[PostgresTable(name = "customers")]
 struct Customer {
@@ -359,32 +363,62 @@ enum DbCmd {
 
 #[derive(Clone)]
 struct AppState {
-    tx: mpsc::Sender<DbCmd>,
+    txs: Arc<Vec<mpsc::Sender<DbCmd>>>,
+    next: Arc<AtomicUsize>,
+}
+
+impl AppState {
+    fn tx(&self) -> &mpsc::Sender<DbCmd> {
+        let idx = self.next.fetch_add(1, Ordering::Relaxed) % self.txs.len();
+        &self.txs[idx]
+    }
 }
 
 pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
-    let (cmd_tx, cmd_rx) = mpsc::channel::<DbCmd>();
-    let (ready_tx, ready_rx) = oneshot::channel::<Result<(), String>>();
-
-    let worker = std::thread::spawn(move || {
-        let mut db = create_seeded_db(&pg_url(), seed)?;
-
-        let _ = ready_tx.send(Ok(()));
-
-        // Handle commands using raw SQL for complex queries
-        while let Ok(cmd) = cmd_rx.recv() {
-            let result = handle_cmd(&mut db, cmd);
-            if let Err(msg) = result {
-                eprintln!("pg_sync worker error: {msg}");
-            }
-        }
-        Ok(())
-    });
-
-    ready_rx
+    let database_url = pg_url();
+    tokio::task::spawn_blocking(move || seed_database_url(&database_url, seed))
         .await
-        .map_err(|_| Fail::new(Code::RunFail, "pg_sync worker dropped before ready"))?
+        .map_err(|err| Fail::new(Code::RunFail, format!("pg_sync seed panicked: {err}")))?
         .map_err(|msg| Fail::new(Code::RunFail, msg))?;
+
+    let mut txs = Vec::with_capacity(super::POSTGRES_POOL_SIZE);
+    let mut workers = Vec::with_capacity(super::POSTGRES_POOL_SIZE);
+    let mut ready = Vec::with_capacity(super::POSTGRES_POOL_SIZE);
+
+    for worker_id in 0..super::POSTGRES_POOL_SIZE {
+        let (cmd_tx, cmd_rx) = mpsc::channel::<DbCmd>();
+        let (ready_tx, ready_rx) = oneshot::channel::<Result<(), String>>();
+        txs.push(cmd_tx);
+        ready.push(ready_rx);
+
+        workers.push(std::thread::spawn(move || {
+            let mut db = match connect_db(&pg_url()) {
+                Ok(db) => {
+                    let _ = ready_tx.send(Ok(()));
+                    db
+                }
+                Err(msg) => {
+                    let _ = ready_tx.send(Err(msg.clone()));
+                    return Err(msg);
+                }
+            };
+
+            while let Ok(cmd) = cmd_rx.recv() {
+                let result = handle_cmd(&mut db, cmd);
+                if let Err(msg) = result {
+                    eprintln!("pg_sync worker {worker_id} error: {msg}");
+                }
+            }
+            Ok(())
+        }));
+    }
+
+    for ready_rx in ready {
+        ready_rx
+            .await
+            .map_err(|_| Fail::new(Code::RunFail, "pg_sync worker dropped before ready"))?
+            .map_err(|msg| Fail::new(Code::RunFail, msg))?;
+    }
 
     let router = Router::new()
         .route("/stats", get(stats))
@@ -404,9 +438,12 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         )
         .route("/search-customer", get(search_customer))
         .route("/search-product", get(search_product))
-        .with_state(AppState { tx: cmd_tx });
+        .with_state(AppState {
+            txs: Arc::new(txs),
+            next: Arc::new(AtomicUsize::new(0)),
+        });
     let mut handle = spawn_server(router).await?;
-    handle.workers.push(worker);
+    handle.workers.extend(workers);
     Ok(handle)
 }
 
@@ -444,8 +481,9 @@ fn create_seeded_db(
         .relation(&schema.order, &schema.detail, 6)
         .generate();
     for stmt in stmts {
+        let preview = stmt.sql();
         db.execute(stmt)
-            .map_err(|err| format!("postgres seed failed: {err}"))?;
+            .map_err(|err| format!("postgres seed failed in `{preview}`: {err:?}"))?;
     }
 
     db.conn_mut()
@@ -458,6 +496,12 @@ fn create_seeded_db(
         .map_err(|err| format!("postgres create indexes failed: {err}"))?;
 
     Ok(db)
+}
+
+fn connect_db(database_url: &str) -> Result<drizzle::postgres::sync::Drizzle<Schema>, String> {
+    let conn = ::postgres::Client::connect(database_url, ::postgres::NoTls)
+        .map_err(|err| format!("postgres connect failed: {err}"))?;
+    Ok(drizzle::postgres::sync::Drizzle::new(conn, Schema::new()).0)
 }
 
 fn handle_cmd(db: &mut drizzle::postgres::sync::Drizzle<Schema>, cmd: DbCmd) -> Result<(), String> {
@@ -695,7 +739,7 @@ fn handle_cmd(db: &mut drizzle::postgres::sync::Drizzle<Schema>, cmd: DbCmd) -> 
         } => {
             let sql = format!(
                 "SELECT o.id, o.shipped_date, o.ship_name, o.ship_city, o.ship_country, \
-                 count(d.product_id), COALESCE(sum(d.quantity), 0), COALESCE(sum(d.quantity::float8 * d.unit_price), 0) \
+                 count(d.product_id), COALESCE(sum(d.quantity)::float8, 0), COALESCE(sum(d.quantity::float8 * d.unit_price), 0) \
                  FROM orders o LEFT JOIN order_details d ON o.id = d.order_id \
                  GROUP BY o.id ORDER BY o.id LIMIT {limit} OFFSET {offset}"
             );
@@ -869,7 +913,7 @@ async fn stats(_: State<AppState>) -> Json<Vec<f64>> {
 macro_rules! dispatch {
     ($state:expr, $variant:ident { $($field:ident: $val:expr),* $(,)? }) => {{
         let (tx, rx) = oneshot::channel();
-        $state.tx.send(DbCmd::$variant { $($field: $val,)* reply: tx })
+        $state.tx().send(DbCmd::$variant { $($field: $val,)* reply: tx })
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let json_str = rx.await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)??;
         let body = axum::body::boxed(axum::body::Full::from(json_str));

@@ -6,6 +6,6 @@
     "start": "bun run server.ts"
   },
   "dependencies": {
-    "drizzle-orm": "^0.45.1"
+    "drizzle-orm": "1.0.0-beta.22"
   }
 }
