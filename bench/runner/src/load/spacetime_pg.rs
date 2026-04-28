@@ -8,6 +8,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::error::Error;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio_postgres::SimpleQueryMessage;
 
 /// SpacetimeDB PGWire target (Northwind schema).
@@ -200,7 +201,7 @@ struct EmployeeWithRecipientResponse {
 
 #[derive(Clone)]
 struct AppState {
-    client: Arc<tokio_postgres::Client>,
+    client: Arc<Mutex<tokio_postgres::Client>>,
 }
 
 // SpacetimeDB PGWire has a low maximum SQL string length. Keep batches
@@ -578,7 +579,7 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
     .await?;
 
     let state = AppState {
-        client: Arc::new(client),
+        client: Arc::new(Mutex::new(client)),
     };
     let router = Router::new()
         .route("/stats", get(stats))
@@ -667,6 +668,14 @@ async fn stats(_: State<AppState>) -> Json<Vec<f64>> {
     Json(cpu_usage(&sys))
 }
 
+async fn pg_query(state: &AppState, sql: &str) -> Result<Vec<SimpleQueryMessage>, StatusCode> {
+    let client = state.client.lock().await;
+    client.simple_query(sql).await.map_err(|e| {
+        eprintln!("spacetime pg query failed: {e} (source: {:?})", e.source());
+        StatusCode::INTERNAL_SERVER_ERROR
+    })
+}
+
 #[debug_handler(state = AppState)]
 async fn customers(
     State(state): State<AppState>,
@@ -677,11 +686,7 @@ async fn customers(
     let sql = format!(
         "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers ORDER BY id LIMIT {limit} OFFSET {offset}"
     );
-    let messages = state
-        .client
-        .simple_query(&sql)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let messages = pg_query(&state, &sql).await?;
     let resp: Vec<CustomerResponse> = extract_rows(messages)
         .into_iter()
         .map(|c| CustomerResponse {
@@ -710,11 +715,7 @@ async fn customer_by_id(
     let sql = format!(
         "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE id = {id}"
     );
-    let messages = state
-        .client
-        .simple_query(&sql)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let messages = pg_query(&state, &sql).await?;
     let resp: Vec<CustomerResponse> = extract_rows(messages)
         .into_iter()
         .map(|c| CustomerResponse {
@@ -744,11 +745,7 @@ async fn employees_handler(
     let sql = format!(
         "SELECT id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, address, city, postal_code, country, home_phone, extension, notes, recipient_id FROM employees ORDER BY id LIMIT {limit} OFFSET {offset}"
     );
-    let messages = state
-        .client
-        .simple_query(&sql)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let messages = pg_query(&state, &sql).await?;
     let resp: Vec<EmployeeResponse> = extract_rows(messages)
         .into_iter()
         .map(|c| EmployeeResponse {
@@ -782,11 +779,7 @@ async fn suppliers_handler(
     let sql = format!(
         "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers ORDER BY id LIMIT {limit} OFFSET {offset}"
     );
-    let messages = state
-        .client
-        .simple_query(&sql)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let messages = pg_query(&state, &sql).await?;
     let resp: Vec<SupplierResponse> = extract_rows(messages)
         .into_iter()
         .map(|c| SupplierResponse {
@@ -814,11 +807,7 @@ async fn supplier_by_id(
     let sql = format!(
         "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers WHERE id = {id}"
     );
-    let messages = state
-        .client
-        .simple_query(&sql)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let messages = pg_query(&state, &sql).await?;
     let resp: Vec<SupplierResponse> = extract_rows(messages)
         .into_iter()
         .map(|c| SupplierResponse {
@@ -847,11 +836,7 @@ async fn products_handler(
     let sql = format!(
         "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products ORDER BY id LIMIT {limit} OFFSET {offset}"
     );
-    let messages = state
-        .client
-        .simple_query(&sql)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let messages = pg_query(&state, &sql).await?;
     let resp: Vec<ProductResponse> = extract_rows(messages)
         .into_iter()
         .map(|c| ProductResponse {
@@ -881,11 +866,7 @@ async fn employee_with_recipient(
          r.last_name, r.first_name \
          FROM employees e LEFT JOIN employees r ON e.recipient_id = r.id WHERE e.id = {id}"
     );
-    let messages = state
-        .client
-        .simple_query(&sql)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let messages = pg_query(&state, &sql).await?;
     let resp: Vec<EmployeeWithRecipientResponse> = extract_rows(messages)
         .into_iter()
         .map(|c| EmployeeWithRecipientResponse {
@@ -923,11 +904,7 @@ async fn product_with_supplier(
          s.id, s.company_name, s.contact_name, s.contact_title, s.address, s.city, s.region, s.postal_code, s.country, s.phone \
          FROM products p INNER JOIN suppliers s ON p.supplier_id = s.id WHERE p.id = {id}"
     );
-    let messages = state
-        .client
-        .simple_query(&sql)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let messages = pg_query(&state, &sql).await?;
     let resp: Vec<ProductWithSupplierResponse> = extract_rows(messages)
         .into_iter()
         .map(|c| ProductWithSupplierResponse {
@@ -970,11 +947,7 @@ async fn orders_with_details(
          FROM orders o LEFT JOIN order_details d ON o.id = d.order_id \
          GROUP BY o.id ORDER BY o.id LIMIT {limit} OFFSET {offset}"
     );
-    let messages = state
-        .client
-        .simple_query(&sql)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let messages = pg_query(&state, &sql).await?;
     let resp: Vec<OrderWithDetailsResponse> = extract_rows(messages)
         .into_iter()
         .map(|c| OrderWithDetailsResponse {
@@ -1004,16 +977,8 @@ async fn order_with_details(
     let detail_sql = format!(
         "SELECT unit_price, quantity, discount, order_id, product_id FROM order_details WHERE order_id = {id}"
     );
-    let order_msgs = state
-        .client
-        .simple_query(&order_sql)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let detail_msgs = state
-        .client
-        .simple_query(&detail_sql)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let order_msgs = pg_query(&state, &order_sql).await?;
+    let detail_msgs = pg_query(&state, &detail_sql).await?;
     let details: Vec<OrderDetailResponse> = extract_rows(detail_msgs)
         .into_iter()
         .map(|c| OrderDetailResponse {
@@ -1060,16 +1025,8 @@ async fn order_with_details_and_products(
         "SELECT d.unit_price, d.quantity, d.discount, d.order_id, d.product_id, p.name \
          FROM order_details d LEFT JOIN products p ON d.product_id = p.id WHERE d.order_id = {id}"
     );
-    let order_msgs = state
-        .client
-        .simple_query(&order_sql)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let detail_msgs = state
-        .client
-        .simple_query(&detail_sql)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let order_msgs = pg_query(&state, &order_sql).await?;
+    let detail_msgs = pg_query(&state, &detail_sql).await?;
     let details: Vec<OrderDetailProductResponse> = extract_rows(detail_msgs)
         .into_iter()
         .map(|c| OrderDetailProductResponse {
@@ -1169,11 +1126,7 @@ async fn search_customer(
     let sql = format!(
         "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE company_name LIKE '%{escaped}%'"
     );
-    let messages = state
-        .client
-        .simple_query(&sql)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let messages = pg_query(&state, &sql).await?;
     let resp: Vec<CustomerResponse> = extract_rows(messages)
         .into_iter()
         .map(|c| CustomerResponse {
@@ -1203,11 +1156,7 @@ async fn search_product(
     let sql = format!(
         "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products WHERE name LIKE '%{escaped}%'"
     );
-    let messages = state
-        .client
-        .simple_query(&sql)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let messages = pg_query(&state, &sql).await?;
     let resp: Vec<ProductResponse> = extract_rows(messages)
         .into_iter()
         .map(|c| ProductResponse {
