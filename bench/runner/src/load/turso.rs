@@ -26,6 +26,22 @@ async fn collect_rows(mut rows: ::turso::Rows) -> Result<Vec<::turso::Row>, Stat
     Ok(out)
 }
 
+async fn query_cached_rows(
+    conn: &::turso::Connection,
+    sql: &str,
+    params: impl ::turso::IntoParams,
+) -> Result<Vec<::turso::Row>, StatusCode> {
+    let mut stmt = conn
+        .prepare_cached(sql)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = stmt
+        .query(params)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    collect_rows(rows).await
+}
+
 #[SQLiteTable(name = "customers")]
 struct Customer {
     #[column(primary)]
@@ -877,11 +893,12 @@ async fn employee_with_recipient(
 ) -> Result<Json<Vec<EmployeeWithRecipientResponse>>, StatusCode> {
     let target_id = params.user_id(200);
     let db = state.db.acquire().await?;
-    let rows = db.conn().query(
+    let collected = query_cached_rows(
+        db.conn(),
         "SELECT e.id, e.last_name, e.first_name, e.title, e.title_of_courtesy, e.birth_date, e.hire_date, e.address, e.city, e.postal_code, e.country, e.home_phone, e.extension, e.notes, e.recipient_id, r.last_name, r.first_name FROM employees e LEFT JOIN employees r ON e.recipient_id = r.id WHERE e.id = ?1",
         [::turso::Value::from(target_id)],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let collected = collect_rows(rows).await?;
+    )
+    .await?;
     let resp: Vec<EmployeeWithRecipientResponse> = collected
         .iter()
         .map(|r| EmployeeWithRecipientResponse {
@@ -914,11 +931,12 @@ async fn product_with_supplier(
 ) -> Result<Json<Vec<ProductWithSupplierResponse>>, StatusCode> {
     let target_id = params.user_id(5000);
     let db = state.db.acquire().await?;
-    let rows = db.conn().query(
+    let collected = query_cached_rows(
+        db.conn(),
         "SELECT p.id, p.name, p.qt_per_unit, p.unit_price, p.units_in_stock, p.units_on_order, p.reorder_level, p.discontinued, p.supplier_id, s.id, s.company_name, s.contact_name, s.contact_title, s.address, s.city, s.region, s.postal_code, s.country, s.phone FROM products p INNER JOIN suppliers s ON p.supplier_id = s.id WHERE p.id = ?1",
         [::turso::Value::from(target_id)],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let collected = collect_rows(rows).await?;
+    )
+    .await?;
     let resp: Vec<ProductWithSupplierResponse> = collected
         .iter()
         .map(|r| ProductWithSupplierResponse {
@@ -956,11 +974,12 @@ async fn orders_with_details(
     let lim = params.limit_or(50) as i64;
     let off = params.offset() as i64;
     let db = state.db.acquire().await?;
-    let order_rows = db.conn().query(
+    let orders = query_cached_rows(
+        db.conn(),
         "SELECT id, shipped_date, ship_name, ship_city, ship_country FROM orders ORDER BY id LIMIT ?1 OFFSET ?2",
         [::turso::Value::from(lim), ::turso::Value::from(off)],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let orders = collect_rows(order_rows).await?;
+    )
+    .await?;
     if orders.is_empty() {
         return Ok(Json(Vec::new()));
     }
@@ -973,11 +992,12 @@ async fn orders_with_details(
         .last()
         .and_then(|row| row.get::<i32>(0).ok())
         .unwrap_or(min_id);
-    let detail_rows = db.conn().query(
+    let details = query_cached_rows(
+        db.conn(),
         "SELECT order_id, product_id, quantity, unit_price FROM order_details WHERE order_id >= ?1 AND order_id <= ?2",
         [::turso::Value::from(min_id), ::turso::Value::from(max_id)],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let details = collect_rows(detail_rows).await?;
+    )
+    .await?;
     let mut aggregates: BTreeMap<i32, (i32, f64, f64)> = BTreeMap::new();
     for row in details {
         let order_id = row.get::<i32>(0).unwrap_or_default();
@@ -1017,15 +1037,18 @@ async fn order_with_details(
 ) -> Result<Json<Vec<SingleOrderWithDetailsResponse>>, StatusCode> {
     let target_id = params.user_id(50000);
     let db = state.db.acquire().await?;
-    let order_rows = db.conn().query(
+    let order_collected = query_cached_rows(
+        db.conn(),
         "SELECT id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id FROM orders WHERE id = ?1",
         [::turso::Value::from(target_id)],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let detail_rows = db.conn().query(
+    )
+    .await?;
+    let detail_collected = query_cached_rows(
+        db.conn(),
         "SELECT unit_price, quantity, discount, order_id, product_id FROM order_details WHERE order_id = ?1",
         [::turso::Value::from(target_id)],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let detail_collected = collect_rows(detail_rows).await?;
+    )
+    .await?;
     let details: Vec<OrderDetailResponse> = detail_collected
         .iter()
         .map(|r| OrderDetailResponse {
@@ -1036,7 +1059,6 @@ async fn order_with_details(
             product_id: r.get::<i32>(4).unwrap_or_default(),
         })
         .collect();
-    let order_collected = collect_rows(order_rows).await?;
     let resp: Vec<SingleOrderWithDetailsResponse> = order_collected
         .iter()
         .map(|r| SingleOrderWithDetailsResponse {
@@ -1066,15 +1088,18 @@ async fn order_with_details_and_products(
 ) -> Result<Json<Vec<SingleOrderWithDetailsAndProductsResponse>>, StatusCode> {
     let target_id = params.user_id(50000);
     let db = state.db.acquire().await?;
-    let order_rows = db.conn().query(
+    let order_collected = query_cached_rows(
+        db.conn(),
         "SELECT id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id FROM orders WHERE id = ?1",
         [::turso::Value::from(target_id)],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let detail_rows = db.conn().query(
+    )
+    .await?;
+    let detail_collected = query_cached_rows(
+        db.conn(),
         "SELECT d.unit_price, d.quantity, d.discount, d.order_id, d.product_id, p.name FROM order_details d LEFT JOIN products p ON d.product_id = p.id WHERE d.order_id = ?1",
         [::turso::Value::from(target_id)],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let detail_collected = collect_rows(detail_rows).await?;
+    )
+    .await?;
     let details: Vec<OrderDetailProductResponse> = detail_collected
         .iter()
         .map(|r| OrderDetailProductResponse {
@@ -1086,7 +1111,6 @@ async fn order_with_details_and_products(
             product_name: r.get::<String>(5).unwrap_or_default(),
         })
         .collect();
-    let order_collected = collect_rows(order_rows).await?;
     let resp: Vec<SingleOrderWithDetailsAndProductsResponse> = order_collected
         .iter()
         .map(|r| SingleOrderWithDetailsAndProductsResponse {
@@ -1117,11 +1141,12 @@ async fn search_customer(
     let term = params.term.as_deref().unwrap_or("");
     let pattern = format!("%{term}%");
     let db = state.db.acquire().await?;
-    let rows = db.conn().query(
+    let collected = query_cached_rows(
+        db.conn(),
         "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE company_name LIKE ?1",
         [::turso::Value::from(pattern)],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let collected = collect_rows(rows).await?;
+    )
+    .await?;
     let resp: Vec<CustomerResponse> = collected
         .iter()
         .map(|r| CustomerResponse {
@@ -1149,11 +1174,12 @@ async fn search_product(
     let term = params.term.as_deref().unwrap_or("");
     let pattern = format!("%{term}%");
     let db = state.db.acquire().await?;
-    let rows = db.conn().query(
+    let collected = query_cached_rows(
+        db.conn(),
         "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products WHERE name LIKE ?1",
         [::turso::Value::from(pattern)],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let collected = collect_rows(rows).await?;
+    )
+    .await?;
     let resp: Vec<ProductResponse> = collected
         .iter()
         .map(|r| ProductResponse {
