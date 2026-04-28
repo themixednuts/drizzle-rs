@@ -9,6 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  RUST_VERSION: "1.95"
 
 jobs:
   # Skip CI for release-plz PRs (version bumps only, already tested)
@@ -90,6 +91,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
 
       - name: Install just
         uses: taiki-e/install-action@just
@@ -121,6 +124,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
 
       - name: Install just
         uses: taiki-e/install-action@just
@@ -145,6 +150,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -233,6 +240,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -250,7 +259,7 @@ jobs:
     if: needs.check-skip.outputs.should_skip != 'true'
     strategy:
       matrix:
-        rust: [stable, nightly]
+        rust: ["1.95", nightly]
 
     steps:
       - uses: actions/checkout@v6
