@@ -23,7 +23,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  NODE_VERSION: "latest"
+  NODE_VERSION: "20"
   PUBLISH_TO_R2: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_to_r2 && github.ref == 'refs/heads/main') }}
   R2_BUCKET: drizzle-bench
 
@@ -46,7 +46,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -60,7 +60,7 @@ jobs:
 
       - name: Restore runner baseline
         if: ${{ !env.ACT }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: bench-out/sqlite-${{ matrix.platform }}/runs
           key: runner-baseline-sqlite-${{ matrix.platform }}-
@@ -72,8 +72,10 @@ jobs:
         shell: bash
         run: |
           class="small"
+          workload="bench/spec/workload.preview.v1.json"
           if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
+            workload="bench/spec/workload.throughput.v1.json"
           fi
 
           out="bench-out/sqlite-${{ matrix.platform }}"
@@ -81,7 +83,7 @@ jobs:
 
           cargo run -p bench-runner -- run \
             --suite throughput-http \
-            --workload bench/spec/workload.throughput.v1.json \
+            --workload "$workload" \
             --targets bench/spec/targets.sqlite.v1.json \
             --requests bench/spec/requests.empty.v1.json \
             --out "$out" \
@@ -99,14 +101,18 @@ jobs:
       - name: Validate runner artifacts
         shell: bash
         run: |
+          workload="bench/spec/workload.preview.v1.json"
+          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+            workload="bench/spec/workload.throughput.v1.json"
+          fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/sqlite-${{ matrix.platform }}/runs/${{ steps.runner.outputs.run_id }}" \
-            --workload bench/spec/workload.throughput.v1.json \
+            --workload "$workload" \
             --targets bench/spec/targets.sqlite.v1.json
 
       - name: Upload runner artifacts
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: runner-sqlite-${{ matrix.platform }}
           path: |
@@ -116,7 +122,7 @@ jobs:
 
       - name: Save runner baseline
         if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: bench-out/sqlite-${{ matrix.platform }}/runs/${{ steps.runner.outputs.run_id }}
           key: runner-baseline-sqlite-${{ matrix.platform }}-${{ github.sha }}
@@ -141,7 +147,7 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -188,7 +194,7 @@ jobs:
 
       - name: Restore runner baseline
         if: ${{ !env.ACT }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: bench-out/postgres-linux/runs
           key: runner-baseline-postgres-linux-
@@ -202,8 +208,10 @@ jobs:
           DATABASE_URL: ${{ steps.pgurl.outputs.url }}
         run: |
           class="small"
+          workload="bench/spec/workload.preview.v1.json"
           if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
+            workload="bench/spec/workload.throughput.v1.json"
           fi
 
           out="bench-out/postgres-linux"
@@ -211,7 +219,7 @@ jobs:
 
           cargo run -p bench-runner -- run \
             --suite throughput-http \
-            --workload bench/spec/workload.throughput.v1.json \
+            --workload "$workload" \
             --targets bench/spec/targets.postgres.v1.json \
             --requests bench/spec/requests.empty.v1.json \
             --out "$out" \
@@ -229,14 +237,18 @@ jobs:
       - name: Validate runner artifacts
         shell: bash
         run: |
+          workload="bench/spec/workload.preview.v1.json"
+          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+            workload="bench/spec/workload.throughput.v1.json"
+          fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/postgres-linux/runs/${{ steps.runner.outputs.run_id }}" \
-            --workload bench/spec/workload.throughput.v1.json \
+            --workload "$workload" \
             --targets bench/spec/targets.postgres.v1.json
 
       - name: Upload runner artifacts
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: runner-postgres-linux
           path: |
@@ -246,7 +258,7 @@ jobs:
 
       - name: Save runner baseline
         if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: bench-out/postgres-linux/runs/${{ steps.runner.outputs.run_id }}
           key: runner-baseline-postgres-linux-${{ github.sha }}
@@ -271,7 +283,7 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -318,7 +330,7 @@ jobs:
 
       - name: Restore runner baseline
         if: ${{ !env.ACT }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: bench-out/postgres-rust-orms-linux/runs
           key: runner-baseline-postgres-rust-orms-linux-
@@ -332,8 +344,10 @@ jobs:
           DATABASE_URL: ${{ steps.pgurl.outputs.url }}
         run: |
           class="small"
+          workload="bench/spec/workload.preview.v1.json"
           if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
+            workload="bench/spec/workload.throughput.v1.json"
           fi
 
           out="bench-out/postgres-rust-orms-linux"
@@ -341,7 +355,7 @@ jobs:
 
           cargo run -p bench-runner -- run \
             --suite throughput-http \
-            --workload bench/spec/workload.throughput.v1.json \
+            --workload "$workload" \
             --targets bench/spec/targets.postgres-rust-orms.v1.json \
             --requests bench/spec/requests.empty.v1.json \
             --out "$out" \
@@ -359,14 +373,18 @@ jobs:
       - name: Validate runner artifacts
         shell: bash
         run: |
+          workload="bench/spec/workload.preview.v1.json"
+          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+            workload="bench/spec/workload.throughput.v1.json"
+          fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/postgres-rust-orms-linux/runs/${{ steps.runner.outputs.run_id }}" \
-            --workload bench/spec/workload.throughput.v1.json \
+            --workload "$workload" \
             --targets bench/spec/targets.postgres-rust-orms.v1.json
 
       - name: Upload runner artifacts
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: runner-postgres-rust-orms-linux
           path: |
@@ -376,7 +394,7 @@ jobs:
 
       - name: Save runner baseline
         if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: bench-out/postgres-rust-orms-linux/runs/${{ steps.runner.outputs.run_id }}
           key: runner-baseline-postgres-rust-orms-linux-${{ github.sha }}
@@ -401,7 +419,7 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -469,7 +487,7 @@ jobs:
 
       - name: Restore runner baseline
         if: ${{ !env.ACT }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: bench-out/postgres-ts-linux/runs
           key: runner-baseline-postgres-ts-linux-
@@ -483,8 +501,10 @@ jobs:
           DATABASE_URL: ${{ steps.pgurl.outputs.url }}
         run: |
           class="small"
+          workload="bench/spec/workload.preview.v1.json"
           if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
+            workload="bench/spec/workload.throughput.v1.json"
           fi
 
           out="bench-out/postgres-ts-linux"
@@ -492,7 +512,7 @@ jobs:
 
           cargo run -p bench-runner -- run \
             --suite throughput-http \
-            --workload bench/spec/workload.throughput.v1.json \
+            --workload "$workload" \
             --targets bench/spec/targets.postgres-ts.v1.json \
             --requests bench/spec/requests.empty.v1.json \
             --out "$out" \
@@ -510,14 +530,18 @@ jobs:
       - name: Validate runner artifacts
         shell: bash
         run: |
+          workload="bench/spec/workload.preview.v1.json"
+          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+            workload="bench/spec/workload.throughput.v1.json"
+          fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/postgres-ts-linux/runs/${{ steps.runner.outputs.run_id }}" \
-            --workload bench/spec/workload.throughput.v1.json \
+            --workload "$workload" \
             --targets bench/spec/targets.postgres-ts.v1.json
 
       - name: Upload runner artifacts
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: runner-postgres-ts-linux
           path: |
@@ -527,7 +551,7 @@ jobs:
 
       - name: Save runner baseline
         if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: bench-out/postgres-ts-linux/runs/${{ steps.runner.outputs.run_id }}
           key: runner-baseline-postgres-ts-linux-${{ github.sha }}
@@ -537,7 +561,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -597,27 +621,9 @@ jobs:
           spacetime build -p bench/targets/spacetime-module
           spacetime publish bench-module -p bench/targets/spacetime-module --server http://127.0.0.1:3000
 
-      - name: Generate SpacetimeDB client bindings
-        shell: bash
-        run: |
-          mkdir -p bench/targets/spacetime-native-rs/src/module_bindings
-          spacetime generate --lang rust \
-            --out-dir bench/targets/spacetime-native-rs/src/module_bindings \
-            -p bench/targets/spacetime-module
-
-          mkdir -p bench/targets/spacetime-native-ts/module_bindings
-          spacetime generate --lang typescript \
-            --out-dir bench/targets/spacetime-native-ts/module_bindings \
-            -p bench/targets/spacetime-module
-
-      - name: Install TS target dependencies
-        shell: bash
-        run: |
-          cd bench/targets/spacetime-native-ts && bun install
-
       - name: Restore runner baseline
         if: ${{ !env.ACT }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: bench-out/spacetimedb-linux/runs
           key: runner-baseline-spacetimedb-linux-
@@ -651,8 +657,10 @@ jobs:
           SPACETIME_TOKEN: ${{ steps.spacetime-token.outputs.token }}
         run: |
           class="small"
+          workload="bench/spec/workload.preview.v1.json"
           if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
+            workload="bench/spec/workload.throughput.v1.json"
           fi
 
           out="bench-out/spacetimedb-linux"
@@ -660,7 +668,7 @@ jobs:
 
           cargo run -p bench-runner -- run \
             --suite throughput-http \
-            --workload bench/spec/workload.throughput.v1.json \
+            --workload "$workload" \
             --targets bench/spec/targets.spacetimedb.v1.json \
             --requests bench/spec/requests.empty.v1.json \
             --out "$out" \
@@ -678,14 +686,18 @@ jobs:
       - name: Validate runner artifacts
         shell: bash
         run: |
+          workload="bench/spec/workload.preview.v1.json"
+          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+            workload="bench/spec/workload.throughput.v1.json"
+          fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/spacetimedb-linux/runs/${{ steps.runner.outputs.run_id }}" \
-            --workload bench/spec/workload.throughput.v1.json \
+            --workload "$workload" \
             --targets bench/spec/targets.spacetimedb.v1.json
 
       - name: Upload runner artifacts
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: runner-spacetimedb-linux
           path: |
@@ -695,7 +707,7 @@ jobs:
 
       - name: Save runner baseline
         if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: bench-out/spacetimedb-linux/runs/${{ steps.runner.outputs.run_id }}
           key: runner-baseline-spacetimedb-linux-${{ github.sha }}
@@ -705,7 +717,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -719,7 +731,7 @@ jobs:
 
       - name: Restore runner baseline
         if: ${{ !env.ACT }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: bench-out/turso-linux/runs
           key: runner-baseline-turso-linux-
@@ -731,8 +743,10 @@ jobs:
         shell: bash
         run: |
           class="small"
+          workload="bench/spec/workload.preview.v1.json"
           if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
+            workload="bench/spec/workload.throughput.v1.json"
           fi
 
           out="bench-out/turso-linux"
@@ -740,7 +754,7 @@ jobs:
 
           cargo run -p bench-runner -- run \
             --suite throughput-http \
-            --workload bench/spec/workload.throughput.v1.json \
+            --workload "$workload" \
             --targets bench/spec/targets.turso.v1.json \
             --requests bench/spec/requests.empty.v1.json \
             --out "$out" \
@@ -758,14 +772,18 @@ jobs:
       - name: Validate runner artifacts
         shell: bash
         run: |
+          workload="bench/spec/workload.preview.v1.json"
+          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+            workload="bench/spec/workload.throughput.v1.json"
+          fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/turso-linux/runs/${{ steps.runner.outputs.run_id }}" \
-            --workload bench/spec/workload.throughput.v1.json \
+            --workload "$workload" \
             --targets bench/spec/targets.turso.v1.json
 
       - name: Upload runner artifacts
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: runner-turso-linux
           path: |
@@ -775,7 +793,7 @@ jobs:
 
       - name: Save runner baseline
         if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: bench-out/turso-linux/runs/${{ steps.runner.outputs.run_id }}
           key: runner-baseline-turso-linux-${{ github.sha }}
@@ -793,7 +811,7 @@ jobs:
     if: ${{ always() && !cancelled() && needs.sqlite.result == 'success' && needs.postgres.result == 'success' && needs.postgres-rust-orms.result == 'success' && needs.postgres-ts.result == 'success' && needs.spacetimedb.result == 'success' && needs.turso.result == 'success' }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -806,7 +824,7 @@ jobs:
           package-manager-cache: false
 
       - name: Download runner artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: runner-*
           path: bench-preview/artifacts
@@ -846,7 +864,7 @@ jobs:
           find "$out" -maxdepth 3 -type f | sort
 
       - name: Upload dashboard preview data
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dashboard-bench-data
           path: bench-out/dashboard-data

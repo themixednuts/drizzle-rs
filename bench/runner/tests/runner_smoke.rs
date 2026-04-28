@@ -11,6 +11,10 @@ fn checked_in_benchmark_specs_validate() {
         &root.join("bench/spec/workload.throughput.v1.json"),
         &root.join("docs/benchmark-spec/jsonschema/workload.v1.schema.json"),
     );
+    validate_json_file(
+        &root.join("bench/spec/workload.preview.v1.json"),
+        &root.join("docs/benchmark-spec/jsonschema/workload.v1.schema.json"),
+    );
 
     for path in [
         "bench/spec/targets.sqlite.v1.json",

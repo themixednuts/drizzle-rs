@@ -6,6 +6,7 @@ use axum::{Json, Router, debug_handler};
 use drizzle::core::expr::eq;
 use drizzle::sqlite::prelude::*;
 use drizzle_seed::SeedConfig;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// Collect all rows from a turso `Rows` into a `Vec<turso::Row>`.
@@ -883,22 +884,55 @@ async fn orders_with_details(
     let lim = params.limit_or(50) as i64;
     let off = params.offset() as i64;
     let db = state.db.lock().await;
-    let rows = db.conn().query(
-        "SELECT o.id, o.shipped_date, o.ship_name, o.ship_city, o.ship_country, count(d.product_id), COALESCE(sum(d.quantity), 0), COALESCE(sum(d.quantity * d.unit_price), 0) FROM orders o LEFT JOIN order_details d ON o.id = d.order_id GROUP BY o.id ORDER BY o.id LIMIT ?1 OFFSET ?2",
+    let order_rows = db.conn().query(
+        "SELECT id, shipped_date, ship_name, ship_city, ship_country FROM orders ORDER BY id LIMIT ?1 OFFSET ?2",
         [::turso::Value::from(lim), ::turso::Value::from(off)],
     ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let collected = collect_rows(rows).await?;
-    let resp: Vec<OrderWithDetailsResponse> = collected
+    let orders = collect_rows(order_rows).await?;
+    if orders.is_empty() {
+        return Ok(Json(serde_json::json!([])));
+    }
+
+    let min_id = orders
+        .first()
+        .and_then(|row| row.get::<i32>(0).ok())
+        .unwrap_or_default();
+    let max_id = orders
+        .last()
+        .and_then(|row| row.get::<i32>(0).ok())
+        .unwrap_or(min_id);
+    let detail_rows = db.conn().query(
+        "SELECT order_id, product_id, quantity, unit_price FROM order_details WHERE order_id >= ?1 AND order_id <= ?2",
+        [::turso::Value::from(min_id), ::turso::Value::from(max_id)],
+    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let details = collect_rows(detail_rows).await?;
+    let mut aggregates: BTreeMap<i32, (i32, f64, f64)> = BTreeMap::new();
+    for row in details {
+        let order_id = row.get::<i32>(0).unwrap_or_default();
+        let quantity = row.get::<i32>(2).unwrap_or_default();
+        let unit_price = row.get::<f64>(3).unwrap_or_default();
+        let entry = aggregates.entry(order_id).or_insert((0, 0.0, 0.0));
+        entry.0 += 1;
+        entry.1 += quantity as f64;
+        entry.2 += quantity as f64 * unit_price;
+    }
+
+    let resp: Vec<OrderWithDetailsResponse> = orders
         .iter()
-        .map(|r| OrderWithDetailsResponse {
-            id: r.get::<i32>(0).unwrap_or_default(),
-            shipped_date: r.get::<i64>(1).ok(),
-            ship_name: r.get::<String>(2).unwrap_or_default(),
-            ship_city: r.get::<String>(3).unwrap_or_default(),
-            ship_country: r.get::<String>(4).unwrap_or_default(),
-            products_count: r.get::<i32>(5).unwrap_or_default(),
-            quantity_sum: r.get::<f64>(6).unwrap_or_default(),
-            total_price: r.get::<f64>(7).unwrap_or_default(),
+        .map(|row| {
+            let id = row.get::<i32>(0).unwrap_or_default();
+            let (products_count, quantity_sum, total_price) =
+                aggregates.get(&id).copied().unwrap_or_default();
+            OrderWithDetailsResponse {
+                id,
+                shipped_date: row.get::<i64>(1).ok(),
+                ship_name: row.get::<String>(2).unwrap_or_default(),
+                ship_city: row.get::<String>(3).unwrap_or_default(),
+                ship_country: row.get::<String>(4).unwrap_or_default(),
+                products_count,
+                quantity_sum,
+                total_price,
+            }
         })
         .collect();
     Ok(Json(serde_json::to_value(&resp).unwrap()))

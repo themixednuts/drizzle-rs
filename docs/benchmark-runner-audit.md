@@ -24,7 +24,7 @@ Last updated: 2026-04-28.
 | Drizzle-RS PostgreSQL | `bench/spec/targets.postgres.v1.json` | `drizzle-rs-pg-sync`, `drizzle-rs-pg-tokio` |
 | Rust PostgreSQL ORMs | `bench/spec/targets.postgres-rust-orms.v1.json` | `sqlx-pg`, `diesel-pg`, `seaorm-pg` |
 | TS PostgreSQL comparators | `bench/spec/targets.postgres-ts.v1.json` | `bun-sql-pg`, `drizzle-ts-pg`, `prisma-pg` |
-| SpacetimeDB | `bench/spec/targets.spacetimedb.v1.json` | `spacetime-pgwire-rs`, `spacetime-native-rs`, `spacetime-native-ts` |
+| SpacetimeDB | `bench/spec/targets.spacetimedb.v1.json` | `spacetime-pgwire-rs` |
 
 ## Data Contract
 
@@ -37,6 +37,8 @@ PostgreSQL concurrency is explicit in the target specs. Drizzle-RS sync/tokio, S
 The Drizzle TS comparator is pinned to `drizzle-orm@1.0.0-beta.22`, matching the current npm `beta` dist-tag and the v1 feature surface Drizzle-RS is benchmarking against.
 
 SQLite targets use the same in-memory SQLite connection model and report pool size `1` in fairness metadata.
+
+SpacetimeDB currently runs through the PGWire target against the same Northwind contract as the other database targets. The older native Rust/TypeScript Spacetime wrappers targeted a previous `bench_users`/`bench_posts` module shape and are not part of the active runner spec until they are rebuilt against the Northwind module.
 
 ## Hosting Notes
 

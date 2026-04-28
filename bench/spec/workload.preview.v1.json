@@ -1,0 +1,44 @@
+{
+  "version": "v1",
+  "suite": "throughput-http",
+  "load": {
+    "kind": "closed",
+    "executor": "ramping-vus",
+    "unit": "1s",
+    "concurrency": 128
+  },
+  "data": {
+    "name": "bench",
+    "seed": 42,
+    "schema": "bench/schema.sql"
+  },
+  "shape": {
+    "mode": "mixed",
+    "endpoint": null
+  },
+  "stages": [
+    { "sec": 3, "vus": 16 },
+    { "sec": 7, "vus": 16 },
+    { "sec": 3, "vus": 32 },
+    { "sec": 7, "vus": 32 },
+    { "sec": 3, "vus": 64 },
+    { "sec": 7, "vus": 64 },
+    { "sec": 3, "vus": 96 },
+    { "sec": 7, "vus": 96 },
+    { "sec": 3, "vus": 128 },
+    { "sec": 17, "vus": 128 }
+  ],
+  "requests": {
+    "source": "generated",
+    "file": "bench/spec/requests.empty.v1.json",
+    "skip": []
+  },
+  "sampling": {
+    "cpu_ms": 200,
+    "bucket_s": 1
+  },
+  "limits": {
+    "err": 0.01,
+    "p95": null
+  }
+}

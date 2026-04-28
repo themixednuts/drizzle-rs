@@ -98,6 +98,9 @@ pub struct Order {
 
 #[table(accessor = order_details, public)]
 pub struct OrderDetail {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u32,
     pub unit_price: f64,
     pub quantity: i32,
     pub discount: f64,
@@ -112,7 +115,7 @@ pub struct OrderDetail {
 pub fn seed(ctx: &ReducerContext, seed_val: u64, _trial: u32) {
     // Clear existing data (order matters for referential integrity)
     for row in ctx.db.order_details().iter() {
-        ctx.db.order_details().order_id().delete(&row.order_id);
+        ctx.db.order_details().id().delete(&row.id);
     }
     for row in ctx.db.orders().iter() {
         ctx.db.orders().id().delete(&row.id);
@@ -227,6 +230,7 @@ pub fn seed(ctx: &ReducerContext, seed_val: u64, _trial: u32) {
     // ~3 details per order
     for i in 0..(n_orders * 3) {
         ctx.db.order_details().insert(OrderDetail {
+            id: 0,
             unit_price: 10.0 + (i as f64 * 0.5),
             quantity: ((i % 50) + 1) as i32,
             discount: if i % 5 == 0 { 0.05 } else { 0.0 },
