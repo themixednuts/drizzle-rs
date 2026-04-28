@@ -218,10 +218,17 @@ async fn insert_rows(
 
     let values = rows.join(", ");
     let sql = format!("INSERT INTO {table} ({columns}) VALUES {values}");
-    client
-        .simple_query(&sql)
-        .await
-        .map_err(|e| Fail::new(Code::RunFail, format!("seed {table}: {e}")))?;
+    let batch_rows = rows.len();
+    let sql_len = sql.len();
+    client.simple_query(&sql).await.map_err(|e| {
+        Fail::new(
+            Code::RunFail,
+            format!(
+                "seed {table} batch rows={batch_rows} sql_bytes={sql_len}: {e} (source: {:?})",
+                e.source()
+            ),
+        )
+    })?;
     rows.clear();
     Ok(())
 }
@@ -278,6 +285,7 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
     // Seed customers
     let mut customer_rows = Vec::with_capacity(INSERT_BATCH_ROWS);
     for i in 0..NUM_CUSTOMERS {
+        let id = i + 1;
         let postal_code = if rng.random_bool(0.8) {
             format!("{:05}", rng.random_range(10000..99999))
         } else {
@@ -294,7 +302,8 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
             String::new()
         };
         let row = format!(
-            "(0, '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}')",
+            "({}, '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}')",
+            id,
             sql_escape(&format!("Company-{i}")),
             sql_escape(&format!("Contact-{i}")),
             sql_escape(&format!("Title-{i}")),
@@ -328,6 +337,7 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
     // Seed employees
     let mut employee_rows = Vec::with_capacity(INSERT_BATCH_ROWS);
     for i in 0..NUM_EMPLOYEES {
+        let id = i + 1;
         let first_name = if rng.random_bool(0.9) {
             format!("First-{i}")
         } else {
@@ -345,7 +355,8 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
             0
         };
         let row = format!(
-            "(0, '{}', '{}', '{}', '{}', {}, {}, '{}', '{}', '{}', '{}', '{}', {}, '{}', {})",
+            "({}, '{}', '{}', '{}', '{}', {}, {}, '{}', '{}', '{}', '{}', '{}', {}, '{}', {})",
+            id,
             sql_escape(&format!("Last-{i}")),
             sql_escape(&first_name),
             sql_escape(&format!("Title-{i}")),
@@ -383,13 +394,15 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
     // Seed suppliers
     let mut supplier_rows = Vec::with_capacity(INSERT_BATCH_ROWS);
     for i in 0..NUM_SUPPLIERS {
+        let id = i + 1;
         let region = if rng.random_bool(0.5) {
             format!("Region-{}", rng.random_range(1..50))
         } else {
             String::new()
         };
         let row = format!(
-            "(0, '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}')",
+            "({}, '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}')",
+            id,
             sql_escape(&format!("Supplier-{i}")),
             sql_escape(&format!("Contact-{i}")),
             sql_escape(&format!("Title-{i}")),
@@ -422,6 +435,7 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
     // Seed products
     let mut product_rows = Vec::with_capacity(INSERT_BATCH_ROWS);
     for i in 0..NUM_PRODUCTS {
+        let id = i + 1;
         let unit_price = (rng.random_range(1.0..500.0_f64) * 100.0).round() / 100.0;
         let units_in_stock = rng.random_range(0..200_i32);
         let units_on_order = rng.random_range(0..100_i32);
@@ -429,7 +443,8 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         let discontinued: i32 = if rng.random_bool(0.1) { 1 } else { 0 };
         let supplier_id = rng.random_range(1..=NUM_SUPPLIERS as i32);
         let row = format!(
-            "(0, '{}', '{}', {}, {}, {}, {}, {}, {})",
+            "({}, '{}', '{}', {}, {}, {}, {}, {}, {})",
+            id,
             sql_escape(&format!("Product-{i}")),
             sql_escape(&format!(
                 "{} boxes x {} bags",
@@ -465,6 +480,7 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
     // Seed orders
     let mut order_rows = Vec::with_capacity(INSERT_BATCH_ROWS);
     for i in 0..NUM_ORDERS {
+        let id = i + 1;
         let order_date = rng.random_range(946_684_800..1_672_531_200_i64);
         let required_date = order_date + rng.random_range(604_800..2_592_000);
         let shipped_date: i64 = if rng.random_bool(0.85) {
@@ -487,7 +503,8 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         let customer_id = rng.random_range(1..=NUM_CUSTOMERS as i32);
         let employee_id = rng.random_range(1..=NUM_EMPLOYEES as i32);
         let row = format!(
-            "(0, {}, {}, {}, {}, {}, '{}', '{}', '{}', '{}', '{}', {}, {})",
+            "({}, {}, {}, {}, {}, {}, '{}', '{}', '{}', '{}', '{}', {}, {})",
+            id,
             order_date,
             required_date,
             shipped_date,
@@ -524,7 +541,8 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
     let mut detail_rows = Vec::with_capacity(INSERT_BATCH_ROWS);
     for order_i in 0..NUM_ORDERS {
         let order_id = (order_i + 1) as i32;
-        for _ in 0..DETAILS_PER_ORDER {
+        for detail_i in 0..DETAILS_PER_ORDER {
+            let id = order_i * DETAILS_PER_ORDER + detail_i + 1;
             let unit_price = (rng.random_range(1.0..200.0_f64) * 100.0).round() / 100.0;
             let quantity = rng.random_range(1..=100_i32);
             let discount = if rng.random_bool(0.3) {
@@ -534,8 +552,8 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
             };
             let product_id = rng.random_range(1..=NUM_PRODUCTS as i32);
             let row = format!(
-                "(0, {}, {}, {}, {}, {})",
-                unit_price, quantity, discount, order_id, product_id,
+                "({}, {}, {}, {}, {}, {})",
+                id, unit_price, quantity, discount, order_id, product_id,
             );
             detail_rows.push(row);
             if detail_rows.len() >= INSERT_BATCH_ROWS {
