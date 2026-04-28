@@ -1,189 +1,275 @@
-import { cpus } from "os";
 import pg from "pg";
-
-// ---------------------------------------------------------------------------
-// Parse DATABASE_URL: convert libpq key=value format to URL format if needed.
-// Must happen before PrismaClient is constructed since Prisma reads env.
-// ---------------------------------------------------------------------------
-
-function normalizeDbUrl(raw: string | undefined): string {
-  const fallback = "postgres://postgres:postgres@localhost:5432/drizzle_test";
-  if (!raw || raw.trim().length === 0) return fallback;
-  if (raw.startsWith("postgres://") || raw.startsWith("postgresql://")) return raw;
-
-  // Parse libpq key=value format
-  const parts: Record<string, string> = {};
-  for (const token of raw.split(/\s+/)) {
-    const eq = token.indexOf("=");
-    if (eq === -1) continue;
-    parts[token.slice(0, eq)] = token.slice(eq + 1);
-  }
-
-  const host = parts["host"] ?? "localhost";
-  const port = parts["port"] ?? "5432";
-  const user = parts["user"] ?? "postgres";
-  const password = parts["password"] ?? "postgres";
-  const dbname = parts["dbname"] ?? "drizzle_test";
-
-  return `postgres://${user}:${password}@${host}:${port}/${dbname}`;
-}
-
-const dbUrl = normalizeDbUrl(process.env.DATABASE_URL);
-// Set for Prisma's datasource
-process.env.DATABASE_URL = dbUrl;
-
-const pool = new pg.Pool({ connectionString: dbUrl });
-
-// ---------------------------------------------------------------------------
-// Prisma 7 with @prisma/adapter-pg (JS-native, no Rust engine)
-// ---------------------------------------------------------------------------
-
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
+import {
+  buildUrl,
+  idMod,
+  jsonResponse,
+  limitParam,
+  offsetParam,
+  seedPostgres,
+  SEED_CUSTOMERS,
+  SEED_EMPLOYEES,
+  SEED_ORDERS,
+  SEED_PRODUCTS,
+  SEED_SUPPLIERS,
+  stats,
+  termPattern,
+} from "../pg-common";
 
+await seedPostgres();
+
+process.env.DATABASE_URL = buildUrl();
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg({ pool });
 const prisma = new PrismaClient({ adapter });
 
-// ---------------------------------------------------------------------------
-// Schema setup & seeding via raw SQL (Prisma Migrate is too slow)
-// ---------------------------------------------------------------------------
+const customerSelect = {
+  id: true,
+  companyName: true,
+  contactName: true,
+  contactTitle: true,
+  address: true,
+  city: true,
+  postalCode: true,
+  region: true,
+  country: true,
+  phone: true,
+  fax: true,
+} as const;
 
-const seed = Number(process.env.BENCH_SEED ?? "42");
-const trial = Number(process.env.BENCH_TRIAL ?? "1");
+const supplierSelect = {
+  id: true,
+  companyName: true,
+  contactName: true,
+  contactTitle: true,
+  address: true,
+  city: true,
+  region: true,
+  postalCode: true,
+  country: true,
+  phone: true,
+} as const;
 
-await prisma.$executeRaw`DROP TABLE IF EXISTS bench_posts`;
-await prisma.$executeRaw`DROP TABLE IF EXISTS bench_users`;
-await prisma.$executeRaw`
-  CREATE TABLE bench_users (
-    id    SERIAL PRIMARY KEY,
-    name  TEXT NOT NULL,
-    email TEXT NOT NULL
-  )
-`;
-await prisma.$executeRaw`
-  CREATE TABLE bench_posts (
-    id        SERIAL PRIMARY KEY,
-    title     TEXT NOT NULL,
-    body      TEXT NOT NULL,
-    author_id INTEGER NOT NULL
-  )
-`;
+const productSelect = {
+  id: true,
+  name: true,
+  qtPerUnit: true,
+  unitPrice: true,
+  unitsInStock: true,
+  unitsOnOrder: true,
+  reorderLevel: true,
+  discontinued: true,
+  supplierId: true,
+} as const;
 
-const users = Array.from({ length: 256 }, (_, i) => ({
-  name: `user-${seed}-${trial}-${i}`,
-  email: `u${seed}-${trial}-${i}@x.dev`,
-}));
-await prisma.benchUser.createMany({ data: users });
+const employeeSelect = {
+  id: true,
+  lastName: true,
+  firstName: true,
+  title: true,
+  titleOfCourtesy: true,
+  birthDate: true,
+  hireDate: true,
+  address: true,
+  city: true,
+  postalCode: true,
+  country: true,
+  homePhone: true,
+  extension: true,
+  notes: true,
+  recipientId: true,
+} as const;
 
-const posts = Array.from({ length: 1024 }, (_, i) => ({
-  title: `post-${seed}-${trial}-${i}`,
-  body: `body-${seed}-${trial}-${i}`,
-  authorId: (i % 256) + 1,
-}));
-await prisma.benchPost.createMany({ data: posts });
+const orderBaseSelect = {
+  id: true,
+  orderDate: true,
+  requiredDate: true,
+  shippedDate: true,
+  shipVia: true,
+  freight: true,
+  shipName: true,
+  shipCity: true,
+  shipRegion: true,
+  shipPostalCode: true,
+  shipCountry: true,
+  customerId: true,
+  employeeId: true,
+} as const;
 
-// ---------------------------------------------------------------------------
-// Differential CPU + memory stats
-// ---------------------------------------------------------------------------
+const detailSelect = {
+  unitPrice: true,
+  quantity: true,
+  discount: true,
+  orderId: true,
+  productId: true,
+} as const;
 
-interface CpuSnap {
-  usage: number;
-  total: number;
-}
-
-let prevCpu: CpuSnap[] = [];
-
-function getStats(): { cpu: number[]; mem_mb: number } {
-  const cores = cpus();
-  const curr = cores.map((c) => {
-    const { user, nice, sys, irq, idle } = c.times;
-    const total = user + nice + sys + irq + idle;
-    return { usage: user + nice + sys + irq, total };
-  });
-
-  let cpu: number[] = [];
-  if (prevCpu.length > 0) {
-    cpu = curr.map((c, i) => {
-      const ud = c.usage - prevCpu[i].usage;
-      const td = c.total - prevCpu[i].total;
-      return td > 0 ? Math.round((100 * ud) / td) : 0;
-    });
-  }
-  prevCpu = curr;
-
-  const mem_mb =
-    Math.round((process.memoryUsage.rss() / (1024 * 1024)) * 100) / 100;
-  return { cpu, mem_mb };
-}
-
-// ---------------------------------------------------------------------------
-// HTTP server
-// ---------------------------------------------------------------------------
-
-function jsonResponse(data: unknown): Response {
-  return new Response(JSON.stringify(data), {
-    headers: { "Content-Type": "application/json" },
-  });
+function searchTerm(url: URL): string {
+  return termPattern(url).slice(1, -1);
 }
 
 const server = Bun.serve({
   port: 0,
   hostname: "127.0.0.1",
-  async fetch(req) {
+  async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
 
-    if (path === "/stats") {
-      return jsonResponse(getStats());
-    }
-
+    if (path === "/stats") return jsonResponse(stats());
     if (path === "/customers") {
-      const idx = Number(url.searchParams.get("idx") ?? "0");
-      const offset = idx % 64;
-      const rows = await prisma.benchUser.findMany({
-        select: { id: true, name: true, email: true },
-        orderBy: { id: "asc" },
-        skip: offset,
-        take: 20,
-      });
-      return jsonResponse(rows);
-    }
-
-    if (path === "/customer-by-id") {
-      const rawId = Number(url.searchParams.get("id") ?? "0");
-      // Match Rust: rem_euclid(256).max(1)
-      const id = Math.max(((rawId % 256) + 256) % 256, 1);
-      const rows = await prisma.benchUser.findMany({
-        select: { id: true, name: true, email: true },
-        where: { id },
-      });
-      return jsonResponse(rows);
-    }
-
-    if (path === "/orders") {
-      const idx = Number(url.searchParams.get("idx") ?? "0");
-      const offset = idx % 64;
-      const rows = await prisma.benchPost.findMany({
-        select: { id: true, title: true, authorId: true },
-        orderBy: { id: "asc" },
-        skip: offset,
-        take: 20,
-      });
-      // Map authorId -> author_id
       return jsonResponse(
-        rows.map((r) => ({ id: r.id, title: r.title, author_id: r.authorId }))
+        await prisma.customer.findMany({
+          select: customerSelect,
+          orderBy: { id: "asc" },
+          take: limitParam(url),
+          skip: offsetParam(url),
+        }),
       );
     }
-
-    if (path === "/orders-with-details") {
-      const rows = await prisma.benchPost.findMany({
+    if (path === "/customer-by-id") {
+      return jsonResponse(
+        await prisma.customer.findMany({
+          select: customerSelect,
+          where: { id: idMod(url, SEED_CUSTOMERS) },
+        }),
+      );
+    }
+    if (path === "/employees") {
+      return jsonResponse(
+        await prisma.employee.findMany({
+          select: employeeSelect,
+          orderBy: { id: "asc" },
+          take: limitParam(url),
+          skip: offsetParam(url),
+        }),
+      );
+    }
+    if (path === "/suppliers") {
+      return jsonResponse(
+        await prisma.supplier.findMany({
+          select: supplierSelect,
+          orderBy: { id: "asc" },
+          take: limitParam(url),
+          skip: offsetParam(url),
+        }),
+      );
+    }
+    if (path === "/supplier-by-id") {
+      return jsonResponse(
+        await prisma.supplier.findMany({
+          select: supplierSelect,
+          where: { id: idMod(url, SEED_SUPPLIERS) },
+        }),
+      );
+    }
+    if (path === "/products") {
+      return jsonResponse(
+        await prisma.product.findMany({
+          select: productSelect,
+          orderBy: { id: "asc" },
+          take: limitParam(url),
+          skip: offsetParam(url),
+        }),
+      );
+    }
+    if (path === "/employee-with-recipient") {
+      const rows = await prisma.employee.findMany({
+        where: { id: idMod(url, SEED_EMPLOYEES) },
         select: {
-          title: true,
-          author: { select: { name: true } },
+          ...employeeSelect,
+          recipient: { select: { lastName: true, firstName: true } },
         },
       });
       return jsonResponse(
-        rows.map((r) => ({ name: r.author.name, title: r.title }))
+        rows.map(({ recipient, ...row }) => ({
+          ...row,
+          recipientLastName: recipient?.lastName ?? null,
+          recipientFirstName: recipient?.firstName ?? null,
+        })),
+      );
+    }
+    if (path === "/product-with-supplier") {
+      return jsonResponse(
+        await prisma.product.findMany({
+          where: { id: idMod(url, SEED_PRODUCTS) },
+          select: {
+            ...productSelect,
+            supplier: { select: supplierSelect },
+          },
+        }),
+      );
+    }
+    if (path === "/orders-with-details") {
+      const rows = await prisma.order.findMany({
+        select: {
+          id: true,
+          shippedDate: true,
+          shipName: true,
+          shipCity: true,
+          shipCountry: true,
+          details: { select: { quantity: true, unitPrice: true } },
+        },
+        orderBy: { id: "asc" },
+        take: limitParam(url),
+        skip: offsetParam(url),
+      });
+      return jsonResponse(
+        rows.map(({ details, ...order }) => ({
+          ...order,
+          productsCount: details.length,
+          quantitySum: details.reduce((sum, detail) => sum + detail.quantity, 0),
+          totalPrice: details.reduce((sum, detail) => sum + detail.quantity * detail.unitPrice, 0),
+        })),
+      );
+    }
+    if (path === "/order-with-details") {
+      const rows = await prisma.order.findMany({
+        where: { id: idMod(url, SEED_ORDERS) },
+        select: {
+          ...orderBaseSelect,
+          details: { select: detailSelect },
+        },
+      });
+      return jsonResponse(rows);
+    }
+    if (path === "/order-with-details-and-products") {
+      const rows = await prisma.order.findMany({
+        where: { id: idMod(url, SEED_ORDERS) },
+        select: {
+          ...orderBaseSelect,
+          details: {
+            select: {
+              ...detailSelect,
+              product: { select: { name: true } },
+            },
+          },
+        },
+      });
+      return jsonResponse(
+        rows.map(({ details, ...order }) => ({
+          ...order,
+          details: details.map(({ product, ...detail }) => ({
+            ...detail,
+            productName: product.name,
+          })),
+        })),
+      );
+    }
+    if (path === "/search-customer") {
+      return jsonResponse(
+        await prisma.customer.findMany({
+          select: customerSelect,
+          where: { companyName: { contains: searchTerm(url), mode: "insensitive" } },
+        }),
+      );
+    }
+    if (path === "/search-product") {
+      return jsonResponse(
+        await prisma.product.findMany({
+          select: productSelect,
+          where: { name: { contains: searchTerm(url), mode: "insensitive" } },
+        }),
       );
     }
 

@@ -1,26 +1,113 @@
 generator client {
-  provider        = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
 }
 
-model BenchUser {
-  id    Int         @id @default(autoincrement())
-  name  String
-  email String
-  posts BenchPost[]
+model Customer {
+  id           Int     @id @default(autoincrement())
+  companyName  String  @map("company_name")
+  contactName  String  @map("contact_name")
+  contactTitle String  @map("contact_title")
+  address      String
+  city         String
+  postalCode   String? @map("postal_code")
+  region       String?
+  country      String
+  phone        String
+  fax          String?
+  orders       Order[]
 
-  @@map("bench_users")
+  @@map("customers")
 }
 
-model BenchPost {
-  id       Int       @id @default(autoincrement())
-  title    String
-  body     String
-  authorId Int       @map("author_id")
-  author   BenchUser @relation(fields: [authorId], references: [id])
+model Employee {
+  id              Int        @id @default(autoincrement())
+  lastName        String     @map("last_name")
+  firstName       String?    @map("first_name")
+  title           String
+  titleOfCourtesy String     @map("title_of_courtesy")
+  birthDate       DateTime   @map("birth_date") @db.Date
+  hireDate        DateTime   @map("hire_date") @db.Date
+  address         String
+  city            String
+  postalCode      String     @map("postal_code")
+  country         String
+  homePhone       String     @map("home_phone")
+  extension       Int
+  notes           String
+  recipientId     Int?       @map("recipient_id")
+  recipient       Employee?  @relation("EmployeeRecipient", fields: [recipientId], references: [id])
+  reports         Employee[] @relation("EmployeeRecipient")
+  orders          Order[]
 
-  @@map("bench_posts")
+  @@map("employees")
+}
+
+model Supplier {
+  id           Int       @id @default(autoincrement())
+  companyName  String    @map("company_name")
+  contactName  String    @map("contact_name")
+  contactTitle String    @map("contact_title")
+  address      String
+  city         String
+  region       String?
+  postalCode   String    @map("postal_code")
+  country      String
+  phone        String
+  products     Product[]
+
+  @@map("suppliers")
+}
+
+model Product {
+  id           Int           @id @default(autoincrement())
+  name         String
+  qtPerUnit    String        @map("qt_per_unit")
+  unitPrice    Float         @map("unit_price")
+  unitsInStock Int           @map("units_in_stock")
+  unitsOnOrder Int           @map("units_on_order")
+  reorderLevel Int           @map("reorder_level")
+  discontinued Int
+  supplierId   Int           @map("supplier_id")
+  supplier     Supplier      @relation(fields: [supplierId], references: [id])
+  details      OrderDetail[]
+
+  @@map("products")
+}
+
+model Order {
+  id             Int           @id @default(autoincrement())
+  orderDate      DateTime      @map("order_date") @db.Date
+  requiredDate   DateTime      @map("required_date") @db.Date
+  shippedDate    DateTime?     @map("shipped_date") @db.Date
+  shipVia        Int           @map("ship_via")
+  freight        Float
+  shipName       String        @map("ship_name")
+  shipCity       String        @map("ship_city")
+  shipRegion     String?       @map("ship_region")
+  shipPostalCode String?       @map("ship_postal_code")
+  shipCountry    String        @map("ship_country")
+  customerId     Int           @map("customer_id")
+  employeeId     Int           @map("employee_id")
+  customer       Customer      @relation(fields: [customerId], references: [id])
+  employee       Employee      @relation(fields: [employeeId], references: [id])
+  details        OrderDetail[]
+
+  @@map("orders")
+}
+
+model OrderDetail {
+  unitPrice Float   @map("unit_price")
+  quantity  Int
+  discount  Float
+  orderId   Int     @map("order_id")
+  productId Int     @map("product_id")
+  order     Order   @relation(fields: [orderId], references: [id])
+  product   Product @relation(fields: [productId], references: [id])
+
+  @@id([orderId, productId])
+  @@map("order_details")
 }

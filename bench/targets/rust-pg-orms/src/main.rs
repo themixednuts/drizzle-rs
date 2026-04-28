@@ -14,6 +14,7 @@ use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::net::TcpListener;
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use sysinfo::System;
 
@@ -22,7 +23,6 @@ const SEED_EMPLOYEES: usize = 200;
 const SEED_ORDERS: usize = 50_000;
 const SEED_SUPPLIERS: usize = 1_000;
 const SEED_PRODUCTS: usize = 5_000;
-const DETAILS_PER_ORDER: usize = 6;
 
 type DynError = Box<dyn std::error::Error + Send + Sync>;
 type HttpResult = Result<Json<serde_json::Value>, StatusCode>;
@@ -519,7 +519,7 @@ async fn main() -> Result<(), DynError> {
         .unwrap_or(42);
     let database_url = normalize_database_url();
 
-    seed_postgres(&database_url, seed)?;
+    seed_postgres(seed)?;
 
     let state = match target.as_str() {
         "sqlx-pg" => {
@@ -1191,291 +1191,22 @@ fn normalize_database_url() -> String {
     format!("postgres://{user}:{password}@{host}:{port}/{dbname}")
 }
 
-fn seed_postgres(database_url: &str, seed: u64) -> Result<(), DynError> {
-    let mut client = postgres::Client::connect(database_url, postgres::NoTls)?;
-    client.batch_execute(
-        "
-        DROP TABLE IF EXISTS order_details;
-        DROP TABLE IF EXISTS orders;
-        DROP TABLE IF EXISTS products;
-        DROP TABLE IF EXISTS suppliers;
-        DROP TABLE IF EXISTS employees;
-        DROP TABLE IF EXISTS customers;
-
-        CREATE TABLE customers (
-          id SERIAL PRIMARY KEY,
-          company_name TEXT NOT NULL,
-          contact_name TEXT NOT NULL,
-          contact_title TEXT NOT NULL,
-          address TEXT NOT NULL,
-          city TEXT NOT NULL,
-          postal_code TEXT,
-          region TEXT,
-          country TEXT NOT NULL,
-          phone TEXT NOT NULL,
-          fax TEXT
-        );
-        CREATE TABLE employees (
-          id SERIAL PRIMARY KEY,
-          last_name TEXT NOT NULL,
-          first_name TEXT,
-          title TEXT NOT NULL,
-          title_of_courtesy TEXT NOT NULL,
-          birth_date DATE NOT NULL,
-          hire_date DATE NOT NULL,
-          address TEXT NOT NULL,
-          city TEXT NOT NULL,
-          postal_code TEXT NOT NULL,
-          country TEXT NOT NULL,
-          home_phone TEXT NOT NULL,
-          extension INTEGER NOT NULL,
-          notes TEXT NOT NULL,
-          recipient_id INTEGER
-        );
-        CREATE TABLE suppliers (
-          id SERIAL PRIMARY KEY,
-          company_name TEXT NOT NULL,
-          contact_name TEXT NOT NULL,
-          contact_title TEXT NOT NULL,
-          address TEXT NOT NULL,
-          city TEXT NOT NULL,
-          region TEXT,
-          postal_code TEXT NOT NULL,
-          country TEXT NOT NULL,
-          phone TEXT NOT NULL
-        );
-        CREATE TABLE products (
-          id SERIAL PRIMARY KEY,
-          name TEXT NOT NULL,
-          qt_per_unit TEXT NOT NULL,
-          unit_price DOUBLE PRECISION NOT NULL,
-          units_in_stock INTEGER NOT NULL,
-          units_on_order INTEGER NOT NULL,
-          reorder_level INTEGER NOT NULL,
-          discontinued INTEGER NOT NULL,
-          supplier_id INTEGER NOT NULL
-        );
-        CREATE TABLE orders (
-          id SERIAL PRIMARY KEY,
-          order_date DATE NOT NULL,
-          required_date DATE NOT NULL,
-          shipped_date DATE,
-          ship_via INTEGER NOT NULL,
-          freight DOUBLE PRECISION NOT NULL,
-          ship_name TEXT NOT NULL,
-          ship_city TEXT NOT NULL,
-          ship_region TEXT,
-          ship_postal_code TEXT,
-          ship_country TEXT NOT NULL,
-          customer_id INTEGER NOT NULL,
-          employee_id INTEGER NOT NULL
-        );
-        CREATE TABLE order_details (
-          unit_price DOUBLE PRECISION NOT NULL,
-          quantity INTEGER NOT NULL,
-          discount DOUBLE PRECISION NOT NULL,
-          order_id INTEGER NOT NULL,
-          product_id INTEGER NOT NULL
-        );",
-    )?;
-
-    copy_customers(&mut client, seed)?;
-    copy_employees(&mut client, seed)?;
-    copy_suppliers(&mut client, seed)?;
-    copy_products(&mut client, seed)?;
-    copy_orders(&mut client, seed)?;
-    copy_order_details(&mut client)?;
-
-    client.batch_execute(
-        "
-        CREATE INDEX idx_employees_recipient ON employees(recipient_id);
-        CREATE INDEX idx_products_supplier ON products(supplier_id);
-        CREATE INDEX idx_details_order ON order_details(order_id);
-        CREATE INDEX idx_details_product ON order_details(product_id);",
-    )?;
-    Ok(())
-}
-
-fn copy_customers(client: &mut postgres::Client, seed: u64) -> Result<(), DynError> {
-    let mut writer = client.copy_in(
-        "COPY customers (id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax) FROM STDIN",
-    )?;
-    for id in 1..=SEED_CUSTOMERS {
-        writeln!(
-            writer,
-            "{}\tCustomer {} er {}\tContact {}\tBuyer\t{} Main St\tCity {}\t{}\t{}\tUS\t555-{:04}\t{}",
-            id,
-            seed,
-            id,
-            id,
-            id,
-            id % 200,
-            copy_opt(Some(format!("PC{:05}", id))),
-            if id % 3 == 0 {
-                "\\N".to_string()
-            } else {
-                format!("Region {}", id % 50)
-            },
-            id % 10_000,
-            if id % 4 == 0 {
-                "\\N".to_string()
-            } else {
-                format!("555-9{:04}", id % 10_000)
-            }
-        )?;
+fn seed_postgres(seed: u64) -> Result<(), DynError> {
+    let status = Command::new("cargo")
+        .args([
+            "run",
+            "-q",
+            "-p",
+            "bench-runner",
+            "--",
+            "seed-postgres",
+            "--seed",
+            &seed.to_string(),
+        ])
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("bench-runner seed-postgres exited with {status}").into())
     }
-    writer.finish()?;
-    Ok(())
-}
-
-fn copy_employees(client: &mut postgres::Client, seed: u64) -> Result<(), DynError> {
-    let mut writer = client.copy_in(
-        "COPY employees (id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, address, city, postal_code, country, home_phone, extension, notes, recipient_id) FROM STDIN",
-    )?;
-    for id in 1..=SEED_EMPLOYEES {
-        writeln!(
-            writer,
-            "{}\tEmployeeLast{}\tEmployeeFirst{}\tSales\tMx\t{}\t{}\t{} Work Ave\tCity {}\tEMP{:05}\tUS\t555-{:04}\t{}\tSeed {} employee {}\t{}",
-            id,
-            id,
-            id,
-            date_for(id),
-            date_for(id + 400),
-            id,
-            id % 50,
-            id,
-            id % 10_000,
-            1000 + (id as i32),
-            seed,
-            id,
-            if id == 1 {
-                "\\N".to_string()
-            } else {
-                (id - 1).to_string()
-            }
-        )?;
-    }
-    writer.finish()?;
-    Ok(())
-}
-
-fn copy_suppliers(client: &mut postgres::Client, seed: u64) -> Result<(), DynError> {
-    let mut writer = client.copy_in(
-        "COPY suppliers (id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone) FROM STDIN",
-    )?;
-    for id in 1..=SEED_SUPPLIERS {
-        writeln!(
-            writer,
-            "{}\tSupplier {} {}\tSupplier Contact {}\tOwner\t{} Supply Rd\tCity {}\t{}\tSUP{:05}\tUS\t555-{:04}",
-            id,
-            seed,
-            id,
-            id,
-            id,
-            id % 100,
-            if id % 5 == 0 {
-                "\\N".to_string()
-            } else {
-                format!("Region {}", id % 20)
-            },
-            id,
-            id % 10_000
-        )?;
-    }
-    writer.finish()?;
-    Ok(())
-}
-
-fn copy_products(client: &mut postgres::Client, seed: u64) -> Result<(), DynError> {
-    let mut writer = client.copy_in(
-        "COPY products (id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id) FROM STDIN",
-    )?;
-    for id in 1..=SEED_PRODUCTS {
-        writeln!(
-            writer,
-            "{}\tProduct er {} {}\t{} boxes\t{:.2}\t{}\t{}\t{}\t{}\t{}",
-            id,
-            seed,
-            id,
-            1 + (id % 24),
-            1.25 + ((id % 10_000) as f64 / 100.0),
-            10 + (id % 500),
-            id % 50,
-            id % 25,
-            i32::from(id % 97 == 0),
-            ((id - 1) % SEED_SUPPLIERS) + 1
-        )?;
-    }
-    writer.finish()?;
-    Ok(())
-}
-
-fn copy_orders(client: &mut postgres::Client, _seed: u64) -> Result<(), DynError> {
-    let mut writer = client.copy_in(
-        "COPY orders (id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id) FROM STDIN",
-    )?;
-    for id in 1..=SEED_ORDERS {
-        writeln!(
-            writer,
-            "{}\t{}\t{}\t{}\t{}\t{:.2}\tShip {}\tCity {}\t{}\t{}\tUS\t{}\t{}",
-            id,
-            date_for(id),
-            date_for(id + 14),
-            if id % 7 == 0 {
-                "\\N".to_string()
-            } else {
-                date_for(id + 2)
-            },
-            1 + (id % 6),
-            5.0 + ((id % 10_000) as f64 / 10.0),
-            id,
-            id % 200,
-            if id % 4 == 0 {
-                "\\N".to_string()
-            } else {
-                format!("Region {}", id % 50)
-            },
-            if id % 6 == 0 {
-                "\\N".to_string()
-            } else {
-                format!("ORD{:05}", id)
-            },
-            ((id - 1) % SEED_CUSTOMERS) + 1,
-            ((id - 1) % SEED_EMPLOYEES) + 1
-        )?;
-    }
-    writer.finish()?;
-    Ok(())
-}
-
-fn copy_order_details(client: &mut postgres::Client) -> Result<(), DynError> {
-    let mut writer = client.copy_in(
-        "COPY order_details (unit_price, quantity, discount, order_id, product_id) FROM STDIN",
-    )?;
-    for order_id in 1..=SEED_ORDERS {
-        for idx in 0..DETAILS_PER_ORDER {
-            let product_id = (((order_id - 1) * DETAILS_PER_ORDER + idx) % SEED_PRODUCTS) + 1;
-            writeln!(
-                writer,
-                "{:.2}\t{}\t{:.2}\t{}\t{}",
-                1.25 + ((product_id % 10_000) as f64 / 100.0),
-                1 + ((order_id + idx) % 20),
-                if idx == 0 { 0.05 } else { 0.0 },
-                order_id,
-                product_id
-            )?;
-        }
-    }
-    writer.finish()?;
-    Ok(())
-}
-
-fn copy_opt(value: Option<String>) -> String {
-    value.unwrap_or_else(|| "\\N".to_string())
-}
-
-fn date_for(value: usize) -> String {
-    let month = (value % 12) + 1;
-    let day = (value % 28) + 1;
-    format!("2020-{month:02}-{day:02}")
 }

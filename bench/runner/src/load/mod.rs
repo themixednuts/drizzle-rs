@@ -5,7 +5,7 @@ mod spacetime_pg;
 mod sqlite;
 mod turso;
 
-use crate::cli::{Load, Suite};
+use crate::cli::{Load, SeedPostgres, Suite};
 use crate::code::{Code, Fail};
 use crate::model::{Latency, Point, RequestDoc, Workload};
 use axum::Router;
@@ -62,6 +62,20 @@ pub(crate) async fn serve_target(target: &str, seed: u64) -> Result<ServerHandle
             format!("unsupported target: {other}"),
         )),
     }
+}
+
+pub(crate) fn seed_postgres(args: SeedPostgres) -> Result<Code, Fail> {
+    let seed = args
+        .seed
+        .or_else(|| {
+            std::env::var("BENCH_SEED")
+                .ok()
+                .and_then(|raw| raw.parse().ok())
+        })
+        .unwrap_or(42);
+    pg_sync::seed_database_url(&pg_url(), seed)
+        .map_err(|msg| Fail::new(Code::RunFail, format!("postgres seed failed: {msg}")))?;
+    Ok(Code::Success)
 }
 
 /// Send an HTTP GET and return the full response body (or error).

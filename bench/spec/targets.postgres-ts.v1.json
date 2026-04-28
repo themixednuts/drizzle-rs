@@ -45,6 +45,9 @@
     "server": {
       "cmd": ["bun", "run", "bench/targets/bun-sql-pg/server.ts"]
     },
+    "parity": {
+      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "parity"]
+    },
     "load": {
       "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
     }
@@ -95,6 +98,9 @@
     "server": {
       "cmd": ["bun", "run", "bench/targets/drizzle-ts-pg/server.ts"]
     },
+    "parity": {
+      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "parity"]
+    },
     "load": {
       "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]
     }
@@ -144,6 +150,9 @@
     },
     "server": {
       "cmd": ["bun", "run", "bench/targets/prisma-pg/server.ts"]
+    },
+    "parity": {
+      "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "parity"]
     },
     "load": {
       "cmd": ["cargo", "run", "-q", "-p", "bench-runner", "--", "load"]

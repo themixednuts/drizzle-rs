@@ -26,6 +26,12 @@ Last updated: 2026-04-27.
 | TS PostgreSQL comparators | `bench/spec/targets.postgres-ts.v1.json` | `bun-sql-pg`, `drizzle-ts-pg`, `prisma-pg` |
 | SpacetimeDB | `bench/spec/targets.spacetimedb.v1.json` | `spacetime-pgwire-rs`, `spacetime-native-rs`, `spacetime-native-ts` |
 
+## Data Contract
+
+PostgreSQL targets use the runner-owned Northwind micro schema and deterministic `drizzle_seed::SeedConfig::postgres` seed path. External PostgreSQL targets seed by invoking `bench-runner seed-postgres` before printing `LISTENING`, so setup stays outside measured load and parity/load exercise the same table layout and rows.
+
+SQLite targets use the same in-memory SQLite connection model and report pool size `1` in fairness metadata.
+
 ## Hosting Notes
 
 Benchmarks currently run in GitHub Actions, not Cloudflare Workers. Cloudflare is used for R2 artifact storage and dashboard/API hosting. There is no AWS benchmark runner workflow today; AWS appears only as optional library support in the main crate feature set.

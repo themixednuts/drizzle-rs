@@ -16,6 +16,7 @@ pub enum Cmd {
     Capture(Capture),
     Load(Load),
     Parity(Parity),
+    SeedPostgres(SeedPostgres),
     Validate(Validate),
     Publish(Publish),
 }
@@ -109,6 +110,12 @@ pub struct Parity {
 
     #[arg(long)]
     pub trial: Option<u32>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SeedPostgres {
+    #[arg(long)]
+    pub seed: Option<u64>,
 }
 
 #[derive(Debug, Clone, Args)]

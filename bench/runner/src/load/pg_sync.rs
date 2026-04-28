@@ -367,48 +367,7 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
     let (ready_tx, ready_rx) = oneshot::channel::<Result<(), String>>();
 
     let worker = std::thread::spawn(move || {
-        let mut conn = ::postgres::Client::connect(&pg_url(), ::postgres::NoTls)
-            .map_err(|err| format!("postgres connect failed: {err}"))?;
-        conn.batch_execute(
-            "DROP TABLE IF EXISTS order_details;
-             DROP TABLE IF EXISTS orders;
-             DROP TABLE IF EXISTS products;
-             DROP TABLE IF EXISTS suppliers;
-             DROP TABLE IF EXISTS employees;
-             DROP TABLE IF EXISTS customers;",
-        )
-        .map_err(|err| format!("postgres drop failed: {err}"))?;
-
-        let (mut db, schema) = drizzle::postgres::sync::Drizzle::new(conn, Schema::new());
-        db.create()
-            .map_err(|err| format!("postgres create failed: {err}"))?;
-
-        // Seed via drizzle-seed (deterministic from seed value)
-        use drizzle_seed::SeedConfig;
-
-        let stmts = SeedConfig::postgres(&schema)
-            .seed(seed)
-            .count(&schema.customer, super::SEED_CUSTOMERS)
-            .count(&schema.employee, super::SEED_EMPLOYEES)
-            .count(&schema.supplier, super::SEED_SUPPLIERS)
-            .count(&schema.product, super::SEED_PRODUCTS)
-            .count(&schema.order, super::SEED_ORDERS)
-            .relation(&schema.order, &schema.detail, 6)
-            .generate();
-        for stmt in stmts {
-            db.execute(stmt)
-                .map_err(|err| format!("postgres seed failed: {err}"))?;
-        }
-
-        // Create indexes
-        db.conn_mut()
-            .batch_execute(
-                "CREATE INDEX IF NOT EXISTS idx_employees_recipient ON employees(recipient_id);
-             CREATE INDEX IF NOT EXISTS idx_products_supplier ON products(supplier_id);
-             CREATE INDEX IF NOT EXISTS idx_details_order ON order_details(order_id);
-             CREATE INDEX IF NOT EXISTS idx_details_product ON order_details(product_id);",
-            )
-            .map_err(|err| format!("postgres create indexes failed: {err}"))?;
+        let mut db = create_seeded_db(&pg_url(), seed)?;
 
         let _ = ready_tx.send(Ok(()));
 
@@ -449,6 +408,56 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
     let mut handle = spawn_server(router).await?;
     handle.workers.push(worker);
     Ok(handle)
+}
+
+pub(crate) fn seed_database_url(database_url: &str, seed: u64) -> Result<(), String> {
+    create_seeded_db(database_url, seed).map(drop)
+}
+
+fn create_seeded_db(
+    database_url: &str,
+    seed: u64,
+) -> Result<drizzle::postgres::sync::Drizzle<Schema>, String> {
+    let mut conn = ::postgres::Client::connect(database_url, ::postgres::NoTls)
+        .map_err(|err| format!("postgres connect failed: {err}"))?;
+    conn.batch_execute(
+        "DROP TABLE IF EXISTS order_details;
+         DROP TABLE IF EXISTS orders;
+         DROP TABLE IF EXISTS products;
+         DROP TABLE IF EXISTS suppliers;
+         DROP TABLE IF EXISTS employees;
+         DROP TABLE IF EXISTS customers;",
+    )
+    .map_err(|err| format!("postgres drop failed: {err}"))?;
+
+    let (mut db, schema) = drizzle::postgres::sync::Drizzle::new(conn, Schema::new());
+    db.create()
+        .map_err(|err| format!("postgres create failed: {err}"))?;
+
+    let stmts = drizzle_seed::SeedConfig::postgres(&schema)
+        .seed(seed)
+        .count(&schema.customer, super::SEED_CUSTOMERS)
+        .count(&schema.employee, super::SEED_EMPLOYEES)
+        .count(&schema.supplier, super::SEED_SUPPLIERS)
+        .count(&schema.product, super::SEED_PRODUCTS)
+        .count(&schema.order, super::SEED_ORDERS)
+        .relation(&schema.order, &schema.detail, 6)
+        .generate();
+    for stmt in stmts {
+        db.execute(stmt)
+            .map_err(|err| format!("postgres seed failed: {err}"))?;
+    }
+
+    db.conn_mut()
+        .batch_execute(
+            "CREATE INDEX IF NOT EXISTS idx_employees_recipient ON employees(recipient_id);
+             CREATE INDEX IF NOT EXISTS idx_products_supplier ON products(supplier_id);
+             CREATE INDEX IF NOT EXISTS idx_details_order ON order_details(order_id);
+             CREATE INDEX IF NOT EXISTS idx_details_product ON order_details(product_id);",
+        )
+        .map_err(|err| format!("postgres create indexes failed: {err}"))?;
+
+    Ok(db)
 }
 
 fn handle_cmd(db: &mut drizzle::postgres::sync::Drizzle<Schema>, cmd: DbCmd) -> Result<(), String> {
