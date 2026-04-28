@@ -296,7 +296,9 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
             String::new()
         };
         let courtesy = ["Mr.", "Ms.", "Mrs.", "Dr."][i % 4];
-        let birth_date = -(rng.random_range(315_360_000..946_080_000_i64));
+        // SpacetimeDB PGWire rejects negative integer literals in INSERT values,
+        // so keep date-like timestamps positive for this target.
+        let birth_date = rng.random_range(315_360_000..946_080_000_i64);
         let hire_date = rng.random_range(946_684_800..1_672_531_200_i64);
         let extension = rng.random_range(100..9999_i32);
         let recipient_id: i32 = if i > 0 {
@@ -440,7 +442,7 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
             };
             let product_id = rng.random_range(1..=NUM_PRODUCTS as i32);
             let sql = format!(
-                "INSERT INTO order_details (unit_price, quantity, discount, order_id, product_id) VALUES ({}, {}, {}, {}, {})",
+                "INSERT INTO order_details (id, unit_price, quantity, discount, order_id, product_id) VALUES (0, {}, {}, {}, {}, {})",
                 unit_price, quantity, discount, order_id, product_id,
             );
             client

@@ -6,7 +6,7 @@
     "lang": "rust",
     "runtime": {
       "name": "rust",
-      "ver": "1.91"
+      "ver": "1.95"
     },
     "orm": {
       "name": "none",

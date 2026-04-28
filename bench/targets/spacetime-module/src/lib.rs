@@ -165,7 +165,7 @@ pub fn seed(ctx: &ReducerContext, seed_val: u64, _trial: u32) {
             first_name: format!("First-{s}"),
             title: format!("Title-{}", i % 5),
             title_of_courtesy: ["Mr.", "Ms.", "Mrs.", "Dr."][(i % 4) as usize].to_string(),
-            birth_date: -(315_360_000 + i as i64 * 86400 * 365),
+            birth_date: 315_360_000 + i as i64 * 86400 * 365,
             hire_date: 946_684_800 + i as i64 * 86400 * 30,
             address: format!("{i} Work Ave"),
             city: format!("City{}", i % 10),
