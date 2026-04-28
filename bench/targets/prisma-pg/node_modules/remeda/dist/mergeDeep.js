@@ -1,2 +1,0 @@
-import{t as e}from"./purry-GjwKKIlp.js";import{isPlainObject as t}from"./isPlainObject.js";function n(...t){return e(r,t)}function r(e,n){let i={...e,...n};for(let a in n){if(!(a in e))continue;let{[a]:o}=e;if(!t(o))continue;let{[a]:s}=n;t(s)&&(i[a]=r(o,s))}return i}export{n as mergeDeep};
-//# sourceMappingURL=mergeDeep.js.map

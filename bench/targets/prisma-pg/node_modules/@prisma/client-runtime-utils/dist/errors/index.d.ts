@@ -1,7 +1,0 @@
-export * from './ErrorWithBatchIndex';
-export * from './PrismaClientInitializationError';
-export * from './PrismaClientKnownRequestError';
-export * from './PrismaClientRustError';
-export * from './PrismaClientRustPanicError';
-export * from './PrismaClientUnknownRequestError';
-export * from './PrismaClientValidationError';

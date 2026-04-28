@@ -1,2 +1,0 @@
-import{t as e}from"./purry-GjwKKIlp.js";import{sum as t}from"./sum.js";function n(...t){return e(r,t)}function r(e){if(e.length!==0)return t(e)/e.length}export{n as mean};
-//# sourceMappingURL=mean.js.map

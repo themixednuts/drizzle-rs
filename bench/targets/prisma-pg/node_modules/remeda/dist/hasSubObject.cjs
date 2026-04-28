@@ -1,2 +1,0 @@
-const e=require(`./purry-3_3M-Pet.cjs`),t=require(`./isDeepEqual.cjs`);function n(...t){return e.t(r,t)}function r(e,n){for(let[r,i]of Object.entries(n))if(!Object.hasOwn(e,r)||!t.isDeepEqual(i,e[r]))return!1;return!0}exports.hasSubObject=n;
-//# sourceMappingURL=hasSubObject.cjs.map

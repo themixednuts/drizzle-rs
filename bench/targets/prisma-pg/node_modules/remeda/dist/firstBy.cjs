@@ -1,2 +1,0 @@
-const e=require(`./hasAtLeast-BfO0atOv.cjs`),t=require(`./purryOrderRules-Si4oUxGJ.cjs`);function n(...e){return t.t(r,e)}function r(t,n){if(!e.t(t,2))return t[0];let[r]=t,[,...i]=t;for(let e of i)n(e,r)<0&&(r=e);return r}exports.firstBy=n;
-//# sourceMappingURL=firstBy.cjs.map

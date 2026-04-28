@@ -1,2 +1,0 @@
-const e=require(`./purry-3_3M-Pet.cjs`),t=require(`./hasAtLeast-BfO0atOv.cjs`);function n(...t){return e.t(r,t)}function r(e,n){if(!t.t(n,1))return{...e};if(!t.t(n,2)){let{[n[0]]:t,...r}=e;return r}let r={...e};for(let e of n)delete r[e];return r}exports.omit=n;
-//# sourceMappingURL=omit.cjs.map

@@ -1,2 +1,0 @@
-const e=require(`./lazyDataLastImpl-DdpJofHC.cjs`);function t(t,i,a){return typeof t==`function`?(e,r)=>n(e,r,t):typeof i==`function`?e.t(n,[t,i],r):n(t,i,a)}function n(e,t,n){let r=[e,t];return e.length<t.length?e.map((e,i)=>n(e,t[i],i,r)):t.map((t,i)=>n(e[i],t,i,r))}const r=(e,t)=>(n,r,i)=>({next:t(n,e[r],r,[i,e]),hasNext:!0,done:r>=e.length-1});exports.zipWith=t;
-//# sourceMappingURL=zipWith.cjs.map

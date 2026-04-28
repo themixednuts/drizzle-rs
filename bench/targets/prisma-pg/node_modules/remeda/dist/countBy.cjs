@@ -1,2 +1,0 @@
-const e=require(`./purry-3_3M-Pet.cjs`);function t(...t){return e.t(n,t)}const n=(e,t)=>{let n=new Map;for(let[r,i]of e.entries()){let a=t(i,r,e);if(a!==void 0){let e=n.get(a);e===void 0?n.set(a,1):n.set(a,e+1)}}return Object.fromEntries(n)};exports.countBy=t;
-//# sourceMappingURL=countBy.cjs.map

@@ -1,2 +1,0 @@
-const e=require(`./purry-3_3M-Pet.cjs`);function t(...t){return e.t(n,t)}function n(e,t){let n={...e};for(let[r,i]of Object.entries(n))t(i,r,e)&&delete n[r];return n}exports.omitBy=t;
-//# sourceMappingURL=omitBy.cjs.map

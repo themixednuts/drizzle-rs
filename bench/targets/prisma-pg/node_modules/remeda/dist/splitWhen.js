@@ -1,2 +1,0 @@
-import{t as e}from"./purry-GjwKKIlp.js";function t(...t){return e(n,t)}function n(e,t){let n=e.findIndex(t);return n===-1?[[...e],[]]:[e.slice(0,n),e.slice(n)]}export{t as splitWhen};
-//# sourceMappingURL=splitWhen.js.map

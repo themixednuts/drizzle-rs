@@ -1,4 +1,5 @@
 /target
+node_modules/
 .claude/
 /tmp
 /.idea/
@@ -14,8 +15,6 @@ tmpclaude-*
 # benchmark and dashboard generated artifacts
 /bench-out/
 /bench/targets/**/target/
-/bench/targets/prisma-pg/node_modules/.cache/
 /bench/dashboard/.svelte-kit/
 /bench/dashboard/.wrangler/
 /bench/dashboard/.codex-logs/
-/bench/dashboard/node_modules/

@@ -1,2 +1,0 @@
-const e=require(`./purry-3_3M-Pet.cjs`),t=require(`./isPlainObject.cjs`);function n(...t){return e.t(r,t)}function r(e,n){let i={...e,...n};for(let a in n){if(!(a in e))continue;let{[a]:o}=e;if(!t.isPlainObject(o))continue;let{[a]:s}=n;t.isPlainObject(s)&&(i[a]=r(o,s))}return i}exports.mergeDeep=n;
-//# sourceMappingURL=mergeDeep.cjs.map

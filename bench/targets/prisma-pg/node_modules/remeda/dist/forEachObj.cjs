@@ -1,2 +1,0 @@
-const e=require(`./purry-3_3M-Pet.cjs`);function t(...t){return e.t(n,t)}function n(e,t){for(let[n,r]of Object.entries(e))t(r,n,e);return e}exports.forEachObj=t;
-//# sourceMappingURL=forEachObj.cjs.map

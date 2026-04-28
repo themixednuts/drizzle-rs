@@ -1,2 +1,0 @@
-const e=require(`./purry-3_3M-Pet.cjs`);function t(...t){return e.t(n,t)}function n(e,t){let n=[];for(let[r,i]of e.entries()){if(!t(i,r,e))break;n.push(i)}return n}exports.takeWhile=t;
-//# sourceMappingURL=takeWhile.cjs.map
