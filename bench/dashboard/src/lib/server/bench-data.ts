@@ -1,5 +1,6 @@
 import { Effect } from 'effect';
 import {
+	type BenchBucket,
 	getBenchBucket,
 	readAllSummaries,
 	readIndex,
@@ -159,7 +160,7 @@ function compareItems(
 		.filter((item): item is CompareItem => item !== null);
 }
 
-function compareRunItems(bucket: R2Bucket, base: string, head: string, metric: CompareMetric) {
+function compareRunItems(bucket: BenchBucket, base: string, head: string, metric: CompareMetric) {
 	return Effect.gen(function* () {
 		const [baseManifest, headManifest] = yield* Effect.all(
 			[readManifest(bucket, base), readManifest(bucket, head)],

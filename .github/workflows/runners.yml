@@ -3,14 +3,28 @@ name: Runners
 on:
   push:
     branches: [main]
+    tags: ['*']
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
   schedule:
     - cron: '0 4 * * 1'  # weekly Monday 04:00 UTC
   workflow_dispatch:
+    inputs:
+      publish_to_r2:
+        description: Publish manual main runs to Cloudflare R2
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
+  NODE_VERSION: "latest"
+  PUBLISH_TO_R2: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_to_r2 && github.ref == 'refs/heads/main') }}
   R2_BUCKET: drizzle-bench
 
 jobs:
@@ -42,7 +56,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: runner-sqlite-${{ matrix.platform }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
 
       - name: Restore runner baseline
         if: ${{ !env.ACT }}
@@ -58,7 +72,7 @@ jobs:
         shell: bash
         run: |
           class="small"
-          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
           fi
 
@@ -101,37 +115,11 @@ jobs:
           retention-days: 30
 
       - name: Save runner baseline
-        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
+        if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
         uses: actions/cache/save@v4
         with:
           path: bench-out/sqlite-${{ matrix.platform }}/runs/${{ steps.runner.outputs.run_id }}
           key: runner-baseline-sqlite-${{ matrix.platform }}-${{ github.sha }}
-
-      - name: Publish to R2
-        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
-            echo "No R2 credentials, skipping publish"
-            exit 0
-          fi
-          run_id="${{ steps.runner.outputs.run_id }}"
-          run_dir="bench-out/sqlite-${{ matrix.platform }}/runs/$run_id"
-
-          find "$run_dir" -type f | while read -r file; do
-            key="runs/$run_id/${file#$run_dir/}"
-            npx wrangler r2 object put "$R2_BUCKET/$key" --file "$file"
-          done
-
-          npx wrangler r2 object get "$R2_BUCKET/index.json" --file /tmp/index.json 2>/dev/null \
-            || echo '{"version":"v1","runs":[]}' > /tmp/index.json
-          cargo run -q -p bench-runner -- publish \
-            --run "$run_dir" \
-            --index /tmp/index.json
-          npx wrangler r2 object put "$R2_BUCKET/index.json" --file /tmp/index.json
 
   postgres:
     name: PostgreSQL (linux)
@@ -163,7 +151,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: runner-postgres
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
 
       - name: Resolve DATABASE_URL
         id: pgurl
@@ -214,7 +202,7 @@ jobs:
           DATABASE_URL: ${{ steps.pgurl.outputs.url }}
         run: |
           class="small"
-          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
           fi
 
@@ -257,37 +245,11 @@ jobs:
           retention-days: 30
 
       - name: Save runner baseline
-        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
+        if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
         uses: actions/cache/save@v4
         with:
           path: bench-out/postgres-linux/runs/${{ steps.runner.outputs.run_id }}
           key: runner-baseline-postgres-linux-${{ github.sha }}
-
-      - name: Publish to R2
-        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
-            echo "No R2 credentials, skipping publish"
-            exit 0
-          fi
-          run_id="${{ steps.runner.outputs.run_id }}"
-          run_dir="bench-out/postgres-linux/runs/$run_id"
-
-          find "$run_dir" -type f | while read -r file; do
-            key="runs/$run_id/${file#$run_dir/}"
-            npx wrangler r2 object put "$R2_BUCKET/$key" --file "$file"
-          done
-
-          npx wrangler r2 object get "$R2_BUCKET/index.json" --file /tmp/index.json 2>/dev/null \
-            || echo '{"version":"v1","runs":[]}' > /tmp/index.json
-          cargo run -q -p bench-runner -- publish \
-            --run "$run_dir" \
-            --index /tmp/index.json
-          npx wrangler r2 object put "$R2_BUCKET/index.json" --file /tmp/index.json
 
   postgres-rust-orms:
     name: PostgreSQL Rust ORMs (linux)
@@ -319,7 +281,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: runner-postgres-rust-orms
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
 
       - name: Resolve DATABASE_URL
         id: pgurl
@@ -370,7 +332,7 @@ jobs:
           DATABASE_URL: ${{ steps.pgurl.outputs.url }}
         run: |
           class="small"
-          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
           fi
 
@@ -413,37 +375,11 @@ jobs:
           retention-days: 30
 
       - name: Save runner baseline
-        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
+        if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
         uses: actions/cache/save@v4
         with:
           path: bench-out/postgres-rust-orms-linux/runs/${{ steps.runner.outputs.run_id }}
           key: runner-baseline-postgres-rust-orms-linux-${{ github.sha }}
-
-      - name: Publish to R2
-        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
-            echo "No R2 credentials, skipping publish"
-            exit 0
-          fi
-          run_id="${{ steps.runner.outputs.run_id }}"
-          run_dir="bench-out/postgres-rust-orms-linux/runs/$run_id"
-
-          find "$run_dir" -type f | while read -r file; do
-            key="runs/$run_id/${file#$run_dir/}"
-            npx wrangler r2 object put "$R2_BUCKET/$key" --file "$file"
-          done
-
-          npx wrangler r2 object get "$R2_BUCKET/index.json" --file /tmp/index.json 2>/dev/null \
-            || echo '{"version":"v1","runs":[]}' > /tmp/index.json
-          cargo run -q -p bench-runner -- publish \
-            --run "$run_dir" \
-            --index /tmp/index.json
-          npx wrangler r2 object put "$R2_BUCKET/index.json" --file /tmp/index.json
 
   postgres-ts:
     name: PostgreSQL TS (linux)
@@ -470,6 +406,13 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+          package-manager-cache: false
+
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -480,7 +423,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: runner-postgres-ts
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
 
       - name: Install TS target dependencies
         shell: bash
@@ -540,7 +483,7 @@ jobs:
           DATABASE_URL: ${{ steps.pgurl.outputs.url }}
         run: |
           class="small"
-          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
           fi
 
@@ -583,37 +526,11 @@ jobs:
           retention-days: 30
 
       - name: Save runner baseline
-        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
+        if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
         uses: actions/cache/save@v4
         with:
           path: bench-out/postgres-ts-linux/runs/${{ steps.runner.outputs.run_id }}
           key: runner-baseline-postgres-ts-linux-${{ github.sha }}
-
-      - name: Publish to R2
-        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
-            echo "No R2 credentials, skipping publish"
-            exit 0
-          fi
-          run_id="${{ steps.runner.outputs.run_id }}"
-          run_dir="bench-out/postgres-ts-linux/runs/$run_id"
-
-          find "$run_dir" -type f | while read -r file; do
-            key="runs/$run_id/${file#$run_dir/}"
-            npx wrangler r2 object put "$R2_BUCKET/$key" --file "$file"
-          done
-
-          npx wrangler r2 object get "$R2_BUCKET/index.json" --file /tmp/index.json 2>/dev/null \
-            || echo '{"version":"v1","runs":[]}' > /tmp/index.json
-          cargo run -q -p bench-runner -- publish \
-            --run "$run_dir" \
-            --index /tmp/index.json
-          npx wrangler r2 object put "$R2_BUCKET/index.json" --file /tmp/index.json
 
   spacetimedb:
     name: SpacetimeDB (linux)
@@ -626,6 +543,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.94"
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+          package-manager-cache: false
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -643,7 +567,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: runner-spacetimedb
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
 
       - name: Start SpacetimeDB
         shell: bash
@@ -727,7 +651,7 @@ jobs:
           SPACETIME_TOKEN: ${{ steps.spacetime-token.outputs.token }}
         run: |
           class="small"
-          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
           fi
 
@@ -770,37 +694,11 @@ jobs:
           retention-days: 30
 
       - name: Save runner baseline
-        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
+        if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
         uses: actions/cache/save@v4
         with:
           path: bench-out/spacetimedb-linux/runs/${{ steps.runner.outputs.run_id }}
           key: runner-baseline-spacetimedb-linux-${{ github.sha }}
-
-      - name: Publish to R2
-        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
-            echo "No R2 credentials, skipping publish"
-            exit 0
-          fi
-          run_id="${{ steps.runner.outputs.run_id }}"
-          run_dir="bench-out/spacetimedb-linux/runs/$run_id"
-
-          find "$run_dir" -type f | while read -r file; do
-            key="runs/$run_id/${file#$run_dir/}"
-            npx wrangler r2 object put "$R2_BUCKET/$key" --file "$file"
-          done
-
-          npx wrangler r2 object get "$R2_BUCKET/index.json" --file /tmp/index.json 2>/dev/null \
-            || echo '{"version":"v1","runs":[]}' > /tmp/index.json
-          cargo run -q -p bench-runner -- publish \
-            --run "$run_dir" \
-            --index /tmp/index.json
-          npx wrangler r2 object put "$R2_BUCKET/index.json" --file /tmp/index.json
 
   turso:
     name: Turso (linux)
@@ -817,7 +715,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: runner-turso
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
 
       - name: Restore runner baseline
         if: ${{ !env.ACT }}
@@ -833,7 +731,7 @@ jobs:
         shell: bash
         run: |
           class="small"
-          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
           fi
 
@@ -876,14 +774,86 @@ jobs:
           retention-days: 30
 
       - name: Save runner baseline
-        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
+        if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
         uses: actions/cache/save@v4
         with:
           path: bench-out/turso-linux/runs/${{ steps.runner.outputs.run_id }}
           key: runner-baseline-turso-linux-${{ github.sha }}
 
-      - name: Publish to R2
-        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
+  dashboard-preview:
+    name: Dashboard preview data
+    runs-on: ubuntu-latest
+    needs:
+      - sqlite
+      - postgres
+      - postgres-rust-orms
+      - postgres-ts
+      - spacetimedb
+      - turso
+    if: ${{ always() && !cancelled() && needs.sqlite.result == 'success' && needs.postgres.result == 'success' && needs.postgres-rust-orms.result == 'success' && needs.postgres-ts.result == 'success' && needs.spacetimedb.result == 'success' && needs.turso.result == 'success' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+          package-manager-cache: false
+
+      - name: Download runner artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: runner-*
+          path: bench-preview/artifacts
+
+      - name: Assemble dashboard object store
+        shell: bash
+        run: |
+          out="bench-out/dashboard-data"
+          index="$out/index.json"
+          rm -rf "$out"
+          mkdir -p "$out/runs"
+          echo '{"version":"v1","runs":[]}' > "$index"
+
+          mapfile -t manifests < <(find bench-preview/artifacts -name manifest.json | sort)
+          if (( ${#manifests[@]} == 0 )); then
+            echo "No runner manifests were downloaded"
+            exit 1
+          fi
+
+          for manifest in "${manifests[@]}"; do
+            run_dir="$(dirname "$manifest")"
+            run_id="$(sed -n 's/^[[:space:]]*"run_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" | head -n1)"
+            if [[ -z "$run_id" ]]; then
+              echo "manifest is missing run_id: $manifest"
+              exit 1
+            fi
+            dest="$out/runs/$run_id"
+            mkdir -p "$dest"
+            cp -R "$run_dir"/. "$dest"/
+
+            cargo run -q -p bench-runner -- publish \
+              --run "$dest" \
+              --index "$index"
+          done
+
+          echo "Dashboard data contains ${#manifests[@]} run(s):"
+          find "$out" -maxdepth 3 -type f | sort
+
+      - name: Upload dashboard preview data
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-bench-data
+          path: bench-out/dashboard-data
+          retention-days: 30
+
+      - name: Publish dashboard data to R2
+        if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -893,17 +863,8 @@ jobs:
             echo "No R2 credentials, skipping publish"
             exit 0
           fi
-          run_id="${{ steps.runner.outputs.run_id }}"
-          run_dir="bench-out/turso-linux/runs/$run_id"
 
-          find "$run_dir" -type f | while read -r file; do
-            key="runs/$run_id/${file#$run_dir/}"
+          find bench-out/dashboard-data -type f | sort | while read -r file; do
+            key="${file#bench-out/dashboard-data/}"
             npx wrangler r2 object put "$R2_BUCKET/$key" --file "$file"
           done
-
-          npx wrangler r2 object get "$R2_BUCKET/index.json" --file /tmp/index.json 2>/dev/null \
-            || echo '{"version":"v1","runs":[]}' > /tmp/index.json
-          cargo run -q -p bench-runner -- publish \
-            --run "$run_dir" \
-            --index /tmp/index.json
-          npx wrangler r2 object put "$R2_BUCKET/index.json" --file /tmp/index.json

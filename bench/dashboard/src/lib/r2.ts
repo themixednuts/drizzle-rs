@@ -1,3 +1,4 @@
+import { dev } from '$app/environment';
 import { Data, Effect } from 'effect';
 import type { Manifest, RunIndex, Summary, Timeseries } from './types';
 
@@ -30,18 +31,76 @@ export type BenchmarkDataError =
 
 type R2ReadError = BenchmarkDataReadError | BenchmarkDataJsonError;
 
-export function getBenchBucket(
-	platform: App.Platform | undefined
-): Effect.Effect<R2Bucket, BenchmarkDataUnavailable> {
-	const bucket = platform?.env?.BENCH_DATA;
-	return bucket
-		? Effect.succeed(bucket)
-		: Effect.fail(
-				new BenchmarkDataUnavailable({ message: 'Benchmark data store not available' })
-			);
+interface JsonObject {
+	json<T>(): Promise<T>;
 }
 
-function readJson<T>(bucket: R2Bucket, key: string): Effect.Effect<T | null, R2ReadError> {
+export interface BenchBucket {
+	get(key: string): Promise<JsonObject | null>;
+}
+
+class LocalJsonObject implements JsonObject {
+	constructor(private readonly file: string) {}
+
+	async json<T>(): Promise<T> {
+		const { readFile } = await import('node:fs/promises');
+		const body = await readFile(this.file, 'utf8');
+		return JSON.parse(body) as T;
+	}
+}
+
+class LocalBenchBucket implements BenchBucket {
+	constructor(private readonly root: string) {}
+
+	async get(key: string): Promise<JsonObject | null> {
+		const { resolve, sep } = await import('node:path');
+
+		const root = resolve(this.root);
+		const file = resolve(root, ...key.split('/'));
+		if (file !== root && !file.startsWith(`${root}${sep}`)) {
+			throw new Error(`Refusing to read benchmark data outside ${root}: ${key}`);
+		}
+
+		try {
+			const { access } = await import('node:fs/promises');
+			await access(file);
+			return new LocalJsonObject(file);
+		} catch (error) {
+			if (
+				typeof error === 'object' &&
+				error !== null &&
+				(error as { code?: string }).code === 'ENOENT'
+			) {
+				return null;
+			}
+			throw error;
+		}
+	}
+}
+
+function localDataRoot(): string | null {
+	if (!dev) return null;
+
+	const processLike = globalThis as typeof globalThis & {
+		process?: { env?: Record<string, string | undefined> };
+	};
+	const env = processLike.process?.env?.BENCH_DATA_DIR;
+	return env && env.length > 0 ? env : '../../bench-out/dashboard-data';
+}
+
+export function getBenchBucket(
+	platform: App.Platform | undefined
+): Effect.Effect<BenchBucket, BenchmarkDataUnavailable> {
+	const bucket = platform?.env?.BENCH_DATA;
+	if (bucket) return Effect.succeed(bucket);
+
+	const localRoot = localDataRoot();
+	if (localRoot) return Effect.succeed(new LocalBenchBucket(localRoot));
+
+	return Effect.fail(new BenchmarkDataUnavailable({ message: 'Benchmark data store not available' }));
+}
+
+function readJson<T>(bucket: BenchBucket, key: string): Effect.Effect<T | null, R2ReadError> {
 	return Effect.gen(function* () {
 		const object = yield* Effect.tryPromise({
 			try: () => bucket.get(key),
@@ -68,7 +127,7 @@ function readJson<T>(bucket: R2Bucket, key: string): Effect.Effect<T | null, R2R
 }
 
 function requireJson<T>(
-	bucket: R2Bucket,
+	bucket: BenchBucket,
 	key: string,
 	message: string
 ): Effect.Effect<T, R2ReadError | BenchmarkDataNotFound> {
@@ -78,13 +137,13 @@ function requireJson<T>(
 }
 
 export function readIndex(
-	bucket: R2Bucket
+	bucket: BenchBucket
 ): Effect.Effect<RunIndex, R2ReadError | BenchmarkDataNotFound> {
 	return requireJson<RunIndex>(bucket, 'index.json', 'Run index not found');
 }
 
 export function readManifest(
-	bucket: R2Bucket,
+	bucket: BenchBucket,
 	runId: string
 ): Effect.Effect<Manifest, R2ReadError | BenchmarkDataNotFound> {
 	return requireJson<Manifest>(
@@ -95,7 +154,7 @@ export function readManifest(
 }
 
 export function readSummary(
-	bucket: R2Bucket,
+	bucket: BenchBucket,
 	runId: string,
 	targetId: string
 ): Effect.Effect<Summary | null, R2ReadError> {
@@ -103,7 +162,7 @@ export function readSummary(
 }
 
 export function readAllSummaries(
-	bucket: R2Bucket,
+	bucket: BenchBucket,
 	runId: string,
 	targets: string[]
 ): Effect.Effect<Summary[], R2ReadError> {
@@ -116,7 +175,7 @@ export function readAllSummaries(
 }
 
 export function readTimeseries(
-	bucket: R2Bucket,
+	bucket: BenchBucket,
 	runId: string,
 	targetId: string
 ): Effect.Effect<Timeseries | null, R2ReadError> {
