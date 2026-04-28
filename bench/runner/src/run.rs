@@ -590,6 +590,7 @@ fn run_parity(
                 "BENCH_SEED_FILE".to_string(),
                 seed_file.to_string_lossy().to_string(),
             );
+            add_server_env(target, &mut env);
             exec_cmd(spec, &target.id, "parity", Code::ParityFail, &env)?;
         }
         emit(
@@ -1048,16 +1049,7 @@ fn run_target_load(
         "BENCH_REQUESTS_FILE".to_string(),
         requests_path.to_string_lossy().to_string(),
     );
-    if let Some(server) = &target.server {
-        let cmd_json = serde_json::to_string(&server.cmd).unwrap_or_default();
-        env.insert("BENCH_SERVER_CMD".to_string(), cmd_json);
-        if let Some(cwd) = &server.cwd {
-            env.insert("BENCH_SERVER_CWD".to_string(), cwd.clone());
-        }
-        for (k, v) in &server.env {
-            env.insert(k.clone(), v.clone());
-        }
-    }
+    add_server_env(target, &mut env);
 
     exec_cmd(spec, &target.id, "load", Code::RunFail, &env)?;
 
@@ -1122,6 +1114,19 @@ fn run_target_load(
     let _ = fs::remove_file(&series_path);
     validate_point(&target.id, &point)?;
     Ok(point)
+}
+
+fn add_server_env(target: &Target, env: &mut BTreeMap<String, String>) {
+    if let Some(server) = &target.server {
+        let cmd_json = serde_json::to_string(&server.cmd).unwrap_or_default();
+        env.insert("BENCH_SERVER_CMD".to_string(), cmd_json);
+        if let Some(cwd) = &server.cwd {
+            env.insert("BENCH_SERVER_CWD".to_string(), cwd.clone());
+        }
+        for (k, v) in &server.env {
+            env.insert(k.clone(), v.clone());
+        }
+    }
 }
 
 fn exec_cmd(

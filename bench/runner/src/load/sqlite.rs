@@ -390,6 +390,13 @@ type OrderRow = (
 #[derive(Clone)]
 struct AppState {
     db: Arc<Mutex<drizzle::sqlite::rusqlite::Drizzle<Schema>>>,
+    mode: SqliteMode,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum SqliteMode {
+    Drizzle,
+    Rusqlite,
 }
 
 // ---------------------------------------------------------------------------
@@ -397,6 +404,14 @@ struct AppState {
 // ---------------------------------------------------------------------------
 
 pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
+    serve_with_mode(seed, SqliteMode::Drizzle).await
+}
+
+pub async fn serve_raw_rusqlite(seed: u64) -> Result<ServerHandle, Fail> {
+    serve_with_mode(seed, SqliteMode::Rusqlite).await
+}
+
+async fn serve_with_mode(seed: u64, mode: SqliteMode) -> Result<ServerHandle, Fail> {
     let db = tokio::task::spawn_blocking(move || -> Result<_, Fail> {
         let conn = ::rusqlite::Connection::open_in_memory()
             .map_err(|err| Fail::new(Code::RunFail, format!("sqlite open failed: {err}")))?;
@@ -461,6 +476,7 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         .route("/search-product", get(search_product))
         .with_state(AppState {
             db: Arc::new(Mutex::new(db)),
+            mode,
         });
     spawn_server(router).await
 }
@@ -482,6 +498,10 @@ async fn customers(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
+    if state.mode == SqliteMode::Rusqlite {
+        return raw_customers(&state, params);
+    }
+
     let schema = Schema::new();
     let db = state
         .db
@@ -548,6 +568,10 @@ async fn customer_by_id(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
+    if state.mode == SqliteMode::Rusqlite {
+        return raw_customer_by_id(&state, params);
+    }
+
     let schema = Schema::new();
     let db = state
         .db
@@ -613,6 +637,10 @@ async fn employees(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<EmployeeResponse>>, StatusCode> {
+    if state.mode == SqliteMode::Rusqlite {
+        return raw_employees(&state, params);
+    }
+
     let schema = Schema::new();
     let db = state
         .db
@@ -691,6 +719,10 @@ async fn suppliers(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
+    if state.mode == SqliteMode::Rusqlite {
+        return raw_suppliers(&state, params);
+    }
+
     let schema = Schema::new();
     let db = state
         .db
@@ -754,6 +786,10 @@ async fn supplier_by_id(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
+    if state.mode == SqliteMode::Rusqlite {
+        return raw_supplier_by_id(&state, params);
+    }
+
     let schema = Schema::new();
     let db = state
         .db
@@ -816,6 +852,10 @@ async fn products(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<ProductResponse>>, StatusCode> {
+    if state.mode == SqliteMode::Rusqlite {
+        return raw_products(&state, params);
+    }
+
     let schema = Schema::new();
     let db = state
         .db
@@ -933,6 +973,10 @@ async fn product_with_supplier(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<ProductWithSupplierResponse>>, StatusCode> {
+    if state.mode == SqliteMode::Rusqlite {
+        return raw_product_with_supplier(&state, params);
+    }
+
     let target_id = params.user_id(200);
     let db = state
         .db
@@ -1070,6 +1114,287 @@ async fn orders_with_details(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(rows))
+}
+
+fn raw_customers(
+    state: &AppState,
+    params: QueryParams,
+) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
+    let lim = params.limit_or(50) as i64;
+    let off = params.offset() as i64;
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut stmt = db
+        .conn()
+        .prepare_cached(
+            "SELECT id, company_name, contact_name, contact_title, address, city,
+                    postal_code, region, country, phone, fax
+             FROM customers
+             ORDER BY id
+             LIMIT ?1 OFFSET ?2",
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = stmt
+        .query_map(::rusqlite::params![lim, off], customer_response_from_row)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(rows))
+}
+
+fn raw_customer_by_id(
+    state: &AppState,
+    params: QueryParams,
+) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
+    let target_id = params.user_id(256);
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut stmt = db
+        .conn()
+        .prepare_cached(
+            "SELECT id, company_name, contact_name, contact_title, address, city,
+                    postal_code, region, country, phone, fax
+             FROM customers
+             WHERE id = ?1",
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = stmt
+        .query_map(::rusqlite::params![target_id], customer_response_from_row)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(rows))
+}
+
+fn raw_employees(
+    state: &AppState,
+    params: QueryParams,
+) -> Result<Json<Vec<EmployeeResponse>>, StatusCode> {
+    let lim = params.limit_or(50) as i64;
+    let off = params.offset() as i64;
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut stmt = db
+        .conn()
+        .prepare_cached(
+            "SELECT id, last_name, first_name, title, title_of_courtesy, birth_date,
+                    hire_date, address, city, postal_code, country, home_phone,
+                    extension, notes, recipient_id
+             FROM employees
+             ORDER BY id
+             LIMIT ?1 OFFSET ?2",
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = stmt
+        .query_map(::rusqlite::params![lim, off], |row| {
+            Ok(EmployeeResponse {
+                id: row.get(0)?,
+                last_name: row.get(1)?,
+                first_name: row.get(2)?,
+                title: row.get(3)?,
+                title_of_courtesy: row.get(4)?,
+                birth_date: row.get(5)?,
+                hire_date: row.get(6)?,
+                address: row.get(7)?,
+                city: row.get(8)?,
+                postal_code: row.get(9)?,
+                country: row.get(10)?,
+                home_phone: row.get(11)?,
+                extension: row.get(12)?,
+                notes: row.get(13)?,
+                recipient_id: row.get(14)?,
+            })
+        })
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(rows))
+}
+
+fn raw_suppliers(
+    state: &AppState,
+    params: QueryParams,
+) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
+    let lim = params.limit_or(50) as i64;
+    let off = params.offset() as i64;
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut stmt = db
+        .conn()
+        .prepare_cached(
+            "SELECT id, company_name, contact_name, contact_title, address, city,
+                    region, postal_code, country, phone
+             FROM suppliers
+             ORDER BY id
+             LIMIT ?1 OFFSET ?2",
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = stmt
+        .query_map(::rusqlite::params![lim, off], supplier_response_from_row)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(rows))
+}
+
+fn raw_supplier_by_id(
+    state: &AppState,
+    params: QueryParams,
+) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
+    let target_id = params.user_id(30);
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut stmt = db
+        .conn()
+        .prepare_cached(
+            "SELECT id, company_name, contact_name, contact_title, address, city,
+                    region, postal_code, country, phone
+             FROM suppliers
+             WHERE id = ?1",
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = stmt
+        .query_map(::rusqlite::params![target_id], supplier_response_from_row)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(rows))
+}
+
+fn raw_products(
+    state: &AppState,
+    params: QueryParams,
+) -> Result<Json<Vec<ProductResponse>>, StatusCode> {
+    let lim = params.limit_or(50) as i64;
+    let off = params.offset() as i64;
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut stmt = db
+        .conn()
+        .prepare_cached(
+            "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order,
+                    reorder_level, discontinued, supplier_id
+             FROM products
+             ORDER BY id
+             LIMIT ?1 OFFSET ?2",
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = stmt
+        .query_map(::rusqlite::params![lim, off], product_response_from_row)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(rows))
+}
+
+fn raw_product_with_supplier(
+    state: &AppState,
+    params: QueryParams,
+) -> Result<Json<Vec<ProductWithSupplierResponse>>, StatusCode> {
+    let target_id = params.user_id(200);
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut stmt = db
+        .conn()
+        .prepare_cached(
+            "SELECT p.id, p.name, p.qt_per_unit, p.unit_price, p.units_in_stock,
+                    p.units_on_order, p.reorder_level, p.discontinued, p.supplier_id,
+                    s.id, s.company_name, s.contact_name, s.contact_title, s.address,
+                    s.city, s.region, s.postal_code, s.country, s.phone
+             FROM products p
+             INNER JOIN suppliers s ON p.supplier_id = s.id
+             WHERE p.id = ?1",
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = stmt
+        .query_map(::rusqlite::params![target_id], |row| {
+            Ok(ProductWithSupplierResponse {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                qt_per_unit: row.get(2)?,
+                unit_price: row.get(3)?,
+                units_in_stock: row.get(4)?,
+                units_on_order: row.get(5)?,
+                reorder_level: row.get(6)?,
+                discontinued: row.get(7)?,
+                supplier_id: row.get(8)?,
+                supplier: SupplierResponse {
+                    id: row.get(9)?,
+                    company_name: row.get(10)?,
+                    contact_name: row.get(11)?,
+                    contact_title: row.get(12)?,
+                    address: row.get(13)?,
+                    city: row.get(14)?,
+                    region: row.get(15)?,
+                    postal_code: row.get(16)?,
+                    country: row.get(17)?,
+                    phone: row.get(18)?,
+                },
+            })
+        })
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(rows))
+}
+
+fn customer_response_from_row(row: &::rusqlite::Row<'_>) -> ::rusqlite::Result<CustomerResponse> {
+    Ok(CustomerResponse {
+        id: row.get(0)?,
+        company_name: row.get(1)?,
+        contact_name: row.get(2)?,
+        contact_title: row.get(3)?,
+        address: row.get(4)?,
+        city: row.get(5)?,
+        postal_code: row.get(6)?,
+        region: row.get(7)?,
+        country: row.get(8)?,
+        phone: row.get(9)?,
+        fax: row.get(10)?,
+    })
+}
+
+fn supplier_response_from_row(row: &::rusqlite::Row<'_>) -> ::rusqlite::Result<SupplierResponse> {
+    Ok(SupplierResponse {
+        id: row.get(0)?,
+        company_name: row.get(1)?,
+        contact_name: row.get(2)?,
+        contact_title: row.get(3)?,
+        address: row.get(4)?,
+        city: row.get(5)?,
+        region: row.get(6)?,
+        postal_code: row.get(7)?,
+        country: row.get(8)?,
+        phone: row.get(9)?,
+    })
+}
+
+fn product_response_from_row(row: &::rusqlite::Row<'_>) -> ::rusqlite::Result<ProductResponse> {
+    Ok(ProductResponse {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        qt_per_unit: row.get(2)?,
+        unit_price: row.get(3)?,
+        units_in_stock: row.get(4)?,
+        units_on_order: row.get(5)?,
+        reorder_level: row.get(6)?,
+        discontinued: row.get(7)?,
+        supplier_id: row.get(8)?,
+    })
 }
 
 // GET /order-with-details?id=1

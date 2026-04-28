@@ -52,6 +52,7 @@ pub(crate) async fn serve_target(target: &str, seed: u64) -> Result<ServerHandle
 
     match target {
         "drizzle-rs-sqlite" => sqlite::serve(seed).await,
+        "rusqlite-sqlite" => sqlite::serve_raw_rusqlite(seed).await,
         "drizzle-rs-pg-sync" => pg_sync::serve(seed).await,
         "drizzle-rs-pg-tokio" => pg_tokio::serve(seed).await,
         "spacetime-pgwire-rs" => spacetime_pg::serve(seed).await,

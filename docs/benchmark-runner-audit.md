@@ -1,0 +1,33 @@
+# Benchmark Runner Audit
+
+Last updated: 2026-04-27.
+
+## Execution Surfaces
+
+| Surface | Workflow / command | Runtime location | Publishes dashboard artifacts |
+| --- | --- | --- | --- |
+| Contract runner: SQLite | `.github/workflows/runners.yml` `sqlite` | GitHub-hosted Ubuntu, Windows, macOS runners | Yes, to Cloudflare R2 on `main` when Cloudflare secrets are present |
+| Contract runner: PostgreSQL | `.github/workflows/runners.yml` `postgres` | GitHub-hosted Ubuntu runner plus `postgres:18-alpine` service | Yes, to Cloudflare R2 on `main` |
+| Contract runner: PostgreSQL Rust ORMs | `.github/workflows/runners.yml` `postgres-rust-orms` | GitHub-hosted Ubuntu runner plus `postgres:18-alpine` service | Yes, to Cloudflare R2 on `main` |
+| Contract runner: PostgreSQL TS | `.github/workflows/runners.yml` `postgres-ts` | GitHub-hosted Ubuntu runner plus Bun and `postgres:18-alpine` service | Yes, to Cloudflare R2 on `main` |
+| Contract runner: SpacetimeDB | `.github/workflows/runners.yml` `spacetimedb` | GitHub-hosted Ubuntu runner plus local SpacetimeDB service | Yes, to Cloudflare R2 on `main` |
+| Contract runner: Turso | `.github/workflows/runners.yml` `turso` | GitHub-hosted Ubuntu runner | Yes, to Cloudflare R2 on `main` |
+| Criterion microbench | `.github/workflows/criterion.yml` | GitHub-hosted runners | No, uploads GitHub Actions artifacts only |
+| Dashboard | `bench/dashboard` Cloudflare Worker | Cloudflare Workers, reading R2 | Reads and renders published artifacts; does not run benchmarks |
+
+## Coverage
+
+| Target family | Contract target file | Targets |
+| --- | --- | --- |
+| SQLite/rusqlite | `bench/spec/targets.sqlite.v1.json` | `drizzle-rs-sqlite`, `rusqlite-sqlite` |
+| Drizzle-RS Turso | `bench/spec/targets.turso.v1.json` | `drizzle-rs-turso` |
+| Drizzle-RS PostgreSQL | `bench/spec/targets.postgres.v1.json` | `drizzle-rs-pg-sync`, `drizzle-rs-pg-tokio` |
+| Rust PostgreSQL ORMs | `bench/spec/targets.postgres-rust-orms.v1.json` | `sqlx-pg`, `diesel-pg`, `seaorm-pg` |
+| TS PostgreSQL comparators | `bench/spec/targets.postgres-ts.v1.json` | `bun-sql-pg`, `drizzle-ts-pg`, `prisma-pg` |
+| SpacetimeDB | `bench/spec/targets.spacetimedb.v1.json` | `spacetime-pgwire-rs`, `spacetime-native-rs`, `spacetime-native-ts` |
+
+## Hosting Notes
+
+Benchmarks currently run in GitHub Actions, not Cloudflare Workers. Cloudflare is used for R2 artifact storage and dashboard/API hosting. There is no AWS benchmark runner workflow today; AWS appears only as optional library support in the main crate feature set.
+
+If dedicated hardware is needed for publish-grade numbers, add a self-hosted GitHub runner label or a separate dispatch workflow. Keep artifact output identical and continue publishing immutable run directories plus `index.json` to R2.

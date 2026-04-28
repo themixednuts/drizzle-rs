@@ -289,6 +289,168 @@ jobs:
             --index /tmp/index.json
           npx wrangler r2 object put "$R2_BUCKET/index.json" --file /tmp/index.json
 
+  postgres-rust-orms:
+    name: PostgreSQL Rust ORMs (linux)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: drizzle_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install libpq
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-postgres-rust-orms
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Resolve DATABASE_URL
+        id: pgurl
+        shell: bash
+        run: |
+          pg_host="localhost"
+          pg_port="${{ job.services.postgres.ports[5432] }}"
+          if [[ -n "${ACT:-}" ]]; then
+            pg_host="127.0.0.1"
+            pg_id="${{ job.services.postgres.id }}"
+            if [[ -z "$pg_id" ]] && command -v docker >/dev/null 2>&1; then
+              pg_id="$(
+                docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' \
+                | awk '$2 ~ /^act-/ && $0 ~ /->5432\/tcp/ { print $1; exit }'
+              )"
+            fi
+            if [[ -n "$pg_id" ]] && command -v docker >/dev/null 2>&1; then
+              mapped="$(docker port "$pg_id" 5432/tcp 2>/dev/null | head -n1)"
+              if [[ "$mapped" == *:* ]]; then
+                pg_port="${mapped##*:}"
+              fi
+            fi
+            for host in host.docker.internal 127.0.0.1 localhost; do
+              if (echo >"/dev/tcp/${host}/${pg_port}") >/dev/null 2>&1; then
+                pg_host="$host"
+                break
+              fi
+            done
+          fi
+          if [[ -z "$pg_port" ]]; then
+            pg_port="5432"
+          fi
+          echo "url=host=${pg_host} port=${pg_port} user=postgres password=postgres dbname=drizzle_test" >> "$GITHUB_OUTPUT"
+
+      - name: Restore runner baseline
+        if: ${{ !env.ACT }}
+        uses: actions/cache/restore@v4
+        with:
+          path: bench-out/postgres-rust-orms-linux/runs
+          key: runner-baseline-postgres-rust-orms-linux-
+          restore-keys: |
+            runner-baseline-postgres-rust-orms-linux-
+
+      - name: Run contract runner
+        id: runner
+        shell: bash
+        env:
+          DATABASE_URL: ${{ steps.pgurl.outputs.url }}
+        run: |
+          class="small"
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            class="publish"
+          fi
+
+          out="bench-out/postgres-rust-orms-linux"
+          mkdir -p "$out"
+
+          cargo run -p bench-runner -- run \
+            --suite throughput-http \
+            --workload bench/spec/workload.throughput.v1.json \
+            --targets bench/spec/targets.postgres-rust-orms.v1.json \
+            --requests bench/spec/requests.empty.v1.json \
+            --out "$out" \
+            --class "$class" \
+            --baseline auto \
+            --json | tee runner_output.txt
+
+          run_id="$(grep '^run_id=' runner_output.txt | tail -n1 | cut -d= -f2)"
+          if [[ -z "$run_id" ]]; then
+            echo "run_id was not emitted"
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Validate runner artifacts
+        shell: bash
+        run: |
+          cargo run -q -p bench-runner -- validate \
+            --run "bench-out/postgres-rust-orms-linux/runs/${{ steps.runner.outputs.run_id }}" \
+            --workload bench/spec/workload.throughput.v1.json \
+            --targets bench/spec/targets.postgres-rust-orms.v1.json
+
+      - name: Upload runner artifacts
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-postgres-rust-orms-linux
+          path: |
+            bench-out/postgres-rust-orms-linux/runs/${{ steps.runner.outputs.run_id }}
+            runner_output.txt
+          retention-days: 30
+
+      - name: Save runner baseline
+        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
+        uses: actions/cache/save@v4
+        with:
+          path: bench-out/postgres-rust-orms-linux/runs/${{ steps.runner.outputs.run_id }}
+          key: runner-baseline-postgres-rust-orms-linux-${{ github.sha }}
+
+      - name: Publish to R2
+        if: ${{ github.ref == 'refs/heads/main' && !env.ACT }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "No R2 credentials, skipping publish"
+            exit 0
+          fi
+          run_id="${{ steps.runner.outputs.run_id }}"
+          run_dir="bench-out/postgres-rust-orms-linux/runs/$run_id"
+
+          find "$run_dir" -type f | while read -r file; do
+            key="runs/$run_id/${file#$run_dir/}"
+            npx wrangler r2 object put "$R2_BUCKET/$key" --file "$file"
+          done
+
+          npx wrangler r2 object get "$R2_BUCKET/index.json" --file /tmp/index.json 2>/dev/null \
+            || echo '{"version":"v1","runs":[]}' > /tmp/index.json
+          cargo run -q -p bench-runner -- publish \
+            --run "$run_dir" \
+            --index /tmp/index.json
+          npx wrangler r2 object put "$R2_BUCKET/index.json" --file /tmp/index.json
+
   postgres-ts:
     name: PostgreSQL TS (linux)
     runs-on: ubuntu-latest

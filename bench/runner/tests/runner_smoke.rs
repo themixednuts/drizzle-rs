@@ -5,6 +5,29 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 #[test]
+fn checked_in_benchmark_specs_validate() {
+    let root = workspace_root();
+    validate_json_file(
+        &root.join("bench/spec/workload.throughput.v1.json"),
+        &root.join("docs/benchmark-spec/jsonschema/workload.v1.schema.json"),
+    );
+
+    for path in [
+        "bench/spec/targets.sqlite.v1.json",
+        "bench/spec/targets.turso.v1.json",
+        "bench/spec/targets.postgres.v1.json",
+        "bench/spec/targets.postgres-rust-orms.v1.json",
+        "bench/spec/targets.postgres-ts.v1.json",
+        "bench/spec/targets.spacetimedb.v1.json",
+    ] {
+        validate_target_file(
+            &root.join(path),
+            &root.join("docs/benchmark-spec/jsonschema/target.v1.schema.json"),
+        );
+    }
+}
+
+#[test]
 fn run_writes_contract_artifacts() {
     let tmp = TempDir::new().expect("tmp");
     let root = tmp.path();
@@ -198,6 +221,61 @@ fn write_json(path: PathBuf, body: &str) {
         fs::create_dir_all(parent).expect("mkdir parent");
     }
     fs::write(path, body).expect("write file");
+}
+
+fn validate_json_file(path: &Path, schema_path: &Path) {
+    let value: Value =
+        serde_json::from_str(&fs::read_to_string(path).expect("read spec")).expect("parse spec");
+    let schema: Value =
+        serde_json::from_str(&fs::read_to_string(schema_path).expect("read schema"))
+            .expect("parse schema");
+    let validator = jsonschema::validator_for(&schema).expect("compile schema");
+    let errors = validator
+        .iter_errors(&value)
+        .map(|err| err.to_string())
+        .collect::<Vec<_>>();
+    assert!(
+        errors.is_empty(),
+        "{}: {}",
+        path.display(),
+        errors.join("; ")
+    );
+}
+
+fn validate_target_file(path: &Path, schema_path: &Path) {
+    let value: Value =
+        serde_json::from_str(&fs::read_to_string(path).expect("read targets")).expect("parse");
+    let schema: Value =
+        serde_json::from_str(&fs::read_to_string(schema_path).expect("read schema"))
+            .expect("parse schema");
+    let validator = jsonschema::validator_for(&schema).expect("compile target schema");
+    let items = value.as_array().expect("targets must be an array");
+    assert!(
+        !items.is_empty(),
+        "targets must not be empty: {}",
+        path.display()
+    );
+    for (idx, item) in items.iter().enumerate() {
+        let errors = validator
+            .iter_errors(item)
+            .map(|err| err.to_string())
+            .collect::<Vec<_>>();
+        assert!(
+            errors.is_empty(),
+            "{}[{idx}]: {}",
+            path.display(),
+            errors.join("; ")
+        );
+    }
+}
+
+fn workspace_root() -> PathBuf {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root")
+        .to_path_buf()
 }
 
 fn workload_json(seed: u64) -> String {

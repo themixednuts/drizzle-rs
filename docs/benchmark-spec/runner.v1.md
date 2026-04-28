@@ -120,6 +120,7 @@ Implementation note:
 2. the current Rust HTTP adapter uses `axum 0.6.20` and serves the benchmark route contract on an ephemeral local port during the trial.
 3. HTTP/1.1 is the default benchmark transport.
 4. HTTP/2, when supported, should be published as a separate labeled profile rather than replacing the default transport silently.
+5. external targets may define `server.cmd`; the runner forwards it to both parity and load via `BENCH_SERVER_CMD`, so correctness and measurement exercise the same adapter process.
 
 ## 6. Output Layout
 

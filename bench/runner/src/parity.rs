@@ -117,6 +117,10 @@ fn is_string_or_null(v: &serde_json::Value) -> bool {
     v.is_string() || v.is_null()
 }
 
+fn is_date(v: &serde_json::Value) -> bool {
+    v.is_number() || v.is_string()
+}
+
 fn is_array(v: &serde_json::Value) -> bool {
     v.is_array()
 }
@@ -215,8 +219,8 @@ fn check_employees(port: u16) -> Result<(), Fail> {
         ("id", is_number),
         ("lastName", is_string),
         ("title", is_string),
-        ("birthDate", is_number),
-        ("hireDate", is_number),
+        ("birthDate", is_date),
+        ("hireDate", is_date),
     ];
     for row in arr {
         check_fields(row, path, fields)?;
@@ -360,7 +364,7 @@ fn check_order_with_details(port: u16) -> Result<(), Fail> {
     }
     let fields: &[FieldCheck] = &[
         ("id", is_number),
-        ("orderDate", is_number),
+        ("orderDate", is_date),
         ("freight", is_number),
         ("details", is_array),
     ];
@@ -382,7 +386,7 @@ fn check_order_with_details_and_products(port: u16) -> Result<(), Fail> {
     }
     let fields: &[FieldCheck] = &[
         ("id", is_number),
-        ("orderDate", is_number),
+        ("orderDate", is_date),
         ("details", is_array),
     ];
     for row in arr {
