@@ -4,6 +4,7 @@
 /.idea/
 /queries/
 .codemogger/
+.codex-logs/
 
 # act (local GitHub Actions runner)
 .env

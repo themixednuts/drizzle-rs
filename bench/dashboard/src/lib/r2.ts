@@ -91,11 +91,11 @@ function localDataRoot(): string | null {
 export function getBenchBucket(
 	platform: App.Platform | undefined
 ): Effect.Effect<BenchBucket, BenchmarkDataUnavailable> {
-	const bucket = platform?.env?.BENCH_DATA;
-	if (bucket) return Effect.succeed(bucket);
-
 	const localRoot = localDataRoot();
 	if (localRoot) return Effect.succeed(new LocalBenchBucket(localRoot));
+
+	const bucket = platform?.env?.BENCH_DATA;
+	if (bucket) return Effect.succeed(bucket);
 
 	return Effect.fail(new BenchmarkDataUnavailable({ message: 'Benchmark data store not available' }));
 }
