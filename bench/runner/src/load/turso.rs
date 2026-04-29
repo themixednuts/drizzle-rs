@@ -42,6 +42,23 @@ async fn query_cached_rows(
     collect_rows(rows).await
 }
 
+async fn query_rows(
+    conn: &::turso::Connection,
+    sql: &str,
+    params: impl ::turso::IntoParams,
+    mode: TursoMode,
+) -> Result<Vec<::turso::Row>, StatusCode> {
+    if mode.uses_prepared_statements() {
+        query_cached_rows(conn, sql, params).await
+    } else {
+        let rows = conn
+            .query(sql, params)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        collect_rows(rows).await
+    }
+}
+
 #[SQLiteTable(name = "customers")]
 struct Customer {
     #[column(primary)]
@@ -433,9 +450,39 @@ impl Drop for PooledTursoDb {
 #[derive(Clone)]
 struct AppState {
     db: TursoPool,
+    mode: TursoMode,
 }
 
 pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
+    serve_with_mode(seed, TursoMode::Drizzle).await
+}
+
+pub async fn serve_raw_prepared(seed: u64) -> Result<ServerHandle, Fail> {
+    serve_with_mode(seed, TursoMode::RawPrepared).await
+}
+
+pub async fn serve_raw_unprepared(seed: u64) -> Result<ServerHandle, Fail> {
+    serve_with_mode(seed, TursoMode::RawUnprepared).await
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum TursoMode {
+    Drizzle,
+    RawPrepared,
+    RawUnprepared,
+}
+
+impl TursoMode {
+    fn uses_prepared_statements(self) -> bool {
+        matches!(self, Self::Drizzle | Self::RawPrepared)
+    }
+
+    fn is_raw(self) -> bool {
+        matches!(self, Self::RawPrepared | Self::RawUnprepared)
+    }
+}
+
+async fn serve_with_mode(seed: u64, mode: TursoMode) -> Result<ServerHandle, Fail> {
     let builder = ::turso::Builder::new_local(":memory:")
         .build()
         .await
@@ -507,6 +554,7 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         .route("/search-product", get(search_product))
         .with_state(AppState {
             db: TursoPool::new(connections),
+            mode,
         });
     spawn_server(router).await
 }
@@ -521,11 +569,211 @@ async fn stats(_: State<AppState>) -> Json<Vec<f64>> {
 // For turso, we use drizzle ORM for simple queries and raw SQL for complex ones.
 // Turso doesn't support table-qualified refs in some contexts, so raw SQL is simpler.
 
+async fn raw_customers(
+    state: &AppState,
+    params: QueryParams,
+) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
+    let lim = params.limit_or(50) as i64;
+    let off = params.offset() as i64;
+    let db = state.db.acquire().await?;
+    let rows = query_rows(
+        db.conn(),
+        "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers ORDER BY id LIMIT ?1 OFFSET ?2",
+        [::turso::Value::from(lim), ::turso::Value::from(off)],
+        state.mode,
+    )
+    .await?;
+    Ok(Json(
+        rows.iter()
+            .map(|row| CustomerResponse {
+                id: row.get::<i32>(0).unwrap_or_default(),
+                company_name: row.get::<String>(1).unwrap_or_default(),
+                contact_name: row.get::<String>(2).unwrap_or_default(),
+                contact_title: row.get::<String>(3).unwrap_or_default(),
+                address: row.get::<String>(4).unwrap_or_default(),
+                city: row.get::<String>(5).unwrap_or_default(),
+                postal_code: row.get::<String>(6).ok(),
+                region: row.get::<String>(7).ok(),
+                country: row.get::<String>(8).unwrap_or_default(),
+                phone: row.get::<String>(9).unwrap_or_default(),
+                fax: row.get::<String>(10).ok(),
+            })
+            .collect(),
+    ))
+}
+
+async fn raw_customer_by_id(
+    state: &AppState,
+    params: QueryParams,
+) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
+    let target_id = params.user_id(10000);
+    let db = state.db.acquire().await?;
+    let rows = query_rows(
+        db.conn(),
+        "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE id = ?1",
+        [::turso::Value::from(target_id)],
+        state.mode,
+    )
+    .await?;
+    Ok(Json(
+        rows.iter()
+            .map(|row| CustomerResponse {
+                id: row.get::<i32>(0).unwrap_or_default(),
+                company_name: row.get::<String>(1).unwrap_or_default(),
+                contact_name: row.get::<String>(2).unwrap_or_default(),
+                contact_title: row.get::<String>(3).unwrap_or_default(),
+                address: row.get::<String>(4).unwrap_or_default(),
+                city: row.get::<String>(5).unwrap_or_default(),
+                postal_code: row.get::<String>(6).ok(),
+                region: row.get::<String>(7).ok(),
+                country: row.get::<String>(8).unwrap_or_default(),
+                phone: row.get::<String>(9).unwrap_or_default(),
+                fax: row.get::<String>(10).ok(),
+            })
+            .collect(),
+    ))
+}
+
+async fn raw_employees(
+    state: &AppState,
+    params: QueryParams,
+) -> Result<Json<Vec<EmployeeResponse>>, StatusCode> {
+    let lim = params.limit_or(50) as i64;
+    let off = params.offset() as i64;
+    let db = state.db.acquire().await?;
+    let rows = query_rows(
+        db.conn(),
+        "SELECT id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, address, city, postal_code, country, home_phone, extension, notes, recipient_id FROM employees ORDER BY id LIMIT ?1 OFFSET ?2",
+        [::turso::Value::from(lim), ::turso::Value::from(off)],
+        state.mode,
+    )
+    .await?;
+    Ok(Json(
+        rows.iter()
+            .map(|row| EmployeeResponse {
+                id: row.get::<i32>(0).unwrap_or_default(),
+                last_name: row.get::<String>(1).unwrap_or_default(),
+                first_name: row.get::<String>(2).ok(),
+                title: row.get::<String>(3).unwrap_or_default(),
+                title_of_courtesy: row.get::<String>(4).unwrap_or_default(),
+                birth_date: row.get::<i64>(5).unwrap_or_default(),
+                hire_date: row.get::<i64>(6).unwrap_or_default(),
+                address: row.get::<String>(7).unwrap_or_default(),
+                city: row.get::<String>(8).unwrap_or_default(),
+                postal_code: row.get::<String>(9).unwrap_or_default(),
+                country: row.get::<String>(10).unwrap_or_default(),
+                home_phone: row.get::<String>(11).unwrap_or_default(),
+                extension: row.get::<i32>(12).unwrap_or_default(),
+                notes: row.get::<String>(13).unwrap_or_default(),
+                recipient_id: row.get::<i32>(14).ok(),
+            })
+            .collect(),
+    ))
+}
+
+async fn raw_suppliers(
+    state: &AppState,
+    params: QueryParams,
+) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
+    let lim = params.limit_or(50) as i64;
+    let off = params.offset() as i64;
+    let db = state.db.acquire().await?;
+    let rows = query_rows(
+        db.conn(),
+        "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers ORDER BY id LIMIT ?1 OFFSET ?2",
+        [::turso::Value::from(lim), ::turso::Value::from(off)],
+        state.mode,
+    )
+    .await?;
+    Ok(Json(
+        rows.iter()
+            .map(|row| SupplierResponse {
+                id: row.get::<i32>(0).unwrap_or_default(),
+                company_name: row.get::<String>(1).unwrap_or_default(),
+                contact_name: row.get::<String>(2).unwrap_or_default(),
+                contact_title: row.get::<String>(3).unwrap_or_default(),
+                address: row.get::<String>(4).unwrap_or_default(),
+                city: row.get::<String>(5).unwrap_or_default(),
+                region: row.get::<String>(6).ok(),
+                postal_code: row.get::<String>(7).unwrap_or_default(),
+                country: row.get::<String>(8).unwrap_or_default(),
+                phone: row.get::<String>(9).unwrap_or_default(),
+            })
+            .collect(),
+    ))
+}
+
+async fn raw_supplier_by_id(
+    state: &AppState,
+    params: QueryParams,
+) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
+    let target_id = params.user_id(1000);
+    let db = state.db.acquire().await?;
+    let rows = query_rows(
+        db.conn(),
+        "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers WHERE id = ?1",
+        [::turso::Value::from(target_id)],
+        state.mode,
+    )
+    .await?;
+    Ok(Json(
+        rows.iter()
+            .map(|row| SupplierResponse {
+                id: row.get::<i32>(0).unwrap_or_default(),
+                company_name: row.get::<String>(1).unwrap_or_default(),
+                contact_name: row.get::<String>(2).unwrap_or_default(),
+                contact_title: row.get::<String>(3).unwrap_or_default(),
+                address: row.get::<String>(4).unwrap_or_default(),
+                city: row.get::<String>(5).unwrap_or_default(),
+                region: row.get::<String>(6).ok(),
+                postal_code: row.get::<String>(7).unwrap_or_default(),
+                country: row.get::<String>(8).unwrap_or_default(),
+                phone: row.get::<String>(9).unwrap_or_default(),
+            })
+            .collect(),
+    ))
+}
+
+async fn raw_products(
+    state: &AppState,
+    params: QueryParams,
+) -> Result<Json<Vec<ProductResponse>>, StatusCode> {
+    let lim = params.limit_or(50) as i64;
+    let off = params.offset() as i64;
+    let db = state.db.acquire().await?;
+    let rows = query_rows(
+        db.conn(),
+        "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products ORDER BY id LIMIT ?1 OFFSET ?2",
+        [::turso::Value::from(lim), ::turso::Value::from(off)],
+        state.mode,
+    )
+    .await?;
+    Ok(Json(
+        rows.iter()
+            .map(|row| ProductResponse {
+                id: row.get::<i32>(0).unwrap_or_default(),
+                name: row.get::<String>(1).unwrap_or_default(),
+                qt_per_unit: row.get::<String>(2).unwrap_or_default(),
+                unit_price: row.get::<f64>(3).unwrap_or_default(),
+                units_in_stock: row.get::<i32>(4).unwrap_or_default(),
+                units_on_order: row.get::<i32>(5).unwrap_or_default(),
+                reorder_level: row.get::<i32>(6).unwrap_or_default(),
+                discontinued: row.get::<i32>(7).unwrap_or_default(),
+                supplier_id: row.get::<i32>(8).unwrap_or_default(),
+            })
+            .collect(),
+    ))
+}
+
 #[debug_handler(state = AppState)]
 async fn customers_handler(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
+    if state.mode.is_raw() {
+        return raw_customers(&state, params).await;
+    }
+
     let schema = Schema::new();
     let db = state.db.acquire().await?;
     let rows: Vec<CustomerRow> = db
@@ -587,6 +835,10 @@ async fn customer_by_id(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
+    if state.mode.is_raw() {
+        return raw_customer_by_id(&state, params).await;
+    }
+
     let schema = Schema::new();
     let db = state.db.acquire().await?;
     let target_id = params.user_id(10000);
@@ -647,6 +899,10 @@ async fn employees_handler(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<EmployeeResponse>>, StatusCode> {
+    if state.mode.is_raw() {
+        return raw_employees(&state, params).await;
+    }
+
     let schema = Schema::new();
     let db = state.db.acquire().await?;
     let rows: Vec<EmployeeRow> = db
@@ -720,6 +976,10 @@ async fn suppliers_handler(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
+    if state.mode.is_raw() {
+        return raw_suppliers(&state, params).await;
+    }
+
     let schema = Schema::new();
     let db = state.db.acquire().await?;
     let rows: Vec<SupplierRow> = db
@@ -778,6 +1038,10 @@ async fn supplier_by_id(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
+    if state.mode.is_raw() {
+        return raw_supplier_by_id(&state, params).await;
+    }
+
     let schema = Schema::new();
     let db = state.db.acquire().await?;
     let target_id = params.user_id(1000);
@@ -835,6 +1099,10 @@ async fn products_handler(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<ProductResponse>>, StatusCode> {
+    if state.mode.is_raw() {
+        return raw_products(&state, params).await;
+    }
+
     let schema = Schema::new();
     let db = state.db.acquire().await?;
     let rows: Vec<ProductRow> = db
@@ -893,10 +1161,11 @@ async fn employee_with_recipient(
 ) -> Result<Json<Vec<EmployeeWithRecipientResponse>>, StatusCode> {
     let target_id = params.user_id(200);
     let db = state.db.acquire().await?;
-    let collected = query_cached_rows(
+    let collected = query_rows(
         db.conn(),
         "SELECT e.id, e.last_name, e.first_name, e.title, e.title_of_courtesy, e.birth_date, e.hire_date, e.address, e.city, e.postal_code, e.country, e.home_phone, e.extension, e.notes, e.recipient_id, r.last_name, r.first_name FROM employees e LEFT JOIN employees r ON e.recipient_id = r.id WHERE e.id = ?1",
         [::turso::Value::from(target_id)],
+        state.mode,
     )
     .await?;
     let resp: Vec<EmployeeWithRecipientResponse> = collected
@@ -931,10 +1200,11 @@ async fn product_with_supplier(
 ) -> Result<Json<Vec<ProductWithSupplierResponse>>, StatusCode> {
     let target_id = params.user_id(5000);
     let db = state.db.acquire().await?;
-    let collected = query_cached_rows(
+    let collected = query_rows(
         db.conn(),
         "SELECT p.id, p.name, p.qt_per_unit, p.unit_price, p.units_in_stock, p.units_on_order, p.reorder_level, p.discontinued, p.supplier_id, s.id, s.company_name, s.contact_name, s.contact_title, s.address, s.city, s.region, s.postal_code, s.country, s.phone FROM products p INNER JOIN suppliers s ON p.supplier_id = s.id WHERE p.id = ?1",
         [::turso::Value::from(target_id)],
+        state.mode,
     )
     .await?;
     let resp: Vec<ProductWithSupplierResponse> = collected
@@ -974,10 +1244,11 @@ async fn orders_with_details(
     let lim = params.limit_or(50) as i64;
     let off = params.offset() as i64;
     let db = state.db.acquire().await?;
-    let orders = query_cached_rows(
+    let orders = query_rows(
         db.conn(),
         "SELECT id, shipped_date, ship_name, ship_city, ship_country FROM orders ORDER BY id LIMIT ?1 OFFSET ?2",
         [::turso::Value::from(lim), ::turso::Value::from(off)],
+        state.mode,
     )
     .await?;
     if orders.is_empty() {
@@ -992,10 +1263,11 @@ async fn orders_with_details(
         .last()
         .and_then(|row| row.get::<i32>(0).ok())
         .unwrap_or(min_id);
-    let details = query_cached_rows(
+    let details = query_rows(
         db.conn(),
         "SELECT order_id, product_id, quantity, unit_price FROM order_details WHERE order_id >= ?1 AND order_id <= ?2",
         [::turso::Value::from(min_id), ::turso::Value::from(max_id)],
+        state.mode,
     )
     .await?;
     let mut aggregates: BTreeMap<i32, (i32, f64, f64)> = BTreeMap::new();
@@ -1037,16 +1309,18 @@ async fn order_with_details(
 ) -> Result<Json<Vec<SingleOrderWithDetailsResponse>>, StatusCode> {
     let target_id = params.user_id(50000);
     let db = state.db.acquire().await?;
-    let order_collected = query_cached_rows(
+    let order_collected = query_rows(
         db.conn(),
         "SELECT id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id FROM orders WHERE id = ?1",
         [::turso::Value::from(target_id)],
+        state.mode,
     )
     .await?;
-    let detail_collected = query_cached_rows(
+    let detail_collected = query_rows(
         db.conn(),
         "SELECT unit_price, quantity, discount, order_id, product_id FROM order_details WHERE order_id = ?1",
         [::turso::Value::from(target_id)],
+        state.mode,
     )
     .await?;
     let details: Vec<OrderDetailResponse> = detail_collected
@@ -1088,16 +1362,18 @@ async fn order_with_details_and_products(
 ) -> Result<Json<Vec<SingleOrderWithDetailsAndProductsResponse>>, StatusCode> {
     let target_id = params.user_id(50000);
     let db = state.db.acquire().await?;
-    let order_collected = query_cached_rows(
+    let order_collected = query_rows(
         db.conn(),
         "SELECT id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id FROM orders WHERE id = ?1",
         [::turso::Value::from(target_id)],
+        state.mode,
     )
     .await?;
-    let detail_collected = query_cached_rows(
+    let detail_collected = query_rows(
         db.conn(),
         "SELECT d.unit_price, d.quantity, d.discount, d.order_id, d.product_id, p.name FROM order_details d LEFT JOIN products p ON d.product_id = p.id WHERE d.order_id = ?1",
         [::turso::Value::from(target_id)],
+        state.mode,
     )
     .await?;
     let details: Vec<OrderDetailProductResponse> = detail_collected
@@ -1141,10 +1417,11 @@ async fn search_customer(
     let term = params.term.as_deref().unwrap_or("");
     let pattern = format!("%{term}%");
     let db = state.db.acquire().await?;
-    let collected = query_cached_rows(
+    let collected = query_rows(
         db.conn(),
         "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE company_name LIKE ?1",
         [::turso::Value::from(pattern)],
+        state.mode,
     )
     .await?;
     let resp: Vec<CustomerResponse> = collected
@@ -1174,10 +1451,11 @@ async fn search_product(
     let term = params.term.as_deref().unwrap_or("");
     let pattern = format!("%{term}%");
     let db = state.db.acquire().await?;
-    let collected = query_cached_rows(
+    let collected = query_rows(
         db.conn(),
         "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products WHERE name LIKE ?1",
         [::turso::Value::from(pattern)],
+        state.mode,
     )
     .await?;
     let resp: Vec<ProductResponse> = collected

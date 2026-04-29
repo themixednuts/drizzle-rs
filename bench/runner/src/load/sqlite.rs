@@ -396,7 +396,14 @@ struct AppState {
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum SqliteMode {
     Drizzle,
-    Rusqlite,
+    RusqlitePrepared,
+    RusqliteUnprepared,
+}
+
+impl SqliteMode {
+    fn is_rusqlite(self) -> bool {
+        matches!(self, Self::RusqlitePrepared | Self::RusqliteUnprepared)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -407,8 +414,12 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
     serve_with_mode(seed, SqliteMode::Drizzle).await
 }
 
-pub async fn serve_raw_rusqlite(seed: u64) -> Result<ServerHandle, Fail> {
-    serve_with_mode(seed, SqliteMode::Rusqlite).await
+pub async fn serve_raw_rusqlite_prepared(seed: u64) -> Result<ServerHandle, Fail> {
+    serve_with_mode(seed, SqliteMode::RusqlitePrepared).await
+}
+
+pub async fn serve_raw_rusqlite_unprepared(seed: u64) -> Result<ServerHandle, Fail> {
+    serve_with_mode(seed, SqliteMode::RusqliteUnprepared).await
 }
 
 async fn serve_with_mode(seed: u64, mode: SqliteMode) -> Result<ServerHandle, Fail> {
@@ -449,6 +460,10 @@ async fn serve_with_mode(seed: u64, mode: SqliteMode) -> Result<ServerHandle, Fa
         for stmt in stmts {
             db.execute(stmt)
                 .map_err(|err| Fail::new(Code::RunFail, format!("sqlite seed failed: {err}")))?;
+        }
+
+        if mode == SqliteMode::RusqliteUnprepared {
+            db.conn().set_prepared_statement_cache_capacity(0);
         }
 
         Ok(db)
@@ -498,7 +513,7 @@ async fn customers(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
-    if state.mode == SqliteMode::Rusqlite {
+    if state.mode.is_rusqlite() {
         return raw_customers(&state, params);
     }
 
@@ -568,7 +583,7 @@ async fn customer_by_id(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
-    if state.mode == SqliteMode::Rusqlite {
+    if state.mode.is_rusqlite() {
         return raw_customer_by_id(&state, params);
     }
 
@@ -637,7 +652,7 @@ async fn employees(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<EmployeeResponse>>, StatusCode> {
-    if state.mode == SqliteMode::Rusqlite {
+    if state.mode.is_rusqlite() {
         return raw_employees(&state, params);
     }
 
@@ -719,7 +734,7 @@ async fn suppliers(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
-    if state.mode == SqliteMode::Rusqlite {
+    if state.mode.is_rusqlite() {
         return raw_suppliers(&state, params);
     }
 
@@ -786,7 +801,7 @@ async fn supplier_by_id(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
-    if state.mode == SqliteMode::Rusqlite {
+    if state.mode.is_rusqlite() {
         return raw_supplier_by_id(&state, params);
     }
 
@@ -852,7 +867,7 @@ async fn products(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<ProductResponse>>, StatusCode> {
-    if state.mode == SqliteMode::Rusqlite {
+    if state.mode.is_rusqlite() {
         return raw_products(&state, params);
     }
 
@@ -973,7 +988,7 @@ async fn product_with_supplier(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<ProductWithSupplierResponse>>, StatusCode> {
-    if state.mode == SqliteMode::Rusqlite {
+    if state.mode.is_rusqlite() {
         return raw_product_with_supplier(&state, params);
     }
 

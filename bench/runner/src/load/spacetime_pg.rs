@@ -202,13 +202,15 @@ struct EmployeeWithRecipientResponse {
 
 #[derive(Clone)]
 struct AppState {
-    client: Arc<Mutex<tokio_postgres::Client>>,
+    clients: Arc<Vec<Arc<Mutex<tokio_postgres::Client>>>>,
+    next: Arc<AtomicUsize>,
 }
 
 // SpacetimeDB PGWire has a low maximum SQL string length. Keep batches
 // conservative so wide customer/order rows stay under the query limit.
 const INSERT_BATCH_ROWS: usize = 100;
 const DETAILS_PER_ORDER: usize = 6;
+const SPACETIME_PG_POOL_SIZE: usize = 4;
 
 async fn insert_rows(
     client: &tokio_postgres::Client,
@@ -579,8 +581,29 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
     )
     .await?;
 
+    let mut clients = Vec::with_capacity(SPACETIME_PG_POOL_SIZE);
+    clients.push(Arc::new(Mutex::new(client)));
+    for idx in 1..SPACETIME_PG_POOL_SIZE {
+        let (client, connection) = config.connect(tokio_postgres::NoTls).await.map_err(|e| {
+            Fail::new(
+                Code::RunFail,
+                format!(
+                    "spacetime pg pool connect #{idx}: {e} (source: {:?})",
+                    e.source()
+                ),
+            )
+        })?;
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("spacetime pg pooled connection #{idx} error: {e}");
+            }
+        });
+        clients.push(Arc::new(Mutex::new(client)));
+    }
+
     let state = AppState {
-        client: Arc::new(Mutex::new(client)),
+        clients: Arc::new(clients),
+        next: Arc::new(AtomicUsize::new(0)),
     };
     let router = Router::new()
         .route("/stats", get(stats))
@@ -674,7 +697,8 @@ async fn stats(_: State<AppState>) -> Json<Vec<f64>> {
 }
 
 async fn pg_query(state: &AppState, sql: &str) -> Result<Vec<SimpleQueryMessage>, StatusCode> {
-    let client = state.client.lock().await;
+    let idx = state.next.fetch_add(1, Ordering::Relaxed) % state.clients.len();
+    let client = state.clients[idx].lock().await;
     client.simple_query(sql).await.map_err(|e| {
         eprintln!("spacetime pg query failed: {e} (source: {:?})", e.source());
         StatusCode::INTERNAL_SERVER_ERROR

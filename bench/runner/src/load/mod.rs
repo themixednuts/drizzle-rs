@@ -53,11 +53,19 @@ pub(crate) async fn serve_target(target: &str, seed: u64) -> Result<ServerHandle
 
     match target {
         "drizzle-rs-sqlite" => sqlite::serve(seed).await,
-        "rusqlite-sqlite" => sqlite::serve_raw_rusqlite(seed).await,
+        "rusqlite-sqlite" | "rusqlite-sqlite-prepared" => {
+            sqlite::serve_raw_rusqlite_prepared(seed).await
+        }
+        "rusqlite-sqlite-unprepared" => sqlite::serve_raw_rusqlite_unprepared(seed).await,
         "drizzle-rs-pg-sync" => pg_sync::serve(seed).await,
-        "drizzle-rs-pg-tokio" => pg_tokio::serve(seed).await,
+        "drizzle-rs-pg-tokio" | "tokio-postgres-unprepared" => {
+            pg_tokio::serve_unprepared(seed).await
+        }
+        "tokio-postgres-prepared" => pg_tokio::serve_prepared(seed).await,
         "spacetime-pgwire-rs" => spacetime_pg::serve(seed).await,
         "drizzle-rs-turso" => turso::serve(seed).await,
+        "turso-sqlite-prepared" => turso::serve_raw_prepared(seed).await,
+        "turso-sqlite-unprepared" => turso::serve_raw_unprepared(seed).await,
         other => Err(Fail::new(
             Code::InvalidCli,
             format!("unsupported target: {other}"),

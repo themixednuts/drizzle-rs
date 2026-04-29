@@ -6,6 +6,7 @@ use axum::{Json, Router, debug_handler};
 use chrono::NaiveDate;
 use drizzle::postgres::prelude::*;
 use std::sync::Arc;
+use tokio_postgres::{Row, Statement, types::ToSql};
 
 #[PostgresTable(name = "customers")]
 struct Customer {
@@ -290,20 +291,110 @@ struct EmployeeWithRecipientResponse {
     recipient_first_name: Option<String>,
 }
 
+const SQL_CUSTOMERS: &str = "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers ORDER BY id LIMIT $1::bigint OFFSET $2::bigint";
+const SQL_CUSTOMER_BY_ID: &str = "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE id = $1";
+const SQL_EMPLOYEES: &str = "SELECT id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, address, city, postal_code, country, home_phone, extension, notes, recipient_id FROM employees ORDER BY id LIMIT $1::bigint OFFSET $2::bigint";
+const SQL_SUPPLIERS: &str = "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers ORDER BY id LIMIT $1::bigint OFFSET $2::bigint";
+const SQL_SUPPLIER_BY_ID: &str = "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers WHERE id = $1";
+const SQL_PRODUCTS: &str = "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products ORDER BY id LIMIT $1::bigint OFFSET $2::bigint";
+const SQL_EMPLOYEE_WITH_RECIPIENT: &str = "SELECT e.id, e.last_name, e.first_name, e.title, e.title_of_courtesy, e.birth_date, e.hire_date, e.address, e.city, e.postal_code, e.country, e.home_phone, e.extension, e.notes, e.recipient_id, r.last_name, r.first_name FROM employees e LEFT JOIN employees r ON e.recipient_id = r.id WHERE e.id = $1";
+const SQL_PRODUCT_WITH_SUPPLIER: &str = "SELECT p.id, p.name, p.qt_per_unit, p.unit_price, p.units_in_stock, p.units_on_order, p.reorder_level, p.discontinued, p.supplier_id, s.id, s.company_name, s.contact_name, s.contact_title, s.address, s.city, s.region, s.postal_code, s.country, s.phone FROM products p INNER JOIN suppliers s ON p.supplier_id = s.id WHERE p.id = $1";
+const SQL_ORDERS_WITH_DETAILS: &str = "SELECT o.id, o.shipped_date, o.ship_name, o.ship_city, o.ship_country, count(d.product_id), COALESCE(sum(d.quantity)::float8, 0), COALESCE(sum(d.quantity::float8 * d.unit_price), 0) FROM orders o LEFT JOIN order_details d ON o.id = d.order_id GROUP BY o.id ORDER BY o.id LIMIT $1::bigint OFFSET $2::bigint";
+const SQL_ORDER_BY_ID: &str = "SELECT id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id FROM orders WHERE id = $1";
+const SQL_ORDER_DETAILS_BY_ORDER: &str = "SELECT unit_price, quantity, discount, order_id, product_id FROM order_details WHERE order_id = $1";
+const SQL_ORDER_DETAIL_PRODUCTS_BY_ORDER: &str = "SELECT d.unit_price, d.quantity, d.discount, d.order_id, d.product_id, p.name FROM order_details d LEFT JOIN products p ON d.product_id = p.id WHERE d.order_id = $1";
+const SQL_SEARCH_CUSTOMER: &str = "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE company_name ILIKE $1";
+const SQL_SEARCH_PRODUCT: &str = "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products WHERE name ILIKE $1";
+
+#[derive(Clone, Copy)]
+enum PgQueryMode {
+    Prepared,
+    Unprepared,
+}
+
+struct PgStatements {
+    customers: Statement,
+    customer_by_id: Statement,
+    employees: Statement,
+    suppliers: Statement,
+    supplier_by_id: Statement,
+    products: Statement,
+    employee_with_recipient: Statement,
+    product_with_supplier: Statement,
+    orders_with_details: Statement,
+    order_by_id: Statement,
+    order_details_by_order: Statement,
+    order_detail_products_by_order: Statement,
+    search_customer: Statement,
+    search_product: Statement,
+}
+
+impl PgStatements {
+    async fn prepare(client: &tokio_postgres::Client) -> Result<Self, tokio_postgres::Error> {
+        Ok(Self {
+            customers: client.prepare(SQL_CUSTOMERS).await?,
+            customer_by_id: client.prepare(SQL_CUSTOMER_BY_ID).await?,
+            employees: client.prepare(SQL_EMPLOYEES).await?,
+            suppliers: client.prepare(SQL_SUPPLIERS).await?,
+            supplier_by_id: client.prepare(SQL_SUPPLIER_BY_ID).await?,
+            products: client.prepare(SQL_PRODUCTS).await?,
+            employee_with_recipient: client.prepare(SQL_EMPLOYEE_WITH_RECIPIENT).await?,
+            product_with_supplier: client.prepare(SQL_PRODUCT_WITH_SUPPLIER).await?,
+            orders_with_details: client.prepare(SQL_ORDERS_WITH_DETAILS).await?,
+            order_by_id: client.prepare(SQL_ORDER_BY_ID).await?,
+            order_details_by_order: client.prepare(SQL_ORDER_DETAILS_BY_ORDER).await?,
+            order_detail_products_by_order: client
+                .prepare(SQL_ORDER_DETAIL_PRODUCTS_BY_ORDER)
+                .await?,
+            search_customer: client.prepare(SQL_SEARCH_CUSTOMER).await?,
+            search_product: client.prepare(SQL_SEARCH_PRODUCT).await?,
+        })
+    }
+}
+
+struct PgConn {
+    client: tokio_postgres::Client,
+    statements: Option<PgStatements>,
+}
+
+impl PgConn {
+    async fn query(
+        &self,
+        sql: &'static str,
+        statement: fn(&PgStatements) -> &Statement,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatusCode> {
+        let result = if let Some(statements) = &self.statements {
+            self.client.query(statement(statements), params).await
+        } else {
+            self.client.query(sql, params).await
+        };
+        result.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    }
+}
+
 #[derive(Clone)]
 struct AppState {
-    dbs: Arc<Vec<Arc<drizzle::postgres::tokio::Drizzle<Schema>>>>,
+    dbs: Arc<Vec<PgConn>>,
     next: Arc<AtomicUsize>,
 }
 
 impl AppState {
-    fn db(&self) -> &drizzle::postgres::tokio::Drizzle<Schema> {
+    fn db(&self) -> &PgConn {
         let idx = self.next.fetch_add(1, Ordering::Relaxed) % self.dbs.len();
-        self.dbs[idx].as_ref()
+        &self.dbs[idx]
     }
 }
 
-pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
+pub async fn serve_unprepared(seed: u64) -> Result<ServerHandle, Fail> {
+    serve_with_mode(seed, PgQueryMode::Unprepared).await
+}
+
+pub async fn serve_prepared(seed: u64) -> Result<ServerHandle, Fail> {
+    serve_with_mode(seed, PgQueryMode::Prepared).await
+}
+
+async fn serve_with_mode(seed: u64, mode: PgQueryMode) -> Result<ServerHandle, Fail> {
     let database_url = pg_url();
     tokio::task::spawn_blocking(move || super::pg_sync::seed_database_url(&database_url, seed))
         .await
@@ -318,9 +409,14 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         tokio::spawn(async move {
             let _ = driver.await;
         });
-        dbs.push(Arc::new(
-            drizzle::postgres::tokio::Drizzle::new(client, Schema::new()).0,
-        ));
+        let statements = if matches!(mode, PgQueryMode::Prepared) {
+            Some(PgStatements::prepare(&client).await.map_err(|err| {
+                Fail::new(Code::RunFail, format!("postgres prepare failed: {err}"))
+            })?)
+        } else {
+            None
+        };
+        dbs.push(PgConn { client, statements });
     }
 
     let router = Router::new()
@@ -360,17 +456,12 @@ async fn customers_handler(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let sql = format!(
-        "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers ORDER BY id LIMIT {} OFFSET {}",
-        params.limit_or(50),
-        params.offset()
-    );
+    let limit = params.limit_or(50) as i64;
+    let offset = params.offset() as i64;
     let rows = state
         .db()
-        .conn()
-        .query(&sql, &[])
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .query(SQL_CUSTOMERS, |s| &s.customers, &[&limit, &offset])
+        .await?;
     let resp: Vec<CustomerResponse> = rows
         .iter()
         .map(|r| CustomerResponse {
@@ -396,7 +487,10 @@ async fn customer_by_id(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let id = params.user_id(10000);
-    let rows = state.db().conn().query("SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE id = $1", &[&id]).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = state
+        .db()
+        .query(SQL_CUSTOMER_BY_ID, |s| &s.customer_by_id, &[&id])
+        .await?;
     let resp: Vec<CustomerResponse> = rows
         .iter()
         .map(|r| CustomerResponse {
@@ -421,17 +515,12 @@ async fn employees_handler(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let sql = format!(
-        "SELECT id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, address, city, postal_code, country, home_phone, extension, notes, recipient_id FROM employees ORDER BY id LIMIT {} OFFSET {}",
-        params.limit_or(50),
-        params.offset()
-    );
+    let limit = params.limit_or(50) as i64;
+    let offset = params.offset() as i64;
     let rows = state
         .db()
-        .conn()
-        .query(&sql, &[])
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .query(SQL_EMPLOYEES, |s| &s.employees, &[&limit, &offset])
+        .await?;
     let resp: Vec<EmployeeResponse> = rows
         .iter()
         .map(|r| EmployeeResponse {
@@ -460,17 +549,12 @@ async fn suppliers_handler(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let sql = format!(
-        "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers ORDER BY id LIMIT {} OFFSET {}",
-        params.limit_or(50),
-        params.offset()
-    );
+    let limit = params.limit_or(50) as i64;
+    let offset = params.offset() as i64;
     let rows = state
         .db()
-        .conn()
-        .query(&sql, &[])
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .query(SQL_SUPPLIERS, |s| &s.suppliers, &[&limit, &offset])
+        .await?;
     let resp: Vec<SupplierResponse> = rows
         .iter()
         .map(|r| SupplierResponse {
@@ -495,7 +579,10 @@ async fn supplier_by_id(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let id = params.user_id(1000);
-    let rows = state.db().conn().query("SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers WHERE id = $1", &[&id]).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = state
+        .db()
+        .query(SQL_SUPPLIER_BY_ID, |s| &s.supplier_by_id, &[&id])
+        .await?;
     let resp: Vec<SupplierResponse> = rows
         .iter()
         .map(|r| SupplierResponse {
@@ -519,17 +606,12 @@ async fn products_handler(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let sql = format!(
-        "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products ORDER BY id LIMIT {} OFFSET {}",
-        params.limit_or(50),
-        params.offset()
-    );
+    let limit = params.limit_or(50) as i64;
+    let offset = params.offset() as i64;
     let rows = state
         .db()
-        .conn()
-        .query(&sql, &[])
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .query(SQL_PRODUCTS, |s| &s.products, &[&limit, &offset])
+        .await?;
     let resp: Vec<ProductResponse> = rows
         .iter()
         .map(|r| ProductResponse {
@@ -553,10 +635,14 @@ async fn employee_with_recipient(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let id = params.user_id(200);
-    let rows = state.db().conn().query(
-        "SELECT e.id, e.last_name, e.first_name, e.title, e.title_of_courtesy, e.birth_date, e.hire_date, e.address, e.city, e.postal_code, e.country, e.home_phone, e.extension, e.notes, e.recipient_id, r.last_name, r.first_name FROM employees e LEFT JOIN employees r ON e.recipient_id = r.id WHERE e.id = $1",
-        &[&id],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = state
+        .db()
+        .query(
+            SQL_EMPLOYEE_WITH_RECIPIENT,
+            |s| &s.employee_with_recipient,
+            &[&id],
+        )
+        .await?;
     let resp: Vec<EmployeeWithRecipientResponse> = rows
         .iter()
         .map(|r| EmployeeWithRecipientResponse {
@@ -588,10 +674,14 @@ async fn product_with_supplier(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let id = params.user_id(5000);
-    let rows = state.db().conn().query(
-        "SELECT p.id, p.name, p.qt_per_unit, p.unit_price, p.units_in_stock, p.units_on_order, p.reorder_level, p.discontinued, p.supplier_id, s.id, s.company_name, s.contact_name, s.contact_title, s.address, s.city, s.region, s.postal_code, s.country, s.phone FROM products p INNER JOIN suppliers s ON p.supplier_id = s.id WHERE p.id = $1",
-        &[&id],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = state
+        .db()
+        .query(
+            SQL_PRODUCT_WITH_SUPPLIER,
+            |s| &s.product_with_supplier,
+            &[&id],
+        )
+        .await?;
     let resp: Vec<ProductWithSupplierResponse> = rows
         .iter()
         .map(|r| ProductWithSupplierResponse {
@@ -626,20 +716,16 @@ async fn orders_with_details(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let sql = format!(
-        "SELECT o.id, o.shipped_date, o.ship_name, o.ship_city, o.ship_country, \
-         count(d.product_id), COALESCE(sum(d.quantity)::float8, 0), COALESCE(sum(d.quantity::float8 * d.unit_price), 0) \
-         FROM orders o LEFT JOIN order_details d ON o.id = d.order_id \
-         GROUP BY o.id ORDER BY o.id LIMIT {} OFFSET {}",
-        params.limit_or(50),
-        params.offset()
-    );
+    let limit = params.limit_or(50) as i64;
+    let offset = params.offset() as i64;
     let rows = state
         .db()
-        .conn()
-        .query(&sql, &[])
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .query(
+            SQL_ORDERS_WITH_DETAILS,
+            |s| &s.orders_with_details,
+            &[&limit, &offset],
+        )
+        .await?;
     let resp: Vec<OrderWithDetailsResponse> = rows
         .iter()
         .map(|r| OrderWithDetailsResponse {
@@ -662,14 +748,17 @@ async fn order_with_details(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let id = params.user_id(50000);
-    let order_rows = state.db().conn().query(
-        "SELECT id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id FROM orders WHERE id = $1",
-        &[&id],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let detail_rows = state.db().conn().query(
-        "SELECT unit_price, quantity, discount, order_id, product_id FROM order_details WHERE order_id = $1",
-        &[&id],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = state.db();
+    let order_rows = db
+        .query(SQL_ORDER_BY_ID, |s| &s.order_by_id, &[&id])
+        .await?;
+    let detail_rows = db
+        .query(
+            SQL_ORDER_DETAILS_BY_ORDER,
+            |s| &s.order_details_by_order,
+            &[&id],
+        )
+        .await?;
     let details: Vec<OrderDetailResponse> = detail_rows
         .iter()
         .map(|r| OrderDetailResponse {
@@ -708,14 +797,17 @@ async fn order_with_details_and_products(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let id = params.user_id(50000);
-    let order_rows = state.db().conn().query(
-        "SELECT id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id FROM orders WHERE id = $1",
-        &[&id],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let detail_rows = state.db().conn().query(
-        "SELECT d.unit_price, d.quantity, d.discount, d.order_id, d.product_id, p.name FROM order_details d LEFT JOIN products p ON d.product_id = p.id WHERE d.order_id = $1",
-        &[&id],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = state.db();
+    let order_rows = db
+        .query(SQL_ORDER_BY_ID, |s| &s.order_by_id, &[&id])
+        .await?;
+    let detail_rows = db
+        .query(
+            SQL_ORDER_DETAIL_PRODUCTS_BY_ORDER,
+            |s| &s.order_detail_products_by_order,
+            &[&id],
+        )
+        .await?;
     let details: Vec<OrderDetailProductResponse> = detail_rows
         .iter()
         .map(|r| OrderDetailProductResponse {
@@ -756,10 +848,10 @@ async fn search_customer(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let term = params.term.as_deref().unwrap_or("");
     let pattern = format!("%{term}%");
-    let rows = state.db().conn().query(
-        "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE company_name ILIKE $1",
-        &[&pattern],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = state
+        .db()
+        .query(SQL_SEARCH_CUSTOMER, |s| &s.search_customer, &[&pattern])
+        .await?;
     let resp: Vec<CustomerResponse> = rows
         .iter()
         .map(|r| CustomerResponse {
@@ -786,10 +878,10 @@ async fn search_product(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let term = params.term.as_deref().unwrap_or("");
     let pattern = format!("%{term}%");
-    let rows = state.db().conn().query(
-        "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products WHERE name ILIKE $1",
-        &[&pattern],
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = state
+        .db()
+        .query(SQL_SEARCH_PRODUCT, |s| &s.search_product, &[&pattern])
+        .await?;
     let resp: Vec<ProductResponse> = rows
         .iter()
         .map(|r| ProductResponse {

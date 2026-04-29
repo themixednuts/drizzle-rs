@@ -4,7 +4,7 @@
     "id": "spacetime-pgwire-rs",
     "display": {
       "name": "SpacetimeDB PGWire",
-      "description": "SpacetimeDB PGWire target using tokio-postgres simple query protocol"
+      "description": "SpacetimeDB PGWire target using a tokio-postgres simple-query client pool"
     },
     "group": "spacetimedb",
     "lang": "rust",
@@ -25,7 +25,7 @@
       "workers": 1
     },
     "pool": {
-      "max": 1,
+      "max": 4,
       "min": 1,
       "acquire_ms": 50
     },
@@ -38,7 +38,7 @@
     },
     "fair": {
       "workers": 1,
-      "pool": 1,
+      "pool": 4,
       "db": "spacetimedb",
       "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
       "contract": "v1"
