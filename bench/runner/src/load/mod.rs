@@ -11,8 +11,8 @@ use crate::model::{Latency, Point, QueryPoint, RequestDoc, Workload};
 use axum::Router;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::{BufRead, BufReader, Read as _, Write};
-use std::net::{TcpListener, TcpStream};
+use std::io::{BufRead, BufReader as StdBufReader, Read as _, Write};
+use std::net::{TcpListener, TcpStream as StdTcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -21,6 +21,8 @@ use std::time::{Duration, Instant};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
+use tokio::net::TcpStream as TokioTcpStream;
 use tokio::sync::oneshot;
 
 // ---------------------------------------------------------------------------
@@ -92,8 +94,8 @@ pub(crate) async fn seed_postgres(args: SeedPostgres) -> Result<Code, Fail> {
 
 /// Send an HTTP GET and return the full response body (or error).
 pub(crate) fn send_get_body(port: u16, path: &str) -> Result<(u16, String), String> {
-    let mut stream =
-        TcpStream::connect(("127.0.0.1", port)).map_err(|err| format!("connect failed: {err}"))?;
+    let mut stream = StdTcpStream::connect(("127.0.0.1", port))
+        .map_err(|err| format!("connect failed: {err}"))?;
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .map_err(|err| format!("set_read_timeout failed: {err}"))?;
@@ -106,7 +108,7 @@ pub(crate) fn send_get_body(port: u16, path: &str) -> Result<(u16, String), Stri
         .write_all(raw.as_bytes())
         .map_err(|err| format!("write failed: {err}"))?;
 
-    let mut reader = BufReader::new(stream);
+    let mut reader = StdBufReader::new(stream);
 
     // Parse status line
     let mut status_line = String::new();
@@ -184,10 +186,13 @@ pub async fn run(args: Load) -> Result<Code, Fail> {
 
     let port = handle.port;
     let target_pid = handle.target_pid;
-    let points =
-        tokio::task::spawn_blocking(move || measure(&workload, &requests, port, target_pid))
+    let points = if workload.load.executor.contains("vus") {
+        measure_vus_async(&workload, &requests, port, target_pid).await?
+    } else {
+        tokio::task::spawn_blocking(move || measure_rps(&workload, &requests, port, target_pid))
             .await
-            .map_err(|err| Fail::new(Code::RunFail, format!("measure panicked: {err}")))??;
+            .map_err(|err| Fail::new(Code::RunFail, format!("measure panicked: {err}")))??
+    };
 
     handle.shutdown().await?;
     write_json(out, &points)?;
@@ -327,19 +332,6 @@ impl QueryBucket {
     }
 }
 
-fn measure(
-    workload: &Workload,
-    requests: &[RequestDoc],
-    port: u16,
-    target_pid: Option<u32>,
-) -> Result<Vec<Point>, Fail> {
-    if workload.load.executor.contains("vus") {
-        measure_vus(workload, requests, port, target_pid)
-    } else {
-        measure_rps(workload, requests, port, target_pid)
-    }
-}
-
 fn measure_rps(
     workload: &Workload,
     requests: &[RequestDoc],
@@ -473,7 +465,7 @@ fn measure_rps(
     Ok(points)
 }
 
-fn measure_vus(
+async fn measure_vus_async(
     workload: &Workload,
     requests: &[RequestDoc],
     port: u16,
@@ -491,7 +483,7 @@ fn measure_vus(
     let running = Arc::new(AtomicBool::new(true));
     let (tx, rx) = mpsc::channel::<(usize, bool, f64)>();
 
-    let mut workers: Vec<std::thread::JoinHandle<()>> = Vec::new();
+    let mut workers: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     let mut points = Vec::new();
     let mut sys = System::new_all();
     sys.refresh_cpu_usage();
@@ -508,14 +500,14 @@ fn measure_vus(
             let iter_counter = Arc::clone(&global_iter);
             let is_running = Arc::clone(&running);
             let sender = tx.clone();
-            workers.push(std::thread::spawn(move || {
-                let mut conn = HttpConn::new(port);
+            workers.push(tokio::spawn(async move {
+                let mut conn = AsyncHttpConn::new(port);
                 while is_running.load(Ordering::Relaxed) {
                     let iter_num = iter_counter.fetch_add(1, Ordering::Relaxed);
                     let plan = &plans[iter_num as usize % plans.len()];
 
                     let t0 = Instant::now();
-                    let ok = conn.get(&plan.path).is_ok();
+                    let ok = conn.get(&plan.path).await.is_ok();
                     let lat = t0.elapsed().as_secs_f64() * 1000.0;
 
                     if sender.send((plan.query_idx, ok, lat)).is_err() {
@@ -525,7 +517,7 @@ fn measure_vus(
                     // k6-compatible sleep: sleep(0.1 * (iteration % 6))
                     let sleep_ms = (iter_num % 6) * 100;
                     if sleep_ms > 0 {
-                        std::thread::sleep(Duration::from_millis(sleep_ms));
+                        tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
                     }
                 }
             }));
@@ -533,7 +525,7 @@ fn measure_vus(
 
         let chunk_secs = (chunk_end - sec_offset) as u64;
         let start = Instant::now();
-        std::thread::sleep(Duration::from_secs(chunk_secs));
+        tokio::time::sleep(Duration::from_secs(chunk_secs)).await;
         let wall = start.elapsed().as_secs_f64().max(0.001);
 
         // Drain results collected during this window
@@ -581,7 +573,7 @@ fn measure_vus(
     running.store(false, Ordering::Relaxed);
     drop(tx);
     for h in workers {
-        let _ = h.join();
+        let _ = h.await;
     }
 
     Ok(points)
@@ -613,7 +605,7 @@ fn build_vu_schedule(stages: &[crate::model::Stage]) -> Vec<u32> {
 /// Persistent HTTP/1.1 connection with keep-alive. Reconnects on error.
 struct HttpConn {
     port: u16,
-    reader: Option<BufReader<TcpStream>>,
+    reader: Option<StdBufReader<StdTcpStream>>,
     header_buf: String,
 }
 
@@ -627,7 +619,7 @@ impl HttpConn {
     }
 
     fn connect(&mut self) -> Result<(), String> {
-        let stream = TcpStream::connect(("127.0.0.1", self.port))
+        let stream = StdTcpStream::connect(("127.0.0.1", self.port))
             .map_err(|err| format!("connect failed: {err}"))?;
         stream
             .set_read_timeout(Some(Duration::from_secs(30)))
@@ -638,7 +630,7 @@ impl HttpConn {
         stream
             .set_nodelay(true)
             .map_err(|err| format!("set_nodelay: {err}"))?;
-        self.reader = Some(BufReader::new(stream));
+        self.reader = Some(StdBufReader::new(stream));
         Ok(())
     }
 
@@ -741,6 +733,165 @@ impl HttpConn {
             Ok(())
         } else {
             Err(format!("request failed: {}", self.header_buf.trim()))
+        }
+    }
+}
+
+struct AsyncHttpConn {
+    port: u16,
+    reader: Option<AsyncBufReader<TokioTcpStream>>,
+    header_buf: String,
+}
+
+impl AsyncHttpConn {
+    fn new(port: u16) -> Self {
+        Self {
+            port,
+            reader: None,
+            header_buf: String::new(),
+        }
+    }
+
+    async fn connect(&mut self) -> Result<(), String> {
+        let stream = tokio::time::timeout(
+            Duration::from_secs(30),
+            TokioTcpStream::connect(("127.0.0.1", self.port)),
+        )
+        .await
+        .map_err(|_| "connect timeout".to_string())?
+        .map_err(|err| format!("connect failed: {err}"))?;
+        stream
+            .set_nodelay(true)
+            .map_err(|err| format!("set_nodelay: {err}"))?;
+        self.reader = Some(AsyncBufReader::new(stream));
+        Ok(())
+    }
+
+    async fn get(&mut self, path: &str) -> Result<(), String> {
+        if self.reader.is_some() {
+            match self.send_and_read(path).await {
+                Ok(()) => return Ok(()),
+                Err(_) => self.reader = None,
+            }
+        }
+        self.connect().await?;
+        self.send_and_read(path).await
+    }
+
+    async fn send_and_read(&mut self, path: &str) -> Result<(), String> {
+        let reader = self.reader.as_mut().ok_or("no connection")?;
+        let raw =
+            format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive\r\n\r\n");
+        tokio::time::timeout(
+            Duration::from_secs(30),
+            reader.get_mut().write_all(raw.as_bytes()),
+        )
+        .await
+        .map_err(|_| "write timeout".to_string())?
+        .map_err(|err| format!("write failed: {err}"))?;
+
+        self.header_buf.clear();
+        let read = tokio::time::timeout(
+            Duration::from_secs(30),
+            reader.read_line(&mut self.header_buf),
+        )
+        .await
+        .map_err(|_| "read status timeout".to_string())?
+        .map_err(|err| format!("read status: {err}"))?;
+        if read == 0 {
+            return Err("read status: eof".to_string());
+        }
+        let status = self.header_buf.trim().to_string();
+        let ok = self.header_buf.starts_with("HTTP/1.1 200")
+            || self.header_buf.starts_with("HTTP/1.1 204");
+
+        let mut content_length: Option<usize> = None;
+        let mut chunked = false;
+        loop {
+            self.header_buf.clear();
+            let read = tokio::time::timeout(
+                Duration::from_secs(30),
+                reader.read_line(&mut self.header_buf),
+            )
+            .await
+            .map_err(|_| "read header timeout".to_string())?
+            .map_err(|err| format!("read header: {err}"))?;
+            if read == 0 {
+                return Err("read header: eof".to_string());
+            }
+            let line = self.header_buf.trim();
+            if line.is_empty() {
+                break;
+            }
+            let lower = line.to_ascii_lowercase();
+            if let Some(val) = lower.strip_prefix("content-length:") {
+                content_length = val.trim().parse().ok();
+            } else if lower.starts_with("transfer-encoding:") && lower.contains("chunked") {
+                chunked = true;
+            }
+        }
+
+        if let Some(len) = content_length {
+            let mut remaining = len;
+            let mut discard = [0u8; 8192];
+            while remaining > 0 {
+                let to_read = remaining.min(discard.len());
+                let n = tokio::time::timeout(
+                    Duration::from_secs(30),
+                    reader.read(&mut discard[..to_read]),
+                )
+                .await
+                .map_err(|_| "read body timeout".to_string())?
+                .map_err(|err| format!("read body: {err}"))?;
+                if n == 0 {
+                    break;
+                }
+                remaining -= n;
+            }
+        } else if chunked {
+            loop {
+                self.header_buf.clear();
+                let read = tokio::time::timeout(
+                    Duration::from_secs(30),
+                    reader.read_line(&mut self.header_buf),
+                )
+                .await
+                .map_err(|_| "read chunk size timeout".to_string())?
+                .map_err(|err| format!("read chunk size: {err}"))?;
+                if read == 0 {
+                    return Err("read chunk size: eof".to_string());
+                }
+                let size = usize::from_str_radix(self.header_buf.trim(), 16).unwrap_or(0);
+                if size == 0 {
+                    self.header_buf.clear();
+                    let _ = reader.read_line(&mut self.header_buf).await;
+                    break;
+                }
+                let mut remaining = size;
+                let mut discard = [0u8; 8192];
+                while remaining > 0 {
+                    let to_read = remaining.min(discard.len());
+                    let n = tokio::time::timeout(
+                        Duration::from_secs(30),
+                        reader.read(&mut discard[..to_read]),
+                    )
+                    .await
+                    .map_err(|_| "read chunk timeout".to_string())?
+                    .map_err(|err| format!("read chunk: {err}"))?;
+                    if n == 0 {
+                        break;
+                    }
+                    remaining -= n;
+                }
+                self.header_buf.clear();
+                let _ = reader.read_line(&mut self.header_buf).await;
+            }
+        }
+
+        if ok {
+            Ok(())
+        } else {
+            Err(format!("request failed: {status}"))
         }
     }
 }
