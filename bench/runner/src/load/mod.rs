@@ -10,20 +10,20 @@ use crate::code::{Code, Fail};
 use crate::model::{Latency, Point, QueryPoint, RequestDoc, Workload};
 use axum::Router;
 use serde::{Deserialize, Serialize};
+use std::fmt::Write as FmtWrite;
 use std::fs;
-use std::io::{BufRead, BufReader as StdBufReader, Read as _, Write};
+use std::io::{BufRead, BufReader as StdBufReader, Read as _, Write as IoWrite};
 use std::net::{TcpListener, TcpStream as StdTcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
 use tokio::net::TcpStream as TokioTcpStream;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 // ---------------------------------------------------------------------------
 // Northwind "micro" dataset sizes — shared by all benchmark targets.
@@ -481,7 +481,7 @@ async fn measure_vus_async(
     let query_keys = Arc::new(query_keys);
     let global_iter = Arc::new(AtomicU64::new(0));
     let running = Arc::new(AtomicBool::new(true));
-    let (tx, rx) = mpsc::channel::<(usize, bool, f64)>();
+    let (tx, mut rx) = mpsc::unbounded_channel::<(usize, bool, f64)>();
 
     let mut workers: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     let mut points = Vec::new();
@@ -529,7 +529,8 @@ async fn measure_vus_async(
         let wall = start.elapsed().as_secs_f64().max(0.001);
 
         // Drain results collected during this window
-        let mut latencies = Vec::new();
+        let pending = rx.len();
+        let mut latencies = Vec::with_capacity(pending);
         let mut errors = 0u64;
         let mut total = 0u64;
         let mut queries = vec![QueryBucket::default(); query_keys.len()];
@@ -592,7 +593,9 @@ fn build_vu_schedule(stages: &[crate::model::Stage]) -> Vec<u32> {
             schedule.push(target);
         } else {
             for i in 0..stage.sec {
-                let t = i as f64 / (stage.sec - 1) as f64;
+                // k6 ramps continuously; each one-second bucket should approximate the
+                // VU count reached by the end of that bucket, not sit at the prior count.
+                let t = (i + 1) as f64 / stage.sec as f64;
                 let vus = prev as f64 + (target as f64 - prev as f64) * t;
                 schedule.push(vus.round() as u32);
             }
@@ -607,6 +610,7 @@ struct HttpConn {
     port: u16,
     reader: Option<StdBufReader<StdTcpStream>>,
     header_buf: String,
+    request_buf: String,
 }
 
 impl HttpConn {
@@ -615,6 +619,7 @@ impl HttpConn {
             port,
             reader: None,
             header_buf: String::new(),
+            request_buf: String::with_capacity(256),
         }
     }
 
@@ -648,11 +653,15 @@ impl HttpConn {
 
     fn send_and_read(&mut self, path: &str) -> Result<(), String> {
         let reader = self.reader.as_mut().ok_or("no connection")?;
-        let raw =
-            format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive\r\n\r\n");
+        self.request_buf.clear();
+        write!(
+            &mut self.request_buf,
+            "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive\r\n\r\n"
+        )
+        .map_err(|err| format!("format request: {err}"))?;
         reader
             .get_mut()
-            .write_all(raw.as_bytes())
+            .write_all(self.request_buf.as_bytes())
             .map_err(|err| format!("write failed: {err}"))?;
 
         // Read status line
@@ -662,6 +671,11 @@ impl HttpConn {
             .map_err(|err| format!("read status: {err}"))?;
         let ok = self.header_buf.starts_with("HTTP/1.1 200")
             || self.header_buf.starts_with("HTTP/1.1 204");
+        let failed_status = if ok {
+            None
+        } else {
+            Some(self.header_buf.trim().to_string())
+        };
 
         // Read headers, extract Content-Length or detect chunked encoding
         let mut content_length: Option<usize> = None;
@@ -675,10 +689,9 @@ impl HttpConn {
             if line.is_empty() {
                 break;
             }
-            let lower = line.to_ascii_lowercase();
-            if let Some(val) = lower.strip_prefix("content-length:") {
-                content_length = val.trim().parse().ok();
-            } else if lower.starts_with("transfer-encoding:") && lower.contains("chunked") {
+            if let Some(val) = header_value(line, "content-length") {
+                content_length = val.parse().ok();
+            } else if header_has_token(line, "transfer-encoding", "chunked") {
                 chunked = true;
             }
         }
@@ -732,7 +745,10 @@ impl HttpConn {
         if ok {
             Ok(())
         } else {
-            Err(format!("request failed: {}", self.header_buf.trim()))
+            Err(format!(
+                "request failed: {}",
+                failed_status.unwrap_or_else(|| "non-success status".to_string())
+            ))
         }
     }
 }
@@ -741,6 +757,7 @@ struct AsyncHttpConn {
     port: u16,
     reader: Option<AsyncBufReader<TokioTcpStream>>,
     header_buf: String,
+    request_buf: String,
 }
 
 impl AsyncHttpConn {
@@ -749,6 +766,7 @@ impl AsyncHttpConn {
             port,
             reader: None,
             header_buf: String::new(),
+            request_buf: String::with_capacity(256),
         }
     }
 
@@ -780,11 +798,15 @@ impl AsyncHttpConn {
 
     async fn send_and_read(&mut self, path: &str) -> Result<(), String> {
         let reader = self.reader.as_mut().ok_or("no connection")?;
-        let raw =
-            format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive\r\n\r\n");
+        self.request_buf.clear();
+        write!(
+            &mut self.request_buf,
+            "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive\r\n\r\n"
+        )
+        .map_err(|err| format!("format request: {err}"))?;
         tokio::time::timeout(
             Duration::from_secs(30),
-            reader.get_mut().write_all(raw.as_bytes()),
+            reader.get_mut().write_all(self.request_buf.as_bytes()),
         )
         .await
         .map_err(|_| "write timeout".to_string())?
@@ -801,9 +823,13 @@ impl AsyncHttpConn {
         if read == 0 {
             return Err("read status: eof".to_string());
         }
-        let status = self.header_buf.trim().to_string();
         let ok = self.header_buf.starts_with("HTTP/1.1 200")
             || self.header_buf.starts_with("HTTP/1.1 204");
+        let failed_status = if ok {
+            None
+        } else {
+            Some(self.header_buf.trim().to_string())
+        };
 
         let mut content_length: Option<usize> = None;
         let mut chunked = false;
@@ -823,10 +849,9 @@ impl AsyncHttpConn {
             if line.is_empty() {
                 break;
             }
-            let lower = line.to_ascii_lowercase();
-            if let Some(val) = lower.strip_prefix("content-length:") {
-                content_length = val.trim().parse().ok();
-            } else if lower.starts_with("transfer-encoding:") && lower.contains("chunked") {
+            if let Some(val) = header_value(line, "content-length") {
+                content_length = val.parse().ok();
+            } else if header_has_token(line, "transfer-encoding", "chunked") {
                 chunked = true;
             }
         }
@@ -891,7 +916,10 @@ impl AsyncHttpConn {
         if ok {
             Ok(())
         } else {
-            Err(format!("request failed: {status}"))
+            Err(format!(
+                "request failed: {}",
+                failed_status.unwrap_or_else(|| "non-success status".to_string())
+            ))
         }
     }
 }
@@ -940,6 +968,21 @@ fn query_points(keys: &[QueryKey], buckets: &[QueryBucket], wall: f64) -> Vec<Qu
             latency: summarize_latency(&bucket.latencies),
         })
         .collect()
+}
+
+fn header_value<'a>(line: &'a str, name: &str) -> Option<&'a str> {
+    let (key, value) = line.split_once(':')?;
+    key.trim().eq_ignore_ascii_case(name).then(|| value.trim())
+}
+
+fn header_has_token(line: &str, name: &str, token: &str) -> bool {
+    header_value(line, name)
+        .map(|value| {
+            value
+                .split(',')
+                .any(|part| part.trim().eq_ignore_ascii_case(token))
+        })
+        .unwrap_or(false)
 }
 
 fn build_path(req: &RequestDoc) -> String {
@@ -1198,6 +1241,39 @@ mod tests {
         assert_eq!(points[0].rps, 1.5);
         assert_eq!(points[0].err, 1.0 / 3.0);
         assert_eq!(points[0].latency.avg, 15.0);
+    }
+
+    #[test]
+    fn vu_schedule_approximates_k6_ramp_without_empty_first_bucket() {
+        let stages = vec![crate::model::Stage {
+            sec: 5,
+            vus: Some(200),
+            rps: None,
+        }];
+
+        let schedule = build_vu_schedule(&stages);
+
+        assert_eq!(schedule, vec![40, 80, 120, 160, 200]);
+    }
+
+    #[test]
+    fn vu_schedule_holds_constant_targets() {
+        let stages = vec![
+            crate::model::Stage {
+                sec: 2,
+                vus: Some(200),
+                rps: None,
+            },
+            crate::model::Stage {
+                sec: 3,
+                vus: Some(200),
+                rps: None,
+            },
+        ];
+
+        let schedule = build_vu_schedule(&stages);
+
+        assert_eq!(schedule, vec![100, 200, 200, 200, 200]);
     }
 
     fn request(path: &str, query: &[(&str, &str)]) -> RequestDoc {

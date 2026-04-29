@@ -309,6 +309,8 @@ const pSearchProducts = db
 const server = Bun.serve({
   port: 0,
   hostname: "127.0.0.1",
+  // Let the 30s load-generator timeout decide saturated requests, not Bun's 10s default.
+  idleTimeout: 35,
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
