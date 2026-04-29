@@ -1,0 +1,403 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bench.drizzle.rs/schema/run-manifest.v1.schema.json",
+  "title": "Run Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "run_id",
+    "name",
+    "suite",
+    "git",
+    "workload",
+    "targets",
+    "target_meta",
+    "queries",
+    "start",
+    "end",
+    "status",
+    "seed",
+    "load",
+    "dataset",
+    "artifacts",
+    "runner",
+    "trials"
+  ],
+  "properties": {
+    "version": {
+      "const": "v1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}T[0-9]{6}Z_[a-f0-9]{7,40}_[a-z0-9-]+$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "suite": {
+      "type": "string",
+      "enum": [
+        "throughput-http",
+        "mvcc-contention"
+      ]
+    },
+    "git": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{7,40}$"
+    },
+    "workload": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]*$"
+      }
+    },
+    "target_meta": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "lang",
+          "runtime",
+          "orm",
+          "driver",
+          "proc",
+          "pool",
+          "db",
+          "wire",
+          "fair",
+          "contract"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "group": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lang": {
+            "type": "string",
+            "enum": ["ts", "go", "rust", "other"]
+          },
+          "runtime": { "$ref": "#/$defs/name_ver" },
+          "orm": { "$ref": "#/$defs/name_ver" },
+          "driver": { "$ref": "#/$defs/driver" },
+          "proc": { "$ref": "#/$defs/proc" },
+          "pool": { "$ref": "#/$defs/pool" },
+          "db": { "$ref": "#/$defs/db" },
+          "wire": { "$ref": "#/$defs/wire" },
+          "fair": { "$ref": "#/$defs/fair" },
+          "contract": { "$ref": "#/$defs/contract" }
+        }
+      }
+    },
+    "queries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "method", "path", "mix", "params", "sql"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "method": {
+            "type": "string",
+            "enum": ["GET"]
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^/"
+          },
+          "mix": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "params": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "sql": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["dialect", "text"],
+              "properties": {
+                "dialect": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "start": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "end": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "success",
+        "failed",
+        "canceled",
+        "partial"
+      ]
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "load": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executor", "stages", "duration_s", "max_vus", "requests"],
+      "properties": {
+        "executor": { "type": "string", "minLength": 1 },
+        "stages": { "type": "integer", "minimum": 1 },
+        "duration_s": { "type": "integer", "minimum": 1 },
+        "max_vus": { "type": "integer", "minimum": 1 },
+        "requests": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "dataset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["customers", "employees", "orders", "suppliers", "products", "details_per_order"],
+      "properties": {
+        "customers": { "type": "integer", "minimum": 0 },
+        "employees": { "type": "integer", "minimum": 0 },
+        "orders": { "type": "integer", "minimum": 0 },
+        "suppliers": { "type": "integer", "minimum": 0 },
+        "products": { "type": "integer", "minimum": 0 },
+        "details_per_order": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base",
+        "sums"
+      ],
+      "properties": {
+        "base": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "report": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sums": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "os",
+        "cpu",
+        "cores",
+        "mem_gb",
+        "headroom"
+      ],
+      "properties": {
+        "class": {
+          "type": "string",
+          "minLength": 1
+        },
+        "os": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cpu": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cores": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "mem_gb": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "headroom": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cpu_peak",
+            "net_peak"
+          ],
+          "properties": {
+            "cpu_peak": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "net_peak": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          }
+        }
+      }
+    },
+    "trials": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "count",
+        "aggregate"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "aggregate": {
+          "type": "string",
+          "enum": [
+            "median",
+            "mean"
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "name_ver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "ver"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "ver": { "type": "string", "minLength": 1 }
+      }
+    },
+    "driver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "ver"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "ver": { "type": "string", "minLength": 1 },
+        "transport": { "type": "string", "minLength": 1 }
+      }
+    },
+    "proc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "workers"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["single", "multi"] },
+        "workers": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "pool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max"],
+      "properties": {
+        "max": { "type": "integer", "minimum": 1 },
+        "min": { "type": "integer", "minimum": 0 },
+        "acquire_ms": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "db": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "hash"],
+      "properties": {
+        "profile": { "type": "string", "minLength": 1 },
+        "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "wire": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format"],
+      "properties": {
+        "format": { "type": "string", "enum": ["json", "text", "binary", "bsatn"] }
+      }
+    },
+    "fair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workers", "pool", "db", "schema", "contract"],
+      "properties": {
+        "workers": { "type": "integer", "minimum": 1 },
+        "pool": { "type": "integer", "minimum": 1 },
+        "db": { "type": "string", "minLength": 1 },
+        "schema": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "contract": { "type": "string", "minLength": 1 }
+      }
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ver"],
+      "properties": {
+        "ver": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

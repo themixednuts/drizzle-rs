@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "seed.schema.v1.json",
+  "title": "Benchmark Seed Data",
+  "description": "Pre-generated seed data shared by all benchmark targets. Produced by drizzle-seed, consumed by built-in and external targets.",
+  "type": "object",
+  "required": ["version", "seed", "users", "posts"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "v1"
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The RNG seed used to generate this data"
+    },
+    "users": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "email"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "email": { "type": "string", "minLength": 1 }
+        }
+      },
+      "minItems": 1
+    },
+    "posts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "body", "author_id"],
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "body": { "type": "string", "minLength": 1 },
+          "author_id": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "minItems": 1
+    }
+  }
+}

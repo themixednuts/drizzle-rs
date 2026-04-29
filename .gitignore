@@ -1,11 +1,20 @@
 /target
+node_modules/
 .claude/
 /tmp
 /.idea/
 /queries/
 .codemogger/
+.codex-logs/
 
 # act (local GitHub Actions runner)
 .env
 .act-artifacts/
 tmpclaude-*
+
+# benchmark and dashboard generated artifacts
+/bench-out/
+/bench/targets/**/target/
+/bench/dashboard/.svelte-kit/
+/bench/dashboard/.wrangler/
+/bench/dashboard/.codex-logs/

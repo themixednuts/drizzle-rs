@@ -253,9 +253,9 @@ impl<Schema> Drizzle<Schema> {
     /// # Errors
     ///
     /// Returns a [`tokio_postgres::Error`] if the database connection fails or the SQL is invalid.
-    pub async fn execute<'a, T>(&'a self, query: T) -> Result<u64, tokio_postgres::Error>
+    pub async fn execute<'q, T>(&self, query: T) -> Result<u64, tokio_postgres::Error>
     where
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         let query = query.to_sql();
         let (sql, param_refs) = {
@@ -279,11 +279,11 @@ impl<Schema> Drizzle<Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the query fails or row decoding fails.
-    pub async fn all<'a, T, R, C>(&'a self, query: T) -> drizzle_core::error::Result<C>
+    pub async fn all<'q, T, R, C>(&self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
         C: std::iter::FromIterator<R>,
     {
         self.rows(query)
@@ -296,11 +296,11 @@ impl<Schema> Drizzle<Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the query fails.
-    pub async fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    pub async fn rows<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         let sql = query.to_sql();
         let (sql_str, param_refs) = {
@@ -326,11 +326,11 @@ impl<Schema> Drizzle<Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the query fails, no rows match, or row decoding fails.
-    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         let sql = query.to_sql();
         let (sql_str, param_refs) = {

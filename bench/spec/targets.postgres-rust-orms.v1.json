@@ -1,0 +1,176 @@
+[
+  {
+    "version": "v1",
+    "id": "sqlx-pg",
+    "display": {
+      "name": "SQLx PostgreSQL",
+      "description": "SQLx PostgreSQL baseline using the shared schema and seed data"
+    },
+    "group": "sqlx",
+    "lang": "rust",
+    "runtime": {
+      "name": "rust",
+      "ver": "1.95.0"
+    },
+    "orm": {
+      "name": "sqlx",
+      "ver": "0.8.6"
+    },
+    "driver": {
+      "name": "sqlx-postgres",
+      "ver": "0.8.6",
+      "transport": "postgres"
+    },
+    "proc": {
+      "mode": "single",
+      "workers": 1
+    },
+    "pool": {
+      "max": 8,
+      "min": 1,
+      "acquire_ms": 50
+    },
+    "db": {
+      "profile": "postgres",
+      "hash": "sha256:7bd4286ec47f86445e5ef9f6cc6357a27974cb8313766444fa5cbeff8eb83d43"
+    },
+    "wire": {
+      "format": "binary"
+    },
+    "fair": {
+      "workers": 1,
+      "pool": 8,
+      "db": "postgres",
+      "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
+      "contract": "v1"
+    },
+    "contract": {
+      "ver": "v1"
+    },
+    "server": {
+      "cmd": ["cargo", "run", "-q", "--release", "--manifest-path", "bench/targets/rust-pg-orms/Cargo.toml", "--", "sqlx-pg"]
+    },
+    "parity": {
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]
+    },
+    "load": {
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "load"]
+    }
+  },
+  {
+    "version": "v1",
+    "id": "diesel-pg",
+    "display": {
+      "name": "Diesel PostgreSQL",
+      "description": "Diesel PostgreSQL baseline using the shared schema and seed data"
+    },
+    "group": "diesel",
+    "lang": "rust",
+    "runtime": {
+      "name": "rust",
+      "ver": "1.95.0"
+    },
+    "orm": {
+      "name": "diesel",
+      "ver": "2.3.8"
+    },
+    "driver": {
+      "name": "libpq",
+      "ver": "18.3",
+      "transport": "postgres"
+    },
+    "proc": {
+      "mode": "single",
+      "workers": 1
+    },
+    "pool": {
+      "max": 1,
+      "min": 1,
+      "acquire_ms": 50
+    },
+    "db": {
+      "profile": "postgres",
+      "hash": "sha256:7bd4286ec47f86445e5ef9f6cc6357a27974cb8313766444fa5cbeff8eb83d43"
+    },
+    "wire": {
+      "format": "binary"
+    },
+    "fair": {
+      "workers": 1,
+      "pool": 1,
+      "db": "postgres",
+      "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
+      "contract": "v1"
+    },
+    "contract": {
+      "ver": "v1"
+    },
+    "server": {
+      "cmd": ["cargo", "run", "-q", "--release", "--manifest-path", "bench/targets/rust-pg-orms/Cargo.toml", "--", "diesel-pg"]
+    },
+    "parity": {
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]
+    },
+    "load": {
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "load"]
+    }
+  },
+  {
+    "version": "v1",
+    "id": "seaorm-pg",
+    "display": {
+      "name": "SeaORM PostgreSQL",
+      "description": "SeaORM PostgreSQL baseline using the shared schema and seed data"
+    },
+    "group": "sea-orm",
+    "lang": "rust",
+    "runtime": {
+      "name": "rust",
+      "ver": "1.95.0"
+    },
+    "orm": {
+      "name": "sea-orm",
+      "ver": "1.1.20"
+    },
+    "driver": {
+      "name": "sqlx-postgres",
+      "ver": "0.8.6",
+      "transport": "postgres"
+    },
+    "proc": {
+      "mode": "single",
+      "workers": 1
+    },
+    "pool": {
+      "max": 8,
+      "min": 1,
+      "acquire_ms": 50
+    },
+    "db": {
+      "profile": "postgres",
+      "hash": "sha256:7bd4286ec47f86445e5ef9f6cc6357a27974cb8313766444fa5cbeff8eb83d43"
+    },
+    "wire": {
+      "format": "binary"
+    },
+    "fair": {
+      "workers": 1,
+      "pool": 8,
+      "db": "postgres",
+      "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
+      "contract": "v1"
+    },
+    "contract": {
+      "ver": "v1"
+    },
+    "server": {
+      "cmd": ["cargo", "run", "-q", "--release", "--manifest-path", "bench/targets/rust-pg-orms/Cargo.toml", "--", "seaorm-pg"]
+    },
+    "parity": {
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]
+    },
+    "load": {
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "load"]
+    }
+  }
+]

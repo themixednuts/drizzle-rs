@@ -1,0 +1,38 @@
+{
+  "name": "drizzle-bench-dashboard",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.9",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "preview": "vp preview",
+    "check": "vp check --no-fmt && svelte-check --tsconfig ./tsconfig.json",
+    "svelte:check": "svelte-check --tsconfig ./tsconfig.json",
+    "cf:build": "vp build",
+    "cf:dev": "vp build && wrangler dev -c wrangler.toml -c wrangler.isr.jsonc",
+    "cf:deploy": "vp build && wrangler deploy -c wrangler.toml -c wrangler.isr.jsonc",
+    "cf:types": "wrangler types src/cloudflare.d.ts",
+    "api:types": "openapi-typescript ../../docs/benchmark-spec/openapi/bench-api.v1.yaml -o src/lib/api-types.d.ts"
+  },
+  "dependencies": {
+    "cloudflare-isr": "git+https://github.com/themixednuts/cloudflare-isr.git#ae25e331f2179cc49cfbdf4b9415b6c12cd94b51",
+    "effect": "^4.0.0-beta.57",
+    "valibot": "^1.3.1"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-cloudflare": "^7.2.8",
+    "@sveltejs/kit": "^2.58.0",
+    "@sveltejs/vite-plugin-svelte": "^7.0.0",
+    "@tailwindcss/vite": "^4.2.4",
+    "openapi-typescript": "^7.13.0",
+    "svelte": "^5.55.5",
+    "svelte-check": "^4.4.6",
+    "tailwindcss": "^4.2.4",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.10",
+    "vite-plus": "^0.1.19",
+    "wrangler": "^4.85.0"
+  }
+}

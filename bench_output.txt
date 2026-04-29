@@ -1,0 +1,40 @@
+test rusqlite/read/select_raw ... bench:      30,434 ns/iter (+/- 1,996)
+test rusqlite/read/select_drizzle ... bench:      34,237 ns/iter (+/- 2,382)
+
+test rusqlite/write/insert ... bench:       9,023 ns/iter (+/- 68,199)
+test rusqlite/write/update ... bench:       8,674 ns/iter (+/- 43,304)
+test rusqlite/write/delete ... bench:       7,234 ns/iter (+/- 57,278)
+
+test rusqlite/bulk/drizzle ... bench:   1,658,320 ns/iter (+/- 68,332)
+
+test rusqlite/query/join ... bench:      38,165 ns/iter (+/- 1,545)
+test rusqlite/query/agg ... bench:      10,330 ns/iter (+/- 739)
+test rusqlite/query/page ... bench:      29,265 ns/iter (+/- 1,956)
+
+test rusqlite/extra/tx ... bench:      44,796 ns/iter (+/- 28,021)
+test rusqlite/extra/upsert ... bench:      12,801 ns/iter (+/- 74,690)
+test rusqlite/extra/ret ... bench:      14,161 ns/iter (+/- 51,045)
+test rusqlite/extra/sql ... bench:       5,181 ns/iter (+/- 68,970)
+
+test rusqlite/scale/10 ... bench:       9,483 ns/iter (+/- 43,703)
+test rusqlite/scale/100 ... bench:      10,623 ns/iter (+/- 977)
+test rusqlite/scale/1000 ... bench:      15,239 ns/iter (+/- 3,808)
+
+test turso/read/select ... bench:   1,029,114 ns/iter (+/- 49,681)
+
+test turso/write/insert ... bench:     661,508 ns/iter (+/- 56,253)
+test turso/write/tx ... bench:     741,695 ns/iter (+/- 34,598)
+test turso/write/upsert ... bench:     674,839 ns/iter (+/- 25,190)
+test turso/write/ret ... bench:     718,418 ns/iter (+/- 24,326)
+
+test turso/query/join ... bench:   1,347,870 ns/iter (+/- 53,793)
+test turso/query/agg ... bench:   1,003,196 ns/iter (+/- 30,853)
+test turso/query/page ... bench:   1,030,290 ns/iter (+/- 52,699)
+
+test turso/extra/sql ... bench:     620,268 ns/iter (+/- 32,188)
+
+test turso/scale/10 ... bench:     743,809 ns/iter (+/- 38,498)
+test turso/scale/100 ... bench:   1,010,403 ns/iter (+/- 61,822)
+test turso/scale/1000 ... bench:   3,671,317 ns/iter (+/- 200,513)
+
+

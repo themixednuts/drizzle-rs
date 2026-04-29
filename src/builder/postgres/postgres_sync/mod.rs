@@ -201,9 +201,9 @@ impl<Schema> Drizzle<Schema> {
     /// # Errors
     ///
     /// Returns a [`postgres::Error`] if the database connection fails or the SQL is invalid.
-    pub fn execute<'a, T>(&'a mut self, query: T) -> Result<u64, postgres::Error>
+    pub fn execute<'q, T>(&mut self, query: T) -> Result<u64, postgres::Error>
     where
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.execute");
@@ -233,7 +233,7 @@ impl<Schema> Drizzle<Schema> {
         for p in &params {
             if let Some(ty) = crate::builder::postgres::prepared_common::postgres_sync_param_type(p)
             {
-                typed_params.push((*p as &(dyn postgres::types::ToSql + Sync), ty));
+                typed_params.push((p as &(dyn postgres::types::ToSql + Sync), ty));
             } else {
                 all_typed = false;
                 break;
@@ -258,11 +258,11 @@ impl<Schema> Drizzle<Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the query fails or row decoding fails.
-    pub fn all<'a, T, R, C>(&'a mut self, query: T) -> drizzle_core::error::Result<C>
+    pub fn all<'q, T, R, C>(&mut self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
         C: std::iter::FromIterator<R>,
     {
         self.rows(query)?
@@ -274,11 +274,11 @@ impl<Schema> Drizzle<Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the query fails.
-    pub fn rows<'a, T, R>(&'a mut self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    pub fn rows<'q, T, R>(&mut self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.all");
@@ -308,11 +308,11 @@ impl<Schema> Drizzle<Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the query fails, no rows match, or row decoding fails.
-    pub fn get<'a, T, R>(&'a mut self, query: T) -> drizzle_core::error::Result<R>
+    pub fn get<'q, T, R>(&mut self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'q, PostgresValue<'q>>,
     {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.get");
@@ -1028,7 +1028,7 @@ where
         for p in &params {
             if let Some(ty) = crate::builder::postgres::prepared_common::postgres_sync_param_type(p)
             {
-                typed_params.push((*p as &(dyn postgres::types::ToSql + Sync), ty));
+                typed_params.push((p as &(dyn postgres::types::ToSql + Sync), ty));
             } else {
                 all_typed = false;
                 break;

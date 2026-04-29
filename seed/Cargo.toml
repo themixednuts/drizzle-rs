@@ -12,6 +12,7 @@ rust-version.workspace = true
 drizzle-core = { workspace = true, features = ["std"] }
 drizzle-sqlite = { workspace = true, optional = true, features = ["std"] }
 drizzle-postgres = { workspace = true, optional = true, features = ["std"] }
+chrono = { workspace = true, optional = true, features = ["alloc"] }
 rand = { workspace = true }
 
 [features]
@@ -22,7 +23,7 @@ postgres = ["dep:drizzle-postgres"]
 
 serde = ["postgres", "drizzle-postgres/serde"]
 uuid = ["postgres", "drizzle-postgres/uuid"]
-chrono = ["postgres", "drizzle-postgres/chrono"]
+chrono = ["postgres", "dep:chrono", "drizzle-postgres/chrono"]
 cidr = ["postgres", "drizzle-postgres/cidr"]
 geo-types = ["postgres", "drizzle-postgres/geo-types"]
 bit-vec = ["postgres", "drizzle-postgres/bit-vec"]

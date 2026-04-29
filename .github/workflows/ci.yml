@@ -9,6 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  RUST_VERSION: "1.95"
 
 jobs:
   # Skip CI for release-plz PRs (version bumps only, already tested)
@@ -37,7 +38,7 @@ jobs:
     if: needs.check-skip.outputs.should_skip != 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@nightly
@@ -65,7 +66,7 @@ jobs:
       sqlite: ${{ steps.matrix.outputs.sqlite }}
       pg: ${{ steps.matrix.outputs.pg }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install just
         uses: taiki-e/install-action@just
@@ -86,10 +87,12 @@ jobs:
       matrix:
         features: ${{ fromJson(needs.test-matrix.outputs.sqlite) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
 
       - name: Install just
         uses: taiki-e/install-action@just
@@ -117,10 +120,12 @@ jobs:
       matrix:
         features: ${{ fromJson(needs.test-matrix.outputs.pg) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
 
       - name: Install just
         uses: taiki-e/install-action@just
@@ -141,10 +146,12 @@ jobs:
     if: needs.check-skip.outputs.should_skip != 'true'
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -217,7 +224,7 @@ jobs:
 
       - name: Upload failure reports
         if: steps.extract.outputs.has_reports == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: turso-failure-reports
           path: test-output/failure-reports.txt
@@ -229,10 +236,12 @@ jobs:
     needs: [check-skip, lint]
     if: needs.check-skip.outputs.should_skip != 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -250,10 +259,10 @@ jobs:
     if: needs.check-skip.outputs.should_skip != 'true'
     strategy:
       matrix:
-        rust: [stable, nightly]
+        rust: ["1.95", nightly]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust ${{ matrix.rust }}
         uses: dtolnay/rust-toolchain@master
@@ -275,7 +284,7 @@ jobs:
     needs: [check-skip, lint]
     if: needs.check-skip.outputs.should_skip != 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Get Rust version
         id: rust-version

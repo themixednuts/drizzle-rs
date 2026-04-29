@@ -1,0 +1,922 @@
+name: Runners
+
+on:
+  push:
+    branches: [main]
+    tags: ['*']
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+  schedule:
+    - cron: '0 4 * * 1'  # weekly Monday 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      benchmark_size:
+        description: Benchmark workload to run
+        required: false
+        type: choice
+        options:
+          - full
+          - preview
+        default: full
+      publish_to_r2:
+        description: Publish manual main runs to Cloudflare R2
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: "1.95"
+  NODE_VERSION: "24"
+  BENCHMARK_SIZE: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_size || 'full' }}
+  PUBLISH_TO_R2: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_to_r2 && github.ref == 'refs/heads/main') }}
+  R2_BUCKET: drizzle-bench
+
+jobs:
+  sqlite:
+    name: SQLite (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            sqlite_features: "rusqlite,turso,uuid"
+          - os: windows-latest
+            platform: windows
+            sqlite_features: "rusqlite,uuid"
+          - os: macos-latest
+            platform: macos
+            sqlite_features: "rusqlite,turso,uuid"
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-sqlite-${{ matrix.platform }}
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Restore runner baseline
+        if: ${{ !env.ACT }}
+        uses: actions/cache/restore@v5
+        with:
+          path: bench-out/sqlite-${{ matrix.platform }}/runs
+          key: runner-baseline-sqlite-${{ matrix.platform }}-
+          restore-keys: |
+            runner-baseline-sqlite-${{ matrix.platform }}-
+
+      - name: Run contract runner
+        id: runner
+        shell: bash
+        run: |
+          class="full"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            class="small"
+            workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+            class="publish"
+          fi
+
+          out="bench-out/sqlite-${{ matrix.platform }}"
+          mkdir -p "$out"
+
+          cargo run -p bench-runner -- run \
+            --suite throughput-http \
+            --workload "$workload" \
+            --targets bench/spec/targets.sqlite.v1.json \
+            --requests bench/spec/requests.empty.v1.json \
+            --out "$out" \
+            --class "$class" \
+            --baseline auto \
+            --json | tee runner_output.txt
+
+          run_id="$(grep '^run_id=' runner_output.txt | tail -n1 | cut -d= -f2)"
+          if [[ -z "$run_id" ]]; then
+            echo "run_id was not emitted"
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Validate runner artifacts
+        shell: bash
+        run: |
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            workload="bench/spec/workload.preview.v1.json"
+          fi
+          cargo run -q -p bench-runner -- validate \
+            --run "bench-out/sqlite-${{ matrix.platform }}/runs/${{ steps.runner.outputs.run_id }}" \
+            --workload "$workload" \
+            --targets bench/spec/targets.sqlite.v1.json
+
+      - name: Upload runner artifacts
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: runner-sqlite-${{ matrix.platform }}
+          path: |
+            bench-out/sqlite-${{ matrix.platform }}/runs/${{ steps.runner.outputs.run_id }}
+            runner_output.txt
+          retention-days: 30
+
+      - name: Save runner baseline
+        if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
+        uses: actions/cache/save@v5
+        with:
+          path: bench-out/sqlite-${{ matrix.platform }}/runs/${{ steps.runner.outputs.run_id }}
+          key: runner-baseline-sqlite-${{ matrix.platform }}-${{ github.sha }}
+
+  postgres:
+    name: PostgreSQL (linux)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: drizzle_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-postgres
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Resolve DATABASE_URL
+        id: pgurl
+        shell: bash
+        run: |
+          pg_host="localhost"
+          pg_port="${{ job.services.postgres.ports[5432] }}"
+          if [[ -n "${ACT:-}" ]]; then
+            pg_host="127.0.0.1"
+            pg_id="${{ job.services.postgres.id }}"
+            if [[ -z "$pg_id" ]] && command -v docker >/dev/null 2>&1; then
+              pg_id="$(
+                docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' \
+                | awk '$2 ~ /^act-/ && $0 ~ /->5432\/tcp/ { print $1; exit }'
+              )"
+            fi
+            if [[ -n "$pg_id" ]] && command -v docker >/dev/null 2>&1; then
+              mapped="$(docker port "$pg_id" 5432/tcp 2>/dev/null | head -n1)"
+              if [[ "$mapped" == *:* ]]; then
+                pg_port="${mapped##*:}"
+              fi
+            fi
+            for host in host.docker.internal 127.0.0.1 localhost; do
+              if (echo >"/dev/tcp/${host}/${pg_port}") >/dev/null 2>&1; then
+                pg_host="$host"
+                break
+              fi
+            done
+          fi
+          if [[ -z "$pg_port" ]]; then
+            pg_port="5432"
+          fi
+          echo "url=host=${pg_host} port=${pg_port} user=postgres password=postgres dbname=drizzle_test" >> "$GITHUB_OUTPUT"
+
+      - name: Restore runner baseline
+        if: ${{ !env.ACT }}
+        uses: actions/cache/restore@v5
+        with:
+          path: bench-out/postgres-linux/runs
+          key: runner-baseline-postgres-linux-
+          restore-keys: |
+            runner-baseline-postgres-linux-
+
+      - name: Run contract runner
+        id: runner
+        shell: bash
+        env:
+          DATABASE_URL: ${{ steps.pgurl.outputs.url }}
+        run: |
+          class="full"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            class="small"
+            workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+            class="publish"
+          fi
+
+          out="bench-out/postgres-linux"
+          mkdir -p "$out"
+
+          cargo run -p bench-runner -- run \
+            --suite throughput-http \
+            --workload "$workload" \
+            --targets bench/spec/targets.postgres.v1.json \
+            --requests bench/spec/requests.empty.v1.json \
+            --out "$out" \
+            --class "$class" \
+            --baseline auto \
+            --json | tee runner_output.txt
+
+          run_id="$(grep '^run_id=' runner_output.txt | tail -n1 | cut -d= -f2)"
+          if [[ -z "$run_id" ]]; then
+            echo "run_id was not emitted"
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Validate runner artifacts
+        shell: bash
+        run: |
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            workload="bench/spec/workload.preview.v1.json"
+          fi
+          cargo run -q -p bench-runner -- validate \
+            --run "bench-out/postgres-linux/runs/${{ steps.runner.outputs.run_id }}" \
+            --workload "$workload" \
+            --targets bench/spec/targets.postgres.v1.json
+
+      - name: Upload runner artifacts
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: runner-postgres-linux
+          path: |
+            bench-out/postgres-linux/runs/${{ steps.runner.outputs.run_id }}
+            runner_output.txt
+          retention-days: 30
+
+      - name: Save runner baseline
+        if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
+        uses: actions/cache/save@v5
+        with:
+          path: bench-out/postgres-linux/runs/${{ steps.runner.outputs.run_id }}
+          key: runner-baseline-postgres-linux-${{ github.sha }}
+
+  postgres-rust-orms:
+    name: PostgreSQL Rust ORMs (linux)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: drizzle_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-postgres-rust-orms
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Resolve DATABASE_URL
+        id: pgurl
+        shell: bash
+        run: |
+          pg_host="localhost"
+          pg_port="${{ job.services.postgres.ports[5432] }}"
+          if [[ -n "${ACT:-}" ]]; then
+            pg_host="127.0.0.1"
+            pg_id="${{ job.services.postgres.id }}"
+            if [[ -z "$pg_id" ]] && command -v docker >/dev/null 2>&1; then
+              pg_id="$(
+                docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' \
+                | awk '$2 ~ /^act-/ && $0 ~ /->5432\/tcp/ { print $1; exit }'
+              )"
+            fi
+            if [[ -n "$pg_id" ]] && command -v docker >/dev/null 2>&1; then
+              mapped="$(docker port "$pg_id" 5432/tcp 2>/dev/null | head -n1)"
+              if [[ "$mapped" == *:* ]]; then
+                pg_port="${mapped##*:}"
+              fi
+            fi
+            for host in host.docker.internal 127.0.0.1 localhost; do
+              if (echo >"/dev/tcp/${host}/${pg_port}") >/dev/null 2>&1; then
+                pg_host="$host"
+                break
+              fi
+            done
+          fi
+          if [[ -z "$pg_port" ]]; then
+            pg_port="5432"
+          fi
+          echo "url=host=${pg_host} port=${pg_port} user=postgres password=postgres dbname=drizzle_test" >> "$GITHUB_OUTPUT"
+
+      - name: Restore runner baseline
+        if: ${{ !env.ACT }}
+        uses: actions/cache/restore@v5
+        with:
+          path: bench-out/postgres-rust-orms-linux/runs
+          key: runner-baseline-postgres-rust-orms-linux-
+          restore-keys: |
+            runner-baseline-postgres-rust-orms-linux-
+
+      - name: Run contract runner
+        id: runner
+        shell: bash
+        env:
+          DATABASE_URL: ${{ steps.pgurl.outputs.url }}
+        run: |
+          class="full"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            class="small"
+            workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+            class="publish"
+          fi
+
+          out="bench-out/postgres-rust-orms-linux"
+          mkdir -p "$out"
+
+          cargo run -p bench-runner -- run \
+            --suite throughput-http \
+            --workload "$workload" \
+            --targets bench/spec/targets.postgres-rust-orms.v1.json \
+            --requests bench/spec/requests.empty.v1.json \
+            --out "$out" \
+            --class "$class" \
+            --baseline auto \
+            --json | tee runner_output.txt
+
+          run_id="$(grep '^run_id=' runner_output.txt | tail -n1 | cut -d= -f2)"
+          if [[ -z "$run_id" ]]; then
+            echo "run_id was not emitted"
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Validate runner artifacts
+        shell: bash
+        run: |
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            workload="bench/spec/workload.preview.v1.json"
+          fi
+          cargo run -q -p bench-runner -- validate \
+            --run "bench-out/postgres-rust-orms-linux/runs/${{ steps.runner.outputs.run_id }}" \
+            --workload "$workload" \
+            --targets bench/spec/targets.postgres-rust-orms.v1.json
+
+      - name: Upload runner artifacts
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: runner-postgres-rust-orms-linux
+          path: |
+            bench-out/postgres-rust-orms-linux/runs/${{ steps.runner.outputs.run_id }}
+            runner_output.txt
+          retention-days: 30
+
+      - name: Save runner baseline
+        if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
+        uses: actions/cache/save@v5
+        with:
+          path: bench-out/postgres-rust-orms-linux/runs/${{ steps.runner.outputs.run_id }}
+          key: runner-baseline-postgres-rust-orms-linux-${{ github.sha }}
+
+  postgres-ts:
+    name: PostgreSQL TS (linux)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: drizzle_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+          package-manager-cache: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-postgres-ts
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Install TS target dependencies
+        shell: bash
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/drizzle_test"
+        run: |
+          cd bench/targets/drizzle-ts-pg && bun install
+          cd ../prisma-pg && bun install && bunx prisma generate
+          cd ../bun-sql-pg && bun install
+
+      - name: Resolve DATABASE_URL
+        id: pgurl
+        shell: bash
+        run: |
+          pg_host="localhost"
+          pg_port="${{ job.services.postgres.ports[5432] }}"
+          if [[ -n "${ACT:-}" ]]; then
+            pg_host="127.0.0.1"
+            pg_id="${{ job.services.postgres.id }}"
+            if [[ -z "$pg_id" ]] && command -v docker >/dev/null 2>&1; then
+              pg_id="$(
+                docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' \
+                | awk '$2 ~ /^act-/ && $0 ~ /->5432\/tcp/ { print $1; exit }'
+              )"
+            fi
+            if [[ -n "$pg_id" ]] && command -v docker >/dev/null 2>&1; then
+              mapped="$(docker port "$pg_id" 5432/tcp 2>/dev/null | head -n1)"
+              if [[ "$mapped" == *:* ]]; then
+                pg_port="${mapped##*:}"
+              fi
+            fi
+            for host in host.docker.internal 127.0.0.1 localhost; do
+              if (echo >"/dev/tcp/${host}/${pg_port}") >/dev/null 2>&1; then
+                pg_host="$host"
+                break
+              fi
+            done
+          fi
+          if [[ -z "$pg_port" ]]; then
+            pg_port="5432"
+          fi
+          echo "url=host=${pg_host} port=${pg_port} user=postgres password=postgres dbname=drizzle_test" >> "$GITHUB_OUTPUT"
+
+      - name: Restore runner baseline
+        if: ${{ !env.ACT }}
+        uses: actions/cache/restore@v5
+        with:
+          path: bench-out/postgres-ts-linux/runs
+          key: runner-baseline-postgres-ts-linux-
+          restore-keys: |
+            runner-baseline-postgres-ts-linux-
+
+      - name: Run contract runner
+        id: runner
+        shell: bash
+        env:
+          DATABASE_URL: ${{ steps.pgurl.outputs.url }}
+        run: |
+          class="full"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            class="small"
+            workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+            class="publish"
+          fi
+
+          out="bench-out/postgres-ts-linux"
+          mkdir -p "$out"
+
+          cargo run -p bench-runner -- run \
+            --suite throughput-http \
+            --workload "$workload" \
+            --targets bench/spec/targets.postgres-ts.v1.json \
+            --requests bench/spec/requests.empty.v1.json \
+            --out "$out" \
+            --class "$class" \
+            --baseline auto \
+            --json | tee runner_output.txt
+
+          run_id="$(grep '^run_id=' runner_output.txt | tail -n1 | cut -d= -f2)"
+          if [[ -z "$run_id" ]]; then
+            echo "run_id was not emitted"
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Validate runner artifacts
+        shell: bash
+        run: |
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            workload="bench/spec/workload.preview.v1.json"
+          fi
+          cargo run -q -p bench-runner -- validate \
+            --run "bench-out/postgres-ts-linux/runs/${{ steps.runner.outputs.run_id }}" \
+            --workload "$workload" \
+            --targets bench/spec/targets.postgres-ts.v1.json
+
+      - name: Upload runner artifacts
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: runner-postgres-ts-linux
+          path: |
+            bench-out/postgres-ts-linux/runs/${{ steps.runner.outputs.run_id }}
+            runner_output.txt
+          retention-days: 30
+
+      - name: Save runner baseline
+        if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
+        uses: actions/cache/save@v5
+        with:
+          path: bench-out/postgres-ts-linux/runs/${{ steps.runner.outputs.run_id }}
+          key: runner-baseline-postgres-ts-linux-${{ github.sha }}
+
+  spacetimedb:
+    name: SpacetimeDB (linux)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+          package-manager-cache: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install SpacetimeDB CLI
+        shell: bash
+        run: |
+          curl -fsSL https://install.spacetimedb.com | bash -s -- -y
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-spacetimedb
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Start SpacetimeDB
+        shell: bash
+        run: |
+          rm -rf "$HOME/.local/share/spacetime/data" "$HOME/.config/spacetime"
+          pkill -f spacetimedb-standalone 2>/dev/null || true
+          sleep 1
+          spacetime start --listen-addr 127.0.0.1:3000 --pg-port 5433 &
+          for i in $(seq 1 30); do
+            if spacetime server ping 2>/dev/null; then
+              echo "SpacetimeDB WebSocket ready"
+              break
+            fi
+            sleep 1
+          done
+          for i in $(seq 1 15); do
+            if (echo > /dev/tcp/127.0.0.1/5433) 2>/dev/null; then
+              echo "SpacetimeDB PGWire ready on :5433"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Build and publish SpacetimeDB module
+        shell: bash
+        run: |
+          spacetime build -p bench/targets/spacetime-module
+          spacetime publish bench-module -p bench/targets/spacetime-module --server http://127.0.0.1:3000
+
+      - name: Restore runner baseline
+        if: ${{ !env.ACT }}
+        uses: actions/cache/restore@v5
+        with:
+          path: bench-out/spacetimedb-linux/runs
+          key: runner-baseline-spacetimedb-linux-
+          restore-keys: |
+            runner-baseline-spacetimedb-linux-
+
+      - name: Extract SpacetimeDB identity token
+        id: spacetime-token
+        shell: bash
+        run: |
+          config="$HOME/.config/spacetime/cli.toml"
+          if [[ ! -f "$config" ]]; then
+            echo "WARNING: $config not found"
+            exit 0
+          fi
+          token=$(sed -n 's/^[[:space:]]*spacetimedb_token[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' "$config" | head -n1)
+          if [[ -z "$token" ]]; then
+            echo "WARNING: No token found in $config"
+            cat "$config"
+            exit 0
+          fi
+          echo "::add-mask::$token"
+          echo "token=$token" >> "$GITHUB_OUTPUT"
+
+      - name: Run contract runner
+        id: runner
+        shell: bash
+        env:
+          SPACETIME_URI: "ws://127.0.0.1:3000"
+          SPACETIME_MODULE: "bench-module"
+          SPACETIME_TOKEN: ${{ steps.spacetime-token.outputs.token }}
+        run: |
+          class="full"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            class="small"
+            workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+            class="publish"
+          fi
+
+          out="bench-out/spacetimedb-linux"
+          mkdir -p "$out"
+
+          cargo run -p bench-runner -- run \
+            --suite throughput-http \
+            --workload "$workload" \
+            --targets bench/spec/targets.spacetimedb.v1.json \
+            --requests bench/spec/requests.empty.v1.json \
+            --out "$out" \
+            --class "$class" \
+            --baseline auto \
+            --json | tee runner_output.txt
+
+          run_id="$(grep '^run_id=' runner_output.txt | tail -n1 | cut -d= -f2)"
+          if [[ -z "$run_id" ]]; then
+            echo "run_id was not emitted"
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Validate runner artifacts
+        shell: bash
+        run: |
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            workload="bench/spec/workload.preview.v1.json"
+          fi
+          cargo run -q -p bench-runner -- validate \
+            --run "bench-out/spacetimedb-linux/runs/${{ steps.runner.outputs.run_id }}" \
+            --workload "$workload" \
+            --targets bench/spec/targets.spacetimedb.v1.json
+
+      - name: Upload runner artifacts
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: runner-spacetimedb-linux
+          path: |
+            bench-out/spacetimedb-linux/runs/${{ steps.runner.outputs.run_id }}
+            runner_output.txt
+          retention-days: 30
+
+      - name: Save runner baseline
+        if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
+        uses: actions/cache/save@v5
+        with:
+          path: bench-out/spacetimedb-linux/runs/${{ steps.runner.outputs.run_id }}
+          key: runner-baseline-spacetimedb-linux-${{ github.sha }}
+
+  turso:
+    name: Turso (linux)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-turso
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Restore runner baseline
+        if: ${{ !env.ACT }}
+        uses: actions/cache/restore@v5
+        with:
+          path: bench-out/turso-linux/runs
+          key: runner-baseline-turso-linux-
+          restore-keys: |
+            runner-baseline-turso-linux-
+
+      - name: Run contract runner
+        id: runner
+        shell: bash
+        run: |
+          class="full"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            class="small"
+            workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+            class="publish"
+          fi
+
+          out="bench-out/turso-linux"
+          mkdir -p "$out"
+
+          cargo run -p bench-runner -- run \
+            --suite throughput-http \
+            --workload "$workload" \
+            --targets bench/spec/targets.turso.v1.json \
+            --requests bench/spec/requests.empty.v1.json \
+            --out "$out" \
+            --class "$class" \
+            --baseline auto \
+            --json | tee runner_output.txt
+
+          run_id="$(grep '^run_id=' runner_output.txt | tail -n1 | cut -d= -f2)"
+          if [[ -z "$run_id" ]]; then
+            echo "run_id was not emitted"
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Validate runner artifacts
+        shell: bash
+        run: |
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            workload="bench/spec/workload.preview.v1.json"
+          fi
+          cargo run -q -p bench-runner -- validate \
+            --run "bench-out/turso-linux/runs/${{ steps.runner.outputs.run_id }}" \
+            --workload "$workload" \
+            --targets bench/spec/targets.turso.v1.json
+
+      - name: Upload runner artifacts
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: runner-turso-linux
+          path: |
+            bench-out/turso-linux/runs/${{ steps.runner.outputs.run_id }}
+            runner_output.txt
+          retention-days: 30
+
+      - name: Save runner baseline
+        if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
+        uses: actions/cache/save@v5
+        with:
+          path: bench-out/turso-linux/runs/${{ steps.runner.outputs.run_id }}
+          key: runner-baseline-turso-linux-${{ github.sha }}
+
+  dashboard-preview:
+    name: Dashboard preview data
+    runs-on: ubuntu-latest
+    needs:
+      - sqlite
+      - postgres
+      - postgres-rust-orms
+      - postgres-ts
+      - spacetimedb
+      - turso
+    if: ${{ always() && !cancelled() && needs.sqlite.result == 'success' && needs.postgres.result == 'success' && needs.postgres-rust-orms.result == 'success' && needs.postgres-ts.result == 'success' && needs.spacetimedb.result == 'success' && needs.turso.result == 'success' }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+          package-manager-cache: false
+
+      - name: Download runner artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: runner-*
+          path: bench-preview/artifacts
+
+      - name: Assemble dashboard object store
+        shell: bash
+        run: |
+          out="bench-out/dashboard-data"
+          index="$out/index.json"
+          rm -rf "$out"
+          mkdir -p "$out/runs"
+          echo '{"version":"v1","runs":[]}' > "$index"
+
+          mapfile -t manifests < <(find bench-preview/artifacts -name manifest.json | sort)
+          if (( ${#manifests[@]} == 0 )); then
+            echo "No runner manifests were downloaded"
+            exit 1
+          fi
+
+          for manifest in "${manifests[@]}"; do
+            run_dir="$(dirname "$manifest")"
+            run_id="$(sed -n 's/^[[:space:]]*"run_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" | head -n1)"
+            if [[ -z "$run_id" ]]; then
+              echo "manifest is missing run_id: $manifest"
+              exit 1
+            fi
+            dest="$out/runs/$run_id"
+            mkdir -p "$dest"
+            cp -R "$run_dir"/. "$dest"/
+
+            cargo run -q -p bench-runner -- publish \
+              --run "$dest" \
+              --index "$index"
+          done
+
+          echo "Dashboard data contains ${#manifests[@]} run(s):"
+          find "$out" -maxdepth 3 -type f | sort
+
+      - name: Upload dashboard preview data
+        uses: actions/upload-artifact@v7
+        with:
+          name: dashboard-bench-data
+          path: bench-out/dashboard-data
+          retention-days: 30
+
+      - name: Publish dashboard data to R2
+        if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "No R2 credentials, skipping publish"
+            exit 0
+          fi
+
+          find bench-out/dashboard-data -type f | sort | while read -r file; do
+            key="${file#bench-out/dashboard-data/}"
+            npx wrangler r2 object put "$R2_BUCKET/$key" --file "$file"
+          done

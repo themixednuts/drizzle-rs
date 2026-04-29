@@ -5,11 +5,19 @@ use rand::Rng;
 pub struct DateGen;
 
 impl Generator for DateGen {
-    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, sql_type: &str) -> SeedValue {
         let year = rng.random_range(2000u16..=2030);
         let month = rng.random_range(1u8..=12);
         let day = rng.random_range(1u8..=28); // safe for all months
-        SeedValue::Text(format!("{year:04}-{month:02}-{day:02}"))
+        let upper = sql_type.to_uppercase();
+        if upper.contains("INT") || upper.contains("BIGINT") {
+            // SQLite timestamp_ms mode: store as milliseconds since epoch
+            // Approximate: days since epoch * 86400 * 1000
+            let days = (year as i64 - 1970) * 365 + (month as i64 - 1) * 30 + day as i64;
+            SeedValue::Integer(days * 86_400_000)
+        } else {
+            SeedValue::Text(format!("{year:04}-{month:02}-{day:02}"))
+        }
     }
     fn name(&self) -> &'static str {
         "Date"
@@ -20,16 +28,24 @@ impl Generator for DateGen {
 pub struct TimestampGen;
 
 impl Generator for TimestampGen {
-    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, sql_type: &str) -> SeedValue {
         let year = rng.random_range(2000u16..=2030);
         let month = rng.random_range(1u8..=12);
         let day = rng.random_range(1u8..=28);
         let hour = rng.random_range(0u8..=23);
         let minute = rng.random_range(0u8..=59);
         let second = rng.random_range(0u8..=59);
-        SeedValue::Text(format!(
-            "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}"
-        ))
+        let upper = sql_type.to_uppercase();
+        if upper.contains("INT") || upper.contains("BIGINT") {
+            // SQLite timestamp_ms mode: store as milliseconds since epoch
+            let days = (year as i64 - 1970) * 365 + (month as i64 - 1) * 30 + day as i64;
+            let secs = days * 86_400 + hour as i64 * 3600 + minute as i64 * 60 + second as i64;
+            SeedValue::Integer(secs * 1000)
+        } else {
+            SeedValue::Text(format!(
+                "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}"
+            ))
+        }
     }
     fn name(&self) -> &'static str {
         "Timestamp"
@@ -129,6 +145,34 @@ mod tests {
                     assert!(second <= 59, "second out of range: {}", second);
                 }
                 _ => panic!("expected Text"),
+            }
+        }
+    }
+
+    #[test]
+    fn date_integer_for_int_columns() {
+        let g = DateGen;
+        let mut rng = StdRng::seed_from_u64(42);
+        for _ in 0..50 {
+            match g.generate(&mut rng, 0, "INTEGER") {
+                SeedValue::Integer(ms) => {
+                    assert!(ms > 0, "date ms should be positive: {ms}");
+                }
+                other => panic!("expected Integer for INTEGER column, got: {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn timestamp_integer_for_bigint_columns() {
+        let g = TimestampGen;
+        let mut rng = StdRng::seed_from_u64(42);
+        for _ in 0..50 {
+            match g.generate(&mut rng, 0, "BIGINT") {
+                SeedValue::Integer(ms) => {
+                    assert!(ms > 0, "timestamp ms should be positive: {ms}");
+                }
+                other => panic!("expected Integer for BIGINT column, got: {:?}", other),
             }
         }
     }
