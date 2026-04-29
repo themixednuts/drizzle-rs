@@ -173,9 +173,9 @@ export class RunsPageState {
 		const p = summary.primary;
 		return [
 			{ label: 'rps', value: fmtRps(p.rps.avg), detail: `peak ${fmtRps(p.rps.peak)}` },
-			{ label: 'avg', value: fmtLatency(p.latency.avg), detail: 'latency' },
-			{ label: 'p95', value: fmtLatency(p.latency.p95), detail: 'latency' },
-			{ label: 'p99', value: fmtLatency(p.latency.p99), detail: 'latency' },
+			{ label: 'lat avg', value: fmtLatency(p.latency.avg), detail: 'request latency' },
+			{ label: 'lat p95', value: fmtLatency(p.latency.p95), detail: 'request latency' },
+			{ label: 'lat p99', value: fmtLatency(p.latency.p99), detail: 'request latency' },
 			{ label: 'cpu', value: fmtCpu(p.cpu.avg), detail: `peak ${fmtCpu(p.cpu.peak)}` },
 			p.mem
 				? { label: 'mem', value: `${p.mem.avg.toFixed(1)}MB`, detail: `peak ${p.mem.peak.toFixed(1)}MB` }

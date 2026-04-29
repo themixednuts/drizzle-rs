@@ -56,12 +56,12 @@
 				<div class="k-d">latency</div>
 			</div>
 			<div class="k">
-				<div class="k-l">p95</div>
+				<div class="k-l">lat p95</div>
 				<div class="k-v">{fmtLatency(p.latency.p95)}</div>
 				<div class="k-d">latency</div>
 			</div>
 			<div class="k">
-				<div class="k-l">p99</div>
+				<div class="k-l">lat p99</div>
 				<div class="k-v">{fmtLatency(p.latency.p99)}</div>
 				<div class="k-d">latency</div>
 			</div>
@@ -168,9 +168,9 @@
 						<th>group</th>
 						<th class="n">rps</th>
 						<th class="n">peak</th>
-						<th class="n">avg</th>
-						<th class="n">p95</th>
-						<th class="n">p99</th>
+						<th class="n">lat avg</th>
+						<th class="n">lat p95</th>
+						<th class="n">lat p99</th>
 						<th class="n">cpu</th>
 						<th class="n">err</th>
 						<th style="width: 160px">throughput</th>

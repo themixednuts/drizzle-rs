@@ -156,7 +156,7 @@ function resolveTargetKey(targets: readonly TargetOption[], value: string): stri
 	if (exact) return exact.key;
 
 	const matches = targets.filter((option) => option.target_id === value);
-	return matches.length === 1 ? matches[0].key : null;
+	return matches[0]?.key ?? null;
 }
 
 function readCohortSnapshot(bucket: BenchBucket, cohort: RunCohort) {

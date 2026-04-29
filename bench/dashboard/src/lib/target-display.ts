@@ -47,7 +47,9 @@ export function targetDisplay(input: TargetDisplayInput): TargetDisplay {
 	const os = targetOs(input.runner_os);
 	const mode = targetMode(meta, input.target_id);
 	const driver = targetDriver(meta, input);
-	const badges = [dialect, driver, mode, os].filter((badge): badge is string => Boolean(badge));
+	const badges = [dialect, driver, mode, os]
+		.filter((badge): badge is string => Boolean(badge))
+		.filter((badge) => !sameLabel(badge, name));
 
 	return {
 		name,

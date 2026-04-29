@@ -86,9 +86,9 @@
 							<th class="n" style="width: 24px">#</th>
 							<th>target</th>
 							<th class="n">rps</th>
-							<th class="n">avg</th>
-							<th class="n">p95</th>
-							<th class="n">p99</th>
+							<th class="n">lat avg</th>
+							<th class="n">lat p95</th>
+							<th class="n">lat p99</th>
 							<th class="n">cpu</th>
 							<th class="n">err</th>
 							<th class="throughput-col">throughput spread</th>

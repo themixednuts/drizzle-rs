@@ -25,7 +25,7 @@ export class TrendsPageState {
 		const exact = this.targets.find((option) => option.key === target);
 		if (exact) return exact.key;
 		const matches = this.targets.filter((option) => option.target_id === target);
-		return matches.length === 1 ? matches[0].key : target;
+		return matches[0]?.key ?? target;
 	}
 
 	get targetLabel() {

@@ -69,7 +69,7 @@
 					<div class="k-d">rps</div>
 				</div>
 				<div class="k">
-					<div class="k-l">p95</div>
+					<div class="k-l">lat p95</div>
 					<div class="k-v">{fmtLatency(latest.latency_p95)}</div>
 					{#if prev}
 						{@const d = (latest.latency_p95 - prev.latency_p95) / (prev.latency_p95 || 1)}
@@ -77,7 +77,7 @@
 					{/if}
 				</div>
 				<div class="k">
-					<div class="k-l">p99</div>
+					<div class="k-l">lat p99</div>
 					<div class="k-v">{fmtLatency(latest.latency_p99)}</div>
 					<div class="k-d">latency</div>
 				</div>
@@ -122,8 +122,8 @@
 							<th>commit</th>
 							<th class="n">rps avg</th>
 							<th class="n">rps peak</th>
-							<th class="n">p95</th>
-							<th class="n">p99</th>
+							<th class="n">lat p95</th>
+							<th class="n">lat p99</th>
 							<th class="n">cpu</th>
 							<th class="n">err</th>
 						</tr>
