@@ -8,12 +8,16 @@ import {
 	readTimeseries
 } from '$lib/r2';
 import {
+	extractCompareCategorySortValue,
+	extractCompareCategoryValues,
+	extractCompareCategoryVariance,
 	extractCompareMetric,
 	isCompareMetric,
-	isHigherBetterMetric,
-	parseCompareMetric,
+	isHigherBetterCategory,
+	parseCompareCategory,
 	type CompareMetric
 } from '$lib/compare';
+import { targetLabel } from '$lib/target-display';
 import type {
 	CompareItem,
 	Manifest,
@@ -131,10 +135,6 @@ function toSummaryResult(cohort: RunCohort, manifest: Manifest, summary: Summary
 	};
 }
 
-function targetLabel(result: Pick<SummaryResult, 'target_id' | 'target_name' | 'runner_os'>): string {
-	return `${result.target_name} / ${result.runner_os}`;
-}
-
 function targetOptions(results: readonly SummaryResult[]): TargetOption[] {
 	const options = new Map<string, TargetOption>();
 	for (const result of results) {
@@ -142,6 +142,8 @@ function targetOptions(results: readonly SummaryResult[]): TargetOption[] {
 			key: result.target_key,
 			label: targetLabel(result),
 			target_id: result.target_id,
+			target_name: result.target_name,
+			target_meta: result.target_meta,
 			runner_os: result.runner_os
 		});
 	}
@@ -154,12 +156,6 @@ function resolveTargetKey(targets: readonly TargetOption[], value: string): stri
 
 	const matches = targets.filter((option) => option.target_id === value);
 	return matches.length === 1 ? matches[0].key : null;
-}
-
-function isDrizzleRs(summary: SummaryResult): boolean {
-	const group = summary.group?.toLowerCase();
-	const target = summary.target_id.toLowerCase();
-	return group === 'drizzle-rs' || target.includes('drizzle-rs');
 }
 
 function readCohortSnapshot(bucket: BenchBucket, cohort: RunCohort) {
@@ -375,7 +371,7 @@ function compareRunItems(bucket: BenchBucket, base: string, head: string, metric
 
 export function comparePageData(
 	platform: App.Platform | undefined,
-	params: { cohort: MaybeFilter; baseline: MaybeFilter; metric: string | null }
+	params: { cohort: MaybeFilter; metric: string | null }
 ) {
 	return Effect.gen(function* () {
 		const bucket = yield* getBenchBucket(platform);
@@ -383,14 +379,13 @@ export function comparePageData(
 		const cohorts = buildRunCohorts(index.runs.filter((run) => run.status === 'success')).sort((a, b) =>
 			b.start.localeCompare(a.start)
 		);
-		const metric = parseCompareMetric(params.metric);
+		const category = parseCompareCategory(params.metric);
 		const cohort = cohorts.find((item) => item.id === params.cohort) ?? cohorts[0] ?? null;
 
 		if (!cohort) {
 			return {
 				cohorts,
 				cohort: null,
-				baseline: null,
 				targets: [] as TargetOption[],
 				items: null as TargetCompareItem[] | null
 			};
@@ -398,44 +393,50 @@ export function comparePageData(
 
 		const snapshot = yield* readCohortSnapshot(bucket, cohort);
 		const comparable = snapshot.summaries
-			.map((summary) => ({ summary, value: extractCompareMetric(summary, metric) }))
-			.filter((item): item is { summary: SummaryResult; value: number } => item.value !== null);
-		const baseline =
-			comparable.find((item) => item.summary.target_key === params.baseline) ??
-			comparable.find((item) => isDrizzleRs(item.summary)) ??
-			comparable[0] ??
-			null;
-
-		const baselineValue = baseline?.value ?? 0;
+			.map((summary) => ({
+				summary,
+				sortValue: extractCompareCategorySortValue(summary, category),
+				values: extractCompareCategoryValues(summary, category),
+				variance: extractCompareCategoryVariance(summary, category)
+			}))
+			.filter(
+				(
+					item
+				): item is {
+					summary: SummaryResult;
+					sortValue: number;
+					values: NonNullable<ReturnType<typeof extractCompareCategoryValues>>;
+					variance: NonNullable<ReturnType<typeof extractCompareCategoryVariance>>;
+				} => item.sortValue !== null && item.values !== null && item.variance !== null
+			);
 		const items: TargetCompareItem[] = comparable
-			.map(({ summary, value }) => {
-				const delta = value - baselineValue;
-				const deltaPct = baselineValue !== 0 ? delta / baselineValue : 0;
+			.map(({ summary, sortValue, values, variance }) => {
 				return {
 					target_key: summary.target_key,
 					target_id: summary.target_id,
 					target_name: summary.target_name,
 					target_description: summary.target_description,
+					target_meta: summary.target_meta,
 					group: summary.group,
 					runner_os: summary.runner_os,
-					value,
-					baseline_value: baselineValue,
-					err: summary.primary.err,
-					delta,
-					delta_pct: deltaPct
+					values,
+					sort_value: sortValue,
+					variance,
+					err: summary.primary.err
 				};
 			})
 			.sort((a, b) => {
 				const aBad = a.err > 0.005;
 				const bBad = b.err > 0.005;
 				if (aBad !== bBad) return aBad ? 1 : -1;
-				return isHigherBetterMetric(metric) ? b.value - a.value : a.value - b.value;
+				return isHigherBetterCategory(category)
+					? b.sort_value - a.sort_value
+					: a.sort_value - b.sort_value;
 			});
 
 		return {
 			cohorts,
 			cohort,
-			baseline: baseline?.summary.target_key ?? null,
 			targets: targetOptions(comparable.map((item) => item.summary)),
 			items
 		};

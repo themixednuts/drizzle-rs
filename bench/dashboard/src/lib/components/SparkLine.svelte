@@ -13,8 +13,8 @@
 
 <div class="spark-wrap">
 	<div class="spark-meta">
-		<span>{view.metric}</span>
-		<span>{view.valueText} / {view.sampleText}</span>
+		<span>{view.metricLabel}</span>
+		<span>latest {view.valueText} / {view.sampleText}</span>
 	</div>
 	<svg viewBox="0 0 {SPARKLINE_VIEWBOX.width} {SPARKLINE_VIEWBOX.height}" class="sparkline" preserveAspectRatio="none">
 		<defs>
@@ -30,10 +30,19 @@
 			<path d={view.path} fill="none" stroke={view.color} stroke-width="1.5" />
 		{/if}
 		{#if view.coordinates.length === 1}
+			<line
+				x1={view.coordinates[0].x}
+				x2={view.coordinates[0].x}
+				y1="4"
+				y2={SPARKLINE_VIEWBOX.height - 4}
+				stroke={view.color}
+				stroke-opacity="0.24"
+				stroke-width="1"
+			/>
 			<circle
 				cx={view.coordinates[0].x}
 				cy={view.coordinates[0].y}
-				r="2.5"
+				r="4"
 				fill={view.color}
 			/>
 		{/if}

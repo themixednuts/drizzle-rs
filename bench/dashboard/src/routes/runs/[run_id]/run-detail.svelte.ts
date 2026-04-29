@@ -1,4 +1,6 @@
 import type { Summary } from '$lib/types';
+import { targetDisplay } from '$lib/target-display';
+import type { QueryDoc } from '$lib/types';
 import type { PageData } from './$types';
 
 function groupSummaries(
@@ -40,12 +42,30 @@ export class RunDetailState {
 		return this.manifest.queries;
 	}
 
+	get totalQueryMix() {
+		return this.queries.reduce((sum, query) => sum + query.mix, 0);
+	}
+
 	get summaries() {
 		return this.#data().summaries;
 	}
 
 	get sortedSummaries() {
 		return [...this.summaries].sort((a, b) => b.primary.rps.avg - a.primary.rps.avg);
+	}
+
+	get selectedMetricHelp() {
+		const suffix = 'The sparkline is normalized per target; use the table numbers for cross-target magnitude.';
+		switch (this.selectedMetric) {
+			case 'rps':
+				return `completed HTTP responses per second in each sample bucket. Query graphs below break this down by route. ${suffix}`;
+			case 'latency':
+				return `p95 response latency per bucket. Query graphs below break this down by route. ${suffix}`;
+			case 'cpu':
+				return `sampled target process CPU during the load window. CPU is process-level, not attributable to individual query routes. ${suffix}`;
+			case 'mem':
+				return `sampled target process resident memory during the load window. Memory is process-level, not attributable to individual query routes. ${suffix}`;
+		}
 	}
 
 	get primarySummary() {
@@ -67,7 +87,23 @@ export class RunDetailState {
 	}
 
 	targetName(targetId: string): string {
-		return this.targetMeta(targetId).name;
+		return targetDisplay({
+			target_id: targetId,
+			target_name: this.targetMeta(targetId).name,
+			target_meta: this.targetMeta(targetId),
+			runner_os: this.manifest.runner.os
+		}).name;
+	}
+
+	targetDisplay(targetId: string) {
+		const meta = this.targetMeta(targetId);
+		return targetDisplay({
+			target_id: targetId,
+			target_name: meta.name,
+			group: meta.group,
+			target_meta: meta,
+			runner_os: this.manifest.runner.os
+		});
 	}
 
 	targetDescription(targetId: string): string | undefined {
@@ -86,4 +122,8 @@ export class RunDetailState {
 
 	barStyle = (summary: Summary): string =>
 		`width: ${Math.max(4, Math.round((summary.primary.rps.avg / this.maxRps) * 140))}px`;
+
+	queryShare(query: QueryDoc): number {
+		return this.totalQueryMix === 0 ? 0 : query.mix / this.totalQueryMix;
+	}
 }

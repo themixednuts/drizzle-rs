@@ -97,13 +97,21 @@
 					<tbody>
 						{#each view.leaderboard as summary, i}
 							{@const p = summary.primary}
-							<tr class={view.rowClass(summary)}>
+							{@const display = view.targetDisplay(summary)}
+							<tr
+								class={view.rowClass(summary)}
+								onpointerenter={() => view.hoverTarget(summary)}
+								onpointerleave={view.clearHover}
+							>
 								<td class="n mu">{String(i + 1).padStart(2, '0')}</td>
 								<td>
-									<a href="/runs/{summary.run_id}" class="acc">{summary.target_name}</a>
-									<span class="mu mono"> / {summary.target_id}</span>
-									{#if summary.group}<span class="mu"> / {summary.group}</span>{/if}
-									<span class="mu"> / {summary.runner_os}</span>
+									<a href="/runs/{summary.run_id}" class="target-link">{display.name}</a>
+									<span class="target-badges" title={summary.target_id}>
+										{#each display.badges as badge, index}
+											{#if index > 0}<span class="target-slash">/</span>{/if}
+											<span>{badge}</span>
+										{/each}
+									</span>
 								</td>
 								<td class="n">{fmtRps(p.rps.avg)}</td>
 								<td class="n fade">{fmtLatency(p.latency.avg)}</td>

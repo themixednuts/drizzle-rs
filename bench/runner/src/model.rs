@@ -282,8 +282,26 @@ pub struct SpreadDoc {
     pub aggregate: &'static str,
     pub rps: RangeDoc,
     pub p95: RangeDoc,
+    pub variance: VarianceDoc,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ci95: Option<CiDoc>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct VarianceDoc {
+    pub rps: VarianceMetricDoc,
+    pub p95: VarianceMetricDoc,
+    pub cpu: VarianceMetricDoc,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mem: Option<VarianceMetricDoc>,
+    pub err: VarianceMetricDoc,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct VarianceMetricDoc {
+    pub value: f64,
+    pub stdev: f64,
+    pub samples: u32,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -323,6 +341,17 @@ pub struct Point {
     pub cpu: Vec<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mem_mb: Option<f64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queries: Vec<QueryPoint>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct QueryPoint {
+    pub method: String,
+    pub path: String,
+    pub rps: f64,
+    pub err: f64,
+    pub latency: Latency,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

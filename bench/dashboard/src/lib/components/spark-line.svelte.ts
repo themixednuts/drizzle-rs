@@ -82,7 +82,12 @@ export class SparkLineState {
 		}
 	});
 
-	sampleText = $derived(`${this.points.length} sample${this.points.length === 1 ? '' : 's'}`);
+	metricLabel = $derived.by(() => {
+		if (this.metric === 'latency') return 'p95';
+		return this.metric;
+	});
+
+	sampleText = $derived(`${this.points.length} bucket${this.points.length === 1 ? '' : 's'}`);
 
 	constructor(points: () => TimeseriesPoint[], metric: () => SparkLineMetric) {
 		this.#points = points;

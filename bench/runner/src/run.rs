@@ -4,7 +4,7 @@ use crate::model::{
     Artifacts, AvgPeakDoc, CiDoc, DatasetSummary, Event, Exec, Gate, Gates, Headroom, LatencyDoc,
     Limits, LoadSummary, ManifestDoc, Point, PrimaryDoc, QueryDoc, QueryShapeDoc, RangeDoc,
     RequestDoc, ResultDoc, Runner, SaturationDoc, SpreadDoc, Status, SummaryDoc, Target,
-    TargetMetaDoc, TimeseriesDoc, TrialMeta, Workload,
+    TargetMetaDoc, TimeseriesDoc, TrialMeta, VarianceDoc, VarianceMetricDoc, Workload,
 };
 use parquet::data_type::{ByteArray, ByteArrayType, DoubleType};
 use parquet::file::properties::WriterProperties;
@@ -70,6 +70,7 @@ fn run(args: Run) -> Result<Code, Fail> {
         &run_dir,
         seed,
         input.requests.clone(),
+        &input.request_skip,
         input.request_count_hint,
     )?;
     write_env(
@@ -188,6 +189,7 @@ struct RunInput {
     workload_hash: String,
     targets: Vec<Target>,
     requests: Vec<RequestDoc>,
+    request_skip: Vec<String>,
     request_count_hint: usize,
     limits: Limits,
 }
@@ -213,10 +215,16 @@ struct TargetArtifacts<'a> {
     suite: &'a str,
     target_id: &'a str,
     group: Option<&'a str>,
-    points: &'a [Point],
+    measurements: &'a [TrialMeasurement],
     summary: &'a PrimaryDoc,
     spread: &'a SpreadDoc,
     saturation: &'a SaturationDoc,
+}
+
+#[derive(Debug, Clone)]
+struct TrialMeasurement {
+    aggregate: Point,
+    series: Vec<Point>,
 }
 
 struct Baseline {
@@ -224,7 +232,7 @@ struct Baseline {
     summaries: BTreeMap<String, PrimaryDoc>,
 }
 
-const MIX_CUSTOMER_BY_ID: usize = 20_000;
+const MIX_CUSTOMER_BY_ID: usize = 19_999;
 const MIX_EMPLOYEE_WITH_RECIPIENT: usize = 5_000;
 const MIX_SUPPLIER_BY_ID: usize = 30_000;
 const MIX_PRODUCT_WITH_SUPPLIER: usize = 100_000;
@@ -282,6 +290,7 @@ fn load_input(args: &Run) -> Result<RunInput, Fail> {
     let request_value = load_json::<serde_json::Value>(&args.requests)?;
     let requests = parse_requests(request_value)?;
     let request_count_hint = requests.len();
+    let request_skip = workload.requests.skip.clone();
 
     let trials = args.trials.unwrap_or_else(|| args.class.default_trials());
     let limits = workload.limits;
@@ -293,6 +302,7 @@ fn load_input(args: &Run) -> Result<RunInput, Fail> {
         workload_hash: sha256_file(&args.workload)?,
         targets,
         requests,
+        request_skip,
         request_count_hint,
         limits,
     })
@@ -357,6 +367,7 @@ fn materialize_requests(
     run_dir: &Path,
     seed: u64,
     input: Vec<RequestDoc>,
+    skip: &[String],
     hint: usize,
 ) -> Result<Vec<RequestDoc>, Fail> {
     let mut rng = StdRng::seed_from_u64(seed);
@@ -378,7 +389,7 @@ fn materialize_requests(
             query,
         };
 
-        // 20k customer-by-id (IDs 1..=n_customers)
+        // Mirrors drizzle-benchmarks/src/generate.ts: for (let i = 1; i < 2e4; i += 1)
         for i in 0..MIX_CUSTOMER_BY_ID {
             let id = (i % n_customers) + 1;
             let mut q = BTreeMap::new();
@@ -517,13 +528,7 @@ fn materialize_requests(
         input
     };
 
-    for (idx, req) in out.iter_mut().enumerate() {
-        req.query
-            .entry("seed".to_string())
-            .or_insert_with(|| seed.to_string());
-        req.query
-            .entry("idx".to_string())
-            .or_insert_with(|| idx.to_string());
+    for req in &mut out {
         if req.path.is_empty() {
             req.path = "/customers".to_string();
         }
@@ -532,9 +537,26 @@ fn materialize_requests(
         }
     }
 
+    if !skip.is_empty() {
+        out.retain(|req| !request_path_skipped(&req.path, skip));
+    }
+
+    for (idx, req) in out.iter_mut().enumerate() {
+        req.query
+            .entry("seed".to_string())
+            .or_insert_with(|| seed.to_string());
+        req.query
+            .entry("idx".to_string())
+            .or_insert_with(|| idx.to_string());
+    }
+
     let path = run_dir.join("requests.generated.json");
     write_json(path, &out, Code::RunFail)?;
     Ok(out)
+}
+
+fn request_path_skipped(path: &str, skip: &[String]) -> bool {
+    skip.iter().any(|prefix| path.starts_with(prefix.as_str()))
 }
 
 fn init_layout(run_dir: &Path, targets: &[Target]) -> Result<(), Fail> {
@@ -642,7 +664,7 @@ fn run_trials(
     seed_file: &Path,
     workload_path: &Path,
     requests_path: &Path,
-) -> Result<BTreeMap<String, Vec<Point>>, Fail> {
+) -> Result<BTreeMap<String, Vec<TrialMeasurement>>, Fail> {
     emit(
         events,
         json,
@@ -651,14 +673,14 @@ fn run_trials(
         format!("start count={trials}"),
     )?;
 
-    let mut points: BTreeMap<String, Vec<Point>> = targets
+    let mut measurements: BTreeMap<String, Vec<TrialMeasurement>> = targets
         .iter()
         .map(|target| (target.id.clone(), Vec::new()))
         .collect();
 
     for trial in 0..trials {
         for (idx, target) in targets.iter().enumerate() {
-            let point = run_target_load(
+            let measurement = run_target_load(
                 run_dir,
                 suite,
                 target,
@@ -669,7 +691,10 @@ fn run_trials(
                 workload_path,
                 requests_path,
             )?;
-            points.entry(target.id.clone()).or_default().push(point);
+            measurements
+                .entry(target.id.clone())
+                .or_default()
+                .push(measurement);
         }
         emit(
             events,
@@ -680,14 +705,14 @@ fn run_trials(
         )?;
     }
     emit(events, json, "info", "trials", "done")?;
-    Ok(points)
+    Ok(measurements)
 }
 
 fn run_aggregate(
     run_dir: &Path,
     run_id: &str,
     input: &RunInput,
-    points: &BTreeMap<String, Vec<Point>>,
+    measurements: &BTreeMap<String, Vec<TrialMeasurement>>,
     events: &mut BufWriter<File>,
     json: bool,
 ) -> Result<Aggregate, Fail> {
@@ -695,12 +720,13 @@ fn run_aggregate(
 
     let mut summary_map: BTreeMap<String, PrimaryDoc> = BTreeMap::new();
     for target in &input.targets {
-        let values = points
+        let values = measurements
             .get(&target.id)
             .ok_or_else(|| Fail::new(Code::AggregateFail, "missing target trial points"))?;
         let summary = compute_primary(values);
         let spread = compute_spread(values, input.trials);
-        let saturation = compute_saturation(values);
+        let saturation_points = combined_series(values);
+        let saturation = compute_saturation(&saturation_points);
         summary_map.insert(target.id.clone(), summary.clone());
         write_target_artifacts(
             run_dir,
@@ -709,7 +735,7 @@ fn run_aggregate(
                 suite: input.suite,
                 target_id: &target.id,
                 group: target.group.as_deref(),
-                points: values,
+                measurements: values,
                 summary: &summary,
                 spread: &spread,
                 saturation: &saturation,
@@ -717,7 +743,7 @@ fn run_aggregate(
         )?;
     }
 
-    let headroom = compute_headroom(points);
+    let headroom = compute_headroom(measurements);
 
     emit(events, json, "info", "aggregate", "done")?;
     Ok(Aggregate {
@@ -729,10 +755,11 @@ fn run_aggregate(
 fn write_target_artifacts(run_dir: &Path, doc: TargetArtifacts<'_>) -> Result<(), Fail> {
     let target_dir = run_dir.join("targets").join(doc.target_id);
     let raw_dir = target_dir.join("raw");
+    let points = combined_series(doc.measurements);
 
-    write_k6_csv(raw_dir.join("k6.csv"), doc.points)?;
-    write_cpu_csv(raw_dir.join("cpu.csv"), doc.points)?;
-    write_k6_parquet(raw_dir.join("k6.parquet"), doc.points)?;
+    write_k6_csv(raw_dir.join("k6.csv"), &points)?;
+    write_cpu_csv(raw_dir.join("cpu.csv"), &points)?;
+    write_k6_parquet(raw_dir.join("k6.parquet"), &points)?;
 
     let summary_doc = SummaryDoc {
         version: "v1",
@@ -757,7 +784,7 @@ fn write_target_artifacts(run_dir: &Path, doc: TargetArtifacts<'_>) -> Result<()
         suite: doc.suite.to_string(),
         target_id: doc.target_id.to_string(),
         interval_s: 1,
-        points: doc.points.to_vec(),
+        points,
     };
     write_json(
         target_dir.join("timeseries.json"),
@@ -1010,7 +1037,7 @@ fn run_target_load(
     seed_file: &Path,
     workload_path: &Path,
     requests_path: &Path,
-) -> Result<Point, Fail> {
+) -> Result<TrialMeasurement, Fail> {
     let spec = target.load.as_ref().ok_or_else(|| {
         Fail::new(
             Code::InvalidInput,
@@ -1082,7 +1109,7 @@ fn run_target_load(
         )
     })?;
 
-    let point = if series_path.exists() {
+    let measurement = if series_path.exists() {
         let series = load_points(&series_path)?;
         if series.is_empty() {
             return Err(Fail::new(
@@ -1104,7 +1131,10 @@ fn run_target_load(
                 ),
             )
         })?;
-        point_from_series(&series)
+        TrialMeasurement {
+            aggregate: point_from_series(&series),
+            series,
+        }
     } else if point_path.exists() {
         let trial_path = raw_dir.join(format!("{}.point.json", trial + 1));
         fs::copy(&point_path, &trial_path).map_err(|err| {
@@ -1117,7 +1147,11 @@ fn run_target_load(
                 ),
             )
         })?;
-        load_json_with_code::<Point>(&point_path, Code::RunFail)?
+        let point = load_json_with_code::<Point>(&point_path, Code::RunFail)?;
+        TrialMeasurement {
+            aggregate: point.clone(),
+            series: vec![point],
+        }
     } else {
         return Err(Fail::new(
             Code::RunFail,
@@ -1129,8 +1163,8 @@ fn run_target_load(
     };
     let _ = fs::remove_file(&point_path);
     let _ = fs::remove_file(&series_path);
-    validate_point(&target.id, &point)?;
-    Ok(point)
+    validate_point(&target.id, &measurement.aggregate)?;
+    Ok(measurement)
 }
 
 fn add_server_env(target: &Target, env: &mut BTreeMap<String, String>) {
@@ -1259,6 +1293,22 @@ fn validate_point(target_id: &str, point: &Point) -> Result<(), Fail> {
             format!("target {target_id} load point has invalid latency values"),
         ));
     }
+    for query in &point.queries {
+        if query.method.is_empty()
+            || query.path.is_empty()
+            || query.rps < 0.0
+            || !(0.0..=1.0).contains(&query.err)
+            || query.latency.avg < 0.0
+            || query.latency.p95 < 0.0
+            || query.latency.p99 < 0.0
+            || query.latency.p999.is_some_and(|value| value < 0.0)
+        {
+            return Err(Fail::new(
+                Code::RunFail,
+                format!("target {target_id} load point has invalid query metric values"),
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -1295,10 +1345,10 @@ fn point_from_series(points: &[Point]) -> Point {
     let mem: Vec<f64> = points.iter().filter_map(|p| p.mem_mb).collect();
     Point {
         time,
-        rps: median(&rps),
-        err: median(&err),
+        rps: avg(&rps),
+        err: avg(&err),
         latency: crate::model::Latency {
-            avg: median(&lat_avg),
+            avg: avg(&lat_avg),
             p95: median(&lat_p95),
             p99: median(&lat_p99),
             p999: Some(median(&lat_p999)),
@@ -1307,9 +1357,17 @@ fn point_from_series(points: &[Point]) -> Point {
         mem_mb: if mem.is_empty() {
             None
         } else {
-            Some(median(&mem))
+            Some(avg(&mem))
         },
+        queries: Vec::new(),
     }
+}
+
+fn combined_series(measurements: &[TrialMeasurement]) -> Vec<Point> {
+    measurements
+        .iter()
+        .flat_map(|measurement| measurement.series.iter().cloned())
+        .collect()
 }
 
 fn sanitize(value: &str) -> String {
@@ -1930,30 +1988,62 @@ fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), Fail> {
     Ok(())
 }
 
-fn compute_primary(points: &[Point]) -> PrimaryDoc {
-    let rps: Vec<f64> = points.iter().map(|point| point.rps).collect();
-    let err: Vec<f64> = points.iter().map(|point| point.err).collect();
-    let lat_avg: Vec<f64> = points.iter().map(|point| point.latency.avg).collect();
+fn compute_primary(measurements: &[TrialMeasurement]) -> PrimaryDoc {
+    let aggregate_points: Vec<&Point> = measurements
+        .iter()
+        .map(|measurement| &measurement.aggregate)
+        .collect();
+    let sample_points: Vec<&Point> = measurements
+        .iter()
+        .flat_map(|measurement| measurement.series.iter())
+        .collect();
+
+    let rps_avg: Vec<f64> = aggregate_points.iter().map(|point| point.rps).collect();
+    let rps_peak: Vec<f64> = sample_points.iter().map(|point| point.rps).collect();
+    let err: Vec<f64> = aggregate_points.iter().map(|point| point.err).collect();
+    let lat_avg: Vec<f64> = aggregate_points
+        .iter()
+        .map(|point| point.latency.avg)
+        .collect();
     // p90 is interpolated from avg and p95 since Point only carries avg/p95/p99/p999.
     // Linear interpolation: p90 ≈ avg + (p95 - avg) * (0.90 / 0.95)
-    let lat_p90: Vec<f64> = points
+    let lat_p90: Vec<f64> = aggregate_points
         .iter()
         .map(|point| point.latency.avg + (point.latency.p95 - point.latency.avg) * (90.0 / 95.0))
         .collect();
-    let lat_p95: Vec<f64> = points.iter().map(|point| point.latency.p95).collect();
-    let lat_p99: Vec<f64> = points.iter().map(|point| point.latency.p99).collect();
-    let lat_p999: Vec<f64> = points
+    let lat_p95: Vec<f64> = aggregate_points
+        .iter()
+        .map(|point| point.latency.p95)
+        .collect();
+    let lat_p99: Vec<f64> = aggregate_points
+        .iter()
+        .map(|point| point.latency.p99)
+        .collect();
+    let lat_p999: Vec<f64> = aggregate_points
         .iter()
         .map(|point| point.latency.p999.unwrap_or(point.latency.p99))
         .collect();
-    let cpu_avg: Vec<f64> = points.iter().map(|point| avg(&point.cpu)).collect();
-    let cpu_peak: Vec<f64> = points.iter().map(|point| peak(&point.cpu)).collect();
-    let mem_vals: Vec<f64> = points.iter().filter_map(|p| p.mem_mb).collect();
+    let cpu_avg: Vec<f64> = aggregate_points
+        .iter()
+        .map(|point| avg(&point.cpu))
+        .collect();
+    let cpu_peak: Vec<f64> = sample_points
+        .iter()
+        .flat_map(|point| point.cpu.iter().copied())
+        .collect();
+    let mem_avg: Vec<f64> = aggregate_points
+        .iter()
+        .filter_map(|point| point.mem_mb)
+        .collect();
+    let mem_peak: Vec<f64> = sample_points
+        .iter()
+        .filter_map(|point| point.mem_mb)
+        .collect();
 
     PrimaryDoc {
         rps: AvgPeakDoc {
-            avg: median(&rps),
-            peak: peak(&rps),
+            avg: median(&rps_avg),
+            peak: peak(&rps_peak),
         },
         latency: LatencyDoc {
             avg: median(&lat_avg),
@@ -1966,21 +2056,39 @@ fn compute_primary(points: &[Point]) -> PrimaryDoc {
             avg: median(&cpu_avg),
             peak: peak(&cpu_peak),
         },
-        mem: if mem_vals.is_empty() {
+        mem: if mem_avg.is_empty() && mem_peak.is_empty() {
             None
         } else {
             Some(AvgPeakDoc {
-                avg: median(&mem_vals),
-                peak: peak(&mem_vals),
+                avg: median(&mem_avg),
+                peak: peak(&mem_peak),
             })
         },
         err: median(&err),
     }
 }
 
-fn compute_spread(points: &[Point], trials: u32) -> SpreadDoc {
-    let rps: Vec<f64> = points.iter().map(|point| point.rps).collect();
-    let p95: Vec<f64> = points.iter().map(|point| point.latency.p95).collect();
+fn compute_spread(measurements: &[TrialMeasurement], trials: u32) -> SpreadDoc {
+    let rps: Vec<f64> = measurements
+        .iter()
+        .map(|measurement| measurement.aggregate.rps)
+        .collect();
+    let p95: Vec<f64> = measurements
+        .iter()
+        .map(|measurement| measurement.aggregate.latency.p95)
+        .collect();
+    let cpu: Vec<f64> = measurements
+        .iter()
+        .map(|measurement| avg(&measurement.aggregate.cpu))
+        .collect();
+    let mem: Vec<f64> = measurements
+        .iter()
+        .filter_map(|measurement| measurement.aggregate.mem_mb)
+        .collect();
+    let err: Vec<f64> = measurements
+        .iter()
+        .map(|measurement| measurement.aggregate.err)
+        .collect();
     SpreadDoc {
         trials,
         aggregate: "median",
@@ -1991,6 +2099,17 @@ fn compute_spread(points: &[Point], trials: u32) -> SpreadDoc {
         p95: RangeDoc {
             min: min(&p95),
             max: max(&p95),
+        },
+        variance: VarianceDoc {
+            rps: variance_metric(&rps),
+            p95: variance_metric(&p95),
+            cpu: variance_metric(&cpu),
+            mem: if mem.is_empty() {
+                None
+            } else {
+                Some(variance_metric(&mem))
+            },
+            err: variance_metric(&err),
         },
         ci95: ci95(&rps, &p95),
     }
@@ -2024,13 +2143,15 @@ fn compute_saturation(points: &[Point]) -> SaturationDoc {
     }
 }
 
-fn compute_headroom(points: &BTreeMap<String, Vec<Point>>) -> Headroom {
+fn compute_headroom(measurements: &BTreeMap<String, Vec<TrialMeasurement>>) -> Headroom {
     let mut cpu_peak: f64 = 0.0;
     let mut rps_peak: f64 = 0.0;
-    for target_points in points.values() {
-        for point in target_points {
-            cpu_peak = cpu_peak.max(peak(&point.cpu));
-            rps_peak = rps_peak.max(point.rps);
+    for target_measurements in measurements.values() {
+        for measurement in target_measurements {
+            for point in &measurement.series {
+                cpu_peak = cpu_peak.max(peak(&point.cpu));
+                rps_peak = rps_peak.max(point.rps);
+            }
         }
     }
     let net_peak = (rps_peak / 100.0).min(99.0);
@@ -2400,6 +2521,12 @@ fn validate_workload(workload: &Workload) -> Result<(), Fail> {
             "workload.requests.skip must contain unique values",
         ));
     }
+    if workload.requests.skip.iter().any(String::is_empty) {
+        return Err(Fail::new(
+            Code::InvalidInput,
+            "workload.requests.skip entries must not be empty",
+        ));
+    }
 
     for (idx, stage) in workload.stages.iter().enumerate() {
         let has_vus = stage.vus.is_some();
@@ -2647,6 +2774,30 @@ fn bootstrap(values: &[f64]) -> Option<RangeDoc> {
     })
 }
 
+fn variance_metric(values: &[f64]) -> VarianceMetricDoc {
+    let value = sample_variance(values);
+    VarianceMetricDoc {
+        value,
+        stdev: value.sqrt(),
+        samples: values.len() as u32,
+    }
+}
+
+fn sample_variance(values: &[f64]) -> f64 {
+    if values.len() < 2 {
+        return 0.0;
+    }
+    let mean = avg(values);
+    values
+        .iter()
+        .map(|value| {
+            let delta = value - mean;
+            delta * delta
+        })
+        .sum::<f64>()
+        / (values.len() - 1) as f64
+}
+
 fn peak(values: &[f64]) -> f64 {
     values.iter().fold(0.0_f64, |acc, val| acc.max(*val))
 }
@@ -2661,8 +2812,13 @@ fn max(values: &[f64]) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_seed;
+    use super::{
+        MIX_SEARCH_CUSTOMER, MIX_SEARCH_PRODUCT, TrialMeasurement, combined_series,
+        compute_primary, compute_spread, query_catalog_total_mix, request_path_skipped,
+        resolve_seed, sample_variance,
+    };
     use crate::cli::Class;
+    use crate::model::{Latency, Point};
 
     #[test]
     fn publish_seed_ignores_cli_override() {
@@ -2674,5 +2830,79 @@ mod tests {
     fn small_seed_prefers_cli_override() {
         assert_eq!(resolve_seed(Class::Small, Some(42), 17), 42);
         assert_eq!(resolve_seed(Class::Small, None, 17), 17);
+    }
+
+    #[test]
+    fn summary_uses_sample_peak_and_full_series() {
+        let measurements = vec![TrialMeasurement {
+            aggregate: point(150.0, 10.0),
+            series: vec![point(100.0, 20.0), point(250.0, 80.0)],
+        }];
+
+        let primary = compute_primary(&measurements);
+        assert_eq!(primary.rps.avg, 150.0);
+        assert_eq!(primary.rps.peak, 250.0);
+        assert_eq!(primary.cpu.peak, 80.0);
+        assert_eq!(combined_series(&measurements).len(), 2);
+    }
+
+    #[test]
+    fn spread_reports_sample_variance() {
+        let measurements = vec![
+            TrialMeasurement {
+                aggregate: point(100.0, 10.0),
+                series: vec![point(100.0, 10.0)],
+            },
+            TrialMeasurement {
+                aggregate: point(200.0, 20.0),
+                series: vec![point(200.0, 20.0)],
+            },
+            TrialMeasurement {
+                aggregate: point(300.0, 30.0),
+                series: vec![point(300.0, 30.0)],
+            },
+        ];
+
+        let spread = compute_spread(&measurements, 3);
+        assert_eq!(
+            spread.variance.rps.value,
+            sample_variance(&[100.0, 200.0, 300.0])
+        );
+        assert_eq!(spread.variance.rps.stdev, 100.0);
+        assert_eq!(spread.variance.rps.samples, 3);
+    }
+
+    #[test]
+    fn request_skip_matches_path_prefixes() {
+        let skip = vec!["/search".to_string()];
+        assert!(request_path_skipped("/search-customer", &skip));
+        assert!(request_path_skipped("/search-product", &skip));
+        assert!(!request_path_skipped("/customer-by-id", &skip));
+    }
+
+    #[test]
+    fn generated_mix_matches_drizzle_benchmarks() {
+        assert_eq!(query_catalog_total_mix(), 426_999);
+        assert_eq!(
+            query_catalog_total_mix() - MIX_SEARCH_CUSTOMER - MIX_SEARCH_PRODUCT,
+            371_999
+        );
+    }
+
+    fn point(rps: f64, cpu: f64) -> Point {
+        Point {
+            time: "2026-01-01T00:00:00Z".to_string(),
+            rps,
+            err: 0.0,
+            latency: Latency {
+                avg: 1.0,
+                p95: 2.0,
+                p99: 3.0,
+                p999: Some(4.0),
+            },
+            cpu: vec![cpu],
+            mem_mb: Some(64.0),
+            queries: Vec::new(),
+        }
     }
 }

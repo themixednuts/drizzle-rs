@@ -31,7 +31,7 @@
   "requests": {
     "source": "generated",
     "file": "bench/spec/requests.empty.v1.json",
-    "skip": []
+    "skip": ["/search"]
   },
   "sampling": {
     "cpu_ms": 200,

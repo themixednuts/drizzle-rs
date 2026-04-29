@@ -38,7 +38,6 @@ export const loadTrends = query(
 export const loadCompare = query(
 	v.object({
 		cohort: v.nullable(v.string()),
-		baseline: v.nullable(v.string()),
 		metric: v.string()
 	}),
 	(params) => runServerEffect(comparePageData(getRequestEvent().platform, params))

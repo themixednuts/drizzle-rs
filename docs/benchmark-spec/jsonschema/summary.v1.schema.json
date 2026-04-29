@@ -102,7 +102,8 @@
         "trials",
         "aggregate",
         "rps",
-        "p95"
+        "p95",
+        "variance"
       ],
       "properties": {
         "trials": {
@@ -121,6 +122,33 @@
         },
         "p95": {
           "$ref": "#/$defs/range"
+        },
+        "variance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rps",
+            "p95",
+            "cpu",
+            "err"
+          ],
+          "properties": {
+            "rps": {
+              "$ref": "#/$defs/variance_metric"
+            },
+            "p95": {
+              "$ref": "#/$defs/variance_metric"
+            },
+            "cpu": {
+              "$ref": "#/$defs/variance_metric"
+            },
+            "mem": {
+              "$ref": "#/$defs/variance_metric"
+            },
+            "err": {
+              "$ref": "#/$defs/variance_metric"
+            }
+          }
         },
         "ci95": {
           "type": "object",
@@ -187,6 +215,29 @@
         },
         "max": {
           "type": "number"
+        }
+      }
+    },
+    "variance_metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "stdev",
+        "samples"
+      ],
+      "properties": {
+        "value": {
+          "type": "number",
+          "minimum": 0
+        },
+        "stdev": {
+          "type": "number",
+          "minimum": 0
+        },
+        "samples": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     }

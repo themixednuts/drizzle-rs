@@ -9,6 +9,7 @@ use rand::rngs::StdRng;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 use tokio::sync::Mutex;
 use tokio_postgres::SimpleQueryMessage;
 

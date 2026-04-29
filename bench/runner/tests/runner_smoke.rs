@@ -97,6 +97,11 @@ fn run_writes_contract_artifacts() {
     assert!(summary.get("spread").is_some());
     assert!(summary.get("saturation").is_some());
     assert!(summary["spread"].get("ci95").is_some());
+    assert!(
+        summary["spread"]["variance"]["rps"]["value"]
+            .as_f64()
+            .is_some()
+    );
 
     let manifest: Value = serde_json::from_str(
         &fs::read_to_string(run_dir.join("manifest.json")).expect("read manifest"),
@@ -527,6 +532,12 @@ fn multi_trial_produces_spread_and_ci() {
     assert!(summary["spread"]["rps"]["min"].as_f64().is_some());
     assert!(summary["spread"]["rps"]["max"].as_f64().is_some());
     assert!(summary["spread"]["p95"]["min"].as_f64().is_some());
+    assert_eq!(summary["spread"]["variance"]["rps"]["samples"], 3);
+    assert!(
+        summary["spread"]["variance"]["p95"]["value"]
+            .as_f64()
+            .is_some()
+    );
 
     // With 3 trials, bootstrap CI should be present
     assert!(summary["spread"]["ci95"].is_object());

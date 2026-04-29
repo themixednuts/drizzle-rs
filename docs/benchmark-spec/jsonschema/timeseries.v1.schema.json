@@ -100,6 +100,65 @@
           "mem_mb": {
             "type": "number",
             "minimum": 0
+          },
+          "queries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "method",
+                "path",
+                "rps",
+                "err",
+                "latency"
+              ],
+              "properties": {
+                "method": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^/"
+                },
+                "rps": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "err": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "latency": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "avg",
+                    "p95",
+                    "p99"
+                  ],
+                  "properties": {
+                    "avg": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "p95": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "p99": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "p999": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }

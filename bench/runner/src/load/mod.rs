@@ -7,7 +7,7 @@ mod turso;
 
 use crate::cli::{Load, SeedPostgres, Suite};
 use crate::code::{Code, Fail};
-use crate::model::{Latency, Point, RequestDoc, Workload};
+use crate::model::{Latency, Point, QueryPoint, RequestDoc, Workload};
 use axum::Router;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -15,7 +15,7 @@ use std::io::{BufRead, BufReader, Read as _, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
@@ -287,7 +287,44 @@ struct BucketResult {
     latencies: Vec<f64>,
     errors: u64,
     total: u64,
+    queries: Vec<QueryBucket>,
     first_err: Option<String>,
+}
+
+#[derive(Clone)]
+struct RequestPlan {
+    path: String,
+    query_idx: usize,
+}
+
+#[derive(Clone)]
+struct QueryKey {
+    method: String,
+    path: String,
+}
+
+#[derive(Clone, Default)]
+struct QueryBucket {
+    latencies: Vec<f64>,
+    errors: u64,
+    total: u64,
+}
+
+impl QueryBucket {
+    fn record(&mut self, ok: bool, latency_ms: f64) {
+        self.total += 1;
+        if ok {
+            self.latencies.push(latency_ms);
+        } else {
+            self.errors += 1;
+        }
+    }
+
+    fn merge(&mut self, other: QueryBucket) {
+        self.latencies.extend(other.latencies);
+        self.errors += other.errors;
+        self.total += other.total;
+    }
 }
 
 fn measure(
@@ -318,8 +355,10 @@ fn measure_rps(
     sys.refresh_cpu_usage();
     let pid = target_pid.map(Pid::from_u32);
 
-    // Pre-compute request paths once (avoid allocs in hot loop).
-    let paths: Arc<Vec<String>> = Arc::new(requests.iter().map(build_path).collect());
+    // Pre-compute request paths and route buckets once (avoid allocs in hot loop).
+    let (plans, query_keys) = request_plan(requests);
+    let plans = Arc::new(plans);
+    let query_keys = Arc::new(query_keys);
 
     while remaining > 0 {
         let sec = remaining.min(bucket_s);
@@ -330,24 +369,33 @@ fn measure_rps(
         // Spawn workers that fire requests until the deadline.
         let handles: Vec<_> = (0..concurrency)
             .map(|worker_id| {
-                let paths = Arc::clone(&paths);
+                let plans = Arc::clone(&plans);
                 std::thread::spawn(move || {
                     let mut conn = HttpConn::new(port);
                     let mut latencies = Vec::with_capacity(1024);
                     let mut errors = 0_u64;
                     let mut total = 0_u64;
+                    let mut queries = vec![
+                        QueryBucket::default();
+                        plans.iter().map(|p| p.query_idx).max().unwrap_or(0) + 1
+                    ];
                     let mut first_err = None;
                     // Each worker starts at a different offset to spread requests.
                     let mut cursor = worker_id;
 
                     while Instant::now() < deadline {
-                        let path = &paths[cursor % paths.len()];
+                        let plan = &plans[cursor % plans.len()];
                         cursor += concurrency;
                         let t0 = Instant::now();
-                        match conn.get(path) {
-                            Ok(()) => latencies.push(t0.elapsed().as_secs_f64() * 1000.0),
+                        match conn.get(&plan.path) {
+                            Ok(()) => {
+                                let latency_ms = t0.elapsed().as_secs_f64() * 1000.0;
+                                latencies.push(latency_ms);
+                                queries[plan.query_idx].record(true, latency_ms);
+                            }
                             Err(msg) => {
                                 errors += 1;
+                                queries[plan.query_idx].record(false, 0.0);
                                 if first_err.is_none() {
                                     first_err = Some(msg);
                                 }
@@ -360,6 +408,7 @@ fn measure_rps(
                         latencies,
                         errors,
                         total,
+                        queries,
                         first_err,
                     }
                 })
@@ -370,6 +419,7 @@ fn measure_rps(
         let mut latencies = Vec::new();
         let mut errors = 0_u64;
         let mut total = 0_u64;
+        let mut queries = vec![QueryBucket::default(); query_keys.len()];
         let mut first_err = None;
         for handle in handles {
             let result = handle
@@ -378,6 +428,9 @@ fn measure_rps(
             latencies.extend(result.latencies);
             errors += result.errors;
             total += result.total;
+            for (idx, query) in result.queries.into_iter().enumerate() {
+                queries[idx].merge(query);
+            }
             if first_err.is_none() {
                 first_err = result.first_err;
             }
@@ -412,6 +465,7 @@ fn measure_rps(
             latency: summarize_latency(&latencies),
             cpu: cpu_usage(&sys),
             mem_mb,
+            queries: query_points(&query_keys, &queries, wall),
         });
         remaining -= sec;
     }
@@ -430,10 +484,12 @@ fn measure_vus(
         return Err(Fail::new(Code::RunFail, "empty VU schedule"));
     }
     let bucket_s = workload.sampling.bucket_s.max(1) as usize;
-    let paths: Arc<Vec<String>> = Arc::new(requests.iter().map(build_path).collect());
+    let (plans, query_keys) = request_plan(requests);
+    let plans = Arc::new(plans);
+    let query_keys = Arc::new(query_keys);
     let global_iter = Arc::new(AtomicU64::new(0));
     let running = Arc::new(AtomicBool::new(true));
-    let (tx, rx) = mpsc::channel::<(bool, f64)>();
+    let (tx, rx) = mpsc::channel::<(usize, bool, f64)>();
 
     let mut workers: Vec<std::thread::JoinHandle<()>> = Vec::new();
     let mut points = Vec::new();
@@ -448,7 +504,7 @@ fn measure_vus(
 
         // Grow worker pool as VU count increases (ramping-vus only ramps up)
         while workers.len() < target_vus {
-            let paths = Arc::clone(&paths);
+            let plans = Arc::clone(&plans);
             let iter_counter = Arc::clone(&global_iter);
             let is_running = Arc::clone(&running);
             let sender = tx.clone();
@@ -456,13 +512,13 @@ fn measure_vus(
                 let mut conn = HttpConn::new(port);
                 while is_running.load(Ordering::Relaxed) {
                     let iter_num = iter_counter.fetch_add(1, Ordering::Relaxed);
-                    let path = &paths[iter_num as usize % paths.len()];
+                    let plan = &plans[iter_num as usize % plans.len()];
 
                     let t0 = Instant::now();
-                    let ok = conn.get(path).is_ok();
+                    let ok = conn.get(&plan.path).is_ok();
                     let lat = t0.elapsed().as_secs_f64() * 1000.0;
 
-                    if sender.send((ok, lat)).is_err() {
+                    if sender.send((plan.query_idx, ok, lat)).is_err() {
                         break;
                     }
 
@@ -484,13 +540,15 @@ fn measure_vus(
         let mut latencies = Vec::new();
         let mut errors = 0u64;
         let mut total = 0u64;
-        while let Ok((ok, lat)) = rx.try_recv() {
+        let mut queries = vec![QueryBucket::default(); query_keys.len()];
+        while let Ok((query_idx, ok, lat)) = rx.try_recv() {
             total += 1;
             if ok {
                 latencies.push(lat);
             } else {
                 errors += 1;
             }
+            queries[query_idx].record(ok, lat);
         }
 
         sys.refresh_cpu_usage();
@@ -514,6 +572,7 @@ fn measure_vus(
             latency: summarize_latency(&latencies),
             cpu: cpu_usage(&sys),
             mem_mb,
+            queries: query_points(&query_keys, &queries, wall),
         });
 
         sec_offset = chunk_end;
@@ -689,6 +748,48 @@ impl HttpConn {
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
+
+fn request_plan(requests: &[RequestDoc]) -> (Vec<RequestPlan>, Vec<QueryKey>) {
+    let mut query_keys = Vec::<QueryKey>::new();
+    let mut query_indexes = std::collections::BTreeMap::<(String, String), usize>::new();
+    let plans = requests
+        .iter()
+        .map(|request| {
+            let method = request.method.to_ascii_uppercase();
+            let route = request.path.clone();
+            let query_idx = *query_indexes
+                .entry((method.clone(), route.clone()))
+                .or_insert_with(|| {
+                    let idx = query_keys.len();
+                    query_keys.push(QueryKey {
+                        method,
+                        path: route,
+                    });
+                    idx
+                });
+            RequestPlan {
+                path: build_path(request),
+                query_idx,
+            }
+        })
+        .collect();
+
+    (plans, query_keys)
+}
+
+fn query_points(keys: &[QueryKey], buckets: &[QueryBucket], wall: f64) -> Vec<QueryPoint> {
+    keys.iter()
+        .zip(buckets)
+        .filter(|(_, bucket)| bucket.total > 0)
+        .map(|(key, bucket)| QueryPoint {
+            method: key.method.clone(),
+            path: key.path.clone(),
+            rps: bucket.total as f64 / wall,
+            err: bucket.errors as f64 / bucket.total as f64,
+            latency: summarize_latency(&bucket.latencies),
+        })
+        .collect()
+}
 
 fn build_path(req: &RequestDoc) -> String {
     let mut path = req.path.clone();
@@ -901,5 +1002,61 @@ impl QueryParams {
 
     pub(crate) fn user_id(&self, n: i32) -> i32 {
         self.id.map(|i| i.rem_euclid(n).max(1)).unwrap_or(1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn request_plan_groups_query_metrics_by_method_and_route() {
+        let requests = vec![
+            request("/customers", &[("id", "1")]),
+            request("/customers", &[("id", "2")]),
+            request("/products", &[("id", "1")]),
+        ];
+
+        let (plans, keys) = request_plan(&requests);
+
+        assert_eq!(plans.len(), 3);
+        assert_eq!(keys.len(), 2);
+        assert_eq!(keys[0].path, "/customers");
+        assert_eq!(keys[1].path, "/products");
+        assert_eq!(plans[0].query_idx, plans[1].query_idx);
+        assert_ne!(plans[0].query_idx, plans[2].query_idx);
+        assert!(plans[0].path.contains("id=1"));
+    }
+
+    #[test]
+    fn query_points_report_route_level_metrics() {
+        let keys = vec![QueryKey {
+            method: "GET".to_string(),
+            path: "/customers".to_string(),
+        }];
+        let mut buckets = vec![QueryBucket::default()];
+        buckets[0].record(true, 10.0);
+        buckets[0].record(true, 20.0);
+        buckets[0].record(false, 0.0);
+
+        let points = query_points(&keys, &buckets, 2.0);
+
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].path, "/customers");
+        assert_eq!(points[0].rps, 1.5);
+        assert_eq!(points[0].err, 1.0 / 3.0);
+        assert_eq!(points[0].latency.avg, 15.0);
+    }
+
+    fn request(path: &str, query: &[(&str, &str)]) -> RequestDoc {
+        RequestDoc {
+            method: "GET".to_string(),
+            path: path.to_string(),
+            query: query
+                .iter()
+                .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+                .collect::<BTreeMap<_, _>>(),
+        }
     }
 }

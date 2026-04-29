@@ -197,12 +197,27 @@ export interface Spread {
 	aggregate: string;
 	rps: MinMax;
 	p95: MinMax;
+	variance: Variance;
 	ci95?: { rps?: MinMax; p95?: MinMax };
 }
 
 export interface MinMax {
 	min: number;
 	max: number;
+}
+
+export interface Variance {
+	rps: VarianceMetric;
+	p95: VarianceMetric;
+	cpu: VarianceMetric;
+	mem?: VarianceMetric;
+	err: VarianceMetric;
+}
+
+export interface VarianceMetric {
+	value: number;
+	stdev: number;
+	samples: number;
 }
 
 export interface Saturation {
@@ -226,6 +241,15 @@ export interface TimeseriesPoint {
 	latency: { avg: number; p95: number; p99: number; p999?: number };
 	cpu: number[];
 	mem_mb?: number;
+	queries?: QueryTimeseriesPoint[];
+}
+
+export interface QueryTimeseriesPoint {
+	method: string;
+	path: string;
+	rps: number;
+	err: number;
+	latency: { avg: number; p95: number; p99: number; p999?: number };
 }
 
 export interface CompareItem {
@@ -240,24 +264,39 @@ export interface CompareItem {
 	delta_pct: number;
 }
 
+export interface TargetCompareValue {
+	key: string;
+	label: string;
+	value: number;
+}
+
+export interface TargetCompareVariance {
+	label: string;
+	value: number;
+	stdev: number;
+	samples: number;
+}
+
 export interface TargetCompareItem {
 	target_key: string;
 	target_id: string;
 	target_name: string;
 	target_description?: string;
+	target_meta: TargetMeta;
 	group?: string;
 	runner_os: string;
-	value: number;
-	baseline_value: number;
+	values: TargetCompareValue[];
+	sort_value: number;
+	variance: TargetCompareVariance;
 	err: number;
-	delta: number;
-	delta_pct: number;
 }
 
 export interface TargetOption {
 	key: string;
 	label: string;
 	target_id: string;
+	target_name: string;
+	target_meta: TargetMeta;
 	runner_os: string;
 }
 

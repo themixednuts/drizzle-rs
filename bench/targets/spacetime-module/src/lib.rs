@@ -43,6 +43,7 @@ pub struct Employee {
     pub home_phone: String,
     pub extension: i32,
     pub notes: String,
+    #[index(btree)]
     pub recipient_id: i32, // 0 = no recipient (SpacetimeDB doesn't support Option<T> well in PGWire)
 }
 
@@ -74,6 +75,7 @@ pub struct Product {
     pub units_on_order: i32,
     pub reorder_level: i32,
     pub discontinued: i32,
+    #[index(btree)]
     pub supplier_id: u32,
 }
 
@@ -92,7 +94,9 @@ pub struct Order {
     pub ship_region: String,
     pub ship_postal_code: String,
     pub ship_country: String,
+    #[index(btree)]
     pub customer_id: u32,
+    #[index(btree)]
     pub employee_id: u32,
 }
 
@@ -104,7 +108,9 @@ pub struct OrderDetail {
     pub unit_price: f64,
     pub quantity: i32,
     pub discount: f64,
+    #[index(btree)]
     pub order_id: u32,
+    #[index(btree)]
     pub product_id: u32,
 }
 

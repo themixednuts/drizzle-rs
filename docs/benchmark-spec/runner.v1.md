@@ -111,14 +111,18 @@ Pre-run fixture stage:
 
 1. runner canonicalizes request entries.
 2. if request list is empty, runner generates deterministic requests using seed-driven generators.
-3. runner writes `requests.generated.json` under run root and uses it as effective request set.
+3. runner removes requests whose path starts with any `workload.requests.skip` prefix.
+4. runner writes `requests.generated.json` under run root and uses it as effective request set.
 
 Load output rules:
 
 1. `load.cmd` may emit a single trial point to `BENCH_POINT_OUT`.
 2. `load.cmd` may instead emit a per-trial point series to `BENCH_TIMESERIES_OUT`.
-3. if a series is emitted, runner persists it under `targets/<target_id>/raw/trial/` and derives the trial point from that series.
-4. at least one of `BENCH_POINT_OUT` or `BENCH_TIMESERIES_OUT` must be written.
+3. each timeseries point may include `queries[]`, a per-route breakdown with `method`, `path`, `rps`, `err`, and response latency percentiles for that bucket.
+4. if a route is absent from a bucket that otherwise has query metrics, it had zero measured requests in that bucket.
+5. process metrics such as CPU and memory are target-level measurements; they are not attributed to individual query routes unless a future instrumented target contract provides that data.
+6. if a series is emitted, runner persists it under `targets/<target_id>/raw/trial/` and derives the trial point from that series.
+7. at least one of `BENCH_POINT_OUT` or `BENCH_TIMESERIES_OUT` must be written.
 
 Implementation note:
 

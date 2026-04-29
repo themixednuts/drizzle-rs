@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { loadTimeseries } from '$lib/api.remote';
 	import LatencyBars from '$lib/components/LatencyBars.svelte';
+	import QueryMetricBars from '$lib/components/QueryMetricBars.svelte';
 	import SparkLine from '$lib/components/SparkLine.svelte';
 	import {
 		fmtCpu,
@@ -110,8 +111,32 @@
 	{#if view.queries.length > 0}
 		<section class="sec">
 			<div class="sec-h">
+				<span>request mix</span>
+				<span class="mu">{view.totalQueryMix.toLocaleString()} materialized requests</span>
+			</div>
+			<div class="workload-lens">
+				<div class="workload-note">
+					This is workload composition only: the generated HTTP routes and how often each route appears in the request list.
+					Metric graphs are per target below, where route-level RPS and latency come from measured request samples.
+				</div>
+				<div class="query-bars">
+					{#each view.queries as query}
+						<div class="query-bar-row">
+							<div>
+								<div class="query-bar-title">{query.name}</div>
+								<div class="mu mono">{query.method} {query.path}</div>
+							</div>
+							<div class="query-share">{fmtPct(view.queryShare(query))} / {query.mix.toLocaleString()}</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+		</section>
+
+		<section class="sec">
+			<div class="sec-h">
 				<span>query catalog</span>
-				<span class="mu">{view.queries.length} operations / {view.manifest.load.requests.toLocaleString()} requests</span>
+				<span class="mu">{view.queries.length} operations / SQL shapes</span>
 			</div>
 			<div class="query-list">
 				{#each view.queries as query}
@@ -154,10 +179,16 @@
 				<tbody>
 					{#each view.sortedSummaries as summary}
 						{@const p = summary.primary}
+						{@const display = view.targetDisplay(summary.target_id)}
 						<tr class={view.rowClass(summary)}>
 							<td>
-								{view.targetName(summary.target_id)}
-								<div class="mu mono">{summary.target_id}</div>
+								<span class="target-link">{display.name}</span>
+								<span class="target-badges" title={summary.target_id}>
+									{#each display.badges as badge, index}
+										{#if index > 0}<span class="target-slash">/</span>{/if}
+										<span>{badge}</span>
+									{/each}
+								</span>
 							</td>
 							<td class="mu">{view.targetGroup(summary)}</td>
 							<td class="n">{fmtRps(p.rps.avg)}</td>
@@ -185,11 +216,17 @@
 				{#each groupItems as summary}
 					{@const p = summary.primary}
 					{@const meta = view.targetMeta(summary.target_id)}
+					{@const display = view.targetDisplay(summary.target_id)}
 					<article class="target-row">
 						<div class="target-head">
 							<h2>
-								{view.targetName(summary.target_id)}
-								<span class="mu mono"> / {summary.target_id}</span>
+								{display.name}
+								<span class="target-badges" title={summary.target_id}>
+									{#each display.badges as badge, index}
+										{#if index > 0}<span class="target-slash">/</span>{/if}
+										<span>{badge}</span>
+									{/each}
+								</span>
 							</h2>
 							<span class="badge badge--{p.err > 0 ? 'failed' : 'success'}">{fmtPct(p.err)} err</span>
 						</div>
@@ -218,6 +255,7 @@
 										<button class="pill" class:on={view.selectedMetric === 'mem'} onclick={() => view.selectMetric('mem')}>mem</button>
 									{/if}
 								</div>
+								<div class="spark-help">{view.selectedMetricHelp}</div>
 								<svelte:boundary>
 									{#snippet pending()}
 										<div class="skeleton" style="height: 48px"></div>
@@ -226,6 +264,7 @@
 									{@const ts = await loadTimeseries({ runId: view.manifest.run_id, targetId: summary.target_id })}
 									{#if ts}
 										<SparkLine points={ts.points} metric={view.selectedMetric} />
+										<QueryMetricBars queries={view.queries} points={ts.points} metric={view.selectedMetric} />
 									{:else}
 										<div class="spark-empty">no timeseries data</div>
 									{/if}
@@ -271,12 +310,55 @@
 	.query-list {
 		display: grid;
 		gap: 10px;
+		min-width: 0;
+	}
+
+	.workload-lens {
+		display: grid;
+		grid-template-columns: minmax(180px, 0.7fr) minmax(260px, 1.3fr);
+		gap: 24px;
+		align-items: start;
+	}
+
+	.workload-note {
+		border-left: 2px solid var(--acc);
+		padding-left: 12px;
+		color: var(--ink-3);
+		font-family: var(--font-mono);
+		font-size: 11.5px;
+		line-height: 1.6;
+	}
+
+	.query-bars {
+		display: grid;
+		gap: 9px;
+	}
+
+	.query-bar-row {
+		display: grid;
+		grid-template-columns: minmax(160px, 1fr) auto;
+		align-items: center;
+		gap: 12px;
+		font-family: var(--font-mono);
+		font-size: 11.5px;
+	}
+
+	.query-bar-title {
+		color: var(--ink);
+	}
+
+	.query-share {
+		color: var(--ink-3);
+		white-space: nowrap;
 	}
 
 	.query-card {
 		border: 1px solid var(--rule-soft);
 		background: color-mix(in srgb, var(--bg-2) 55%, transparent);
 		padding: 12px 14px;
+		min-width: 0;
+		max-width: 100%;
+		overflow: clip;
 	}
 
 	.query-card summary {
@@ -285,27 +367,52 @@
 		justify-content: space-between;
 		gap: 16px;
 		cursor: pointer;
+		min-width: 0;
+	}
+
+	.query-card summary span:first-child {
+		min-width: 0;
+	}
+
+	.query-card summary .mono {
+		min-width: 0;
+		overflow-wrap: anywhere;
+		text-align: right;
 	}
 
 	.query-meta {
 		display: grid;
-		grid-template-columns: 90px 1fr;
+		grid-template-columns: 90px minmax(0, 1fr);
 		gap: 12px;
 		margin-top: 12px;
 		font-family: var(--font-mono);
 		font-size: 12px;
+		min-width: 0;
+	}
+
+	.query-meta span:last-child {
+		min-width: 0;
+		overflow-wrap: anywhere;
 	}
 
 	.sql {
 		margin: 10px 0 0;
 		padding: 10px;
 		overflow-x: auto;
+		max-width: 100%;
 		background: var(--bg);
 		border: 1px solid var(--rule-soft);
 		color: var(--ink-2);
 		font-family: var(--font-mono);
 		font-size: 11.5px;
 		line-height: 1.45;
+	}
+
+	.sql code {
+		display: block;
+		min-width: 0;
+		width: max-content;
+		max-width: none;
 	}
 
 	.target-head {
@@ -361,6 +468,14 @@
 		font-family: var(--font-mono);
 	}
 
+	.spark-help {
+		margin: -2px 0 6px;
+		color: var(--ink-3);
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		line-height: 1.45;
+	}
+
 	.spark-empty {
 		height: 48px;
 		display: flex;
@@ -372,7 +487,9 @@
 
 	@media (max-width: 760px) {
 		.mini-grid,
-		.detail-split {
+		.detail-split,
+		.workload-lens,
+		.query-bar-row {
 			grid-template-columns: 1fr;
 		}
 	}

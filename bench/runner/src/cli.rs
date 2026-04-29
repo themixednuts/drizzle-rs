@@ -173,7 +173,7 @@ pub enum Class {
 impl Class {
     pub const fn default_trials(self) -> u32 {
         match self {
-            Self::Small => 1,
+            Self::Small => 3,
             Self::Publish => 5,
         }
     }

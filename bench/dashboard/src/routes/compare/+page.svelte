@@ -1,15 +1,7 @@
 <script lang="ts">
-	import { compareMetricOptions } from '$lib/compare';
+	import { compareCategoryOptions } from '$lib/compare';
 	import { compareTargets } from '$lib/compare-form.remote';
-	import {
-		fmtDate,
-		fmtDelta,
-		fmtDuration,
-		fmtPct,
-		runDisplayName,
-		shortHash,
-		suiteLabel
-	} from '$lib/format';
+	import { fmtDate, fmtDuration, runDisplayName, shortHash, suiteLabel } from '$lib/format';
 	import { ComparePageState } from './compare.svelte';
 	import type { PageData } from './$types';
 
@@ -26,7 +18,7 @@
 		<div>
 			<div class="ph-l">/ compare</div>
 			<h1 class="ph-h">compare targets</h1>
-			<div class="ph-sub">rank every target result in one benchmark set</div>
+			<div class="ph-sub">rank every target result in one benchmark set by category shape and sample variance</div>
 		</div>
 		<div class="ph-sub">{view.cohorts.length} benchmark sets available</div>
 	</div>
@@ -41,17 +33,10 @@
 			{/each}
 		</select>
 
-		<label class="filt-l" for="baseline">baseline</label>
-		<select name="baseline" id="baseline" class="sel" value={view.baseline ?? ''} onchange={view.updateComparison}>
-			{#each view.targets as target}
-				<option value={target.key} selected={target.key === view.baseline}>{target.label}</option>
-			{/each}
-		</select>
-
-		<label class="filt-l" for="metric">metric</label>
+		<label class="filt-l" for="metric">category</label>
 		<select name="metric" id="metric" class="sel" onchange={view.updateComparison}>
-			{#each compareMetricOptions as metric}
-				<option value={metric.value} selected={metric.value === view.metric}>{metric.label}</option>
+			{#each compareCategoryOptions as metric}
+				<option value={metric.value} selected={metric.value === view.category}>{metric.label}</option>
 			{/each}
 		</select>
 
@@ -72,12 +57,12 @@
 	{#if view.items}
 		<section class="sec">
 			<div class="sec-h">
-				<span>{view.metric} target ranking</span>
-				<span class="mu">{view.items.length} comparable results</span>
+				<span>{view.categoryLabel} target ranking</span>
+				<span class="mu">{view.items.length} comparable results / bar shows sample variance across trials</span>
 			</div>
 			{#if view.items.length === 0}
 				<div class="empty">
-					<p class="empty-text">No comparable target results found for this metric.</p>
+					<p class="empty-text">No comparable target results found for this category.</p>
 				</div>
 			{:else}
 				<div class="table-scroll">
@@ -85,35 +70,45 @@
 						<thead>
 							<tr>
 								<th>target</th>
-								<th>group</th>
-								<th>runner</th>
-								<th class="n">value</th>
-								<th class="n">baseline</th>
-								<th class="n">delta</th>
-								<th class="n">pct</th>
-								<th class="n">err</th>
-								<th style="width: 180px">change</th>
+								{#each view.columns as column}
+									<th class="n">{column.label}</th>
+								{/each}
+								{#if view.showErrorColumn}
+									<th class="n">err</th>
+								{/if}
+								<th style="width: 320px">variance</th>
 							</tr>
 						</thead>
 						<tbody>
 							{#each view.items as item}
-								{@const cls = view.deltaClass(item.delta_pct)}
-								<tr>
+								{@const display = view.targetDisplay(item)}
+								<tr
+									class={view.rowClass(item)}
+									onpointerenter={() => view.hoverTarget(item)}
+									onpointerleave={view.clearHover}
+								>
 									<td>
-										{item.target_name}
-										<div class="mu mono">{item.target_id}</div>
+										<span class="target-link">{display.name}</span>
+										<span class="target-badges" title={item.target_id}>
+											{#each display.badges as badge, index}
+												{#if index > 0}<span class="target-slash">/</span>{/if}
+												<span>{badge}</span>
+											{/each}
+										</span>
 									</td>
-									<td class="mu">{item.group ?? 'other'}</td>
-									<td class="mu">{item.runner_os}</td>
-									<td class="n">{view.formatMetricValue(item.value)}</td>
-									<td class="n fade">{view.formatMetricValue(item.baseline_value)}</td>
-									<td class="n {cls}">{view.formatMetricValue(item.delta)}</td>
-									<td class="n {cls}">{fmtDelta(item.delta_pct)}</td>
-									<td class="n mu">{fmtPct(item.err)}</td>
+									{#each view.columns as column}
+										{@const value = view.valueFor(item, column.key)}
+										<td class="n">{value ? view.formatValue(value.value) : '-'}</td>
+									{/each}
+									{#if view.showErrorColumn}
+										<td class="n mu">{view.formatValue(item.err, 'err')}</td>
+									{/if}
 									<td>
-										<div class="diff-track">
-											<span class="diff-center"></span>
-											<span class="diff-bar {cls}" style={view.barStyle(item.delta_pct)}></span>
+										<div class="variance-wrap">
+											<div class="variance-track" style={view.varianceStyle(item)}>
+												<span class="variance-bar"></span>
+											</div>
+											<span class="variance-label">{view.varianceLabel(item)}</span>
 										</div>
 									</td>
 								</tr>
@@ -125,7 +120,7 @@
 		</section>
 	{:else if view.cohort}
 		<div class="empty">
-			<p class="empty-text">Select a benchmark set and baseline target.</p>
+			<p class="empty-text">Select a benchmark set with comparable target results.</p>
 		</div>
 	{/if}
 </main>
@@ -134,7 +129,6 @@
 	.compare-form {
 		display: grid;
 		grid-template-columns:
-			auto minmax(180px, 1fr)
 			auto minmax(180px, 1fr)
 			auto minmax(150px, 0.65fr)
 			auto;
@@ -154,35 +148,34 @@
 		margin-top: -10px;
 	}
 
-	.diff-track {
+	.variance-wrap {
+		display: grid;
+		min-width: 260px;
+		gap: 5px;
+	}
+
+	.variance-track {
 		position: relative;
 		width: 100%;
 		height: 14px;
 		background: var(--bg-2);
+		overflow: hidden;
 	}
 
-	.diff-center {
+	.variance-bar {
 		position: absolute;
-		top: 0;
-		bottom: 0;
-		left: 50%;
-		width: 1px;
-		background: var(--rule);
+		top: 3px;
+		bottom: 3px;
+		left: 0;
+		width: var(--variance-width);
+		background: linear-gradient(90deg, var(--acc), var(--ink));
 	}
 
-	.diff-bar {
-		position: absolute;
-		top: 4px;
-		bottom: 4px;
-		background: var(--ink-4);
-	}
-
-	.diff-bar.delta-positive {
-		background: var(--pos);
-	}
-
-	.diff-bar.delta-negative {
-		background: var(--neg);
+	.variance-label {
+		color: var(--ink-3);
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		line-height: 1.25;
 	}
 
 	@media (max-width: 760px) {

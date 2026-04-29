@@ -27,7 +27,7 @@
 		<div class="sec-h"><span>reported metrics</span></div>
 		<table class="t">
 			<tbody>
-				<tr><td class="mu" style="width: 160px">throughput</td><td>average and peak requests per second from the target summary</td></tr>
+				<tr><td class="mu" style="width: 160px">throughput</td><td>average requests per second from trial aggregates and peak requests per second from sampled intervals</td></tr>
 				<tr><td class="mu">latency</td><td>average, p90, p95, p99, and p999 in milliseconds</td></tr>
 				<tr><td class="mu">cpu</td><td>average and peak cpu percentages from run samples</td></tr>
 				<tr><td class="mu">memory</td><td>average and peak memory in MB when the target reports it</td></tr>
@@ -43,7 +43,7 @@
 				<tr><td class="mu" style="width: 160px">load</td><td>executor, stages, duration, max virtual users, and total requests are captured per run</td></tr>
 				<tr><td class="mu">dataset</td><td>customers, employees, orders, suppliers, products, and details-per-order are captured per run</td></tr>
 				<tr><td class="mu">runner</td><td>class, os, cpu model, core count, memory, and headroom are captured per run</td></tr>
-				<tr><td class="mu">trials</td><td>summary artifacts report the trial count, aggregation strategy, spread, and optional ci95 ranges</td></tr>
+				<tr><td class="mu">trials</td><td>summary artifacts report the trial count, median aggregation strategy, trial spread, and optional ci95 ranges</td></tr>
 			</tbody>
 		</table>
 	</section>
@@ -54,6 +54,7 @@
 			<tbody>
 				<tr><td class="mu" style="width: 160px">higher is better</td><td>rps average and rps peak</td></tr>
 				<tr><td class="mu">lower is better</td><td>latency, cpu, memory, and error rate</td></tr>
+				<tr><td class="mu">variance plot</td><td>compare uses a horizontal bar for sample variance across trials and reports stdev plus sample count</td></tr>
 				<tr><td class="mu">saturation</td><td>knee rps and knee p95 show the point where extra load starts trading throughput for latency</td></tr>
 				<tr><td class="mu">caveat</td><td>synthetic benchmarks are ceilings for a workload, not predictions for every application shape</td></tr>
 			</tbody>

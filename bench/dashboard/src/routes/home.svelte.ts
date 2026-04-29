@@ -1,5 +1,6 @@
 import { page } from '$app/state';
 import { fmtCpu, fmtLatency, fmtPct, fmtRps, runDisplayName } from '$lib/format';
+import { targetDisplay } from '$lib/target-display';
 import type { Manifest, RunCohort, RunIndexEntry, SummaryResult } from '$lib/types';
 
 interface RunsPageData {
@@ -40,6 +41,7 @@ export class RunsPageState {
 	#data: () => RunsPageData;
 	#basePath: string;
 	query = $state('');
+	hoverFamilyKey = $state<string | null>(null);
 	suite = $derived(page.url.searchParams.get('suite'));
 	status = $derived(page.url.searchParams.get('status'));
 
@@ -176,8 +178,18 @@ export class RunsPageState {
 		];
 	}
 
+	targetDisplay(summary: SummaryResult) {
+		return targetDisplay(summary);
+	}
+
 	rowClass(summary: SummaryResult): string {
-		return isOurs(summary) ? 'us' : '';
+		const classes = [];
+		const display = targetDisplay(summary);
+		if (isOurs(summary)) classes.push('us');
+		if (this.hoverFamilyKey) {
+			classes.push(display.familyKey === this.hoverFamilyKey ? 'target-related' : 'target-dimmed');
+		}
+		return classes.join(' ');
 	}
 
 	barStyle(summary: SummaryResult): string {
@@ -210,5 +222,13 @@ export class RunsPageState {
 
 	search = (event: Event): void => {
 		this.query = (event.currentTarget as HTMLInputElement).value;
+	};
+
+	hoverTarget = (summary: SummaryResult): void => {
+		this.hoverFamilyKey = targetDisplay(summary).familyKey;
+	};
+
+	clearHover = (): void => {
+		this.hoverFamilyKey = null;
 	};
 }

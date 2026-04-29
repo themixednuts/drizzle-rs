@@ -188,6 +188,124 @@ const orderDetailColumns = {
   productId: orderDetails.productId,
 };
 
+const pCustomers = db
+  .select(customerColumns)
+  .from(customers)
+  .orderBy(customers.id)
+  .limit(sql.placeholder("limit"))
+  .offset(sql.placeholder("offset"))
+  .prepare("customers");
+
+const pCustomerById = db
+  .select(customerColumns)
+  .from(customers)
+  .where(eq(customers.id, sql.placeholder("id")))
+  .prepare("customer_by_id");
+
+const pEmployees = db
+  .select(employeeColumns)
+  .from(employees)
+  .orderBy(employees.id)
+  .limit(sql.placeholder("limit"))
+  .offset(sql.placeholder("offset"))
+  .prepare("employees");
+
+const pSuppliers = db
+  .select(supplierColumns)
+  .from(suppliers)
+  .orderBy(suppliers.id)
+  .limit(sql.placeholder("limit"))
+  .offset(sql.placeholder("offset"))
+  .prepare("suppliers");
+
+const pSupplierById = db
+  .select(supplierColumns)
+  .from(suppliers)
+  .where(eq(suppliers.id, sql.placeholder("id")))
+  .prepare("supplier_by_id");
+
+const pProducts = db
+  .select(productColumns)
+  .from(products)
+  .orderBy(products.id)
+  .limit(sql.placeholder("limit"))
+  .offset(sql.placeholder("offset"))
+  .prepare("products");
+
+const pEmployeeWithRecipient = db
+  .select({
+    ...employeeColumns,
+    recipientLastName: recipient.lastName,
+    recipientFirstName: recipient.firstName,
+  })
+  .from(employees)
+  .leftJoin(recipient, eq(employees.recipientId, recipient.id))
+  .where(eq(employees.id, sql.placeholder("id")))
+  .prepare("employee_with_recipient");
+
+const pProductWithSupplier = db
+  .select({
+    ...productColumns,
+    supplier: supplierColumns,
+  })
+  .from(products)
+  .innerJoin(suppliers, eq(products.supplierId, suppliers.id))
+  .where(eq(products.id, sql.placeholder("id")))
+  .prepare("product_with_supplier");
+
+const pOrdersWithDetails = db
+  .select({
+    id: orders.id,
+    shippedDate: orders.shippedDate,
+    shipName: orders.shipName,
+    shipCity: orders.shipCity,
+    shipCountry: orders.shipCountry,
+    productsCount: sql<number>`count(${orderDetails.productId})::int`,
+    quantitySum: sql<number>`coalesce(sum(${orderDetails.quantity}), 0)::float8`,
+    totalPrice: sql<number>`coalesce(sum(${orderDetails.quantity} * ${orderDetails.unitPrice}), 0)::float8`,
+  })
+  .from(orders)
+  .leftJoin(orderDetails, eq(orders.id, orderDetails.orderId))
+  .groupBy(orders.id)
+  .orderBy(orders.id)
+  .limit(sql.placeholder("limit"))
+  .offset(sql.placeholder("offset"))
+  .prepare("orders_with_details");
+
+const pOrderBase = db
+  .select(orderBaseColumns)
+  .from(orders)
+  .where(eq(orders.id, sql.placeholder("id")))
+  .prepare("order_base");
+
+const pOrderDetails = db
+  .select(orderDetailColumns)
+  .from(orderDetails)
+  .where(eq(orderDetails.orderId, sql.placeholder("id")))
+  .prepare("order_details");
+
+const pOrderDetailProducts = db
+  .select({
+    ...orderDetailColumns,
+    productName: products.name,
+  })
+  .from(orderDetails)
+  .leftJoin(products, eq(orderDetails.productId, products.id))
+  .where(eq(orderDetails.orderId, sql.placeholder("id")))
+  .prepare("order_detail_products");
+
+const pSearchCustomers = db
+  .select(customerColumns)
+  .from(customers)
+  .where(ilike(customers.companyName, sql.placeholder("term")))
+  .prepare("search_customers");
+
+const pSearchProducts = db
+  .select(productColumns)
+  .from(products)
+  .where(ilike(products.name, sql.placeholder("term")))
+  .prepare("search_products");
+
 const server = Bun.serve({
   port: 0,
   hostname: "127.0.0.1",
@@ -197,105 +315,49 @@ const server = Bun.serve({
 
     if (path === "/stats") return jsonResponse(stats());
     if (path === "/customers") {
-      return jsonResponse(
-        await db.select(customerColumns).from(customers).orderBy(customers.id).limit(limitParam(url)).offset(offsetParam(url)),
-      );
+      return jsonResponse(await pCustomers.execute({ limit: limitParam(url), offset: offsetParam(url) }));
     }
     if (path === "/customer-by-id") {
-      return jsonResponse(
-        await db.select(customerColumns).from(customers).where(eq(customers.id, idMod(url, SEED_CUSTOMERS))),
-      );
+      return jsonResponse(await pCustomerById.execute({ id: idMod(url, SEED_CUSTOMERS) }));
     }
     if (path === "/employees") {
-      return jsonResponse(
-        await db.select(employeeColumns).from(employees).orderBy(employees.id).limit(limitParam(url)).offset(offsetParam(url)),
-      );
+      return jsonResponse(await pEmployees.execute({ limit: limitParam(url), offset: offsetParam(url) }));
     }
     if (path === "/suppliers") {
-      return jsonResponse(
-        await db.select(supplierColumns).from(suppliers).orderBy(suppliers.id).limit(limitParam(url)).offset(offsetParam(url)),
-      );
+      return jsonResponse(await pSuppliers.execute({ limit: limitParam(url), offset: offsetParam(url) }));
     }
     if (path === "/supplier-by-id") {
-      return jsonResponse(
-        await db.select(supplierColumns).from(suppliers).where(eq(suppliers.id, idMod(url, SEED_SUPPLIERS))),
-      );
+      return jsonResponse(await pSupplierById.execute({ id: idMod(url, SEED_SUPPLIERS) }));
     }
     if (path === "/products") {
-      return jsonResponse(
-        await db.select(productColumns).from(products).orderBy(products.id).limit(limitParam(url)).offset(offsetParam(url)),
-      );
+      return jsonResponse(await pProducts.execute({ limit: limitParam(url), offset: offsetParam(url) }));
     }
     if (path === "/employee-with-recipient") {
-      return jsonResponse(
-        await db
-          .select({
-            ...employeeColumns,
-            recipientLastName: recipient.lastName,
-            recipientFirstName: recipient.firstName,
-          })
-          .from(employees)
-          .leftJoin(recipient, eq(employees.recipientId, recipient.id))
-          .where(eq(employees.id, idMod(url, SEED_EMPLOYEES))),
-      );
+      return jsonResponse(await pEmployeeWithRecipient.execute({ id: idMod(url, SEED_EMPLOYEES) }));
     }
     if (path === "/product-with-supplier") {
-      return jsonResponse(
-        await db
-          .select({
-            ...productColumns,
-            supplier: supplierColumns,
-          })
-          .from(products)
-          .innerJoin(suppliers, eq(products.supplierId, suppliers.id))
-          .where(eq(products.id, idMod(url, SEED_PRODUCTS))),
-      );
+      return jsonResponse(await pProductWithSupplier.execute({ id: idMod(url, SEED_PRODUCTS) }));
     }
     if (path === "/orders-with-details") {
-      return jsonResponse(
-        await db
-          .select({
-            id: orders.id,
-            shippedDate: orders.shippedDate,
-            shipName: orders.shipName,
-            shipCity: orders.shipCity,
-            shipCountry: orders.shipCountry,
-            productsCount: sql<number>`count(${orderDetails.productId})::int`,
-            quantitySum: sql<number>`coalesce(sum(${orderDetails.quantity}), 0)::float8`,
-            totalPrice: sql<number>`coalesce(sum(${orderDetails.quantity} * ${orderDetails.unitPrice}), 0)::float8`,
-          })
-          .from(orders)
-          .leftJoin(orderDetails, eq(orders.id, orderDetails.orderId))
-          .groupBy(orders.id)
-          .orderBy(orders.id)
-          .limit(limitParam(url))
-          .offset(offsetParam(url)),
-      );
+      return jsonResponse(await pOrdersWithDetails.execute({ limit: limitParam(url), offset: offsetParam(url) }));
     }
     if (path === "/order-with-details") {
       const id = idMod(url, SEED_ORDERS);
-      const orderRows = await db.select(orderBaseColumns).from(orders).where(eq(orders.id, id));
-      const details = await db.select(orderDetailColumns).from(orderDetails).where(eq(orderDetails.orderId, id));
+      const orderRows = await pOrderBase.execute({ id });
+      const details = await pOrderDetails.execute({ id });
       return jsonResponse(withDetails(orderRows, details));
     }
     if (path === "/order-with-details-and-products") {
       const id = idMod(url, SEED_ORDERS);
-      const orderRows = await db.select(orderBaseColumns).from(orders).where(eq(orders.id, id));
-      const details = await db
-        .select({
-          ...orderDetailColumns,
-          productName: products.name,
-        })
-        .from(orderDetails)
-        .leftJoin(products, eq(orderDetails.productId, products.id))
-        .where(eq(orderDetails.orderId, id));
+      const orderRows = await pOrderBase.execute({ id });
+      const details = await pOrderDetailProducts.execute({ id });
       return jsonResponse(withDetails(orderRows, details));
     }
     if (path === "/search-customer") {
-      return jsonResponse(await db.select(customerColumns).from(customers).where(ilike(customers.companyName, termPattern(url))));
+      return jsonResponse(await pSearchCustomers.execute({ term: termPattern(url) }));
     }
     if (path === "/search-product") {
-      return jsonResponse(await db.select(productColumns).from(products).where(ilike(products.name, termPattern(url))));
+      return jsonResponse(await pSearchProducts.execute({ term: termPattern(url) }));
     }
 
     return new Response("Not Found", { status: 404 });
