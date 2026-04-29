@@ -283,6 +283,7 @@ pub struct SpreadDoc {
     pub rps: RangeDoc,
     pub p95: RangeDoc,
     pub variance: VarianceDoc,
+    pub boxplot: BoxPlotDoc,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ci95: Option<CiDoc>,
 }
@@ -301,6 +302,26 @@ pub struct VarianceDoc {
 pub struct VarianceMetricDoc {
     pub value: f64,
     pub stdev: f64,
+    pub samples: u32,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct BoxPlotDoc {
+    pub rps: BoxMetricDoc,
+    pub p95: BoxMetricDoc,
+    pub cpu: BoxMetricDoc,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mem: Option<BoxMetricDoc>,
+    pub err: BoxMetricDoc,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct BoxMetricDoc {
+    pub min: f64,
+    pub q1: f64,
+    pub median: f64,
+    pub q3: f64,
+    pub max: f64,
     pub samples: u32,
 }
 

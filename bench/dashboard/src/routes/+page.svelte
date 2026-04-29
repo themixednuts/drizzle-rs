@@ -1,4 +1,5 @@
 <script lang="ts">
+	import BoxWhisker from '$lib/components/BoxWhisker.svelte';
 	import {
 		fmtCpu,
 		fmtDate,
@@ -90,7 +91,7 @@
 							<th class="n">p99</th>
 							<th class="n">cpu</th>
 							<th class="n">err</th>
-							<th style="width: 160px">throughput</th>
+							<th class="throughput-col">throughput spread</th>
 							<th class="n">vs ours</th>
 						</tr>
 					</thead>
@@ -119,7 +120,15 @@
 								<td class="n fade">{fmtLatency(p.latency.p99)}</td>
 								<td class="n mu">{fmtCpu(p.cpu.avg)}</td>
 								<td class="n mu">{fmtPct(p.err)}</td>
-								<td><span class="bar" class:acc={summary === view.ours} style={view.barStyle(summary)}></span></td>
+								<td class="throughput-col">
+									<BoxWhisker
+										box={view.throughputBox(summary)}
+										extent={view.throughputExtent}
+										label={view.throughputLabel(summary)}
+										summaryLabel={view.throughputSummaryLabel(summary)}
+										accent={summary === view.ours}
+									/>
+								</td>
 								<td class="n {view.deltaClass(summary)}">{view.deltaText(summary)}</td>
 							</tr>
 						{/each}
@@ -178,3 +187,10 @@
 		{/if}
 	</section>
 </main>
+
+<style>
+	.throughput-col {
+		width: 220px;
+		min-width: 200px;
+	}
+</style>

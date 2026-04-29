@@ -167,6 +167,7 @@ impl Suite {
 #[serde(rename_all = "snake_case")]
 pub enum Class {
     Small,
+    Full,
     Publish,
 }
 
@@ -174,6 +175,7 @@ impl Class {
     pub const fn default_trials(self) -> u32 {
         match self {
             Self::Small => 3,
+            Self::Full => 5,
             Self::Publish => 5,
         }
     }

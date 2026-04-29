@@ -6,7 +6,6 @@ use axum::{Json, Router, debug_handler};
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
@@ -713,9 +712,8 @@ async fn customers(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let limit = params.limit_or(50);
     let offset = params.offset();
-    let end = offset + limit;
     let sql = format!(
-        "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE id > {offset} AND id <= {end}"
+        "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers ORDER BY id LIMIT {limit} OFFSET {offset}"
     );
     let messages = pg_query(&state, &sql).await?;
     let mut rows = extract_rows(messages);
@@ -775,9 +773,8 @@ async fn employees_handler(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let limit = params.limit_or(50);
     let offset = params.offset();
-    let end = offset + limit;
     let sql = format!(
-        "SELECT id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, address, city, postal_code, country, home_phone, extension, notes, recipient_id FROM employees WHERE id > {offset} AND id <= {end}"
+        "SELECT id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, address, city, postal_code, country, home_phone, extension, notes, recipient_id FROM employees ORDER BY id LIMIT {limit} OFFSET {offset}"
     );
     let messages = pg_query(&state, &sql).await?;
     let mut rows = extract_rows(messages);
@@ -812,9 +809,8 @@ async fn suppliers_handler(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let limit = params.limit_or(50);
     let offset = params.offset();
-    let end = offset + limit;
     let sql = format!(
-        "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers WHERE id > {offset} AND id <= {end}"
+        "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers ORDER BY id LIMIT {limit} OFFSET {offset}"
     );
     let messages = pg_query(&state, &sql).await?;
     let mut rows = extract_rows(messages);
@@ -872,9 +868,8 @@ async fn products_handler(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let limit = params.limit_or(50);
     let offset = params.offset();
-    let end = offset + limit;
     let sql = format!(
-        "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products WHERE id > {offset} AND id <= {end}"
+        "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products ORDER BY id LIMIT {limit} OFFSET {offset}"
     );
     let messages = pg_query(&state, &sql).await?;
     let mut rows = extract_rows(messages);
@@ -903,29 +898,14 @@ async fn employee_with_recipient(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let id = params.user_id(200);
     let sql = format!(
-        "SELECT id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, \
-         address, city, postal_code, country, home_phone, extension, notes, recipient_id \
-         FROM employees WHERE id = {id}"
+        "SELECT e.id, e.last_name, e.first_name, e.title, e.title_of_courtesy, e.birth_date, e.hire_date, \
+         e.address, e.city, e.postal_code, e.country, e.home_phone, e.extension, e.notes, e.recipient_id, \
+         r.last_name, r.first_name FROM employees e LEFT JOIN employees r ON e.recipient_id = r.id WHERE e.id = {id}"
     );
     let messages = pg_query(&state, &sql).await?;
-    let mut resp = Vec::new();
-    for c in extract_rows(messages) {
-        let recipient_id = col_i32_opt(&c, 14);
-        let (recipient_last_name, recipient_first_name) = if let Some(recipient_id) = recipient_id {
-            let recipient_sql =
-                format!("SELECT last_name, first_name FROM employees WHERE id = {recipient_id}");
-            let recipient = extract_rows(pg_query(&state, &recipient_sql).await?)
-                .into_iter()
-                .next();
-            if let Some(recipient) = recipient {
-                (col_opt(&recipient, 0), col_opt(&recipient, 1))
-            } else {
-                (None, None)
-            }
-        } else {
-            (None, None)
-        };
-        resp.push(EmployeeWithRecipientResponse {
+    let resp: Vec<EmployeeWithRecipientResponse> = extract_rows(messages)
+        .into_iter()
+        .map(|c| EmployeeWithRecipientResponse {
             id: col_i32(&c, 0),
             last_name: col_str(&c, 1),
             first_name: col_opt(&c, 2),
@@ -940,11 +920,11 @@ async fn employee_with_recipient(
             home_phone: col_str(&c, 11),
             extension: col_i32(&c, 12),
             notes: col_str(&c, 13),
-            recipient_id,
-            recipient_last_name,
-            recipient_first_name,
-        });
-    }
+            recipient_id: col_i32_opt(&c, 14),
+            recipient_last_name: col_opt(&c, 15),
+            recipient_first_name: col_opt(&c, 16),
+        })
+        .collect();
     Ok(Json(serde_json::to_value(&resp).unwrap()))
 }
 
@@ -997,54 +977,21 @@ async fn orders_with_details(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let limit = params.limit_or(50);
     let offset = params.offset();
-    let end = offset + limit;
-    let order_sql = format!(
-        "SELECT id, shipped_date, ship_name, ship_city, ship_country FROM orders WHERE id > {offset} AND id <= {end}"
+    let sql = format!(
+        "SELECT o.id, o.shipped_date, o.ship_name, o.ship_city, o.ship_country, count(d.product_id), COALESCE(sum(d.quantity), 0), COALESCE(sum(d.quantity * d.unit_price), 0) \
+         FROM orders o LEFT JOIN order_details d ON o.id = d.order_id GROUP BY o.id ORDER BY o.id LIMIT {limit} OFFSET {offset}"
     );
-    let mut orders = extract_rows(pg_query(&state, &order_sql).await?);
-    sort_by_i32_col(&mut orders, 0);
-    if orders.is_empty() {
-        return Ok(Json(
-            serde_json::to_value(Vec::<OrderWithDetailsResponse>::new()).unwrap(),
-        ));
-    }
-
-    let min_id = orders
-        .first()
-        .map(|row| col_i32(row, 0))
-        .unwrap_or_default();
-    let max_id = orders.last().map(|row| col_i32(row, 0)).unwrap_or(min_id);
-    let detail_sql = format!(
-        "SELECT order_id, product_id, quantity, unit_price FROM order_details WHERE order_id >= {min_id} AND order_id <= {max_id}"
-    );
-    let details = extract_rows(pg_query(&state, &detail_sql).await?);
-    let mut aggregates: BTreeMap<i32, (i32, f64, f64)> = BTreeMap::new();
-    for row in details {
-        let order_id = col_i32(&row, 0);
-        let quantity = col_i32(&row, 2);
-        let unit_price = col_f64(&row, 3);
-        let entry = aggregates.entry(order_id).or_insert((0, 0.0, 0.0));
-        entry.0 += 1;
-        entry.1 += quantity as f64;
-        entry.2 += quantity as f64 * unit_price;
-    }
-
-    let resp: Vec<OrderWithDetailsResponse> = orders
-        .iter()
-        .map(|c| {
-            let id = col_i32(c, 0);
-            let (products_count, quantity_sum, total_price) =
-                aggregates.get(&id).copied().unwrap_or_default();
-            OrderWithDetailsResponse {
-                id,
-                shipped_date: col_i64_opt(c, 1),
-                ship_name: col_str(c, 2),
-                ship_city: col_str(c, 3),
-                ship_country: col_str(c, 4),
-                products_count,
-                quantity_sum,
-                total_price,
-            }
+    let resp: Vec<OrderWithDetailsResponse> = extract_rows(pg_query(&state, &sql).await?)
+        .into_iter()
+        .map(|c| OrderWithDetailsResponse {
+            id: col_i32(&c, 0),
+            shipped_date: col_i64_opt(&c, 1),
+            ship_name: col_str(&c, 2),
+            ship_city: col_str(&c, 3),
+            ship_country: col_str(&c, 4),
+            products_count: col_i32(&c, 5),
+            quantity_sum: col_f64(&c, 6),
+            total_price: col_f64(&c, 7),
         })
         .collect();
     Ok(Json(serde_json::to_value(&resp).unwrap()))
@@ -1208,13 +1155,13 @@ async fn search_customer(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let term = params.term.as_deref().unwrap_or("");
-    let sql = String::from(
-        "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers",
+    let escaped = sql_escape(term);
+    let sql = format!(
+        "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE company_name LIKE '%{escaped}%'"
     );
     let messages = pg_query(&state, &sql).await?;
     let resp: Vec<CustomerResponse> = extract_rows(messages)
         .into_iter()
-        .filter(|c| col_str(c, 1).contains(term))
         .map(|c| CustomerResponse {
             id: col_i32(&c, 0),
             company_name: col_str(&c, 1),
@@ -1238,13 +1185,13 @@ async fn search_product(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let term = params.term.as_deref().unwrap_or("");
-    let sql = String::from(
-        "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products",
+    let escaped = sql_escape(term);
+    let sql = format!(
+        "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products WHERE name LIKE '%{escaped}%'"
     );
     let messages = pg_query(&state, &sql).await?;
     let resp: Vec<ProductResponse> = extract_rows(messages)
         .into_iter()
-        .filter(|c| col_str(c, 1).contains(term))
         .map(|c| ProductResponse {
             id: col_i32(&c, 0),
             name: col_str(&c, 1),

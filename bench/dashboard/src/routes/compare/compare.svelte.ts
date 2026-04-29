@@ -1,5 +1,6 @@
 import { goto } from '$app/navigation';
 import { page } from '$app/state';
+import { boxWhiskerExtent } from '$lib/boxplot';
 import {
 	compareCategoryColumns,
 	compareCategoryLabel,
@@ -51,10 +52,12 @@ export class ComparePageState {
 		return this.category !== 'err';
 	}
 
-	get varianceExtent() {
+	get boxPlotExtent() {
 		const items = this.items ?? [];
-		const max = Math.max(...items.map((item) => item.variance.value));
-		return Number.isFinite(max) && max > 0 ? max : 1;
+		return boxWhiskerExtent(
+			items.map((item) => item.box),
+			items.map((item) => item.sort_value)
+		);
 	}
 
 	formatValue = (value: number, category: CompareCategory = this.category): string => {
@@ -97,16 +100,16 @@ export class ComparePageState {
 		this.hoverFamilyKey = null;
 	};
 
-	varianceStyle = (item: TargetCompareItem): string => {
-		const width = (item.variance.value / this.varianceExtent) * 100;
-		return `--variance-width: ${clamp(width)}%`;
+	boxPlotLabel = (item: TargetCompareItem): string => {
+		const category = this.boxCategory();
+		const fmt = (value: number) => this.formatValue(value, category);
+		return `${item.box.label} / min ${fmt(item.box.min)} / q1 ${fmt(item.box.q1)} / median ${fmt(item.box.median)} / q3 ${fmt(item.box.q3)} / max ${fmt(item.box.max)} / n=${item.box.samples}`;
 	};
 
-	varianceLabel = (item: TargetCompareItem): string => {
-		const category = this.varianceCategory();
-		const variance = this.formatVariance(item.variance.value, category);
-		const stdev = this.formatValue(item.variance.stdev, category);
-		return `${item.variance.label} / var ${variance} / stdev ${stdev} / n=${item.variance.samples}`;
+	boxPlotSummaryLabel = (item: TargetCompareItem): string => {
+		const category = this.boxCategory();
+		const fmt = (value: number) => this.formatValue(value, category);
+		return `min ${fmt(item.box.min)} / q1 ${fmt(item.box.q1)} / med ${fmt(item.box.median)} / q3 ${fmt(item.box.q3)} / max ${fmt(item.box.max)} / n=${item.box.samples}`;
 	};
 
 	updateComparison = (event: Event): void => {
@@ -123,37 +126,7 @@ export class ComparePageState {
 		void goto('/compare?' + params.toString());
 	};
 
-	private formatVariance(value: number, category: CompareCategory): string {
-		if (category === 'rps') return `${formatSquared(value)} rps^2`;
-		if (category === 'latency') return `${formatFixed(value)} ms^2`;
-		if (category === 'cpu') return `${formatFixed(value)} pct^2`;
-		if (category === 'mem') return `${formatFixed(value)} MB^2`;
-		if (category === 'err') return `${formatFixed(value * 10_000)} pp^2`;
-		return formatFixed(value);
-	}
-
-	private varianceCategory(): CompareCategory {
+	private boxCategory(): CompareCategory {
 		return this.category === 'latency' ? 'latency' : this.category;
 	}
-}
-
-function clamp(value: number): number {
-	return Math.max(0, Math.min(100, value));
-}
-
-function formatFixed(value: number): string {
-	const abs = Math.abs(value);
-	if (abs === 0) return '0';
-	if (abs < 0.01) return value.toExponential(2);
-	if (abs >= 1_000_000) return (value / 1_000_000).toFixed(2) + 'M';
-	if (abs >= 1_000) return (value / 1_000).toFixed(2) + 'k';
-	return value.toFixed(2);
-}
-
-function formatSquared(value: number): string {
-	const abs = Math.abs(value);
-	if (abs >= 1_000_000_000_000) return (value / 1_000_000_000_000).toFixed(2) + 'T';
-	if (abs >= 1_000_000) return (value / 1_000_000).toFixed(2) + 'M';
-	if (abs >= 1_000) return (value / 1_000).toFixed(2) + 'k';
-	return formatFixed(value);
 }

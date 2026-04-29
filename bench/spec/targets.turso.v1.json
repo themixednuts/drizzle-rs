@@ -57,8 +57,8 @@
     "version": "v1",
     "id": "turso-sqlite-prepared",
     "display": {
-      "name": "Vanilla Turso SQLite (prepared)",
-      "description": "vanilla Turso driver baseline using the shared SQLite schema with cached prepared statements"
+      "name": "Turso SQLite (prepared)",
+      "description": "Turso driver baseline using the shared SQLite schema with cached prepared statements"
     },
     "group": "turso",
     "lang": "rust",
@@ -111,8 +111,8 @@
     "version": "v1",
     "id": "turso-sqlite-unprepared",
     "display": {
-      "name": "Vanilla Turso SQLite (unprepared)",
-      "description": "vanilla Turso driver baseline using the shared SQLite schema with direct query execution"
+      "name": "Turso SQLite (unprepared)",
+      "description": "Turso driver baseline using the shared SQLite schema with direct query execution"
     },
     "group": "turso",
     "lang": "rust",

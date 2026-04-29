@@ -150,6 +150,33 @@
             }
           }
         },
+        "boxplot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rps",
+            "p95",
+            "cpu",
+            "err"
+          ],
+          "properties": {
+            "rps": {
+              "$ref": "#/$defs/box_metric"
+            },
+            "p95": {
+              "$ref": "#/$defs/box_metric"
+            },
+            "cpu": {
+              "$ref": "#/$defs/box_metric"
+            },
+            "mem": {
+              "$ref": "#/$defs/box_metric"
+            },
+            "err": {
+              "$ref": "#/$defs/box_metric"
+            }
+          }
+        },
         "ci95": {
           "type": "object",
           "additionalProperties": false,
@@ -215,6 +242,44 @@
         },
         "max": {
           "type": "number"
+        }
+      }
+    },
+    "box_metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "min",
+        "q1",
+        "median",
+        "q3",
+        "max",
+        "samples"
+      ],
+      "properties": {
+        "min": {
+          "type": "number",
+          "minimum": 0
+        },
+        "q1": {
+          "type": "number",
+          "minimum": 0
+        },
+        "median": {
+          "type": "number",
+          "minimum": 0
+        },
+        "q3": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max": {
+          "type": "number",
+          "minimum": 0
+        },
+        "samples": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     },

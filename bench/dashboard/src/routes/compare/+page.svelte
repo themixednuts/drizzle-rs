@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { compareCategoryOptions } from '$lib/compare';
 	import { compareTargets } from '$lib/compare-form.remote';
+	import BoxWhisker from '$lib/components/BoxWhisker.svelte';
 	import { fmtDate, fmtDuration, runDisplayName, shortHash, suiteLabel } from '$lib/format';
 	import { ComparePageState } from './compare.svelte';
 	import type { PageData } from './$types';
@@ -18,7 +19,7 @@
 		<div>
 			<div class="ph-l">/ compare</div>
 			<h1 class="ph-h">compare targets</h1>
-			<div class="ph-sub">rank every target result in one benchmark set by category shape and sample variance</div>
+			<div class="ph-sub">rank every target result in one benchmark set by category and trial spread</div>
 		</div>
 		<div class="ph-sub">{view.cohorts.length} benchmark sets available</div>
 	</div>
@@ -58,7 +59,7 @@
 		<section class="sec">
 			<div class="sec-h">
 				<span>{view.categoryLabel} target ranking</span>
-				<span class="mu">{view.items.length} comparable results / bar shows sample variance across trials</span>
+				<span class="mu">{view.items.length} comparable results / box-and-whisker uses one shared low-to-high scale</span>
 			</div>
 			{#if view.items.length === 0}
 				<div class="empty">
@@ -66,7 +67,7 @@
 				</div>
 			{:else}
 				<div class="table-scroll">
-					<table class="t">
+					<table class="t compare-table">
 						<thead>
 							<tr>
 								<th>target</th>
@@ -76,7 +77,7 @@
 								{#if view.showErrorColumn}
 									<th class="n">err</th>
 								{/if}
-								<th style="width: 320px">variance</th>
+								<th>box-and-whisker</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -104,12 +105,12 @@
 										<td class="n mu">{view.formatValue(item.err, 'err')}</td>
 									{/if}
 									<td>
-										<div class="variance-wrap">
-											<div class="variance-track" style={view.varianceStyle(item)}>
-												<span class="variance-bar"></span>
-											</div>
-											<span class="variance-label">{view.varianceLabel(item)}</span>
-										</div>
+										<BoxWhisker
+											box={item.box}
+											extent={view.boxPlotExtent}
+											label={view.boxPlotLabel(item)}
+											summaryLabel={view.boxPlotSummaryLabel(item)}
+										/>
 									</td>
 								</tr>
 							{/each}
@@ -148,34 +149,24 @@
 		margin-top: -10px;
 	}
 
-	.variance-wrap {
-		display: grid;
-		min-width: 260px;
-		gap: 5px;
+	.compare-table {
+		table-layout: fixed;
 	}
 
-	.variance-track {
-		position: relative;
-		width: 100%;
-		height: 14px;
-		background: var(--bg-2);
-		overflow: hidden;
+	.compare-table th:first-child,
+	.compare-table td:first-child {
+		width: 44%;
+		white-space: normal;
 	}
 
-	.variance-bar {
-		position: absolute;
-		top: 3px;
-		bottom: 3px;
-		left: 0;
-		width: var(--variance-width);
-		background: linear-gradient(90deg, var(--acc), var(--ink));
+	.compare-table th.n,
+	.compare-table td.n {
+		width: 54px;
 	}
 
-	.variance-label {
-		color: var(--ink-3);
-		font-family: var(--font-mono);
-		font-size: 10.5px;
-		line-height: 1.25;
+	.compare-table th:last-child,
+	.compare-table td:last-child {
+		width: 236px;
 	}
 
 	@media (max-width: 760px) {

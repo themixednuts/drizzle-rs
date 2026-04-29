@@ -1,4 +1,5 @@
 import { page } from '$app/state';
+import { boxWhiskerExtent, rpsBox } from '$lib/boxplot';
 import { fmtCpu, fmtLatency, fmtPct, fmtRps, runDisplayName } from '$lib/format';
 import { targetDisplay } from '$lib/target-display';
 import type { Manifest, RunCohort, RunIndexEntry, SummaryResult } from '$lib/types';
@@ -137,8 +138,12 @@ export class RunsPageState {
 		return this.leaderboard.find(isOurs) ?? this.leaderboard[0] ?? null;
 	}
 
-	get maxRps() {
-		return Math.max(1, ...this.leaderboard.map((summary) => summary.primary.rps.avg));
+	get throughputExtent() {
+		const leaderboard = this.leaderboard;
+		return boxWhiskerExtent(
+			leaderboard.map((summary) => rpsBox(summary)),
+			leaderboard.map((summary) => summary.primary.rps.avg)
+		);
 	}
 
 	get trendTarget() {
@@ -192,8 +197,18 @@ export class RunsPageState {
 		return classes.join(' ');
 	}
 
-	barStyle(summary: SummaryResult): string {
-		return `width: ${Math.max(4, Math.round((summary.primary.rps.avg / this.maxRps) * 140))}px`;
+	throughputBox(summary: SummaryResult) {
+		return rpsBox(summary);
+	}
+
+	throughputLabel(summary: SummaryResult): string {
+		const box = this.throughputBox(summary);
+		return `rps across trials / min ${fmtRps(box.min)} / q1 ${fmtRps(box.q1)} / median ${fmtRps(box.median)} / q3 ${fmtRps(box.q3)} / max ${fmtRps(box.max)} / n=${box.samples}`;
+	}
+
+	throughputSummaryLabel(summary: SummaryResult): string {
+		const box = this.throughputBox(summary);
+		return `min ${fmtRps(box.min)} / med ${fmtRps(box.median)} / max ${fmtRps(box.max)} / n=${box.samples}`;
 	}
 
 	deltaText(summary: SummaryResult): string {

@@ -198,6 +198,7 @@ export interface Spread {
 	rps: MinMax;
 	p95: MinMax;
 	variance: Variance;
+	boxplot?: BoxPlot;
 	ci95?: { rps?: MinMax; p95?: MinMax };
 }
 
@@ -217,6 +218,23 @@ export interface Variance {
 export interface VarianceMetric {
 	value: number;
 	stdev: number;
+	samples: number;
+}
+
+export interface BoxPlot {
+	rps: BoxMetric;
+	p95: BoxMetric;
+	cpu: BoxMetric;
+	mem?: BoxMetric;
+	err: BoxMetric;
+}
+
+export interface BoxMetric {
+	min: number;
+	q1: number;
+	median: number;
+	q3: number;
+	max: number;
 	samples: number;
 }
 
@@ -277,6 +295,16 @@ export interface TargetCompareVariance {
 	samples: number;
 }
 
+export interface TargetCompareBox {
+	label: string;
+	min: number;
+	q1: number;
+	median: number;
+	q3: number;
+	max: number;
+	samples: number;
+}
+
 export interface TargetCompareItem {
 	target_key: string;
 	target_id: string;
@@ -288,6 +316,7 @@ export interface TargetCompareItem {
 	values: TargetCompareValue[];
 	sort_value: number;
 	variance: TargetCompareVariance;
+	box: TargetCompareBox;
 	err: number;
 }
 

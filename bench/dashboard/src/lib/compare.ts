@@ -1,4 +1,4 @@
-import type { Summary, VarianceMetric } from './types';
+import type { BoxMetric, MinMax, Summary, VarianceMetric } from './types';
 
 export const compareCategoryOptions = [
 	{ value: 'rps', label: 'RPS' },
@@ -36,6 +36,16 @@ export interface CompareVariance {
 	label: string;
 	value: number;
 	stdev: number;
+	samples: number;
+}
+
+export interface CompareBoxPlot {
+	label: string;
+	min: number;
+	q1: number;
+	median: number;
+	q3: number;
+	max: number;
 	samples: number;
 }
 
@@ -196,6 +206,33 @@ export function extractCompareCategoryVariance(
 	}
 }
 
+export function extractCompareCategoryBox(summary: Summary, category: CompareCategory): CompareBoxPlot | null {
+	const primary = summary.primary;
+	const trials = summary.spread.trials;
+	const boxplot = summary.spread.boxplot;
+
+	switch (category) {
+		case 'rps':
+			return boxOrRange('rps across trials', boxplot?.rps, summary.spread.rps, primary.rps.avg, trials);
+		case 'latency':
+			return boxOrRange('p95 across trials', boxplot?.p95, summary.spread.p95, primary.latency.p95, trials);
+		case 'cpu':
+			return boxOrStdev('cpu avg across trials', boxplot?.cpu, primary.cpu.avg, summary.spread.variance?.cpu, trials);
+		case 'mem':
+			return primary.mem
+				? boxOrStdev(
+						'memory avg across trials',
+						boxplot?.mem,
+						primary.mem.avg,
+						summary.spread.variance?.mem,
+						trials
+					)
+				: null;
+		case 'err':
+			return boxOrStdev('error rate across trials', boxplot?.err, primary.err, summary.spread.variance?.err, trials);
+	}
+}
+
 export function extractCompareMetric(summary: Summary, metric: CompareMetric): number | null {
 	const primary = summary.primary;
 
@@ -237,4 +274,43 @@ function metricCategory(metric: CompareMetric): CompareCategory {
 
 function varianceOrZero(metric: VarianceMetric | undefined, trials: number): VarianceMetric {
 	return metric ?? { value: 0, stdev: 0, samples: trials };
+}
+
+function boxOrRange(
+	label: string,
+	box: BoxMetric | undefined,
+	range: MinMax,
+	median: number,
+	trials: number
+): CompareBoxPlot {
+	if (box) return { label, ...box };
+	return {
+		label,
+		min: range.min,
+		q1: range.min,
+		median,
+		q3: range.max,
+		max: range.max,
+		samples: trials
+	};
+}
+
+function boxOrStdev(
+	label: string,
+	box: BoxMetric | undefined,
+	median: number,
+	variance: VarianceMetric | undefined,
+	trials: number
+): CompareBoxPlot {
+	if (box) return { label, ...box };
+	const stdev = variance?.stdev ?? 0;
+	return {
+		label,
+		min: Math.max(0, median - stdev),
+		q1: Math.max(0, median - stdev / 2),
+		median,
+		q3: median + stdev / 2,
+		max: median + stdev,
+		samples: variance?.samples ?? trials
+	};
 }

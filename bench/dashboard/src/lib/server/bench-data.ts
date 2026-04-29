@@ -10,6 +10,7 @@ import {
 import {
 	extractCompareCategorySortValue,
 	extractCompareCategoryValues,
+	extractCompareCategoryBox,
 	extractCompareCategoryVariance,
 	extractCompareMetric,
 	isCompareMetric,
@@ -397,7 +398,8 @@ export function comparePageData(
 				summary,
 				sortValue: extractCompareCategorySortValue(summary, category),
 				values: extractCompareCategoryValues(summary, category),
-				variance: extractCompareCategoryVariance(summary, category)
+				variance: extractCompareCategoryVariance(summary, category),
+				box: extractCompareCategoryBox(summary, category)
 			}))
 			.filter(
 				(
@@ -407,10 +409,15 @@ export function comparePageData(
 					sortValue: number;
 					values: NonNullable<ReturnType<typeof extractCompareCategoryValues>>;
 					variance: NonNullable<ReturnType<typeof extractCompareCategoryVariance>>;
-				} => item.sortValue !== null && item.values !== null && item.variance !== null
+					box: NonNullable<ReturnType<typeof extractCompareCategoryBox>>;
+				} =>
+					item.sortValue !== null &&
+					item.values !== null &&
+					item.variance !== null &&
+					item.box !== null
 			);
 		const items: TargetCompareItem[] = comparable
-			.map(({ summary, sortValue, values, variance }) => {
+			.map(({ summary, sortValue, values, variance, box }) => {
 				return {
 					target_key: summary.target_key,
 					target_id: summary.target_id,
@@ -422,6 +429,7 @@ export function comparePageData(
 					values,
 					sort_value: sortValue,
 					variance,
+					box,
 					err: summary.primary.err
 				};
 			})

@@ -36,7 +36,7 @@ const GROUP_NAMES = new Map([
 	['bun-sql', 'Bun SQL'],
 	['tokio-postgres', 'tokio-postgres'],
 	['rusqlite', 'rusqlite'],
-	['turso', 'Vanilla Turso'],
+	['turso', 'Turso'],
 	['spacetimedb', 'SpacetimeDB']
 ]);
 

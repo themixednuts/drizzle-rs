@@ -12,6 +12,14 @@ on:
     - cron: '0 4 * * 1'  # weekly Monday 04:00 UTC
   workflow_dispatch:
     inputs:
+      benchmark_size:
+        description: Benchmark workload to run
+        required: false
+        type: choice
+        options:
+          - full
+          - preview
+        default: full
       publish_to_r2:
         description: Publish manual main runs to Cloudflare R2
         required: false
@@ -25,6 +33,7 @@ env:
   CARGO_TERM_COLOR: always
   RUST_VERSION: "1.95"
   NODE_VERSION: "24"
+  BENCHMARK_SIZE: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_size || 'full' }}
   PUBLISH_TO_R2: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_to_r2 && github.ref == 'refs/heads/main') }}
   R2_BUCKET: drizzle-bench
 
@@ -74,11 +83,13 @@ jobs:
         id: runner
         shell: bash
         run: |
-          class="small"
-          workload="bench/spec/workload.preview.v1.json"
-          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+          class="full"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            class="small"
+            workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
-            workload="bench/spec/workload.throughput.v1.json"
           fi
 
           out="bench-out/sqlite-${{ matrix.platform }}"
@@ -104,9 +115,9 @@ jobs:
       - name: Validate runner artifacts
         shell: bash
         run: |
-          workload="bench/spec/workload.preview.v1.json"
-          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
-            workload="bench/spec/workload.throughput.v1.json"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            workload="bench/spec/workload.preview.v1.json"
           fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/sqlite-${{ matrix.platform }}/runs/${{ steps.runner.outputs.run_id }}" \
@@ -212,11 +223,13 @@ jobs:
         env:
           DATABASE_URL: ${{ steps.pgurl.outputs.url }}
         run: |
-          class="small"
-          workload="bench/spec/workload.preview.v1.json"
-          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+          class="full"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            class="small"
+            workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
-            workload="bench/spec/workload.throughput.v1.json"
           fi
 
           out="bench-out/postgres-linux"
@@ -242,9 +255,9 @@ jobs:
       - name: Validate runner artifacts
         shell: bash
         run: |
-          workload="bench/spec/workload.preview.v1.json"
-          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
-            workload="bench/spec/workload.throughput.v1.json"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            workload="bench/spec/workload.preview.v1.json"
           fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/postgres-linux/runs/${{ steps.runner.outputs.run_id }}" \
@@ -350,11 +363,13 @@ jobs:
         env:
           DATABASE_URL: ${{ steps.pgurl.outputs.url }}
         run: |
-          class="small"
-          workload="bench/spec/workload.preview.v1.json"
-          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+          class="full"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            class="small"
+            workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
-            workload="bench/spec/workload.throughput.v1.json"
           fi
 
           out="bench-out/postgres-rust-orms-linux"
@@ -380,9 +395,9 @@ jobs:
       - name: Validate runner artifacts
         shell: bash
         run: |
-          workload="bench/spec/workload.preview.v1.json"
-          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
-            workload="bench/spec/workload.throughput.v1.json"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            workload="bench/spec/workload.preview.v1.json"
           fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/postgres-rust-orms-linux/runs/${{ steps.runner.outputs.run_id }}" \
@@ -509,11 +524,13 @@ jobs:
         env:
           DATABASE_URL: ${{ steps.pgurl.outputs.url }}
         run: |
-          class="small"
-          workload="bench/spec/workload.preview.v1.json"
-          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+          class="full"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            class="small"
+            workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
-            workload="bench/spec/workload.throughput.v1.json"
           fi
 
           out="bench-out/postgres-ts-linux"
@@ -539,9 +556,9 @@ jobs:
       - name: Validate runner artifacts
         shell: bash
         run: |
-          workload="bench/spec/workload.preview.v1.json"
-          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
-            workload="bench/spec/workload.throughput.v1.json"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            workload="bench/spec/workload.preview.v1.json"
           fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/postgres-ts-linux/runs/${{ steps.runner.outputs.run_id }}" \
@@ -665,11 +682,13 @@ jobs:
           SPACETIME_MODULE: "bench-module"
           SPACETIME_TOKEN: ${{ steps.spacetime-token.outputs.token }}
         run: |
-          class="small"
-          workload="bench/spec/workload.preview.v1.json"
-          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+          class="full"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            class="small"
+            workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
-            workload="bench/spec/workload.throughput.v1.json"
           fi
 
           out="bench-out/spacetimedb-linux"
@@ -695,9 +714,9 @@ jobs:
       - name: Validate runner artifacts
         shell: bash
         run: |
-          workload="bench/spec/workload.preview.v1.json"
-          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
-            workload="bench/spec/workload.throughput.v1.json"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            workload="bench/spec/workload.preview.v1.json"
           fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/spacetimedb-linux/runs/${{ steps.runner.outputs.run_id }}" \
@@ -753,11 +772,13 @@ jobs:
         id: runner
         shell: bash
         run: |
-          class="small"
-          workload="bench/spec/workload.preview.v1.json"
-          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+          class="full"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            class="small"
+            workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
-            workload="bench/spec/workload.throughput.v1.json"
           fi
 
           out="bench-out/turso-linux"
@@ -783,9 +804,9 @@ jobs:
       - name: Validate runner artifacts
         shell: bash
         run: |
-          workload="bench/spec/workload.preview.v1.json"
-          if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
-            workload="bench/spec/workload.throughput.v1.json"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
+            workload="bench/spec/workload.preview.v1.json"
           fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/turso-linux/runs/${{ steps.runner.outputs.run_id }}" \

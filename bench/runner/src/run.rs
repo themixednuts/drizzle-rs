@@ -1,10 +1,11 @@
 use crate::cli::{Class, Cli, Cmd, Run, Validate};
 use crate::code::{Code, Fail};
 use crate::model::{
-    Artifacts, AvgPeakDoc, CiDoc, DatasetSummary, Event, Exec, Gate, Gates, Headroom, LatencyDoc,
-    Limits, LoadSummary, ManifestDoc, Point, PrimaryDoc, QueryDoc, QueryShapeDoc, RangeDoc,
-    RequestDoc, ResultDoc, Runner, SaturationDoc, SpreadDoc, Status, SummaryDoc, Target,
-    TargetMetaDoc, TimeseriesDoc, TrialMeta, VarianceDoc, VarianceMetricDoc, Workload,
+    Artifacts, AvgPeakDoc, BoxMetricDoc, BoxPlotDoc, CiDoc, DatasetSummary, Event, Exec, Gate,
+    Gates, Headroom, LatencyDoc, Limits, LoadSummary, ManifestDoc, Point, PrimaryDoc, QueryDoc,
+    QueryShapeDoc, RangeDoc, RequestDoc, ResultDoc, Runner, SaturationDoc, SpreadDoc, Status,
+    SummaryDoc, Target, TargetMetaDoc, TimeseriesDoc, TrialMeta, VarianceDoc, VarianceMetricDoc,
+    Workload,
 };
 use parquet::data_type::{ByteArray, ByteArrayType, DoubleType};
 use parquet::file::properties::WriterProperties;
@@ -56,13 +57,13 @@ fn run(args: Run) -> Result<Code, Fail> {
     emit(&mut events, args.json, "info", "validate", "ok")?;
 
     let seed = resolve_seed(args.class, args.seed, input.seed);
-    if matches!(args.class, Class::Publish) && args.seed.is_some() {
+    if matches!(args.class, Class::Full | Class::Publish) && args.seed.is_some() {
         emit(
             &mut events,
             args.json,
             "info",
             "validate",
-            "ignored --seed for publish class; using workload seed",
+            "ignored --seed for full/publish class; using workload seed",
         )?;
     }
 
@@ -2111,6 +2112,17 @@ fn compute_spread(measurements: &[TrialMeasurement], trials: u32) -> SpreadDoc {
             },
             err: variance_metric(&err),
         },
+        boxplot: BoxPlotDoc {
+            rps: box_metric(&rps),
+            p95: box_metric(&p95),
+            cpu: box_metric(&cpu),
+            mem: if mem.is_empty() {
+                None
+            } else {
+                Some(box_metric(&mem))
+            },
+            err: box_metric(&err),
+        },
         ci95: ci95(&rps, &p95),
     }
 }
@@ -2562,7 +2574,7 @@ fn validate_workload(workload: &Workload) -> Result<(), Fail> {
 
 fn resolve_seed(class: Class, seed: Option<u64>, workload_seed: u64) -> u64 {
     match class {
-        Class::Publish => workload_seed,
+        Class::Full | Class::Publish => workload_seed,
         Class::Small => seed.unwrap_or(workload_seed),
     }
 }
@@ -2711,6 +2723,7 @@ fn sha256_file(path: &Path) -> Result<String, Fail> {
 fn class_name(class: Class) -> &'static str {
     match class {
         Class::Small => "small",
+        Class::Full => "full",
         Class::Publish => "publish",
     }
 }
@@ -2729,11 +2742,58 @@ fn median(values: &[f64]) -> f64 {
     }
     let mut items = values.to_vec();
     items.sort_by(f64::total_cmp);
+    median_sorted(&items)
+}
+
+fn median_sorted(items: &[f64]) -> f64 {
+    if items.is_empty() {
+        return 0.0;
+    }
     let mid = items.len() / 2;
     if items.len() % 2 == 1 {
         items[mid]
     } else {
         (items[mid - 1] + items[mid]) / 2.0
+    }
+}
+
+fn box_metric(values: &[f64]) -> BoxMetricDoc {
+    if values.is_empty() {
+        return BoxMetricDoc {
+            min: 0.0,
+            q1: 0.0,
+            median: 0.0,
+            q3: 0.0,
+            max: 0.0,
+            samples: 0,
+        };
+    }
+
+    let mut items = values.to_vec();
+    items.sort_by(f64::total_cmp);
+    let mid = items.len() / 2;
+    let (lower, upper) = if items.len().is_multiple_of(2) {
+        (&items[..mid], &items[mid..])
+    } else {
+        (&items[..mid], &items[mid + 1..])
+    };
+    let median = median_sorted(&items);
+
+    BoxMetricDoc {
+        min: items[0],
+        q1: if lower.is_empty() {
+            median
+        } else {
+            median_sorted(lower)
+        },
+        median,
+        q3: if upper.is_empty() {
+            median
+        } else {
+            median_sorted(upper)
+        },
+        max: *items.last().unwrap_or(&0.0),
+        samples: items.len() as u32,
     }
 }
 
@@ -2813,7 +2873,7 @@ fn max(values: &[f64]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        MIX_SEARCH_CUSTOMER, MIX_SEARCH_PRODUCT, TrialMeasurement, combined_series,
+        MIX_SEARCH_CUSTOMER, MIX_SEARCH_PRODUCT, TrialMeasurement, box_metric, combined_series,
         compute_primary, compute_spread, query_catalog_total_mix, request_path_skipped,
         resolve_seed, sample_variance,
     };
@@ -2824,6 +2884,12 @@ mod tests {
     fn publish_seed_ignores_cli_override() {
         assert_eq!(resolve_seed(Class::Publish, Some(42), 17), 17);
         assert_eq!(resolve_seed(Class::Publish, None, 17), 17);
+    }
+
+    #[test]
+    fn full_seed_ignores_cli_override() {
+        assert_eq!(resolve_seed(Class::Full, Some(42), 17), 17);
+        assert_eq!(resolve_seed(Class::Full, None, 17), 17);
     }
 
     #[test]
@@ -2870,6 +2936,13 @@ mod tests {
         );
         assert_eq!(spread.variance.rps.stdev, 100.0);
         assert_eq!(spread.variance.rps.samples, 3);
+        assert_eq!(spread.boxplot.rps.min, 100.0);
+        assert_eq!(spread.boxplot.rps.q1, 100.0);
+        assert_eq!(spread.boxplot.rps.median, 200.0);
+        assert_eq!(spread.boxplot.rps.q3, 300.0);
+        assert_eq!(spread.boxplot.rps.max, 300.0);
+        assert_eq!(box_metric(&[100.0, 200.0, 300.0, 400.0]).q1, 150.0);
+        assert_eq!(box_metric(&[100.0, 200.0, 300.0, 400.0]).q3, 350.0);
     }
 
     #[test]
