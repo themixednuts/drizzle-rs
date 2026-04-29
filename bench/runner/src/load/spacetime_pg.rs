@@ -705,6 +705,32 @@ async fn pg_query(state: &AppState, sql: &str) -> Result<Vec<SimpleQueryMessage>
     })
 }
 
+async fn pg_rows(state: &AppState, sql: &str) -> Result<Vec<Vec<Option<String>>>, StatusCode> {
+    Ok(extract_rows(pg_query(state, sql).await?))
+}
+
+async fn pg_sorted_rows(
+    state: &AppState,
+    sql: &str,
+    sort_col: usize,
+) -> Result<Vec<Vec<Option<String>>>, StatusCode> {
+    // SpacetimeDB PGWire only supports a subset of PostgreSQL SQL. Keep the
+    // HTTP contract intact by doing stable ordering in the target process.
+    let mut rows = pg_rows(state, sql).await?;
+    sort_by_i32_col(&mut rows, sort_col);
+    Ok(rows)
+}
+
+fn id_window(offset: usize, limit: usize) -> Option<(usize, usize)> {
+    if limit == 0 {
+        return None;
+    }
+
+    let start = offset.saturating_add(1);
+    let end = offset.saturating_add(limit);
+    Some((start, end))
+}
+
 #[debug_handler(state = AppState)]
 async fn customers(
     State(state): State<AppState>,
@@ -712,12 +738,14 @@ async fn customers(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let limit = params.limit_or(50);
     let offset = params.offset();
-    let sql = format!(
-        "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers ORDER BY id LIMIT {limit} OFFSET {offset}"
-    );
-    let messages = pg_query(&state, &sql).await?;
-    let mut rows = extract_rows(messages);
-    sort_by_i32_col(&mut rows, 0);
+    let rows = if let Some((start, end)) = id_window(offset, limit) {
+        let sql = format!(
+            "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE id >= {start} AND id <= {end}"
+        );
+        pg_sorted_rows(&state, &sql, 0).await?
+    } else {
+        Vec::new()
+    };
     let resp: Vec<CustomerResponse> = rows
         .into_iter()
         .map(|c| CustomerResponse {
@@ -773,12 +801,14 @@ async fn employees_handler(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let limit = params.limit_or(50);
     let offset = params.offset();
-    let sql = format!(
-        "SELECT id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, address, city, postal_code, country, home_phone, extension, notes, recipient_id FROM employees ORDER BY id LIMIT {limit} OFFSET {offset}"
-    );
-    let messages = pg_query(&state, &sql).await?;
-    let mut rows = extract_rows(messages);
-    sort_by_i32_col(&mut rows, 0);
+    let rows = if let Some((start, end)) = id_window(offset, limit) {
+        let sql = format!(
+            "SELECT id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, address, city, postal_code, country, home_phone, extension, notes, recipient_id FROM employees WHERE id >= {start} AND id <= {end}"
+        );
+        pg_sorted_rows(&state, &sql, 0).await?
+    } else {
+        Vec::new()
+    };
     let resp: Vec<EmployeeResponse> = rows
         .into_iter()
         .map(|c| EmployeeResponse {
@@ -809,12 +839,14 @@ async fn suppliers_handler(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let limit = params.limit_or(50);
     let offset = params.offset();
-    let sql = format!(
-        "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers ORDER BY id LIMIT {limit} OFFSET {offset}"
-    );
-    let messages = pg_query(&state, &sql).await?;
-    let mut rows = extract_rows(messages);
-    sort_by_i32_col(&mut rows, 0);
+    let rows = if let Some((start, end)) = id_window(offset, limit) {
+        let sql = format!(
+            "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers WHERE id >= {start} AND id <= {end}"
+        );
+        pg_sorted_rows(&state, &sql, 0).await?
+    } else {
+        Vec::new()
+    };
     let resp: Vec<SupplierResponse> = rows
         .into_iter()
         .map(|c| SupplierResponse {
@@ -868,12 +900,14 @@ async fn products_handler(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let limit = params.limit_or(50);
     let offset = params.offset();
-    let sql = format!(
-        "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products ORDER BY id LIMIT {limit} OFFSET {offset}"
-    );
-    let messages = pg_query(&state, &sql).await?;
-    let mut rows = extract_rows(messages);
-    sort_by_i32_col(&mut rows, 0);
+    let rows = if let Some((start, end)) = id_window(offset, limit) {
+        let sql = format!(
+            "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products WHERE id >= {start} AND id <= {end}"
+        );
+        pg_sorted_rows(&state, &sql, 0).await?
+    } else {
+        Vec::new()
+    };
     let resp: Vec<ProductResponse> = rows
         .into_iter()
         .map(|c| ProductResponse {
@@ -897,15 +931,28 @@ async fn employee_with_recipient(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let id = params.user_id(200);
-    let sql = format!(
-        "SELECT e.id, e.last_name, e.first_name, e.title, e.title_of_courtesy, e.birth_date, e.hire_date, \
-         e.address, e.city, e.postal_code, e.country, e.home_phone, e.extension, e.notes, e.recipient_id, \
-         r.last_name, r.first_name FROM employees e LEFT JOIN employees r ON e.recipient_id = r.id WHERE e.id = {id}"
+    let employee_sql = format!(
+        "SELECT id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, \
+         address, city, postal_code, country, home_phone, extension, notes, recipient_id \
+         FROM employees WHERE id = {id}"
     );
-    let messages = pg_query(&state, &sql).await?;
-    let resp: Vec<EmployeeWithRecipientResponse> = extract_rows(messages)
-        .into_iter()
-        .map(|c| EmployeeWithRecipientResponse {
+    let employee_rows = pg_rows(&state, &employee_sql).await?;
+    let mut resp = Vec::with_capacity(employee_rows.len());
+    for c in employee_rows {
+        let recipient_id = col_i32_opt(&c, 14);
+        let (recipient_last_name, recipient_first_name) = if let Some(recipient_id) = recipient_id {
+            let recipient_sql =
+                format!("SELECT last_name, first_name FROM employees WHERE id = {recipient_id}");
+            let recipient_rows = pg_rows(&state, &recipient_sql).await?;
+            match recipient_rows.first() {
+                Some(row) => (col_opt(row, 0), col_opt(row, 1)),
+                None => (None, None),
+            }
+        } else {
+            (None, None)
+        };
+
+        resp.push(EmployeeWithRecipientResponse {
             id: col_i32(&c, 0),
             last_name: col_str(&c, 1),
             first_name: col_opt(&c, 2),
@@ -920,11 +967,11 @@ async fn employee_with_recipient(
             home_phone: col_str(&c, 11),
             extension: col_i32(&c, 12),
             notes: col_str(&c, 13),
-            recipient_id: col_i32_opt(&c, 14),
-            recipient_last_name: col_opt(&c, 15),
-            recipient_first_name: col_opt(&c, 16),
-        })
-        .collect();
+            recipient_id,
+            recipient_last_name,
+            recipient_first_name,
+        });
+    }
     Ok(Json(serde_json::to_value(&resp).unwrap()))
 }
 
@@ -977,23 +1024,48 @@ async fn orders_with_details(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let limit = params.limit_or(50);
     let offset = params.offset();
-    let sql = format!(
-        "SELECT o.id, o.shipped_date, o.ship_name, o.ship_city, o.ship_country, count(d.product_id), COALESCE(sum(d.quantity), 0), COALESCE(sum(d.quantity * d.unit_price), 0) \
-         FROM orders o LEFT JOIN order_details d ON o.id = d.order_id GROUP BY o.id ORDER BY o.id LIMIT {limit} OFFSET {offset}"
+    let Some((start, end)) = id_window(offset, limit) else {
+        return Ok(Json(
+            serde_json::to_value(Vec::<OrderWithDetailsResponse>::new()).unwrap(),
+        ));
+    };
+    let order_sql = format!(
+        "SELECT id, shipped_date, ship_name, ship_city, ship_country FROM orders WHERE id >= {start} AND id <= {end}"
     );
-    let resp: Vec<OrderWithDetailsResponse> = extract_rows(pg_query(&state, &sql).await?)
-        .into_iter()
-        .map(|c| OrderWithDetailsResponse {
-            id: col_i32(&c, 0),
+    let order_rows = pg_sorted_rows(&state, &order_sql, 0).await?;
+    let detail_sql = format!(
+        "SELECT quantity, unit_price, product_id, order_id FROM order_details WHERE order_id >= {start} AND order_id <= {end}"
+    );
+    let detail_rows = pg_rows(&state, &detail_sql).await?;
+
+    let mut resp = Vec::with_capacity(order_rows.len());
+    for c in order_rows {
+        let id = col_i32(&c, 0);
+        let products_count = detail_rows
+            .iter()
+            .filter(|row| col_i32(row, 3) == id && col_i32(row, 2) != 0)
+            .count() as i32;
+        let quantity_sum = detail_rows
+            .iter()
+            .filter(|row| col_i32(row, 3) == id)
+            .map(|row| col_i32(row, 0) as f64)
+            .sum::<f64>();
+        let total_price = detail_rows
+            .iter()
+            .filter(|row| col_i32(row, 3) == id)
+            .map(|row| col_i32(row, 0) as f64 * col_f64(row, 1))
+            .sum::<f64>();
+        resp.push(OrderWithDetailsResponse {
+            id,
             shipped_date: col_i64_opt(&c, 1),
             ship_name: col_str(&c, 2),
             ship_city: col_str(&c, 3),
             ship_country: col_str(&c, 4),
-            products_count: col_i32(&c, 5),
-            quantity_sum: col_f64(&c, 6),
-            total_price: col_f64(&c, 7),
-        })
-        .collect();
+            products_count,
+            quantity_sum,
+            total_price,
+        });
+    }
     Ok(Json(serde_json::to_value(&resp).unwrap()))
 }
 
