@@ -7,6 +7,7 @@ mod parity;
 mod publish;
 mod run;
 mod schema;
+mod workload_terms;
 
 use clap::Parser;
 use std::process::ExitCode;

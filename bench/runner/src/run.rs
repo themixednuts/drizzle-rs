@@ -7,6 +7,7 @@ use crate::model::{
     SpreadDoc, Status, SummaryDoc, Target, TargetMetaDoc, TimeseriesDoc, TrialMeta, VarianceDoc,
     VarianceMetricDoc, Workload,
 };
+use crate::workload_terms::{CUSTOMER_SEARCH_TERMS, PRODUCT_SEARCH_TERMS};
 use parquet::data_type::{ByteArray, ByteArrayType, DoubleType};
 use parquet::file::properties::WriterProperties;
 use parquet::file::writer::SerializedFileWriter;
@@ -500,28 +501,16 @@ fn materialize_requests(
         }
 
         // 5k search-customer requests
-        let customer_searches = [
-            "ve", "ey", "or", "bb", "te", "ab", "ca", "ki", "ap", "be", "ct", "hi", "er", "pr",
-            "pi", "en", "au", "ra", "ti", "ke", "ou", "ur", "me", "ea", "op", "at", "ne", "na",
-            "os", "ri", "on", "ha", "il", "to", "as", "io", "di", "zy", "az", "la", "ko", "st",
-            "gh", "ug", "ac", "cc", "ch", "hu", "re", "an",
-        ];
         for i in 0..MIX_SEARCH_CUSTOMER {
-            let term = customer_searches[i % customer_searches.len()];
+            let term = CUSTOMER_SEARCH_TERMS[i % CUSTOMER_SEARCH_TERMS.len()];
             let mut q = BTreeMap::new();
             q.insert("term".to_string(), term.to_string());
             pool.push(req("/search-customer", q));
         }
 
         // 50k search-product requests (same search terms)
-        let product_searches = [
-            "ha", "ey", "or", "po", "te", "ab", "er", "ke", "ap", "be", "en", "au", "ra", "ti",
-            "su", "sa", "hi", "nu", "ge", "pi", "ou", "ur", "me", "ea", "tu", "at", "ne", "na",
-            "os", "ri", "on", "ka", "il", "to", "as", "io", "di", "za", "fa", "la", "ko", "st",
-            "gh", "ug", "ac", "cc", "ch", "pa", "re", "an",
-        ];
         for i in 0..MIX_SEARCH_PRODUCT {
-            let term = product_searches[i % product_searches.len()];
+            let term = PRODUCT_SEARCH_TERMS[i % PRODUCT_SEARCH_TERMS.len()];
             let mut q = BTreeMap::new();
             q.insert("term".to_string(), term.to_string());
             pool.push(req("/search-product", q));

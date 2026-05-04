@@ -1,4 +1,5 @@
 use super::*;
+use crate::workload_terms::{CUSTOMER_SEARCH_TERMS, PRODUCT_SEARCH_TERMS};
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::routing::get;
@@ -310,7 +311,10 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         let row = format!(
             "({}, '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}')",
             id,
-            sql_escape(&format!("Company-{i}")),
+            sql_escape(&format!(
+                "C-{}-{i}",
+                CUSTOMER_SEARCH_TERMS[i % CUSTOMER_SEARCH_TERMS.len()]
+            )),
             sql_escape(&format!("Contact-{i}")),
             sql_escape(&format!("Title-{i}")),
             sql_escape(&format!("{i} Main St")),
@@ -451,7 +455,10 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         let row = format!(
             "({}, '{}', '{}', {}, {}, {}, {}, {}, {})",
             id,
-            sql_escape(&format!("Product-{i}")),
+            sql_escape(&format!(
+                "P-{}-{i}",
+                PRODUCT_SEARCH_TERMS[i % PRODUCT_SEARCH_TERMS.len()]
+            )),
             sql_escape(&format!(
                 "{} boxes x {} bags",
                 rng.random_range(1..20),
