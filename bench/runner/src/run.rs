@@ -3,9 +3,9 @@ use crate::code::{Code, Fail};
 use crate::model::{
     Artifacts, AvgPeakDoc, BoxMetricDoc, BoxPlotDoc, CiDoc, DatasetSummary, Event, Exec, Gate,
     Gates, Headroom, LatencyDoc, Limits, LoadSummary, ManifestDoc, Point, PrimaryDoc, QueryDoc,
-    QueryShapeDoc, RangeDoc, RequestDoc, ResultDoc, Runner, SaturationDoc, SpreadDoc, Status,
-    SummaryDoc, Target, TargetMetaDoc, TimeseriesDoc, TrialMeta, VarianceDoc, VarianceMetricDoc,
-    Workload,
+    QueryShapeDoc, RangeDoc, RequestDoc, ResultDoc, Runner, RunnerMetrics, SaturationDoc,
+    SpreadDoc, Status, SummaryDoc, Target, TargetMetaDoc, TimeseriesDoc, TrialMeta, VarianceDoc,
+    VarianceMetricDoc, Workload,
 };
 use parquet::data_type::{ByteArray, ByteArrayType, DoubleType};
 use parquet::file::properties::WriterProperties;
@@ -46,6 +46,7 @@ fn run(args: Run) -> Result<Code, Fail> {
     let input = load_input(&args)?;
     let baseline = resolve_baseline(args.baseline.as_deref(), &args.out, input.suite)?;
     let run_id = make_run_id(input.suite, &input.git);
+    let cohort_id = resolve_cohort_id(args.cohort_id.as_deref(), &run_id)?;
     let run_dir = args.out.join("runs").join(&run_id);
     let start = now_tag();
 
@@ -81,6 +82,7 @@ fn run(args: Run) -> Result<Code, Fail> {
         input.trials,
         requests.len(),
         &run_id,
+        &cohort_id,
     )?;
 
     // Write seed metadata file (seed value + table counts) for external targets
@@ -128,6 +130,7 @@ fn run(args: Run) -> Result<Code, Fail> {
         &input,
         ManifestContext {
             class: args.class,
+            cohort_id: &cohort_id,
             headroom: &aggregate.headroom,
             start: &start,
             end: &end,
@@ -146,6 +149,7 @@ fn run(args: Run) -> Result<Code, Fail> {
     let result = ResultDoc {
         version: "v1",
         run_id: run_id.clone(),
+        cohort_id: cohort_id.clone(),
         status: Status::Success,
         suite: input.suite.to_string(),
         class: class_name(args.class).to_string(),
@@ -168,6 +172,7 @@ fn run(args: Run) -> Result<Code, Fail> {
         .map_err(|e| Fail::new(Code::RunFail, format!("event flush failed: {e}")))?;
 
     println!("run_id={run_id}");
+    println!("cohort_id={cohort_id}");
     Ok(Code::Success)
 }
 
@@ -202,6 +207,7 @@ struct Aggregate {
 
 struct ManifestContext<'a> {
     class: Class,
+    cohort_id: &'a str,
     headroom: &'a Headroom,
     start: &'a str,
     end: &'a str,
@@ -592,10 +598,13 @@ fn write_env(
     trials: u32,
     requests: usize,
     run_id: &str,
+    cohort_id: &str,
 ) -> Result<(), Fail> {
     let env = serde_json::json!({
         "version": "v1",
         "run_id": run_id,
+        "cohort_id": cohort_id,
+        "cohort_arg": args.cohort_id,
         "suite": suite,
         "class": class_name(args.class),
         "trials": trials,
@@ -621,18 +630,16 @@ fn run_parity(
 ) -> Result<(), Fail> {
     emit(events, json, "info", "parity", "start")?;
     for target in targets {
-        if let Some(spec) = target.parity.as_ref() {
-            let mut env = BTreeMap::new();
-            env.insert("BENCH_TARGET_ID".to_string(), target.id.clone());
-            env.insert("BENCH_SEED".to_string(), seed.to_string());
-            env.insert("BENCH_TRIAL".to_string(), "1".to_string());
-            env.insert(
-                "BENCH_SEED_FILE".to_string(),
-                seed_file.to_string_lossy().to_string(),
-            );
-            add_server_env(target, &mut env);
-            exec_cmd(spec, &target.id, "parity", Code::ParityFail, &env)?;
-        }
+        let mut env = BTreeMap::new();
+        env.insert("BENCH_TARGET_ID".to_string(), target.id.clone());
+        env.insert("BENCH_SEED".to_string(), seed.to_string());
+        env.insert("BENCH_TRIAL".to_string(), "1".to_string());
+        env.insert(
+            "BENCH_SEED_FILE".to_string(),
+            seed_file.to_string_lossy().to_string(),
+        );
+        add_server_env(target, &mut env);
+        exec_cmd(&target.parity, &target.id, "parity", Code::ParityFail, &env)?;
         emit(
             events,
             json,
@@ -680,7 +687,24 @@ fn run_trials(
         .collect();
 
     for trial in 0..trials {
-        for (idx, target) in targets.iter().enumerate() {
+        let mut order: Vec<(usize, &Target)> = targets.iter().enumerate().collect();
+        if !order.is_empty() {
+            let shift = trial as usize % order.len();
+            order.rotate_left(shift);
+        }
+        let target_order = order
+            .iter()
+            .map(|(_, target)| target.id.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        emit(
+            events,
+            json,
+            "info",
+            "trial",
+            format!("run index={} target_order={target_order}", trial + 1),
+        )?;
+        for (idx, target) in order {
             let measurement = run_target_load(
                 run_dir,
                 suite,
@@ -697,13 +721,6 @@ fn run_trials(
                 .or_default()
                 .push(measurement);
         }
-        emit(
-            events,
-            json,
-            "info",
-            "trial",
-            format!("run index={}", trial + 1),
-        )?;
     }
     emit(events, json, "info", "trials", "done")?;
     Ok(measurements)
@@ -944,7 +961,7 @@ fn run_gates(
     events: &mut BufWriter<File>,
     json: bool,
 ) -> Result<Gates, Fail> {
-    let headroom_ok = headroom.cpu_peak < 85.0 && headroom.net_peak < 80.0;
+    let headroom_ok = headroom.cpu_peak < 85.0;
     let headroom_gate = if headroom_ok { Gate::Pass } else { Gate::Fail };
     let regression_gate = regression_gate(current, baseline);
     let limits_gate = limits_gate(current, limits);
@@ -961,9 +978,12 @@ fn run_gates(
         "info",
         "gates",
         format!(
-            "headroom cpu_peak={:.2} net_peak={:.2} status={}",
+            "headroom cpu_peak={:.2} net_peak={} status={}",
             headroom.cpu_peak,
-            headroom.net_peak,
+            headroom
+                .net_peak
+                .map(|peak| format!("{peak:.2}"))
+                .unwrap_or_else(|| "unmeasured".to_string()),
             if headroom_ok { "pass" } else { "fail" }
         ),
     )?;
@@ -1039,12 +1059,7 @@ fn run_target_load(
     workload_path: &Path,
     requests_path: &Path,
 ) -> Result<TrialMeasurement, Fail> {
-    let spec = target.load.as_ref().ok_or_else(|| {
-        Fail::new(
-            Code::InvalidInput,
-            format!("target {} is missing load command", target.id),
-        )
-    })?;
+    let spec = &target.load;
 
     let scratch = run_dir.join(".tmp");
     fs::create_dir_all(&scratch).map_err(|err| {
@@ -1886,6 +1901,7 @@ fn write_manifest(
     let manifest = ManifestDoc {
         version: "v1",
         run_id: run_id.to_string(),
+        cohort_id: ctx.cohort_id.to_string(),
         name: run_name(input.suite, ctx.class),
         suite: input.suite.to_string(),
         git: input.git.clone(),
@@ -1930,6 +1946,11 @@ fn write_manifest(
                 .map(|n| n.get() as u32)
                 .unwrap_or(1),
             mem_gb: memory_gb(&sys),
+            metrics: RunnerMetrics {
+                cpu_scope: "host",
+                memory_scope: "target_process_tree",
+                network_scope: "unmeasured",
+            },
             headroom: Headroom {
                 cpu_peak: ctx.headroom.cpu_peak,
                 net_peak: ctx.headroom.net_peak,
@@ -2157,17 +2178,17 @@ fn compute_saturation(points: &[Point]) -> SaturationDoc {
 
 fn compute_headroom(measurements: &BTreeMap<String, Vec<TrialMeasurement>>) -> Headroom {
     let mut cpu_peak: f64 = 0.0;
-    let mut rps_peak: f64 = 0.0;
     for target_measurements in measurements.values() {
         for measurement in target_measurements {
             for point in &measurement.series {
                 cpu_peak = cpu_peak.max(peak(&point.cpu));
-                rps_peak = rps_peak.max(point.rps);
             }
         }
     }
-    let net_peak = (rps_peak / 100.0).min(99.0);
-    Headroom { cpu_peak, net_peak }
+    Headroom {
+        cpu_peak,
+        net_peak: None,
+    }
 }
 
 fn regression_gate(current: &BTreeMap<String, PrimaryDoc>, baseline: Option<&Baseline>) -> Gate {
@@ -2420,12 +2441,54 @@ fn validate_targets(targets: &[Target]) -> Result<(), Fail> {
                 ),
             ));
         }
+        validate_exec(&target.id, "parity", &target.parity)?;
+        validate_exec(&target.id, "load", &target.load)?;
+        if let Some(spec) = &target.warmup {
+            validate_exec(&target.id, "warmup", spec)?;
+        }
+        if let Some(spec) = &target.server {
+            validate_exec(&target.id, "server", spec)?;
+        }
         if !ids.insert(target.id.clone()) {
             return Err(Fail::new(
                 Code::InvalidInput,
                 format!("duplicate target id: {}", target.id),
             ));
         }
+    }
+    Ok(())
+}
+
+fn validate_exec(target_id: &str, step: &str, spec: &Exec) -> Result<(), Fail> {
+    if spec.cmd.is_empty() {
+        return Err(Fail::new(
+            Code::InvalidInput,
+            format!("target {target_id} {step}.cmd must not be empty"),
+        ));
+    }
+    if spec.cmd.iter().any(|arg| arg.trim().is_empty()) {
+        return Err(Fail::new(
+            Code::InvalidInput,
+            format!("target {target_id} {step}.cmd entries must not be empty"),
+        ));
+    }
+    if spec.cwd.as_ref().is_some_and(|cwd| cwd.trim().is_empty()) {
+        return Err(Fail::new(
+            Code::InvalidInput,
+            format!("target {target_id} {step}.cwd must not be empty when set"),
+        ));
+    }
+    if spec.env.keys().any(|key| key.trim().is_empty()) {
+        return Err(Fail::new(
+            Code::InvalidInput,
+            format!("target {target_id} {step}.env keys must not be empty"),
+        ));
+    }
+    if spec.timeout_s == Some(0) {
+        return Err(Fail::new(
+            Code::InvalidInput,
+            format!("target {target_id} {step}.timeout_s must be >= 1 when set"),
+        ));
     }
     Ok(())
 }
@@ -2590,6 +2653,17 @@ fn is_slug(id: &str) -> bool {
     chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
 }
 
+fn is_cohort_id(id: &str) -> bool {
+    let mut chars = id.chars();
+    let Some(head) = chars.next() else {
+        return false;
+    };
+    if !(head.is_ascii_lowercase() || head.is_ascii_digit()) {
+        return false;
+    }
+    chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-' || ch == '_')
+}
+
 fn is_duration_unit(value: &str) -> bool {
     if value.len() < 2 {
         return false;
@@ -2705,6 +2779,21 @@ fn make_run_id(suite: &str, git: &str) -> String {
         .format(&fmt)
         .unwrap_or_else(|_| "19700101T000000Z".to_string());
     format!("{ts}_{git}_{suite}")
+}
+
+fn resolve_cohort_id(explicit: Option<&str>, run_id: &str) -> Result<String, Fail> {
+    let cohort_id = explicit.unwrap_or(run_id).trim().to_ascii_lowercase();
+    if is_cohort_id(&cohort_id) {
+        Ok(cohort_id)
+    } else {
+        Err(Fail::new(
+            Code::InvalidCli,
+            format!(
+                "cohort id must match [a-z0-9][a-z0-9_-]*, got {}",
+                explicit.unwrap_or(run_id)
+            ),
+        ))
+    }
 }
 
 fn sha256_file(path: &Path) -> Result<String, Fail> {

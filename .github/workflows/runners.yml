@@ -33,7 +33,8 @@ env:
   CARGO_TERM_COLOR: always
   RUST_VERSION: "1.95"
   NODE_VERSION: "24"
-  BENCHMARK_SIZE: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_size || 'full' }}
+  BENCHMARK_SIZE: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_size || (github.event_name == 'pull_request' && 'preview' || 'full') }}
+  BENCH_COHORT_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}-throughput-http
   PUBLISH_TO_R2: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_to_r2 && github.ref == 'refs/heads/main') }}
   R2_BUCKET: drizzle-bench
 
@@ -101,6 +102,7 @@ jobs:
             --targets bench/spec/targets.sqlite.v1.json \
             --requests bench/spec/requests.empty.v1.json \
             --out "$out" \
+            --cohort-id "$BENCH_COHORT_ID" \
             --class "$class" \
             --baseline auto \
             --json | tee runner_output.txt
@@ -241,6 +243,7 @@ jobs:
             --targets bench/spec/targets.postgres.v1.json \
             --requests bench/spec/requests.empty.v1.json \
             --out "$out" \
+            --cohort-id "$BENCH_COHORT_ID" \
             --class "$class" \
             --baseline auto \
             --json | tee runner_output.txt
@@ -381,6 +384,7 @@ jobs:
             --targets bench/spec/targets.postgres-rust-orms.v1.json \
             --requests bench/spec/requests.empty.v1.json \
             --out "$out" \
+            --cohort-id "$BENCH_COHORT_ID" \
             --class "$class" \
             --baseline auto \
             --json | tee runner_output.txt
@@ -542,6 +546,7 @@ jobs:
             --targets bench/spec/targets.postgres-ts.v1.json \
             --requests bench/spec/requests.empty.v1.json \
             --out "$out" \
+            --cohort-id "$BENCH_COHORT_ID" \
             --class "$class" \
             --baseline auto \
             --json | tee runner_output.txt
@@ -627,7 +632,7 @@ jobs:
           sleep 1
           spacetime start --listen-addr 127.0.0.1:3000 --pg-port 5433 &
           for i in $(seq 1 30); do
-            if spacetime server ping 2>/dev/null; then
+            if spacetime server ping http://127.0.0.1:3000 2>/dev/null; then
               echo "SpacetimeDB WebSocket ready"
               break
             fi
@@ -700,6 +705,7 @@ jobs:
             --targets bench/spec/targets.spacetimedb.v1.json \
             --requests bench/spec/requests.empty.v1.json \
             --out "$out" \
+            --cohort-id "$BENCH_COHORT_ID" \
             --class "$class" \
             --baseline auto \
             --json | tee runner_output.txt
@@ -790,6 +796,7 @@ jobs:
             --targets bench/spec/targets.turso.v1.json \
             --requests bench/spec/requests.empty.v1.json \
             --out "$out" \
+            --cohort-id "$BENCH_COHORT_ID" \
             --class "$class" \
             --baseline auto \
             --json | tee runner_output.txt

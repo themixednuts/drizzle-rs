@@ -38,6 +38,9 @@ pub struct Run {
     #[arg(long)]
     pub out: PathBuf,
 
+    #[arg(long)]
+    pub cohort_id: Option<String>,
+
     #[arg(long, value_enum, default_value_t = Class::Publish)]
     pub class: Class,
 

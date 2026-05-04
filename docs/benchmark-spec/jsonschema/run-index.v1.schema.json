@@ -17,10 +17,11 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-          "required": [
-            "run_id",
-            "name",
-            "suite",
+        "required": [
+          "run_id",
+          "cohort_id",
+          "name",
+          "suite",
           "status",
           "class",
           "git",
@@ -32,6 +33,10 @@
           "run_id": {
             "type": "string",
             "pattern": "^[0-9]{8}T[0-9]{6}Z_[a-f0-9]{7,40}_[a-z0-9-]+$"
+          },
+          "cohort_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]*$"
           },
           "name": {
             "type": "string",

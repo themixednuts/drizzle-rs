@@ -7,6 +7,7 @@
   "required": [
     "version",
     "run_id",
+    "cohort_id",
     "name",
     "suite",
     "git",
@@ -31,6 +32,10 @@
     "run_id": {
       "type": "string",
       "pattern": "^[0-9]{8}T[0-9]{6}Z_[a-f0-9]{7,40}_[a-z0-9-]+$"
+    },
+    "cohort_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
     },
     "name": {
       "type": "string",
@@ -256,6 +261,7 @@
         "cpu",
         "cores",
         "mem_gb",
+        "metrics",
         "headroom"
       ],
       "properties": {
@@ -279,12 +285,34 @@
           "type": "number",
           "exclusiveMinimum": 0
         },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cpu_scope",
+            "memory_scope",
+            "network_scope"
+          ],
+          "properties": {
+            "cpu_scope": {
+              "type": "string",
+              "minLength": 1
+            },
+            "memory_scope": {
+              "type": "string",
+              "minLength": 1
+            },
+            "network_scope": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
         "headroom": {
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "cpu_peak",
-            "net_peak"
+            "cpu_peak"
           ],
           "properties": {
             "cpu_peak": {

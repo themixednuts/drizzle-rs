@@ -5,6 +5,7 @@ export interface RunIndex {
 
 export interface RunIndexEntry {
 	run_id: string;
+	cohort_id: string;
 	name: string;
 	suite: string;
 	status: string;
@@ -33,6 +34,7 @@ export interface RunCohort {
 export interface Manifest {
 	version: string;
 	run_id: string;
+	cohort_id: string;
 	name: string;
 	suite: string;
 	git: string;
@@ -71,7 +73,8 @@ export interface Manifest {
 		cpu: string;
 		cores: number;
 		mem_gb: number;
-		headroom: { cpu_peak: number; net_peak: number };
+		metrics: { cpu_scope: string; memory_scope: string; network_scope: string };
+		headroom: { cpu_peak: number; net_peak?: number };
 	};
 	trials: { count: number; aggregate: string };
 }

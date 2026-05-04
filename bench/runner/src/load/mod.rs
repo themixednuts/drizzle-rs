@@ -436,15 +436,7 @@ fn measure_rps(
         }
 
         sys.refresh_cpu_usage();
-        let mem_mb = pid.and_then(|p| {
-            sys.refresh_processes_specifics(
-                ProcessesToUpdate::Some(&[p]),
-                true,
-                ProcessRefreshKind::nothing().with_memory(),
-            );
-            sys.process(p)
-                .map(|proc| proc.memory() as f64 / (1024.0 * 1024.0))
-        });
+        let mem_mb = pid.and_then(|p| process_tree_memory_mb(&mut sys, p));
         let wall = start.elapsed().as_secs_f64().max(0.001);
         points.push(Point {
             time: now_rfc3339(),
@@ -545,15 +537,7 @@ async fn measure_vus_async(
         }
 
         sys.refresh_cpu_usage();
-        let mem_mb = pid.and_then(|p| {
-            sys.refresh_processes_specifics(
-                ProcessesToUpdate::Some(&[p]),
-                true,
-                ProcessRefreshKind::nothing().with_memory(),
-            );
-            sys.process(p)
-                .map(|proc| proc.memory() as f64 / (1024.0 * 1024.0))
-        });
+        let mem_mb = pid.and_then(|p| process_tree_memory_mb(&mut sys, p));
         points.push(Point {
             time: now_rfc3339(),
             rps: total as f64 / wall,
@@ -1022,6 +1006,37 @@ fn cpu_usage(sys: &System) -> Vec<f64> {
         out.push(0.0);
     }
     out
+}
+
+fn process_tree_memory_mb(sys: &mut System, root: Pid) -> Option<f64> {
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing().with_memory(),
+    );
+    sys.process(root)?;
+
+    let mut total = 0_u64;
+    for (&pid, process) in sys.processes() {
+        if pid == root || is_descendant_process(sys, pid, root) {
+            total = total.saturating_add(process.memory());
+        }
+    }
+    Some(total as f64 / (1024.0 * 1024.0))
+}
+
+fn is_descendant_process(sys: &System, pid: Pid, root: Pid) -> bool {
+    let mut current = pid;
+    for _ in 0..64 {
+        let Some(parent) = sys.process(current).and_then(|process| process.parent()) else {
+            return false;
+        };
+        if parent == root {
+            return true;
+        }
+        current = parent;
+    }
+    false
 }
 
 fn summarize_latency(values: &[f64]) -> Latency {

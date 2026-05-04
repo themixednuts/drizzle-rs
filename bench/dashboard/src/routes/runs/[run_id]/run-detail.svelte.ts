@@ -62,9 +62,9 @@ export class RunDetailState {
 			case 'latency':
 				return `p95 response latency per bucket. Query graphs below break this down by route. ${suffix}`;
 			case 'cpu':
-				return `sampled target process CPU during the load window. CPU is process-level, not attributable to individual query routes. ${suffix}`;
+				return `sampled host CPU during the load window. CPU is process-level and is not attributable to individual query routes. ${suffix}`;
 			case 'mem':
-				return `sampled target process resident memory during the load window. Memory is process-level, not attributable to individual query routes. ${suffix}`;
+				return `sampled target process-tree resident memory during the load window. External database service memory is only included when it is a child process. ${suffix}`;
 		}
 	}
 

@@ -35,7 +35,6 @@ import type {
 import { failHttp } from './effect';
 
 type MaybeFilter = string | null;
-const COHORT_GAP_MS = 2 * 60 * 60 * 1000;
 
 export interface LatestRunOverview {
 	cohort: RunCohort;
@@ -43,40 +42,24 @@ export interface LatestRunOverview {
 	summaries: SummaryResult[];
 }
 
-function isSameCohort(left: RunIndexEntry, right: RunIndexEntry): boolean {
-	return (
-		left.suite === right.suite &&
-		left.status === right.status &&
-		left.class === right.class &&
-		left.git === right.git
-	);
+function mergeStatus(left: string, right: string): string {
+	if (left === right) return left;
+	if (left === 'failed' || right === 'failed') return 'failed';
+	if (left === 'partial' || right === 'partial') return 'partial';
+	if (left === 'canceled' || right === 'canceled') return 'canceled';
+	return right;
 }
 
 function buildRunCohorts(runs: readonly RunIndexEntry[]): RunCohort[] {
-	const cohorts: RunCohort[] = [];
+	const cohorts = new Map<string, RunCohort>();
 	const sorted = [...runs].sort((a, b) => a.start.localeCompare(b.start));
 
 	for (const run of sorted) {
-		const startMs = Date.parse(run.start);
-		const cohort = [...cohorts].reverse().find((candidate) => {
-			const representative: RunIndexEntry = {
-				run_id: candidate.representative_run_id,
-				name: candidate.name,
-				suite: candidate.suite,
-				status: candidate.status,
-				class: candidate.class,
-				git: candidate.git,
-				start: candidate.start,
-				end: candidate.end,
-				targets: candidate.targets
-			};
-			const previousEndMs = Date.parse(candidate.end);
-			return isSameCohort(representative, run) && startMs - previousEndMs <= COHORT_GAP_MS;
-		});
+		const cohort = cohorts.get(run.cohort_id);
 
 		if (!cohort) {
-			cohorts.push({
-				id: run.run_id,
+			cohorts.set(run.cohort_id, {
+				id: run.cohort_id,
 				name: run.name,
 				suite: run.suite,
 				status: run.status,
@@ -92,8 +75,14 @@ function buildRunCohorts(runs: readonly RunIndexEntry[]): RunCohort[] {
 			continue;
 		}
 
+		if (cohort.suite !== run.suite || cohort.class !== run.class || cohort.git !== run.git) {
+			throw new Error(
+				`cohort ${run.cohort_id} mixes incompatible runs (${cohort.suite}/${cohort.class}/${cohort.git} vs ${run.suite}/${run.class}/${run.git})`
+			);
+		}
 		cohort.start = cohort.start < run.start ? cohort.start : run.start;
 		cohort.end = cohort.end > run.end ? cohort.end : run.end;
+		cohort.status = mergeStatus(cohort.status, run.status);
 		cohort.run_ids.push(run.run_id);
 		cohort.representative_run_id =
 			run.run_id > cohort.representative_run_id ? run.run_id : cohort.representative_run_id;
@@ -101,7 +90,7 @@ function buildRunCohorts(runs: readonly RunIndexEntry[]): RunCohort[] {
 		cohort.result_count += run.targets.length;
 	}
 
-	return cohorts;
+	return [...cohorts.values()];
 }
 
 function resultKey(targetId: string, manifest: Manifest): string {
@@ -466,6 +455,7 @@ export function latestRunApiData(platform: App.Platform | undefined, suite: Mayb
 		return {
 			suite: run.suite,
 			run_id: run.run_id,
+			cohort_id: run.cohort_id,
 			start: run.start,
 			end: run.end,
 			status: run.status

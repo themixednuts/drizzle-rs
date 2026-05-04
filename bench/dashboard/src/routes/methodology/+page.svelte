@@ -18,7 +18,7 @@
 				<tr><td class="mu" style="width: 160px">index.json</td><td>run list with suite, status, commit, time window, class, and target ids</td></tr>
 				<tr><td class="mu">manifest.json</td><td>run configuration, runner, load profile, dataset shape, artifacts, and target list</td></tr>
 				<tr><td class="mu">summary.json</td><td>per-target primary metrics, trial spread, confidence intervals when present, and saturation point</td></tr>
-				<tr><td class="mu">timeseries.json</td><td>per-interval rps, errors, latency percentiles, cpu samples, and memory when present</td></tr>
+				<tr><td class="mu">timeseries.json</td><td>per-interval rps, errors, latency percentiles, host cpu samples, process-tree memory when present, and route-level query metrics</td></tr>
 			</tbody>
 		</table>
 	</section>
@@ -29,8 +29,8 @@
 			<tbody>
 				<tr><td class="mu" style="width: 160px">throughput</td><td>average requests per second from trial aggregates and peak requests per second from sampled intervals</td></tr>
 				<tr><td class="mu">latency</td><td>average, p90, p95, p99, and p999 in milliseconds</td></tr>
-				<tr><td class="mu">cpu</td><td>average and peak cpu percentages from run samples</td></tr>
-				<tr><td class="mu">memory</td><td>average and peak memory in MB when the target reports it</td></tr>
+				<tr><td class="mu">cpu</td><td>average and peak host cpu percentages from run samples</td></tr>
+				<tr><td class="mu">memory</td><td>average and peak target process-tree resident memory in MB when a target process can be sampled</td></tr>
 				<tr><td class="mu">errors</td><td>error rate as a fraction of requests</td></tr>
 			</tbody>
 		</table>
@@ -42,7 +42,7 @@
 			<tbody>
 				<tr><td class="mu" style="width: 160px">load</td><td>executor, stages, duration, max virtual users, and total requests are captured per run</td></tr>
 				<tr><td class="mu">dataset</td><td>customers, employees, orders, suppliers, products, and details-per-order are captured per run</td></tr>
-				<tr><td class="mu">runner</td><td>class, os, cpu model, core count, memory, and headroom are captured per run</td></tr>
+				<tr><td class="mu">runner</td><td>class, os, cpu model, core count, memory, metric scopes, and cpu headroom are captured per run</td></tr>
 				<tr><td class="mu">trials</td><td>summary artifacts report the trial count, median aggregation strategy, trial spread, and optional ci95 ranges</td></tr>
 			</tbody>
 		</table>
@@ -54,7 +54,7 @@
 			<tbody>
 				<tr><td class="mu" style="width: 160px">higher is better</td><td>rps average and rps peak</td></tr>
 				<tr><td class="mu">lower is better</td><td>latency, cpu, memory, and error rate</td></tr>
-				<tr><td class="mu">variance plot</td><td>compare uses a horizontal bar for sample variance across trials and reports stdev plus sample count</td></tr>
+				<tr><td class="mu">box plot</td><td>compare uses a horizontal box-and-whisker plot across trial samples and reports min, quartiles, median, max, and sample count</td></tr>
 				<tr><td class="mu">saturation</td><td>knee rps and knee p95 show the point where extra load starts trading throughput for latency</td></tr>
 				<tr><td class="mu">caveat</td><td>synthetic benchmarks are ceilings for a workload, not predictions for every application shape</td></tr>
 			</tbody>

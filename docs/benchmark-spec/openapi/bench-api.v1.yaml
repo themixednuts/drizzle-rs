@@ -174,11 +174,13 @@ components:
     latest_run:
       type: object
       additionalProperties: false
-      required: [suite, run_id, start, end, status]
+      required: [suite, run_id, cohort_id, start, end, status]
       properties:
         suite:
           type: string
         run_id:
+          type: string
+        cohort_id:
           type: string
         start:
           type: string
@@ -191,11 +193,13 @@ components:
     manifest:
       type: object
       additionalProperties: true
-      required: [version, run_id, suite, git, targets, start, end, status]
+      required: [version, run_id, cohort_id, suite, git, targets, start, end, status]
       properties:
         version:
           type: string
         run_id:
+          type: string
+        cohort_id:
           type: string
         suite:
           type: string

@@ -4,7 +4,7 @@
     "id": "spacetime-pgwire-rs",
     "display": {
       "name": "SpacetimeDB PGWire",
-      "description": "SpacetimeDB PGWire target using a tokio-postgres simple-query client pool"
+      "description": "SpacetimeDB PGWire target using a tokio-postgres simple-query client pool. PGWire supports a narrower SQL surface, so unsupported query shapes are implemented in the target process while preserving the same HTTP contract."
     },
     "group": "spacetimedb",
     "lang": "rust",
@@ -45,6 +45,9 @@
     },
     "contract": {
       "ver": "v1"
+    },
+    "parity": {
+      "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]
     },
     "load": {
       "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "load"]

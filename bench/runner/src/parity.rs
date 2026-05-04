@@ -105,6 +105,23 @@ fn check_fields(obj: &serde_json::Value, path: &str, fields: &[FieldCheck]) -> R
     Ok(())
 }
 
+fn string_field<'a>(obj: &'a serde_json::Value, path: &str, field: &str) -> Result<&'a str, Fail> {
+    obj.get(field)
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| {
+            Fail::new(
+                Code::ParityFail,
+                format!("parity {path}: field \"{field}\" must be a string"),
+            )
+        })
+}
+
+fn contains_term(value: &str, term: &str) -> bool {
+    value
+        .to_ascii_lowercase()
+        .contains(&term.to_ascii_lowercase())
+}
+
 fn is_number(v: &serde_json::Value) -> bool {
     v.is_number()
 }
@@ -410,25 +427,49 @@ fn check_order_with_details_and_products(port: u16) -> Result<(), Fail> {
 }
 
 fn check_search_customer(port: u16) -> Result<(), Fail> {
+    let term = "er";
     let path = "/search-customer?term=er";
     let val = get_json(port, path)?;
     let arr = expect_array(&val, path)?;
-    if let Some(first) = arr.first() {
-        check_fields(
-            first,
-            path,
-            &[("id", is_number), ("companyName", is_string)],
-        )?;
+    if arr.is_empty() {
+        return Err(Fail::new(
+            Code::ParityFail,
+            format!("parity {path}: expected non-empty search results"),
+        ));
+    }
+    for row in arr.iter().take(10) {
+        check_fields(row, path, &[("id", is_number), ("companyName", is_string)])?;
+        let company_name = string_field(row, path, "companyName")?;
+        if !contains_term(company_name, term) {
+            return Err(Fail::new(
+                Code::ParityFail,
+                format!("parity {path}: companyName does not contain term {term:?}"),
+            ));
+        }
     }
     Ok(())
 }
 
 fn check_search_product(port: u16) -> Result<(), Fail> {
+    let term = "er";
     let path = "/search-product?term=er";
     let val = get_json(port, path)?;
     let arr = expect_array(&val, path)?;
-    if let Some(first) = arr.first() {
-        check_fields(first, path, &[("id", is_number), ("name", is_string)])?;
+    if arr.is_empty() {
+        return Err(Fail::new(
+            Code::ParityFail,
+            format!("parity {path}: expected non-empty search results"),
+        ));
+    }
+    for row in arr.iter().take(10) {
+        check_fields(row, path, &[("id", is_number), ("name", is_string)])?;
+        let name = string_field(row, path, "name")?;
+        if !contains_term(name, term) {
+            return Err(Fail::new(
+                Code::ParityFail,
+                format!("parity {path}: name does not contain term {term:?}"),
+            ));
+        }
     }
     Ok(())
 }

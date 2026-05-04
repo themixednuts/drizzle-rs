@@ -87,12 +87,10 @@ pub struct Target {
     pub wire: Wire,
     pub fair: Fair,
     pub contract: Contract,
-    #[serde(default)]
-    pub parity: Option<Exec>,
+    pub parity: Exec,
     #[serde(default)]
     pub warmup: Option<Exec>,
-    #[serde(default)]
-    pub load: Option<Exec>,
+    pub load: Exec,
     #[serde(default)]
     pub server: Option<Exec>,
 }
@@ -194,6 +192,7 @@ pub struct RequestDoc {
 pub struct ResultDoc {
     pub version: &'static str,
     pub run_id: String,
+    pub cohort_id: String,
     pub status: Status,
     pub suite: String,
     pub class: String,
@@ -387,6 +386,7 @@ pub struct Latency {
 pub struct ManifestDoc {
     pub version: &'static str,
     pub run_id: String,
+    pub cohort_id: String,
     pub name: String,
     pub suite: String,
     pub git: String,
@@ -476,13 +476,22 @@ pub struct Runner {
     pub cpu: String,
     pub cores: u32,
     pub mem_gb: f64,
+    pub metrics: RunnerMetrics,
     pub headroom: Headroom,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RunnerMetrics {
+    pub cpu_scope: &'static str,
+    pub memory_scope: &'static str,
+    pub network_scope: &'static str,
 }
 
 #[derive(Debug, Serialize)]
 pub struct Headroom {
     pub cpu_peak: f64,
-    pub net_peak: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub net_peak: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -500,6 +509,7 @@ pub struct RunIndex {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RunIndexEntry {
     pub run_id: String,
+    pub cohort_id: String,
     pub name: String,
     pub suite: String,
     pub status: String,

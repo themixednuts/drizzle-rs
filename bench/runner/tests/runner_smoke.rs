@@ -110,6 +110,18 @@ fn run_writes_contract_artifacts() {
     assert_eq!(manifest["runner"]["class"], "small");
     assert_eq!(manifest["name"], "Throughput HTTP (small)");
     assert!(
+        manifest["cohort_id"]
+            .as_str()
+            .is_some_and(|id| !id.is_empty())
+    );
+    assert_eq!(manifest["runner"]["metrics"]["cpu_scope"], "host");
+    assert_eq!(
+        manifest["runner"]["metrics"]["memory_scope"],
+        "target_process_tree"
+    );
+    assert_eq!(manifest["runner"]["metrics"]["network_scope"], "unmeasured");
+    assert!(manifest["runner"]["headroom"].get("net_peak").is_none());
+    assert!(
         manifest["target_meta"]
             .as_array()
             .is_some_and(|items| items.len() == 1)
@@ -593,6 +605,11 @@ fn result_includes_limits_gate() {
     .expect("result json");
     assert!(result["gates"]["limits"].is_string());
     assert_eq!(result["gates"]["limits"], "pass");
+    assert!(
+        result["cohort_id"]
+            .as_str()
+            .is_some_and(|id| !id.is_empty())
+    );
 }
 
 #[test]
@@ -650,6 +667,11 @@ fn publish_updates_index() {
     let runs = index["runs"].as_array().expect("runs array");
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0]["run_id"], run_id);
+    assert!(
+        runs[0]["cohort_id"]
+            .as_str()
+            .is_some_and(|id| !id.is_empty())
+    );
     assert_eq!(runs[0]["name"], "Throughput HTTP (small)");
     assert_eq!(runs[0]["suite"], "throughput-http");
     assert!(!runs[0]["targets"].as_array().expect("targets").is_empty());
@@ -748,6 +770,9 @@ fn targets_json() -> String {
       "contract": "v1"
     },
     "contract": { "ver": "v1" },
+    "parity": {
+      "cmd": ["__BIN__", "parity"]
+    },
     "load": {
       "cmd": ["__BIN__", "load"]
     }

@@ -32,7 +32,7 @@
 			<div class="ph-l">/ runs / detail</div>
 			<h1 class="ph-h">{view.runName}</h1>
 			<div class="ph-sub">
-				<span class="mono">{view.manifest.run_id}</span> / {suiteLabel(view.manifest.suite)} / {shortHash(view.manifest.git)} / {fmtDate(view.manifest.start)}
+				<span class="mono">{view.manifest.run_id}</span> / cohort <span class="mono">{view.manifest.cohort_id}</span> / {suiteLabel(view.manifest.suite)} / {shortHash(view.manifest.git)} / {fmtDate(view.manifest.start)}
 			</div>
 		</div>
 		<div class="ph-sub">
@@ -87,7 +87,8 @@
 					<tr><td class="mu">commit</td><td>{view.manifest.git}</td><td class="mu">duration</td><td>{fmtDuration(view.manifest.start, view.manifest.end)}</td></tr>
 					<tr><td class="mu">runner</td><td>{view.manifest.runner.class} / {view.manifest.runner.os}</td><td class="mu">hardware</td><td>{view.manifest.runner.cpu} / {view.manifest.runner.cores}c / {fmtGb(view.manifest.runner.mem_gb)}</td></tr>
 					<tr><td class="mu">trials</td><td>{view.manifest.trials.count} / {view.manifest.trials.aggregate}</td><td class="mu">seed</td><td>{view.manifest.seed}</td></tr>
-					<tr><td class="mu">headroom</td><td>cpu {fmtCpu(view.manifest.runner.headroom.cpu_peak)} / net {fmtCpu(view.manifest.runner.headroom.net_peak)}</td><td class="mu">targets</td><td>{view.manifest.targets.length}</td></tr>
+					<tr><td class="mu">metrics</td><td>{view.manifest.runner.metrics.cpu_scope} cpu / {view.manifest.runner.metrics.memory_scope} memory</td><td class="mu">network</td><td>{view.manifest.runner.metrics.network_scope}</td></tr>
+					<tr><td class="mu">headroom</td><td>cpu {fmtCpu(view.manifest.runner.headroom.cpu_peak)} / net {view.manifest.runner.headroom.net_peak == null ? 'unmeasured' : fmtCpu(view.manifest.runner.headroom.net_peak)}</td><td class="mu">targets</td><td>{view.manifest.targets.length}</td></tr>
 				</tbody>
 			</table>
 		</div>

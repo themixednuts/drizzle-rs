@@ -96,6 +96,7 @@ export interface components {
         latest_run: {
             suite: string;
             run_id: string;
+            cohort_id: string;
             /** Format: date-time */
             start: string;
             /** Format: date-time */
@@ -105,6 +106,7 @@ export interface components {
         manifest: {
             version: string;
             run_id: string;
+            cohort_id: string;
             suite: string;
             git: string;
             targets: string[];

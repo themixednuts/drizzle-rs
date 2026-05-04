@@ -17,7 +17,9 @@
     "db",
     "wire",
     "fair",
-    "contract"
+    "contract",
+    "parity",
+    "load"
   ],
   "properties": {
     "version": {
