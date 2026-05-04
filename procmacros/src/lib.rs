@@ -168,6 +168,7 @@ use syn::parse_macro_input;
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
 /// #      pub use ::tokio_postgres::Row;
+/// #      pub mod driver_types { pub use drizzle_postgres::driver_types::*; }
 /// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
 /// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
@@ -242,6 +243,7 @@ use syn::parse_macro_input;
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
 /// #      pub use ::tokio_postgres::Row;
+/// #      pub mod driver_types { pub use drizzle_postgres::driver_types::*; }
 /// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
 /// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
@@ -395,6 +397,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
 /// #      pub use ::tokio_postgres::Row;
+/// #      pub mod driver_types { pub use drizzle_postgres::driver_types::*; }
 /// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
 /// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
@@ -467,6 +470,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
 /// #      pub use ::tokio_postgres::Row;
+/// #      pub mod driver_types { pub use drizzle_postgres::driver_types::*; }
 /// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
 /// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
@@ -2687,6 +2691,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
 /// #      pub use ::tokio_postgres::Row;
+/// #      pub mod driver_types { pub use drizzle_postgres::driver_types::*; }
 /// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 /// #      pub struct Row;
 /// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
