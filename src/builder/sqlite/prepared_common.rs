@@ -1,6 +1,6 @@
 macro_rules! sqlite_async_prepared_impl {
     ($executor:path, $row:ty, $value:ty) => {
-        impl<'a> PreparedStatement<'a> {
+        impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
             /// Runs the prepared statement and returns the number of affected rows
             pub async fn execute<const N: usize>(
                 &self,
@@ -28,8 +28,7 @@ macro_rules! sqlite_async_prepared_impl {
                 >; N],
             ) -> drizzle_core::error::Result<Vec<T>>
             where
-                T: for<'r> TryFrom<&'r $row>,
-                for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
+                for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
                 debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 let (sql_str, params) = self.inner.bind(params)?;
@@ -40,7 +39,10 @@ macro_rules! sqlite_async_prepared_impl {
 
                 let mut results = Vec::new();
                 while let Some(row) = rows.next().await? {
-                    let converted = T::try_from(&row).map_err(Into::into)?;
+                    let converted = <Marker as drizzle_core::row::DecodeSelectedRef<
+                        &$row,
+                        T,
+                    >>::decode(&row)?;
                     results.push(converted);
                 }
 
@@ -57,8 +59,7 @@ macro_rules! sqlite_async_prepared_impl {
                 >; N],
             ) -> drizzle_core::error::Result<T>
             where
-                T: for<'r> TryFrom<&'r $row>,
-                for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
+                for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
                 debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 let (sql_str, params) = self.inner.bind(params)?;
@@ -67,14 +68,14 @@ macro_rules! sqlite_async_prepared_impl {
                 let mut rows = conn.fetch(sql_str, driver_params).await?;
 
                 if let Some(row) = rows.next().await? {
-                    T::try_from(&row).map_err(Into::into)
+                    <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)
                 } else {
                     Err(drizzle_core::error::DrizzleError::NotFound)
                 }
             }
         }
 
-        impl OwnedPreparedStatement {
+        impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
             /// Runs the prepared statement and returns the number of affected rows
             pub async fn execute<'a, const N: usize>(
                 &self,
@@ -102,8 +103,7 @@ macro_rules! sqlite_async_prepared_impl {
                 >; N],
             ) -> drizzle_core::error::Result<Vec<T>>
             where
-                T: for<'r> TryFrom<&'r $row>,
-                for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
+                for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
                 debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 let (sql_str, params) = self.inner.bind(params)?;
@@ -113,7 +113,10 @@ macro_rules! sqlite_async_prepared_impl {
 
                 let mut results = Vec::new();
                 while let Some(row) = rows.next().await? {
-                    let converted = T::try_from(&row).map_err(Into::into)?;
+                    let converted = <Marker as drizzle_core::row::DecodeSelectedRef<
+                        &$row,
+                        T,
+                    >>::decode(&row)?;
                     results.push(converted);
                 }
 
@@ -130,8 +133,7 @@ macro_rules! sqlite_async_prepared_impl {
                 >; N],
             ) -> drizzle_core::error::Result<T>
             where
-                T: for<'r> TryFrom<&'r $row>,
-                for<'r> <T as TryFrom<&'r $row>>::Error: Into<drizzle_core::error::DrizzleError>,
+                for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
                 debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 let (sql_str, params) = self.inner.bind(params)?;
@@ -140,7 +142,7 @@ macro_rules! sqlite_async_prepared_impl {
                 let mut rows = conn.fetch(sql_str, driver_params).await?;
 
                 if let Some(row) = rows.next().await? {
-                    T::try_from(&row).map_err(Into::into)
+                    <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)
                 } else {
                     Err(drizzle_core::error::DrizzleError::NotFound)
                 }

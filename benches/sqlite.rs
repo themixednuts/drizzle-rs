@@ -22,6 +22,7 @@ struct Post {
     id: i32,
     title: String,
     body: String,
+    #[column(references = User::id)]
     author_id: i32,
 }
 
@@ -359,6 +360,34 @@ fn bench_rusqlite(c: &mut Criterion) {
                     .offset(20)
                     .all()
                     .expect("page");
+                black_box(out);
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+    query.bench_function("relations_json_decode", |b| {
+        b.iter_batched(
+            || {
+                let (db, user, post) = rs_db_blog();
+                db.insert(user)
+                    .values(users!(25))
+                    .execute()
+                    .expect("seed users");
+                db.insert(post)
+                    .values(posts!(250, 25))
+                    .execute()
+                    .expect("seed posts");
+                (db, user)
+            },
+            |(db, user)| {
+                let out = db
+                    .query(user)
+                    .with(user.posts())
+                    .order_by([asc(user.id)])
+                    .find_many()
+                    .expect("relations");
+                let post_count = out.iter().map(|row| row.posts().len()).sum::<usize>();
+                black_box(post_count);
                 black_box(out);
             },
             criterion::BatchSize::SmallInput,

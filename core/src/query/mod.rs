@@ -5,7 +5,7 @@
 //! The pipeline: [`QueryBuilder`] configures filtering/pagination and collects
 //! [`RelationHandle`]s via `.with()`. At execution time, handles are rendered
 //! into SQL via [`RenderRelations`], the query is built by [`build_query_sql`],
-//! and results are deserialized via [`DeserializeStore`] + [`FromJsonValue`]
+//! and results are deserialized via [`DeserializeStore`] + [`FromJsonObject`]
 //! into [`QueryRow<Base, Store>`](QueryRow) values.
 
 mod builder;
@@ -22,7 +22,10 @@ pub use builder::{
     IntoColumnSelection, NoLimit, NoOrderBy, NoWhere, PartialColumns, QueryBuilder, QueryTable,
     ResolveSelect,
 };
-pub use deser::{DeserializeStore, FromJsonColumn, FromJsonValue, deserialize_field};
+pub use deser::{
+    DeserializeStore, FromJsonColumn, FromJsonField, FromJsonObject, JsonBool, JsonObjectDecoder,
+    JsonOptionalBool,
+};
 pub use find::{FindRel, Here, There};
 pub use handle::RelationHandle;
 pub use row::QueryRow;

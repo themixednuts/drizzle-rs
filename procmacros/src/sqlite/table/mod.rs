@@ -140,7 +140,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     #[cfg(not(feature = "libsql"))]
     let libsql_impls = quote!();
 
-    // Generate query API code (relation ZSTs, accessors, FromJsonValue)
+    // Generate query API code (relation ZSTs, accessors, JSON decoders)
     #[cfg(feature = "query")]
     let query_api_impls = generate_query_api_impls(&ctx);
     #[cfg(not(feature = "query"))]
@@ -202,7 +202,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     Ok(expanded)
 }
 
-/// Generate query API impls (`RelationDef`, accessors, `FromJsonValue`) for `SQLite`.
+/// Generate query API impls (`RelationDef`, accessors, JSON decoders) for `SQLite`.
 ///
 /// Shared by both `#[SQLiteTable]` and `#[SQLiteView]`.
 #[cfg(feature = "query")]
@@ -231,7 +231,7 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
 
     let partial_select_model_ident = &ctx.select_model_partial_ident;
 
-    // Collect field info for FromJsonValue generation
+    // Collect field info for JSON decoder generation
     let field_json_infos: Vec<FieldJsonInfo> = ctx
         .field_infos
         .iter()
@@ -264,6 +264,15 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
                 storage,
                 enum_storage,
                 base_type: f.base_type.clone(),
+                select_type: crate::sqlite::table::context::MacroContext::get_field_type_for_model(
+                    f,
+                    crate::common::ModelType::Select,
+                ),
+                partial_select_type:
+                    crate::sqlite::table::context::MacroContext::get_field_type_for_model(
+                        f,
+                        crate::common::ModelType::PartialSelect,
+                    ),
             }
         })
         .collect();

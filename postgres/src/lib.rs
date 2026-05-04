@@ -50,4 +50,12 @@ pub use postgres::Row;
 #[cfg(feature = "tokio-postgres")]
 pub use tokio_postgres::Row;
 
+#[doc(hidden)]
+pub mod driver_types {
+    #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+    pub use postgres::types::Json;
+    #[cfg(feature = "tokio-postgres")]
+    pub use tokio_postgres::types::Json;
+}
+
 pub use drizzle_core::ParamBind;

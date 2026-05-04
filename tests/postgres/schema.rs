@@ -56,6 +56,21 @@ struct DefaultNameView {
     id: i32,
 }
 
+#[PostgresTable]
+struct PgCasingDefault {
+    #[column(PRIMARY)]
+    id: i32,
+    created_at: String,
+}
+
+#[PostgresTable(NAME = "externalUsers")]
+struct PgCasingExplicit {
+    #[column(PRIMARY, name = "userId")]
+    id: i32,
+    #[column(name = "displayName")]
+    display_name: String,
+}
+
 #[PostgresView(EXISTING, NAME = "existing_simple_view")]
 struct ExistingSimpleView {
     id: i32,
@@ -220,6 +235,25 @@ fn tagged_alias_forwards_alias_metadata(db: &mut TestDb<SimpleSchema>) {
     let _base = Simple::new();
 
     assert_eq!(tagged.name(), "s_alias");
+}
+
+#[test]
+fn postgres_casing_is_schema_definition_scoped() {
+    let default = PgCasingDefault::new();
+    assert_eq!(default.name(), "pg_casing_default");
+    assert_eq!(default.created_at.name(), "created_at");
+
+    let explicit = PgCasingExplicit::new();
+    assert_eq!(explicit.name(), "externalUsers");
+    assert_eq!(explicit.id.name(), "userId");
+    assert_eq!(explicit.display_name.name(), "displayName");
+
+    let sql = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>()
+        .select((default.id, default.created_at))
+        .from(default)
+        .to_sql()
+        .sql();
+    assert!(sql.contains(r#""pg_casing_default"."created_at""#));
 }
 
 #[drizzle::test]

@@ -1,4 +1,4 @@
-use drizzle_core::error::{DrizzleError, Result};
+use drizzle_core::error::Result;
 use drizzle_core::param::{OwnedParam, Param, ParamBind};
 use drizzle_core::prepared::{
     OwnedPreparedStatement as CoreOwnedPreparedStatement,
@@ -6,17 +6,20 @@ use drizzle_core::prepared::{
 };
 use drizzle_core::traits::ToSQL;
 use drizzle_sqlite::values::{OwnedSQLiteValue, SQLiteValue};
-use std::borrow::Cow;
+use std::{borrow::Cow, marker::PhantomData};
 
 use rusqlite::{Connection, Row, params_from_iter};
 
 #[derive(Debug, Clone)]
-pub struct PreparedStatement<'a> {
+pub struct PreparedStatement<'a, Marker = (), DecodedRow = ()> {
     pub(crate) inner: CorePreparedStatement<'a, SQLiteValue<'a>>,
+    pub(crate) marker: PhantomData<(Marker, DecodedRow)>,
 }
 
-impl From<OwnedPreparedStatement> for PreparedStatement<'_> {
-    fn from(value: OwnedPreparedStatement) -> Self {
+impl<Marker, DecodedRow> From<OwnedPreparedStatement<Marker, DecodedRow>>
+    for PreparedStatement<'_, Marker, DecodedRow>
+{
+    fn from(value: OwnedPreparedStatement<Marker, DecodedRow>) -> Self {
         let sqlitevalue = value.inner.params.iter().map(|v| {
             Param::new(
                 v.placeholder,
@@ -28,11 +31,21 @@ impl From<OwnedPreparedStatement> for PreparedStatement<'_> {
             params: sqlitevalue.collect::<Box<[_]>>(),
             sql: value.inner.sql,
         };
-        PreparedStatement { inner }
+        PreparedStatement {
+            inner,
+            marker: PhantomData,
+        }
     }
 }
 
-impl<'a> PreparedStatement<'a> {
+impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
+    pub(crate) fn new(inner: CorePreparedStatement<'a, SQLiteValue<'a>>) -> Self {
+        Self {
+            inner,
+            marker: PhantomData,
+        }
+    }
+
     /// Runs the prepared statement and returns the number of affected rows
     pub fn execute<const N: usize>(
         &self,
@@ -56,8 +69,8 @@ impl<'a> PreparedStatement<'a> {
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "prepared.execute.db");
-        conn.execute(sql_str, params_from_iter(params))
-            .map_err(Into::into)
+        let mut stmt = conn.prepare_cached(sql_str)?;
+        stmt.execute(params_from_iter(params)).map_err(Into::into)
     }
 
     /// Runs the prepared statement and returns all matching rows
@@ -67,8 +80,7 @@ impl<'a> PreparedStatement<'a> {
         params: [ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> Result<Vec<T>>
     where
-        T: for<'r> TryFrom<&'r Row<'r>>,
-        for<'r> <T as TryFrom<&'r Row<'r>>>::Error: Into<DrizzleError>,
+        for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r Row<'r>, T>,
     {
         debug_assert_eq!(
             N,
@@ -81,10 +93,10 @@ impl<'a> PreparedStatement<'a> {
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "prepared.all");
         let (sql_str, params) = self.inner.bind(params)?;
 
-        let mut stmt = conn.prepare(sql_str)?;
+        let mut stmt = conn.prepare_cached(sql_str)?;
 
         let mut rows = stmt.query_and_then(params_from_iter(params), |row| {
-            T::try_from(row).map_err(Into::into)
+            <Marker as drizzle_core::row::DecodeSelectedRef<&Row<'_>, T>>::decode(row)
         })?;
 
         let (lower, _) = rows.size_hint();
@@ -103,8 +115,7 @@ impl<'a> PreparedStatement<'a> {
         params: [ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> Result<T>
     where
-        T: for<'r> TryFrom<&'r Row<'r>>,
-        for<'r> <T as TryFrom<&'r Row<'r>>>::Error: Into<DrizzleError>,
+        for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r Row<'r>, T>,
     {
         debug_assert_eq!(
             N,
@@ -117,13 +128,16 @@ impl<'a> PreparedStatement<'a> {
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "prepared.get");
         let (sql_str, params) = self.inner.bind(params)?;
 
-        let mut stmt = conn.prepare(sql_str)?;
+        let mut stmt = conn.prepare_cached(sql_str)?;
 
         stmt.query_row(params_from_iter(params), |row| {
-            Ok(T::try_from(row).map_err(Into::into))
+            Ok(<Marker as drizzle_core::row::DecodeSelectedRef<
+                &Row<'_>,
+                T,
+            >>::decode(row))
         })?
     }
-    pub fn into_owned(self) -> OwnedPreparedStatement {
+    pub fn into_owned(self) -> OwnedPreparedStatement<Marker, DecodedRow> {
         let owned_params = self.inner.params.iter().map(|p| OwnedParam {
             placeholder: p.placeholder,
             value: p
@@ -138,22 +152,28 @@ impl<'a> PreparedStatement<'a> {
             sql: self.inner.sql.clone(),
         };
 
-        OwnedPreparedStatement { inner }
+        OwnedPreparedStatement {
+            inner,
+            marker: PhantomData,
+        }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct OwnedPreparedStatement {
+pub struct OwnedPreparedStatement<Marker = (), DecodedRow = ()> {
     pub(crate) inner: CoreOwnedPreparedStatement<OwnedSQLiteValue>,
+    pub(crate) marker: PhantomData<(Marker, DecodedRow)>,
 }
 
-impl<'a> From<PreparedStatement<'a>> for OwnedPreparedStatement {
-    fn from(value: PreparedStatement<'a>) -> Self {
+impl<'a, Marker, DecodedRow> From<PreparedStatement<'a, Marker, DecodedRow>>
+    for OwnedPreparedStatement<Marker, DecodedRow>
+{
+    fn from(value: PreparedStatement<'a, Marker, DecodedRow>) -> Self {
         value.into_owned()
     }
 }
 
-impl OwnedPreparedStatement {
+impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
     /// Runs the prepared statement and returns the number of affected rows
     pub fn execute<'a, const N: usize>(
         &self,
@@ -177,7 +197,8 @@ impl OwnedPreparedStatement {
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "owned_prepared.execute.db");
-        Ok(conn.execute(sql_str, params_from_iter(params))?)
+        let mut stmt = conn.prepare_cached(sql_str)?;
+        Ok(stmt.execute(params_from_iter(params))?)
     }
 
     /// Runs the prepared statement and returns all matching rows
@@ -187,8 +208,7 @@ impl OwnedPreparedStatement {
         params: [ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> Result<Vec<T>>
     where
-        T: for<'r> TryFrom<&'r Row<'r>>,
-        for<'r> <T as TryFrom<&'r Row<'r>>>::Error: Into<DrizzleError>,
+        for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r Row<'r>, T>,
     {
         debug_assert_eq!(
             N,
@@ -201,10 +221,10 @@ impl OwnedPreparedStatement {
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "owned_prepared.all");
         let (sql_str, params) = self.inner.bind(params)?;
 
-        let mut stmt = conn.prepare(sql_str)?;
+        let mut stmt = conn.prepare_cached(sql_str)?;
 
         let mut rows = stmt.query_and_then(params_from_iter(params), |row| {
-            T::try_from(row).map_err(Into::into)
+            <Marker as drizzle_core::row::DecodeSelectedRef<&Row<'_>, T>>::decode(row)
         })?;
 
         let (lower, _) = rows.size_hint();
@@ -223,8 +243,7 @@ impl OwnedPreparedStatement {
         params: [ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> Result<T>
     where
-        T: for<'r> TryFrom<&'r Row<'r>>,
-        for<'r> <T as TryFrom<&'r Row<'r>>>::Error: Into<DrizzleError>,
+        for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r Row<'r>, T>,
     {
         debug_assert_eq!(
             N,
@@ -237,39 +256,48 @@ impl OwnedPreparedStatement {
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "owned_prepared.get");
         let (sql_str, params) = self.inner.bind(params)?;
 
-        let mut stmt = conn.prepare(sql_str)?;
+        let mut stmt = conn.prepare_cached(sql_str)?;
 
         stmt.query_row(params_from_iter(params), |row| {
-            Ok(T::try_from(row).map_err(Into::into))
+            Ok(<Marker as drizzle_core::row::DecodeSelectedRef<
+                &Row<'_>,
+                T,
+            >>::decode(row))
         })?
     }
 }
 
-impl std::fmt::Display for PreparedStatement<'_> {
+impl<Marker, DecodedRow> std::fmt::Display for PreparedStatement<'_, Marker, DecodedRow> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.inner)
     }
 }
 
-impl std::fmt::Display for OwnedPreparedStatement {
+impl<Marker, DecodedRow> std::fmt::Display for OwnedPreparedStatement<Marker, DecodedRow> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.inner)
     }
 }
 
-impl<'a> ToSQL<'a, SQLiteValue<'a>> for PreparedStatement<'a> {
+impl<'a, Marker, DecodedRow> ToSQL<'a, SQLiteValue<'a>>
+    for PreparedStatement<'a, Marker, DecodedRow>
+{
     fn to_sql(&self) -> drizzle_core::sql::SQL<'a, SQLiteValue<'a>> {
         self.inner.to_sql()
     }
 }
 
-impl<'a> ToSQL<'a, OwnedSQLiteValue> for OwnedPreparedStatement {
+impl<'a, Marker, DecodedRow> ToSQL<'a, OwnedSQLiteValue>
+    for OwnedPreparedStatement<Marker, DecodedRow>
+{
     fn to_sql(&self) -> drizzle_core::sql::SQL<'a, OwnedSQLiteValue> {
         self.inner.to_sql()
     }
 }
 
-impl<'a> ToSQL<'a, SQLiteValue<'a>> for OwnedPreparedStatement {
+impl<'a, Marker, DecodedRow> ToSQL<'a, SQLiteValue<'a>>
+    for OwnedPreparedStatement<Marker, DecodedRow>
+{
     fn to_sql(&self) -> drizzle_core::sql::SQL<'a, SQLiteValue<'a>> {
         self.inner.to_sql().map_params(SQLiteValue::from)
     }

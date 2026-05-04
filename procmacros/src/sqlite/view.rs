@@ -469,7 +469,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         }
     };
 
-    // Generate query API code (relation ZSTs, accessors, FromJsonValue)
+    // Generate query API code (relation ZSTs, accessors, JSON decoders)
     #[cfg(feature = "query")]
     let query_api_impls = crate::sqlite::table::generate_query_api_impls(&ctx);
     #[cfg(not(feature = "query"))]

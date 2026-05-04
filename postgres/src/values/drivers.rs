@@ -5,7 +5,7 @@ use super::PostgresValue;
 
 //------------------------------------------------------------------------------
 // postgres/tokio-postgres ToSql implementations
-// Both crates use the same postgres-types underneath, so we only need one implementation
+// The two drivers expose the same ToSql contract, so one implementation covers both.
 //------------------------------------------------------------------------------
 
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
@@ -14,12 +14,226 @@ mod postgres_tosql_impl {
 
     // Import from whichever crate is available
     #[cfg(feature = "postgres-sync")]
-    use postgres::types::{IsNull, ToSql, Type};
+    use postgres::types::{IsNull, Kind, ToSql, Type};
 
     #[cfg(all(feature = "tokio-postgres", not(feature = "postgres-sync")))]
-    use tokio_postgres::types::{IsNull, ToSql, Type};
+    use tokio_postgres::types::{IsNull, Kind, ToSql, Type};
 
     use bytes::BytesMut;
+
+    macro_rules! encode_array {
+        ($arr:expr, $ty:expr, $out:expr, $variant:ident, $rust_ty:ty, $convert:expr) => {{
+            let mut values: Vec<Option<$rust_ty>> = Vec::with_capacity($arr.len());
+            for value in $arr {
+                match value {
+                    PostgresValue::Null => values.push(None),
+                    PostgresValue::$variant(inner) => values.push(Some($convert(inner))),
+                    other => return Err(array_encode_error($ty, other)),
+                }
+            }
+            values.to_sql($ty, $out)
+        }};
+    }
+
+    fn array_encode_error(
+        ty: &Type,
+        value: &PostgresValue<'_>,
+    ) -> Box<dyn std::error::Error + Sync + Send> {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "cannot encode {value:?} as an element of PostgreSQL array {}",
+                ty.name()
+            ),
+        )
+        .into()
+    }
+
+    fn array_to_sql(
+        arr: &[PostgresValue<'_>],
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        if !matches!(ty.kind(), Kind::Array(_)) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("cannot encode PostgreSQL array value as {}", ty.name()),
+            )
+            .into());
+        }
+
+        if *ty == Type::INT2_ARRAY {
+            return encode_array!(arr, ty, out, Smallint, i16, |v: &i16| *v);
+        }
+        if *ty == Type::INT4_ARRAY {
+            return encode_array!(arr, ty, out, Integer, i32, |v: &i32| *v);
+        }
+        if *ty == Type::INT8_ARRAY {
+            return encode_array!(arr, ty, out, Bigint, i64, |v: &i64| *v);
+        }
+        if *ty == Type::FLOAT4_ARRAY {
+            return encode_array!(arr, ty, out, Real, f32, |v: &f32| *v);
+        }
+        if *ty == Type::FLOAT8_ARRAY {
+            return encode_array!(arr, ty, out, DoublePrecision, f64, |v: &f64| *v);
+        }
+        #[cfg(feature = "rust-decimal")]
+        if *ty == Type::NUMERIC_ARRAY {
+            return encode_array!(
+                arr,
+                ty,
+                out,
+                Numeric,
+                rust_decimal::Decimal,
+                |v: &rust_decimal::Decimal| *v
+            );
+        }
+        if *ty == Type::TEXT_ARRAY || *ty == Type::VARCHAR_ARRAY || *ty == Type::BPCHAR_ARRAY {
+            return encode_array!(arr, ty, out, Text, String, |v: &std::borrow::Cow<
+                '_,
+                str,
+            >| v.to_string());
+        }
+        if *ty == Type::BYTEA_ARRAY {
+            return encode_array!(arr, ty, out, Bytea, Vec<u8>, |v: &std::borrow::Cow<
+                '_,
+                [u8],
+            >| v.to_vec());
+        }
+        if *ty == Type::BOOL_ARRAY {
+            return encode_array!(arr, ty, out, Boolean, bool, |v: &bool| *v);
+        }
+        #[cfg(feature = "uuid")]
+        if *ty == Type::UUID_ARRAY {
+            return encode_array!(arr, ty, out, Uuid, uuid::Uuid, |v: &uuid::Uuid| *v);
+        }
+        #[cfg(feature = "serde")]
+        if *ty == Type::JSON_ARRAY {
+            return encode_array!(
+                arr,
+                ty,
+                out,
+                Json,
+                serde_json::Value,
+                |v: &serde_json::Value| v.clone()
+            );
+        }
+        #[cfg(feature = "serde")]
+        if *ty == Type::JSONB_ARRAY {
+            return encode_array!(
+                arr,
+                ty,
+                out,
+                Jsonb,
+                serde_json::Value,
+                |v: &serde_json::Value| v.clone()
+            );
+        }
+        #[cfg(feature = "chrono")]
+        if *ty == Type::DATE_ARRAY {
+            return encode_array!(
+                arr,
+                ty,
+                out,
+                Date,
+                chrono::NaiveDate,
+                |v: &chrono::NaiveDate| *v
+            );
+        }
+        #[cfg(feature = "chrono")]
+        if *ty == Type::TIME_ARRAY {
+            return encode_array!(
+                arr,
+                ty,
+                out,
+                Time,
+                chrono::NaiveTime,
+                |v: &chrono::NaiveTime| *v
+            );
+        }
+        #[cfg(feature = "chrono")]
+        if *ty == Type::TIMESTAMP_ARRAY {
+            return encode_array!(
+                arr,
+                ty,
+                out,
+                Timestamp,
+                chrono::NaiveDateTime,
+                |v: &chrono::NaiveDateTime| *v
+            );
+        }
+        #[cfg(feature = "chrono")]
+        if *ty == Type::TIMESTAMPTZ_ARRAY {
+            return encode_array!(
+                arr,
+                ty,
+                out,
+                TimestampTz,
+                chrono::DateTime<chrono::FixedOffset>,
+                |v: &chrono::DateTime<chrono::FixedOffset>| *v
+            );
+        }
+        #[cfg(feature = "time")]
+        if *ty == Type::DATE_ARRAY {
+            return encode_array!(arr, ty, out, TimeDate, time::Date, |v: &time::Date| *v);
+        }
+        #[cfg(feature = "time")]
+        if *ty == Type::TIME_ARRAY {
+            return encode_array!(arr, ty, out, TimeTime, time::Time, |v: &time::Time| *v);
+        }
+        #[cfg(feature = "time")]
+        if *ty == Type::TIMESTAMP_ARRAY {
+            return encode_array!(
+                arr,
+                ty,
+                out,
+                TimeTimestamp,
+                time::PrimitiveDateTime,
+                |v: &time::PrimitiveDateTime| *v
+            );
+        }
+        #[cfg(feature = "time")]
+        if *ty == Type::TIMESTAMPTZ_ARRAY {
+            return encode_array!(
+                arr,
+                ty,
+                out,
+                TimeTimestampTz,
+                time::OffsetDateTime,
+                |v: &time::OffsetDateTime| *v
+            );
+        }
+        #[cfg(feature = "cidr")]
+        if *ty == Type::INET_ARRAY {
+            return encode_array!(arr, ty, out, Inet, cidr::IpInet, |v: &cidr::IpInet| *v);
+        }
+        #[cfg(feature = "cidr")]
+        if *ty == Type::CIDR_ARRAY {
+            return encode_array!(arr, ty, out, Cidr, cidr::IpCidr, |v: &cidr::IpCidr| *v);
+        }
+        #[cfg(feature = "bit-vec")]
+        if *ty == Type::VARBIT_ARRAY || *ty == Type::BIT_ARRAY {
+            return encode_array!(
+                arr,
+                ty,
+                out,
+                BitVec,
+                bit_vec::BitVec,
+                |v: &bit_vec::BitVec| v.clone()
+            );
+        }
+
+        let mut values: Vec<Option<String>> = Vec::with_capacity(arr.len());
+        for value in arr {
+            match value {
+                PostgresValue::Null => values.push(None),
+                PostgresValue::Text(value) => values.push(Some(value.to_string())),
+                PostgresValue::Enum(value) => values.push(Some(value.variant_name().to_owned())),
+                other => return Err(array_encode_error(ty, other)),
+            }
+        }
+        values.to_sql(ty, out)
+    }
 
     impl ToSql for PostgresValue<'_> {
         fn to_sql(
@@ -94,20 +308,7 @@ mod postgres_tosql_impl {
                 #[cfg(feature = "bit-vec")]
                 PostgresValue::BitVec(bits) => bits.to_sql(ty, out),
                 PostgresValue::Enum(enum_val) => enum_val.variant_name().to_sql(ty, out),
-                PostgresValue::Array(arr) => {
-                    // For arrays, we need to serialize each element
-                    // This is a simplified version - proper implementation would handle nested types
-                    let elements: Vec<Option<String>> = arr
-                        .iter()
-                        .map(|v| match v {
-                            PostgresValue::Null => None,
-                            PostgresValue::Text(s) => Some(s.to_string()),
-                            PostgresValue::Integer(i) => Some(i.to_string()),
-                            _ => Some(format!("{v:?}")),
-                        })
-                        .collect();
-                    elements.to_sql(ty, out)
-                }
+                PostgresValue::Array(arr) => array_to_sql(arr, ty, out),
             }
         }
 

@@ -206,7 +206,7 @@ fn for_update_of_sql_generation(db: &mut TestDb<SimpleSchema>) {
         "Expected FOR UPDATE OF in SQL: {}",
         sql
     );
-    // Verify unqualified table name is used (per beta-12 fix)
+    // Verify unqualified table name is used.
     assert!(
         sql.contains(r#"OF "simple""#),
         "Expected unqualified table name in SQL: {}",
@@ -240,7 +240,7 @@ fn for_share_of_sql_generation(db: &mut TestDb<SimpleSchema>) {
         "Expected FOR SHARE OF in SQL: {}",
         sql
     );
-    // Verify unqualified table name is used (per beta-12 fix)
+    // Verify unqualified table name is used.
     assert!(
         sql.contains(r#"OF "simple""#),
         "Expected unqualified table name in SQL: {}",

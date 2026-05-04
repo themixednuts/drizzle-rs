@@ -198,8 +198,11 @@ pub mod core {
         pub use drizzle_core::query::*;
     }
 
-    /// Re-export serde_json for proc macro generated code.
-    #[cfg(feature = "query")]
+    /// Re-export serde for proc macro generated code.
+    #[cfg(any(feature = "serde", feature = "query"))]
+    #[doc(hidden)]
+    pub use drizzle_core::serde;
+    #[cfg(any(feature = "serde", feature = "query"))]
     #[doc(hidden)]
     pub use drizzle_core::serde_json;
 
@@ -303,6 +306,8 @@ pub mod postgres {
     pub use drizzle_macros::{
         PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable, PostgresView,
     };
+    #[doc(hidden)]
+    pub use drizzle_postgres::driver_types;
     #[doc(inline)]
     pub use drizzle_postgres::{attrs, builder, common, expr, helpers, traits, types, values};
 
