@@ -689,6 +689,10 @@ fn col_f64(cols: &[Option<String>], idx: usize) -> f64 {
         .unwrap_or(0.0)
 }
 
+fn contains_term(value: &str, term_lower: &str) -> bool {
+    term_lower.is_empty() || value.to_ascii_lowercase().contains(term_lower)
+}
+
 #[debug_handler(state = AppState)]
 async fn stats(_: State<AppState>) -> Json<Vec<f64>> {
     let mut sys = System::new_all();
@@ -1226,14 +1230,12 @@ async fn search_customer(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let term = params.term.as_deref().unwrap_or("");
-    let escaped = sql_escape(term);
-    let sql = format!(
-        "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE company_name LIKE '%{escaped}%'"
-    );
-    let messages = pg_query(&state, &sql).await?;
-    let resp: Vec<CustomerResponse> = extract_rows(messages)
+    let term_lower = params.term.as_deref().unwrap_or("").to_ascii_lowercase();
+    let sql = "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers";
+    let resp: Vec<CustomerResponse> = pg_rows(&state, sql)
+        .await?
         .into_iter()
+        .filter(|c| contains_term(&col_str(c, 1), &term_lower))
         .map(|c| CustomerResponse {
             id: col_i32(&c, 0),
             company_name: col_str(&c, 1),
@@ -1256,14 +1258,12 @@ async fn search_product(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let term = params.term.as_deref().unwrap_or("");
-    let escaped = sql_escape(term);
-    let sql = format!(
-        "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products WHERE name LIKE '%{escaped}%'"
-    );
-    let messages = pg_query(&state, &sql).await?;
-    let resp: Vec<ProductResponse> = extract_rows(messages)
+    let term_lower = params.term.as_deref().unwrap_or("").to_ascii_lowercase();
+    let sql = "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products";
+    let resp: Vec<ProductResponse> = pg_rows(&state, sql)
+        .await?
         .into_iter()
+        .filter(|c| contains_term(&col_str(c, 1), &term_lower))
         .map(|c| ProductResponse {
             id: col_i32(&c, 0),
             name: col_str(&c, 1),
