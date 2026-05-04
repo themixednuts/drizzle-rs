@@ -71,7 +71,10 @@ pub mod profiling;
 #[cfg(feature = "query")]
 pub mod query;
 pub mod relation;
-#[cfg(feature = "query")]
+#[cfg(any(feature = "serde", feature = "query"))]
+#[doc(hidden)]
+pub use serde;
+#[cfg(any(feature = "serde", feature = "query"))]
 #[doc(hidden)]
 pub use serde_json;
 pub mod row;

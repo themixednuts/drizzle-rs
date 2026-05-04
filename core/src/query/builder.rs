@@ -361,6 +361,6 @@ pub trait QueryTable {
     ///
     /// These columns are wrapped with `hex()` inside `json_object()` calls
     /// because `SQLite`'s JSON functions cannot serialize BLOB values directly.
-    /// The `FromJsonValue` deserializer then parses the hex string back.
+    /// The query JSON decoder then parses the hex string back.
     const BLOB_COLUMNS: &'static [&'static str] = &[];
 }

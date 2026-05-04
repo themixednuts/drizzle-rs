@@ -1,7 +1,7 @@
 //! Shared query API code generation for both `SQLite` and `PostgreSQL`.
 //!
 //! Generates relation ZSTs, `RelationDef` impls, inherent accessor methods,
-//! result accessor traits, type aliases, `FromJsonValue` impls, and column
+//! result accessor traits, type aliases, JSON decoder impls, and column
 //! selectors from FK declarations.
 
 use heck::{ToSnakeCase, ToUpperCamelCase};
@@ -30,8 +30,8 @@ pub enum EnumStorage {
     Text,
 }
 
-/// How a field should be read from a JSON value. These storage kinds are
-/// mutually exclusive and each takes a distinct read path in `FromJsonValue`.
+/// How a field should be read from JSON. These storage kinds are mutually
+/// exclusive and each takes a distinct decode path.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum FieldStorageKind {
     /// Plain JSON-native value (number, string, array, object).
@@ -45,7 +45,7 @@ pub enum FieldStorageKind {
     Blob,
 }
 
-/// Info about a field for generating `FromJsonValue`.
+/// Info about a field for generating JSON decoders.
 pub struct FieldJsonInfo {
     /// The field ident (e.g., `id`).
     pub ident: Ident,
@@ -62,6 +62,10 @@ pub struct FieldJsonInfo {
     pub enum_storage: Option<EnumStorage>,
     /// The unwrapped base type (e.g., `i32` even if the field is `Option<i32>`).
     pub base_type: syn::Type,
+    /// The generated select model field type.
+    pub select_type: TokenStream,
+    /// The generated partial select model field type.
+    pub partial_select_type: TokenStream,
 }
 
 /// Generates all query API code for a table.
@@ -70,8 +74,8 @@ pub struct FieldJsonInfo {
 /// - `QueryTable` impl for the table ZST
 /// - Forward relation items (ZST, `RelationDef` impl, accessor method, result accessor trait, type alias)
 /// - Reverse relation items (ZST, `RelationDef` impl, accessor method, result accessor trait, type alias)
-/// - `FromJsonValue` impl for the select model
-/// - `FromJsonValue` impl for the partial select model
+/// - JSON decoder impl for the select model
+/// - JSON decoder impl for the partial select model
 /// - Column selector struct and `.columns()` method
 #[allow(clippy::too_many_arguments)]
 pub fn generate_query_api(
@@ -141,16 +145,18 @@ pub fn generate_query_api(
         fk_infos,
     ));
 
-    // 5. Generate FromJsonValue for the select model
-    tokens.extend(generate_from_json_value(
+    // 5. Generate JSON decoder for the select model
+    tokens.extend(generate_json_decoder(
         select_model_ident,
         field_json_infos,
+        false,
     ));
 
-    // 6. Generate FromJsonValue for the partial select model (all fields optional)
-    tokens.extend(generate_partial_from_json_value(
+    // 6. Generate JSON decoder for the partial select model (all fields optional)
+    tokens.extend(generate_json_decoder(
         partial_select_model_ident,
         field_json_infos,
+        true,
     ));
 
     // 7. Generate column selector struct and `.columns()` method
@@ -564,19 +570,40 @@ fn generate_many_to_many_relations(
     tokens
 }
 
-/// Generates a `FromJsonValue` impl for a model.
+/// Generates JSON decoder impls for a model.
 ///
-/// When `nullable_all` is true (partial select), every field is treated as nullable
-/// regardless of the original schema — producing `Option<T>` for all fields.
-///
-/// Uses `deserialize_field()` (zero-copy serde) for standard fields. UUID and enum
-/// fields use specialized extraction (parse from string, TryFrom/FromStr).
-fn generate_from_json_value_impl(
+/// When `nullable_all` is true, every field is treated as nullable regardless
+/// of the original schema.
+fn generate_json_decoder(
     model_ident: &Ident,
     fields: &[FieldJsonInfo],
     nullable_all: bool,
 ) -> TokenStream {
-    let field_reads: Vec<TokenStream> = fields
+    let state_ident = format_ident!("__{model_ident}JsonState");
+
+    let state_fields: Vec<TokenStream> = fields
+        .iter()
+        .map(|f| {
+            let ident = &f.ident;
+            let ty = if nullable_all {
+                &f.partial_select_type
+            } else {
+                &f.select_type
+            };
+
+            quote! { #ident: ::std::option::Option<#ty> }
+        })
+        .collect();
+
+    let init_fields: Vec<TokenStream> = fields
+        .iter()
+        .map(|f| {
+            let ident = &f.ident;
+            quote! { #ident: ::std::option::Option::None }
+        })
+        .collect();
+
+    let field_matches: Vec<TokenStream> = fields
         .iter()
         .map(|f| {
             let ident = &f.ident;
@@ -584,44 +611,124 @@ fn generate_from_json_value_impl(
             let is_nullable = nullable_all || f.is_nullable;
 
             if let Some(storage) = f.enum_storage {
-                return generate_enum_read(ident, col_name, &f.base_type, storage, is_nullable);
+                return generate_enum_decode(ident, col_name, &f.base_type, storage, is_nullable);
             }
 
             match f.storage {
-                FieldStorageKind::Uuid => generate_uuid_read(ident, col_name, is_nullable),
-                FieldStorageKind::Bool => generate_bool_read(ident, col_name, is_nullable),
-                FieldStorageKind::Blob => {
-                    generate_blob_read(ident, col_name, &f.base_type, is_nullable, f.is_json)
+                FieldStorageKind::Uuid => {
+                    generate_uuid_decode(ident, col_name, &f.base_type, is_nullable)
                 }
-                FieldStorageKind::Plain => generate_serde_read(ident, col_name, is_nullable),
+                FieldStorageKind::Bool => generate_bool_decode(ident, col_name, is_nullable),
+                FieldStorageKind::Blob => {
+                    generate_blob_decode(ident, col_name, &f.base_type, is_nullable, f.is_json)
+                }
+                FieldStorageKind::Plain => {
+                    let ty = if nullable_all {
+                        &f.partial_select_type
+                    } else {
+                        &f.select_type
+                    };
+                    generate_plain_decode(ident, col_name, ty)
+                }
+            }
+        })
+        .collect();
+
+    let finish_fields: Vec<TokenStream> = fields
+        .iter()
+        .map(|f| {
+            let ident = &f.ident;
+            let col_name = &f.column_name;
+            let is_nullable = nullable_all || f.is_nullable;
+            if is_nullable {
+                quote! {
+                    #ident: state.#ident.unwrap_or(::std::option::Option::None)
+                }
+            } else {
+                quote! {
+                    #ident: state.#ident.ok_or_else(|| <__E as drizzle::core::serde::de::Error>::missing_field(#col_name))?
+                }
             }
         })
         .collect();
 
     quote! {
-        impl drizzle::core::query::FromJsonValue for #model_ident {
-            fn from_json_value(val: &drizzle::core::serde_json::Value) -> ::std::result::Result<Self, drizzle::error::DrizzleError> {
-                let obj = val.as_object().ok_or_else(|| {
-                    drizzle::error::DrizzleError::Other(
-                        ::std::format!("expected JSON object for {}", ::std::stringify!(#model_ident)).into()
-                    )
-                })?;
-                Ok(Self {
-                    #(#field_reads),*
+        #[doc(hidden)]
+        #[allow(non_camel_case_types)]
+        pub struct #state_ident {
+            #(#state_fields,)*
+        }
+
+        impl<'de> drizzle::core::query::JsonObjectDecoder<'de> for #model_ident {
+            type State = #state_ident;
+
+            fn begin() -> Self::State {
+                #state_ident {
+                    #(#init_fields,)*
+                }
+            }
+
+            fn decode_field<__A>(
+                state: &mut Self::State,
+                key: &str,
+                map: &mut __A,
+            ) -> ::std::result::Result<bool, __A::Error>
+            where
+                __A: drizzle::core::serde::de::MapAccess<'de>,
+            {
+                match key {
+                    #(#field_matches,)*
+                    _ => ::std::result::Result::Ok(false),
+                }
+            }
+
+            fn finish<__E>(state: Self::State) -> ::std::result::Result<Self, __E>
+            where
+                __E: drizzle::core::serde::de::Error,
+            {
+                ::std::result::Result::Ok(Self {
+                    #(#finish_fields,)*
                 })
             }
         }
+
+        impl<'de> drizzle::core::serde::Deserialize<'de> for #model_ident {
+            fn deserialize<__D>(deserializer: __D) -> ::std::result::Result<Self, __D::Error>
+            where
+                __D: drizzle::core::serde::Deserializer<'de>,
+            {
+                struct __Visitor;
+
+                impl<'de> drizzle::core::serde::de::Visitor<'de> for __Visitor {
+                    type Value = #model_ident;
+
+                    fn expecting(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                        f.write_str("a row JSON object")
+                    }
+
+                    fn visit_map<__A>(self, mut map: __A) -> ::std::result::Result<Self::Value, __A::Error>
+                    where
+                        __A: drizzle::core::serde::de::MapAccess<'de>,
+                    {
+                        let mut state = <#model_ident as drizzle::core::query::JsonObjectDecoder<'de>>::begin();
+                        while let ::std::option::Option::Some(key) = map.next_key::<::std::borrow::Cow<'de, str>>()? {
+                            if <#model_ident as drizzle::core::query::JsonObjectDecoder<'de>>::decode_field(
+                                &mut state,
+                                key.as_ref(),
+                                &mut map,
+                            )? {
+                                continue;
+                            }
+                            map.next_value::<drizzle::core::serde::de::IgnoredAny>()?;
+                        }
+                        <#model_ident as drizzle::core::query::JsonObjectDecoder<'de>>::finish(state)
+                    }
+                }
+
+                deserializer.deserialize_map(__Visitor)
+            }
+        }
     }
-}
-
-/// Generates `FromJsonValue` for the full select model.
-fn generate_from_json_value(model_ident: &Ident, fields: &[FieldJsonInfo]) -> TokenStream {
-    generate_from_json_value_impl(model_ident, fields, false)
-}
-
-/// Generates `FromJsonValue` for the partial select model (all fields nullable).
-fn generate_partial_from_json_value(model_ident: &Ident, fields: &[FieldJsonInfo]) -> TokenStream {
-    generate_from_json_value_impl(model_ident, fields, true)
 }
 
 /// Generates a column selector struct and `.columns()` method on the table.
@@ -672,91 +779,78 @@ fn generate_column_selector(
 }
 
 // =============================================================================
-// Field read helpers (shared by full and partial select)
+// Field decode helpers (shared by full and partial select)
 // =============================================================================
 
-/// Generates a UUID field read (nullable or non-nullable).
-fn generate_uuid_read(ident: &Ident, col_name: &str, is_nullable: bool) -> TokenStream {
-    if is_nullable {
-        quote! {
-            #ident: match obj.get(#col_name) {
-                Some(drizzle::core::serde_json::Value::String(s)) => Some(s.parse().map_err(|e| drizzle::error::DrizzleError::Other(::std::format!("invalid UUID: {e}").into()))?),
-                Some(drizzle::core::serde_json::Value::Null) | None => None,
-                _ => None,
-            }
-        }
-    } else {
-        quote! {
-            #ident: {
-                let s = obj.get(#col_name)
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| drizzle::error::DrizzleError::Other(::std::format!("missing field '{}'", #col_name).into()))?;
-                s.parse().map_err(|e| drizzle::error::DrizzleError::Other(::std::format!("invalid UUID '{}': {e}", #col_name).into()))?
-            }
+fn generate_plain_decode(ident: &Ident, col_name: &str, field_type: &TokenStream) -> TokenStream {
+    quote! {
+        #col_name => {
+            state.#ident = ::std::option::Option::Some(map.next_value::<#field_type>()?);
+            ::std::result::Result::Ok(true)
         }
     }
 }
 
-/// Generates an enum field read (nullable or non-nullable).
-fn generate_enum_read(
+fn generate_uuid_decode(
     ident: &Ident,
     col_name: &str,
     base_type: &syn::Type,
-    storage: EnumStorage,
     is_nullable: bool,
 ) -> TokenStream {
-    let conversion = enum_json_conversion(base_type, col_name, storage);
     if is_nullable {
         quote! {
-            #ident: match obj.get(#col_name) {
-                Some(drizzle::core::serde_json::Value::Null) | None => None,
-                Some(v) => Some({ #conversion }),
+            #col_name => {
+                let raw = map.next_value::<::std::option::Option<::std::string::String>>()?;
+                state.#ident = ::std::option::Option::Some(raw
+                    .map(|s| {
+                        s.parse::<#base_type>().map_err(|e| {
+                            <__A::Error as drizzle::core::serde::de::Error>::custom(
+                                ::std::format!("field '{}': invalid UUID: {e}", #col_name)
+                            )
+                        })
+                    })
+                    .transpose()?);
+                ::std::result::Result::Ok(true)
             }
         }
     } else {
         quote! {
-            #ident: {
-                let v = obj.get(#col_name)
-                    .ok_or_else(|| drizzle::error::DrizzleError::Other(::std::format!("missing field '{}'", #col_name).into()))?;
-                #conversion
+            #col_name => {
+                let raw = map.next_value::<::std::string::String>()?;
+                state.#ident = ::std::option::Option::Some(raw.parse::<#base_type>().map_err(|e| {
+                    <__A::Error as drizzle::core::serde::de::Error>::custom(
+                        ::std::format!("field '{}': invalid UUID: {e}", #col_name)
+                    )
+                })?);
+                ::std::result::Result::Ok(true)
             }
         }
     }
 }
 
-/// Generates a boolean field read that handles both JSON booleans and integers.
-///
-/// `SQLite` stores booleans as integers (0/1) which appear as JSON numbers inside
-/// `json_object()`. This handler accepts both `true`/`false` and `0`/`1`.
-fn generate_bool_read(ident: &Ident, col_name: &str, is_nullable: bool) -> TokenStream {
+fn generate_bool_decode(ident: &Ident, col_name: &str, is_nullable: bool) -> TokenStream {
     if is_nullable {
         quote! {
-            #ident: match obj.get(#col_name) {
-                Some(drizzle::core::serde_json::Value::Bool(b)) => Some(*b),
-                Some(drizzle::core::serde_json::Value::Number(n)) => Some(n.as_i64().unwrap_or(0) != 0),
-                Some(drizzle::core::serde_json::Value::Null) | None => None,
-                Some(_) => None,
+            #col_name => {
+                state.#ident = ::std::option::Option::Some(
+                    map.next_value::<drizzle::core::query::JsonOptionalBool>()?.0
+                );
+                ::std::result::Result::Ok(true)
             }
         }
     } else {
         quote! {
-            #ident: match obj.get(#col_name) {
-                Some(drizzle::core::serde_json::Value::Bool(b)) => *b,
-                Some(drizzle::core::serde_json::Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
-                _ => return ::std::result::Result::Err(drizzle::error::DrizzleError::Other(
-                    ::std::format!("field '{}': expected boolean or integer", #col_name).into()
-                )),
+            #col_name => {
+                state.#ident = ::std::option::Option::Some(
+                    map.next_value::<drizzle::core::query::JsonBool>()?.0
+                );
+                ::std::result::Result::Ok(true)
             }
         }
     }
 }
 
-/// Generates a raw blob field read from a hex string.
-///
-/// `SQLite`'s `hex()` wrapping converts BLOBs to uppercase hex strings for
-/// `json_object()` compatibility. This handler decodes the hex string back
-/// to `Vec<u8>`.
-fn generate_blob_read(
+fn generate_blob_decode(
     ident: &Ident,
     col_name: &str,
     base_type: &syn::Type,
@@ -765,9 +859,9 @@ fn generate_blob_read(
 ) -> TokenStream {
     let convert = if is_json {
         quote! {
-            ::serde_json::from_slice::<#base_type>(&bytes).map_err(|e| {
-                drizzle::error::DrizzleError::Other(
-                    ::std::format!("field '{}': invalid JSON blob: {e}", #col_name).into()
+            drizzle::core::serde_json::from_slice::<#base_type>(&bytes).map_err(|e| {
+                <__A::Error as drizzle::core::serde::de::Error>::custom(
+                    ::std::format!("field '{}': invalid JSON blob: {e}", #col_name)
                 )
             })?
         }
@@ -775,114 +869,112 @@ fn generate_blob_read(
         quote! {
             <#base_type as drizzle::sqlite::traits::FromSQLiteValue>::from_sqlite_blob(&bytes)
                 .map_err(|e| {
-                    drizzle::error::DrizzleError::Other(
-                        ::std::format!("field '{}': {e}", #col_name).into()
+                    <__A::Error as drizzle::core::serde::de::Error>::custom(
+                        ::std::format!("field '{}': {e}", #col_name)
                     )
                 })?
         }
     };
 
+    let decode = quote! {
+        if s.len() % 2 != 0 {
+            return ::std::result::Result::Err(
+                <__A::Error as drizzle::core::serde::de::Error>::custom(
+                    ::std::format!("field '{}': odd-length hex string", #col_name)
+                )
+            );
+        }
+        let bytes = (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+            .collect::<::std::result::Result<::std::vec::Vec<u8>, _>>()
+            .map_err(|e| {
+                <__A::Error as drizzle::core::serde::de::Error>::custom(
+                    ::std::format!("field '{}': invalid hex: {e}", #col_name)
+                )
+            })?;
+        #convert
+    };
+
     if is_nullable {
         quote! {
-            #ident: match obj.get(#col_name) {
-                Some(drizzle::core::serde_json::Value::String(s)) => {
-                    if s.len() % 2 != 0 {
-                        return ::std::result::Result::Err(drizzle::error::DrizzleError::Other(
-                            ::std::format!("field '{}': odd-length hex string", #col_name).into()
-                        ));
-                    }
-                    let bytes = (0..s.len())
-                        .step_by(2)
-                        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
-                        .collect::<::std::result::Result<::std::vec::Vec<u8>, _>>()
-                        .map_err(|e| drizzle::error::DrizzleError::Other(
-                            ::std::format!("field '{}': invalid hex: {e}", #col_name).into()
-                        ))?;
-                    Some(#convert)
-                },
-                Some(drizzle::core::serde_json::Value::Null) | None => None,
-                _ => None,
+            #col_name => {
+                let raw = map.next_value::<::std::option::Option<::std::string::String>>()?;
+                state.#ident = ::std::option::Option::Some(match raw {
+                    ::std::option::Option::Some(s) => ::std::option::Option::Some({ #decode }),
+                    ::std::option::Option::None => ::std::option::Option::None,
+                });
+                ::std::result::Result::Ok(true)
             }
         }
     } else {
         quote! {
-            #ident: {
-                let s = obj.get(#col_name)
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| drizzle::error::DrizzleError::Other(
-                        ::std::format!("missing field '{}'", #col_name).into()
-                    ))?;
-                if s.len() % 2 != 0 {
-                    return ::std::result::Result::Err(drizzle::error::DrizzleError::Other(
-                        ::std::format!("field '{}': odd-length hex string", #col_name).into()
-                    ));
-                }
-                let bytes = (0..s.len())
-                    .step_by(2)
-                    .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
-                    .collect::<::std::result::Result<::std::vec::Vec<u8>, _>>()
-                    .map_err(|e| drizzle::error::DrizzleError::Other(
-                        ::std::format!("field '{}': invalid hex: {e}", #col_name).into()
-                    ))?;
-                #convert
+            #col_name => {
+                let s = map.next_value::<::std::string::String>()?;
+                state.#ident = ::std::option::Option::Some({ #decode });
+                ::std::result::Result::Ok(true)
             }
         }
     }
 }
 
-/// Generates a field read via serde deserialization.
-fn generate_serde_read(ident: &Ident, col_name: &str, is_nullable: bool) -> TokenStream {
-    if is_nullable {
-        quote! {
-            #ident: match obj.get(#col_name) {
-                Some(drizzle::core::serde_json::Value::Null) | None => None,
-                Some(v) => Some(drizzle::core::query::deserialize_field(v, #col_name)?),
-            }
-        }
-    } else {
-        quote! {
-            #ident: {
-                let v = obj.get(#col_name)
-                    .ok_or_else(|| drizzle::error::DrizzleError::Other(::std::format!("missing field '{}'", #col_name).into()))?;
-                drizzle::core::query::deserialize_field(v, #col_name)?
-            }
-        }
-    }
-}
-
-/// Generates the conversion expression for an enum field from a JSON value `v`.
-fn enum_json_conversion(
-    field_type: &syn::Type,
+fn generate_enum_decode(
+    ident: &Ident,
     col_name: &str,
+    base_type: &syn::Type,
     storage: EnumStorage,
+    is_nullable: bool,
 ) -> TokenStream {
+    let decode_some = enum_json_decode(base_type, col_name, storage);
+    if is_nullable {
+        let raw_ty = enum_raw_type(storage);
+        quote! {
+            #col_name => {
+                let raw = map.next_value::<::std::option::Option<#raw_ty>>()?;
+                state.#ident = ::std::option::Option::Some(match raw {
+                    ::std::option::Option::Some(raw) => ::std::option::Option::Some({ #decode_some }),
+                    ::std::option::Option::None => ::std::option::Option::None,
+                });
+                ::std::result::Result::Ok(true)
+            }
+        }
+    } else {
+        let raw_ty = enum_raw_type(storage);
+        quote! {
+            #col_name => {
+                let raw = map.next_value::<#raw_ty>()?;
+                state.#ident = ::std::option::Option::Some({ #decode_some });
+                ::std::result::Result::Ok(true)
+            }
+        }
+    }
+}
+
+fn enum_raw_type(storage: EnumStorage) -> TokenStream {
     match storage {
-        EnumStorage::Integer => {
-            quote! {
-                {
-                    let n = v.as_i64().ok_or_else(|| drizzle::error::DrizzleError::Other(
-                        ::std::format!("enum field '{}': expected integer", #col_name).into()
-                    ))?;
-                    <#field_type as ::std::convert::TryFrom<i64>>::try_from(n)
-                        .map_err(|_| drizzle::error::DrizzleError::Other(
-                            ::std::format!("enum field '{}': invalid integer value {n}", #col_name).into()
-                        ))?
-                }
-            }
-        }
-        EnumStorage::Text => {
-            quote! {
-                {
-                    let s = v.as_str().ok_or_else(|| drizzle::error::DrizzleError::Other(
-                        ::std::format!("enum field '{}': expected string", #col_name).into()
-                    ))?;
-                    <#field_type as ::std::str::FromStr>::from_str(s)
-                        .map_err(|e| drizzle::error::DrizzleError::Other(
-                            ::std::format!("enum field '{}': {e}", #col_name).into()
-                        ))?
-                }
-            }
-        }
+        EnumStorage::Integer => quote!(i64),
+        EnumStorage::Text => quote!(::std::string::String),
+    }
+}
+
+fn enum_json_decode(field_type: &syn::Type, col_name: &str, storage: EnumStorage) -> TokenStream {
+    match storage {
+        EnumStorage::Integer => quote! {
+            <#field_type as ::std::convert::TryFrom<i64>>::try_from(raw)
+                .map_err(|_| {
+                    <__A::Error as drizzle::core::serde::de::Error>::custom(
+                        ::std::format!("enum field '{}': invalid integer value {raw}", #col_name)
+                    )
+                })?
+        },
+        EnumStorage::Text => quote! {
+            <#field_type as ::std::str::FromStr>::from_str(raw.as_str())
+                .map_err(|e| {
+                    <__A::Error as drizzle::core::serde::de::Error>::custom(
+                        ::std::format!("enum field '{}': {e}", #col_name)
+                    )
+                })?
+        },
     }
 }
 

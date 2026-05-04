@@ -726,6 +726,7 @@ impl FieldInfo {
         // Parse #[column(...)] attributes for constraints
         let mut is_explicit_json = false;
         let mut is_explicit_jsonb = false;
+        let mut column_name = None;
         for attr in &field.attrs {
             if let Some(column_info) =
                 Self::parse_column_attribute(attr, type_category, name.span())?
@@ -744,6 +745,7 @@ impl FieldInfo {
                 is_pgenum = column_info.is_pgenum;
                 is_explicit_json = column_info.is_json;
                 is_explicit_jsonb = column_info.is_jsonb;
+                column_name = column_info.column_name;
                 marker_exprs = column_info.marker_exprs;
                 break;
             }
@@ -818,8 +820,8 @@ impl FieldInfo {
         // Compute base_type once and store it
         let base_type = option_inner_type(&ty).unwrap_or(&ty).clone();
 
-        // Column name defaults to field ident converted to snake_case (can be overridden with NAME attribute)
-        let column_name = name.to_string().to_snake_case();
+        // Column name defaults to field ident converted to snake_case.
+        let column_name = column_name.unwrap_or_else(|| name.to_string().to_snake_case());
 
         // Build SQL definition for this column
         let sql_definition = build_sql_definition(&SqlDefinitionContext {
@@ -900,6 +902,7 @@ impl FieldInfo {
         let mut is_json = false;
         let mut is_jsonb = false;
         let enum_type_name: Option<String> = None;
+        let mut column_name = None;
         let mut marker_exprs = Vec::new();
 
         // Parse attribute arguments: #[column(primary, unique, default = "foo")]
@@ -1050,6 +1053,19 @@ impl FieldInfo {
                         is_pgenum = true;
                         marker_exprs.push(make_uppercase_path(path_ident, "ENUM"));
                     }
+                    "NAME" => {
+                        meta.input.parse::<Token![=]>()?;
+                        let lit: Lit = meta.input.parse()?;
+                        if let Lit::Str(s) = lit {
+                            column_name = Some(s.value());
+                            marker_exprs.push(make_uppercase_path(path_ident, "NAME"));
+                        } else {
+                            return Err(syn::Error::new_spanned(
+                                lit,
+                                "NAME requires a string literal, e.g. name = \"external_id\"",
+                            ));
+                        }
+                    }
                     "DEFAULT" => {
                         if meta.input.peek(Token![=]) {
                             meta.input.parse::<Token![=]>()?;
@@ -1148,7 +1164,7 @@ impl FieldInfo {
                             &meta.path,
                             format!("unknown #[column] attribute `{path_ident}`.\n\
                                      Supported: primary, unique, serial, bigserial, smallserial, identity, \
-                                     generated, json, jsonb, enum, default, default_fn, check, references, \
+                                     generated, json, jsonb, enum, name, default, default_fn, check, references, \
                                      on_delete, on_update"),
                         ));
                     }
@@ -1173,6 +1189,7 @@ impl FieldInfo {
             is_json,
             is_jsonb,
             enum_type_name,
+            column_name,
             marker_exprs,
         }))
     }
@@ -1471,6 +1488,7 @@ struct ColumnInfo {
     is_json: bool,
     is_jsonb: bool,
     enum_type_name: Option<String>,
+    column_name: Option<String>,
     marker_exprs: Vec<syn::ExprPath>,
 }
 

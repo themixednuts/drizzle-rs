@@ -550,7 +550,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Returns an iterator over references to parameter values
     /// (avoids allocating a Vec - callers can collect if needed)
-    pub fn params(&self) -> impl Iterator<Item = &V> {
+    pub fn params(&self) -> impl Iterator<Item = &V> + use<'_, V> {
         self.chunks.iter().filter_map(|chunk| {
             if let SQLChunk::Param(Param {
                 value: Some(value), ..

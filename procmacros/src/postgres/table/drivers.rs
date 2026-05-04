@@ -17,6 +17,11 @@ use crate::postgres::field::{FieldInfo, PostgreSQLType, TypeCategory};
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 use quote::quote;
 
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+fn driver_json_type() -> TokenStream {
+    quote!(drizzle::postgres::driver_types::Json)
+}
+
 /// Check if a `PostgreSQL` column type is integer-based
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 const fn is_integer_column(col_type: &PostgreSQLType) -> bool {
@@ -142,23 +147,21 @@ fn generate_select_field_conversion(idx: &TokenStream, info: &FieldInfo) -> Toke
             }
         }
     } else if info.is_json && type_category != TypeCategory::Json {
-        // JSON/JSONB with custom struct (not serde_json::Value)
-        // Read as serde_json::Value and deserialize to target type
+        let json_type = driver_json_type();
         if info.is_nullable {
             quote! {
                 #name: {
-                    let json_val: Option<::serde_json::Value> = row.get::<_, Option<::serde_json::Value>>(#idx);
-                    match json_val {
-                        Some(v) => Some(::serde_json::from_value(v).map_err(|e| drizzle::error::DrizzleError::ConversionError(format!("Failed to deserialize JSON: {}", e).into()))?),
-                        None => None,
-                    }
+                    let json_val: Option<#json_type<#base_type>> =
+                        row.get::<_, Option<#json_type<#base_type>>>(#idx);
+                    json_val.map(|v| v.0)
                 },
             }
         } else {
             quote! {
                 #name: {
-                    let json_val: ::serde_json::Value = row.get::<_, ::serde_json::Value>(#idx);
-                    ::serde_json::from_value(json_val).map_err(|e| drizzle::error::DrizzleError::ConversionError(format!("Failed to deserialize JSON: {}", e).into()))?
+                    let json_val: #json_type<#base_type> =
+                        row.get::<_, #json_type<#base_type>>(#idx);
+                    json_val.0
                 },
             }
         }
@@ -227,10 +230,12 @@ fn generate_partial_field_conversion(idx: usize, info: &FieldInfo) -> TokenStrea
             },
         }
     } else if info.is_json && type_category != TypeCategory::Json {
+        let json_type = driver_json_type();
         quote! {
             #name: {
-                let json_val: Option<::serde_json::Value> = row.try_get::<_, ::serde_json::Value>(#idx).ok();
-                json_val.and_then(|v| ::serde_json::from_value(v).ok())
+                row.try_get::<_, #json_type<#base_type>>(#idx)
+                    .ok()
+                    .map(|v| v.0)
             },
         }
     } else {
@@ -261,7 +266,8 @@ fn null_probe_type(info: &FieldInfo) -> TokenStream {
             quote!(String)
         }
     } else if info.is_json {
-        quote!(::serde_json::Value)
+        let json_type = driver_json_type();
+        quote!(#json_type<drizzle::core::serde::de::IgnoredAny>)
     } else {
         let base = &info.base_type;
         let cat = TypeCategory::from_type(base);

@@ -138,7 +138,7 @@ impl<Schema> Transaction<Schema> {
         let cursor = exec_in_tx(&self.conn, &query)?;
         // Drain so `rows_written` is populated.
         let _ = cursor
-            .to_array::<serde_json::Value>()
+            .to_array::<serde::de::IgnoredAny>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
         Ok(cursor.rows_written() as u64)
     }
@@ -203,7 +203,7 @@ where
     pub fn execute(self) -> drizzle_core::error::Result<u64> {
         let cursor = exec_in_tx(&self.transaction.conn, &self.builder.sql)?;
         let _ = cursor
-            .to_array::<serde_json::Value>()
+            .to_array::<serde::de::IgnoredAny>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
         Ok(cursor.rows_written() as u64)
     }

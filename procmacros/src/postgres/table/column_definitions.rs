@@ -91,7 +91,7 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
             |func| quote! { Some(#func) },
         );
 
-        let name = field_info.ident.to_string();
+        let name = field_info.column_name.clone();
         let col_type = field_info.column_type.to_sql_type();
         let sql = format!("{name} {col_type}"); // Basic SQL definition
 

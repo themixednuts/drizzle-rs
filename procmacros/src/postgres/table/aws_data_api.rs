@@ -16,8 +16,8 @@
 //!   `TryFrom<i32>`.
 //! * **Text-stored enum / native `#[PostgresEnum]`** → read as `String`, parsed
 //!   via `FromStr`.
-//! * **JSON with custom target struct** → read as `serde_json::Value`, then
-//!   `serde_json::from_value`.
+//! * **JSON with custom target struct** → read JSON text and deserialize into
+//!   the target type.
 //! * **Custom `DrizzlePostgresColumn` types** → rely on the user supplying a
 //!   `FromDrizzleRow<aws_data_api::Row>` impl. Otherwise the build fails with
 //!   a clear diagnostic pointing at the missing trait.
@@ -122,17 +122,17 @@ fn generate_select_field_conversion(idx: &TokenStream, info: &FieldInfo) -> Toke
         };
     }
 
-    // JSON with custom target struct — read Value, deserialize.
+    // JSON with custom target struct.
     if info.is_json && type_category != TypeCategory::Json {
         if info.is_nullable {
             return quote! {
                 #name: {
-                    let v: Option<::serde_json::Value> =
-                        <Option<::serde_json::Value> as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
+                    let s: Option<String> =
+                        <Option<String> as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
                             ::from_row_at(row, #idx)?;
-                    match v {
-                        Some(v) => Some(
-                            ::serde_json::from_value(v)
+                    match s {
+                        Some(s) => Some(
+                            ::serde_json::from_str(&s)
                                 .map_err(|e| #drizzle_error::ConversionError(
                                     format!("AWS Data API: JSON deserialize: {}", e).into()
                                 ))?
@@ -144,10 +144,10 @@ fn generate_select_field_conversion(idx: &TokenStream, info: &FieldInfo) -> Toke
         }
         return quote! {
             #name: {
-                let v: ::serde_json::Value =
-                    <::serde_json::Value as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
+                let s: String =
+                    <String as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
                         ::from_row_at(row, #idx)?;
-                ::serde_json::from_value(v)
+                ::serde_json::from_str(&s)
                     .map_err(|e| #drizzle_error::ConversionError(
                         format!("AWS Data API: JSON deserialize: {}", e).into()
                     ))?
@@ -195,10 +195,10 @@ fn generate_partial_field_conversion(idx: usize, info: &FieldInfo) -> TokenStrea
     if info.is_json && type_category != TypeCategory::Json {
         return quote! {
             #name: {
-                let v: ::core::result::Result<::serde_json::Value, _> =
-                    <::serde_json::Value as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
+                let s: ::core::result::Result<String, _> =
+                    <String as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
                         ::from_row_at(row, #idx);
-                v.ok().and_then(|v| ::serde_json::from_value::<#base_type>(v).ok())
+                s.ok().and_then(|s| ::serde_json::from_str::<#base_type>(&s).ok())
             },
         };
     }

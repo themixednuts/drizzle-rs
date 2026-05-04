@@ -101,7 +101,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     // Generate const DDL entities
     let const_ddl = generate_const_ddl(&ctx, &column_zst_idents);
 
-    // Generate query API code (relation ZSTs, accessors, FromJsonValue)
+    // Generate query API code (relation ZSTs, accessors, JSON decoders)
     #[cfg(feature = "query")]
     let query_api_impls = generate_query_api_impls(&ctx);
     #[cfg(not(feature = "query"))]
@@ -157,7 +157,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     Ok(expanded)
 }
 
-/// Generate query API impls (`RelationDef`, accessors, `FromJsonValue`) for `PostgreSQL`.
+/// Generate query API impls (`RelationDef`, accessors, JSON decoders) for `PostgreSQL`.
 ///
 /// Shared by both `#[PostgresTable]` and `#[PostgresView]`.
 #[cfg(feature = "query")]
@@ -186,7 +186,7 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
         })
         .collect();
 
-    // Collect field info for FromJsonValue generation
+    // Collect field info for JSON decoder generation
     let field_json_infos: Vec<FieldJsonInfo> = ctx
         .field_infos
         .iter()
@@ -223,6 +223,16 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
                 storage,
                 enum_storage,
                 base_type: f.base_type.clone(),
+                select_type:
+                    crate::postgres::table::context::MacroContext::get_field_type_for_model(
+                        f,
+                        crate::common::ModelType::Select,
+                    ),
+                partial_select_type:
+                    crate::postgres::table::context::MacroContext::get_field_type_for_model(
+                        f,
+                        crate::common::ModelType::PartialSelect,
+                    ),
             }
         })
         .collect();

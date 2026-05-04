@@ -21,10 +21,8 @@ macro_rules! drizzle_prepare_impl {
             /// The array size is inferred from the call site and validated at runtime
             /// against the actual placeholder count.
             #[inline]
-            pub fn prepare(self) -> prepared::PreparedStatement<'b> {
-                prepared::PreparedStatement {
-                    inner: prepare_render(&self.to_sql()),
-                }
+            pub fn prepare(self) -> prepared::PreparedStatement<'b, Mk, Rw> {
+                prepared::PreparedStatement::new(prepare_render(&self.to_sql()))
             }
         }
     };

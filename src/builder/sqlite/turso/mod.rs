@@ -756,9 +756,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
 #[cfg(feature = "query")]
 use drizzle_core::query::DeserializeStore as _;
 #[cfg(feature = "query")]
-use drizzle_core::query::FromJsonValue as _;
-#[cfg(feature = "query")]
-use drizzle_core::serde_json;
+use drizzle_core::query::FromJsonObject as _;
 
 // AllColumns: read base from individual row columns via TryFrom<Row>
 #[cfg(feature = "query")]
@@ -799,8 +797,6 @@ impl<'a, Schema, T, Rels, Cl>
         let builder = self.builder;
         let mut rendered = Vec::new();
         builder.relations.render_into(&mut rendered);
-        let num_rels = rendered.len();
-
         let (sql, bind_params) = drizzle_core::query::build_query_sql(
             T::TABLE_NAME,
             T::COLUMN_NAMES,
@@ -834,26 +830,16 @@ impl<'a, Schema, T, Rels, Cl>
             let base = <T as drizzle_core::query::QueryTable>::Select::try_from(&row)
                 .map_err(Into::into)?;
 
-            let mut json_vals = Vec::with_capacity(num_rels);
-            for i in 0..num_rels {
-                let json: Option<String> = row
-                    .get::<Option<String>>(num_base_cols + i)
+            let mut rel_col = num_base_cols;
+            let mut next_rel = || {
+                let json = row
+                    .get::<Option<String>>(rel_col)
                     .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
-                let val: serde_json::Value = match json {
-                    Some(s) => serde_json::from_str(&s).map_err(|e| {
-                        drizzle_core::error::DrizzleError::Other(
-                            format!("failed to parse relation JSON: {e}").into(),
-                        )
-                    })?,
-                    None => serde_json::Value::Null,
-                };
-                json_vals.push(val);
-            }
-
-            let mut col = 0;
-            let store = <Rels as drizzle_core::query::BuildStore>::Store::from_values(
-                &json_vals, &mut col,
-            )?;
+                rel_col += 1;
+                Ok(json)
+            };
+            let store =
+                <Rels as drizzle_core::query::BuildStore>::Store::from_json_columns(&mut next_rel)?;
 
             results.push(drizzle_core::query::QueryRow::new(base, store));
         }
@@ -900,7 +886,7 @@ impl<'a, Schema, T, Rels, W, Ord>
     }
 }
 
-// PartialColumns: read base from a single JSON "__base" column via FromJsonValue
+// PartialColumns: read base from a single JSON "__base" column via FromJsonObject
 #[cfg(feature = "query")]
 impl<'a, Schema, T, Rels, Cl>
     common::DrizzleQueryBuilder<
@@ -929,7 +915,7 @@ impl<'a, Schema, T, Rels, Cl>
     >
     where
         T: drizzle_core::query::QueryTable,
-        <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonValue,
+        <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
         Rels:
             drizzle_core::query::BuildStore + drizzle_core::query::RenderRelations<SQLiteValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
@@ -938,8 +924,6 @@ impl<'a, Schema, T, Rels, Cl>
         let column_names = &builder.cols.columns;
         let mut rendered = Vec::new();
         builder.relations.render_into(&mut rendered);
-        let num_rels = rendered.len();
-
         let col_refs: Vec<&str> = column_names.clone();
         let (sql, bind_params) = drizzle_core::query::build_query_sql(
             T::TABLE_NAME,
@@ -975,33 +959,18 @@ impl<'a, Schema, T, Rels, Cl>
             let base_json: String = row
                 .get::<String>(0)
                 .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
-            let base_val: serde_json::Value = serde_json::from_str(&base_json).map_err(|e| {
-                drizzle_core::error::DrizzleError::Other(
-                    format!("failed to parse base JSON: {e}").into(),
-                )
-            })?;
-            let base =
-                <T as drizzle_core::query::QueryTable>::PartialSelect::from_json_value(&base_val)?;
-
-            // Relations start at column 1
-            let mut json_vals = Vec::with_capacity(num_rels);
-            for i in 0..num_rels {
-                let json: Option<String> = row.get::<String>(1 + i).ok();
-                let val: serde_json::Value = match json {
-                    Some(s) => serde_json::from_str(&s).map_err(|e| {
-                        drizzle_core::error::DrizzleError::Other(
-                            format!("failed to parse relation JSON: {e}").into(),
-                        )
-                    })?,
-                    None => serde_json::Value::Null,
-                };
-                json_vals.push(val);
-            }
-
-            let mut col = 0;
-            let store = <Rels as drizzle_core::query::BuildStore>::Store::from_values(
-                &json_vals, &mut col,
+            let base = <T as drizzle_core::query::QueryTable>::PartialSelect::from_json_str(
+                &base_json, "base",
             )?;
+
+            let mut rel_col = 1usize;
+            let mut next_rel = || {
+                let json = row.get::<String>(rel_col).ok();
+                rel_col += 1;
+                Ok(json)
+            };
+            let store =
+                <Rels as drizzle_core::query::BuildStore>::Store::from_json_columns(&mut next_rel)?;
 
             results.push(drizzle_core::query::QueryRow::new(base, store));
         }
@@ -1037,7 +1006,7 @@ impl<'a, Schema, T, Rels, W, Ord>
     >
     where
         T: drizzle_core::query::QueryTable,
-        <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonValue,
+        <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
         Rels:
             drizzle_core::query::BuildStore + drizzle_core::query::RenderRelations<SQLiteValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
