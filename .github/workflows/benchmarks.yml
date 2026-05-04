@@ -18,13 +18,13 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            sqlite_features: "rusqlite,turso,uuid"
+            sqlite_features: "rusqlite,turso,uuid,query"
           - os: windows-latest
             platform: windows
-            sqlite_features: "rusqlite,uuid"
+            sqlite_features: "rusqlite,uuid,query"
           - os: macos-latest
             platform: macos
-            sqlite_features: "rusqlite,turso,uuid"
+            sqlite_features: "rusqlite,turso,uuid,query"
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -150,7 +150,7 @@ jobs:
           DATABASE_URL: "host=localhost user=postgres password=postgres dbname=drizzle_test"
         shell: bash
         run: |
-          cargo bench --bench postgres --features "postgres-sync,uuid" -- \
+          cargo bench --bench postgres --features "postgres-sync,uuid,query" -- \
             --save-baseline sync-main \
             --output-format bencher \
             --color never | tee sync_output.txt
@@ -161,7 +161,7 @@ jobs:
           DATABASE_URL: "host=localhost user=postgres password=postgres dbname=drizzle_test"
         shell: bash
         run: |
-          cargo bench --bench postgres --features "tokio-postgres,uuid" -- \
+          cargo bench --bench postgres --features "tokio-postgres,uuid,query" -- \
             --save-baseline tokio-main \
             --output-format bencher \
             --color never | tee tokio_output.txt
@@ -172,7 +172,7 @@ jobs:
           DATABASE_URL: "host=localhost user=postgres password=postgres dbname=drizzle_test"
         shell: bash
         run: |
-          cargo bench --bench postgres --features "postgres-sync,uuid" -- \
+          cargo bench --bench postgres --features "postgres-sync,uuid,query" -- \
             --baseline-lenient sync-main \
             --output-format bencher \
             --color never | tee sync_output.txt
@@ -183,7 +183,7 @@ jobs:
           DATABASE_URL: "host=localhost user=postgres password=postgres dbname=drizzle_test"
         shell: bash
         run: |
-          cargo bench --bench postgres --features "tokio-postgres,uuid" -- \
+          cargo bench --bench postgres --features "tokio-postgres,uuid,query" -- \
             --baseline-lenient tokio-main \
             --output-format bencher \
             --color never | tee tokio_output.txt

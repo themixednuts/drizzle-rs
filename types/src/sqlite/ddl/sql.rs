@@ -144,7 +144,7 @@ impl<'a> TableSql<'a> {
             lines.push(format!(
                 "\tCONSTRAINT `{}` CHECK({})",
                 check.name(),
-                &check.value
+                check.value
             ));
         }
 
@@ -270,7 +270,7 @@ impl ForeignKey {
             "CONSTRAINT `{}` FOREIGN KEY ({}) REFERENCES `{}`({})",
             self.name(),
             from_cols,
-            &self.table_to,
+            self.table_to,
             to_cols
         );
 
@@ -450,7 +450,7 @@ impl CheckConstraint {
     /// Generate the CHECK constraint clause
     #[must_use]
     pub fn to_constraint_sql(&self) -> String {
-        format!("CONSTRAINT `{}` CHECK({})", self.name(), &self.value)
+        format!("CONSTRAINT `{}` CHECK({})", self.name(), self.value)
     }
 }
 

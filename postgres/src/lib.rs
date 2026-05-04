@@ -52,9 +52,13 @@ pub use tokio_postgres::Row;
 
 #[doc(hidden)]
 pub mod driver_types {
-    #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+    #[cfg(all(
+        any(feature = "serde", feature = "query"),
+        feature = "postgres-sync",
+        not(feature = "tokio-postgres")
+    ))]
     pub use postgres::types::Json;
-    #[cfg(feature = "tokio-postgres")]
+    #[cfg(all(any(feature = "serde", feature = "query"), feature = "tokio-postgres"))]
     pub use tokio_postgres::types::Json;
 }
 
