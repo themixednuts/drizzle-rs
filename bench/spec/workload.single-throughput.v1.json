@@ -1,11 +1,12 @@
 {
   "version": "v1",
   "suite": "throughput-http",
+  "name": "Single Endpoint Throughput",
   "load": {
     "kind": "closed",
     "executor": "constant-vus",
     "unit": "1s",
-    "concurrency": 128
+    "concurrency": 512
   },
   "data": {
     "name": "bench",
@@ -17,12 +18,15 @@
     "endpoint": "/customer-by-id"
   },
   "stages": [
-    { "sec": 90, "vus": 128 }
+    { "sec": 60, "vus": 512 }
   ],
   "requests": {
     "source": "generated",
     "file": "bench/spec/requests.empty.v1.json",
     "skip": []
+  },
+  "pacing": {
+    "mode": "none"
   },
   "sampling": {
     "cpu_ms": 200,

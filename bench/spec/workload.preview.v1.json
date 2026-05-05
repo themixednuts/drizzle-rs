@@ -1,6 +1,7 @@
 {
   "version": "v1",
   "suite": "throughput-http",
+  "name": "Throughput HTTP Preview",
   "load": {
     "kind": "closed",
     "executor": "ramping-vus",
@@ -32,6 +33,9 @@
     "source": "generated",
     "file": "bench/spec/requests.empty.v1.json",
     "skip": ["/search"]
+  },
+  "pacing": {
+    "mode": "drizzle-benchmark"
   },
   "sampling": {
     "cpu_ms": 200,

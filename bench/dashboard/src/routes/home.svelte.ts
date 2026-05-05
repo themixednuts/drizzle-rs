@@ -163,7 +163,7 @@ export class RunsPageState {
 
 		const load = latest.manifest.load;
 		const trials = latest.manifest.trials;
-		return `${latest.cohort.result_count} results / ${latest.cohort.run_ids.length} shards / n=${trials.count} ${trials.aggregate} / ${load.duration_s}s / ${load.max_vus} max vus`;
+		return `${latest.cohort.result_count} results / ${latest.cohort.run_ids.length} shards / n=${trials.count} ${trials.aggregate} / ${load.duration_s}s / ${load.max_vus} max vus / ${load.pacing} pacing`;
 	}
 
 	get kpis() {

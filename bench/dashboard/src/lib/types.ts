@@ -51,6 +51,7 @@ export interface Manifest {
 		stages: number;
 		duration_s: number;
 		max_vus: number;
+		pacing: 'drizzle-benchmark' | 'none';
 		requests: number;
 	};
 	dataset: {

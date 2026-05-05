@@ -8,7 +8,7 @@ mod turso;
 
 use crate::cli::{Load, SeedPostgres, Serve, Suite};
 use crate::code::{Code, Fail};
-use crate::model::{Latency, Point, QueryPoint, RequestDoc, Workload};
+use crate::model::{Latency, PacingMode, Point, QueryPoint, RequestDoc, Workload};
 use axum::Router;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as FmtWrite;
@@ -506,6 +506,7 @@ async fn measure_vus_async(
     let global_iter = Arc::new(AtomicU64::new(0));
     let running = Arc::new(AtomicBool::new(true));
     let (tx, mut rx) = mpsc::unbounded_channel::<(usize, bool, f64)>();
+    let pacing = workload.pacing.mode;
 
     let mut workers: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     let mut points = Vec::new();
@@ -538,10 +539,12 @@ async fn measure_vus_async(
                         break;
                     }
 
-                    // Match drizzle-benchmarks k6 pacing: sleep(0.075 * (iteration % 6)).
-                    let sleep_ms = (iter_num % 6) * DRIZZLE_BENCH_SLEEP_STEP_MS;
-                    if sleep_ms > 0 {
-                        tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
+                    if pacing == PacingMode::DrizzleBenchmark {
+                        // Match drizzle-benchmarks k6 pacing for the mixed workload.
+                        let sleep_ms = (iter_num % 6) * DRIZZLE_BENCH_SLEEP_STEP_MS;
+                        if sleep_ms > 0 {
+                            tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
+                        }
                     }
                 }
             }));

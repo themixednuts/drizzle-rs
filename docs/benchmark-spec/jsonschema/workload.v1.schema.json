@@ -7,11 +7,13 @@
   "required": [
     "version",
     "suite",
+    "name",
     "load",
     "data",
     "shape",
     "stages",
     "requests",
+    "pacing",
     "sampling",
     "limits"
   ],
@@ -25,6 +27,10 @@
         "throughput-http",
         "mvcc-contention"
       ]
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
     },
     "load": {
       "type": "object",
@@ -207,6 +213,22 @@
             "minLength": 1
           },
           "uniqueItems": true
+        }
+      }
+    },
+    "pacing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "drizzle-benchmark",
+            "none"
+          ]
         }
       }
     },

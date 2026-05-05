@@ -1608,31 +1608,8 @@ fn write_compare_report(
     })
 }
 
-fn run_name(suite: &str, class: Class) -> String {
-    format!("{} ({})", suite_label(suite), class_name(class))
-}
-
-fn suite_label(suite: &str) -> String {
-    match suite {
-        "throughput-http" => "Throughput HTTP".to_string(),
-        "mvcc-contention" => "MVCC Contention".to_string(),
-        other => humanize_slug(other),
-    }
-}
-
-fn humanize_slug(value: &str) -> String {
-    value
-        .split('-')
-        .filter(|part| !part.is_empty())
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+fn run_name(workload: &Workload, class: Class) -> String {
+    format!("{} ({})", workload.name, class_name(class))
 }
 
 fn target_meta_doc(target: &Target) -> TargetMetaDoc {
@@ -1914,7 +1891,7 @@ fn write_manifest(
         version: "v1",
         run_id: run_id.to_string(),
         cohort_id: ctx.cohort_id.to_string(),
-        name: run_name(input.suite, ctx.class),
+        name: run_name(ctx.workload, ctx.class),
         suite: input.suite.to_string(),
         git: input.git.clone(),
         workload: input.workload_hash.clone(),
@@ -1934,6 +1911,7 @@ fn write_manifest(
             stages: ctx.workload.stages.len() as u32,
             duration_s: total_duration_s,
             max_vus,
+            pacing: ctx.workload.pacing.mode,
             requests: ctx.requests_count,
         },
         dataset: DatasetSummary {
@@ -2510,6 +2488,12 @@ fn validate_workload(workload: &Workload) -> Result<(), Fail> {
         return Err(Fail::new(
             Code::InvalidInput,
             format!("workload version must be v1, got {}", workload.version),
+        ));
+    }
+    if workload.name.trim().is_empty() {
+        return Err(Fail::new(
+            Code::InvalidInput,
+            "workload.name must not be empty",
         ));
     }
     if workload.stages.is_empty() {

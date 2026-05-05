@@ -6,11 +6,13 @@ use std::collections::BTreeMap;
 pub struct Workload {
     pub version: String,
     pub suite: String,
+    pub name: String,
     pub load: Load,
     pub data: Data,
     pub shape: Shape,
     pub stages: Vec<Stage>,
     pub requests: Requests,
+    pub pacing: Pacing,
     pub sampling: Sampling,
     pub limits: Limits,
 }
@@ -53,6 +55,19 @@ pub struct Requests {
     pub source: String,
     pub file: String,
     pub skip: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Pacing {
+    pub mode: PacingMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PacingMode {
+    DrizzleBenchmark,
+    None,
 }
 
 #[derive(Debug, Deserialize)]
@@ -448,6 +463,7 @@ pub struct LoadSummary {
     pub stages: u32,
     pub duration_s: u32,
     pub max_vus: u32,
+    pub pacing: PacingMode,
     pub requests: usize,
 }
 

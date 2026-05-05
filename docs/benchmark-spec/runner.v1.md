@@ -58,6 +58,8 @@ Required input:
 
 1. `workload` file:
    - schema: `docs/benchmark-spec/jsonschema/workload.v1.schema.json`
+   - `pacing.mode=drizzle-benchmark` applies the upstream k6 sleep cadence.
+   - `pacing.mode=none` is for closed-loop saturation workloads such as single-endpoint throughput.
 2. `targets` file:
    - array of target descriptors (each matches `target.v1`).
    - optional execution hooks per target:

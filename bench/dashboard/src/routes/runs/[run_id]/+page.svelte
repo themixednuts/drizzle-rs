@@ -101,9 +101,10 @@
 				<tbody>
 					<tr><td class="mu">executor</td><td>{view.manifest.load.executor}</td><td class="mu">stages</td><td>{view.manifest.load.stages}</td></tr>
 					<tr><td class="mu">load duration</td><td>{view.manifest.load.duration_s}s</td><td class="mu">max vus</td><td>{view.manifest.load.max_vus.toLocaleString()}</td></tr>
-					<tr><td class="mu">requests</td><td>{view.manifest.load.requests.toLocaleString()}</td><td class="mu">orders</td><td>{view.manifest.dataset.orders.toLocaleString()}</td></tr>
-					<tr><td class="mu">customers</td><td>{view.manifest.dataset.customers.toLocaleString()}</td><td class="mu">products</td><td>{view.manifest.dataset.products.toLocaleString()}</td></tr>
-					<tr><td class="mu">suppliers</td><td>{view.manifest.dataset.suppliers.toLocaleString()}</td><td class="mu">details/order</td><td>{view.manifest.dataset.details_per_order}</td></tr>
+					<tr><td class="mu">requests</td><td>{view.manifest.load.requests.toLocaleString()}</td><td class="mu">pacing</td><td>{view.manifest.load.pacing}</td></tr>
+					<tr><td class="mu">orders</td><td>{view.manifest.dataset.orders.toLocaleString()}</td><td class="mu">customers</td><td>{view.manifest.dataset.customers.toLocaleString()}</td></tr>
+					<tr><td class="mu">products</td><td>{view.manifest.dataset.products.toLocaleString()}</td><td class="mu">suppliers</td><td>{view.manifest.dataset.suppliers.toLocaleString()}</td></tr>
+					<tr><td class="mu">details/order</td><td>{view.manifest.dataset.details_per_order}</td><td class="mu">seed</td><td>{view.manifest.seed}</td></tr>
 				</tbody>
 			</table>
 		</div>
