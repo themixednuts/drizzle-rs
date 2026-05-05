@@ -113,6 +113,7 @@ fn run_writes_contract_artifacts() {
     .expect("manifest json");
     assert_eq!(manifest["runner"]["class"], "small");
     assert_eq!(manifest["name"], "Throughput HTTP (small)");
+    assert_eq!(manifest["load"]["pacing"], "none");
     assert!(
         manifest["cohort_id"]
             .as_str()
@@ -370,6 +371,7 @@ fn workload_json(seed: u64) -> String {
         r#"{{
   "version": "v1",
   "suite": "throughput-http",
+  "name": "Throughput HTTP",
   "load": {{
     "kind": "closed",
     "executor": "constant-vus",
@@ -395,6 +397,9 @@ fn workload_json(seed: u64) -> String {
     "source": "generated",
     "file": "requests.json",
     "skip": []
+  }},
+  "pacing": {{
+    "mode": "none"
   }},
   "sampling": {{
     "cpu_ms": 100,

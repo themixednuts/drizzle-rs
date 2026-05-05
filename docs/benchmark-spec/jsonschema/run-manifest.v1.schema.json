@@ -200,12 +200,16 @@
     "load": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["executor", "stages", "duration_s", "max_vus", "requests"],
+      "required": ["executor", "stages", "duration_s", "max_vus", "pacing", "requests"],
       "properties": {
         "executor": { "type": "string", "minLength": 1 },
         "stages": { "type": "integer", "minimum": 1 },
         "duration_s": { "type": "integer", "minimum": 1 },
         "max_vus": { "type": "integer", "minimum": 1 },
+        "pacing": {
+          "type": "string",
+          "enum": ["drizzle-benchmark", "none"]
+        },
         "requests": { "type": "integer", "minimum": 0 }
       }
     },
