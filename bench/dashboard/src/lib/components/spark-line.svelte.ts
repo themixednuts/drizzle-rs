@@ -7,6 +7,13 @@ const W = 360;
 const H = 60;
 const PAD = 2;
 const MID_Y = H / 2;
+const MIN_GAP_MS = 10_000;
+
+interface Coordinate {
+	x: number;
+	y: number;
+	breakBefore: boolean;
+}
 
 function values(points: TimeseriesPoint[], metric: SparkLineMetric): number[] {
 	switch (metric) {
@@ -32,11 +39,12 @@ export class SparkLineState {
 		const max = Math.max(...vals);
 		const range = max - min;
 		const stepX = vals.length > 1 ? (W - PAD * 2) / (vals.length - 1) : 0;
+		const gaps = trialGaps(this.points);
 
 		return vals.map((value, index) => {
 			const x = vals.length === 1 ? W / 2 : PAD + index * stepX;
 			const y = range === 0 ? MID_Y : H - PAD - ((value - min) / range) * (H - PAD * 2);
-			return { x, y };
+			return { x, y, breakBefore: gaps.has(index) };
 		});
 	});
 
@@ -44,14 +52,15 @@ export class SparkLineState {
 		if (this.coordinates.length < 2) return '';
 
 		return this.coordinates
-			.map(({ x, y }, index) => (index === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1))
+			.map(
+				({ x, y, breakBefore }, index) =>
+					(index === 0 || breakBefore ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1)
+			)
 			.join(' ');
 	});
 
 	areaPath = $derived.by(() => {
-		if (!this.path) return '';
-		const lastX = this.coordinates[this.coordinates.length - 1].x;
-		return this.path + ` L${lastX.toFixed(1)},${H} L${PAD},${H} Z`;
+		return areaSegments(this.coordinates);
 	});
 
 	colorMap = {
@@ -104,3 +113,50 @@ export class SparkLineState {
 }
 
 export const SPARKLINE_VIEWBOX = { width: W, height: H };
+
+function trialGaps(points: TimeseriesPoint[]): Set<number> {
+	const times = points.map((point) => Date.parse(point.time));
+	const deltas = times
+		.slice(1)
+		.map((time, index) => time - times[index])
+		.filter((delta) => Number.isFinite(delta) && delta > 0)
+		.sort((a, b) => a - b);
+	const medianDelta = deltas[Math.floor(deltas.length / 2)] ?? 0;
+	const threshold = Math.max(MIN_GAP_MS, medianDelta * 5);
+	const gaps = new Set<number>();
+
+	for (let index = 1; index < times.length; index += 1) {
+		const delta = times[index] - times[index - 1];
+		if (Number.isFinite(delta) && delta > threshold) {
+			gaps.add(index);
+		}
+	}
+
+	return gaps;
+}
+
+function areaSegments(coordinates: Coordinate[]): string {
+	const segments: Coordinate[][] = [];
+	let segment: Coordinate[] = [];
+
+	for (const coordinate of coordinates) {
+		if (coordinate.breakBefore && segment.length > 0) {
+			segments.push(segment);
+			segment = [];
+		}
+		segment.push(coordinate);
+	}
+	if (segment.length > 0) segments.push(segment);
+
+	return segments
+		.filter((item) => item.length > 1)
+		.map((item) => {
+			const first = item[0];
+			const last = item[item.length - 1];
+			const path = item
+				.map(({ x, y }, index) => (index === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1))
+				.join(' ');
+			return `${path} L${last.x.toFixed(1)},${H} L${first.x.toFixed(1)},${H} Z`;
+		})
+		.join(' ');
+}
