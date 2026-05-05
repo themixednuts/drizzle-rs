@@ -19,6 +19,7 @@ on:
         options:
           - full
           - preview
+          - single
         default: full
       publish_to_r2:
         description: Publish manual main runs to Cloudflare R2
@@ -89,6 +90,11 @@ jobs:
           if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
             class="small"
             workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${BENCHMARK_SIZE}" == "single" ]]; then
+            workload="bench/spec/workload.single-throughput.v1.json"
+            if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+              class="publish"
+            fi
           elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
           fi
@@ -120,6 +126,8 @@ jobs:
           workload="bench/spec/workload.throughput.v1.json"
           if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
             workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${BENCHMARK_SIZE}" == "single" ]]; then
+            workload="bench/spec/workload.single-throughput.v1.json"
           fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/sqlite-${{ matrix.platform }}/runs/${{ steps.runner.outputs.run_id }}" \
@@ -230,6 +238,11 @@ jobs:
           if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
             class="small"
             workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${BENCHMARK_SIZE}" == "single" ]]; then
+            workload="bench/spec/workload.single-throughput.v1.json"
+            if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+              class="publish"
+            fi
           elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
           fi
@@ -261,6 +274,8 @@ jobs:
           workload="bench/spec/workload.throughput.v1.json"
           if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
             workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${BENCHMARK_SIZE}" == "single" ]]; then
+            workload="bench/spec/workload.single-throughput.v1.json"
           fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/postgres-linux/runs/${{ steps.runner.outputs.run_id }}" \
@@ -371,6 +386,11 @@ jobs:
           if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
             class="small"
             workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${BENCHMARK_SIZE}" == "single" ]]; then
+            workload="bench/spec/workload.single-throughput.v1.json"
+            if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+              class="publish"
+            fi
           elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
           fi
@@ -402,6 +422,8 @@ jobs:
           workload="bench/spec/workload.throughput.v1.json"
           if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
             workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${BENCHMARK_SIZE}" == "single" ]]; then
+            workload="bench/spec/workload.single-throughput.v1.json"
           fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/postgres-rust-orms-linux/runs/${{ steps.runner.outputs.run_id }}" \
@@ -533,6 +555,11 @@ jobs:
           if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
             class="small"
             workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${BENCHMARK_SIZE}" == "single" ]]; then
+            workload="bench/spec/workload.single-throughput.v1.json"
+            if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+              class="publish"
+            fi
           elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
           fi
@@ -564,6 +591,8 @@ jobs:
           workload="bench/spec/workload.throughput.v1.json"
           if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
             workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${BENCHMARK_SIZE}" == "single" ]]; then
+            workload="bench/spec/workload.single-throughput.v1.json"
           fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/postgres-ts-linux/runs/${{ steps.runner.outputs.run_id }}" \
@@ -692,6 +721,11 @@ jobs:
           if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
             class="small"
             workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${BENCHMARK_SIZE}" == "single" ]]; then
+            workload="bench/spec/workload.single-throughput.v1.json"
+            if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+              class="publish"
+            fi
           elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
           fi
@@ -723,6 +757,8 @@ jobs:
           workload="bench/spec/workload.throughput.v1.json"
           if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
             workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${BENCHMARK_SIZE}" == "single" ]]; then
+            workload="bench/spec/workload.single-throughput.v1.json"
           fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/spacetimedb-linux/runs/${{ steps.runner.outputs.run_id }}" \
@@ -783,6 +819,11 @@ jobs:
           if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
             class="small"
             workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${BENCHMARK_SIZE}" == "single" ]]; then
+            workload="bench/spec/workload.single-throughput.v1.json"
+            if [[ "${PUBLISH_TO_R2}" == "true" ]]; then
+              class="publish"
+            fi
           elif [[ "${PUBLISH_TO_R2}" == "true" ]]; then
             class="publish"
           fi
@@ -814,6 +855,8 @@ jobs:
           workload="bench/spec/workload.throughput.v1.json"
           if [[ "${BENCHMARK_SIZE}" == "preview" && "${PUBLISH_TO_R2}" != "true" ]]; then
             workload="bench/spec/workload.preview.v1.json"
+          elif [[ "${BENCHMARK_SIZE}" == "single" ]]; then
+            workload="bench/spec/workload.single-throughput.v1.json"
           fi
           cargo run -q -p bench-runner -- validate \
             --run "bench-out/turso-linux/runs/${{ steps.runner.outputs.run_id }}" \

@@ -107,7 +107,7 @@ const recipient = alias(employees, "recipient");
 await seedPostgres();
 
 const client = new SQL({ url: buildUrl(), max: poolSize() });
-const db = drizzle({ client });
+const db = drizzle({ client, jit: true });
 const dbGate = queryGate();
 
 async function dbQuery<T>(fn: () => Promise<T>): Promise<T> {

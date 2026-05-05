@@ -38,7 +38,8 @@ pub(crate) const SEED_ORDERS: usize = 50_000;
 pub(crate) const SEED_SUPPLIERS: usize = 1_000;
 pub(crate) const SEED_PRODUCTS: usize = 5_000;
 pub(crate) const POSTGRES_POOL_SIZE: usize = 8;
-const DRIZZLE_BENCH_SLEEP_STEP_MS: u64 = 100;
+pub(crate) const SQLITE_POOL_SIZE: usize = 8;
+const DRIZZLE_BENCH_SLEEP_STEP_MS: u64 = 75;
 // Details per order: controlled via SeedConfig::relation() (~6 per order, matching upstream avg)
 
 pub(crate) fn configured_pool_size(default: usize) -> usize {
@@ -236,6 +237,7 @@ pub(crate) struct ServerHandle {
     stop: Option<oneshot::Sender<()>>,
     task: Option<tokio::task::JoinHandle<Result<(), String>>>,
     workers: Vec<std::thread::JoinHandle<Result<(), String>>>,
+    pub(crate) temp_dirs: Vec<tempfile::TempDir>,
     pub(crate) external_child: Option<std::process::Child>,
     pub(crate) target_pid: Option<u32>,
 }
@@ -273,6 +275,7 @@ impl ServerHandle {
                 Err(_) => return Err(Fail::new(Code::RunFail, "worker thread panicked")),
             }
         }
+        self.temp_dirs.clear();
         Ok(())
     }
 }
@@ -306,6 +309,7 @@ async fn spawn_server(app: Router) -> Result<ServerHandle, Fail> {
         stop: Some(stop_tx),
         task: Some(task),
         workers: Vec::new(),
+        temp_dirs: Vec::new(),
         external_child: None,
         target_pid: Some(std::process::id()),
     })
@@ -534,7 +538,7 @@ async fn measure_vus_async(
                         break;
                     }
 
-                    // Match drizzle-benchmarks k6 pacing: sleep(0.1 * (iteration % 6)).
+                    // Match drizzle-benchmarks k6 pacing: sleep(0.075 * (iteration % 6)).
                     let sleep_ms = (iter_num % 6) * DRIZZLE_BENCH_SLEEP_STEP_MS;
                     if sleep_ms > 0 {
                         tokio::time::sleep(Duration::from_millis(sleep_ms)).await;

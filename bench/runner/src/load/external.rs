@@ -91,6 +91,7 @@ pub async fn serve(cmd_json: &str, target: &str, seed: u64) -> Result<(ServerHan
             stop: None,
             task: None,
             workers: Vec::new(),
+            temp_dirs: Vec::new(),
             external_child: None,
             target_pid: None,
         },

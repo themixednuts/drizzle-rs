@@ -1,3 +1,4 @@
+use super::pool::{AsyncResourcePool, PooledResource};
 use super::*;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
@@ -6,7 +7,7 @@ use axum::{Json, Router, debug_handler};
 use drizzle::core::expr::eq;
 use drizzle::sqlite::prelude::*;
 use drizzle_seed::SeedConfig;
-use std::sync::{Arc, Mutex};
+use std::path::Path;
 
 // ---------------------------------------------------------------------------
 // Northwind schema tables
@@ -119,6 +120,8 @@ struct Schema {
     product: Product,
     detail: Detail,
 }
+
+type SqliteDb = drizzle::sqlite::rusqlite::Drizzle<Schema>;
 
 // ---------------------------------------------------------------------------
 // Response types (camelCase JSON)
@@ -389,7 +392,7 @@ type OrderRow = (
 
 #[derive(Clone)]
 struct AppState {
-    db: Arc<Mutex<drizzle::sqlite::rusqlite::Drizzle<Schema>>>,
+    db: AsyncResourcePool<SqliteDb>,
     mode: SqliteMode,
 }
 
@@ -423,50 +426,70 @@ pub async fn serve_raw_rusqlite_unprepared(seed: u64) -> Result<ServerHandle, Fa
 }
 
 async fn serve_with_mode(seed: u64, mode: SqliteMode) -> Result<ServerHandle, Fail> {
-    let db = tokio::task::spawn_blocking(move || -> Result<_, Fail> {
-        let conn = ::rusqlite::Connection::open_in_memory()
-            .map_err(|err| Fail::new(Code::RunFail, format!("sqlite open failed: {err}")))?;
-        let (db, schema) = drizzle::sqlite::rusqlite::Drizzle::new(conn, Schema::new());
+    let temp_dir = tempfile::Builder::new()
+        .prefix("drizzle-bench-sqlite-")
+        .tempdir()
+        .map_err(|err| Fail::new(Code::RunFail, format!("sqlite tempdir failed: {err}")))?;
+    let db_path = temp_dir.path().join("bench.sqlite3");
+    let pool_size = configured_pool_size(SQLITE_POOL_SIZE);
 
-        // Create tables via drizzle
-        db.create()
-            .map_err(|err| Fail::new(Code::RunFail, format!("sqlite create failed: {err}")))?;
-
-        // Create indexes via raw SQL
-        db.conn()
-            .execute_batch(
-                "CREATE INDEX IF NOT EXISTS recepient_idx ON employees(recipient_id);
-                 CREATE INDEX IF NOT EXISTS supplier_idx ON products(supplier_id);
-                 CREATE INDEX IF NOT EXISTS order_id_idx ON order_details(order_id);
-                 CREATE INDEX IF NOT EXISTS product_id_idx ON order_details(product_id);",
-            )
-            .map_err(|err| {
-                Fail::new(
-                    Code::RunFail,
-                    format!("sqlite create indexes failed: {err}"),
+    let resources = tokio::task::spawn_blocking({
+        let db_path = db_path.clone();
+        move || -> Result<Vec<SqliteDb>, Fail> {
+            let seed_conn = ::rusqlite::Connection::open(&db_path)
+                .map_err(|err| Fail::new(Code::RunFail, format!("sqlite open failed: {err}")))?;
+            seed_conn
+                .execute_batch(
+                    "PRAGMA journal_mode = WAL;
+                     PRAGMA synchronous = NORMAL;
+                     PRAGMA temp_store = MEMORY;",
                 )
-            })?;
+                .map_err(|err| Fail::new(Code::RunFail, format!("sqlite pragmas failed: {err}")))?;
+            let (db, schema) = drizzle::sqlite::rusqlite::Drizzle::new(seed_conn, Schema::new());
 
-        // Seed via drizzle-seed (deterministic from seed value)
-        let stmts = SeedConfig::sqlite(&schema)
-            .seed(seed)
-            .count(&schema.customer, super::SEED_CUSTOMERS)
-            .count(&schema.employee, super::SEED_EMPLOYEES)
-            .count(&schema.supplier, super::SEED_SUPPLIERS)
-            .count(&schema.product, super::SEED_PRODUCTS)
-            .count(&schema.order, super::SEED_ORDERS)
-            .relation(&schema.order, &schema.detail, 6)
-            .generate();
-        for stmt in stmts {
-            db.execute(stmt)
-                .map_err(|err| Fail::new(Code::RunFail, format!("sqlite seed failed: {err}")))?;
+            // Create tables via drizzle
+            db.create()
+                .map_err(|err| Fail::new(Code::RunFail, format!("sqlite create failed: {err}")))?;
+
+            // Create indexes via raw SQL
+            db.conn()
+                .execute_batch(
+                    "CREATE INDEX IF NOT EXISTS recepient_idx ON employees(recipient_id);
+                     CREATE INDEX IF NOT EXISTS supplier_idx ON products(supplier_id);
+                     CREATE INDEX IF NOT EXISTS order_id_idx ON order_details(order_id);
+                     CREATE INDEX IF NOT EXISTS product_id_idx ON order_details(product_id);",
+                )
+                .map_err(|err| {
+                    Fail::new(
+                        Code::RunFail,
+                        format!("sqlite create indexes failed: {err}"),
+                    )
+                })?;
+
+            // Seed via drizzle-seed (deterministic from seed value)
+            let stmts = SeedConfig::sqlite(&schema)
+                .seed(seed)
+                .count(&schema.customer, super::SEED_CUSTOMERS)
+                .count(&schema.employee, super::SEED_EMPLOYEES)
+                .count(&schema.supplier, super::SEED_SUPPLIERS)
+                .count(&schema.product, super::SEED_PRODUCTS)
+                .count(&schema.order, super::SEED_ORDERS)
+                .relation(&schema.order, &schema.detail, 6)
+                .generate();
+            for stmt in stmts {
+                db.execute(stmt).map_err(|err| {
+                    Fail::new(Code::RunFail, format!("sqlite seed failed: {err}"))
+                })?;
+            }
+
+            drop(db);
+
+            let mut resources = Vec::with_capacity(pool_size);
+            for _ in 0..pool_size {
+                resources.push(open_sqlite_db(&db_path, mode)?);
+            }
+            Ok(resources)
         }
-
-        if mode == SqliteMode::RusqliteUnprepared {
-            db.conn().set_prepared_statement_cache_capacity(0);
-        }
-
-        Ok(db)
     })
     .await
     .map_err(|err| Fail::new(Code::RunFail, format!("sqlite setup panicked: {err}")))??;
@@ -490,10 +513,34 @@ async fn serve_with_mode(seed: u64, mode: SqliteMode) -> Result<ServerHandle, Fa
         .route("/search-customer", get(search_customer))
         .route("/search-product", get(search_product))
         .with_state(AppState {
-            db: Arc::new(Mutex::new(db)),
+            db: AsyncResourcePool::new(resources),
             mode,
         });
-    spawn_server(router).await
+    let mut handle = spawn_server(router).await?;
+    handle.temp_dirs.push(temp_dir);
+    Ok(handle)
+}
+
+fn open_sqlite_db(path: &Path, mode: SqliteMode) -> Result<SqliteDb, Fail> {
+    let conn = ::rusqlite::Connection::open(path)
+        .map_err(|err| Fail::new(Code::RunFail, format!("sqlite pool open failed: {err}")))?;
+    conn.execute_batch(
+        "PRAGMA query_only = ON;
+         PRAGMA temp_store = MEMORY;",
+    )
+    .map_err(|err| Fail::new(Code::RunFail, format!("sqlite pool pragmas failed: {err}")))?;
+    if mode == SqliteMode::RusqliteUnprepared {
+        conn.set_prepared_statement_cache_capacity(0);
+    }
+    Ok(drizzle::sqlite::rusqlite::Drizzle::new(conn, Schema::new()).0)
+}
+
+async fn acquire_db(state: &AppState) -> Result<PooledResource<SqliteDb>, StatusCode> {
+    state
+        .db
+        .acquire()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 // ---------------------------------------------------------------------------
@@ -514,14 +561,11 @@ async fn customers(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
     if state.mode.is_rusqlite() {
-        return raw_customers(&state, params);
+        return raw_customers(&state, params).await;
     }
 
     let schema = Schema::new();
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(&state).await?;
     let rows: Vec<CustomerRow> = db
         .select((
             schema.customer.id,
@@ -584,14 +628,11 @@ async fn customer_by_id(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
     if state.mode.is_rusqlite() {
-        return raw_customer_by_id(&state, params);
+        return raw_customer_by_id(&state, params).await;
     }
 
     let schema = Schema::new();
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(&state).await?;
     let target_id = params.user_id(super::SEED_CUSTOMERS as i32);
     let rows: Vec<CustomerRow> = db
         .select((
@@ -653,14 +694,11 @@ async fn employees(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<EmployeeResponse>>, StatusCode> {
     if state.mode.is_rusqlite() {
-        return raw_employees(&state, params);
+        return raw_employees(&state, params).await;
     }
 
     let schema = Schema::new();
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(&state).await?;
     let rows: Vec<EmployeeRow> = db
         .select((
             schema.employee.id,
@@ -735,14 +773,11 @@ async fn suppliers(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
     if state.mode.is_rusqlite() {
-        return raw_suppliers(&state, params);
+        return raw_suppliers(&state, params).await;
     }
 
     let schema = Schema::new();
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(&state).await?;
     let rows: Vec<SupplierRow> = db
         .select((
             schema.supplier.id,
@@ -802,14 +837,11 @@ async fn supplier_by_id(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
     if state.mode.is_rusqlite() {
-        return raw_supplier_by_id(&state, params);
+        return raw_supplier_by_id(&state, params).await;
     }
 
     let schema = Schema::new();
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(&state).await?;
     let target_id = params.user_id(super::SEED_SUPPLIERS as i32);
     let rows: Vec<SupplierRow> = db
         .select((
@@ -868,14 +900,11 @@ async fn products(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<ProductResponse>>, StatusCode> {
     if state.mode.is_rusqlite() {
-        return raw_products(&state, params);
+        return raw_products(&state, params).await;
     }
 
     let schema = Schema::new();
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(&state).await?;
     let rows: Vec<ProductRow> = db
         .select((
             schema.product.id,
@@ -933,10 +962,7 @@ async fn employee_with_recipient(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<EmployeeWithRecipientResponse>>, StatusCode> {
     let target_id = params.user_id(super::SEED_EMPLOYEES as i32);
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(&state).await?;
 
     // Self-join requires raw SQL since drizzle doesn't support table aliases
     let conn = db.conn();
@@ -989,14 +1015,11 @@ async fn product_with_supplier(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<ProductWithSupplierResponse>>, StatusCode> {
     if state.mode.is_rusqlite() {
-        return raw_product_with_supplier(&state, params);
+        return raw_product_with_supplier(&state, params).await;
     }
 
     let target_id = params.user_id(super::SEED_PRODUCTS as i32);
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(&state).await?;
     let schema = Schema::new();
 
     let rows: Vec<ProductWithSupplierRow> = db
@@ -1092,10 +1115,7 @@ async fn orders_with_details(
 ) -> Result<Json<Vec<OrderWithDetailsResponse>>, StatusCode> {
     let lim = params.limit_or(50) as i64;
     let off = params.offset() as i64;
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(&state).await?;
     let conn = db.conn();
     let mut stmt = conn
         .prepare_cached(
@@ -1131,16 +1151,13 @@ async fn orders_with_details(
     Ok(Json(rows))
 }
 
-fn raw_customers(
+async fn raw_customers(
     state: &AppState,
     params: QueryParams,
 ) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
     let lim = params.limit_or(50) as i64;
     let off = params.offset() as i64;
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(state).await?;
     let mut stmt = db
         .conn()
         .prepare_cached(
@@ -1159,15 +1176,12 @@ fn raw_customers(
     Ok(Json(rows))
 }
 
-fn raw_customer_by_id(
+async fn raw_customer_by_id(
     state: &AppState,
     params: QueryParams,
 ) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
     let target_id = params.user_id(super::SEED_CUSTOMERS as i32);
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(state).await?;
     let mut stmt = db
         .conn()
         .prepare_cached(
@@ -1185,16 +1199,13 @@ fn raw_customer_by_id(
     Ok(Json(rows))
 }
 
-fn raw_employees(
+async fn raw_employees(
     state: &AppState,
     params: QueryParams,
 ) -> Result<Json<Vec<EmployeeResponse>>, StatusCode> {
     let lim = params.limit_or(50) as i64;
     let off = params.offset() as i64;
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(state).await?;
     let mut stmt = db
         .conn()
         .prepare_cached(
@@ -1232,16 +1243,13 @@ fn raw_employees(
     Ok(Json(rows))
 }
 
-fn raw_suppliers(
+async fn raw_suppliers(
     state: &AppState,
     params: QueryParams,
 ) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
     let lim = params.limit_or(50) as i64;
     let off = params.offset() as i64;
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(state).await?;
     let mut stmt = db
         .conn()
         .prepare_cached(
@@ -1260,15 +1268,12 @@ fn raw_suppliers(
     Ok(Json(rows))
 }
 
-fn raw_supplier_by_id(
+async fn raw_supplier_by_id(
     state: &AppState,
     params: QueryParams,
 ) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
     let target_id = params.user_id(super::SEED_SUPPLIERS as i32);
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(state).await?;
     let mut stmt = db
         .conn()
         .prepare_cached(
@@ -1286,16 +1291,13 @@ fn raw_supplier_by_id(
     Ok(Json(rows))
 }
 
-fn raw_products(
+async fn raw_products(
     state: &AppState,
     params: QueryParams,
 ) -> Result<Json<Vec<ProductResponse>>, StatusCode> {
     let lim = params.limit_or(50) as i64;
     let off = params.offset() as i64;
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(state).await?;
     let mut stmt = db
         .conn()
         .prepare_cached(
@@ -1314,15 +1316,12 @@ fn raw_products(
     Ok(Json(rows))
 }
 
-fn raw_product_with_supplier(
+async fn raw_product_with_supplier(
     state: &AppState,
     params: QueryParams,
 ) -> Result<Json<Vec<ProductWithSupplierResponse>>, StatusCode> {
     let target_id = params.user_id(super::SEED_PRODUCTS as i32);
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(state).await?;
     let mut stmt = db
         .conn()
         .prepare_cached(
@@ -1420,10 +1419,7 @@ async fn order_with_details(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<SingleOrderWithDetailsResponse>>, StatusCode> {
     let target_id = params.user_id(super::SEED_ORDERS as i32);
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(&state).await?;
     let conn = db.conn();
 
     // Fetch the order
@@ -1526,10 +1522,7 @@ async fn order_with_details_and_products(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<SingleOrderWithDetailsAndProductsResponse>>, StatusCode> {
     let target_id = params.user_id(super::SEED_ORDERS as i32);
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(&state).await?;
     let conn = db.conn();
 
     // Fetch the order
@@ -1635,10 +1628,7 @@ async fn search_customer(
 ) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
     let term = params.term.as_deref().unwrap_or("");
     let pattern = format!("%{term}%");
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(&state).await?;
     let conn = db.conn();
     let mut stmt = conn
         .prepare_cached(
@@ -1677,10 +1667,7 @@ async fn search_product(
 ) -> Result<Json<Vec<ProductResponse>>, StatusCode> {
     let term = params.term.as_deref().unwrap_or("");
     let pattern = format!("%{term}%");
-    let db = state
-        .db
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let db = acquire_db(&state).await?;
     let conn = db.conn();
     let mut stmt = conn
         .prepare_cached(

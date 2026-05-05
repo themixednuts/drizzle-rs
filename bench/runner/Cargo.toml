@@ -31,8 +31,8 @@ tokio = { workspace = true, features = ["macros", "net", "rt", "rt-multi-thread"
 sysinfo = { version = "0.38.3" }
 jsonschema = { version = "0.44.1", default-features = false, features = ["resolve-file"] }
 parquet = { version = "58.0.0", default-features = false }
+tempfile = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
-tempfile = { workspace = true }
 serde_json = { workspace = true, features = ["std"] }

@@ -75,6 +75,7 @@ fn run(args: Run) -> Result<Code, Fail> {
         seed,
         input.requests.clone(),
         &input.request_skip,
+        input.single_endpoint.as_deref(),
         input.request_count_hint,
     )?;
     write_env(
@@ -198,6 +199,7 @@ struct RunInput {
     targets: Vec<Target>,
     requests: Vec<RequestDoc>,
     request_skip: Vec<String>,
+    single_endpoint: Option<String>,
     request_count_hint: usize,
     limits: Limits,
 }
@@ -300,6 +302,11 @@ fn load_input(args: &Run) -> Result<RunInput, Fail> {
     let requests = parse_requests(request_value)?;
     let request_count_hint = requests.len();
     let request_skip = workload.requests.skip.clone();
+    let single_endpoint = if workload.shape.mode == "single" {
+        workload.shape.endpoint.clone()
+    } else {
+        None
+    };
 
     let trials = args.trials.unwrap_or_else(|| args.class.default_trials());
     let limits = workload.limits;
@@ -312,6 +319,7 @@ fn load_input(args: &Run) -> Result<RunInput, Fail> {
         targets,
         requests,
         request_skip,
+        single_endpoint,
         request_count_hint,
         limits,
     })
@@ -377,6 +385,7 @@ fn materialize_requests(
     seed: u64,
     input: Vec<RequestDoc>,
     skip: &[String],
+    single_endpoint: Option<&str>,
     hint: usize,
 ) -> Result<Vec<RequestDoc>, Fail> {
     let mut rng = StdRng::seed_from_u64(seed);
@@ -536,6 +545,18 @@ fn materialize_requests(
 
     if !skip.is_empty() {
         out.retain(|req| !request_path_skipped(&req.path, skip));
+    }
+
+    if let Some(endpoint) = single_endpoint {
+        out.retain(|req| req.path == endpoint);
+        if out.is_empty() {
+            return Err(Fail::new(
+                Code::InvalidInput,
+                format!(
+                    "workload.shape.endpoint {endpoint} did not match any materialized requests"
+                ),
+            ));
+        }
     }
 
     for (idx, req) in out.iter_mut().enumerate() {
@@ -2953,9 +2974,9 @@ fn max(values: &[f64]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        MIX_SEARCH_CUSTOMER, MIX_SEARCH_PRODUCT, TrialMeasurement, box_metric, combined_series,
-        compute_primary, compute_spread, query_catalog_total_mix, request_path_skipped,
-        resolve_seed, sample_variance,
+        MIX_CUSTOMER_BY_ID, MIX_SEARCH_CUSTOMER, MIX_SEARCH_PRODUCT, TrialMeasurement, box_metric,
+        combined_series, compute_primary, compute_spread, materialize_requests,
+        query_catalog_total_mix, request_path_skipped, resolve_seed, sample_variance,
     };
     use crate::cli::Class;
     use crate::model::{Latency, Point};
@@ -3040,6 +3061,16 @@ mod tests {
             query_catalog_total_mix() - MIX_SEARCH_CUSTOMER - MIX_SEARCH_PRODUCT,
             371_999
         );
+    }
+
+    #[test]
+    fn generated_single_endpoint_filters_mix() {
+        let tmp = tempfile::TempDir::new().expect("tmp");
+        let requests =
+            materialize_requests(tmp.path(), 42, Vec::new(), &[], Some("/customer-by-id"), 0)
+                .expect("materialize single endpoint");
+        assert_eq!(requests.len(), MIX_CUSTOMER_BY_ID);
+        assert!(requests.iter().all(|req| req.path == "/customer-by-id"));
     }
 
     fn point(rps: f64, cpu: f64) -> Point {

@@ -61,7 +61,7 @@
     "id": "drizzle-ts-pg",
     "display": {
       "name": "Drizzle ORM PostgreSQL",
-      "description": "Drizzle ORM RC using prepared Bun SQL statements and the shared PostgreSQL schema"
+      "description": "Drizzle ORM RC using JIT mappers, prepared Bun SQL statements, and the shared PostgreSQL schema"
     },
     "group": "drizzle-orm",
     "lang": "ts",

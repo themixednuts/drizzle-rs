@@ -5,9 +5,16 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 #[derive(Debug)]
 pub(crate) struct PoolClosed;
 
-#[derive(Clone)]
 pub(crate) struct AsyncResourcePool<T> {
     inner: Arc<PoolInner<T>>,
+}
+
+impl<T> Clone for AsyncResourcePool<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
 }
 
 struct PoolInner<T> {
