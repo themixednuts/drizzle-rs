@@ -46,6 +46,9 @@
     "contract": {
       "ver": "v1"
     },
+    "server": {
+      "cmd": ["$BENCH_RUNNER_BIN", "serve"]
+    },
     "parity": {
       "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]
     },
@@ -99,6 +102,9 @@
     },
     "contract": {
       "ver": "v1"
+    },
+    "server": {
+      "cmd": ["$BENCH_RUNNER_BIN", "serve"]
     },
     "parity": {
       "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]

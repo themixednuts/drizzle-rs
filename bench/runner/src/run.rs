@@ -33,6 +33,7 @@ pub async fn exec(cli: Cli) -> Result<Code, Fail> {
     match cli.cmd {
         Cmd::Run(args) => run(args),
         Cmd::Capture(args) => crate::capture::run(args),
+        Cmd::Serve(args) => crate::load::serve(args).await,
         Cmd::Load(args) => crate::load::run(args).await,
         Cmd::Parity(args) => crate::parity::run(args).await,
         Cmd::SeedPostgres(args) => crate::load::seed_postgres(args).await,
@@ -1173,6 +1174,7 @@ fn run_target_load(
 }
 
 fn add_server_env(target: &Target, env: &mut BTreeMap<String, String>) {
+    env.insert("BENCH_POOL_SIZE".to_string(), target.pool.max.to_string());
     if let Some(server) = &target.server {
         let cmd_json = serde_json::to_string(&server.cmd).unwrap_or_default();
         env.insert("BENCH_SERVER_CMD".to_string(), cmd_json);

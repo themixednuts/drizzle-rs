@@ -592,7 +592,7 @@ async fn customer_by_id(
         .db
         .lock()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let target_id = params.user_id(256);
+    let target_id = params.user_id(super::SEED_CUSTOMERS as i32);
     let rows: Vec<CustomerRow> = db
         .select((
             schema.customer.id,
@@ -810,7 +810,7 @@ async fn supplier_by_id(
         .db
         .lock()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let target_id = params.user_id(30);
+    let target_id = params.user_id(super::SEED_SUPPLIERS as i32);
     let rows: Vec<SupplierRow> = db
         .select((
             schema.supplier.id,
@@ -932,7 +932,7 @@ async fn employee_with_recipient(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<EmployeeWithRecipientResponse>>, StatusCode> {
-    let target_id = params.user_id(50);
+    let target_id = params.user_id(super::SEED_EMPLOYEES as i32);
     let db = state
         .db
         .lock()
@@ -992,7 +992,7 @@ async fn product_with_supplier(
         return raw_product_with_supplier(&state, params);
     }
 
-    let target_id = params.user_id(200);
+    let target_id = params.user_id(super::SEED_PRODUCTS as i32);
     let db = state
         .db
         .lock()
@@ -1163,7 +1163,7 @@ fn raw_customer_by_id(
     state: &AppState,
     params: QueryParams,
 ) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
-    let target_id = params.user_id(256);
+    let target_id = params.user_id(super::SEED_CUSTOMERS as i32);
     let db = state
         .db
         .lock()
@@ -1264,7 +1264,7 @@ fn raw_supplier_by_id(
     state: &AppState,
     params: QueryParams,
 ) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
-    let target_id = params.user_id(30);
+    let target_id = params.user_id(super::SEED_SUPPLIERS as i32);
     let db = state
         .db
         .lock()
@@ -1318,7 +1318,7 @@ fn raw_product_with_supplier(
     state: &AppState,
     params: QueryParams,
 ) -> Result<Json<Vec<ProductWithSupplierResponse>>, StatusCode> {
-    let target_id = params.user_id(200);
+    let target_id = params.user_id(super::SEED_PRODUCTS as i32);
     let db = state
         .db
         .lock()
@@ -1419,7 +1419,7 @@ async fn order_with_details(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<SingleOrderWithDetailsResponse>>, StatusCode> {
-    let target_id = params.user_id(500);
+    let target_id = params.user_id(super::SEED_ORDERS as i32);
     let db = state
         .db
         .lock()
@@ -1525,7 +1525,7 @@ async fn order_with_details_and_products(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<SingleOrderWithDetailsAndProductsResponse>>, StatusCode> {
-    let target_id = params.user_id(500);
+    let target_id = params.user_id(super::SEED_ORDERS as i32);
     let db = state
         .db
         .lock()

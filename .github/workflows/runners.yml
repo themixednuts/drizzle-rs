@@ -96,7 +96,7 @@ jobs:
           out="bench-out/sqlite-${{ matrix.platform }}"
           mkdir -p "$out"
 
-          cargo run -p bench-runner -- run \
+          cargo run --release -p bench-runner -- run \
             --suite throughput-http \
             --workload "$workload" \
             --targets bench/spec/targets.sqlite.v1.json \
@@ -237,7 +237,7 @@ jobs:
           out="bench-out/postgres-linux"
           mkdir -p "$out"
 
-          cargo run -p bench-runner -- run \
+          cargo run --release -p bench-runner -- run \
             --suite throughput-http \
             --workload "$workload" \
             --targets bench/spec/targets.postgres.v1.json \
@@ -378,7 +378,7 @@ jobs:
           out="bench-out/postgres-rust-orms-linux"
           mkdir -p "$out"
 
-          cargo run -p bench-runner -- run \
+          cargo run --release -p bench-runner -- run \
             --suite throughput-http \
             --workload "$workload" \
             --targets bench/spec/targets.postgres-rust-orms.v1.json \
@@ -540,7 +540,7 @@ jobs:
           out="bench-out/postgres-ts-linux"
           mkdir -p "$out"
 
-          cargo run -p bench-runner -- run \
+          cargo run --release -p bench-runner -- run \
             --suite throughput-http \
             --workload "$workload" \
             --targets bench/spec/targets.postgres-ts.v1.json \
@@ -699,7 +699,7 @@ jobs:
           out="bench-out/spacetimedb-linux"
           mkdir -p "$out"
 
-          cargo run -p bench-runner -- run \
+          cargo run --release -p bench-runner -- run \
             --suite throughput-http \
             --workload "$workload" \
             --targets bench/spec/targets.spacetimedb.v1.json \
@@ -790,7 +790,7 @@ jobs:
           out="bench-out/turso-linux"
           mkdir -p "$out"
 
-          cargo run -p bench-runner -- run \
+          cargo run --release -p bench-runner -- run \
             --suite throughput-http \
             --workload "$workload" \
             --targets bench/spec/targets.turso.v1.json \

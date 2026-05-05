@@ -6,6 +6,7 @@ import {
   limitParam,
   nestProductSupplier,
   offsetParam,
+  poolSize,
   SEARCH_CUSTOMERS,
   SEARCH_PRODUCTS,
   seedPostgres,
@@ -33,7 +34,7 @@ import {
 
 await seedPostgres();
 
-const sql = new SQL({ url: buildUrl(), max: 8 });
+const sql = new SQL({ url: buildUrl(), max: poolSize() });
 
 async function rows(query: string, params: unknown[] = []) {
   return await sql.unsafe(query, params);

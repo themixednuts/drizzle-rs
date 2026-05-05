@@ -157,7 +157,8 @@ function driverLabel(value: string): string {
 	const known = value.toLowerCase();
 	if (known === 'bun:sql') return 'Bun SQL';
 	if (known === '@prisma/adapter-pg') return 'adapter-pg';
-	if (known === 'tokio-postgres-simple') return 'tokio-postgres simple';
+	if (known === 'tokio-postgres-simple') return 'PGWire';
+	if (known === 'spacetimedb-sdk') return 'SDK';
 	return GROUP_NAMES.get(known) ?? humanize(value);
 }
 

@@ -92,8 +92,10 @@
 										<span class="target-link">{display.name}</span>
 										<span class="target-badges" title={item.target_id}>
 											{#each display.badges as badge, index}
-												{#if index > 0}<span class="target-slash">/</span>{/if}
-												<span>{badge}</span>
+												<span class="target-badge">
+													{#if index > 0}<span class="target-slash">/</span>{/if}
+													<span>{badge}</span>
+												</span>
 											{/each}
 										</span>
 									</td>
@@ -155,8 +157,13 @@
 
 	.compare-table th:first-child,
 	.compare-table td:first-child {
-		width: 44%;
+		width: 42%;
+		padding-left: 8px;
 		white-space: normal;
+	}
+
+	.compare-table tr.target-related td:first-child {
+		padding-left: 8px;
 	}
 
 	.compare-table th.n,
@@ -166,7 +173,30 @@
 
 	.compare-table th:last-child,
 	.compare-table td:last-child {
-		width: 236px;
+		width: 226px;
+	}
+
+	.compare-table .target-link {
+		display: block;
+	}
+
+	.compare-table .target-badges {
+		display: flex;
+		flex-wrap: wrap;
+		row-gap: 2px;
+		margin-top: 3px;
+		margin-left: 0;
+		white-space: normal;
+	}
+
+	.compare-table .target-badges span {
+		white-space: nowrap;
+	}
+
+	.compare-table .target-badge {
+		display: inline-flex;
+		gap: 5px;
+		align-items: baseline;
 	}
 
 	@media (max-width: 760px) {

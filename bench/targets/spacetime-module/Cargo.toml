@@ -10,4 +10,5 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-spacetimedb = "2.1.0"
+rand = { version = "0.9", default-features = false, features = ["std_rng"] }
+spacetimedb = "2.2.0"

@@ -7,9 +7,6 @@ use drizzle::core::expr::eq;
 use drizzle::sqlite::prelude::*;
 use drizzle_seed::SeedConfig;
 use std::collections::BTreeMap;
-use std::ops::Deref;
-use std::sync::Arc;
-use tokio::sync::{Mutex as TokioMutex, mpsc as tokio_mpsc};
 
 const TURSO_POOL_SIZE: usize = 4;
 
@@ -390,67 +387,20 @@ type SupplierRow = (
 type ProductRow = (i32, String, String, f64, i32, i32, i32, i32, i32);
 type TursoDb = drizzle::sqlite::turso::Drizzle<Schema>;
 
-#[derive(Clone)]
-struct TursoPool {
-    inner: Arc<TursoPoolInner>,
-}
-
-struct TursoPoolInner {
-    tx: tokio_mpsc::Sender<TursoDb>,
-    rx: TokioMutex<tokio_mpsc::Receiver<TursoDb>>,
-}
-
-struct PooledTursoDb {
-    db: Option<TursoDb>,
-    tx: tokio_mpsc::Sender<TursoDb>,
-}
-
-impl TursoPool {
-    fn new(connections: Vec<TursoDb>) -> Self {
-        let (tx, rx) = tokio_mpsc::channel(connections.len());
-        for db in connections {
-            tx.try_send(db)
-                .expect("new Turso pool channel must have capacity");
-        }
-
-        Self {
-            inner: Arc::new(TursoPoolInner {
-                tx,
-                rx: TokioMutex::new(rx),
-            }),
-        }
-    }
-
-    async fn acquire(&self) -> Result<PooledTursoDb, StatusCode> {
-        let mut rx = self.inner.rx.lock().await;
-        let db = rx.recv().await.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-        Ok(PooledTursoDb {
-            db: Some(db),
-            tx: self.inner.tx.clone(),
-        })
-    }
-}
-
-impl Deref for PooledTursoDb {
-    type Target = TursoDb;
-
-    fn deref(&self) -> &Self::Target {
-        self.db.as_ref().expect("pooled Turso connection missing")
-    }
-}
-
-impl Drop for PooledTursoDb {
-    fn drop(&mut self) {
-        if let Some(db) = self.db.take() {
-            let _ = self.tx.try_send(db);
-        }
-    }
-}
+type TursoPool = super::pool::AsyncResourcePool<TursoDb>;
 
 #[derive(Clone)]
 struct AppState {
     db: TursoPool,
     mode: TursoMode,
+}
+
+async fn acquire_db(state: &AppState) -> Result<super::pool::PooledResource<TursoDb>, StatusCode> {
+    state
+        .db
+        .acquire()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
@@ -497,12 +447,11 @@ async fn serve_with_mode(seed: u64, mode: TursoMode) -> Result<ServerHandle, Fai
 
     // Create indexes
     db.conn()
-        .execute(
+        .execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_emp_recipient ON employees(recipient_id);
              CREATE INDEX IF NOT EXISTS idx_prod_supplier ON products(supplier_id);
              CREATE INDEX IF NOT EXISTS idx_det_order ON order_details(order_id);
              CREATE INDEX IF NOT EXISTS idx_det_product ON order_details(product_id);",
-            (),
         )
         .await
         .map_err(|err| Fail::new(Code::RunFail, format!("turso create indexes failed: {err}")))?;
@@ -524,9 +473,10 @@ async fn serve_with_mode(seed: u64, mode: TursoMode) -> Result<ServerHandle, Fai
             .map_err(|err| Fail::new(Code::RunFail, format!("turso seed failed: {err}")))?;
     }
 
-    let mut connections = Vec::with_capacity(TURSO_POOL_SIZE);
+    let pool_size = super::configured_pool_size(TURSO_POOL_SIZE);
+    let mut connections = Vec::with_capacity(pool_size);
     connections.push(db);
-    for _ in 1..TURSO_POOL_SIZE {
+    for _ in 1..pool_size {
         let conn = builder
             .connect()
             .map_err(|err| Fail::new(Code::RunFail, format!("turso connect failed: {err}")))?;
@@ -553,7 +503,7 @@ async fn serve_with_mode(seed: u64, mode: TursoMode) -> Result<ServerHandle, Fai
         .route("/search-customer", get(search_customer))
         .route("/search-product", get(search_product))
         .with_state(AppState {
-            db: TursoPool::new(connections),
+            db: super::pool::AsyncResourcePool::new(connections),
             mode,
         });
     spawn_server(router).await
@@ -575,7 +525,7 @@ async fn raw_customers(
 ) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
     let lim = params.limit_or(50) as i64;
     let off = params.offset() as i64;
-    let db = state.db.acquire().await?;
+    let db = acquire_db(state).await?;
     let rows = query_rows(
         db.conn(),
         "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers ORDER BY id LIMIT ?1 OFFSET ?2",
@@ -607,7 +557,7 @@ async fn raw_customer_by_id(
     params: QueryParams,
 ) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
     let target_id = params.user_id(10000);
-    let db = state.db.acquire().await?;
+    let db = acquire_db(state).await?;
     let rows = query_rows(
         db.conn(),
         "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE id = ?1",
@@ -640,7 +590,7 @@ async fn raw_employees(
 ) -> Result<Json<Vec<EmployeeResponse>>, StatusCode> {
     let lim = params.limit_or(50) as i64;
     let off = params.offset() as i64;
-    let db = state.db.acquire().await?;
+    let db = acquire_db(state).await?;
     let rows = query_rows(
         db.conn(),
         "SELECT id, last_name, first_name, title, title_of_courtesy, birth_date, hire_date, address, city, postal_code, country, home_phone, extension, notes, recipient_id FROM employees ORDER BY id LIMIT ?1 OFFSET ?2",
@@ -677,7 +627,7 @@ async fn raw_suppliers(
 ) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
     let lim = params.limit_or(50) as i64;
     let off = params.offset() as i64;
-    let db = state.db.acquire().await?;
+    let db = acquire_db(state).await?;
     let rows = query_rows(
         db.conn(),
         "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers ORDER BY id LIMIT ?1 OFFSET ?2",
@@ -708,7 +658,7 @@ async fn raw_supplier_by_id(
     params: QueryParams,
 ) -> Result<Json<Vec<SupplierResponse>>, StatusCode> {
     let target_id = params.user_id(1000);
-    let db = state.db.acquire().await?;
+    let db = acquire_db(state).await?;
     let rows = query_rows(
         db.conn(),
         "SELECT id, company_name, contact_name, contact_title, address, city, region, postal_code, country, phone FROM suppliers WHERE id = ?1",
@@ -740,7 +690,7 @@ async fn raw_products(
 ) -> Result<Json<Vec<ProductResponse>>, StatusCode> {
     let lim = params.limit_or(50) as i64;
     let off = params.offset() as i64;
-    let db = state.db.acquire().await?;
+    let db = acquire_db(state).await?;
     let rows = query_rows(
         db.conn(),
         "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products ORDER BY id LIMIT ?1 OFFSET ?2",
@@ -775,7 +725,7 @@ async fn customers_handler(
     }
 
     let schema = Schema::new();
-    let db = state.db.acquire().await?;
+    let db = acquire_db(&state).await?;
     let rows: Vec<CustomerRow> = db
         .select((
             schema.customer.id,
@@ -840,7 +790,7 @@ async fn customer_by_id(
     }
 
     let schema = Schema::new();
-    let db = state.db.acquire().await?;
+    let db = acquire_db(&state).await?;
     let target_id = params.user_id(10000);
     let rows: Vec<CustomerRow> = db
         .select((
@@ -904,7 +854,7 @@ async fn employees_handler(
     }
 
     let schema = Schema::new();
-    let db = state.db.acquire().await?;
+    let db = acquire_db(&state).await?;
     let rows: Vec<EmployeeRow> = db
         .select((
             schema.employee.id,
@@ -981,7 +931,7 @@ async fn suppliers_handler(
     }
 
     let schema = Schema::new();
-    let db = state.db.acquire().await?;
+    let db = acquire_db(&state).await?;
     let rows: Vec<SupplierRow> = db
         .select((
             schema.supplier.id,
@@ -1043,7 +993,7 @@ async fn supplier_by_id(
     }
 
     let schema = Schema::new();
-    let db = state.db.acquire().await?;
+    let db = acquire_db(&state).await?;
     let target_id = params.user_id(1000);
     let rows: Vec<SupplierRow> = db
         .select((
@@ -1104,7 +1054,7 @@ async fn products_handler(
     }
 
     let schema = Schema::new();
-    let db = state.db.acquire().await?;
+    let db = acquire_db(&state).await?;
     let rows: Vec<ProductRow> = db
         .select((
             schema.product.id,
@@ -1160,7 +1110,7 @@ async fn employee_with_recipient(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<EmployeeWithRecipientResponse>>, StatusCode> {
     let target_id = params.user_id(200);
-    let db = state.db.acquire().await?;
+    let db = acquire_db(&state).await?;
     let collected = query_rows(
         db.conn(),
         "SELECT e.id, e.last_name, e.first_name, e.title, e.title_of_courtesy, e.birth_date, e.hire_date, e.address, e.city, e.postal_code, e.country, e.home_phone, e.extension, e.notes, e.recipient_id, r.last_name, r.first_name FROM employees e LEFT JOIN employees r ON e.recipient_id = r.id WHERE e.id = ?1",
@@ -1199,7 +1149,7 @@ async fn product_with_supplier(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<ProductWithSupplierResponse>>, StatusCode> {
     let target_id = params.user_id(5000);
-    let db = state.db.acquire().await?;
+    let db = acquire_db(&state).await?;
     let collected = query_rows(
         db.conn(),
         "SELECT p.id, p.name, p.qt_per_unit, p.unit_price, p.units_in_stock, p.units_on_order, p.reorder_level, p.discontinued, p.supplier_id, s.id, s.company_name, s.contact_name, s.contact_title, s.address, s.city, s.region, s.postal_code, s.country, s.phone FROM products p INNER JOIN suppliers s ON p.supplier_id = s.id WHERE p.id = ?1",
@@ -1243,7 +1193,7 @@ async fn orders_with_details(
 ) -> Result<Json<Vec<OrderWithDetailsResponse>>, StatusCode> {
     let lim = params.limit_or(50) as i64;
     let off = params.offset() as i64;
-    let db = state.db.acquire().await?;
+    let db = acquire_db(&state).await?;
     let orders = query_rows(
         db.conn(),
         "SELECT id, shipped_date, ship_name, ship_city, ship_country FROM orders ORDER BY id LIMIT ?1 OFFSET ?2",
@@ -1308,7 +1258,7 @@ async fn order_with_details(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<SingleOrderWithDetailsResponse>>, StatusCode> {
     let target_id = params.user_id(50000);
-    let db = state.db.acquire().await?;
+    let db = acquire_db(&state).await?;
     let order_collected = query_rows(
         db.conn(),
         "SELECT id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id FROM orders WHERE id = ?1",
@@ -1361,7 +1311,7 @@ async fn order_with_details_and_products(
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<SingleOrderWithDetailsAndProductsResponse>>, StatusCode> {
     let target_id = params.user_id(50000);
-    let db = state.db.acquire().await?;
+    let db = acquire_db(&state).await?;
     let order_collected = query_rows(
         db.conn(),
         "SELECT id, order_date, required_date, shipped_date, ship_via, freight, ship_name, ship_city, ship_region, ship_postal_code, ship_country, customer_id, employee_id FROM orders WHERE id = ?1",
@@ -1416,7 +1366,7 @@ async fn search_customer(
 ) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
     let term = params.term.as_deref().unwrap_or("");
     let pattern = format!("%{term}%");
-    let db = state.db.acquire().await?;
+    let db = acquire_db(&state).await?;
     let collected = query_rows(
         db.conn(),
         "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers WHERE company_name LIKE ?1",
@@ -1450,7 +1400,7 @@ async fn search_product(
 ) -> Result<Json<Vec<ProductResponse>>, StatusCode> {
     let term = params.term.as_deref().unwrap_or("");
     let pattern = format!("%{term}%");
-    let db = state.db.acquire().await?;
+    let db = acquire_db(&state).await?;
     let collected = query_rows(
         db.conn(),
         "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products WHERE name LIKE ?1",

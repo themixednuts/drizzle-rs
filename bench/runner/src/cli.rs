@@ -14,6 +14,7 @@ pub struct Cli {
 pub enum Cmd {
     Run(Run),
     Capture(Capture),
+    Serve(Serve),
     Load(Load),
     Parity(Parity),
     SeedPostgres(SeedPostgres),
@@ -101,6 +102,15 @@ pub struct Load {
 
     #[arg(long)]
     pub requests: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct Serve {
+    #[arg(long)]
+    pub target: Option<String>,
+
+    #[arg(long)]
+    pub seed: Option<u64>,
 }
 
 #[derive(Debug, Clone, Args)]

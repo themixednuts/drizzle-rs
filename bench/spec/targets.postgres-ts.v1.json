@@ -61,7 +61,7 @@
     "id": "drizzle-ts-pg",
     "display": {
       "name": "Drizzle ORM PostgreSQL",
-      "description": "Drizzle ORM beta using prepared Bun SQL statements and the shared PostgreSQL schema"
+      "description": "Drizzle ORM RC using prepared Bun SQL statements and the shared PostgreSQL schema"
     },
     "group": "drizzle-orm",
     "lang": "ts",
@@ -71,7 +71,7 @@
     },
     "orm": {
       "name": "drizzle-orm",
-      "ver": "1.0.0-beta.22"
+      "ver": "1.0.0-rc.1"
     },
     "driver": {
       "name": "bun:sql",

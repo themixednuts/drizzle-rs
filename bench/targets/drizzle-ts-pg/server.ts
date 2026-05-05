@@ -8,6 +8,7 @@ import {
   jsonResponse,
   limitParam,
   offsetParam,
+  poolSize,
   seedPostgres,
   SEED_CUSTOMERS,
   SEED_EMPLOYEES,
@@ -104,7 +105,7 @@ const recipient = alias(employees, "recipient");
 
 await seedPostgres();
 
-const client = new SQL({ url: buildUrl(), max: 8 });
+const client = new SQL({ url: buildUrl(), max: poolSize() });
 const db = drizzle({ client });
 
 const customerColumns = {

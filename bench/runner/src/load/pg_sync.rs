@@ -404,11 +404,12 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         .map_err(|err| Fail::new(Code::RunFail, format!("pg_sync seed panicked: {err}")))?
         .map_err(|msg| Fail::new(Code::RunFail, msg))?;
 
-    let mut txs = Vec::with_capacity(super::POSTGRES_POOL_SIZE);
-    let mut workers = Vec::with_capacity(super::POSTGRES_POOL_SIZE);
-    let mut ready = Vec::with_capacity(super::POSTGRES_POOL_SIZE);
+    let pool_size = super::configured_pool_size(super::POSTGRES_POOL_SIZE);
+    let mut txs = Vec::with_capacity(pool_size);
+    let mut workers = Vec::with_capacity(pool_size);
+    let mut ready = Vec::with_capacity(pool_size);
 
-    for worker_id in 0..super::POSTGRES_POOL_SIZE {
+    for worker_id in 0..pool_size {
         let (cmd_tx, cmd_rx) = mpsc::channel::<DbCmd>();
         let (ready_tx, ready_rx) = oneshot::channel::<Result<(), String>>();
         txs.push(cmd_tx);

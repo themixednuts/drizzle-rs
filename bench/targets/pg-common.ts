@@ -31,6 +31,11 @@ export function buildUrl(): string {
   return `postgres://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${dbname}`;
 }
 
+export function poolSize(fallback = 8): number {
+  const raw = Number(process.env.BENCH_POOL_SIZE ?? fallback);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : fallback;
+}
+
 export async function seedPostgres(): Promise<void> {
   const seed = process.env.BENCH_SEED ?? "42";
   const runner = process.env.BENCH_RUNNER_BIN;
@@ -79,7 +84,7 @@ export function offsetParam(url: URL): number {
 
 export function idMod(url: URL, modulo: number): number {
   const raw = Number(url.searchParams.get("id") ?? "1");
-  return Math.max(((raw % modulo) + modulo) % modulo, 1);
+  return ((((raw - 1) % modulo) + modulo) % modulo) + 1;
 }
 
 export function termPattern(url: URL): string {

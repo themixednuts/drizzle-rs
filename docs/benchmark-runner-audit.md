@@ -1,6 +1,6 @@
 # Benchmark Runner Audit
 
-Last updated: 2026-04-28.
+Last updated: 2026-05-04.
 
 ## Execution Surfaces
 
@@ -19,9 +19,9 @@ Last updated: 2026-04-28.
 
 | Target family | Contract target file | Targets |
 | --- | --- | --- |
-| SQLite/rusqlite | `bench/spec/targets.sqlite.v1.json` | `drizzle-rs-sqlite`, `rusqlite-sqlite` |
-| Drizzle-RS Turso | `bench/spec/targets.turso.v1.json` | `drizzle-rs-turso` |
-| Drizzle-RS PostgreSQL | `bench/spec/targets.postgres.v1.json` | `drizzle-rs-pg-sync`, `drizzle-rs-pg-tokio` |
+| SQLite/rusqlite | `bench/spec/targets.sqlite.v1.json` | `drizzle-rs-sqlite`, `rusqlite-sqlite-prepared`, `rusqlite-sqlite-unprepared` |
+| Drizzle-RS/Turso SQLite | `bench/spec/targets.turso.v1.json` | `drizzle-rs-turso`, `turso-sqlite-prepared`, `turso-sqlite-unprepared` |
+| PostgreSQL driver baselines | `bench/spec/targets.postgres.v1.json` | `tokio-postgres-prepared`, `tokio-postgres-unprepared` |
 | Rust PostgreSQL ORMs | `bench/spec/targets.postgres-rust-orms.v1.json` | `sqlx-pg`, `diesel-pg`, `seaorm-pg` |
 | TS PostgreSQL comparators | `bench/spec/targets.postgres-ts.v1.json` | `bun-sql-pg`, `drizzle-ts-pg`, `prisma-pg` |
 | SpacetimeDB | `bench/spec/targets.spacetimedb.v1.json` | `spacetime-pgwire-rs` |
@@ -32,9 +32,13 @@ PostgreSQL targets use the runner-owned Northwind micro schema and deterministic
 
 PostgreSQL setup caches generated seed data per seed/version in a private `bench_seed_*` schema. The first setup for a seed builds that cache with the normal constrained seeder; later target resets replay from the cache into `public`, reset serial sequences, and recreate the same indexes. External targets receive `BENCH_RUNNER_BIN` from the parent runner and call that binary directly for seeding, avoiding a nested `cargo run` per target.
 
-PostgreSQL concurrency is explicit in the target specs. Drizzle-RS sync/tokio, SQLx, SeaORM, Bun SQL, Drizzle TS, and Prisma all advertise and use pool size `8`; Diesel remains pool size `1` because the current Diesel benchmark uses a single synchronous libpq connection behind a mutex. The Diesel target bundles libpq 18.3 through `pq-sys`/`pq-src` so CI and local Windows runs do not depend on a system `libpq` import library.
+PostgreSQL concurrency is explicit in the target specs. tokio-postgres, SQLx, Diesel, SeaORM, Bun SQL, Drizzle TS, and Prisma all advertise and use pool size `8`. Diesel uses a round-robin pool of synchronous libpq connections and runs blocking query work on Tokio's blocking pool instead of serializing all requests behind one connection. The Diesel target bundles libpq 18.3 through `pq-sys`/`pq-src` so CI and local Windows runs do not depend on a system `libpq` import library.
 
-The Drizzle TS comparator is pinned to `drizzle-orm@1.0.0-beta.22`, matching the current npm `beta` dist-tag and the v1 feature surface Drizzle-RS is benchmarking against.
+The Drizzle TS comparator is pinned to `drizzle-orm@1.0.0-rc.1`, matching the requested v1 RC feature surface Drizzle-RS is benchmarking against.
+
+The throughput workload mirrors the upstream drizzle-benchmarks ramp shape: 200 to 3000 VUs in alternating 5s ramp / 15s hold stages, then 55s at 3000 VUs. The async in-process load generator uses the same per-iteration pacing as upstream k6 (`sleep(0.1 * (iteration % 6))`) and excludes `/search*` requests for throughput runs, while parity still checks search routes.
+
+Benchmark runs must invoke the runner in release mode. Several built-in targets are launched through `$BENCH_RUNNER_BIN serve`; if the parent command is `cargo run -p bench-runner -- run`, those target servers are debug binaries and throughput numbers are not comparable. CI uses `cargo run --release -p bench-runner -- run` for every measured job.
 
 SQLite targets use the same in-memory SQLite connection model and report pool size `1` in fairness metadata.
 

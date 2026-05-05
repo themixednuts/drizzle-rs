@@ -9,7 +9,7 @@ use std::process::{Child, Command, Stdio};
 ///
 /// The seed data file path is forwarded via `BENCH_SEED_FILE` env var (inherited
 /// from the parent process). External targets read that file for seeding.
-pub async fn serve(cmd_json: &str) -> Result<(ServerHandle, Child), Fail> {
+pub async fn serve(cmd_json: &str, target: &str, seed: u64) -> Result<(ServerHandle, Child), Fail> {
     let cmd: Vec<String> = serde_json::from_str(cmd_json).map_err(|e| {
         Fail::new(
             Code::InvalidCli,
@@ -25,20 +25,28 @@ pub async fn serve(cmd_json: &str) -> Result<(ServerHandle, Child), Fail> {
 
     let cwd = std::env::var("BENCH_SERVER_CWD").ok();
 
-    let mut builder = Command::new(&cmd[0]);
-    builder.args(&cmd[1..]);
+    let resolved_cmd = resolve_cmd_token(&cmd[0])?;
+    let resolved_args = cmd[1..]
+        .iter()
+        .map(|arg| resolve_arg_token(arg))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut builder = Command::new(&resolved_cmd);
+    builder.args(&resolved_args);
     if let Some(dir) = &cwd {
         builder.current_dir(dir);
     }
     // Forward run identity so external targets can load the shared seed data.
+    builder.env("BENCH_TARGET_ID", target);
+    builder.env("BENCH_SEED", seed.to_string());
     if let Ok(seed_file) = std::env::var("BENCH_SEED_FILE") {
         builder.env("BENCH_SEED_FILE", seed_file);
     }
-    if let Ok(seed) = std::env::var("BENCH_SEED") {
-        builder.env("BENCH_SEED", seed);
-    }
     if let Ok(trial) = std::env::var("BENCH_TRIAL") {
         builder.env("BENCH_TRIAL", trial);
+    }
+    if let Ok(pool_size) = std::env::var("BENCH_POOL_SIZE") {
+        builder.env("BENCH_POOL_SIZE", pool_size);
     }
     if let Ok(current_exe) = std::env::current_exe() {
         builder.env("BENCH_RUNNER_BIN", current_exe);
@@ -88,4 +96,30 @@ pub async fn serve(cmd_json: &str) -> Result<(ServerHandle, Child), Fail> {
         },
         child,
     ))
+}
+
+fn resolve_cmd_token(token: &str) -> Result<String, Fail> {
+    if token == "$BENCH_RUNNER_BIN" {
+        return std::env::current_exe()
+            .map(|path| path.to_string_lossy().into_owned())
+            .map_err(|err| {
+                Fail::new(
+                    Code::RunFail,
+                    format!("failed to resolve BENCH_RUNNER_BIN: {err}"),
+                )
+            });
+    }
+    resolve_arg_token(token)
+}
+
+fn resolve_arg_token(token: &str) -> Result<String, Fail> {
+    if let Some(name) = token.strip_prefix('$') {
+        return std::env::var(name).map_err(|err| {
+            Fail::new(
+                Code::InvalidCli,
+                format!("failed to expand server command token {token}: {err}"),
+            )
+        });
+    }
+    Ok(token.to_string())
 }

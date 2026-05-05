@@ -18,7 +18,7 @@
     },
     "driver": {
       "name": "turso",
-      "ver": "0.6.0-pre.23"
+      "ver": "0.6.0-pre.27"
     },
     "proc": {
       "mode": "single",
@@ -46,6 +46,9 @@
     "contract": {
       "ver": "v1"
     },
+    "server": {
+      "cmd": ["$BENCH_RUNNER_BIN", "serve"]
+    },
     "parity": {
       "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]
     },
@@ -72,7 +75,7 @@
     },
     "driver": {
       "name": "turso",
-      "ver": "0.6.0-pre.23"
+      "ver": "0.6.0-pre.27"
     },
     "proc": {
       "mode": "single",
@@ -100,6 +103,9 @@
     "contract": {
       "ver": "v1"
     },
+    "server": {
+      "cmd": ["$BENCH_RUNNER_BIN", "serve"]
+    },
     "parity": {
       "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]
     },
@@ -126,7 +132,7 @@
     },
     "driver": {
       "name": "turso",
-      "ver": "0.6.0-pre.23"
+      "ver": "0.6.0-pre.27"
     },
     "proc": {
       "mode": "single",
@@ -153,6 +159,9 @@
     },
     "contract": {
       "ver": "v1"
+    },
+    "server": {
+      "cmd": ["$BENCH_RUNNER_BIN", "serve"]
     },
     "parity": {
       "cmd": ["cargo", "run", "-q", "--release", "-p", "bench-runner", "--", "parity"]

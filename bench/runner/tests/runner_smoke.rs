@@ -232,6 +232,58 @@ fn capture_writes_telemetry() {
     assert!(!samples.trim().is_empty());
 }
 
+#[test]
+fn load_can_spawn_builtin_server_process() {
+    let tmp = TempDir::new().expect("tmp");
+    let root = tmp.path();
+    let input = root.join("input");
+    let out = root.join("out");
+    fs::create_dir_all(&input).expect("mkdir input");
+    fs::create_dir_all(&out).expect("mkdir out");
+
+    write_json(input.join("workload.json"), &workload_json(17));
+    write_json(
+        input.join("requests.json"),
+        r#"[{"method":"GET","path":"/stats"}]"#,
+    );
+
+    let bin = assert_cmd::cargo::cargo_bin!("bench-runner");
+    let server_cmd = serde_json::to_string(&vec![
+        bin.to_string_lossy().to_string(),
+        "serve".to_string(),
+    ])
+    .expect("server cmd json");
+
+    let output = {
+        let mut cmd = cargo_bin_cmd!("bench-runner");
+        cmd.args([
+            "load",
+            "--target",
+            "drizzle-rs-sqlite",
+            "--trial",
+            "1",
+            "--seed",
+            "42",
+            "--suite",
+            "throughput-http",
+            "--workload",
+            input.join("workload.json").to_str().expect("workload path"),
+            "--requests",
+            input.join("requests.json").to_str().expect("requests path"),
+            "--out",
+            out.join("series.json").to_str().expect("series path"),
+        ])
+        .env("BENCH_SERVER_CMD", server_cmd);
+        cmd.assert().success().get_output().clone()
+    };
+    assert_eq!(output.status.code(), Some(0));
+
+    let series: Value =
+        serde_json::from_str(&fs::read_to_string(out.join("series.json")).expect("series read"))
+            .expect("series json");
+    assert!(series.as_array().is_some_and(|points| !points.is_empty()));
+}
+
 fn run_cmd(args: &[&str], expect_success: bool) -> std::process::Output {
     let mut cmd = cargo_bin_cmd!("bench-runner");
     if matches!(args.first(), Some(&"run")) && !args.contains(&"--class") {

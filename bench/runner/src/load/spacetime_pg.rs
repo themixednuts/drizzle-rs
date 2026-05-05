@@ -588,9 +588,10 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
     )
     .await?;
 
-    let mut clients = Vec::with_capacity(SPACETIME_PG_POOL_SIZE);
+    let pool_size = super::configured_pool_size(SPACETIME_PG_POOL_SIZE);
+    let mut clients = Vec::with_capacity(pool_size);
     clients.push(Arc::new(Mutex::new(client)));
-    for idx in 1..SPACETIME_PG_POOL_SIZE {
+    for idx in 1..pool_size {
         let (client, connection) = config.connect(tokio_postgres::NoTls).await.map_err(|e| {
             Fail::new(
                 Code::RunFail,

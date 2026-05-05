@@ -7,6 +7,7 @@ import {
   jsonResponse,
   limitParam,
   offsetParam,
+  poolSize,
   seedPostgres,
   SEED_CUSTOMERS,
   SEED_EMPLOYEES,
@@ -20,7 +21,7 @@ import {
 await seedPostgres();
 
 process.env.DATABASE_URL = buildUrl();
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: poolSize() });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 

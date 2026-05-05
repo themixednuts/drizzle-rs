@@ -1,11 +1,12 @@
 mod external;
 mod pg_sync;
 mod pg_tokio;
+mod pool;
 mod spacetime_pg;
 mod sqlite;
 mod turso;
 
-use crate::cli::{Load, SeedPostgres, Suite};
+use crate::cli::{Load, SeedPostgres, Serve, Suite};
 use crate::code::{Code, Fail};
 use crate::model::{Latency, Point, QueryPoint, RequestDoc, Workload};
 use axum::Router;
@@ -37,7 +38,16 @@ pub(crate) const SEED_ORDERS: usize = 50_000;
 pub(crate) const SEED_SUPPLIERS: usize = 1_000;
 pub(crate) const SEED_PRODUCTS: usize = 5_000;
 pub(crate) const POSTGRES_POOL_SIZE: usize = 8;
+const DRIZZLE_BENCH_SLEEP_STEP_MS: u64 = 100;
 // Details per order: controlled via SeedConfig::relation() (~6 per order, matching upstream avg)
+
+pub(crate) fn configured_pool_size(default: usize) -> usize {
+    std::env::var("BENCH_POOL_SIZE")
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .filter(|size| *size > 0)
+        .unwrap_or(default)
+}
 
 /// Start the adapter server for the given target. Used by both `load` and `parity`.
 ///
@@ -47,12 +57,16 @@ pub(crate) const POSTGRES_POOL_SIZE: usize = 8;
 pub(crate) async fn serve_target(target: &str, seed: u64) -> Result<ServerHandle, Fail> {
     // Check for external server command first
     if let Ok(cmd_json) = std::env::var("BENCH_SERVER_CMD") {
-        let (mut handle, child) = external::serve(&cmd_json).await?;
+        let (mut handle, child) = external::serve(&cmd_json, target, seed).await?;
         handle.target_pid = Some(child.id());
         handle.external_child = Some(child);
         return Ok(handle);
     }
 
+    serve_builtin_target(target, seed).await
+}
+
+async fn serve_builtin_target(target: &str, seed: u64) -> Result<ServerHandle, Fail> {
     match target {
         "drizzle-rs-sqlite" => sqlite::serve(seed).await,
         "rusqlite-sqlite" | "rusqlite-sqlite-prepared" => {
@@ -73,6 +87,20 @@ pub(crate) async fn serve_target(target: &str, seed: u64) -> Result<ServerHandle
             format!("unsupported target: {other}"),
         )),
     }
+}
+
+pub async fn serve(args: Serve) -> Result<Code, Fail> {
+    let target = resolve_text(args.target, "BENCH_TARGET_ID", "--target")?;
+    let seed: u64 = resolve_num(args.seed, "BENCH_SEED", "--seed")?;
+    let _handle = serve_builtin_target(&target, seed).await?;
+
+    println!("LISTENING port={}", _handle.port);
+    std::io::stdout()
+        .flush()
+        .map_err(|err| Fail::new(Code::RunFail, format!("stdout flush failed: {err}")))?;
+
+    let _: () = std::future::pending().await;
+    Ok(Code::Success)
 }
 
 pub(crate) async fn seed_postgres(args: SeedPostgres) -> Result<Code, Fail> {
@@ -506,8 +534,8 @@ async fn measure_vus_async(
                         break;
                     }
 
-                    // k6-compatible sleep: sleep(0.1 * (iteration % 6))
-                    let sleep_ms = (iter_num % 6) * 100;
+                    // Match drizzle-benchmarks k6 pacing: sleep(0.1 * (iteration % 6)).
+                    let sleep_ms = (iter_num % 6) * DRIZZLE_BENCH_SLEEP_STEP_MS;
                     if sleep_ms > 0 {
                         tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
                     }
@@ -1210,7 +1238,7 @@ impl QueryParams {
     }
 
     pub(crate) fn user_id(&self, n: i32) -> i32 {
-        self.id.map(|i| i.rem_euclid(n).max(1)).unwrap_or(1)
+        self.id.map(|i| (i - 1).rem_euclid(n) + 1).unwrap_or(1)
     }
 }
 
@@ -1236,6 +1264,13 @@ mod tests {
         assert_eq!(plans[0].query_idx, plans[1].query_idx);
         assert_ne!(plans[0].query_idx, plans[2].query_idx);
         assert!(plans[0].path.contains("id=1"));
+    }
+
+    #[test]
+    fn query_params_user_id_maps_to_inclusive_seed_range() {
+        assert_eq!(query_params_id(1).user_id(10), 1);
+        assert_eq!(query_params_id(10).user_id(10), 10);
+        assert_eq!(query_params_id(11).user_id(10), 1);
     }
 
     #[test]
@@ -1299,6 +1334,17 @@ mod tests {
                 .iter()
                 .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
                 .collect::<BTreeMap<_, _>>(),
+        }
+    }
+
+    fn query_params_id(id: i32) -> QueryParams {
+        QueryParams {
+            id: Some(id),
+            limit: None,
+            offset: None,
+            q: None,
+            seed: None,
+            term: None,
         }
     }
 }

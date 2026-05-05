@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::net::TcpListener;
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use sysinfo::System;
 
@@ -30,8 +31,40 @@ type HttpResult = Result<Json<serde_json::Value>, StatusCode>;
 #[derive(Clone)]
 enum AppState {
     Sqlx(PgPool),
-    Diesel(Arc<Mutex<PgConnection>>),
+    Diesel(DieselPool),
     SeaOrm(Arc<DatabaseConnection>),
+}
+
+#[derive(Clone)]
+struct DieselPool {
+    conns: Arc<Vec<Arc<Mutex<PgConnection>>>>,
+    next: Arc<AtomicUsize>,
+}
+
+impl DieselPool {
+    fn new(database_url: &str, size: usize) -> Result<Self, diesel::ConnectionError> {
+        let mut conns = Vec::with_capacity(size);
+        for _ in 0..size {
+            conns.push(Arc::new(Mutex::new(PgConnection::establish(database_url)?)));
+        }
+        Ok(Self {
+            conns: Arc::new(conns),
+            next: Arc::new(AtomicUsize::new(0)),
+        })
+    }
+
+    fn get(&self) -> Arc<Mutex<PgConnection>> {
+        let idx = self.next.fetch_add(1, Ordering::Relaxed) % self.conns.len();
+        self.conns[idx].clone()
+    }
+}
+
+fn configured_pool_size(default: usize) -> usize {
+    std::env::var("BENCH_POOL_SIZE")
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .filter(|size| *size > 0)
+        .unwrap_or(default)
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,7 +85,7 @@ impl QueryParams {
     }
 
     fn id_mod(&self, n: i32) -> i32 {
-        self.id.map(|i| i.rem_euclid(n).max(1)).unwrap_or(1)
+        self.id.map(|i| (i - 1).rem_euclid(n) + 1).unwrap_or(1)
     }
 }
 
@@ -518,24 +551,22 @@ async fn main() -> Result<(), DynError> {
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(42);
     let database_url = normalize_database_url();
+    let pool_size = configured_pool_size(8);
 
     seed_postgres(seed)?;
 
     let state = match target.as_str() {
         "sqlx-pg" => {
             let pool = PgPoolOptions::new()
-                .max_connections(8)
+                .max_connections(pool_size as u32)
                 .connect(&database_url)
                 .await?;
             AppState::Sqlx(pool)
         }
-        "diesel-pg" => {
-            let conn = PgConnection::establish(&database_url)?;
-            AppState::Diesel(Arc::new(Mutex::new(conn)))
-        }
+        "diesel-pg" => AppState::Diesel(DieselPool::new(&database_url, pool_size)?),
         "seaorm-pg" => {
             let mut options = ConnectOptions::new(database_url);
-            options.max_connections(8).min_connections(1);
+            options.max_connections(pool_size as u32).min_connections(1);
             let conn = Database::connect(options).await?;
             AppState::SeaOrm(Arc::new(conn))
         }
@@ -1004,11 +1035,12 @@ fn json(value: impl Serialize) -> HttpResult {
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
-async fn diesel_json<T, F>(conn: Arc<Mutex<PgConnection>>, f: F) -> HttpResult
+async fn diesel_json<T, F>(pool: DieselPool, f: F) -> HttpResult
 where
     T: Serialize + Send + 'static,
     F: FnOnce(&mut PgConnection) -> Result<T, diesel::result::Error> + Send + 'static,
 {
+    let conn = pool.get();
     let value = tokio::task::spawn_blocking(move || {
         let mut conn = conn
             .lock()

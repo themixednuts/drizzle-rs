@@ -402,8 +402,9 @@ async fn serve_with_mode(seed: u64, mode: PgQueryMode) -> Result<ServerHandle, F
         .map_err(|err| Fail::new(Code::RunFail, format!("pg_tokio seed panicked: {err}")))?
         .map_err(|msg| Fail::new(Code::RunFail, msg))?;
 
-    let mut dbs = Vec::with_capacity(super::POSTGRES_POOL_SIZE);
-    for _ in 0..super::POSTGRES_POOL_SIZE {
+    let pool_size = super::configured_pool_size(super::POSTGRES_POOL_SIZE);
+    let mut dbs = Vec::with_capacity(pool_size);
+    for _ in 0..pool_size {
         let (client, driver) = ::tokio_postgres::connect(&pg_url(), ::tokio_postgres::NoTls)
             .await
             .map_err(|err| Fail::new(Code::RunFail, format!("postgres connect failed: {err}")))?;
