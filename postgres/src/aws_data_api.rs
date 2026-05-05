@@ -19,7 +19,8 @@
 //!
 //! For values that travel as `StringValue` but need server-side coercion
 //! (UUID, JSON, TIMESTAMP, DECIMAL, DATE, TIME) we emit a [`TypeHint`]. This
-//! mirrors upstream `drizzle-orm/src/aws-data-api/common/index.ts::toValueParam`.
+//! keeps scalar parameters typed even though the Data API does not use the
+//! PostgreSQL wire protocol.
 
 #![cfg(feature = "aws-data-api")]
 
@@ -1433,8 +1434,6 @@ pub fn is_null_at(row: &Row, offset: usize) -> Result<bool, DrizzleError> {
 
 /// Encode a [`PostgresValue`] as an AWS Data API [`SqlParameter`] with the
 /// correct [`Field`] variant and optional [`TypeHint`].
-///
-/// Mirrors upstream `drizzle-orm/src/aws-data-api/common/index.ts::toValueParam`.
 pub fn encode_param(name: impl Into<String>, value: &PostgresValue<'_>) -> SqlParameter {
     let (field, hint) = encode_field(value);
     let mut builder = SqlParameter::builder().name(name).value(field);
@@ -1600,6 +1599,7 @@ fn encode_core_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHin
         }
         PostgresValue::Enum(e) => Some((Field::StringValue(e.variant_name().to_string()), None)),
         PostgresValue::Array(items) => Some((encode_array(items), None)),
+        #[allow(unreachable_patterns)]
         _ => None,
     }
 }
@@ -1673,4 +1673,75 @@ fn encode_array(items: &[PostgresValue<'_>]) -> Field {
 fn fallback_string_array(items: &[PostgresValue<'_>]) -> Field {
     let out: Vec<String> = items.iter().map(std::string::ToString::to_string).collect();
     Field::ArrayValue(ArrayValue::StringValues(out))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::borrow::Cow;
+
+    #[test]
+    fn encode_bytea_array_as_postgres_hex_strings() {
+        let first = [0_u8, 1, 2];
+        let second = [255_u8, 254];
+        let value = PostgresValue::Array(vec![
+            PostgresValue::Bytea(Cow::Borrowed(&first)),
+            PostgresValue::Bytea(Cow::Borrowed(&second)),
+        ]);
+
+        let param = encode_param("1", &value);
+
+        assert_eq!(param.name(), Some("1"));
+        assert_eq!(param.type_hint(), None);
+        match param.value().expect("encoded value") {
+            Field::ArrayValue(ArrayValue::StringValues(values)) => {
+                assert_eq!(
+                    values.as_slice(),
+                    ["\\x000102".to_string(), "\\xfffe".to_string()]
+                );
+            }
+            other => panic!("expected string array, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn encode_json_scalars_with_data_api_type_hint() {
+        let value = PostgresValue::Jsonb(serde_json::json!({ "kind": "object", "n": 1 }));
+
+        let param = encode_param("payload", &value);
+
+        assert_eq!(param.type_hint(), Some(&TypeHint::Json));
+        match param.value().expect("encoded value") {
+            Field::StringValue(value) => {
+                assert_eq!(value, r#"{"kind":"object","n":1}"#);
+            }
+            other => panic!("expected string value, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn encode_json_arrays_as_json_text_elements() {
+        let value = PostgresValue::Array(vec![
+            PostgresValue::Jsonb(serde_json::json!({ "kind": "object", "n": 1 })),
+            PostgresValue::Jsonb(serde_json::json!(["array", 2])),
+        ]);
+
+        let param = encode_param("1", &value);
+
+        assert_eq!(param.type_hint(), None);
+        match param.value().expect("encoded value") {
+            Field::ArrayValue(ArrayValue::StringValues(values)) => {
+                assert_eq!(
+                    values.as_slice(),
+                    [
+                        r#"{"kind":"object","n":1}"#.to_string(),
+                        r#"["array",2]"#.to_string()
+                    ]
+                );
+            }
+            other => panic!("expected string array, got {other:?}"),
+        }
+    }
 }

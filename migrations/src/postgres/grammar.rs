@@ -121,6 +121,28 @@ pub enum PgTypeCategory {
 }
 
 impl PgTypeCategory {
+    fn type_name_rest<'a>(s: &'a str, type_name: &str) -> Option<&'a str> {
+        if !s.starts_with(type_name) {
+            return None;
+        }
+        let rest = &s[type_name.len()..];
+        if rest
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        {
+            return None;
+        }
+        Some(rest)
+    }
+
+    fn first_type_argument<'a>(s: &'a str, type_name: &str) -> Option<&'a str> {
+        let rest = Self::type_name_rest(s, type_name)?.trim_start();
+        let body = rest.strip_prefix('(')?;
+        let end = body.find([',', ')'])?;
+        Some(body[..end].trim())
+    }
+
     /// Match serial and integer types. Serial aliases must be checked first so
     /// `smallserial` isn't misclassified as `smallint`.
     fn match_numeric(s: &str) -> Option<Self> {
@@ -234,8 +256,18 @@ impl PgTypeCategory {
         if s.starts_with("bit") {
             return Some(Self::Bit);
         }
-        if s.starts_with("geometry") {
-            return Some(Self::Geometry);
+        if Self::type_name_rest(s, "geometry").is_some() {
+            return Some(match Self::first_type_argument(s, "geometry") {
+                Some("point") => Self::Geometry,
+                _ => Self::Custom,
+            });
+        }
+        if Self::type_name_rest(s, "geography").is_some()
+            || Self::type_name_rest(s, "box2d").is_some()
+            || Self::type_name_rest(s, "box3d").is_some()
+            || Self::type_name_rest(s, "raster").is_some()
+        {
+            return Some(Self::Custom);
         }
         if s.starts_with("point") {
             return Some(Self::Point);
@@ -669,8 +701,16 @@ mod tests {
             PgTypeCategory::TimestampTz
         );
         assert_eq!(
+            PgTypeCategory::from_sql_type("timestamp without time zone"),
+            PgTypeCategory::Timestamp
+        );
+        assert_eq!(
             PgTypeCategory::from_sql_type("timestamp"),
             PgTypeCategory::Timestamp
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("time without time zone"),
+            PgTypeCategory::Time
         );
         assert_eq!(PgTypeCategory::from_sql_type("date"), PgTypeCategory::Date);
         assert_eq!(
@@ -689,6 +729,38 @@ mod tests {
         assert_eq!(
             PgTypeCategory::from_sql_type("macaddr"),
             PgTypeCategory::MacAddr
+        );
+    }
+
+    #[test]
+    fn test_from_sql_type_postgis_surface() {
+        assert_eq!(
+            PgTypeCategory::from_sql_type("geometry(point)"),
+            PgTypeCategory::Geometry
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("geometry(point, 4326)"),
+            PgTypeCategory::Geometry
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("geometry(polygon, 4326)"),
+            PgTypeCategory::Custom
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("geography(point)"),
+            PgTypeCategory::Custom
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("box2d"),
+            PgTypeCategory::Custom
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("box3d"),
+            PgTypeCategory::Custom
+        );
+        assert_eq!(
+            PgTypeCategory::from_sql_type("raster"),
+            PgTypeCategory::Custom
         );
     }
 
