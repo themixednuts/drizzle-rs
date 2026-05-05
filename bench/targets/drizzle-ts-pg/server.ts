@@ -9,6 +9,7 @@ import {
   limitParam,
   offsetParam,
   poolSize,
+  queryGate,
   seedPostgres,
   SEED_CUSTOMERS,
   SEED_EMPLOYEES,
@@ -107,6 +108,11 @@ await seedPostgres();
 
 const client = new SQL({ url: buildUrl(), max: poolSize() });
 const db = drizzle({ client });
+const dbGate = queryGate();
+
+async function dbQuery<T>(fn: () => Promise<T>): Promise<T> {
+  return await dbGate.run(fn);
+}
 
 const customerColumns = {
   id: customers.id,
@@ -318,49 +324,59 @@ const server = Bun.serve({
 
     if (path === "/stats") return jsonResponse(stats());
     if (path === "/customers") {
-      return jsonResponse(await pCustomers.execute({ limit: limitParam(url), offset: offsetParam(url) }));
+      return jsonResponse(
+        await dbQuery(() => pCustomers.execute({ limit: limitParam(url), offset: offsetParam(url) })),
+      );
     }
     if (path === "/customer-by-id") {
-      return jsonResponse(await pCustomerById.execute({ id: idMod(url, SEED_CUSTOMERS) }));
+      return jsonResponse(await dbQuery(() => pCustomerById.execute({ id: idMod(url, SEED_CUSTOMERS) })));
     }
     if (path === "/employees") {
-      return jsonResponse(await pEmployees.execute({ limit: limitParam(url), offset: offsetParam(url) }));
+      return jsonResponse(
+        await dbQuery(() => pEmployees.execute({ limit: limitParam(url), offset: offsetParam(url) })),
+      );
     }
     if (path === "/suppliers") {
-      return jsonResponse(await pSuppliers.execute({ limit: limitParam(url), offset: offsetParam(url) }));
+      return jsonResponse(
+        await dbQuery(() => pSuppliers.execute({ limit: limitParam(url), offset: offsetParam(url) })),
+      );
     }
     if (path === "/supplier-by-id") {
-      return jsonResponse(await pSupplierById.execute({ id: idMod(url, SEED_SUPPLIERS) }));
+      return jsonResponse(await dbQuery(() => pSupplierById.execute({ id: idMod(url, SEED_SUPPLIERS) })));
     }
     if (path === "/products") {
-      return jsonResponse(await pProducts.execute({ limit: limitParam(url), offset: offsetParam(url) }));
+      return jsonResponse(
+        await dbQuery(() => pProducts.execute({ limit: limitParam(url), offset: offsetParam(url) })),
+      );
     }
     if (path === "/employee-with-recipient") {
-      return jsonResponse(await pEmployeeWithRecipient.execute({ id: idMod(url, SEED_EMPLOYEES) }));
+      return jsonResponse(await dbQuery(() => pEmployeeWithRecipient.execute({ id: idMod(url, SEED_EMPLOYEES) })));
     }
     if (path === "/product-with-supplier") {
-      return jsonResponse(await pProductWithSupplier.execute({ id: idMod(url, SEED_PRODUCTS) }));
+      return jsonResponse(await dbQuery(() => pProductWithSupplier.execute({ id: idMod(url, SEED_PRODUCTS) })));
     }
     if (path === "/orders-with-details") {
-      return jsonResponse(await pOrdersWithDetails.execute({ limit: limitParam(url), offset: offsetParam(url) }));
+      return jsonResponse(
+        await dbQuery(() => pOrdersWithDetails.execute({ limit: limitParam(url), offset: offsetParam(url) })),
+      );
     }
     if (path === "/order-with-details") {
       const id = idMod(url, SEED_ORDERS);
-      const orderRows = await pOrderBase.execute({ id });
-      const details = await pOrderDetails.execute({ id });
+      const orderRows = await dbQuery(() => pOrderBase.execute({ id }));
+      const details = await dbQuery(() => pOrderDetails.execute({ id }));
       return jsonResponse(withDetails(orderRows, details));
     }
     if (path === "/order-with-details-and-products") {
       const id = idMod(url, SEED_ORDERS);
-      const orderRows = await pOrderBase.execute({ id });
-      const details = await pOrderDetailProducts.execute({ id });
+      const orderRows = await dbQuery(() => pOrderBase.execute({ id }));
+      const details = await dbQuery(() => pOrderDetailProducts.execute({ id }));
       return jsonResponse(withDetails(orderRows, details));
     }
     if (path === "/search-customer") {
-      return jsonResponse(await pSearchCustomers.execute({ term: termPattern(url) }));
+      return jsonResponse(await dbQuery(() => pSearchCustomers.execute({ term: termPattern(url) })));
     }
     if (path === "/search-product") {
-      return jsonResponse(await pSearchProducts.execute({ term: termPattern(url) }));
+      return jsonResponse(await dbQuery(() => pSearchProducts.execute({ term: termPattern(url) })));
     }
 
     return new Response("Not Found", { status: 404 });

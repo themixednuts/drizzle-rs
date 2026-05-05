@@ -7,6 +7,7 @@ import {
   nestProductSupplier,
   offsetParam,
   poolSize,
+  queryGate,
   SEARCH_CUSTOMERS,
   SEARCH_PRODUCTS,
   seedPostgres,
@@ -35,9 +36,10 @@ import {
 await seedPostgres();
 
 const sql = new SQL({ url: buildUrl(), max: poolSize() });
+const dbGate = queryGate();
 
 async function rows(query: string, params: unknown[] = []) {
-  return await sql.unsafe(query, params);
+  return await dbGate.run(() => sql.unsafe(query, params));
 }
 
 const server = Bun.serve({

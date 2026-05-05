@@ -36,6 +36,46 @@ export function poolSize(fallback = 8): number {
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : fallback;
 }
 
+export class AsyncGate {
+  #active = 0;
+  readonly #limit: number;
+  readonly #waiters: Array<() => void> = [];
+
+  constructor(limit: number) {
+    this.#limit = Math.max(1, Math.floor(limit));
+  }
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    await this.#acquire();
+    try {
+      return await fn();
+    } finally {
+      this.#release();
+    }
+  }
+
+  async #acquire(): Promise<void> {
+    if (this.#active < this.#limit) {
+      this.#active += 1;
+      return;
+    }
+    await new Promise<void>((resolve) => this.#waiters.push(resolve));
+  }
+
+  #release(): void {
+    const next = this.#waiters.shift();
+    if (next) {
+      next();
+      return;
+    }
+    this.#active -= 1;
+  }
+}
+
+export function queryGate(fallback = 8): AsyncGate {
+  return new AsyncGate(poolSize(fallback));
+}
+
 export async function seedPostgres(): Promise<void> {
   const seed = process.env.BENCH_SEED ?? "42";
   const runner = process.env.BENCH_RUNNER_BIN;
