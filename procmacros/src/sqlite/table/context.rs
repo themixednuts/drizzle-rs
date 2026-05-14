@@ -39,15 +39,15 @@ impl MacroContext<'_> {
     // =========================================================================
 
     /// Determines if a field can auto-increment (INTEGER PRIMARY KEY in regular tables, excluding enums)
-    pub(crate) const fn can_field_autoincrement(&self, field: &FieldInfo) -> bool {
-        if !field.is_primary || self.attrs.without_rowid || field.is_enum {
+    pub(crate) fn can_field_autoincrement(&self, field: &FieldInfo) -> bool {
+        if !field.is_primary() || self.attrs.without_rowid || field.is_enum {
             return false;
         }
         matches!(field.column_type, SQLiteType::Integer)
     }
 
     /// Determines if a field should be optional in the Insert model
-    pub(crate) const fn is_field_optional_in_insert(&self, field: &FieldInfo) -> bool {
+    pub(crate) fn is_field_optional_in_insert(&self, field: &FieldInfo) -> bool {
         // Nullable fields are always optional
         if field.is_nullable {
             return true;

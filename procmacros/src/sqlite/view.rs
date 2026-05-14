@@ -140,7 +140,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
     let fields = struct_fields(input, "SQLiteView")?;
 
     let primary_key_count = count_primary_keys(fields, |field| {
-        Ok(FieldInfo::from_field(field, false)?.is_primary)
+        Ok(FieldInfo::from_field(field, false)?.is_primary())
     })?;
     let is_composite_pk = primary_key_count > 1;
 
@@ -172,7 +172,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         info.is_nullable
             || info.has_default
             || info.default_fn.is_some()
-            || (info.is_primary
+            || (info.is_primary()
                 && !table_attrs.without_rowid
                 && !info.is_enum
                 && matches!(info.column_type, SQLiteType::Integer))
@@ -325,8 +325,8 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
             let sql_type = f.column_type.to_sql_type();
             let flag_bits = ColumnRefFlags::new()
                 .with(ColumnRefFlags::NOT_NULL, !f.is_nullable)
-                .with(ColumnRefFlags::PRIMARY_KEY, f.is_primary)
-                .with(ColumnRefFlags::UNIQUE, f.is_unique)
+                .with(ColumnRefFlags::PRIMARY_KEY, f.is_primary())
+                .with(ColumnRefFlags::UNIQUE, f.is_unique())
                 .with(ColumnRefFlags::HAS_DEFAULT, f.has_default)
                 .bits();
             let autoincrement = f.is_autoincrement;

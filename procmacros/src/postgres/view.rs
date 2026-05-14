@@ -218,7 +218,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
     let fields = struct_fields(input, "PostgresView")?;
 
     let primary_key_count = count_primary_keys(fields, |field| {
-        Ok(FieldInfo::from_field(field, false)?.is_primary)
+        Ok(FieldInfo::from_field(field, false)?.is_primary())
     })?;
     let is_composite_pk = primary_key_count > 1;
 
@@ -420,8 +420,8 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
             let pg_type = f.column_type.to_sql_type();
             let flag_bits = ColumnRefFlags::new()
                 .with(ColumnRefFlags::NOT_NULL, !f.is_nullable)
-                .with(ColumnRefFlags::PRIMARY_KEY, f.is_primary)
-                .with(ColumnRefFlags::UNIQUE, f.is_unique)
+                .with(ColumnRefFlags::PRIMARY_KEY, f.is_primary())
+                .with(ColumnRefFlags::UNIQUE, f.is_unique())
                 .with(ColumnRefFlags::HAS_DEFAULT, f.has_default)
                 .bits();
             let is_serial = f.is_serial;

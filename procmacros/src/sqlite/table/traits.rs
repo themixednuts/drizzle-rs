@@ -166,9 +166,12 @@ pub fn generate_table_impls(
                 )
                 .with(
                     crate::common::ref_gen::ColumnRefFlags::PRIMARY_KEY,
-                    f.is_primary,
+                    f.is_primary(),
                 )
-                .with(crate::common::ref_gen::ColumnRefFlags::UNIQUE, f.is_unique)
+                .with(
+                    crate::common::ref_gen::ColumnRefFlags::UNIQUE,
+                    f.is_unique(),
+                )
                 .with(
                     crate::common::ref_gen::ColumnRefFlags::HAS_DEFAULT,
                     f.has_default,
@@ -184,7 +187,7 @@ pub fn generate_table_impls(
     let pk_columns: Vec<String> = ctx
         .field_infos
         .iter()
-        .filter(|f| f.is_primary)
+        .filter(|f| f.is_primary())
         .map(|f| f.column_name.clone())
         .collect();
     let mut table_ref_fks: Vec<ForeignKeyRefInput> = ctx

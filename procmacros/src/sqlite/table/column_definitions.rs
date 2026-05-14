@@ -72,9 +72,9 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
 
         let (value_type, rust_type) = (&info.base_type, &info.field_type);
         let (_is_primary, _is_not_null, _is_unique, _is_autoincrement, has_default) = (
-            info.is_primary,
+            info.is_primary(),
             !info.is_nullable,
-            info.is_unique,
+            info.is_unique(),
             info.is_autoincrement,
             info.has_default || info.default_fn.is_some(),
         );
@@ -178,9 +178,9 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
         );
 
         // Direct const expressions - no runtime builder types needed
-        let is_primary = info.is_primary;
+        let is_primary = info.is_primary();
         let is_not_null = !info.is_nullable;
-        let is_unique = info.is_unique;
+        let is_unique = info.is_unique();
         let is_autoincrement = info.is_autoincrement;
 
         // Compute SQL type and nullability markers for type-safe expressions
@@ -250,7 +250,7 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
                 type ValueType = #value_type;
             }
         };
-        let column_not_null_impl = if !info.is_nullable || info.is_primary {
+        let column_not_null_impl = if !info.is_nullable || info.is_primary() {
             quote! {
                 impl #column_not_null for #zst_ident {}
             }

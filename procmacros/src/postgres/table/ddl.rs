@@ -95,7 +95,7 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
     // The non-explicit (macro-generated) form omits the CONSTRAINT name.
     let pk_columns: Vec<&String> = field_infos
         .iter()
-        .filter(|f| f.is_primary)
+        .filter(|f| f.is_primary())
         .map(|f| &f.column_name)
         .collect();
     if !pk_columns.is_empty() {
@@ -190,7 +190,7 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
     }
 
     // Unique constraints (always at table level for Postgres)
-    for field in field_infos.iter().filter(|f| f.is_unique && !f.is_primary) {
+    for field in field_infos.iter().filter(|f| f.is_unique()) {
         let uq_name = format!("{}_{}_unique", table_name, field.column_name);
         lines.push(vec![DdlPiece::Literal(format!(
             "\tCONSTRAINT \"{}\" UNIQUE(\"{}\")",
@@ -318,7 +318,7 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
             }
             // Note: Primary key is handled at table level via DDL_PRIMARY_KEY
             // PostgreSQL doesn't use column-level primary_key() in ColumnDef
-            if field.is_unique && !field.is_primary {
+            if field.is_unique() {
                 // Unique constraints are also handled at table level via DDL_UNIQUE_CONSTRAINTS
             }
             // Note: Serial columns use the SERIAL pseudo-type which handles auto-increment
@@ -349,7 +349,7 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
     let pk_columns: Vec<&String> = ctx
         .field_infos
         .iter()
-        .filter(|f| f.is_primary)
+        .filter(|f| f.is_primary())
         .map(|f| &f.column_name)
         .collect();
 
@@ -466,7 +466,7 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
     let unique_defs: Vec<TokenStream> = ctx
         .field_infos
         .iter()
-        .filter(|f| f.is_unique && !f.is_primary)
+        .filter(|f| f.is_unique())
         .map(|field| {
             let unique_name = format!("{}_{}_unique", table_name, field.column_name);
             let column_name = &field.column_name;
@@ -557,8 +557,6 @@ mod tests {
             sql_definition: "\"user_id\" integer".to_string(),
             column_type: PostgreSQLType::Integer,
             flags: HashSet::new(),
-            is_primary: false,
-            is_unique: false,
             is_nullable: false,
             is_enum: false,
             is_pgenum: false,

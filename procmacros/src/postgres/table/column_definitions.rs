@@ -70,9 +70,9 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
             is_identity_always,
             has_default,
         ) = (
-            field_info.is_primary,
+            field_info.is_primary(),
             !field_info.is_nullable,
-            field_info.is_unique,
+            field_info.is_unique(),
             matches!(
                 field_info.column_type,
                 PostgreSQLType::Smallserial | PostgreSQLType::Serial
@@ -203,9 +203,9 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
         };
 
         // Direct const expressions - no runtime builder types needed
-        let is_primary = field_info.is_primary;
+        let is_primary = field_info.is_primary();
         let is_not_null = !field_info.is_nullable;
-        let is_unique = field_info.is_unique;
+        let is_unique = field_info.is_unique();
 
         // Compute SQL type and nullability markers for type-safe expressions
         let sql_type_marker = postgres_column_type_to_sql_type(&field_info.column_type);
@@ -251,7 +251,7 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
             quote! {}
         };
 
-        let column_not_null_impl = if !field_info.is_nullable || field_info.is_primary {
+        let column_not_null_impl = if !field_info.is_nullable || field_info.is_primary() {
             quote! {
                 impl #column_not_null for #zst_ident {}
             }

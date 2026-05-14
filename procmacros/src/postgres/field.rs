@@ -660,8 +660,6 @@ pub struct FieldInfo {
     pub sql_definition: String,
     pub column_type: PostgreSQLType,
     pub flags: HashSet<PostgreSQLFlag>,
-    pub is_primary: bool,
-    pub is_unique: bool,
     pub is_nullable: bool,
     pub is_enum: bool,
     pub is_pgenum: bool,
@@ -858,8 +856,6 @@ impl FieldInfo {
             sql_definition,
             column_type,
             flags,
-            is_primary,
-            is_unique,
             is_nullable,
             is_enum,
             is_pgenum,
@@ -1432,7 +1428,7 @@ pub fn generate_table_meta_json(
     if is_composite_pk {
         let pk_columns: Vec<String> = field_infos
             .iter()
-            .filter(|f| f.is_primary)
+            .filter(|f| f.is_primary())
             .map(|f| f.column_name.clone())
             .collect();
 
@@ -1538,6 +1534,23 @@ struct ColumnInfo {
     marker_exprs: Vec<syn::ExprPath>,
 }
 
+/// Inherent accessors that delegate to the `Constraint` enum so callers
+/// don't have to know the enum's variants. See the matching SQLite impl
+/// in `procmacros::sqlite::field` for semantics — `is_primary()` covers
+/// both standalone and composite primary keys; `is_unique()` is the
+/// "user wrote UNIQUE and not also primary" predicate.
+impl FieldInfo {
+    #[inline]
+    pub fn is_primary(&self) -> bool {
+        self.constraint.is_primary()
+    }
+
+    #[inline]
+    pub fn is_unique(&self) -> bool {
+        self.constraint.is_inline_unique()
+    }
+}
+
 // Trait impls for shared constraint generation
 
 impl crate::common::constraints::ForeignKeyRef for PostgreSQLReference {
@@ -1559,10 +1572,10 @@ impl crate::common::constraints::ConstraintFieldInfo for FieldInfo {
         &self.column_name
     }
     fn is_primary(&self) -> bool {
-        self.is_primary
+        Self::is_primary(self)
     }
     fn is_unique(&self) -> bool {
-        self.is_unique
+        Self::is_unique(self)
     }
     fn foreign_key(&self) -> Option<&PostgreSQLReference> {
         self.foreign_key.as_ref()

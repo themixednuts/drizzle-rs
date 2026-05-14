@@ -105,7 +105,7 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
     if is_composite_pk {
         let pk_cols: Vec<String> = field_infos
             .iter()
-            .filter(|f| f.is_primary)
+            .filter(|f| f.is_primary())
             .map(|f| format!("`{}`", f.column_name))
             .collect();
         if !pk_cols.is_empty() {
@@ -340,13 +340,13 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
             if !field.is_nullable {
                 modifiers.push(quote! { .not_null() });
             }
-            if field.is_primary && !field.is_autoincrement {
+            if field.is_primary() && !field.is_autoincrement {
                 modifiers.push(quote! { .primary_key() });
             }
             if field.is_autoincrement {
                 modifiers.push(quote! { .autoincrement() });
             }
-            if field.is_unique && !field.is_primary {
+            if field.is_unique() {
                 modifiers.push(quote! { .unique() });
             }
             if let Some(syn::Expr::Lit(expr_lit)) = field.default_value.as_ref() {
@@ -377,7 +377,7 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
     let pk_columns: Vec<&String> = ctx
         .field_infos
         .iter()
-        .filter(|f| f.is_primary)
+        .filter(|f| f.is_primary())
         .map(|f| &f.column_name)
         .collect();
 
@@ -495,7 +495,7 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
     let unique_defs: Vec<TokenStream> = ctx
         .field_infos
         .iter()
-        .filter(|f| f.is_unique && !f.is_primary)
+        .filter(|f| f.is_unique())
         .map(|field| {
             let unique_name = format!("{}_{}_unique", table_name, field.column_name);
             let column_name = &field.column_name;
@@ -582,9 +582,7 @@ mod tests {
             sql_definition: String::new(),
             is_nullable: nullable,
             has_default: default.is_some(),
-            is_primary: false,
             is_autoincrement: false,
-            is_unique: false,
             is_json: false,
             is_enum: false,
             is_uuid: false,
@@ -624,7 +622,6 @@ mod tests {
         let ty: syn::Type = syn::parse_str("i32").expect("valid type");
         let mut field = text_field(&ident, &ty, "id", None, false);
         field.column_type = SQLiteType::Integer;
-        field.is_primary = true;
         field.constraint = Constraint::StandalonePrimaryKey;
         let sql = column_to_sql(
             &field, /*inline_pk=*/ true, /*inline_unique=*/ false,

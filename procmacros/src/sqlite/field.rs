@@ -211,9 +211,7 @@ pub struct FieldInfo<'a> {
     // Field properties
     pub(crate) is_nullable: bool,
     pub(crate) has_default: bool,
-    pub(crate) is_primary: bool,
     pub(crate) is_autoincrement: bool,
-    pub(crate) is_unique: bool,
     pub(crate) is_json: bool,
     pub(crate) is_enum: bool,
     pub(crate) is_uuid: bool,
@@ -227,10 +225,11 @@ pub struct FieldInfo<'a> {
 
     /// Resolved primary-key / unique state.
     ///
-    /// Set in the table-level second pass once we know whether the primary
-    /// key is composite. New emission sites should prefer this over the
-    /// raw `is_primary` / `is_unique` bools — those remain for now to
-    /// avoid touching every legacy call site in one pass.
+    /// Set in `from_field` once the table-level `is_composite_pk` decision
+    /// is known. This is the *sole* source of truth for primary-key and
+    /// unique state — use `is_primary()` / `is_unique()` /
+    /// `is_inline_primary()` / `is_inline_unique()` to query, never inspect
+    /// the enum variants directly outside this module.
     pub(crate) constraint: crate::common::Constraint,
 
     /// Optional SQLite collation name from `#[column(collate = NOCASE)]`.
@@ -719,17 +718,13 @@ impl<'a> FieldInfo<'a> {
             sql_definition,
             is_nullable,
             has_default: properties.has_default,
-            is_primary: properties.is_primary,
             is_autoincrement: properties.is_autoincrement,
-            is_unique: properties.is_unique,
             is_json: properties.is_json,
             is_enum: properties.is_enum,
             is_uuid: properties.is_uuid,
             is_custom_type,
             column_type,
             foreign_key,
-            // Populated with the correct PK variant by `resolve_constraints`
-            // once the table-level PK cardinality is known.
             constraint: crate::common::Constraint::from_flags(
                 properties.is_primary,
                 properties.is_unique,
@@ -1061,7 +1056,7 @@ pub fn generate_table_meta_json(
     if is_composite_pk {
         let pk_columns: Vec<String> = field_infos
             .iter()
-            .filter(|f| f.is_primary)
+            .filter(|f| f.is_primary())
             .map(|f| f.column_name.clone())
             .collect();
 
@@ -1159,6 +1154,27 @@ pub fn detect_foreign_key_reference_from_path(
     None
 }
 
+/// Inherent accessors that delegate to the `Constraint` enum so callers
+/// don't have to know the enum's variants. `is_primary()` covers both
+/// standalone and composite primary keys; `is_unique()` is the "user
+/// wrote `UNIQUE`" predicate — which, by `Constraint::from_flags`, is
+/// only true when the column is *not* also a primary key (primary key
+/// implies uniqueness, and an explicit `unique` flag on a PK column is
+/// degenerate). `is_inline_primary()` / `is_inline_unique()` answer the
+/// finer "should this constraint be inlined in the column definition?"
+/// question used by DDL emitters.
+impl FieldInfo<'_> {
+    #[inline]
+    pub(crate) fn is_primary(&self) -> bool {
+        self.constraint.is_primary()
+    }
+
+    #[inline]
+    pub(crate) fn is_unique(&self) -> bool {
+        self.constraint.is_inline_unique()
+    }
+}
+
 // Trait impls for shared constraint generation
 
 impl crate::common::constraints::ForeignKeyRef for ForeignKeyReference {
@@ -1180,10 +1196,10 @@ impl crate::common::constraints::ConstraintFieldInfo for FieldInfo<'_> {
         &self.column_name
     }
     fn is_primary(&self) -> bool {
-        self.is_primary
+        Self::is_primary(self)
     }
     fn is_unique(&self) -> bool {
-        self.is_unique
+        Self::is_unique(self)
     }
     fn foreign_key(&self) -> Option<&ForeignKeyReference> {
         self.foreign_key.as_ref()

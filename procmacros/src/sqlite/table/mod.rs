@@ -56,7 +56,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     let fields = struct_fields(input, "SQLiteTable")?;
 
     let primary_key_count = count_primary_keys(fields, |field| {
-        Ok(FieldInfo::from_field(field, false)?.is_primary)
+        Ok(FieldInfo::from_field(field, false)?.is_primary())
     })?;
     let is_composite_pk = primary_key_count > 1;
 
@@ -72,7 +72,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         info.is_nullable
             || info.has_default
             || info.default_fn.is_some()
-            || (info.is_primary
+            || (info.is_primary()
                 && !attrs.without_rowid
                 && !info.is_enum
                 && matches!(info.column_type, crate::sqlite::field::SQLiteType::Integer))
