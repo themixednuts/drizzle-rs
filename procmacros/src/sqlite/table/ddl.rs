@@ -1,7 +1,15 @@
 //! Const DDL generation for `SQLite` tables.
 //!
-//! This module generates compile-time DDL entity definitions that can be used
-//! for migrations, introspection, and schema comparison.
+//! This module emits the `CREATE TABLE` SQL stored on each table's
+//! `SQLSchema::SQL` const. The output is byte-for-byte identical to the
+//! runtime `TableSql::create_table_sql()` ([`drizzle_types::sqlite::ddl::sql`])
+//! so that compile-time and runtime DDL never diverge.
+//!
+//! Because the compile-time emitter has to splice in `<OtherTable>::TABLE_NAME`
+//! const refs for foreign-key targets (the referenced table's name isn't
+//! known to *this* macro), every const is built as `concatcp!(...)` of
+//! [`DdlPiece`]s. When there are no FKs, the concatcp! degenerates into a
+//! single literal at compile time — no runtime cost.
 
 use super::context::MacroContext;
 use crate::paths::ddl::sqlite as ddl_paths;
@@ -11,6 +19,25 @@ use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
 use quote::quote;
 use std::fmt::Write;
+
+/// A single piece of a `concatcp!`-emitted CREATE TABLE statement.
+///
+/// Most pieces are plain literals (`Self::Literal`). When a foreign-key clause
+/// needs to reference another table's name, we emit a `Self::TableNameOf` that
+/// expands to `<RefTable>::TABLE_NAME` so the lookup happens at compile time.
+enum DdlPiece {
+    Literal(String),
+    TableNameOf(syn::Ident),
+}
+
+impl DdlPiece {
+    fn to_token(&self) -> TokenStream {
+        match self {
+            Self::Literal(s) => quote! { #s },
+            Self::TableNameOf(ident) => quote! { <#ident>::TABLE_NAME },
+        }
+    }
+}
 
 /// Convert a referential action string to the corresponding enum variant token
 fn referential_action_token(action: &str, referential_action: &TokenStream) -> TokenStream {
@@ -24,112 +51,103 @@ fn referential_action_token(action: &str, referential_action: &TokenStream) -> T
     }
 }
 
-/// Generate a compile-time `const SQL: &'static str` value for `SQLSchema`
-/// using `concatcp!` so that foreign key REFERENCES can resolve table names
-/// via `<OtherTable>::TABLE_NAME` at compile time.
+/// Generate a compile-time `const SQL: &'static str` value for `SQLSchema`.
+///
+/// Output matches `TableSql::create_table_sql()` exactly: backtick-quoted
+/// identifiers, named `CONSTRAINT` clauses for primary/foreign/unique
+/// constraints, `ON UPDATE` before `ON DELETE`, `NO ACTION` skipped, and
+/// trailing `;`.
 pub fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
+    let tokens: Vec<TokenStream> = build_create_table_pieces(ctx)
+        .iter()
+        .map(DdlPiece::to_token)
+        .collect();
+    quote! {
+        ::drizzle::const_format::concatcp!(#(#tokens),*)
+    }
+}
+
+/// Build the full CREATE TABLE statement as an ordered list of `DdlPiece`s.
+///
+/// The pieces are designed to be passed straight to `concatcp!`. Lines are
+/// joined by literal `",\n"` prefixes on every non-first line.
+fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
     let table_name = &ctx.table_name;
     let is_composite_pk = ctx.is_composite_pk;
     let strict = ctx.attrs.strict;
     let without_rowid = ctx.attrs.without_rowid;
     let field_infos = ctx.field_infos;
 
-    let has_foreign_keys = field_infos.iter().any(|f| f.foreign_key.is_some())
-        || !ctx.attrs.composite_foreign_keys.is_empty();
+    let mut pieces: Vec<DdlPiece> = Vec::new();
+    pieces.push(DdlPiece::Literal(format!(
+        "CREATE TABLE `{table_name}` (\n"
+    )));
 
-    if !has_foreign_keys {
-        // For tables without FKs, we can build the SQL entirely at proc-macro
-        // time as a string literal (no need for concatcp!)
-        let sql = build_create_table_sql(
-            table_name,
-            field_infos,
-            is_composite_pk,
-            strict,
-            without_rowid,
-        );
-        return quote! { #sql };
-    }
-
-    // For tables WITH FKs, we need concatcp! to reference other table's TABLE_NAME
-    // Build the SQL pieces that will be concatenated at compile time
-    let mut parts: Vec<TokenStream> = Vec::new();
-
-    // CREATE TABLE "table_name" (\n
-    let header = format!("CREATE TABLE \"{table_name}\" (\n");
-    parts.push(quote! { #header });
+    // Lines are built as `Vec<DdlPiece>` so the FK case can splice in a
+    // `<RefTable>::TABLE_NAME` piece between literal fragments.
+    let mut lines: Vec<Vec<DdlPiece>> = Vec::new();
 
     // Column definitions
-    let column_lines: Vec<String> = field_infos
-        .iter()
-        .map(|field| build_column_sql(table_name, field, is_composite_pk))
-        .collect();
-
-    for (i, col_line) in column_lines.iter().enumerate() {
-        let line = if i > 0 {
-            format!(",\n{col_line}")
-        } else {
-            col_line.clone()
-        };
-        parts.push(quote! { #line });
+    for field in field_infos {
+        let inline_pk = field.is_primary && !is_composite_pk;
+        let inline_unique = field.is_unique && !field.is_primary;
+        lines.push(vec![DdlPiece::Literal(format!(
+            "\t{}",
+            column_to_sql(field, inline_pk, inline_unique)
+        ))]);
     }
 
-    // Composite primary key (if needed)
+    // Composite primary key (only when there are 2+ PK columns)
     if is_composite_pk {
-        let pk_columns: Vec<&String> = field_infos
+        let pk_cols: Vec<String> = field_infos
             .iter()
             .filter(|f| f.is_primary)
-            .map(|f| &f.column_name)
+            .map(|f| format!("`{}`", f.column_name))
             .collect();
-        if !pk_columns.is_empty() {
-            let pk_str = format!(
-                ",\nPRIMARY KEY({})",
-                pk_columns
-                    .iter()
-                    .map(|c| format!("\"{c}\""))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-            parts.push(quote! { #pk_str });
+        if !pk_cols.is_empty() {
+            let pk_name = format!("{table_name}_pkey");
+            lines.push(vec![DdlPiece::Literal(format!(
+                "\tCONSTRAINT `{}` PRIMARY KEY({})",
+                pk_name,
+                pk_cols.join(", ")
+            ))]);
         }
     }
 
-    // Unique constraints
-    for field in field_infos.iter().filter(|f| f.is_unique && !f.is_primary) {
-        let uq_str = format!(",\nUNIQUE(\"{}\")", field.column_name);
-        parts.push(quote! { #uq_str });
-    }
-
-    // Single-column foreign keys
+    // Single-column foreign keys (CONSTRAINT name + FOREIGN KEY ... REFERENCES)
     for field in field_infos {
         if let Some(ref fk) = field.foreign_key {
-            let ref_table_ident = &fk.table_ident;
+            let fk_name = format!("{}_{}_fkey", table_name, field.column_name);
             let ref_column = fk.column_ident.to_string().to_snake_case();
-
-            // FK prefix: ,\nFOREIGN KEY ("col") REFERENCES "
-            let fk_prefix = format!(",\nFOREIGN KEY (\"{}\") REFERENCES \"", field.column_name);
-            parts.push(quote! { #fk_prefix });
-
-            // Table name via const reference
-            parts.push(quote! { <#ref_table_ident>::TABLE_NAME });
-
-            // FK suffix: " ("ref_col")
-            let mut fk_suffix = format!("\" (\"{ref_column}\")");
-
-            if let Some(ref on_delete) = fk.on_delete {
-                let _ = write!(fk_suffix, " ON DELETE {}", on_delete.to_uppercase());
-            }
+            let mut line = Vec::new();
+            line.push(DdlPiece::Literal(format!(
+                "\tCONSTRAINT `{}` FOREIGN KEY (`{}`) REFERENCES `",
+                fk_name, field.column_name
+            )));
+            line.push(DdlPiece::TableNameOf(fk.table_ident.clone()));
+            let mut suffix = format!("`(`{ref_column}`)");
+            // Match TableSql::to_constraint_sql ordering: ON UPDATE then ON DELETE,
+            // and skip the no-op NO ACTION.
             if let Some(ref on_update) = fk.on_update {
-                let _ = write!(fk_suffix, " ON UPDATE {}", on_update.to_uppercase());
+                let action = on_update.to_uppercase();
+                if action != "NO ACTION" {
+                    let _ = write!(suffix, " ON UPDATE {action}");
+                }
             }
-
-            parts.push(quote! { #fk_suffix });
+            if let Some(ref on_delete) = fk.on_delete {
+                let action = on_delete.to_uppercase();
+                if action != "NO ACTION" {
+                    let _ = write!(suffix, " ON DELETE {action}");
+                }
+            }
+            line.push(DdlPiece::Literal(suffix));
+            lines.push(line);
         }
     }
 
     // Composite foreign keys
     for fk in &ctx.attrs.composite_foreign_keys {
-        let ref_table_ident = &fk.target_table;
-        let source_columns: Vec<String> = fk
+        let source_cols: Vec<String> = fk
             .source_columns
             .iter()
             .map(|src| {
@@ -139,192 +157,127 @@ pub fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
                     .map_or_else(|| src.to_string(), |f| f.column_name.clone())
             })
             .collect();
-        let target_columns: Vec<String> = fk
+        let target_cols: Vec<String> = fk
             .target_columns
             .iter()
             .map(std::string::ToString::to_string)
             .collect();
 
-        let source_cols_str = source_columns
+        let fk_name = format!("{}_{}_fkey", table_name, source_cols.join("_"));
+        let src_str = source_cols
             .iter()
-            .map(|c| format!("\"{c}\""))
+            .map(|c| format!("`{c}`"))
             .collect::<Vec<_>>()
             .join(", ");
-        let target_cols_str = target_columns
+        let tgt_str = target_cols
             .iter()
-            .map(|c| format!("\"{c}\""))
+            .map(|c| format!("`{c}`"))
             .collect::<Vec<_>>()
             .join(", ");
 
-        let fk_prefix = format!(",\nFOREIGN KEY ({source_cols_str}) REFERENCES \"");
-        parts.push(quote! { #fk_prefix });
-
-        parts.push(quote! { <#ref_table_ident>::TABLE_NAME });
-
-        let mut fk_suffix = format!("\" ({target_cols_str})");
-
-        if let Some(ref on_delete) = fk.on_delete {
-            let _ = write!(fk_suffix, " ON DELETE {}", on_delete.to_uppercase());
-        }
+        let mut line = Vec::new();
+        line.push(DdlPiece::Literal(format!(
+            "\tCONSTRAINT `{fk_name}` FOREIGN KEY ({src_str}) REFERENCES `"
+        )));
+        line.push(DdlPiece::TableNameOf(fk.target_table.clone()));
+        let mut suffix = format!("`({tgt_str})");
         if let Some(ref on_update) = fk.on_update {
-            let _ = write!(fk_suffix, " ON UPDATE {}", on_update.to_uppercase());
+            let action = on_update.to_uppercase();
+            if action != "NO ACTION" {
+                let _ = write!(suffix, " ON UPDATE {action}");
+            }
         }
-
-        parts.push(quote! { #fk_suffix });
+        if let Some(ref on_delete) = fk.on_delete {
+            let action = on_delete.to_uppercase();
+            if action != "NO ACTION" {
+                let _ = write!(suffix, " ON DELETE {action}");
+            }
+        }
+        line.push(DdlPiece::Literal(suffix));
+        lines.push(line);
     }
 
-    // Closing paren with optional modifiers
+    // Multi-column unique constraints would go here. Currently the field
+    // model only carries single-column UNIQUE which is rendered inline via
+    // `column_to_sql`, so there's nothing to emit at the table level.
+
+    // Join lines with ",\n" — prepend it to the first piece of every non-first line.
+    for (i, mut line) in lines.into_iter().enumerate() {
+        if i == 0 {
+            pieces.append(&mut line);
+            continue;
+        }
+        match line.first_mut() {
+            Some(DdlPiece::Literal(s)) => *s = format!(",\n{s}"),
+            _ => pieces.push(DdlPiece::Literal(",\n".to_string())),
+        }
+        pieces.append(&mut line);
+    }
+
+    // Closing: \n) + options + ;
     let mut closing = "\n)".to_string();
-    if strict && without_rowid {
-        closing.push_str(" STRICT, WITHOUT ROWID");
-    } else if strict {
-        closing.push_str(" STRICT");
-    } else if without_rowid {
+    if without_rowid {
         closing.push_str(" WITHOUT ROWID");
     }
-    parts.push(quote! { #closing });
-
-    quote! {
-        ::drizzle::const_format::concatcp!(#(#parts),*)
+    if strict {
+        closing.push_str(" STRICT");
     }
+    closing.push(';');
+    pieces.push(DdlPiece::Literal(closing));
+
+    pieces
 }
 
-/// Build the CREATE TABLE SQL string entirely at proc-macro time.
+/// Format a single column's SQL fragment.
 ///
-/// Used for tables WITHOUT foreign keys where all data is known statically.
-fn build_create_table_sql(
-    table_name: &str,
-    field_infos: &[FieldInfo],
-    is_composite_pk: bool,
-    strict: bool,
-    without_rowid: bool,
-) -> String {
-    use drizzle_types::sqlite::ddl::{Column, PrimaryKey, Table, UniqueConstraint, sql::TableSql};
-    use std::borrow::Cow;
-
-    let mut table = Table::new(table_name.to_string());
-    table.strict = strict;
-    table.without_rowid = without_rowid;
-
-    let columns: Vec<Column> = field_infos
-        .iter()
-        .map(|field| {
-            let is_single_pk = field.is_primary && !is_composite_pk;
-
-            let mut col = Column::new(
-                Cow::Owned(table_name.to_string()),
-                Cow::Owned(field.column_name.clone()),
-                Cow::Owned(field.column_type.to_sql_type().to_string()),
-            );
-
-            col.not_null = !field.is_nullable;
-
-            if is_single_pk {
-                col.primary_key = Some(true);
-            }
-
-            if field.is_autoincrement {
-                col.autoincrement = Some(true);
-            }
-
-            if field.is_unique && !field.is_primary {
-                col.unique = Some(true);
-            }
-
-            if let Some(ref default_expr) = field.default_value
-                && let syn::Expr::Lit(expr_lit) = default_expr
-            {
-                let default_str = match &expr_lit.lit {
-                    syn::Lit::Int(i) => i.to_string(),
-                    syn::Lit::Float(f) => f.to_string(),
-                    syn::Lit::Bool(b) => if b.value() { "1" } else { "0" }.to_string(),
-                    syn::Lit::Str(s) => format!("'{}'", s.value().replace('\'', "''")),
-                    _ => return col,
-                };
-                col.default = Some(Cow::Owned(default_str));
-            }
-
-            col
-        })
-        .collect();
-
-    let pk_columns: Vec<String> = field_infos
-        .iter()
-        .filter(|f| f.is_primary)
-        .map(|f| f.column_name.clone())
-        .collect();
-
-    let primary_key = if pk_columns.is_empty() {
-        None
-    } else {
-        let pk_name = format!("{table_name}_pkey");
-        Some(PrimaryKey::from_strings(
-            table_name.to_string(),
-            pk_name,
-            pk_columns,
-        ))
-    };
-
-    let unique_constraints: Vec<UniqueConstraint> = field_infos
-        .iter()
-        .filter(|f| f.is_unique && !f.is_primary)
-        .map(|field| {
-            UniqueConstraint::from_strings(
-                table_name.to_string(),
-                format!("{}_{}_unique", table_name, field.column_name),
-                vec![field.column_name.clone()],
-            )
-        })
-        .collect();
-
-    TableSql::new(&table)
-        .columns(&columns)
-        .primary_key(primary_key.as_ref())
-        .foreign_keys(&[])
-        .unique_constraints(&unique_constraints)
-        .create_table_sql()
-}
-
-/// Build a column SQL fragment for use in concatcp! based generation.
-fn build_column_sql(_table_name: &str, field: &FieldInfo, is_composite_pk: bool) -> String {
-    let is_single_pk = field.is_primary && !is_composite_pk;
-
-    let mut parts = vec![format!(
-        "\"{}\" {}",
+/// Mirrors `Column::to_column_sql` in `drizzle_types::sqlite::ddl::sql` so the
+/// const SQL stays consistent with the runtime emitter:
+/// - identifiers are backtick-quoted,
+/// - `PRIMARY KEY` / `AUTOINCREMENT` are inlined only when this column is a
+///   single-column primary key,
+/// - `NOT NULL` is skipped on `INTEGER PRIMARY KEY` (SQLite quirk: such
+///   columns alias `rowid` and accept NULL on insert),
+/// - `UNIQUE` is inlined when the column carries a single-column unique that
+///   isn't already implied by being the primary key.
+fn column_to_sql(field: &FieldInfo, inline_pk: bool, inline_unique: bool) -> String {
+    let mut sql = format!(
+        "`{}` {}",
         field.column_name,
         field.column_type.to_sql_type()
-    )];
+    );
 
-    if is_single_pk {
-        parts.push("PRIMARY KEY".to_string());
-    }
-    if field.is_autoincrement {
-        parts.push("AUTOINCREMENT".to_string());
-    }
-    if !field.is_nullable {
-        parts.push("NOT NULL".to_string());
-    }
-    if field.is_unique && !field.is_primary {
-        parts.push("UNIQUE".to_string());
+    if inline_pk {
+        sql.push_str(" PRIMARY KEY");
+        if field.is_autoincrement {
+            sql.push_str(" AUTOINCREMENT");
+        }
     }
 
     if let Some(ref default_expr) = field.default_value
         && let syn::Expr::Lit(expr_lit) = default_expr
     {
         let default_str = match &expr_lit.lit {
-            syn::Lit::Int(i) => format!("DEFAULT {i}"),
-            syn::Lit::Float(f) => format!("DEFAULT {f}"),
-            syn::Lit::Bool(b) => format!("DEFAULT {}", if b.value() { "1" } else { "0" }),
-            syn::Lit::Str(s) => format!("DEFAULT '{}'", s.value().replace('\'', "''")),
+            syn::Lit::Int(i) => format!(" DEFAULT {i}"),
+            syn::Lit::Float(f) => format!(" DEFAULT {f}"),
+            syn::Lit::Bool(b) => format!(" DEFAULT {}", if b.value() { "1" } else { "0" }),
+            syn::Lit::Str(s) => format!(" DEFAULT '{}'", s.value().replace('\'', "''")),
             _ => String::new(),
         };
         if !default_str.is_empty() {
-            parts.push(default_str);
+            sql.push_str(&default_str);
         }
     }
 
-    // Use tab indent for columns to match the DDL generator format
-    format!("\t{}", parts.join(" "))
+    let sql_type = field.column_type.to_sql_type();
+    if !field.is_nullable && !(inline_pk && sql_type.to_lowercase().starts_with("int")) {
+        sql.push_str(" NOT NULL");
+    }
+
+    if inline_unique && !inline_pk {
+        sql.push_str(" UNIQUE");
+    }
+
+    sql
 }
 
 /// Generate const DDL definitions for the table and its columns.
@@ -597,23 +550,24 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
 
 #[cfg(test)]
 mod tests {
-    use super::build_create_table_sql;
+    use super::column_to_sql;
     use crate::sqlite::field::{FieldInfo, SQLiteType};
 
-    #[test]
-    fn create_table_sql_escapes_single_quotes_in_default_string_literals() {
-        let ident: syn::Ident = syn::parse_str("display_name").expect("valid ident");
-        let ty: syn::Type = syn::parse_str("String").expect("valid type");
-        let default_expr: syn::Expr = syn::parse_str("\"O'Hara\"").expect("valid expr");
-
-        let field = FieldInfo {
-            ident: &ident,
-            field_type: &ty,
-            base_type: &ty,
-            column_name: "display_name".to_string(),
+    fn text_field<'a>(
+        ident: &'a syn::Ident,
+        ty: &'a syn::Type,
+        name: &str,
+        default: Option<syn::Expr>,
+        nullable: bool,
+    ) -> FieldInfo<'a> {
+        FieldInfo {
+            ident,
+            field_type: ty,
+            base_type: ty,
+            column_name: name.to_string(),
             sql_definition: String::new(),
-            is_nullable: false,
-            has_default: true,
+            is_nullable: nullable,
+            has_default: default.is_some(),
             is_primary: false,
             is_autoincrement: false,
             is_unique: false,
@@ -623,17 +577,50 @@ mod tests {
             is_custom_type: false,
             column_type: SQLiteType::Text,
             foreign_key: None,
-            default_value: Some(default_expr),
+            default_value: default,
             default_fn: None,
             marker_exprs: Vec::new(),
             select_type: None,
             update_type: None,
-        };
+        }
+    }
 
-        let sql = build_create_table_sql("users", &[field], false, false, false);
+    #[test]
+    fn column_default_string_literals_escape_single_quotes() {
+        let ident: syn::Ident = syn::parse_str("display_name").expect("valid ident");
+        let ty: syn::Type = syn::parse_str("String").expect("valid type");
+        let default_expr: syn::Expr = syn::parse_str("\"O'Hara\"").expect("valid expr");
+
+        let field = text_field(&ident, &ty, "display_name", Some(default_expr), false);
+        let sql = column_to_sql(&field, false, false);
         assert!(
             sql.contains("DEFAULT 'O''Hara'"),
             "expected escaped default string, got: {sql}"
         );
+    }
+
+    #[test]
+    fn column_uses_backticks_and_skips_not_null_for_integer_pk() {
+        // Matches Column::to_column_sql behavior: an INTEGER PRIMARY KEY
+        // column should NOT have a NOT NULL constraint, because such columns
+        // alias rowid and accept NULL on insert.
+        let ident: syn::Ident = syn::parse_str("id").expect("valid ident");
+        let ty: syn::Type = syn::parse_str("i32").expect("valid type");
+        let mut field = text_field(&ident, &ty, "id", None, false);
+        field.column_type = SQLiteType::Integer;
+        field.is_primary = true;
+        let sql = column_to_sql(
+            &field, /*inline_pk=*/ true, /*inline_unique=*/ false,
+        );
+        assert_eq!(sql, "`id` INTEGER PRIMARY KEY");
+    }
+
+    #[test]
+    fn column_text_not_null_emits_backticks_and_constraint() {
+        let ident: syn::Ident = syn::parse_str("name").expect("valid ident");
+        let ty: syn::Type = syn::parse_str("String").expect("valid type");
+        let field = text_field(&ident, &ty, "name", None, false);
+        let sql = column_to_sql(&field, false, false);
+        assert_eq!(sql, "`name` TEXT NOT NULL");
     }
 }
