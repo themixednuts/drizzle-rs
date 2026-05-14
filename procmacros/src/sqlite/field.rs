@@ -225,6 +225,14 @@ pub struct FieldInfo<'a> {
     // Foreign key support
     pub(crate) foreign_key: Option<ForeignKeyReference>,
 
+    /// Resolved primary-key / unique state.
+    ///
+    /// Set in the table-level second pass once we know whether the primary
+    /// key is composite. New emission sites should prefer this over the
+    /// raw `is_primary` / `is_unique` bools — those remain for now to
+    /// avoid touching every legacy call site in one pass.
+    pub(crate) constraint: crate::common::Constraint,
+
     /// Optional SQLite collation name from `#[column(collate = NOCASE)]`.
     /// Stored as the uppercased / literal collation name; emitted verbatim
     /// in DDL after column constraints (`... NOT NULL COLLATE NOCASE`).
@@ -720,6 +728,13 @@ impl<'a> FieldInfo<'a> {
             is_custom_type,
             column_type,
             foreign_key,
+            // Populated with the correct PK variant by `resolve_constraints`
+            // once the table-level PK cardinality is known.
+            constraint: crate::common::Constraint::from_flags(
+                properties.is_primary,
+                properties.is_unique,
+                is_part_of_composite_pk,
+            ),
             collate: attrs.collate,
             default_value: attrs.default_value,
             default_fn: attrs.default_fn,

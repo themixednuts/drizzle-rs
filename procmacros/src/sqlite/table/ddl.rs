@@ -87,13 +87,17 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
     // `<RefTable>::TABLE_NAME` piece between literal fragments.
     let mut lines: Vec<Vec<DdlPiece>> = Vec::new();
 
-    // Column definitions
+    // Column definitions. The two "is this column the inline PK / inline
+    // UNIQUE?" questions are answered by `Constraint`, set during the
+    // table-level pass.
     for field in field_infos {
-        let inline_pk = field.is_primary && !is_composite_pk;
-        let inline_unique = field.is_unique && !field.is_primary;
         lines.push(vec![DdlPiece::Literal(format!(
             "\t{}",
-            column_to_sql(field, inline_pk, inline_unique)
+            column_to_sql(
+                field,
+                field.constraint.is_inline_primary(),
+                field.constraint.is_inline_unique(),
+            )
         ))]);
     }
 
@@ -560,6 +564,7 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
 #[cfg(test)]
 mod tests {
     use super::column_to_sql;
+    use crate::common::Constraint;
     use crate::sqlite::field::{FieldInfo, SQLiteType};
 
     fn text_field<'a>(
@@ -586,6 +591,7 @@ mod tests {
             is_custom_type: false,
             column_type: SQLiteType::Text,
             foreign_key: None,
+            constraint: Constraint::None,
             collate: None,
             default_value: default,
             default_fn: None,
@@ -619,6 +625,7 @@ mod tests {
         let mut field = text_field(&ident, &ty, "id", None, false);
         field.column_type = SQLiteType::Integer;
         field.is_primary = true;
+        field.constraint = Constraint::StandalonePrimaryKey;
         let sql = column_to_sql(
             &field, /*inline_pk=*/ true, /*inline_unique=*/ false,
         );

@@ -3,6 +3,7 @@
 //! This module provides shared abstractions to reduce code duplication between
 //! the dialect-specific macro implementations.
 
+pub mod constraint;
 pub mod constraints;
 mod context;
 mod diagnostics;
@@ -17,6 +18,7 @@ pub mod type_mapping;
 mod type_utils;
 pub mod view_query;
 
+pub use constraint::Constraint;
 pub use context::ModelType;
 pub use diagnostics::references_required_message;
 #[cfg(feature = "sqlite")]
