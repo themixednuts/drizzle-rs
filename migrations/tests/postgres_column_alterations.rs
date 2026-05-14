@@ -56,6 +56,7 @@ fn column(table: &str, name: &str, sql_type: &str) -> Column {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     }
 }
@@ -898,6 +899,7 @@ fn test_custom_schema_alterations() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -913,6 +915,7 @@ fn test_custom_schema_alterations() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 

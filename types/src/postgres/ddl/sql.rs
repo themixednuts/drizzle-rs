@@ -223,6 +223,13 @@ impl Column {
     pub fn to_column_sql(&self) -> String {
         let mut sql = format!("\"{}\" {}", self.name(), self.sql_type());
 
+        // COLLATE follows the type in the PostgreSQL grammar. Collation
+        // names are double-quoted identifiers (`COLLATE "en_US"`,
+        // `COLLATE "C"`).
+        if let Some(collate) = self.collate.as_ref() {
+            let _ = write!(sql, " COLLATE \"{collate}\"");
+        }
+
         // Handle identity columns
         if let Some(identity) = &self.identity {
             sql.push_str(&identity.to_sql());

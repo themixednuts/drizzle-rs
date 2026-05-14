@@ -681,6 +681,18 @@ pub struct FieldInfo {
     pub marker_exprs: Vec<syn::ExprPath>,
     /// True for unknown types that are validated at type-check time via `DrizzlePostgresColumn` trait
     pub is_custom_type: bool,
+    /// Resolved primary-key / unique state. Set during `from_field` once
+    /// the table-level `is_composite_pk` decision is known. New emission
+    /// sites should prefer this over the raw `is_primary` / `is_unique`
+    /// bools, which remain for now to keep this commit's blast radius
+    /// bounded.
+    pub constraint: crate::common::Constraint,
+    /// PostgreSQL collation name from `#[column(COLLATE = "en_US")]`.
+    /// Emitted as `COLLATE "<name>"` after the column type. PostgreSQL
+    /// treats collation identifiers as quoted names, so any built-in
+    /// (`"C"`, `"POSIX"`, `"en_US"`) or custom `CREATE COLLATION` value
+    /// works.
+    pub collate: Option<String>,
 }
 
 impl FieldInfo {
@@ -727,6 +739,7 @@ impl FieldInfo {
         let mut is_explicit_json = false;
         let mut is_explicit_jsonb = false;
         let mut column_name = None;
+        let mut collate: Option<String> = None;
         for attr in &field.attrs {
             if let Some(column_info) =
                 Self::parse_column_attribute(attr, type_category, name.span())?
@@ -746,6 +759,7 @@ impl FieldInfo {
                 is_explicit_json = column_info.is_json;
                 is_explicit_jsonb = column_info.is_jsonb;
                 column_name = column_info.column_name;
+                collate = column_info.collate;
                 marker_exprs = column_info.marker_exprs;
                 break;
             }
@@ -862,6 +876,12 @@ impl FieldInfo {
             has_default,
             marker_exprs,
             is_custom_type,
+            constraint: crate::common::Constraint::from_flags(
+                is_primary,
+                is_unique,
+                is_composite_pk,
+            ),
+            collate,
         })
     }
 
@@ -903,6 +923,7 @@ impl FieldInfo {
         let mut is_jsonb = false;
         let enum_type_name: Option<String> = None;
         let mut column_name = None;
+        let mut collate: Option<String> = None;
         let mut marker_exprs = Vec::new();
 
         // Parse attribute arguments: #[column(primary, unique, default = "foo")]
@@ -1066,6 +1087,28 @@ impl FieldInfo {
                             ));
                         }
                     }
+                    "COLLATE" => {
+                        meta.input.parse::<Token![=]>()?;
+                        // Accept either a string literal (`COLLATE = "en_US"`)
+                        // or a bare ident (`COLLATE = C`). The PostgreSQL DDL
+                        // emitter wraps whatever lands here in double quotes,
+                        // so the user shouldn't escape the name themselves.
+                        if meta.input.peek(Lit) {
+                            let lit: Lit = meta.input.parse()?;
+                            if let Lit::Str(s) = lit {
+                                collate = Some(s.value());
+                            } else {
+                                return Err(syn::Error::new_spanned(
+                                    lit,
+                                    "COLLATE expects a string literal collation name, e.g. COLLATE = \"en_US\"",
+                                ));
+                            }
+                        } else {
+                            let ident: Ident = meta.input.parse()?;
+                            collate = Some(ident.to_string());
+                        }
+                        marker_exprs.push(make_uppercase_path(path_ident, "COLLATE"));
+                    }
                     "DEFAULT" => {
                         if meta.input.peek(Token![=]) {
                             meta.input.parse::<Token![=]>()?;
@@ -1190,6 +1233,7 @@ impl FieldInfo {
             is_jsonb,
             enum_type_name,
             column_name,
+            collate,
             marker_exprs,
         }))
     }
@@ -1489,6 +1533,8 @@ struct ColumnInfo {
     is_jsonb: bool,
     enum_type_name: Option<String>,
     column_name: Option<String>,
+    /// PostgreSQL collation name, from `#[column(COLLATE = "en_US")]`.
+    collate: Option<String>,
     marker_exprs: Vec<syn::ExprPath>,
 }
 

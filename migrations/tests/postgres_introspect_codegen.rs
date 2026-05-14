@@ -63,6 +63,7 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: Some(identity_always()),
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -77,6 +78,7 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -91,6 +93,7 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -134,6 +137,7 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: Some(identity_always()),
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -148,6 +152,7 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -162,6 +167,7 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -738,6 +744,7 @@ fn test_generated_column_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -752,6 +759,7 @@ fn test_generated_column_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -769,6 +777,7 @@ fn test_generated_column_codegen() {
         }),
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -828,6 +837,7 @@ fn test_default_value_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -842,6 +852,7 @@ fn test_default_value_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -856,6 +867,7 @@ fn test_default_value_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -916,6 +928,7 @@ fn test_identity_column_types() {
             cycle: None,
         }),
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -941,6 +954,7 @@ fn test_identity_column_types() {
             cycle: None,
         }),
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -1006,6 +1020,7 @@ fn test_unique_index_generation() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -1191,6 +1206,7 @@ fn test_enum_codegen() {
         generated: None,
         identity: Some(identity_always()),
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -1205,6 +1221,7 @@ fn test_enum_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -1219,6 +1236,7 @@ fn test_enum_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -1325,6 +1343,7 @@ fn test_multiple_enums_codegen() {
         generated: None,
         identity: Some(identity_always()),
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -1339,6 +1358,7 @@ fn test_multiple_enums_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -1353,6 +1373,7 @@ fn test_multiple_enums_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 
@@ -1510,6 +1531,7 @@ fn test_materialized_view_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: Some(1),
     });
 
@@ -1524,6 +1546,7 @@ fn test_materialized_view_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: Some(2),
     });
 
@@ -1552,6 +1575,7 @@ fn test_materialized_view_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: Some(1),
     });
 
@@ -1566,6 +1590,7 @@ fn test_materialized_view_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: Some(2),
     });
 
@@ -1641,6 +1666,7 @@ fn test_materialized_view_with_options_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: Some(1),
     });
 
@@ -1655,6 +1681,7 @@ fn test_materialized_view_with_options_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: Some(2),
     });
 

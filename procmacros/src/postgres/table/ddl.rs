@@ -244,6 +244,12 @@ fn column_to_sql(field: &FieldInfo) -> String {
         field.column_type.to_sql_type()
     );
 
+    // COLLATE follows the type in the Postgres grammar. Collation names
+    // are quoted identifiers (`COLLATE "en_US"`, `COLLATE "C"`).
+    if let Some(ref name) = field.collate {
+        let _ = write!(sql, " COLLATE \"{name}\"");
+    }
+
     // Default value (serial types carry an implicit DEFAULT nextval(seq))
     if !field.is_serial
         && let Some(ref default) = field.default
@@ -327,6 +333,9 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
                     PostgreSQLDefault::Expression(ts) => ts.to_string(),
                 };
                 modifiers.push(quote! { .default_value(#default_str) });
+            }
+            if let Some(ref collate_name) = field.collate {
+                modifiers.push(quote! { .collate(#collate_name) });
             }
 
             quote! {
@@ -571,6 +580,8 @@ mod tests {
             }),
             has_default: false,
             marker_exprs: Vec::new(),
+            constraint: crate::common::Constraint::None,
+            collate: None,
         };
 
         let fields = vec![field];

@@ -174,6 +174,57 @@ where
 }
 
 // =============================================================================
+// COLLATE
+// =============================================================================
+
+/// `COLLATE` - apply a named collation to a text expression.
+///
+/// Preserves the input expression's SQL type, nullability, and aggregate
+/// kind. The collation name is emitted as a quoted identifier
+/// (`expr COLLATE "name"`) which works in both SQLite (which also accepts
+/// unquoted built-ins like `NOCASE`) and PostgreSQL (which requires
+/// quoting).
+///
+/// # Example
+///
+/// ```rust
+/// # let _ = r####"
+/// use drizzle_core::expr::collate;
+///
+/// // Case-insensitive comparison on SQLite:
+/// // SELECT * FROM users WHERE name COLLATE "NOCASE" = ?
+/// db.select(()).from(users)
+///   .r#where(eq(collate(users.name, "NOCASE"), "alice"))
+///   .all()?;
+///
+/// // PostgreSQL with the built-in `"C"` collation:
+/// // SELECT * FROM products ORDER BY label COLLATE "C"
+/// db.select(()).from(products)
+///   .order_by(asc(collate(products.label, "C")))
+///   .all()?;
+/// # "####;
+/// ```
+pub fn collate<'a, V, E>(
+    expr: E,
+    name: &'static str,
+) -> SQLExpr<'a, V, E::SQLType, E::Nullable, E::Aggregate>
+where
+    V: SQLParam + 'a,
+    E: Expr<'a, V>,
+    E::SQLType: Textual,
+{
+    // `(expr COLLATE "name")` — always quote-wrap the name, since
+    // PostgreSQL's parser requires it and SQLite accepts the quoted form
+    // for its built-in collations as well.
+    let inner = expr.into_sql().parens_if_subquery();
+    SQLExpr::new(
+        SQL::raw("(")
+            .append(inner)
+            .append(SQL::raw(format!(" COLLATE \"{name}\")"))),
+    )
+}
+
+// =============================================================================
 // LENGTH
 // =============================================================================
 

@@ -412,6 +412,11 @@ pub fn process_columns(raw_columns: &[RawColumnInfo]) -> Vec<Column> {
                 generated,
                 identity,
                 dimensions: None,
+                // pg_attribute exposes attcollation but we don't read it yet
+                // (the introspect SQL doesn't pull it). Collation drift
+                // detection requires extending the SELECT — defer to a
+                // follow-up.
+                collate: None,
                 ordinal_position: Some(c.ordinal_position),
             }
         })

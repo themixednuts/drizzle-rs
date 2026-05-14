@@ -245,6 +245,27 @@ pub const JSONB: ColumnMarker = ColumnMarker;
 pub const ENUM: ColumnMarker = ColumnMarker;
 
 //------------------------------------------------------------------------------
+// Collation Markers
+//------------------------------------------------------------------------------
+
+/// Specifies a collation for a text column.
+///
+/// PostgreSQL collation identifiers are quoted names; the DDL emitter
+/// wraps whatever you supply here in double quotes, so write the bare
+/// name (`"en_US"`, `"C"`, `"POSIX"`, or any `CREATE COLLATION` value).
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[column(COLLATE = "en_US")]
+/// name: String,
+/// # "####;
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/collation.html>
+pub const COLLATE: ColumnMarker = ColumnMarker;
+
+//------------------------------------------------------------------------------
 // Default Value Parameters
 //------------------------------------------------------------------------------
 

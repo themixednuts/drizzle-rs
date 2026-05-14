@@ -359,6 +359,10 @@ pub struct ColumnDef {
     pub identity: Option<IdentityDef>,
     /// Array dimensions (for array types)
     pub dimensions: Option<i32>,
+    /// Collation name (e.g. `"en_US"`, `"C"`, `"POSIX"`, or any custom
+    /// `CREATE COLLATION` value). `None` means "use the database default
+    /// collation for this column type" and no `COLLATE` clause is emitted.
+    pub collate: Option<&'static str>,
 }
 
 impl ColumnDef {
@@ -381,6 +385,7 @@ impl ColumnDef {
             generated: None,
             identity: None,
             dimensions: None,
+            collate: None,
         }
     }
 
@@ -438,6 +443,19 @@ impl ColumnDef {
         }
     }
 
+    /// Set the collation for this column.
+    ///
+    /// PostgreSQL treats `COLLATE` identifiers as quoted names — e.g.
+    /// `COLLATE "en_US"`, `COLLATE "C"`, `COLLATE "POSIX"`. Pass the bare
+    /// name here; the DDL emitter wraps it in double quotes.
+    #[must_use]
+    pub const fn collate(self, name: &'static str) -> Self {
+        Self {
+            collate: Some(name),
+            ..self
+        }
+    }
+
     /// Convert to runtime [`Column`] type
     ///
     /// Note: This method cannot be const because it needs to convert nested Option types
@@ -467,6 +485,10 @@ impl ColumnDef {
                 None => None,
             },
             dimensions: self.dimensions,
+            collate: match self.collate {
+                Some(s) => Some(Cow::Borrowed(s)),
+                None => None,
+            },
             ordinal_position: None,
         }
     }
@@ -540,6 +562,14 @@ pub struct Column {
     #[cfg_attr(feature = "serde", serde(default))]
     pub dimensions: Option<i32>,
 
+    /// Collation name (e.g. `"en_US"`, `"C"`). `None` means the database
+    /// default collation and no `COLLATE` clause is emitted.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, deserialize_with = "cow_option_from_string")
+    )]
+    pub collate: Option<Cow<'static, str>>,
+
     /// Ordinal position within the table (1-based).
     ///
     /// This is primarily populated by introspection and used for stable codegen ordering.
@@ -570,6 +600,7 @@ impl Column {
             generated: None,
             identity: None,
             dimensions: None,
+            collate: None,
             ordinal_position: None,
         }
     }

@@ -56,6 +56,7 @@ fn column(table: &str, name: &str, sql_type: &str) -> Column {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     }
 }
@@ -722,6 +723,7 @@ fn test_create_table_in_custom_schema() {
         generated: None,
         identity: None,
         dimensions: None,
+        collate: None,
         ordinal_position: None,
     });
 

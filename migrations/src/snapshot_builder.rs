@@ -470,6 +470,11 @@ fn build_postgres_column(
             None
         },
         dimensions: None,
+        // Snapshot ingestion doesn't yet carry collation off the field —
+        // when the macro grows a `#[column(COLLATE = "...")]` attribute,
+        // route it through `field.attr_value("collate")` here. Defer until
+        // the postgres macro picks up its own collate parsing.
+        collate: None,
         ordinal_position: None,
     }
 }

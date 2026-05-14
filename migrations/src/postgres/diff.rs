@@ -404,6 +404,7 @@ mod tests {
                 generated: None,
                 identity: None,
                 dimensions: None,
+                collate: None,
                 ordinal_position: None,
             }),
         ];
@@ -433,6 +434,7 @@ mod tests {
             generated: None,
             identity: None,
             dimensions: None,
+            collate: None,
             ordinal_position: None,
         });
 
@@ -453,6 +455,7 @@ mod tests {
             generated: None,
             identity: None,
             dimensions: None,
+            collate: None,
             ordinal_position: None,
         });
 
@@ -492,6 +495,7 @@ mod tests {
             generated: None,
             identity: None,
             dimensions: None,
+            collate: None,
             ordinal_position: None,
         });
 
@@ -512,6 +516,7 @@ mod tests {
             generated: None,
             identity: None,
             dimensions: None,
+            collate: None,
             ordinal_position: None,
         });
 
@@ -551,6 +556,7 @@ mod tests {
             generated: None,
             identity: None,
             dimensions: None,
+            collate: None,
             ordinal_position: None,
         });
 
@@ -571,6 +577,7 @@ mod tests {
             generated: None,
             identity: None,
             dimensions: None,
+            collate: None,
             ordinal_position: None,
         });
 

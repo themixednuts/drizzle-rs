@@ -83,6 +83,21 @@ fn collate_emits_in_const_ddl() {
     );
 }
 
+#[test]
+fn collate_expression_combinator_emits_collate_clause() {
+    use drizzle::core::ToSQL;
+    use drizzle::core::expr::collate;
+    let table = CollateTable::new();
+    let expr = collate(table.name, "NOCASE");
+    let sql = expr.to_sql().build().0;
+    // Whitespace around tokens is renderer-dependent; assert on the
+    // load-bearing pieces.
+    assert!(
+        sql.contains("\"name\"") && sql.contains("COLLATE \"NOCASE\""),
+        "expected the expression to render with a COLLATE clause, got: {sql}"
+    );
+}
+
 // Schema derive tests
 #[SQLiteTable(NAME = "users")]
 struct User {
