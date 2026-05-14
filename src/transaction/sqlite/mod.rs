@@ -4,7 +4,7 @@
     feature = "libsql",
     feature = "durable"
 ))]
-mod typestate;
+pub mod typestate;
 
 #[cfg(feature = "rusqlite")]
 pub mod rusqlite;

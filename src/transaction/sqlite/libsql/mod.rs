@@ -1,8 +1,3 @@
-mod delete;
-mod insert;
-mod select;
-mod update;
-
 use drizzle_core::error::DrizzleError;
 use drizzle_core::traits::ToSQL;
 #[cfg(feature = "sqlite")]
@@ -25,13 +20,17 @@ use drizzle_sqlite::{
     values::SQLiteValue,
 };
 
-/// LibSQL-specific transaction builder
-#[derive(Debug)]
-pub struct TransactionBuilder<'a, Schema, Builder, State> {
-    transaction: &'a Transaction<Schema>,
-    builder: Builder,
-    _phantom: PhantomData<(Schema, State)>,
-}
+/// LibSQL-specific transaction builder. See
+/// [`crate::transaction::sqlite::typestate::TransactionBuilder`] for the
+/// typestate-advancing methods; executor methods live below in this module.
+pub type TransactionBuilder<'tx, Schema, Builder, State> =
+    crate::transaction::sqlite::typestate::TransactionBuilder<
+        'tx,
+        Transaction<Schema>,
+        Schema,
+        Builder,
+        State,
+    >;
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 pub struct Transaction<Schema = ()> {

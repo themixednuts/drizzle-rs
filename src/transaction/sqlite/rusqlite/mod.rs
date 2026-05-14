@@ -10,11 +10,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::builder::sqlite::rows::Rows;
 
-pub mod delete;
-pub mod insert;
-pub mod select;
-pub mod update;
-
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
     builder::{
@@ -25,13 +20,23 @@ use drizzle_sqlite::{
     values::SQLiteValue,
 };
 
-/// Rusqlite-specific transaction builder
-#[derive(Debug)]
-pub struct TransactionBuilder<'a, 'conn, Schema, Builder, State> {
-    transaction: &'a Transaction<'conn, Schema>,
-    builder: Builder,
-    _phantom: PhantomData<(Schema, State)>,
-}
+/// Rusqlite-specific transaction builder.
+///
+/// This is a thin type alias over the dialect-shared
+/// [`crate::transaction::sqlite::typestate::TransactionBuilder`]; every
+/// typestate-advancing method (`.value`/`.values`/`.r#where`/`.set`/
+/// `.on_conflict`/`.returning`/`.from`/`.join_*`/etc.) lives on the
+/// generic struct over there. Executor methods (`.execute`/`.all`/`.rows`/
+/// `.get`) — the only parts that need `rusqlite`-specific access to
+/// `self.transaction.tx` — stay below in this module.
+pub type TransactionBuilder<'tx, 'conn, Schema, Builder, State> =
+    crate::transaction::sqlite::typestate::TransactionBuilder<
+        'tx,
+        Transaction<'conn, Schema>,
+        Schema,
+        Builder,
+        State,
+    >;
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 #[derive(Debug)]

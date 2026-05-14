@@ -5,11 +5,6 @@
 //! Supports the same query-builder surface as `Drizzle` plus nested
 //! savepoints through [`Transaction::savepoint`].
 
-mod delete;
-mod insert;
-mod select;
-mod update;
-
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -30,13 +25,17 @@ use drizzle_sqlite::{
 
 use crate::builder::sqlite::durable::sqlite_value_to_storage;
 
-/// Query builder scoped to a [`Transaction`].
-#[derive(Debug)]
-pub struct TransactionBuilder<'a, Schema, Builder, State> {
-    transaction: &'a Transaction<Schema>,
-    builder: Builder,
-    _phantom: PhantomData<(Schema, State)>,
-}
+/// Query builder scoped to a [`Transaction`]. See
+/// [`crate::transaction::sqlite::typestate::TransactionBuilder`] for the
+/// typestate-advancing methods; executor methods live below in this module.
+pub type TransactionBuilder<'tx, Schema, Builder, State> =
+    crate::transaction::sqlite::typestate::TransactionBuilder<
+        'tx,
+        Transaction<Schema>,
+        Schema,
+        Builder,
+        State,
+    >;
 
 /// Transaction handle for a Durable Object's SQL storage.
 ///

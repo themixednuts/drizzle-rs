@@ -10,11 +10,6 @@ use turso::Row;
 
 use crate::builder::sqlite::rows::TursoRows as Rows;
 
-pub mod delete;
-pub mod insert;
-pub mod select;
-pub mod update;
-
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
     builder::{
@@ -25,13 +20,17 @@ use drizzle_sqlite::{
     values::SQLiteValue,
 };
 
-/// Turso-specific transaction builder
-#[derive(Debug)]
-pub struct TransactionBuilder<'a, 'conn, Schema, Builder, State> {
-    transaction: &'a Transaction<'conn, Schema>,
-    builder: Builder,
-    _phantom: PhantomData<(Schema, State)>,
-}
+/// Turso-specific transaction builder. See
+/// [`crate::transaction::sqlite::typestate::TransactionBuilder`] for the
+/// typestate-advancing methods; executor methods live below in this module.
+pub type TransactionBuilder<'tx, 'conn, Schema, Builder, State> =
+    crate::transaction::sqlite::typestate::TransactionBuilder<
+        'tx,
+        Transaction<'conn, Schema>,
+        Schema,
+        Builder,
+        State,
+    >;
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 #[derive(Debug)]
