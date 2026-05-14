@@ -1,124 +1,250 @@
-//! `PostgreSQL` const DDL generation
+//! `PostgreSQL` const DDL generation.
 //!
-//! This module generates compile-time DDL entity definitions for `PostgreSQL` tables.
+//! Like the SQLite sibling module, this builds the `CREATE TABLE` SQL stored
+//! on each table's `SQLSchema::SQL` const. The output is intended to stay
+//! consistent across tables in a schema (same identifier quoting, same
+//! constraint shape, same ON UPDATE/ON DELETE ordering), and to align with
+//! `drizzle_types::postgres::ddl::sql::TableSql::create_table_sql()` so the
+//! compile-time SQL doesn't drift from the runtime emitter.
+//!
+//! Because the compile-time emitter sometimes needs to splice in
+//! `<OtherTable>::TABLE_NAME` for foreign-key targets (the referenced
+//! table's name isn't known to *this* macro), we always wrap the result
+//! in `concatcp!(...)`. When no FKs are present the args are all literals
+//! and the compiler folds them to a single `&'static str` at build time.
 
 use super::context::MacroContext;
 use crate::paths::ddl::postgres as ddl_paths;
 use crate::paths::{core as core_paths, postgres as postgres_paths};
 use crate::postgres::field::{FieldInfo, PostgreSQLDefault};
-use drizzle_types::postgres::ddl::{Column, PrimaryKey, Table, UniqueConstraint, sql::TableSql};
 use proc_macro2::TokenStream;
 use quote::quote;
-use std::borrow::Cow;
 use std::fmt::Write;
 use syn::Ident;
 
-/// Generate the CREATE TABLE SQL string from raw parameters.
+/// A single piece of a `concatcp!`-emitted CREATE TABLE statement.
 ///
-/// This is the core implementation that doesn't require a full `MacroContext`.
-/// Use this before context is fully constructed.
-pub fn generate_create_table_sql_from_params(
-    schema_name: &str,
-    table_name: &str,
-    field_infos: &[FieldInfo],
-    is_composite_pk: bool,
-) -> String {
-    // Build Table (owned schema name because DDL runtime types use Cow<'static, str>)
-    let table = Table::new(schema_name.to_string(), table_name.to_string());
+/// `TableNameOf` expands to `<RefTable>::TABLE_NAME` so referenced-table
+/// names resolve at compile time; everything else is a plain literal.
+enum DdlPiece {
+    Literal(String),
+    TableNameOf(Ident),
+}
 
-    // Build Columns
-    let columns: Vec<Column> = field_infos
-        .iter()
-        .map(|field| build_column(schema_name, table_name, field, is_composite_pk))
-        .collect();
+impl DdlPiece {
+    fn to_token(&self) -> TokenStream {
+        match self {
+            Self::Literal(s) => quote! { #s },
+            Self::TableNameOf(ident) => quote! { <#ident>::TABLE_NAME },
+        }
+    }
+}
 
-    // Build PrimaryKey
-    let pk_columns: Vec<String> = field_infos
-        .iter()
-        .filter(|f| f.is_primary)
-        .map(|f| f.column_name.clone())
-        .collect();
-
-    let primary_key = if pk_columns.is_empty() {
-        None
+/// Format a `"schema"."table"` prefix (empty when schema is `"public"`).
+fn schema_prefix(schema: &str) -> String {
+    if schema == "public" {
+        String::new()
     } else {
-        let pk_name = format!("{table_name}_pkey");
-        Some(PrimaryKey::from_strings(
-            schema_name.to_string(),
-            table_name.to_string(),
-            pk_name,
-            pk_columns,
-        ))
-    };
-
-    // Build UniqueConstraints (single-column only, non-primary)
-    let unique_constraints: Vec<UniqueConstraint> = field_infos
-        .iter()
-        .filter(|f| f.is_unique && !f.is_primary)
-        .map(|field| {
-            UniqueConstraint::from_strings(
-                schema_name.to_string(),
-                table_name.to_string(),
-                format!("{}_{}_unique", table_name, field.column_name),
-                vec![field.column_name.clone()],
-            )
-        })
-        .collect();
-
-    // Generate SQL (no foreign keys for compile-time generation)
-    TableSql::new(&table)
-        .columns(&columns)
-        .primary_key(primary_key.as_ref())
-        .foreign_keys(&[])
-        .unique_constraints(&unique_constraints)
-        .create_table_sql()
+        format!("\"{schema}\".")
+    }
 }
 
-/// Generate the CREATE TABLE SQL string at proc-macro time.
+/// Generate a compile-time `const SQL: &'static str` value for `SQLSchema`.
 ///
-/// This is used for tables WITHOUT foreign keys, where all information
-/// is known at macro expansion time. Uses the same DDL types as runtime
-/// generation for consistency.
-#[allow(dead_code)]
-pub fn generate_create_table_sql(ctx: &MacroContext) -> String {
-    let schema_name = ctx.attrs.schema.as_deref().unwrap_or("public");
-    generate_create_table_sql_from_params(
-        schema_name,
-        &ctx.table_name,
-        ctx.field_infos,
-        ctx.is_composite_pk,
-    )
+/// Output mirrors `TableSql::create_table_sql()`: double-quoted identifiers,
+/// schema prefix only when not `public`, named `CONSTRAINT` clauses for every
+/// table-level constraint, `ON UPDATE` before `ON DELETE`, `NO ACTION`
+/// skipped, trailing `;`.
+pub fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
+    let tokens: Vec<TokenStream> = build_create_table_pieces(ctx)
+        .iter()
+        .map(DdlPiece::to_token)
+        .collect();
+    quote! {
+        ::drizzle::const_format::concatcp!(#(#tokens),*)
+    }
 }
 
-/// Build a Column from `FieldInfo`
-fn build_column(
-    schema_name: &str,
-    table_name: &str,
-    field: &FieldInfo,
-    _is_composite_pk: bool,
-) -> Column {
-    let mut col = Column::new(
-        Cow::Owned(schema_name.to_string()),
-        Cow::Owned(table_name.to_string()),
-        Cow::Owned(field.column_name.clone()),
-        Cow::Owned(field.column_type.to_sql_type().to_string()),
-    );
+/// Build the CREATE TABLE statement as `DdlPiece`s ready for `concatcp!`.
+///
+/// Lines are joined by literal `",\n"` prefixes on every non-first line so
+/// that the FK case can interleave `TableNameOf` pieces between literal
+/// fragments without losing the column-separator commas.
+fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
+    let table_name = &ctx.table_name;
+    let schema_name = ctx.attrs.schema.as_deref().unwrap_or("public");
+    let field_infos = ctx.field_infos;
 
-    col.not_null = !field.is_nullable;
+    let mut pieces: Vec<DdlPiece> = Vec::new();
+    pieces.push(DdlPiece::Literal(format!(
+        "CREATE TABLE {prefix}\"{table_name}\" (\n",
+        prefix = schema_prefix(schema_name)
+    )));
 
-    // Note: Serial columns use the SERIAL pseudo-type which handles auto-increment
-    // via a sequence + DEFAULT nextval(...). We do NOT set identity for serial columns.
-    // Identity columns (GENERATED AS IDENTITY) are only for explicit identity(always/by_default).
+    let mut lines: Vec<Vec<DdlPiece>> = Vec::new();
 
-    // Note: Primary key is handled at the table level via PrimaryKey constraint
-    // Not inline on the column for PostgreSQL DDL generation
-
-    if field.is_unique && !field.is_primary {
-        // Unique constraints are handled at the table level
-        // but we could mark the column if needed
+    // Columns
+    for field in field_infos {
+        lines.push(vec![DdlPiece::Literal(format!(
+            "\t{}",
+            column_to_sql(field)
+        ))]);
     }
 
-    // Handle default value (skip if serial - SERIAL type has implicit DEFAULT)
+    // Primary key (always at table level for Postgres, matching TableSql).
+    // The non-explicit (macro-generated) form omits the CONSTRAINT name.
+    let pk_columns: Vec<&String> = field_infos
+        .iter()
+        .filter(|f| f.is_primary)
+        .map(|f| &f.column_name)
+        .collect();
+    if !pk_columns.is_empty() {
+        let cols = pk_columns
+            .iter()
+            .map(|c| format!("\"{c}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        lines.push(vec![DdlPiece::Literal(format!("\tPRIMARY KEY({cols})"))]);
+    }
+
+    // Single-column foreign keys
+    for field in field_infos {
+        if let Some(ref fk) = field.foreign_key {
+            let fk_name = format!("{}_{}_fkey", table_name, field.column_name);
+            let ref_column = fk.column.to_string();
+            let mut line = Vec::new();
+            line.push(DdlPiece::Literal(format!(
+                "\tCONSTRAINT \"{}\" FOREIGN KEY (\"{}\") REFERENCES \"",
+                fk_name, field.column_name
+            )));
+            line.push(DdlPiece::TableNameOf(fk.table.clone()));
+            let mut suffix = format!("\"(\"{ref_column}\")");
+            // Match TableSql ordering: ON UPDATE then ON DELETE, NO ACTION skipped.
+            if let Some(ref on_update) = fk.on_update {
+                let action = on_update.to_uppercase();
+                if action != "NO ACTION" {
+                    let _ = write!(suffix, " ON UPDATE {action}");
+                }
+            }
+            if let Some(ref on_delete) = fk.on_delete {
+                let action = on_delete.to_uppercase();
+                if action != "NO ACTION" {
+                    let _ = write!(suffix, " ON DELETE {action}");
+                }
+            }
+            line.push(DdlPiece::Literal(suffix));
+            lines.push(line);
+        }
+    }
+
+    // Composite foreign keys
+    for fk in &ctx.attrs.composite_foreign_keys {
+        let source_cols: Vec<String> = fk
+            .source_columns
+            .iter()
+            .map(|src| {
+                ctx.field_infos
+                    .iter()
+                    .find(|f| &f.ident == src)
+                    .map_or_else(|| src.to_string(), |f| f.column_name.clone())
+            })
+            .collect();
+        let target_cols: Vec<String> = fk
+            .target_columns
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
+
+        let fk_name = format!("{}_{}_fkey", table_name, source_cols.join("_"));
+        let src_str = source_cols
+            .iter()
+            .map(|c| format!("\"{c}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let tgt_str = target_cols
+            .iter()
+            .map(|c| format!("\"{c}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let mut line = Vec::new();
+        line.push(DdlPiece::Literal(format!(
+            "\tCONSTRAINT \"{fk_name}\" FOREIGN KEY ({src_str}) REFERENCES \""
+        )));
+        line.push(DdlPiece::TableNameOf(fk.target_table.clone()));
+        let mut suffix = format!("\"({tgt_str})");
+        if let Some(ref on_update) = fk.on_update {
+            let action = on_update.to_uppercase();
+            if action != "NO ACTION" {
+                let _ = write!(suffix, " ON UPDATE {action}");
+            }
+        }
+        if let Some(ref on_delete) = fk.on_delete {
+            let action = on_delete.to_uppercase();
+            if action != "NO ACTION" {
+                let _ = write!(suffix, " ON DELETE {action}");
+            }
+        }
+        line.push(DdlPiece::Literal(suffix));
+        lines.push(line);
+    }
+
+    // Unique constraints (always at table level for Postgres)
+    for field in field_infos.iter().filter(|f| f.is_unique && !f.is_primary) {
+        let uq_name = format!("{}_{}_unique", table_name, field.column_name);
+        lines.push(vec![DdlPiece::Literal(format!(
+            "\tCONSTRAINT \"{}\" UNIQUE(\"{}\")",
+            uq_name, field.column_name
+        ))]);
+    }
+
+    // Check constraints
+    for field in field_infos {
+        if let Some(ref check) = field.check_constraint {
+            let chk_name = format!("{}_{}_check", table_name, field.column_name);
+            lines.push(vec![DdlPiece::Literal(format!(
+                "\tCONSTRAINT \"{chk_name}\" CHECK ({check})"
+            ))]);
+        }
+    }
+
+    // Join lines with ",\n" by prepending it to the first piece of each
+    // non-first line. If the first piece happens to be a `TableNameOf`
+    // (shouldn't happen for our current shape, but handle defensively),
+    // we insert a standalone separator instead.
+    for (i, mut line) in lines.into_iter().enumerate() {
+        if i == 0 {
+            pieces.append(&mut line);
+            continue;
+        }
+        match line.first_mut() {
+            Some(DdlPiece::Literal(s)) => *s = format!(",\n{s}"),
+            _ => pieces.push(DdlPiece::Literal(",\n".to_string())),
+        }
+        pieces.append(&mut line);
+    }
+
+    pieces.push(DdlPiece::Literal("\n);".to_string()));
+
+    pieces
+}
+
+/// Format one column's SQL fragment.
+///
+/// Mirrors `Column::to_column_sql` in `drizzle_types::postgres::ddl::sql`:
+/// - identifier and type with double quotes,
+/// - `DEFAULT val` only when no identity/generated/serial occupies that slot
+///   (Postgres doesn't allow both),
+/// - `NOT NULL` is implicit on `SERIAL`/`BIGSERIAL`/`SMALLSERIAL`, so we skip
+///   it for those.
+fn column_to_sql(field: &FieldInfo) -> String {
+    let mut sql = format!(
+        "\"{}\" {}",
+        field.column_name,
+        field.column_type.to_sql_type()
+    );
+
+    // Default value (serial types carry an implicit DEFAULT nextval(seq))
     if !field.is_serial
         && let Some(ref default) = field.default
     {
@@ -126,221 +252,15 @@ fn build_column(
             PostgreSQLDefault::Literal(s) | PostgreSQLDefault::Function(s) => s.clone(),
             PostgreSQLDefault::Expression(ts) => ts.to_string(),
         };
-        col.default = Some(Cow::Owned(default_str));
+        let _ = write!(sql, " DEFAULT {default_str}");
     }
 
-    col
-}
-
-/// Generate a compile-time `const SQL: &'static str` value for `SQLSchema`
-/// using `concatcp!` so that foreign key REFERENCES can resolve table names
-/// via `<OtherTable>::TABLE_NAME` at compile time.
-pub fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
-    let table_name = &ctx.table_name;
-    let schema_name = ctx.attrs.schema.as_deref().unwrap_or("public");
-    let is_composite_pk = ctx.is_composite_pk;
-    let field_infos = ctx.field_infos;
-
-    let has_foreign_keys = field_infos.iter().any(|f| f.foreign_key.is_some())
-        || !ctx.attrs.composite_foreign_keys.is_empty();
-
-    if !has_foreign_keys {
-        // For tables without FKs, build the SQL entirely at proc-macro time
-        let sql = generate_create_table_sql(ctx);
-        return quote! { #sql };
-    }
-
-    // For tables WITH FKs, use concatcp! to reference other table's TABLE_NAME
-    let mut parts: Vec<TokenStream> = Vec::new();
-
-    // CREATE TABLE ["schema".]"table" (\n
-    let header = if schema_name == "public" {
-        format!("CREATE TABLE \"{table_name}\" (\n")
-    } else {
-        format!("CREATE TABLE \"{schema_name}\".\"{table_name}\" (\n")
-    };
-    parts.push(quote! { #header });
-
-    // Column definitions
-    let column_lines: Vec<String> = field_infos
-        .iter()
-        .map(|field| build_pg_column_sql(field, is_composite_pk))
-        .collect();
-
-    for (i, col_line) in column_lines.iter().enumerate() {
-        let line = if i > 0 {
-            format!(",\n{col_line}")
-        } else {
-            col_line.clone()
-        };
-        parts.push(quote! { #line });
-    }
-
-    // Primary key constraint
-    let pk_columns: Vec<&String> = field_infos
-        .iter()
-        .filter(|f| f.is_primary)
-        .map(|f| &f.column_name)
-        .collect();
-    if !pk_columns.is_empty() {
-        let pk_str = format!(
-            ",\n\tPRIMARY KEY({})",
-            pk_columns
-                .iter()
-                .map(|c| format!("\"{c}\""))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        parts.push(quote! { #pk_str });
-    }
-
-    // Unique constraints
-    for field in field_infos.iter().filter(|f| f.is_unique && !f.is_primary) {
-        let uq_name = format!("{}_{}_unique", table_name, field.column_name);
-        let uq_str = format!(
-            ",\n\tCONSTRAINT \"{}\" UNIQUE(\"{}\")",
-            uq_name, field.column_name
-        );
-        parts.push(quote! { #uq_str });
-    }
-
-    // Single-column foreign keys
-    for field in field_infos {
-        if let Some(ref fk) = field.foreign_key {
-            let ref_table_ident = &fk.table;
-            let ref_column = fk.column.to_string();
-            let fk_name = format!("{}_{}_fkey", table_name, field.column_name);
-
-            // FK prefix: ,\n\tCONSTRAINT "name" FOREIGN KEY ("col") REFERENCES "
-            let fk_prefix = format!(
-                ",\n\tCONSTRAINT \"{}\" FOREIGN KEY (\"{}\") REFERENCES \"",
-                fk_name, field.column_name
-            );
-            parts.push(quote! { #fk_prefix });
-
-            // Table name via const reference
-            parts.push(quote! { <#ref_table_ident>::TABLE_NAME });
-
-            // FK suffix: "("ref_col")
-            let mut fk_suffix = format!("\"(\"{ref_column}\")");
-
-            if let Some(ref on_delete) = fk.on_delete {
-                let action = on_delete.to_uppercase();
-                if action != "NO ACTION" {
-                    let _ = write!(fk_suffix, " ON DELETE {action}");
-                }
-            }
-            if let Some(ref on_update) = fk.on_update {
-                let action = on_update.to_uppercase();
-                if action != "NO ACTION" {
-                    let _ = write!(fk_suffix, " ON UPDATE {action}");
-                }
-            }
-
-            parts.push(quote! { #fk_suffix });
-        }
-    }
-
-    // Composite foreign keys
-    for fk in &ctx.attrs.composite_foreign_keys {
-        let ref_table_ident = &fk.target_table;
-        let source_columns: Vec<String> = fk
-            .source_columns
-            .iter()
-            .map(|src| {
-                ctx.field_infos
-                    .iter()
-                    .find(|f| f.ident == *src)
-                    .map_or_else(|| src.to_string(), |f| f.column_name.clone())
-            })
-            .collect();
-        let target_columns: Vec<String> = fk
-            .target_columns
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect();
-
-        let fk_name = format!("{}_{}_fkey", table_name, source_columns.join("_"));
-        let source_cols_str = source_columns
-            .iter()
-            .map(|c| format!("\"{c}\""))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let target_cols_str = target_columns
-            .iter()
-            .map(|c| format!("\"{c}\""))
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        let fk_prefix =
-            format!(",\n\tCONSTRAINT \"{fk_name}\" FOREIGN KEY ({source_cols_str}) REFERENCES \"");
-        parts.push(quote! { #fk_prefix });
-
-        parts.push(quote! { <#ref_table_ident>::TABLE_NAME });
-
-        let mut fk_suffix = format!("\"({target_cols_str})");
-
-        if let Some(ref on_delete) = fk.on_delete {
-            let action = on_delete.to_uppercase();
-            if action != "NO ACTION" {
-                let _ = write!(fk_suffix, " ON DELETE {action}");
-            }
-        }
-        if let Some(ref on_update) = fk.on_update {
-            let action = on_update.to_uppercase();
-            if action != "NO ACTION" {
-                let _ = write!(fk_suffix, " ON UPDATE {action}");
-            }
-        }
-
-        parts.push(quote! { #fk_suffix });
-    }
-
-    // Check constraints
-    for field in field_infos {
-        if let Some(ref check) = field.check_constraint {
-            let chk_name = format!("{}_{}_check", table_name, field.column_name);
-            let chk_str = format!(",\n\tCONSTRAINT \"{chk_name}\" CHECK ({check})");
-            parts.push(quote! { #chk_str });
-        }
-    }
-
-    // Closing
-    parts.push(quote! { "\n);" });
-
-    quote! {
-        ::drizzle::const_format::concatcp!(#(#parts),*)
-    }
-}
-
-/// Build a PG column SQL fragment for use in concatcp! based generation.
-fn build_pg_column_sql(field: &FieldInfo, _is_composite_pk: bool) -> String {
-    let mut parts = vec![format!(
-        "\"{}\" {}",
-        field.column_name,
-        field.column_type.to_sql_type()
-    )];
-
-    // Serial types are implicitly NOT NULL, don't add redundant constraint
+    // NOT NULL — serial types are implicitly NOT NULL in Postgres
     if !field.is_nullable && !field.is_serial {
-        parts.push("NOT NULL".to_string());
+        sql.push_str(" NOT NULL");
     }
 
-    // Handle default value (skip if serial - SERIAL type has implicit DEFAULT)
-    if !field.is_serial
-        && let Some(ref default) = field.default
-    {
-        match default {
-            PostgreSQLDefault::Literal(s) | PostgreSQLDefault::Function(s) => {
-                parts.push(format!("DEFAULT {s}"));
-            }
-            PostgreSQLDefault::Expression(ts) => {
-                parts.push(format!("DEFAULT {ts}"));
-            }
-        }
-    }
-
-    format!("\t{}", parts.join(" "))
+    sql
 }
 
 /// Convert a referential action string to the corresponding enum variant token
