@@ -1,42 +1,4 @@
-//! Connection types and transaction handling for `SQLite` drivers
-
-#[cfg(not(any(feature = "libsql", feature = "rusqlite", feature = "turso")))]
-use core::marker::PhantomData;
-
-/// Reference to different `SQLite` driver connection types
-#[derive(Debug)]
-pub enum ConnectionRef<'a> {
-    #[cfg(feature = "libsql")]
-    LibSql(&'a libsql::Connection),
-    #[cfg(feature = "rusqlite")]
-    Rusqlite(&'a rusqlite::Connection),
-    #[cfg(feature = "turso")]
-    Turso(&'a turso::Connection),
-    #[cfg(not(any(feature = "libsql", feature = "rusqlite", feature = "turso")))]
-    _Phantom(PhantomData<&'a ()>),
-}
-
-// Implement Into trait for each connection type
-#[cfg(feature = "libsql")]
-impl<'a> From<&'a libsql::Connection> for ConnectionRef<'a> {
-    fn from(conn: &'a libsql::Connection) -> Self {
-        ConnectionRef::LibSql(conn)
-    }
-}
-
-#[cfg(feature = "rusqlite")]
-impl<'a> From<&'a rusqlite::Connection> for ConnectionRef<'a> {
-    fn from(conn: &'a rusqlite::Connection) -> Self {
-        ConnectionRef::Rusqlite(conn)
-    }
-}
-
-#[cfg(feature = "turso")]
-impl<'a> From<&'a turso::Connection> for ConnectionRef<'a> {
-    fn from(conn: &'a turso::Connection) -> Self {
-        ConnectionRef::Turso(conn)
-    }
-}
+//! Transaction-type marker and per-driver behavior conversions for `SQLite` drivers.
 
 /// `SQLite` transaction types
 #[derive(Default, Debug, Clone, Copy)]
