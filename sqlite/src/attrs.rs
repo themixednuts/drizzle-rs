@@ -282,6 +282,39 @@ pub const RESTRICT: ColumnMarker = ColumnMarker;
 pub const NO_ACTION: ColumnMarker = ColumnMarker;
 
 //------------------------------------------------------------------------------
+// Collation Markers
+//------------------------------------------------------------------------------
+
+/// Specifies a collation sequence for a text column.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[column(COLLATE = NOCASE)]
+/// name: String,
+///
+/// // String form for custom registered collations:
+/// #[column(COLLATE = "my_collation")]
+/// label: String,
+/// # "####;
+/// ```
+///
+/// See: <https://sqlite.org/datatype3.html#collation>
+pub const COLLATE: ColumnMarker = ColumnMarker;
+
+/// BINARY collation: bytewise comparison of operands. The default for `BLOB`
+/// columns and any column without an explicit collation.
+pub const BINARY: ColumnMarker = ColumnMarker;
+
+/// NOCASE collation: ASCII case-insensitive comparison. Useful for text
+/// columns that need case-insensitive equality / sorting.
+pub const NOCASE: ColumnMarker = ColumnMarker;
+
+/// RTRIM collation: like `BINARY` but trailing spaces are ignored when
+/// comparing.
+pub const RTRIM: ColumnMarker = ColumnMarker;
+
+//------------------------------------------------------------------------------
 // Name Marker (shared by column and table attributes)
 //------------------------------------------------------------------------------
 

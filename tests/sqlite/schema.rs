@@ -50,6 +50,39 @@ fn column_types() {
     );
 }
 
+// SQLite COLLATE on a text column. The `collate = NOCASE` attribute should
+// emit a `COLLATE NOCASE` clause after the column constraints, both in the
+// runtime `create_table_sql()` output and the compile-time `SQL` const.
+#[SQLiteTable(NAME = "collate_table")]
+struct CollateTable {
+    #[column(PRIMARY)]
+    id: i32,
+    #[column(COLLATE = NOCASE)]
+    name: String,
+}
+
+#[test]
+fn collate_emits_in_runtime_ddl() {
+    let sql = CollateTable::create_table_sql();
+    assert!(
+        sql.contains("`name` TEXT NOT NULL COLLATE NOCASE"),
+        "expected COLLATE NOCASE clause, got: {sql}"
+    );
+}
+
+#[test]
+fn collate_emits_in_const_ddl() {
+    let sql = <CollateTable as drizzle::core::SQLSchema<
+        '_,
+        drizzle::sqlite::common::SQLiteSchemaType,
+        drizzle::sqlite::values::SQLiteValue<'_>,
+    >>::SQL;
+    assert!(
+        sql.contains("`name` TEXT NOT NULL COLLATE NOCASE"),
+        "expected COLLATE NOCASE in const SQL, got: {sql}"
+    );
+}
+
 // Schema derive tests
 #[SQLiteTable(NAME = "users")]
 struct User {

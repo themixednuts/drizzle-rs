@@ -131,6 +131,9 @@ pub struct ColumnDef {
     pub default: Option<&'static str>,
     /// Generated column configuration
     pub generated: Option<GeneratedDef>,
+    /// Collation name (`BINARY`, `NOCASE`, `RTRIM`, or a custom registered collation).
+    /// `None` means the default collation (`BINARY`) and no `COLLATE` clause is emitted.
+    pub collate: Option<&'static str>,
 }
 
 impl ColumnDef {
@@ -146,6 +149,7 @@ impl ColumnDef {
             unique: false,
             default: None,
             generated: None,
+            collate: None,
         }
     }
 
@@ -224,6 +228,19 @@ impl ColumnDef {
         }
     }
 
+    /// Set the collation sequence for this column.
+    ///
+    /// `name` should be one of SQLite's built-in collations (`BINARY`,
+    /// `NOCASE`, `RTRIM`) or a custom collation that's registered on the
+    /// connection at runtime via `sqlite3_create_collation`.
+    #[must_use]
+    pub const fn collate(self, name: &'static str) -> Self {
+        Self {
+            collate: Some(name),
+            ..self
+        }
+    }
+
     /// Convert to runtime [`Column`] type
     #[must_use]
     pub const fn into_column(self) -> Column {
@@ -248,6 +265,10 @@ impl ColumnDef {
             },
             generated: match self.generated {
                 Some(g) => Some(g.into_generated()),
+                None => None,
+            },
+            collate: match self.collate {
+                Some(s) => Some(Cow::Borrowed(s)),
                 None => None,
             },
             ordinal_position: None,
@@ -318,6 +339,14 @@ pub struct Column {
     #[cfg_attr(feature = "serde", serde(default))]
     pub generated: Option<Generated>,
 
+    /// Collation sequence (`BINARY`, `NOCASE`, `RTRIM`, or custom). `None` means
+    /// the default `BINARY` collation and no `COLLATE` clause is emitted.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, deserialize_with = "cow_option_from_string")
+    )]
+    pub collate: Option<Cow<'static, str>>,
+
     /// Ordinal position within the table (cid, 0-based).
     ///
     /// This is primarily populated by introspection and used for stable codegen ordering.
@@ -346,6 +375,7 @@ impl Column {
             unique: None,
             default: None,
             generated: None,
+            collate: None,
             ordinal_position: None,
         }
     }

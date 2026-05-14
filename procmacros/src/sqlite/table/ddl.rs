@@ -277,6 +277,12 @@ fn column_to_sql(field: &FieldInfo, inline_pk: bool, inline_unique: bool) -> Str
         sql.push_str(" UNIQUE");
     }
 
+    // COLLATE follows inline constraints (matches `Column::to_column_sql` in
+    // drizzle_types so the const SQL and runtime emitter stay in sync).
+    if let Some(ref name) = field.collate {
+        let _ = write!(sql, " COLLATE {name}");
+    }
+
     sql
 }
 
@@ -351,6 +357,9 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
                 if !default_str.is_empty() {
                     modifiers.push(quote! { .default_value(#default_str) });
                 }
+            }
+            if let Some(ref collate_name) = field.collate {
+                modifiers.push(quote! { .collate(#collate_name) });
             }
 
             quote! {
@@ -577,6 +586,7 @@ mod tests {
             is_custom_type: false,
             column_type: SQLiteType::Text,
             foreign_key: None,
+            collate: None,
             default_value: default,
             default_fn: None,
             marker_exprs: Vec::new(),
@@ -622,5 +632,15 @@ mod tests {
         let field = text_field(&ident, &ty, "name", None, false);
         let sql = column_to_sql(&field, false, false);
         assert_eq!(sql, "`name` TEXT NOT NULL");
+    }
+
+    #[test]
+    fn column_collate_clause_follows_constraints() {
+        let ident: syn::Ident = syn::parse_str("name").expect("valid ident");
+        let ty: syn::Type = syn::parse_str("String").expect("valid type");
+        let mut field = text_field(&ident, &ty, "name", None, false);
+        field.collate = Some("NOCASE".to_string());
+        let sql = column_to_sql(&field, false, false);
+        assert_eq!(sql, "`name` TEXT NOT NULL COLLATE NOCASE");
     }
 }

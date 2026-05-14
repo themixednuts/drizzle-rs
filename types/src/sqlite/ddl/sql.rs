@@ -204,6 +204,12 @@ impl Column {
             sql.push_str(" UNIQUE");
         }
 
+        // COLLATE applies to comparisons on this column. SQLite parses it as a
+        // column-constraint, so it follows other inline constraints.
+        if let Some(collate) = self.collate.as_ref() {
+            let _ = write!(sql, " COLLATE {collate}");
+        }
+
         sql
     }
 

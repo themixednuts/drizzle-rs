@@ -225,6 +225,11 @@ pub struct FieldInfo<'a> {
     // Foreign key support
     pub(crate) foreign_key: Option<ForeignKeyReference>,
 
+    /// Optional SQLite collation name from `#[column(collate = NOCASE)]`.
+    /// Stored as the uppercased / literal collation name; emitted verbatim
+    /// in DDL after column constraints (`... NOT NULL COLLATE NOCASE`).
+    pub(crate) collate: Option<String>,
+
     // Attribute values
     pub(crate) default_value: Option<Expr>,
     pub(crate) default_fn: Option<Expr>,
@@ -264,6 +269,10 @@ struct ParsedArgs {
     on_delete: Option<String>,
     on_update: Option<String>,
     name: Option<Expr>,
+    /// SQLite collation name from `collate = "NOCASE"` (or other built-in /
+    /// custom registered collation). Stored as the literal name; emitted
+    /// verbatim in DDL as `COLLATE <name>`.
+    collate: Option<String>,
     flags: HashSet<String>,
     /// Original marker expressions for IDE hover documentation
     /// These preserve the original tokens so rust-analyzer can resolve them
@@ -284,6 +293,8 @@ struct AttributeData {
     on_delete: Option<String>,
     on_update: Option<String>,
     attr_name: Option<String>,
+    /// SQLite collation name. See [`ParsedArgs::collate`].
+    collate: Option<String>,
     /// Original marker expressions for IDE hover documentation
     marker_exprs: Vec<syn::ExprPath>,
 }
@@ -456,6 +467,30 @@ impl<'a> FieldInfo<'a> {
                             args.name = Some(*assign.right.clone());
                             args.marker_exprs.push(make_uppercase_path(param, "NAME"));
                         }
+                        "COLLATE" => {
+                            // Accept either a string literal (`collate = "NOCASE"`) or
+                            // a bare ident (`collate = NOCASE`). The ident form keeps
+                            // attribute syntax consistent with the rest of `#[column(...)]`
+                            // and gets an IDE marker for hover.
+                            match &*assign.right {
+                                Expr::Lit(syn::ExprLit {
+                                    lit: Lit::Str(lit_str),
+                                    ..
+                                }) => {
+                                    args.collate = Some(lit_str.value());
+                                }
+                                Expr::Path(path) => {
+                                    if let Some(ident) = path.path.get_ident() {
+                                        let upper = ident.to_string().to_ascii_uppercase();
+                                        args.collate = Some(upper.clone());
+                                        args.marker_exprs.push(make_uppercase_path(ident, &upper));
+                                    }
+                                }
+                                _ => {}
+                            }
+                            args.marker_exprs
+                                .push(make_uppercase_path(param, "COLLATE"));
+                        }
                         _ => {}
                     }
                 }
@@ -520,6 +555,7 @@ impl<'a> FieldInfo<'a> {
                     data.marker_exprs.extend(args.marker_exprs);
                     data.on_delete = data.on_delete.or(args.on_delete);
                     data.on_update = data.on_update.or(args.on_update);
+                    data.collate = data.collate.or(args.collate);
 
                     if let Some(Expr::Path(path)) = args.references {
                         data.references_path = Some(path);
@@ -561,6 +597,7 @@ impl<'a> FieldInfo<'a> {
                     data.marker_exprs.extend(args.marker_exprs);
                     data.on_delete = data.on_delete.or(args.on_delete);
                     data.on_update = data.on_update.or(args.on_update);
+                    data.collate = data.collate.or(args.collate);
 
                     if let Some(Expr::Path(path)) = args.references {
                         data.references_path = Some(path);
@@ -683,6 +720,7 @@ impl<'a> FieldInfo<'a> {
             is_custom_type,
             column_type,
             foreign_key,
+            collate: attrs.collate,
             default_value: attrs.default_value,
             default_fn: attrs.default_fn,
             marker_exprs: attrs.marker_exprs,

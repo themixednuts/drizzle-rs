@@ -207,6 +207,11 @@ pub fn process_columns<S1: std::hash::BuildHasher, S2: std::hash::BuildHasher>(
                 unique: None,      // Handled via UniqueConstraint entity
                 default: c.default_value.clone().map(std::convert::Into::into),
                 generated,
+                // PRAGMA table_info doesn't expose the collation per column;
+                // introspection-derived snapshots leave it as the default.
+                // Migration paths that need to detect collation drift will
+                // need to parse the CREATE TABLE SQL stored in sqlite_schema.
+                collate: None,
                 ordinal_position: Some(c.cid),
             }
         })
