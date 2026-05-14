@@ -13,11 +13,6 @@ fn tx_consumed_error() -> DrizzleError {
     DrizzleError::TransactionError("Transaction already consumed".into())
 }
 
-pub mod delete;
-pub mod insert;
-pub mod select;
-pub mod update;
-
 use drizzle_postgres::builder::{
     self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
     update::UpdateBuilder,
@@ -28,13 +23,23 @@ use smallvec::SmallVec;
 
 use crate::builder::postgres::postgres_sync::Rows;
 
-/// Postgres-specific transaction builder
-#[derive(Debug)]
-pub struct TransactionBuilder<'a, 'conn, Schema, Builder, State> {
-    transaction: &'a Transaction<'conn, Schema>,
-    builder: Builder,
-    _phantom: PhantomData<(Schema, State)>,
-}
+/// `postgres_sync`-specific transaction builder.
+///
+/// This is a thin type alias over the dialect-shared
+/// [`crate::transaction::postgres::typestate::TransactionBuilder`]; every
+/// typestate-advancing method (`.value`/`.values`/`.r#where`/`.set`/
+/// `.on_conflict`/`.returning`/`.from`/`.join`/etc.) lives on the generic
+/// struct over there. Executor methods (`.execute`/`.all`/`.rows`/`.get`)
+/// — the only parts that need `postgres::Transaction`-specific access —
+/// stay below in this module.
+pub type TransactionBuilder<'tx, 'conn, Schema, Builder, State> =
+    crate::transaction::postgres::typestate::TransactionBuilder<
+        'tx,
+        Transaction<'conn, Schema>,
+        Schema,
+        Builder,
+        State,
+    >;
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 pub struct Transaction<'conn, Schema = ()> {

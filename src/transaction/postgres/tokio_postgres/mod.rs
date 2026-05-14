@@ -12,11 +12,6 @@ fn tx_consumed_error() -> DrizzleError {
     DrizzleError::TransactionError("Transaction already consumed".into())
 }
 
-pub mod delete;
-pub mod insert;
-pub mod select;
-pub mod update;
-
 use drizzle_postgres::builder::{
     self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
     update::UpdateBuilder,
@@ -25,13 +20,17 @@ use drizzle_postgres::common::PostgresTransactionType;
 use drizzle_postgres::values::PostgresValue;
 use smallvec::SmallVec;
 
-/// Tokio-postgres-specific transaction builder
-#[derive(Debug)]
-pub struct TransactionBuilder<'a, 'conn, Schema, Builder, State> {
-    transaction: &'a Transaction<'conn, Schema>,
-    builder: Builder,
-    _phantom: PhantomData<(Schema, State)>,
-}
+/// `tokio_postgres`-specific transaction builder. See
+/// [`crate::transaction::postgres::typestate::TransactionBuilder`] for the
+/// typestate-advancing methods; executor methods live below.
+pub type TransactionBuilder<'tx, 'conn, Schema, Builder, State> =
+    crate::transaction::postgres::typestate::TransactionBuilder<
+        'tx,
+        Transaction<'conn, Schema>,
+        Schema,
+        Builder,
+        State,
+    >;
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 pub struct Transaction<'conn, Schema = ()> {

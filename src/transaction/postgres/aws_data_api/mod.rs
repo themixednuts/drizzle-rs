@@ -37,13 +37,17 @@ fn tx_consumed_error() -> DrizzleError {
     DrizzleError::TransactionError("Transaction already consumed".into())
 }
 
-/// AWS Data API transaction builder wrapper.
-#[derive(Debug)]
-pub struct TransactionBuilder<'a, Schema, Builder, State> {
-    transaction: &'a Transaction<Schema>,
-    builder: Builder,
-    _phantom: PhantomData<(Schema, State)>,
-}
+/// AWS Data API transaction builder wrapper. See
+/// [`crate::transaction::postgres::typestate::TransactionBuilder`] for the
+/// typestate-advancing methods; executor methods live below.
+pub type TransactionBuilder<'tx, Schema, Builder, State> =
+    crate::transaction::postgres::typestate::TransactionBuilder<
+        'tx,
+        Transaction<Schema>,
+        Schema,
+        Builder,
+        State,
+    >;
 
 /// Active AWS Aurora Data API transaction.
 ///

@@ -1,3 +1,10 @@
+#[cfg(any(
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+    feature = "aws-data-api"
+))]
+pub mod typestate;
+
 #[cfg(feature = "postgres-sync")]
 pub mod postgres_sync;
 
