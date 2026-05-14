@@ -1,3 +1,11 @@
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "turso",
+    feature = "libsql",
+    feature = "durable"
+))]
+mod typestate;
+
 #[cfg(feature = "rusqlite")]
 pub mod rusqlite;
 
