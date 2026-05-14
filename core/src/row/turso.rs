@@ -1,241 +1,35 @@
-//! `FromDrizzleRow` leaf impls for [`turso::Row`].
+//! `SqliteValueRow` adapter for [`turso::Row`].
+//!
+//! All leaf `FromDrizzleRow` impls live in [`super::sqlite_value`] keyed on
+//! the [`super::sqlite_value::SqliteValueRow`] trait. This file is just the
+//! one-screen normalizer that converts a `turso::Value` into a
+//! [`super::sqlite_value::SqliteCell`].
 
 use crate::error::DrizzleError;
-use crate::row::FromDrizzleRow;
+use crate::row::sqlite_value::{SqliteCell, SqliteValueRow};
 
-// -- Integer types --
-
-macro_rules! impl_leaf_turso_int {
-    ($($ty:ty),*) => { $(
-        impl FromDrizzleRow<::turso::Row> for $ty {
-            const COLUMN_COUNT: usize = 1;
-            fn from_row_at(row: &::turso::Row, offset: usize) -> Result<Self, DrizzleError> {
-                let val = row.get_value(offset)
-                    .map_err(|e| DrizzleError::ConversionError(e.to_string().into()))?;
-                if val.is_null() {
-                    return Err(DrizzleError::ConversionError("unexpected NULL for integer".into()));
-                }
-                if let Some(i) = val.as_integer() {
-                    (*i).try_into()
-                        .map_err(|e: core::num::TryFromIntError| DrizzleError::ConversionError(e.to_string().into()))
-                } else {
-                    Err(DrizzleError::ConversionError("expected integer value".into()))
-                }
-            }
-        }
-    )* }
-}
-
-impl_leaf_turso_int!(i8, i16, i32, isize, u8, u16, u32, u64, usize);
-
-// i64 doesn't need try_into (identity conversion)
-impl FromDrizzleRow<::turso::Row> for i64 {
-    const COLUMN_COUNT: usize = 1;
-    fn from_row_at(row: &::turso::Row, offset: usize) -> Result<Self, DrizzleError> {
-        let val = row
+impl SqliteValueRow for ::turso::Row {
+    fn cell_at(&self, offset: usize) -> Result<SqliteCell, DrizzleError> {
+        let val = self
             .get_value(offset)
             .map_err(|e| DrizzleError::ConversionError(e.to_string().into()))?;
         if val.is_null() {
-            return Err(DrizzleError::ConversionError(
-                "unexpected NULL for integer".into(),
-            ));
-        }
-        val.as_integer()
-            .copied()
-            .ok_or_else(|| DrizzleError::ConversionError("expected integer value".into()))
-    }
-}
-
-// -- Float types --
-
-impl FromDrizzleRow<::turso::Row> for f64 {
-    const COLUMN_COUNT: usize = 1;
-    fn from_row_at(row: &::turso::Row, offset: usize) -> Result<Self, DrizzleError> {
-        let val = row
-            .get_value(offset)
-            .map_err(|e| DrizzleError::ConversionError(e.to_string().into()))?;
-        if val.is_null() {
-            return Err(DrizzleError::ConversionError(
-                "unexpected NULL for float".into(),
-            ));
-        }
-        if let Some(r) = val.as_real() {
-            return Ok(*r);
+            return Ok(SqliteCell::Null);
         }
         if let Some(i) = val.as_integer() {
-            // Convert via decimal-string round-trip: avoids lossy `as` cast and
-            // matches IEEE-754 round-to-nearest semantics for values beyond
-            // f64's 2^53 exact-representable range.
-            return format!("{i}")
-                .parse::<Self>()
-                .map_err(|e| DrizzleError::ConversionError(e.to_string().into()));
+            return Ok(SqliteCell::Integer(*i));
         }
-        Err(DrizzleError::ConversionError("expected real value".into()))
-    }
-}
-
-impl FromDrizzleRow<::turso::Row> for f32 {
-    const COLUMN_COUNT: usize = 1;
-    fn from_row_at(row: &::turso::Row, offset: usize) -> Result<Self, DrizzleError> {
-        let v = f64::from_row_at(row, offset)?;
-        // Decimal-string round-trip matches IEEE-754 round-to-nearest semantics
-        // and avoids the lossy `as` cast.
-        let f: Self = format!("{v}")
-            .parse()
-            .map_err(|e: core::num::ParseFloatError| {
-                DrizzleError::ConversionError(e.to_string().into())
-            })?;
-        if v.is_finite() && !f.is_finite() {
-            return Err(DrizzleError::ConversionError(
-                format!("f64 value {v} overflows f32").into(),
-            ));
+        if let Some(r) = val.as_real() {
+            return Ok(SqliteCell::Real(*r));
         }
-        Ok(f)
-    }
-}
-
-// -- Bool --
-
-impl FromDrizzleRow<::turso::Row> for bool {
-    const COLUMN_COUNT: usize = 1;
-    fn from_row_at(row: &::turso::Row, offset: usize) -> Result<Self, DrizzleError> {
-        let val = row
-            .get_value(offset)
-            .map_err(|e| DrizzleError::ConversionError(e.to_string().into()))?;
-        if val.is_null() {
-            return Err(DrizzleError::ConversionError(
-                "unexpected NULL for bool".into(),
-            ));
-        }
-        val.as_integer()
-            .map(|i| *i != 0)
-            .ok_or_else(|| DrizzleError::ConversionError("expected integer for bool".into()))
-    }
-}
-
-// -- String --
-
-impl FromDrizzleRow<::turso::Row> for String {
-    const COLUMN_COUNT: usize = 1;
-    fn from_row_at(row: &::turso::Row, offset: usize) -> Result<Self, DrizzleError> {
-        let val = row
-            .get_value(offset)
-            .map_err(|e| DrizzleError::ConversionError(e.to_string().into()))?;
-        if val.is_null() {
-            return Err(DrizzleError::ConversionError(
-                "unexpected NULL for string".into(),
-            ));
-        }
-        val.as_text()
-            .cloned()
-            .ok_or_else(|| DrizzleError::ConversionError("expected text value".into()))
-    }
-}
-
-// -- Vec<u8> --
-
-impl FromDrizzleRow<::turso::Row> for Vec<u8> {
-    const COLUMN_COUNT: usize = 1;
-    fn from_row_at(row: &::turso::Row, offset: usize) -> Result<Self, DrizzleError> {
-        let val = row
-            .get_value(offset)
-            .map_err(|e| DrizzleError::ConversionError(e.to_string().into()))?;
-        if val.is_null() {
-            return Err(DrizzleError::ConversionError(
-                "unexpected NULL for blob".into(),
-            ));
-        }
-        val.as_blob()
-            .cloned()
-            .ok_or_else(|| DrizzleError::ConversionError("expected blob value".into()))
-    }
-}
-
-// -- Option<T>: NULL-aware wrapper --
-
-impl<T: FromDrizzleRow<::turso::Row>> FromDrizzleRow<::turso::Row> for Option<T> {
-    const COLUMN_COUNT: usize = T::COLUMN_COUNT;
-    fn from_row_at(row: &::turso::Row, offset: usize) -> Result<Self, DrizzleError> {
-        let val = row
-            .get_value(offset)
-            .map_err(|e| DrizzleError::ConversionError(e.to_string().into()))?;
-        if val.is_null() {
-            Ok(None)
-        } else {
-            T::from_row_at(row, offset).map(Some)
-        }
-    }
-}
-
-// -- Feature-gated types --
-
-#[cfg(feature = "uuid")]
-impl FromDrizzleRow<::turso::Row> for uuid::Uuid {
-    const COLUMN_COUNT: usize = 1;
-    fn from_row_at(row: &::turso::Row, offset: usize) -> Result<Self, DrizzleError> {
-        let val = row
-            .get_value(offset)
-            .map_err(|e| DrizzleError::ConversionError(e.to_string().into()))?;
         if let Some(s) = val.as_text() {
-            return Self::parse_str(s).map_err(Into::into);
+            return Ok(SqliteCell::Text(s.to_string()));
         }
         if let Some(b) = val.as_blob() {
-            return Self::from_slice(b)
-                .map_err(|e| DrizzleError::ConversionError(e.to_string().into()));
+            return Ok(SqliteCell::Blob(b.to_vec()));
         }
         Err(DrizzleError::ConversionError(
-            "expected TEXT or BLOB for UUID".into(),
+            "turso::Value variant outside SQLite storage classes".into(),
         ))
-    }
-}
-
-#[cfg(feature = "chrono")]
-impl FromDrizzleRow<::turso::Row> for chrono::NaiveDate {
-    const COLUMN_COUNT: usize = 1;
-    fn from_row_at(row: &::turso::Row, offset: usize) -> Result<Self, DrizzleError> {
-        let s = String::from_row_at(row, offset)?;
-        s.parse()
-            .map_err(|e: chrono::ParseError| DrizzleError::ConversionError(e.to_string().into()))
-    }
-}
-
-#[cfg(feature = "chrono")]
-impl FromDrizzleRow<::turso::Row> for chrono::NaiveTime {
-    const COLUMN_COUNT: usize = 1;
-    fn from_row_at(row: &::turso::Row, offset: usize) -> Result<Self, DrizzleError> {
-        let s = String::from_row_at(row, offset)?;
-        s.parse()
-            .map_err(|e: chrono::ParseError| DrizzleError::ConversionError(e.to_string().into()))
-    }
-}
-
-#[cfg(feature = "chrono")]
-impl FromDrizzleRow<::turso::Row> for chrono::NaiveDateTime {
-    const COLUMN_COUNT: usize = 1;
-    fn from_row_at(row: &::turso::Row, offset: usize) -> Result<Self, DrizzleError> {
-        let s = String::from_row_at(row, offset)?;
-        s.parse()
-            .map_err(|e: chrono::ParseError| DrizzleError::ConversionError(e.to_string().into()))
-    }
-}
-
-#[cfg(feature = "chrono")]
-impl FromDrizzleRow<::turso::Row> for chrono::DateTime<chrono::Utc> {
-    const COLUMN_COUNT: usize = 1;
-    fn from_row_at(row: &::turso::Row, offset: usize) -> Result<Self, DrizzleError> {
-        let s = String::from_row_at(row, offset)?;
-        let ndt: chrono::NaiveDateTime = s
-            .parse()
-            .map_err(|e: chrono::ParseError| DrizzleError::ConversionError(e.to_string().into()))?;
-        Ok(Self::from_naive_utc_and_offset(ndt, chrono::Utc))
-    }
-}
-
-#[cfg(feature = "serde")]
-impl FromDrizzleRow<::turso::Row> for serde_json::Value {
-    const COLUMN_COUNT: usize = 1;
-    fn from_row_at(row: &::turso::Row, offset: usize) -> Result<Self, DrizzleError> {
-        let s = String::from_row_at(row, offset)?;
-        serde_json::from_str(&s).map_err(Into::into)
     }
 }
