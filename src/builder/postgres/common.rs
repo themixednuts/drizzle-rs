@@ -23,8 +23,8 @@ use drizzle_postgres::values::PostgresValue;
 
 /// Shared Postgres drizzle builder wrapper.
 #[derive(Debug)]
-pub struct DrizzleBuilder<'a, DrizzleRef, Schema, Builder, State> {
-    pub(crate) drizzle: DrizzleRef,
+pub struct DrizzleBuilder<'a, Runner, Schema, Builder, State> {
+    pub(crate) runner: Runner,
     pub(crate) builder: Builder,
     pub(crate) state: PhantomData<(Schema, State, &'a ())>,
 }
@@ -34,21 +34,21 @@ pub struct DrizzleBuilder<'a, DrizzleRef, Schema, Builder, State> {
 pub struct DrizzleQueryBuilder<
     'db,
     'a,
-    DrizzleRef,
+    Runner,
     Schema,
     T,
     Rels = (),
     Cols = drizzle_core::query::AllColumns,
     Cl = drizzle_core::query::Clauses,
 > {
-    pub(crate) drizzle: DrizzleRef,
+    pub(crate) runner: Runner,
     pub(crate) builder: drizzle_core::query::QueryBuilder<PostgresValue<'a>, T, Rels, Cols, Cl>,
     pub(crate) _schema: PhantomData<(&'db (), Schema)>,
 }
 
 #[cfg(feature = "query")]
-impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, Cl>
-    DrizzleQueryBuilder<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, Cl>
+impl<'db, 'a, Runner, Schema, T, Rels, Cols, Cl>
+    DrizzleQueryBuilder<'db, 'a, Runner, Schema, T, Rels, Cols, Cl>
 {
     /// Includes a relation in the query results.
     #[allow(clippy::type_complexity)]
@@ -58,7 +58,7 @@ impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, Cl>
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         T,
         (
@@ -72,7 +72,7 @@ impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, Cl>
         R: drizzle_core::relation::RelationDef<Source = T> + 'static,
     {
         DrizzleQueryBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.with(handle),
             _schema: PhantomData,
         }
@@ -81,11 +81,11 @@ impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, Cl>
 
 /// WHERE is only available when no WHERE clause has been set yet.
 #[cfg(feature = "query")]
-impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, Ord, Lim>
+impl<'db, 'a, Runner, Schema, T, Rels, Cols, Ord, Lim>
     DrizzleQueryBuilder<
         'db,
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         T,
         Rels,
@@ -102,7 +102,7 @@ impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, Ord, Lim>
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         T,
         Rels,
@@ -114,7 +114,7 @@ impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, Ord, Lim>
         E::SQLType: drizzle_core::types::BooleanLike,
     {
         DrizzleQueryBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.r#where(condition),
             _schema: PhantomData,
         }
@@ -123,11 +123,11 @@ impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, Ord, Lim>
 
 /// ORDER BY is only available when no ORDER BY clause has been set yet.
 #[cfg(feature = "query")]
-impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, W, Lim>
+impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Lim>
     DrizzleQueryBuilder<
         'db,
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         T,
         Rels,
@@ -142,7 +142,7 @@ impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, W, Lim>
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         T,
         Rels,
@@ -153,7 +153,7 @@ impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, W, Lim>
         E: drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
     {
         DrizzleQueryBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.order_by(expr),
             _schema: PhantomData,
         }
@@ -162,11 +162,11 @@ impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, W, Lim>
 
 /// LIMIT is only available when no LIMIT has been set yet.
 #[cfg(feature = "query")]
-impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, W, Ord>
+impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Ord>
     DrizzleQueryBuilder<
         'db,
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         T,
         Rels,
@@ -181,7 +181,7 @@ impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, W, Ord>
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         T,
         Rels,
@@ -189,7 +189,7 @@ impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::HasLimit>,
     > {
         DrizzleQueryBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.limit(n),
             _schema: PhantomData,
         }
@@ -198,11 +198,11 @@ impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, W, Ord>
 
 /// OFFSET requires LIMIT to have been set first.
 #[cfg(feature = "query")]
-impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, W, Ord>
+impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Ord>
     DrizzleQueryBuilder<
         'db,
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         T,
         Rels,
@@ -217,7 +217,7 @@ impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, W, Ord>
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         T,
         Rels,
@@ -225,7 +225,7 @@ impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::HasOffset>,
     > {
         DrizzleQueryBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.offset(n),
             _schema: PhantomData,
         }
@@ -233,8 +233,8 @@ impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cols, W, Ord>
 }
 
 #[cfg(feature = "query")]
-impl<'db, 'a, DrizzleRef, Schema, T, Rels, Cl>
-    DrizzleQueryBuilder<'db, 'a, DrizzleRef, Schema, T, Rels, drizzle_core::query::AllColumns, Cl>
+impl<'db, 'a, Runner, Schema, T, Rels, Cl>
+    DrizzleQueryBuilder<'db, 'a, Runner, Schema, T, Rels, drizzle_core::query::AllColumns, Cl>
 where
     T: drizzle_core::query::QueryTable,
 {
@@ -245,7 +245,7 @@ where
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         T,
         Rels,
@@ -253,7 +253,7 @@ where
         Cl,
     > {
         DrizzleQueryBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.columns(selector),
             _schema: PhantomData,
         }
@@ -266,7 +266,7 @@ where
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         T,
         Rels,
@@ -274,7 +274,7 @@ where
         Cl,
     > {
         DrizzleQueryBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.omit(selector),
             _schema: PhantomData,
         }
@@ -282,15 +282,13 @@ where
 }
 
 /// Intermediate builder for typed ON CONFLICT within a `PostgreSQL` Drizzle wrapper.
-pub struct DrizzleOnConflictBuilder<'a, 'b, DrizzleRef, Schema, Table> {
-    drizzle: DrizzleRef,
+pub struct DrizzleOnConflictBuilder<'a, 'b, Runner, Schema, Table> {
+    runner: Runner,
     builder: OnConflictBuilder<'b, Schema, Table>,
     _phantom: PhantomData<&'a ()>,
 }
 
-impl<'a, 'b, DrizzleRef, Schema, Table>
-    DrizzleOnConflictBuilder<'a, 'b, DrizzleRef, Schema, Table>
-{
+impl<'a, 'b, Runner, Schema, Table> DrizzleOnConflictBuilder<'a, 'b, Runner, Schema, Table> {
     /// Adds a WHERE clause to the conflict target for partial index matching.
     pub fn r#where<E>(mut self, condition: E) -> Self
     where
@@ -306,13 +304,13 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         self,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         InsertBuilder<'b, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
     > {
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.do_nothing(),
             state: PhantomData,
         }
@@ -324,21 +322,21 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         set: impl ToSQL<'b, PostgresValue<'b>>,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         InsertBuilder<'b, Schema, InsertDoUpdateSet, Table>,
         InsertDoUpdateSet,
     > {
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.do_update(set),
             state: PhantomData,
         }
     }
 }
 
-impl<'a, DrizzleRef, S, T, State> ToSQL<'a, PostgresValue<'a>>
-    for DrizzleBuilder<'_, DrizzleRef, S, T, State>
+impl<'a, Runner, S, T, State> ToSQL<'a, PostgresValue<'a>>
+    for DrizzleBuilder<'_, Runner, S, T, State>
 where
     T: ToSQL<'a, PostgresValue<'a>>,
 {
@@ -347,8 +345,8 @@ where
     }
 }
 
-impl<'a, DrizzleRef, S, T, State> drizzle_core::expr::Expr<'a, PostgresValue<'a>>
-    for DrizzleBuilder<'_, DrizzleRef, S, T, State>
+impl<'a, Runner, S, T, State> drizzle_core::expr::Expr<'a, PostgresValue<'a>>
+    for DrizzleBuilder<'_, Runner, S, T, State>
 where
     T: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
 {
@@ -357,14 +355,8 @@ where
     type Aggregate = T::Aggregate;
 }
 
-impl<'d, 'a, DrizzleRef, Schema>
-    DrizzleBuilder<
-        'd,
-        DrizzleRef,
-        Schema,
-        QueryBuilder<'a, Schema, builder::CTEInit>,
-        builder::CTEInit,
-    >
+impl<'d, 'a, Runner, Schema>
+    DrizzleBuilder<'d, Runner, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
 {
     #[inline]
     pub fn select<T>(
@@ -372,7 +364,7 @@ impl<'d, 'a, DrizzleRef, Schema>
         query: T,
     ) -> DrizzleBuilder<
         'd,
-        DrizzleRef,
+        Runner,
         Schema,
         SelectBuilder<'a, Schema, builder::select::SelectInitial, (), T::Marker>,
         builder::select::SelectInitial,
@@ -382,7 +374,7 @@ impl<'d, 'a, DrizzleRef, Schema>
     {
         let builder = self.builder.select(query);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
@@ -394,7 +386,7 @@ impl<'d, 'a, DrizzleRef, Schema>
         query: T,
     ) -> DrizzleBuilder<
         'd,
-        DrizzleRef,
+        Runner,
         Schema,
         SelectBuilder<'a, Schema, builder::select::SelectInitial, (), T::Marker>,
         builder::select::SelectInitial,
@@ -404,7 +396,7 @@ impl<'d, 'a, DrizzleRef, Schema>
     {
         let builder = self.builder.select_distinct(query);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
@@ -417,7 +409,7 @@ impl<'d, 'a, DrizzleRef, Schema>
         columns: Columns,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         SelectBuilder<'a, Schema, builder::select::SelectInitial, (), Columns::Marker>,
         builder::select::SelectInitial,
@@ -428,7 +420,7 @@ impl<'d, 'a, DrizzleRef, Schema>
     {
         let builder = self.builder.select_distinct_on(on, columns);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
@@ -441,17 +433,17 @@ impl<'d, 'a, DrizzleRef, Schema>
     {
         let builder = self.builder.with(cte);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
     }
 }
 
-impl<'d, 'a, DrizzleRef, Schema, M>
+impl<'d, 'a, Runner, Schema, M>
     DrizzleBuilder<
         'd,
-        DrizzleRef,
+        Runner,
         Schema,
         SelectBuilder<'a, Schema, SelectInitial, (), M>,
         SelectInitial,
@@ -463,7 +455,7 @@ impl<'d, 'a, DrizzleRef, Schema, M>
         table: T,
     ) -> DrizzleBuilder<
         'd,
-        DrizzleRef,
+        Runner,
         Schema,
         SelectBuilder<
             'a,
@@ -481,7 +473,7 @@ impl<'d, 'a, DrizzleRef, Schema, M>
     {
         let builder = self.builder.from(table);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
@@ -494,8 +486,8 @@ impl<'d, 'a, DrizzleRef, Schema, M>
 macro_rules! impl_select_methods {
     ($($state:ty => [$($method:ident),* $(,)?]),+ $(,)?) => {
         $(
-            impl<'d, 'a, DrizzleRef, Schema, T, M, R, G>
-                DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, $state, T, M, R, G>, $state>
+            impl<'d, 'a, Runner, Schema, T, M, R, G>
+                DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, $state, T, M, R, G>, $state>
             {
                 $( impl_select_methods!(@method $method); )*
             }
@@ -509,13 +501,13 @@ macro_rules! impl_select_methods {
         pub fn r#where<E>(
             self,
             condition: E,
-        ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T, M, R, G>, SelectWhereSet>
+        ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T, M, R, G>, SelectWhereSet>
         where
             E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
             E::SQLType: drizzle_core::types::BooleanLike,
         {
             let builder = self.builder.r#where(condition);
-            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+            DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
         }
     };
 
@@ -523,12 +515,12 @@ macro_rules! impl_select_methods {
         pub fn group_by<Gr>(
             self,
             columns: Gr,
-        ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectGroupSet, T, M, R, Gr::Columns>, SelectGroupSet>
+        ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectGroupSet, T, M, R, Gr::Columns>, SelectGroupSet>
         where
             Gr: drizzle_core::IntoGroupBy<'a, PostgresValue<'a>>,
         {
             let builder = self.builder.group_by(columns);
-            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+            DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
         }
     };
 
@@ -536,13 +528,13 @@ macro_rules! impl_select_methods {
         pub fn having<E>(
             self,
             condition: E,
-        ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectGroupSet, T, M, R, G>, SelectGroupSet>
+        ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectGroupSet, T, M, R, G>, SelectGroupSet>
         where
             E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
             E::SQLType: drizzle_core::types::BooleanLike,
         {
             let builder = self.builder.having(condition);
-            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+            DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
         }
     };
 
@@ -550,12 +542,12 @@ macro_rules! impl_select_methods {
         pub fn order_by<TOrderBy>(
             self,
             expressions: TOrderBy,
-        ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T, M, R, G>, SelectOrderSet>
+        ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T, M, R, G>, SelectOrderSet>
         where
             TOrderBy: drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
         {
             let builder = self.builder.order_by(expressions);
-            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+            DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
         }
     };
 
@@ -563,10 +555,10 @@ macro_rules! impl_select_methods {
         pub fn limit(
             self,
             limit: usize,
-        ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T, M, R, G>, SelectLimitSet>
+        ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T, M, R, G>, SelectLimitSet>
         {
             let builder = self.builder.limit(limit);
-            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+            DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
         }
     };
 
@@ -574,10 +566,10 @@ macro_rules! impl_select_methods {
         pub fn offset(
             self,
             offset: usize,
-        ) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R, G>, SelectOffsetSet>
+        ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R, G>, SelectOffsetSet>
         {
             let builder = self.builder.offset(offset);
-            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+            DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
         }
     };
 
@@ -588,7 +580,7 @@ macro_rules! impl_select_methods {
             arg: J,
         ) -> DrizzleBuilder<
             'd,
-            DrizzleRef,
+            Runner,
             Schema,
             SelectBuilder<
                 'a,
@@ -605,7 +597,7 @@ macro_rules! impl_select_methods {
             M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
         {
             let builder = self.builder.join(arg);
-            DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+            DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
         }
 
         crate::drizzle_pg_builder_join_impl!();
@@ -628,8 +620,8 @@ impl_select_methods! {
 // IntoSelect for DrizzleBuilder
 //------------------------------------------------------------------------------
 
-impl<'a, DrizzleRef, Schema, State, T, M, R, G> IntoSelect<'a, Schema, M, R>
-    for DrizzleBuilder<'_, DrizzleRef, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
+impl<'a, Runner, Schema, State, T, M, R, G> IntoSelect<'a, Schema, M, R>
+    for DrizzleBuilder<'_, Runner, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
 where
     State: drizzle_postgres::builder::ExecutableState,
 {
@@ -648,8 +640,8 @@ where
 // select/insert/update/delete builder is a type alias for `QueryBuilder`, one
 // generic impl here covers all four operation kinds.
 
-impl<DrizzleRef, Schema, State, T, M, R, G>
-    DrizzleBuilder<'_, DrizzleRef, Schema, QueryBuilder<'_, Schema, State, T, M, R, G>, State>
+impl<Runner, Schema, State, T, M, R, G>
+    DrizzleBuilder<'_, Runner, Schema, QueryBuilder<'_, Schema, State, T, M, R, G>, State>
 where
     State: drizzle_postgres::builder::ExecutableState,
 {
@@ -658,7 +650,7 @@ where
     #[inline]
     pub fn comment(self, text: impl AsRef<str>) -> Self {
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.comment(text),
             state: PhantomData,
         }
@@ -674,7 +666,7 @@ where
         V: AsRef<str>,
     {
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.comment_tags(pairs),
             state: PhantomData,
         }
@@ -685,8 +677,8 @@ where
 // Set operations on DrizzleBuilder
 //------------------------------------------------------------------------------
 
-impl<'d, 'a, DrizzleRef, Schema, State, T, M, R>
-    DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
+impl<'d, 'a, Runner, Schema, State, T, M, R>
+    DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
 where
     State: drizzle_postgres::builder::ExecutableState,
 {
@@ -695,13 +687,13 @@ where
         other: impl IntoSelect<'a, Schema, M, R>,
     ) -> DrizzleBuilder<
         'd,
-        DrizzleRef,
+        Runner,
         Schema,
         SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
         SelectSetOpSet,
     > {
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.union(other),
             state: PhantomData,
         }
@@ -712,13 +704,13 @@ where
         other: impl IntoSelect<'a, Schema, M, R>,
     ) -> DrizzleBuilder<
         'd,
-        DrizzleRef,
+        Runner,
         Schema,
         SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
         SelectSetOpSet,
     > {
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.union_all(other),
             state: PhantomData,
         }
@@ -729,13 +721,13 @@ where
         other: impl IntoSelect<'a, Schema, M, R>,
     ) -> DrizzleBuilder<
         'd,
-        DrizzleRef,
+        Runner,
         Schema,
         SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
         SelectSetOpSet,
     > {
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.intersect(other),
             state: PhantomData,
         }
@@ -746,13 +738,13 @@ where
         other: impl IntoSelect<'a, Schema, M, R>,
     ) -> DrizzleBuilder<
         'd,
-        DrizzleRef,
+        Runner,
         Schema,
         SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
         SelectSetOpSet,
     > {
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.intersect_all(other),
             state: PhantomData,
         }
@@ -763,13 +755,13 @@ where
         other: impl IntoSelect<'a, Schema, M, R>,
     ) -> DrizzleBuilder<
         'd,
-        DrizzleRef,
+        Runner,
         Schema,
         SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
         SelectSetOpSet,
     > {
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.except(other),
             state: PhantomData,
         }
@@ -780,21 +772,21 @@ where
         other: impl IntoSelect<'a, Schema, M, R>,
     ) -> DrizzleBuilder<
         'd,
-        DrizzleRef,
+        Runner,
         Schema,
         SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
         SelectSetOpSet,
     > {
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.except_all(other),
             state: PhantomData,
         }
     }
 }
 
-impl<'a, DrizzleRef, Schema, State, T, M, R>
-    DrizzleBuilder<'_, DrizzleRef, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
+impl<'a, Runner, Schema, State, T, M, R>
+    DrizzleBuilder<'_, Runner, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
 where
     State: AsCteState,
     T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
@@ -812,10 +804,10 @@ where
     }
 }
 
-impl<'a, 'b, DrizzleRef, Schema, Table>
+impl<'a, 'b, Runner, Schema, Table>
     DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         InsertBuilder<'b, Schema, InsertInitial, Table>,
         InsertInitial,
@@ -827,7 +819,7 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         value: Table::Insert<T>,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         InsertBuilder<'b, Schema, InsertValuesSet, Table>,
         InsertValuesSet,
@@ -845,7 +837,7 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         values: impl IntoIterator<Item = Table::Insert<T>>,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         InsertBuilder<'b, Schema, InsertValuesSet, Table>,
         InsertValuesSet,
@@ -856,17 +848,17 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     {
         let builder = self.builder.values(values);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
     }
 }
 
-impl<'a, 'b, DrizzleRef, Schema, Table>
+impl<'a, 'b, Runner, Schema, Table>
     DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         InsertBuilder<'b, Schema, InsertValuesSet, Table>,
         InsertValuesSet,
@@ -878,9 +870,9 @@ where
     pub fn on_conflict<C: ConflictTarget<Table>>(
         self,
         target: C,
-    ) -> DrizzleOnConflictBuilder<'a, 'b, DrizzleRef, Schema, Table> {
+    ) -> DrizzleOnConflictBuilder<'a, 'b, Runner, Schema, Table> {
         DrizzleOnConflictBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.on_conflict(target),
             _phantom: PhantomData,
         }
@@ -890,9 +882,9 @@ where
     pub fn on_conflict_on_constraint<C: NamedConstraint<Table>>(
         self,
         target: C,
-    ) -> DrizzleOnConflictBuilder<'a, 'b, DrizzleRef, Schema, Table> {
+    ) -> DrizzleOnConflictBuilder<'a, 'b, Runner, Schema, Table> {
         DrizzleOnConflictBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.on_conflict_on_constraint(target),
             _phantom: PhantomData,
         }
@@ -903,13 +895,13 @@ where
         self,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         InsertBuilder<'b, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
     > {
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.on_conflict_do_nothing(),
             state: PhantomData,
         }
@@ -921,7 +913,7 @@ where
         columns: Columns,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         InsertBuilder<
             'b,
@@ -939,17 +931,17 @@ where
     {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
     }
 }
 
-impl<'a, 'b, DrizzleRef, Schema, Table>
+impl<'a, 'b, Runner, Schema, Table>
     DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         InsertBuilder<'b, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
@@ -961,7 +953,7 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         columns: Columns,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         InsertBuilder<
             'b,
@@ -979,17 +971,17 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
     }
 }
 
-impl<'a, 'b, DrizzleRef, Schema, Table>
+impl<'a, 'b, Runner, Schema, Table>
     DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         InsertBuilder<'b, Schema, InsertDoUpdateSet, Table>,
         InsertDoUpdateSet,
@@ -1001,7 +993,7 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         condition: E,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         InsertBuilder<'b, Schema, InsertOnConflictSet, Table>,
         InsertOnConflictSet,
@@ -1011,7 +1003,7 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         E::SQLType: drizzle_core::types::BooleanLike,
     {
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder: self.builder.r#where(condition),
             state: PhantomData,
         }
@@ -1023,7 +1015,7 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         columns: Columns,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         InsertBuilder<
             'b,
@@ -1041,17 +1033,17 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
     }
 }
 
-impl<'a, 'b, DrizzleRef, Schema, Table>
+impl<'a, 'b, Runner, Schema, Table>
     DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         UpdateBuilder<'b, Schema, UpdateInitial, Table>,
         UpdateInitial,
@@ -1065,24 +1057,24 @@ where
         values: Table::Update,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         UpdateBuilder<'b, Schema, UpdateSetClauseSet, Table>,
         UpdateSetClauseSet,
     > {
         let builder = self.builder.set(values);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
     }
 }
 
-impl<'a, 'b, DrizzleRef, Schema, Table>
+impl<'a, 'b, Runner, Schema, Table>
     DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         UpdateBuilder<'b, Schema, UpdateSetClauseSet, Table>,
         UpdateSetClauseSet,
@@ -1093,14 +1085,14 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         source: impl ToSQL<'b, PostgresValue<'b>>,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         UpdateBuilder<'b, Schema, UpdateFromSet, Table>,
         UpdateFromSet,
     > {
         let builder = self.builder.from(source.to_sql());
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
@@ -1111,7 +1103,7 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         condition: E,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         UpdateBuilder<'b, Schema, UpdateWhereSet, Table>,
         UpdateWhereSet,
@@ -1122,7 +1114,7 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     {
         let builder = self.builder.r#where(condition);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
@@ -1133,7 +1125,7 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         columns: Columns,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         UpdateBuilder<
             'b,
@@ -1151,17 +1143,17 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
     }
 }
 
-impl<'a, 'b, DrizzleRef, Schema, Table>
+impl<'a, 'b, Runner, Schema, Table>
     DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         UpdateBuilder<'b, Schema, UpdateFromSet, Table>,
         UpdateFromSet,
@@ -1172,7 +1164,7 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         condition: E,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         UpdateBuilder<'b, Schema, UpdateWhereSet, Table>,
         UpdateWhereSet,
@@ -1183,7 +1175,7 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     {
         let builder = self.builder.r#where(condition);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
@@ -1194,7 +1186,7 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         columns: Columns,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         UpdateBuilder<
             'b,
@@ -1212,17 +1204,17 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
     }
 }
 
-impl<'a, 'b, DrizzleRef, Schema, Table>
+impl<'a, 'b, Runner, Schema, Table>
     DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         UpdateBuilder<'b, Schema, UpdateWhereSet, Table>,
         UpdateWhereSet,
@@ -1233,7 +1225,7 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         columns: Columns,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         UpdateBuilder<
             'b,
@@ -1251,17 +1243,17 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
     }
 }
 
-impl<'a, 'b, DrizzleRef, Schema, Table>
+impl<'a, 'b, Runner, Schema, Table>
     DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         DeleteBuilder<'b, Schema, DeleteInitial, Table>,
         DeleteInitial,
@@ -1274,7 +1266,7 @@ where
         condition: E,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         DeleteBuilder<'b, Schema, DeleteWhereSet, Table>,
         DeleteWhereSet,
@@ -1285,7 +1277,7 @@ where
     {
         let builder = self.builder.r#where(condition);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
@@ -1296,7 +1288,7 @@ where
         columns: Columns,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         DeleteBuilder<
             'b,
@@ -1314,17 +1306,17 @@ where
     {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
     }
 }
 
-impl<'a, 'b, DrizzleRef, Schema, Table>
+impl<'a, 'b, Runner, Schema, Table>
     DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         DeleteBuilder<'b, Schema, DeleteWhereSet, Table>,
         DeleteWhereSet,
@@ -1335,7 +1327,7 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
         columns: Columns,
     ) -> DrizzleBuilder<
         'a,
-        DrizzleRef,
+        Runner,
         Schema,
         DeleteBuilder<
             'b,
@@ -1353,7 +1345,7 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
     {
         let builder = self.builder.returning(columns);
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
@@ -1367,43 +1359,43 @@ impl<'a, 'b, DrizzleRef, Schema, Table>
 macro_rules! impl_for_update_methods {
     ($($state:ty),+ $(,)?) => {
         $(
-            impl<'d, 'a, DrizzleRef, Schema, T, M, R>
-                DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, $state, T, M, R>, $state>
+            impl<'d, 'a, Runner, Schema, T, M, R>
+                DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, $state, T, M, R>, $state>
             {
                 /// Adds FOR UPDATE clause to lock selected rows for update.
-                pub fn for_update(self) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
+                pub fn for_update(self) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
                     let builder = self.builder.for_update();
-                    DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+                    DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
                 }
 
                 /// Adds FOR SHARE clause to lock selected rows for shared access.
-                pub fn for_share(self) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
+                pub fn for_share(self) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
                     let builder = self.builder.for_share();
-                    DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+                    DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
                 }
 
                 /// Adds FOR NO KEY UPDATE clause.
-                pub fn for_no_key_update(self) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
+                pub fn for_no_key_update(self) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
                     let builder = self.builder.for_no_key_update();
-                    DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+                    DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
                 }
 
                 /// Adds FOR KEY SHARE clause.
-                pub fn for_key_share(self) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
+                pub fn for_key_share(self) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
                     let builder = self.builder.for_key_share();
-                    DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+                    DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
                 }
 
                 /// Adds FOR UPDATE OF table clause to lock only rows from a specific table.
-                pub fn for_update_of<U: PostgresTable<'a>>(self, table: U) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
+                pub fn for_update_of<U: PostgresTable<'a>>(self, table: U) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
                     let builder = self.builder.for_update_of(table);
-                    DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+                    DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
                 }
 
                 /// Adds FOR SHARE OF table clause to lock only rows from a specific table.
-                pub fn for_share_of<U: PostgresTable<'a>>(self, table: U) -> DrizzleBuilder<'d, DrizzleRef, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
+                pub fn for_share_of<U: PostgresTable<'a>>(self, table: U) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
                     let builder = self.builder.for_share_of(table);
-                    DrizzleBuilder { drizzle: self.drizzle, builder, state: PhantomData }
+                    DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
                 }
             }
         )+
@@ -1421,10 +1413,10 @@ impl_for_update_methods!(
 );
 
 // Implement NOWAIT and SKIP LOCKED on SelectForSet
-impl<DrizzleRef, Schema, T, M, R>
+impl<Runner, Schema, T, M, R>
     DrizzleBuilder<
         '_,
-        DrizzleRef,
+        Runner,
         Schema,
         SelectBuilder<'_, Schema, SelectForSet, T, M, R>,
         SelectForSet,
@@ -1434,7 +1426,7 @@ impl<DrizzleRef, Schema, T, M, R>
     pub fn nowait(self) -> Self {
         let builder = self.builder.nowait();
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }
@@ -1444,7 +1436,7 @@ impl<DrizzleRef, Schema, T, M, R>
     pub fn skip_locked(self) -> Self {
         let builder = self.builder.skip_locked();
         DrizzleBuilder {
-            drizzle: self.drizzle,
+            runner: self.runner,
             builder,
             state: PhantomData,
         }

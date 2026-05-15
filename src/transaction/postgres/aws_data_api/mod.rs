@@ -43,7 +43,7 @@ fn tx_consumed_error() -> DrizzleError {
 pub type TransactionBuilder<'tx, Schema, Builder, State> =
     crate::transaction::postgres::typestate::TransactionBuilder<
         'tx,
-        Transaction<Schema>,
+        &'tx Transaction<Schema>,
         Schema,
         Builder,
         State,
@@ -178,9 +178,9 @@ impl<Schema> Transaction<Schema> {
     {
         let builder = QueryBuilder::new::<Schema>().select(query);
         TransactionBuilder {
-            transaction: self,
+            runner: self,
             builder,
-            _phantom: PhantomData,
+            state: PhantomData,
         }
     }
 
@@ -199,9 +199,9 @@ impl<Schema> Transaction<Schema> {
     {
         let builder = QueryBuilder::new::<Schema>().select_distinct(query);
         TransactionBuilder {
-            transaction: self,
+            runner: self,
             builder,
-            _phantom: PhantomData,
+            state: PhantomData,
         }
     }
 
@@ -220,9 +220,9 @@ impl<Schema> Transaction<Schema> {
     {
         let builder = QueryBuilder::new::<Schema>().insert(table);
         TransactionBuilder {
-            transaction: self,
+            runner: self,
             builder,
-            _phantom: PhantomData,
+            state: PhantomData,
         }
     }
 
@@ -241,9 +241,9 @@ impl<Schema> Transaction<Schema> {
     {
         let builder = QueryBuilder::new::<Schema>().update(table);
         TransactionBuilder {
-            transaction: self,
+            runner: self,
             builder,
-            _phantom: PhantomData,
+            state: PhantomData,
         }
     }
 
@@ -257,9 +257,9 @@ impl<Schema> Transaction<Schema> {
     {
         let builder = QueryBuilder::new::<Schema>().delete(table);
         TransactionBuilder {
-            transaction: self,
+            runner: self,
             builder,
-            _phantom: PhantomData,
+            state: PhantomData,
         }
     }
 
@@ -273,9 +273,9 @@ impl<Schema> Transaction<Schema> {
     {
         let builder = QueryBuilder::new::<Schema>().with(cte);
         TransactionBuilder {
-            transaction: self,
+            runner: self,
             builder,
-            _phantom: PhantomData,
+            state: PhantomData,
         }
     }
 
@@ -456,7 +456,7 @@ where
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.transaction.run_statement(&sql_str, sql_params).await?;
+        let out = self.runner.run_statement(&sql_str, sql_params).await?;
         Ok(out.number_of_records_updated.max(0).cast_unsigned())
     }
 
@@ -479,7 +479,7 @@ where
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.transaction.run_statement(&sql_str, sql_params).await?;
+        let out = self.runner.run_statement(&sql_str, sql_params).await?;
         let rows = decode_rows(out);
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -507,7 +507,7 @@ where
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.transaction.run_statement(&sql_str, sql_params).await?;
+        let out = self.runner.run_statement(&sql_str, sql_params).await?;
         let row = decode_rows(out)
             .into_iter()
             .next()
@@ -516,11 +516,5 @@ where
     }
 }
 
-impl<'a, T, State> ToSQL<'a, PostgresValue<'a>> for TransactionBuilder<'_, (), T, State>
-where
-    T: ToSQL<'a, PostgresValue<'a>>,
-{
-    fn to_sql(&self) -> drizzle_core::sql::SQL<'a, PostgresValue<'a>> {
-        self.builder.to_sql()
-    }
-}
+// `ToSQL for TransactionBuilder` is now provided by the shared `DrizzleBuilder`
+// impl in `crate::builder::postgres::common`.

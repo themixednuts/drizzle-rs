@@ -3,8 +3,8 @@
 //! # Quick start
 //!
 //! ```no_run
-//! use drizzle::postgres::prelude::*;
-//! use drizzle::postgres::sync::Drizzle;
+//! use runner::postgres::prelude::*;
+//! use runner::postgres::sync::Drizzle;
 //!
 //! #[PostgresTable]
 //! struct User {
@@ -18,7 +18,7 @@
 //!     user: User,
 //! }
 //!
-//! fn main() -> drizzle::Result<()> {
+//! fn main() -> runner::Result<()> {
 //!     let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
 //!     let (mut db, AppSchema { user }) = Drizzle::new(client, AppSchema::new());
 //!     db.create()?;
@@ -39,14 +39,14 @@
 //! a rollback.
 //!
 //! ```no_run
-//! # use drizzle::postgres::prelude::*;
-//! # use drizzle::postgres::sync::Drizzle;
+//! # use runner::postgres::prelude::*;
+//! # use runner::postgres::sync::Drizzle;
 //! # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
 //! # #[derive(PostgresSchema)] struct S { user: User }
-//! # fn main() -> drizzle::Result<()> {
+//! # fn main() -> runner::Result<()> {
 //! # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
 //! # let (mut db, S { user }) = Drizzle::new(client, S::new());
-//! use drizzle::postgres::common::PostgresTransactionType;
+//! use runner::postgres::common::PostgresTransactionType;
 //!
 //! let count = db.transaction(PostgresTransactionType::ReadCommitted, |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
@@ -62,12 +62,12 @@
 //! without aborting the outer transaction.
 //!
 //! ```no_run
-//! # use drizzle::postgres::prelude::*;
-//! # use drizzle::postgres::sync::Drizzle;
-//! # use drizzle::postgres::common::PostgresTransactionType;
+//! # use runner::postgres::prelude::*;
+//! # use runner::postgres::sync::Drizzle;
+//! # use runner::postgres::common::PostgresTransactionType;
 //! # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
 //! # #[derive(PostgresSchema)] struct S { user: User }
-//! # fn main() -> drizzle::Result<()> {
+//! # fn main() -> runner::Result<()> {
 //! # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
 //! # let (mut db, S { user }) = Drizzle::new(client, S::new());
 //! db.transaction(PostgresTransactionType::ReadCommitted, |tx| {
@@ -76,7 +76,7 @@
 //!     // This savepoint fails — only its changes roll back
 //!     let _: Result<(), _> = tx.savepoint(|stx| {
 //!         stx.insert(user).values([InsertUser::new("Bad")]).execute()?;
-//!         Err(drizzle::error::DrizzleError::Other("oops".into()))
+//!         Err(runner::error::DrizzleError::Other("oops".into()))
 //!     });
 //!
 //!     let users: Vec<SelectUser> = tx.select(()).from(user).all()?;
@@ -91,12 +91,12 @@
 //! Build a query once and execute it many times with different parameters.
 //!
 //! ```no_run
-//! # use drizzle::postgres::prelude::*;
-//! # use drizzle::postgres::sync::Drizzle;
-//! # use drizzle::core::expr::eq;
+//! # use runner::postgres::prelude::*;
+//! # use runner::postgres::sync::Drizzle;
+//! # use runner::core::expr::eq;
 //! # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
 //! # #[derive(PostgresSchema)] struct S { user: User }
-//! # fn main() -> drizzle::Result<()> {
+//! # fn main() -> runner::Result<()> {
 //! # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
 //! # let (mut db, S { user }) = Drizzle::new(client, S::new());
 //!
@@ -347,7 +347,7 @@ impl<Schema> Drizzle<Schema> {
         T: drizzle_core::query::QueryTable,
     {
         common::DrizzleQueryBuilder {
-            drizzle: self,
+            runner: self,
             builder: drizzle_core::query::QueryBuilder::new(),
             _schema: PhantomData,
         }
@@ -359,12 +359,12 @@ impl<Schema> Drizzle<Schema> {
     /// rolled back on `Err` or panic.
     ///
     /// ```no_run
-    /// # use drizzle::postgres::prelude::*;
-    /// # use drizzle::postgres::sync::Drizzle;
-    /// # use drizzle::postgres::common::PostgresTransactionType;
+    /// # use runner::postgres::prelude::*;
+    /// # use runner::postgres::sync::Drizzle;
+    /// # use runner::postgres::common::PostgresTransactionType;
     /// # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
     /// # #[derive(PostgresSchema)] struct S { user: User }
-    /// # fn main() -> drizzle::Result<()> {
+    /// # fn main() -> runner::Result<()> {
     /// # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
     /// # let (mut db, S { user }) = Drizzle::new(client, S::new());
     /// let count = db.transaction(PostgresTransactionType::ReadCommitted, |tx| {
@@ -1038,17 +1038,14 @@ where
         if all_typed {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.execute.db_typed");
-            let mut rows = self
-                .drizzle
-                .client
-                .query_typed_raw(&sql_str, typed_params)?;
+            let mut rows = self.runner.client.query_typed_raw(&sql_str, typed_params)?;
             while rows.next()?.is_some() {}
             return Ok(rows.rows_affected().unwrap_or(0));
         }
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.execute.db");
-        Ok(self.drizzle.client.execute(&sql_str, &param_refs[..])?)
+        Ok(self.runner.client.execute(&sql_str, &param_refs[..])?)
     }
 
     /// Runs the query and returns all matching rows using the builder's row type.
@@ -1075,7 +1072,7 @@ where
                 .map(|&p| p as &(dyn postgres::types::ToSql + Sync)),
         );
 
-        let rows = self.drizzle.client.query(&sql_str, &param_refs[..])?;
+        let rows = self.runner.client.query(&sql_str, &param_refs[..])?;
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
             decoded.push(<Mk as drizzle_core::row::DecodeSelectedRef<
@@ -1107,7 +1104,7 @@ where
                 .map(|&p| p as &(dyn postgres::types::ToSql + Sync)),
         );
 
-        let rows = self.drizzle.client.query(&sql_str, &param_refs[..])?;
+        let rows = self.runner.client.query(&sql_str, &param_refs[..])?;
 
         Ok(Rows::new(rows))
     }
@@ -1136,7 +1133,7 @@ where
                 .map(|&p| p as &(dyn postgres::types::ToSql + Sync)),
         );
 
-        let row = self.drizzle.client.query_one(&sql_str, &param_refs[..])?;
+        let row = self.runner.client.query_one(&sql_str, &param_refs[..])?;
         <Mk as drizzle_core::row::DecodeSelectedRef<&::postgres::Row, R>>::decode(&row)
     }
 }
@@ -1209,7 +1206,7 @@ impl<'db, 'a, Schema, T, Rels, Cl>
             .map(|&p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
 
-        let rows = self.drizzle.client.query(&sql, &param_refs[..])?;
+        let rows = self.runner.client.query(&sql, &param_refs[..])?;
         let mut results = Vec::with_capacity(rows.len());
 
         for row in &rows {
@@ -1329,7 +1326,7 @@ impl<'db, 'a, Schema, T, Rels, Cl>
             .map(|&p| p as &(dyn postgres::types::ToSql + Sync))
             .collect();
 
-        let rows = self.drizzle.client.query(&sql, &param_refs[..])?;
+        let rows = self.runner.client.query(&sql, &param_refs[..])?;
         let mut results = Vec::with_capacity(rows.len());
 
         for row in &rows {

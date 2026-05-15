@@ -140,7 +140,7 @@ use crate::transaction::sqlite::turso::Transaction;
 
 pub type Drizzle<Schema = ()> = common::Drizzle<Connection, Schema>;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
-    common::DrizzleBuilder<'a, Connection, Schema, Builder, State>;
+    common::DrizzleBuilder<'a, common::Drizzle<Connection, Schema>, Schema, Builder, State>;
 
 impl<Schema> common::Drizzle<Connection, Schema> {
     pub async fn execute<'a, T>(
@@ -815,7 +815,7 @@ impl<'a, Schema, T, Rels, Cl>
             .map(std::convert::Into::into)
             .collect();
         let mut raw_rows = self
-            .drizzle
+            .runner
             .conn
             .query(&sql, params)
             .await
@@ -943,7 +943,7 @@ impl<'a, Schema, T, Rels, Cl>
             .map(std::convert::Into::into)
             .collect();
         let mut raw_rows = self
-            .drizzle
+            .runner
             .conn
             .query(&sql, params)
             .await
@@ -1024,7 +1024,7 @@ where
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
-        self.drizzle
+        self.runner
             .conn
             .execute(&sql_str, params)
             .await
@@ -1047,7 +1047,7 @@ where
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
         let mut rows = self
-            .drizzle
+            .runner
             .conn
             .query(&sql_str, params)
             .await
@@ -1080,7 +1080,7 @@ where
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
         let rows = self
-            .drizzle
+            .runner
             .conn
             .query(&sql_str, params)
             .await
@@ -1104,7 +1104,7 @@ where
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
         let mut rows = self
-            .drizzle
+            .runner
             .conn
             .query(&sql_str, params)
             .await

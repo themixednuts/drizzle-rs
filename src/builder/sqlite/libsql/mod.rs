@@ -104,7 +104,7 @@ use crate::transaction::sqlite::libsql::Transaction;
 
 pub type Drizzle<Schema = ()> = common::Drizzle<Connection, Schema>;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
-    common::DrizzleBuilder<'a, Connection, Schema, Builder, State>;
+    common::DrizzleBuilder<'a, common::Drizzle<Connection, Schema>, Schema, Builder, State>;
 
 impl<Schema> common::Drizzle<Connection, Schema> {
     pub async fn execute<'a, T>(
@@ -735,7 +735,7 @@ impl<'a, Schema, T, Rels, Cl>
             .map(std::convert::Into::into)
             .collect();
         let mut raw_rows = self
-            .drizzle
+            .runner
             .conn
             .query(&sql, params)
             .await
@@ -866,7 +866,7 @@ impl<'a, Schema, T, Rels, Cl>
             .map(std::convert::Into::into)
             .collect();
         let mut raw_rows = self
-            .drizzle
+            .runner
             .conn
             .query(&sql, params)
             .await
@@ -953,7 +953,7 @@ where
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
-        Ok(self.drizzle.conn.execute(&sql_str, params).await?)
+        Ok(self.runner.conn.execute(&sql_str, params).await?)
     }
 
     /// Runs the query and returns all matching rows using the builder's row type.
@@ -967,7 +967,7 @@ where
     {
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
-        let mut rows = self.drizzle.conn.query(&sql_str, params).await?;
+        let mut rows = self.runner.conn.query(&sql_str, params).await?;
         let mut decoded = Vec::new();
         while let Some(row) = rows.next().await? {
             decoded.push(<Mk as drizzle_core::row::DecodeSelectedRef<
@@ -987,7 +987,7 @@ where
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
-        let rows = self.drizzle.conn.query(&sql_str, params).await?;
+        let rows = self.runner.conn.query(&sql_str, params).await?;
         Ok(Rows::new(rows))
     }
 
@@ -1002,7 +1002,7 @@ where
     {
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
-        let mut rows = self.drizzle.conn.query(&sql_str, params).await?;
+        let mut rows = self.runner.conn.query(&sql_str, params).await?;
         rows.next().await?.map_or_else(
             || Err(drizzle_core::error::DrizzleError::NotFound),
             |row| <Mk as drizzle_core::row::DecodeSelectedRef<&::libsql::Row, R>>::decode(&row),

@@ -93,7 +93,7 @@ use crate::builder::sqlite::common;
 
 pub type Drizzle<Schema = ()> = common::Drizzle<D1Database, Schema>;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
-    common::DrizzleBuilder<'a, D1Database, Schema, Builder, State>;
+    common::DrizzleBuilder<'a, common::Drizzle<D1Database, Schema>, Schema, Builder, State>;
 
 /// Convert a drizzle SQLite value into a `JsValue` suitable for D1 parameter
 /// binding. D1 accepts null, number, BigInt, string, and Uint8Array.
@@ -476,7 +476,7 @@ where
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         let (sql_str, params) = self.builder.sql.build();
         let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
-        let stmt = self.drizzle.conn.prepare(sql_str);
+        let stmt = self.runner.conn.prepare(sql_str);
         let stmt = bind_statement(stmt, &values)?;
         let result = stmt
             .run()
@@ -505,7 +505,7 @@ where
     {
         let (sql_str, params) = self.builder.sql.build();
         let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
-        let stmt = self.drizzle.conn.prepare(sql_str);
+        let stmt = self.runner.conn.prepare(sql_str);
         let stmt = bind_statement(stmt, &values)?;
         let result = stmt
             .all()
@@ -531,7 +531,7 @@ where
     {
         let (sql_str, params) = self.builder.sql.build();
         let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
-        let stmt = self.drizzle.conn.prepare(sql_str);
+        let stmt = self.runner.conn.prepare(sql_str);
         let stmt = bind_statement(stmt, &values)?;
         stmt.first::<R>(None)
             .await

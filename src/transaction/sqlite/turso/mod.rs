@@ -255,7 +255,7 @@ where
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
-        Ok(self.transaction.tx.execute(&sql_str, params).await?)
+        Ok(self.runner.tx.execute(&sql_str, params).await?)
     }
 
     /// Runs the query and returns all matching rows using the builder's row type.
@@ -269,7 +269,7 @@ where
     {
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
-        let mut rows = self.transaction.tx.query(&sql_str, params).await?;
+        let mut rows = self.runner.tx.query(&sql_str, params).await?;
         let mut decoded = Vec::new();
         while let Some(row) = rows.next().await? {
             decoded.push(<Mk as drizzle_core::row::DecodeSelectedRef<
@@ -289,7 +289,7 @@ where
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
-        let rows = self.transaction.tx.query(&sql_str, params).await?;
+        let rows = self.runner.tx.query(&sql_str, params).await?;
         Ok(Rows::new(rows))
     }
 
@@ -304,7 +304,7 @@ where
     {
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
-        let mut rows = self.transaction.tx.query(&sql_str, params).await?;
+        let mut rows = self.runner.tx.query(&sql_str, params).await?;
         rows.next().await?.map_or_else(
             || Err(DrizzleError::NotFound),
             |row| <Mk as drizzle_core::row::DecodeSelectedRef<&::turso::Row, R>>::decode(&row),

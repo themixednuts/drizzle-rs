@@ -3,8 +3,8 @@
 //! # Quick start
 //!
 //! ```no_run
-//! use drizzle::postgres::prelude::*;
-//! use drizzle::postgres::tokio::Drizzle;
+//! use runner::postgres::prelude::*;
+//! use runner::postgres::tokio::Drizzle;
 //!
 //! #[PostgresTable]
 //! struct User {
@@ -19,7 +19,7 @@
 //! }
 //!
 //! #[tokio::main]
-//! async fn main() -> drizzle::Result<()> {
+//! async fn main() -> runner::Result<()> {
 //!     let (client, connection) = ::tokio_postgres::connect(
 //!         "host=localhost user=postgres", ::tokio_postgres::NoTls,
 //!     ).await?;
@@ -43,15 +43,15 @@
 //! Return `Ok(value)` to commit, `Err(...)` to rollback.
 //!
 //! ```no_run
-//! # use drizzle::postgres::prelude::*;
-//! # use drizzle::postgres::tokio::Drizzle;
+//! # use runner::postgres::prelude::*;
+//! # use runner::postgres::tokio::Drizzle;
 //! # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
 //! # #[derive(PostgresSchema)] struct S { user: User }
-//! # #[tokio::main] async fn main() -> drizzle::Result<()> {
+//! # #[tokio::main] async fn main() -> runner::Result<()> {
 //! # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
 //! # tokio::spawn(async move { conn.await.unwrap() });
 //! # let (mut db, S { user }) = Drizzle::new(client, S::new());
-//! use drizzle::postgres::common::PostgresTransactionType;
+//! use runner::postgres::common::PostgresTransactionType;
 //!
 //! let count = db.transaction(PostgresTransactionType::ReadCommitted, async |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
@@ -67,12 +67,12 @@
 //! without aborting the outer transaction.
 //!
 //! ```no_run
-//! # use drizzle::postgres::prelude::*;
-//! # use drizzle::postgres::tokio::Drizzle;
-//! # use drizzle::postgres::common::PostgresTransactionType;
+//! # use runner::postgres::prelude::*;
+//! # use runner::postgres::tokio::Drizzle;
+//! # use runner::postgres::common::PostgresTransactionType;
 //! # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
 //! # #[derive(PostgresSchema)] struct S { user: User }
-//! # #[tokio::main] async fn main() -> drizzle::Result<()> {
+//! # #[tokio::main] async fn main() -> runner::Result<()> {
 //! # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
 //! # tokio::spawn(async move { conn.await.unwrap() });
 //! # let (mut db, S { user }) = Drizzle::new(client, S::new());
@@ -82,7 +82,7 @@
 //!     // This savepoint fails — only its changes roll back
 //!     let _: Result<(), _> = tx.savepoint(async |stx| {
 //!         stx.insert(user).values([InsertUser::new("Bad")]).execute().await?;
-//!         Err(drizzle::error::DrizzleError::Other("oops".into()))
+//!         Err(runner::error::DrizzleError::Other("oops".into()))
 //!     }).await;
 //!
 //!     // Alice is still there
@@ -99,11 +99,11 @@
 //! [`Arc`]). Move a clone into spawned tasks for concurrent queries.
 //!
 //! ```no_run
-//! # use drizzle::postgres::prelude::*;
-//! # use drizzle::postgres::tokio::Drizzle;
+//! # use runner::postgres::prelude::*;
+//! # use runner::postgres::tokio::Drizzle;
 //! # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
 //! # #[derive(PostgresSchema)] struct S { user: User }
-//! # #[tokio::main] async fn main() -> drizzle::Result<()> {
+//! # #[tokio::main] async fn main() -> runner::Result<()> {
 //! # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
 //! # tokio::spawn(async move { conn.await.unwrap() });
 //! # let (db, S { user }) = Drizzle::new(client, S::new());
@@ -124,12 +124,12 @@
 //! Build a query once and execute it many times with different parameters.
 //!
 //! ```no_run
-//! # use drizzle::postgres::prelude::*;
-//! # use drizzle::postgres::tokio::Drizzle;
-//! # use drizzle::core::expr::eq;
+//! # use runner::postgres::prelude::*;
+//! # use runner::postgres::tokio::Drizzle;
+//! # use runner::core::expr::eq;
 //! # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
 //! # #[derive(PostgresSchema)] struct S { user: User }
-//! # #[tokio::main] async fn main() -> drizzle::Result<()> {
+//! # #[tokio::main] async fn main() -> runner::Result<()> {
 //! # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
 //! # tokio::spawn(async move { conn.await.unwrap() });
 //! # let (db, S { user }) = Drizzle::new(client, S::new());
@@ -358,7 +358,7 @@ impl<Schema> Drizzle<Schema> {
         T: drizzle_core::query::QueryTable,
     {
         common::DrizzleQueryBuilder {
-            drizzle: self,
+            runner: self,
             builder: drizzle_core::query::QueryBuilder::new(),
             _schema: std::marker::PhantomData,
         }
@@ -376,12 +376,12 @@ impl<Schema> Drizzle<Schema> {
     /// since exclusive access to the underlying client is required for transactions.
     ///
     /// ```no_run
-    /// # use drizzle::postgres::prelude::*;
-    /// # use drizzle::postgres::tokio::Drizzle;
-    /// # use drizzle::postgres::common::PostgresTransactionType;
+    /// # use runner::postgres::prelude::*;
+    /// # use runner::postgres::tokio::Drizzle;
+    /// # use runner::postgres::common::PostgresTransactionType;
     /// # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
     /// # #[derive(PostgresSchema)] struct S { user: User }
-    /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
+    /// # #[tokio::main] async fn main() -> runner::Result<()> {
     /// # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
     /// # tokio::spawn(async move { conn.await.unwrap() });
     /// # let (mut db, S { user }) = Drizzle::new(client, S::new());
@@ -1052,7 +1052,7 @@ where
         };
 
         Ok(self
-            .drizzle
+            .runner
             .client
             .execute(&sql_str, &param_refs[..])
             .await?)
@@ -1080,7 +1080,7 @@ where
             (sql_str, param_refs)
         };
 
-        let rows = self.drizzle.client.query(&sql_str, &param_refs[..]).await?;
+        let rows = self.runner.client.query(&sql_str, &param_refs[..]).await?;
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
             decoded.push(<Mk as drizzle_core::row::DecodeSelectedRef<
@@ -1110,7 +1110,7 @@ where
             (sql_str, param_refs)
         };
 
-        let rows = self.drizzle.client.query(&sql_str, &param_refs[..]).await?;
+        let rows = self.runner.client.query(&sql_str, &param_refs[..]).await?;
 
         Ok(Rows::new(rows))
     }
@@ -1138,7 +1138,7 @@ where
         };
 
         let row = self
-            .drizzle
+            .runner
             .client
             .query_one(&sql_str, &param_refs[..])
             .await?;
@@ -1214,7 +1214,7 @@ impl<'db, 'a, Schema, T, Rels, Cl>
             .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
 
-        let rows = self.drizzle.client.query(&sql, &param_refs[..]).await?;
+        let rows = self.runner.client.query(&sql, &param_refs[..]).await?;
         let mut results = Vec::with_capacity(rows.len());
 
         for row in &rows {
@@ -1334,7 +1334,7 @@ impl<'db, 'a, Schema, T, Rels, Cl>
             .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
 
-        let rows = self.drizzle.client.query(&sql, &param_refs[..]).await?;
+        let rows = self.runner.client.query(&sql, &param_refs[..]).await?;
         let mut results = Vec::with_capacity(rows.len());
 
         for row in &rows {

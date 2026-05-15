@@ -95,7 +95,7 @@ use crate::builder::sqlite::common;
 
 pub type Drizzle<Schema = ()> = common::Drizzle<SqlStorage, Schema>;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
-    common::DrizzleBuilder<'a, SqlStorage, Schema, Builder, State>;
+    common::DrizzleBuilder<'a, common::Drizzle<SqlStorage, Schema>, Schema, Builder, State>;
 
 /// Convert a drizzle SQLite value into a typed [`SqlStorageValue`] for
 /// parameter binding.
@@ -432,7 +432,7 @@ where
 {
     /// Runs the query and returns the number of rows written.
     pub fn execute(self) -> drizzle_core::error::Result<u64> {
-        let cursor = exec_query(&self.drizzle.conn, &self.builder.sql)?;
+        let cursor = exec_query(&self.runner.conn, &self.builder.sql)?;
         let _ = cursor
             .to_array::<serde::de::IgnoredAny>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
@@ -444,7 +444,7 @@ where
     where
         R: for<'de> serde::Deserialize<'de>,
     {
-        let cursor = exec_query(&self.drizzle.conn, &self.builder.sql)?;
+        let cursor = exec_query(&self.runner.conn, &self.builder.sql)?;
         cursor
             .to_array::<R>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))
@@ -455,7 +455,7 @@ where
     where
         R: for<'de> serde::Deserialize<'de>,
     {
-        let cursor = exec_query(&self.drizzle.conn, &self.builder.sql)?;
+        let cursor = exec_query(&self.runner.conn, &self.builder.sql)?;
         cursor
             .to_array::<R>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?

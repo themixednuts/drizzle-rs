@@ -28,7 +28,7 @@ use drizzle_sqlite::{
 /// `.on_conflict`/`.returning`/`.from`/`.join_*`/etc.) lives on the
 /// generic struct over there. Executor methods (`.execute`/`.all`/`.rows`/
 /// `.get`) — the only parts that need `rusqlite`-specific access to
-/// `self.transaction.tx` — stay below in this module.
+/// `self.runner.tx` — stay below in this module.
 pub type TransactionBuilder<'tx, 'conn, Schema, Builder, State> =
     crate::transaction::sqlite::typestate::TransactionBuilder<
         'tx,
@@ -282,10 +282,7 @@ where
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx_builder.execute");
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        Ok(self
-            .transaction
-            .tx
-            .execute(&sql_str, params_from_iter(params))?)
+        Ok(self.runner.tx.execute(&sql_str, params_from_iter(params))?)
     }
 
     /// Runs the query and returns all matching rows using the builder's row type.
@@ -302,7 +299,7 @@ where
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        let mut stmt = self.transaction.tx.prepare(&sql_str)?;
+        let mut stmt = self.runner.tx.prepare(&sql_str)?;
         let mut raw_rows = stmt.query(params_from_iter(params))?;
         let mut decoded = Vec::new();
         while let Some(row) = raw_rows.next()? {
@@ -326,7 +323,7 @@ where
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        let mut stmt = self.transaction.tx.prepare(&sql_str)?;
+        let mut stmt = self.runner.tx.prepare(&sql_str)?;
 
         let mut rows = stmt.query_and_then(params_from_iter(params), |row| {
             Rw::try_from(row).map_err(Into::into)
@@ -355,7 +352,7 @@ where
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        let mut stmt = self.transaction.tx.prepare(&sql_str)?;
+        let mut stmt = self.runner.tx.prepare(&sql_str)?;
         stmt.query_row(params_from_iter(params), |row| {
             Ok(<Mk as drizzle_core::row::DecodeSelectedRef<
                 &::rusqlite::Row<'_>,

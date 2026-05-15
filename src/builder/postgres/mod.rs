@@ -12,7 +12,7 @@ macro_rules! postgres_builder_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().select(query);
             DrizzleBuilder {
-                drizzle: self,
+                runner: self,
                 builder,
                 state: ::std::marker::PhantomData,
             }
@@ -28,7 +28,7 @@ macro_rules! postgres_builder_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().select_distinct(query);
             DrizzleBuilder {
-                drizzle: self,
+                runner: self,
                 builder,
                 state: ::std::marker::PhantomData,
             }
@@ -46,7 +46,7 @@ macro_rules! postgres_builder_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().select_distinct_on(on, columns);
             DrizzleBuilder {
-                drizzle: self,
+                runner: self,
                 builder,
                 state: ::std::marker::PhantomData,
             }
@@ -62,7 +62,7 @@ macro_rules! postgres_builder_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().insert(table);
             DrizzleBuilder {
-                drizzle: self,
+                runner: self,
                 builder,
                 state: ::std::marker::PhantomData,
             }
@@ -78,7 +78,7 @@ macro_rules! postgres_builder_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().update(table);
             DrizzleBuilder {
-                drizzle: self,
+                runner: self,
                 builder,
                 state: ::std::marker::PhantomData,
             }
@@ -94,7 +94,7 @@ macro_rules! postgres_builder_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().delete(table);
             DrizzleBuilder {
-                drizzle: self,
+                runner: self,
                 builder,
                 state: ::std::marker::PhantomData,
             }
@@ -110,7 +110,7 @@ macro_rules! postgres_builder_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().with(cte);
             DrizzleBuilder {
-                drizzle: self,
+                runner: self,
                 builder,
                 state: ::std::marker::PhantomData,
             }
@@ -127,7 +127,7 @@ macro_rules! postgres_builder_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().select(query);
             DrizzleBuilder {
-                drizzle: self,
+                runner: self,
                 builder,
                 state: ::std::marker::PhantomData,
             }
@@ -143,7 +143,7 @@ macro_rules! postgres_builder_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().select_distinct(query);
             DrizzleBuilder {
-                drizzle: self,
+                runner: self,
                 builder,
                 state: ::std::marker::PhantomData,
             }
@@ -161,7 +161,7 @@ macro_rules! postgres_builder_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().select_distinct_on(on, columns);
             DrizzleBuilder {
-                drizzle: self,
+                runner: self,
                 builder,
                 state: ::std::marker::PhantomData,
             }
@@ -177,7 +177,7 @@ macro_rules! postgres_builder_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().insert(table);
             DrizzleBuilder {
-                drizzle: self,
+                runner: self,
                 builder,
                 state: ::std::marker::PhantomData,
             }
@@ -193,7 +193,7 @@ macro_rules! postgres_builder_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().update(table);
             DrizzleBuilder {
-                drizzle: self,
+                runner: self,
                 builder,
                 state: ::std::marker::PhantomData,
             }
@@ -209,7 +209,7 @@ macro_rules! postgres_builder_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().delete(table);
             DrizzleBuilder {
-                drizzle: self,
+                runner: self,
                 builder,
                 state: ::std::marker::PhantomData,
             }
@@ -225,7 +225,7 @@ macro_rules! postgres_builder_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().with(cte);
             DrizzleBuilder {
-                drizzle: self,
+                runner: self,
                 builder,
                 state: ::std::marker::PhantomData,
             }

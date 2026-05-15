@@ -9,11 +9,11 @@
 //! # Quick start
 //!
 //! ```no_run
-//! # use drizzle::postgres::prelude::*;
-//! # use drizzle::postgres::aws::Drizzle;
+//! # use runner::postgres::prelude::*;
+//! # use runner::postgres::aws::Drizzle;
 //! # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
 //! # #[derive(PostgresSchema)] struct S { user: User }
-//! # #[tokio::main] async fn main() -> drizzle::Result<()> {
+//! # #[tokio::main] async fn main() -> runner::Result<()> {
 //! let config = ::aws_config::load_from_env().await;
 //! let client = ::aws_sdk_rdsdata::Client::new(&config);
 //!
@@ -519,7 +519,7 @@ where
 
         let sql_params = encode_params(params.as_slice());
         let out = self
-            .drizzle
+            .runner
             .run_statement(&sql_str, sql_params, None::<&str>)
             .await?;
         Ok(out.number_of_records_updated.max(0).cast_unsigned())
@@ -541,7 +541,7 @@ where
 
         let sql_params = encode_params(params.as_slice());
         let out = self
-            .drizzle
+            .runner
             .run_statement(&sql_str, sql_params, None::<&str>)
             .await?;
         let rows = decode_rows(out);
@@ -568,7 +568,7 @@ where
 
         let sql_params = encode_params(params.as_slice());
         let out = self
-            .drizzle
+            .runner
             .run_statement(&sql_str, sql_params, None::<&str>)
             .await?;
         Ok(Rows::new(decode_rows(out)))
@@ -590,7 +590,7 @@ where
 
         let sql_params = encode_params(params.as_slice());
         let out = self
-            .drizzle
+            .runner
             .run_statement(&sql_str, sql_params, None::<&str>)
             .await?;
         let rows = decode_rows(out);

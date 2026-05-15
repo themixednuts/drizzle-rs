@@ -24,7 +24,7 @@ macro_rules! drizzle_builder_join_impl {
                 arg: J,
             ) -> DrizzleBuilder<
                 'd,
-                Conn,
+                Runner,
                 Schema,
                 SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>,
                 SelectJoinSet,
@@ -34,7 +34,7 @@ macro_rules! drizzle_builder_join_impl {
             {
                 let builder = self.builder.[<$type _join>](arg);
                 DrizzleBuilder {
-                    drizzle: self.drizzle,
+                    runner: self.runner,
                     builder,
                     state: PhantomData,
                 }
@@ -69,7 +69,7 @@ macro_rules! drizzle_pg_builder_join_impl {
                 arg: J,
             ) -> DrizzleBuilder<
                 'd,
-                DrizzleRef,
+                Runner,
                 Schema,
                 SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>,
                 SelectJoinSet,
@@ -79,7 +79,7 @@ macro_rules! drizzle_pg_builder_join_impl {
             {
                 let builder = self.builder.[<$type _join>](arg);
                 DrizzleBuilder {
-                    drizzle: self.drizzle,
+                    runner: self.runner,
                     builder,
                     state: PhantomData,
                 }
@@ -106,7 +106,7 @@ macro_rules! drizzle_pg_builder_join_using_impl {
             columns: impl drizzle_core::ToSQL<'a, drizzle_postgres::values::PostgresValue<'a>>,
         ) -> DrizzleBuilder<
             'd,
-            DrizzleRef,
+            Runner,
             Schema,
             SelectBuilder<
                 'a,
@@ -124,7 +124,7 @@ macro_rules! drizzle_pg_builder_join_using_impl {
         {
             let builder = self.builder.join_using(table, columns);
             DrizzleBuilder {
-                drizzle: self.drizzle,
+                runner: self.runner,
                 builder,
                 state: PhantomData,
             }
@@ -138,7 +138,7 @@ macro_rules! drizzle_pg_builder_join_using_impl {
                 columns: impl drizzle_core::ToSQL<'a, drizzle_postgres::values::PostgresValue<'a>>,
             ) -> DrizzleBuilder<
                 'd,
-                DrizzleRef,
+                Runner,
                 Schema,
                 SelectBuilder<
                     'a,
@@ -156,7 +156,7 @@ macro_rules! drizzle_pg_builder_join_using_impl {
             {
                 let builder = self.builder.[<$type _join_using>](table, columns);
                 DrizzleBuilder {
-                    drizzle: self.drizzle,
+                    runner: self.runner,
                     builder,
                     state: PhantomData,
                 }
@@ -200,9 +200,9 @@ macro_rules! transaction_builder_join_impl {
             {
                 let builder = self.builder.[<$type _join>](arg);
                 TransactionBuilder {
-                    transaction: self.transaction,
+                    runner: self.runner,
                     builder,
-                    _phantom: PhantomData,
+                    state: PhantomData,
                 }
             }
         }
@@ -232,9 +232,9 @@ macro_rules! sqlite_transaction_constructors {
             let builder = QueryBuilder::new::<Schema>().select(query);
 
             TransactionBuilder {
-                transaction: self,
+                runner: self,
                 builder,
-                _phantom: PhantomData,
+                state: PhantomData,
             }
         }
 
@@ -258,9 +258,9 @@ macro_rules! sqlite_transaction_constructors {
             let builder = QueryBuilder::new::<Schema>().select_distinct(query);
 
             TransactionBuilder {
-                transaction: self,
+                runner: self,
                 builder,
-                _phantom: PhantomData,
+                state: PhantomData,
             }
         }
 
@@ -281,9 +281,9 @@ macro_rules! sqlite_transaction_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().insert(table);
             TransactionBuilder {
-                transaction: self,
+                runner: self,
                 builder,
-                _phantom: PhantomData,
+                state: PhantomData,
             }
         }
 
@@ -304,9 +304,9 @@ macro_rules! sqlite_transaction_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().update(table);
             TransactionBuilder {
-                transaction: self,
+                runner: self,
                 builder,
-                _phantom: PhantomData,
+                state: PhantomData,
             }
         }
 
@@ -327,9 +327,9 @@ macro_rules! sqlite_transaction_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().delete(table);
             TransactionBuilder {
-                transaction: self,
+                runner: self,
                 builder,
-                _phantom: PhantomData,
+                state: PhantomData,
             }
         }
 
@@ -350,9 +350,9 @@ macro_rules! sqlite_transaction_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().with(cte);
             TransactionBuilder {
-                transaction: self,
+                runner: self,
                 builder,
-                _phantom: PhantomData,
+                state: PhantomData,
             }
         }
     };
@@ -380,9 +380,9 @@ macro_rules! postgres_transaction_constructors {
             let builder = QueryBuilder::new::<Schema>().select(query);
 
             TransactionBuilder {
-                transaction: self,
+                runner: self,
                 builder,
-                _phantom: PhantomData,
+                state: PhantomData,
             }
         }
 
@@ -405,9 +405,9 @@ macro_rules! postgres_transaction_constructors {
             let builder = QueryBuilder::new::<Schema>().select_distinct(query);
 
             TransactionBuilder {
-                transaction: self,
+                runner: self,
                 builder,
-                _phantom: PhantomData,
+                state: PhantomData,
             }
         }
 
@@ -427,9 +427,9 @@ macro_rules! postgres_transaction_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().insert(table);
             TransactionBuilder {
-                transaction: self,
+                runner: self,
                 builder,
-                _phantom: PhantomData,
+                state: PhantomData,
             }
         }
 
@@ -449,9 +449,9 @@ macro_rules! postgres_transaction_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().update(table);
             TransactionBuilder {
-                transaction: self,
+                runner: self,
                 builder,
-                _phantom: PhantomData,
+                state: PhantomData,
             }
         }
 
@@ -471,9 +471,9 @@ macro_rules! postgres_transaction_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().delete(table);
             TransactionBuilder {
-                transaction: self,
+                runner: self,
                 builder,
-                _phantom: PhantomData,
+                state: PhantomData,
             }
         }
 
@@ -493,9 +493,9 @@ macro_rules! postgres_transaction_constructors {
         {
             let builder = QueryBuilder::new::<Schema>().with(cte);
             TransactionBuilder {
-                transaction: self,
+                runner: self,
                 builder,
-                _phantom: PhantomData,
+                state: PhantomData,
             }
         }
     };

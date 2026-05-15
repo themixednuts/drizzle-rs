@@ -35,7 +35,7 @@ use crate::builder::postgres::postgres_sync::Rows;
 pub type TransactionBuilder<'tx, 'conn, Schema, Builder, State> =
     crate::transaction::postgres::typestate::TransactionBuilder<
         'tx,
-        Transaction<'conn, Schema>,
+        &'tx Transaction<'conn, Schema>,
         Schema,
         Builder,
         State,
@@ -329,50 +329,9 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 }
 
-impl<'tx, 'conn, 'q, Schema>
-    TransactionBuilder<
-        'tx,
-        'conn,
-        Schema,
-        QueryBuilder<'q, Schema, builder::CTEInit>,
-        builder::CTEInit,
-    >
-{
-    #[inline]
-    pub fn select<T>(
-        self,
-        query: T,
-    ) -> TransactionBuilder<
-        'tx,
-        'conn,
-        Schema,
-        SelectBuilder<'q, Schema, SelectInitial, (), T::Marker>,
-        SelectInitial,
-    >
-    where
-        T: ToSQL<'q, PostgresValue<'q>> + drizzle_core::IntoSelectTarget,
-    {
-        let builder = self.builder.select(query);
-        TransactionBuilder {
-            transaction: self.transaction,
-            builder,
-            _phantom: PhantomData,
-        }
-    }
-
-    #[inline]
-    pub fn with<C>(self, cte: &C) -> Self
-    where
-        C: builder::CTEDefinition<'q>,
-    {
-        let builder = self.builder.with(cte);
-        TransactionBuilder {
-            transaction: self.transaction,
-            builder,
-            _phantom: PhantomData,
-        }
-    }
-}
+// `TransactionBuilder<CTEInit>::select` and `.with` are now provided by
+// the shared `DrizzleBuilder` typestate impls (see
+// `crate::builder::postgres::common`).
 
 impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     TransactionBuilder<'tx, '_, S, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>
@@ -386,7 +345,7 @@ where
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        let mut tx_ref = self.transaction.tx.borrow_mut();
+        let mut tx_ref = self.runner.tx.borrow_mut();
         let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
 
         let param_refs = {
@@ -457,7 +416,7 @@ where
                 .map(|&p| p as &(dyn postgres::types::ToSql + Sync)),
         );
 
-        let mut tx_ref = self.transaction.tx.borrow_mut();
+        let mut tx_ref = self.runner.tx.borrow_mut();
         let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
         let rows = tx
             .query(&sql_str, &param_refs[..])
@@ -494,7 +453,7 @@ where
                 .map(|&p| p as &(dyn postgres::types::ToSql + Sync)),
         );
 
-        let mut tx_ref = self.transaction.tx.borrow_mut();
+        let mut tx_ref = self.runner.tx.borrow_mut();
         let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
 
         let rows = tx
@@ -528,7 +487,7 @@ where
                 .map(|&p| p as &(dyn postgres::types::ToSql + Sync)),
         );
 
-        let mut tx_ref = self.transaction.tx.borrow_mut();
+        let mut tx_ref = self.runner.tx.borrow_mut();
         let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
         let row = tx
             .query_one(&sql_str, &param_refs[..])
@@ -538,11 +497,5 @@ where
     }
 }
 
-impl<'tx, 'q, S, T, State> ToSQL<'q, PostgresValue<'q>> for TransactionBuilder<'tx, '_, S, T, State>
-where
-    T: ToSQL<'q, PostgresValue<'q>>,
-{
-    fn to_sql(&self) -> drizzle_core::sql::SQL<'q, PostgresValue<'q>> {
-        self.builder.to_sql()
-    }
-}
+// `ToSQL for TransactionBuilder` is now provided by the shared `DrizzleBuilder`
+// impl in `crate::builder::postgres::common`.

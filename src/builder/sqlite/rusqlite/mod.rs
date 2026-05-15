@@ -141,7 +141,7 @@ use crate::transaction::sqlite::rusqlite::Transaction;
 
 pub type Drizzle<Schema = ()> = common::Drizzle<Connection, Schema>;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
-    common::DrizzleBuilder<'a, Connection, Schema, Builder, State>;
+    common::DrizzleBuilder<'a, common::Drizzle<Connection, Schema>, Schema, Builder, State>;
 
 crate::drizzle_prepare_impl!();
 
@@ -760,7 +760,7 @@ impl<'a, Schema, T, Rels, Cl>
 
         drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
-        let mut stmt = self.drizzle.conn.prepare(&sql)?;
+        let mut stmt = self.runner.conn.prepare(&sql)?;
         let mut raw_rows = stmt.query(params_from_iter(bind_params))?;
         let mut results = Vec::new();
 
@@ -878,7 +878,7 @@ impl<'a, Schema, T, Rels, Cl>
 
         drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
-        let mut stmt = self.drizzle.conn.prepare(&sql)?;
+        let mut stmt = self.runner.conn.prepare(&sql)?;
         let mut raw_rows = stmt.query(params_from_iter(bind_params))?;
         let mut results = Vec::new();
 
@@ -955,7 +955,7 @@ where
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         Ok(self
-            .drizzle
+            .runner
             .conn
             .execute(&sql_str, params_from_iter(params))?)
     }
@@ -974,7 +974,7 @@ where
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        let mut stmt = self.drizzle.conn.prepare(&sql_str)?;
+        let mut stmt = self.runner.conn.prepare(&sql_str)?;
         let mut raw_rows = stmt.query(params_from_iter(params))?;
         let mut decoded = Vec::new();
         while let Some(row) = raw_rows.next()? {
@@ -998,7 +998,7 @@ where
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        let mut stmt = self.drizzle.conn.prepare(&sql_str)?;
+        let mut stmt = self.runner.conn.prepare(&sql_str)?;
         let mut rows = stmt.query_and_then(params_from_iter(params), |row| {
             Rw::try_from(row).map_err(Into::into)
         })?;
@@ -1026,7 +1026,7 @@ where
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        let mut stmt = self.drizzle.conn.prepare(&sql_str)?;
+        let mut stmt = self.runner.conn.prepare(&sql_str)?;
         stmt.query_row(params_from_iter(params), |row| {
             Ok(<Mk as drizzle_core::row::DecodeSelectedRef<
                 &::rusqlite::Row<'_>,
