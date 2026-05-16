@@ -74,6 +74,46 @@ pub struct Migration {
     sql: Vec<String>,
 }
 
+/// Outcome of a successful `migrate(...)` call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MigrateOutcome {
+    /// The database was already in sync with the local migration set — no
+    /// migrations were applied.
+    UpToDate,
+    /// Pending migrations ran successfully. `tags` contains the folder names
+    /// of each applied migration, in execution order.
+    Applied { tags: Vec<String> },
+}
+
+impl MigrateOutcome {
+    /// Was the database already up to date with the local migration set?
+    #[inline]
+    #[must_use]
+    pub const fn is_up_to_date(&self) -> bool {
+        matches!(self, Self::UpToDate)
+    }
+
+    /// Number of migrations applied during this call (0 when up to date).
+    #[inline]
+    #[must_use]
+    pub fn applied_count(&self) -> usize {
+        match self {
+            Self::UpToDate => 0,
+            Self::Applied { tags } => tags.len(),
+        }
+    }
+
+    /// Tags of migrations applied during this call (empty when up to date).
+    #[inline]
+    #[must_use]
+    pub fn applied_tags(&self) -> &[String] {
+        match self {
+            Self::UpToDate => &[],
+            Self::Applied { tags } => tags,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppliedMigrationMetadata {
     pub id: Option<i64>,

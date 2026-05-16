@@ -470,7 +470,7 @@ impl<Schema> Drizzle<Schema> {
         &mut self,
         migrations: &[drizzle_migrations::Migration],
         tracking: drizzle_migrations::Tracking,
-    ) -> drizzle_core::error::Result<()> {
+    ) -> drizzle_core::error::Result<drizzle_migrations::MigrateOutcome> {
         let set = drizzle_migrations::Migrations::with_tracking(
             migrations.to_vec(),
             drizzle_types::Dialect::PostgreSQL,
@@ -486,13 +486,14 @@ impl<Schema> Drizzle<Schema> {
         let pending: Vec<_> = set.pending(&applied_names).collect();
 
         if pending.is_empty() {
-            return Ok(());
+            return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
         }
 
         let client = Arc::get_mut(&mut self.client).ok_or_else(|| {
             DrizzleError::Other("cannot run migrations: outstanding Drizzle clones exist".into())
         })?;
         let tx = client.transaction().await?;
+        let mut applied = Vec::with_capacity(pending.len());
 
         for migration in &pending {
             for stmt in migration.statements() {
@@ -502,11 +503,12 @@ impl<Schema> Drizzle<Schema> {
             }
             tx.execute(&set.record_migration_sql(migration), &[])
                 .await?;
+            applied.push(migration.tag().to_string());
         }
 
         tx.commit().await?;
 
-        Ok(())
+        Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
     }
 }
 

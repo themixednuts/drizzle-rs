@@ -314,7 +314,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         &self,
         migrations: &[drizzle_migrations::Migration],
         tracking: drizzle_migrations::Tracking,
-    ) -> drizzle_core::error::Result<()> {
+    ) -> drizzle_core::error::Result<drizzle_migrations::MigrateOutcome> {
         let set = drizzle_migrations::Migrations::with_tracking(
             migrations.to_vec(),
             drizzle_types::Dialect::SQLite,
@@ -329,12 +329,13 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         let pending: Vec<_> = set.pending(&applied_names).collect();
 
         if pending.is_empty() {
-            return Ok(());
+            return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
         }
 
         self.conn.execute("BEGIN", [])?;
 
-        let result = (|| -> drizzle_core::error::Result<()> {
+        let result = (|| -> drizzle_core::error::Result<Vec<String>> {
+            let mut applied = Vec::with_capacity(pending.len());
             for migration in &pending {
                 for stmt in migration.statements() {
                     if !stmt.trim().is_empty() {
@@ -343,14 +344,15 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                 }
                 self.conn
                     .execute(&set.record_migration_sql(migration), [])?;
+                applied.push(migration.tag().to_string());
             }
-            Ok(())
+            Ok(applied)
         })();
 
         match result {
-            Ok(()) => {
+            Ok(applied) => {
                 self.conn.execute("COMMIT", [])?;
-                Ok(())
+                Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
             }
             Err(e) => {
                 let _ = self.conn.execute("ROLLBACK", []);

@@ -273,7 +273,7 @@ where
         &self,
         migrations: &[drizzle_migrations::Migration],
         tracking: drizzle_migrations::Tracking,
-    ) -> drizzle_core::error::Result<()> {
+    ) -> drizzle_core::error::Result<drizzle_migrations::MigrateOutcome> {
         let set = drizzle_migrations::Migrations::with_tracking(
             migrations.to_vec(),
             drizzle_types::Dialect::SQLite,
@@ -297,10 +297,11 @@ where
 
         let pending: Vec<_> = set.pending(&applied_names).collect();
         if pending.is_empty() {
-            return Ok(());
+            return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
         }
 
-        self.transaction(|tx| {
+        let applied = self.transaction(|tx| {
+            let mut applied = Vec::with_capacity(pending.len());
             for migration in &pending {
                 for stmt in migration.statements() {
                     if !stmt.trim().is_empty() {
@@ -312,9 +313,11 @@ where
                 tx.inner()
                     .exec(&set.record_migration_sql(migration), None)
                     .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+                applied.push(migration.tag().to_string());
             }
-            Ok(())
-        })
+            Ok(applied)
+        })?;
+        Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
     }
 }
 

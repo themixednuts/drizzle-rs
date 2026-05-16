@@ -293,7 +293,7 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
         &self,
         migrations: &[drizzle_migrations::Migration],
         tracking: drizzle_migrations::Tracking,
-    ) -> drizzle_core::error::Result<()> {
+    ) -> drizzle_core::error::Result<drizzle_migrations::MigrateOutcome> {
         let set = drizzle_migrations::Migrations::with_tracking(
             migrations.to_vec(),
             drizzle_types::Dialect::SQLite,
@@ -319,11 +319,12 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
 
         let pending: Vec<_> = set.pending(&applied_names).collect();
         if pending.is_empty() {
-            return Ok(());
+            return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
         }
 
         // Build all statements (DDL + tracking insert) into a single batch.
         let mut batch: Vec<D1PreparedStatement> = Vec::new();
+        let mut applied_tags = Vec::with_capacity(pending.len());
         for migration in &pending {
             for stmt in migration.statements() {
                 if !stmt.trim().is_empty() {
@@ -331,6 +332,7 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
                 }
             }
             batch.push(self.conn.prepare(set.record_migration_sql(migration)));
+            applied_tags.push(migration.tag().to_string());
         }
 
         let results = self
@@ -347,7 +349,7 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
                 ));
             }
         }
-        Ok(())
+        Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied_tags })
     }
 }
 

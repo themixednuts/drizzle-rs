@@ -139,8 +139,8 @@ pub use config::Tracking;
 pub use dir::MigrationDir;
 pub use journal::{Journal, JournalEntry};
 pub use migrator::{
-    AppliedMigrationMetadata, MatchedMigrationMetadata, Migration, Migrations, MigratorError,
-    match_applied_migration_metadata,
+    AppliedMigrationMetadata, MatchedMigrationMetadata, MigrateOutcome, Migration, Migrations,
+    MigratorError, match_applied_migration_metadata,
 };
 pub use words::{PrefixMode, generate_migration_tag};
 pub use writer::{MigrationError, Writer};
