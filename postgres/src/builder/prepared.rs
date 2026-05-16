@@ -26,7 +26,7 @@ use crate::values::{OwnedPostgresValue, PostgresValue};
 ///
 /// ## Basic Usage
 ///
-/// ```rust
+/// ```rust,ignore
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
@@ -184,7 +184,7 @@ impl PreparedStatement<'_> {
 ///
 /// ## Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }

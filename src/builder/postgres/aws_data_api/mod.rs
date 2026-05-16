@@ -9,11 +9,11 @@
 //! # Quick start
 //!
 //! ```no_run
-//! # use runner::postgres::prelude::*;
-//! # use runner::postgres::aws::Drizzle;
+//! # use drizzle::postgres::prelude::*;
+//! # use drizzle::postgres::aws::Drizzle;
 //! # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
 //! # #[derive(PostgresSchema)] struct S { user: User }
-//! # #[tokio::main] async fn main() -> runner::Result<()> {
+//! # #[tokio::main] async fn main() -> drizzle::Result<()> {
 //! let config = ::aws_config::load_from_env().await;
 //! let client = ::aws_sdk_rdsdata::Client::new(&config);
 //!
