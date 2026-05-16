@@ -525,13 +525,14 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         prefix.push_str(" AS ");
 
         let select_sql = query_const_select_sql.as_ref().unwrap();
+        let const_format = crate::common::paths::const_format();
         if attrs.with_no_data {
             quote! {
-                ::drizzle::const_format::concatcp!(#prefix, #select_sql, " WITH NO DATA")
+                #const_format::concatcp!(#prefix, #select_sql, " WITH NO DATA")
             }
         } else {
             quote! {
-                ::drizzle::const_format::concatcp!(#prefix, #select_sql)
+                #const_format::concatcp!(#prefix, #select_sql)
             }
         }
     } else {

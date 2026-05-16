@@ -278,8 +278,9 @@ pub fn postgres_index_attr_macro(
         .where_clause
         .as_ref()
         .map_or_else(|| ")".to_string(), |wc| format!(") WHERE {wc}"));
+    let const_format = crate::common::paths::const_format();
     let const_sql = quote! {
-        ::drizzle::const_format::concatcp!(
+        #const_format::concatcp!(
             #create_prefix,
             <#table_type>::DDL_TABLE.schema,
             #dot_quote,

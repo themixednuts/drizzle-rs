@@ -92,8 +92,9 @@ fn constraint_name_with_col_concatcp(
 ) -> TokenStream {
     let table_name = table_name_const(struct_ident, dt);
     let col_name = column_name_const(struct_ident, field_ident, dt);
+    let const_format = crate::common::paths::const_format();
     quote! {
-        ::drizzle::const_format::concatcp!(#table_name, "_", #col_name, #suffix)
+        #const_format::concatcp!(#table_name, "_", #col_name, #suffix)
     }
 }
 

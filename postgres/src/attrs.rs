@@ -600,7 +600,7 @@ pub struct TableMarker;
 /// Creates an UNLOGGED table.
 ///
 /// ## Example
-/// ```rust,ignore
+/// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
@@ -650,7 +650,7 @@ pub const UNLOGGED: TableMarker = TableMarker;
 /// Creates a TEMPORARY table.
 ///
 /// ## Example
-/// ```rust,ignore
+/// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
@@ -699,7 +699,7 @@ pub const TEMPORARY: TableMarker = TableMarker;
 /// Specifies inheritance from a parent table.
 ///
 /// ## Example
-/// ```rust,ignore
+/// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }
@@ -745,7 +745,7 @@ pub const INHERITS: TableMarker = TableMarker;
 /// Specifies a tablespace for the table.
 ///
 /// ## Example
-/// ```rust,ignore
+/// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
 /// #     pub mod error { pub use drizzle_core::error::*; }

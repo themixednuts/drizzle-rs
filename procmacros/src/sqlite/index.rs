@@ -203,8 +203,9 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Re
     let create_index_mid = "\" (";
     let create_index_suffix = ")";
 
+    let const_format = crate::common::paths::const_format();
     let const_sql = quote! {
-        ::drizzle::const_format::concatcp!(
+        #const_format::concatcp!(
             #create_index_prefix,
             <#table_type as #sql_schema<'_, #sqlite_schema_type, #sqlite_value<'_>>>::NAME,
             #create_index_mid,

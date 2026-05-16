@@ -905,8 +905,9 @@ pub fn generate_const_sql(
         parts.push(quote! { #offset_lit });
     }
 
+    let const_format = crate::common::paths::const_format();
     quote! {
-        ::drizzle::const_format::concatcp!(#(#parts),*)
+        #const_format::concatcp!(#(#parts),*)
     }
 }
 

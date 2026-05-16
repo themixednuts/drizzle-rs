@@ -62,8 +62,9 @@ pub fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
         .iter()
         .map(DdlPiece::to_token)
         .collect();
+    let const_format = crate::common::paths::const_format();
     quote! {
-        ::drizzle::const_format::concatcp!(#(#tokens),*)
+        #const_format::concatcp!(#(#tokens),*)
     }
 }
 

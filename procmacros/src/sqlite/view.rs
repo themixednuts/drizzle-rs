@@ -380,8 +380,9 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
     } else if let Some(ref select_sql) = query_const_select_sql {
         // Query DSL: build CREATE VIEW using concatcp! with the generated SELECT SQL
         let create_prefix = format!("CREATE VIEW \"{view_name}\" AS ");
+        let const_format = crate::common::paths::const_format();
         quote! {
-            ::drizzle::const_format::concatcp!(#create_prefix, #select_sql)
+            #const_format::concatcp!(#create_prefix, #select_sql)
         }
     } else {
         quote! { "" }

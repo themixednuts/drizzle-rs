@@ -11,6 +11,7 @@ pub mod enum_utils;
 pub mod generators;
 mod helpers;
 pub mod model_markers;
+pub mod paths;
 #[cfg(feature = "query")]
 pub mod query;
 pub mod ref_gen;
