@@ -12,6 +12,18 @@ rust-version.workspace = true
 name = "drizzle"
 path = "src/main.rs"
 
+# cargo-binstall: download the prebuilt binary from a GitHub release instead
+# of building from source. URL template matches the artifacts produced by
+# `.github/workflows/release.yml`:
+#   v{ version }/drizzle-{ target }{ archive-suffix }
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/drizzle-{ target }{ archive-suffix }"
+pkg-fmt = "tgz"
+bin-dir = "{ bin }{ binary-ext }"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+
 [dependencies]
 # Core drizzle dependencies
 drizzle-migrations = { workspace = true }
