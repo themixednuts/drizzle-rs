@@ -6,11 +6,13 @@
 //! savepoints through [`Transaction::savepoint`].
 
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::AtomicU32;
 
 use ::worker::{SqlStorage, SqlStorageValue};
 use drizzle_core::error::DrizzleError;
 use drizzle_core::traits::ToSQL;
+
+use crate::transaction::savepoint::sync_savepoint;
 
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
@@ -86,44 +88,16 @@ impl<Schema> Transaction<Schema> {
     where
         F: FnOnce(&Self) -> drizzle_core::error::Result<R>,
     {
-        let depth = self.savepoint_depth.load(Ordering::Relaxed);
-        let sp_name = format!("drizzle_sp_{}", depth);
-        self.savepoint_depth.store(depth + 1, Ordering::Relaxed);
-
-        self.conn
-            .exec(&format!("SAVEPOINT {}", sp_name), None)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self)));
-
-        self.savepoint_depth.store(depth, Ordering::Relaxed);
-
-        match result {
-            Ok(Ok(value)) => {
+        sync_savepoint(
+            &self.savepoint_depth,
+            |sql| {
                 self.conn
-                    .exec(&format!("RELEASE SAVEPOINT {}", sp_name), None)
-                    .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-                Ok(value)
-            }
-            Ok(Err(e)) => {
-                let _ = self
-                    .conn
-                    .exec(&format!("ROLLBACK TO SAVEPOINT {}", sp_name), None);
-                let _ = self
-                    .conn
-                    .exec(&format!("RELEASE SAVEPOINT {}", sp_name), None);
-                Err(e)
-            }
-            Err(panic_payload) => {
-                let _ = self
-                    .conn
-                    .exec(&format!("ROLLBACK TO SAVEPOINT {}", sp_name), None);
-                let _ = self
-                    .conn
-                    .exec(&format!("RELEASE SAVEPOINT {}", sp_name), None);
-                std::panic::resume_unwind(panic_payload);
-            }
-        }
+                    .exec(sql, None)
+                    .map(|_| ())
+                    .map_err(|e| DrizzleError::Other(e.to_string().into()))
+            },
+            || f(self),
+        )
     }
 
     sqlite_transaction_constructors!();

@@ -6,9 +6,10 @@ use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, Updat
 use drizzle_sqlite::traits::SQLiteTable;
 use rusqlite::params_from_iter;
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::AtomicU32;
 
 use crate::builder::sqlite::rows::Rows;
+use crate::transaction::savepoint::sync_savepoint;
 
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
@@ -129,32 +130,11 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     where
         F: FnOnce(&Self) -> drizzle_core::error::Result<R>,
     {
-        let depth = self.savepoint_depth.load(Ordering::Relaxed);
-        let sp_name = format!("drizzle_sp_{depth}");
-        self.savepoint_depth.store(depth + 1, Ordering::Relaxed);
-
-        self.execute_raw(&format!("SAVEPOINT {sp_name}"))?;
-
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self)));
-
-        self.savepoint_depth.store(depth, Ordering::Relaxed);
-
-        match result {
-            Ok(Ok(value)) => {
-                self.execute_raw(&format!("RELEASE SAVEPOINT {sp_name}"))?;
-                Ok(value)
-            }
-            Ok(Err(e)) => {
-                let _ = self.execute_raw(&format!("ROLLBACK TO SAVEPOINT {sp_name}"));
-                let _ = self.execute_raw(&format!("RELEASE SAVEPOINT {sp_name}"));
-                Err(e)
-            }
-            Err(panic_payload) => {
-                let _ = self.execute_raw(&format!("ROLLBACK TO SAVEPOINT {sp_name}"));
-                let _ = self.execute_raw(&format!("RELEASE SAVEPOINT {sp_name}"));
-                std::panic::resume_unwind(panic_payload);
-            }
-        }
+        sync_savepoint(
+            &self.savepoint_depth,
+            |sql| self.execute_raw(sql).map_err(DrizzleError::from),
+            || f(self),
+        )
     }
 
     sqlite_transaction_constructors!('conn);

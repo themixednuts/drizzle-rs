@@ -360,14 +360,14 @@ macro_rules! sqlite_transaction_constructors {
 
 #[doc(hidden)]
 macro_rules! postgres_transaction_constructors {
-    () => {
+    ($($conn_lt:lifetime),*) => {
         /// Creates a SELECT query builder within the transaction
         pub fn select<'tx, 'q, T>(
             &'tx self,
             query: T,
         ) -> TransactionBuilder<
             'tx,
-            'conn,
+            $($conn_lt,)*
             Schema,
             SelectBuilder<'q, Schema, SelectInitial, (), T::Marker>,
             SelectInitial,
@@ -392,7 +392,7 @@ macro_rules! postgres_transaction_constructors {
             query: T,
         ) -> TransactionBuilder<
             'tx,
-            'conn,
+            $($conn_lt,)*
             Schema,
             SelectBuilder<'q, Schema, SelectInitial, (), T::Marker>,
             SelectInitial,
@@ -417,7 +417,7 @@ macro_rules! postgres_transaction_constructors {
             table: Table,
         ) -> TransactionBuilder<
             'tx,
-            'conn,
+            $($conn_lt,)*
             Schema,
             InsertBuilder<'q, Schema, InsertInitial, Table>,
             InsertInitial,
@@ -439,7 +439,7 @@ macro_rules! postgres_transaction_constructors {
             table: Table,
         ) -> TransactionBuilder<
             'tx,
-            'conn,
+            $($conn_lt,)*
             Schema,
             UpdateBuilder<'q, Schema, UpdateInitial, Table>,
             UpdateInitial,
@@ -461,7 +461,7 @@ macro_rules! postgres_transaction_constructors {
             table: T,
         ) -> TransactionBuilder<
             'tx,
-            'conn,
+            $($conn_lt,)*
             Schema,
             DeleteBuilder<'q, Schema, DeleteInitial, T>,
             DeleteInitial,
@@ -483,7 +483,7 @@ macro_rules! postgres_transaction_constructors {
             cte: &C,
         ) -> TransactionBuilder<
             'tx,
-            'conn,
+            $($conn_lt,)*
             Schema,
             QueryBuilder<'q, Schema, builder::CTEInit>,
             builder::CTEInit,

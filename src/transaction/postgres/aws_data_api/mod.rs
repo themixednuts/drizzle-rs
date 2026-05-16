@@ -11,8 +11,10 @@
 //!   `ROLLBACK TO SAVEPOINT` SQL that runs inside the transaction context.
 
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
+
+use crate::transaction::savepoint::async_savepoint;
 
 use aws_sdk_rdsdata::Client;
 use drizzle_core::dialect::ParamStyle;
@@ -132,152 +134,15 @@ impl<Schema> Transaction<Schema> {
     where
         F: AsyncFnOnce(&Self) -> drizzle_core::error::Result<R>,
     {
-        let depth = self.savepoint_depth.load(Ordering::Relaxed);
-        let sp = format!("drizzle_sp_{depth}");
-        self.savepoint_depth.store(depth + 1, Ordering::Relaxed);
-
-        self.execute(format!("SAVEPOINT {sp}").as_str()).await?;
-
-        let result = f(self).await;
-
-        self.savepoint_depth.store(depth, Ordering::Relaxed);
-
-        match result {
-            Ok(v) => {
-                self.execute(format!("RELEASE SAVEPOINT {sp}").as_str())
-                    .await?;
-                Ok(v)
-            }
-            Err(e) => {
-                let _ = self
-                    .execute(format!("ROLLBACK TO SAVEPOINT {sp}").as_str())
-                    .await;
-                let _ = self
-                    .execute(format!("RELEASE SAVEPOINT {sp}").as_str())
-                    .await;
-                Err(e)
-            }
-        }
+        async_savepoint(
+            &self.savepoint_depth,
+            |sql| async move { self.execute(sql.as_str()).await.map(|_| ()) },
+            f(self),
+        )
+        .await
     }
 
-    // Builder constructors — mirror postgres_transaction_constructors! but
-    // avoid the `'conn` lifetime (AWS Data API transactions don't borrow).
-
-    /// Start a SELECT inside this transaction.
-    pub fn select<'tx, 'q, T>(
-        &'tx self,
-        query: T,
-    ) -> TransactionBuilder<
-        'tx,
-        Schema,
-        SelectBuilder<'q, Schema, SelectInitial, (), T::Marker>,
-        SelectInitial,
-    >
-    where
-        T: ToSQL<'q, PostgresValue<'q>> + drizzle_core::IntoSelectTarget,
-    {
-        let builder = QueryBuilder::new::<Schema>().select(query);
-        TransactionBuilder {
-            runner: self,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    /// Start a SELECT DISTINCT inside this transaction.
-    pub fn select_distinct<'tx, 'q, T>(
-        &'tx self,
-        query: T,
-    ) -> TransactionBuilder<
-        'tx,
-        Schema,
-        SelectBuilder<'q, Schema, SelectInitial, (), T::Marker>,
-        SelectInitial,
-    >
-    where
-        T: ToSQL<'q, PostgresValue<'q>> + drizzle_core::IntoSelectTarget,
-    {
-        let builder = QueryBuilder::new::<Schema>().select_distinct(query);
-        TransactionBuilder {
-            runner: self,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    /// Start an INSERT inside this transaction.
-    pub fn insert<'tx, 'q, Table>(
-        &'tx self,
-        table: Table,
-    ) -> TransactionBuilder<
-        'tx,
-        Schema,
-        InsertBuilder<'q, Schema, InsertInitial, Table>,
-        InsertInitial,
-    >
-    where
-        Table: PostgresTable<'q>,
-    {
-        let builder = QueryBuilder::new::<Schema>().insert(table);
-        TransactionBuilder {
-            runner: self,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    /// Start an UPDATE inside this transaction.
-    pub fn update<'tx, 'q, Table>(
-        &'tx self,
-        table: Table,
-    ) -> TransactionBuilder<
-        'tx,
-        Schema,
-        UpdateBuilder<'q, Schema, UpdateInitial, Table>,
-        UpdateInitial,
-    >
-    where
-        Table: PostgresTable<'q>,
-    {
-        let builder = QueryBuilder::new::<Schema>().update(table);
-        TransactionBuilder {
-            runner: self,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    /// Start a DELETE inside this transaction.
-    pub fn delete<'tx, 'q, T>(
-        &'tx self,
-        table: T,
-    ) -> TransactionBuilder<'tx, Schema, DeleteBuilder<'q, Schema, DeleteInitial, T>, DeleteInitial>
-    where
-        T: PostgresTable<'q>,
-    {
-        let builder = QueryBuilder::new::<Schema>().delete(table);
-        TransactionBuilder {
-            runner: self,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    /// Start a CTE (WITH) query inside this transaction.
-    pub fn with<'tx, 'q, C>(
-        &'tx self,
-        cte: &C,
-    ) -> TransactionBuilder<'tx, Schema, QueryBuilder<'q, Schema, builder::CTEInit>, builder::CTEInit>
-    where
-        C: builder::CTEDefinition<'q>,
-    {
-        let builder = QueryBuilder::new::<Schema>().with(cte);
-        TransactionBuilder {
-            runner: self,
-            builder,
-            state: PhantomData,
-        }
-    }
+    postgres_transaction_constructors!();
 
     // Inline execution methods.
 

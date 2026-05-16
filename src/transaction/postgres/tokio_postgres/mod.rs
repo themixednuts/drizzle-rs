@@ -4,8 +4,10 @@ use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, Upd
 use drizzle_postgres::traits::PostgresTable;
 use std::cell::RefCell;
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::AtomicU32;
 use tokio_postgres::{Row, Transaction as TokioPgTransaction};
+
+use crate::transaction::savepoint::async_savepoint;
 
 /// Returns an error indicating the transaction has already been consumed.
 fn tx_consumed_error() -> DrizzleError {
@@ -126,35 +128,15 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     where
         F: AsyncFnOnce(&Self) -> drizzle_core::error::Result<R>,
     {
-        let depth = self.savepoint_depth.load(Ordering::Relaxed);
-        let sp_name = format!("drizzle_sp_{depth}");
-        self.savepoint_depth.store(depth + 1, Ordering::Relaxed);
-
-        self.execute_raw(&format!("SAVEPOINT {sp_name}")).await?;
-
-        let result = f(self).await;
-
-        self.savepoint_depth.store(depth, Ordering::Relaxed);
-
-        match result {
-            Ok(value) => {
-                self.execute_raw(&format!("RELEASE SAVEPOINT {sp_name}"))
-                    .await?;
-                Ok(value)
-            }
-            Err(e) => {
-                let _ = self
-                    .execute_raw(&format!("ROLLBACK TO SAVEPOINT {sp_name}"))
-                    .await;
-                let _ = self
-                    .execute_raw(&format!("RELEASE SAVEPOINT {sp_name}"))
-                    .await;
-                Err(e)
-            }
-        }
+        async_savepoint(
+            &self.savepoint_depth,
+            |sql| async move { self.execute_raw(&sql).await },
+            f(self),
+        )
+        .await
     }
 
-    postgres_transaction_constructors!();
+    postgres_transaction_constructors!('conn);
 
     /// Execute a statement within the transaction and return the number of affected rows.
     ///
