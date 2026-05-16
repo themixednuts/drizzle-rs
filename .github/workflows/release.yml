@@ -37,14 +37,22 @@ jobs:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             archive: tar.gz
-          # Linux aarch64
+          # Linux aarch64 — cross-compile from x86_64 ubuntu using the
+          # aarch64 gnu toolchain. We avoid `cross` (Docker) because
+          # simsimd (pulled in by turso_core) compiles C via `cc-rs`,
+          # which works fine with a native cross gcc once CC/LINKER
+          # env vars are set, and the Docker round-trip adds nothing.
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             archive: tar.gz
-            cross: true
-          # macOS Intel
+            apt: gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            strip: aarch64-linux-gnu-strip
+          # macOS Intel — cross-compile from Apple Silicon. The
+          # `macos-13` runner is deprecated and queues indefinitely;
+          # macOS clang handles cross-arch Mach-O natively, so we just
+          # add the x86_64 rustup target and build.
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-14
             archive: tar.gz
           # macOS Apple Silicon
           - target: aarch64-apple-darwin
@@ -76,40 +84,38 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
+      - name: Install cross-toolchain (Linux apt)
+        # Pulls the cross gcc/g++ used by both rustc's linker and
+        # simsimd's build.rs (cc-rs). The env vars on the build step
+        # below wire it up.
+        if: matrix.apt != ''
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.apt }}
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.target }}
           cache-on-failure: true
 
-      - name: Install cross
-        if: matrix.cross
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cross
-
       - name: Build release binary
         shell: bash
-        run: |
-          if [ "${{ matrix.cross }}" = "true" ]; then
-            cross build --release --locked --package drizzle-cli --all-features --target ${{ matrix.target }}
-          else
-            cargo build --release --locked --package drizzle-cli --all-features --target ${{ matrix.target }}
-          fi
+        env:
+          # aarch64-linux cross-build wiring. These are namespaced by
+          # target, so they're inert for other matrix entries — safe to
+          # leave unconditional.
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+          AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
+        run: cargo build --release --locked --package drizzle-cli --all-features --target ${{ matrix.target }}
 
       - name: Strip binary (Unix)
         if: matrix.os != 'windows-latest'
         shell: bash
         run: |
           BINARY="target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}"
-          if [ "${{ matrix.cross }}" = "true" ]; then
-            # Cross-compiled binaries need the right strip tool
-            docker run --rm -v "$(pwd):/workspace" -w /workspace \
-              ghcr.io/cross-rs/${{ matrix.target }}:main \
-              /usr/bin/${{ matrix.target }}-strip "$BINARY" || true
-          else
-            strip "$BINARY" || true
-          fi
+          STRIP_BIN="${{ matrix.strip || 'strip' }}"
+          "$STRIP_BIN" "$BINARY" || true
 
       - name: Prepare artifacts (Unix)
         if: matrix.os != 'windows-latest'
