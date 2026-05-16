@@ -11,22 +11,35 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  # Skip CI for release-plz PRs (version bumps only, already tested)
+  # Skip CI on the release-PR-merge commit pushed to main (CI already ran on
+  # the PR itself, so re-running on the merge commit would just burn minutes).
+  # Pull-request events ALWAYS run CI — even for release PRs opened by the
+  # bot — so we never publish without lint/fmt/build verification.
   check-skip:
     name: Check Skip
     runs-on: ubuntu-latest
     outputs:
       should_skip: ${{ steps.check.outputs.should_skip }}
     steps:
-      - name: Check if release PR
+      - name: Check if release commit
         id: check
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
+          # Pull-request events always run CI. This is the safety gate for
+          # the release-PR review step.
+          if [[ "${{ github.event_name }}" != "push" ]]; then
+            echo "should_skip=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Push events: skip when the commit is a release-PR merge (the same
+          # commit already had CI run on it as a PR) or when the bot is the
+          # author (release-plz auto-formatting commits, etc.).
           if [[ "${{ github.actor }}" == "github-actions[bot]" ]] || \
              [[ "$COMMIT_MSG" == chore:\ release* ]]; then
             echo "should_skip=true" >> $GITHUB_OUTPUT
-            echo "Skipping CI for release PR/commit"
+            echo "Skipping CI for release-merge commit on main"
           else
             echo "should_skip=false" >> $GITHUB_OUTPUT
           fi

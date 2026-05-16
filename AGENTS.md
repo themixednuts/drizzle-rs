@@ -115,6 +115,27 @@ Until we hit 1.0, stay on `0.1.x` and use `feat!:` only when you genuinely want 
 
 If release-plz proposes a wrong version on a release PR, edit the workspace version in the PR before merging. release-plz publishes whatever's in `Cargo.toml` after the merge.
 
+### CI must pass before publish
+
+`publish.yml` runs a `gh pr checks` verification before invoking release-plz. If the release PR's head commit doesn't have all-green CI, the publish step refuses and the run fails. This protects against:
+
+- Force-merged PRs that bypass branch protection
+- PRs merged with skipped/stale CI runs
+- PRs where CI was queued but never completed
+
+For belt-and-suspenders, enable **branch protection** on `main`:
+
+- Repo → Settings → Branches → Branch protection rules
+- Add a rule for `main`
+- Require status checks to pass before merging
+- Required: `Lint`, `Documentation`, `MSRV Check`, at least one `test::sqlite` job, at least one `test::pg` job
+- (Optional) Require pull request reviews
+
+This gives you two layers of defense — the branch can't merge a red PR, and even if someone bypasses that, `publish.yml` re-verifies before pushing crates to crates.io.
+
+> [!IMPORTANT]
+> CI does *not* skip release PRs. The skip in `ci.yml` only fires on push events to `main` (the merge commit, after the PR-level CI already ran). Pull-request events always get the full lint/build/test/docs matrix — including release PRs opened by `github-actions[bot]`.
+
 ## Git: Splitting Commits by Intent
 
 When a single working tree has changes spanning multiple features, use `git apply --cached` to stage individual hunks non-interactively (no `-i` / `-p` needed).

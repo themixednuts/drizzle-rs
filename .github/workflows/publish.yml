@@ -37,6 +37,32 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify CI passed on the release PR
+        # Belt-and-suspenders: even if branch protection isn't enforced
+        # locally, refuse to publish unless the PR's head commit has a green
+        # CI run. workflow_dispatch is exempt — that path is an explicit
+        # human override.
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          PR_HEAD="${{ github.event.pull_request.head.sha }}"
+          echo "Verifying CI on PR #$PR_NUMBER (head: $PR_HEAD)..."
+
+          # gh pr checks exit codes:
+          #   0  all required checks succeeded
+          #   1  one or more failed
+          #   8  required checks still pending / in progress
+          if gh pr checks "$PR_NUMBER" --repo "${{ github.repository }}"; then
+            echo "All CI checks passed on PR #$PR_NUMBER"
+          else
+            EXIT=$?
+            echo "::error::CI on PR #$PR_NUMBER is not green (gh pr checks exited $EXIT). Refusing to publish."
+            echo "::error::If this is a stale skip from before the ci.yml fix, push a fresh commit to the PR to re-trigger CI."
+            exit 1
+          fi
+
       - name: Get Rust version
         id: rust-version
         run: |
