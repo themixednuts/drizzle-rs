@@ -4,11 +4,13 @@
 
 use super::super::context::{MacroContext, ModelType};
 use super::convenience::generate_convenience_method;
+use crate::common::model_markers::{
+    generate_empty_pattern_tuple, generate_marker_types, generate_pattern_literal,
+};
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::field::{SQLiteType, TypeCategory};
-use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::quote;
 /// Generates the Insert model with convenience methods and constructor
 pub fn generate_insert_model(ctx: &MacroContext, required_fields_pattern: &[bool]) -> TokenStream {
     let insert_model = &ctx.insert_model_ident;
@@ -26,11 +28,16 @@ pub fn generate_insert_model(ctx: &MacroContext, required_fields_pattern: &[bool
     let _value_wrapper = sqlite_paths::value_wrapper();
     let _expression = sqlite_paths::expr();
 
+    // Collect &Ident for the shared marker-helpers (avoids re-importing the
+    // dialect-specific FieldInfo type into common/).
+    let field_idents: Vec<&syn::Ident> = ctx.field_infos.iter().map(|f| f.ident).collect();
+
     // Convert bool slice to tuple literal for required fields pattern
-    let required_fields_pattern_literal = generate_pattern_literal(ctx, required_fields_pattern);
+    let required_fields_pattern_literal =
+        generate_pattern_literal(ctx.struct_ident, &field_idents, required_fields_pattern);
 
     // Generate tuple type with NotSet for each field
-    let empty_pattern_tuple = generate_empty_pattern_tuple(ctx);
+    let empty_pattern_tuple = generate_empty_pattern_tuple(ctx.struct_ident, &field_idents);
 
     let mut insert_fields = Vec::new();
     let mut insert_default_fields = Vec::new();
@@ -60,7 +67,7 @@ pub fn generate_insert_model(ctx: &MacroContext, required_fields_pattern: &[bool
     }
 
     // Generate marker types for each field
-    let field_marker_types = generate_marker_types(ctx);
+    let field_marker_types = generate_marker_types(ctx.struct_ident, &field_idents);
 
     quote! {
         // Generate marker types for each field
@@ -152,50 +159,6 @@ pub fn generate_insert_model(ctx: &MacroContext, required_fields_pattern: &[bool
 // =============================================================================
 // Helper Functions
 // =============================================================================
-
-fn generate_pattern_literal(ctx: &MacroContext, required_fields_pattern: &[bool]) -> TokenStream {
-    let pattern_values: Vec<_> = required_fields_pattern
-        .iter()
-        .enumerate()
-        .map(|(i, &b)| {
-            let pascal = ctx.field_infos[i].ident.to_string().to_upper_camel_case();
-            if b {
-                format_ident!("{}{}Set", ctx.struct_ident, pascal)
-            } else {
-                format_ident!("{}{}NotSet", ctx.struct_ident, pascal)
-            }
-        })
-        .collect();
-    quote! { (#(#pattern_values),*) }
-}
-
-fn generate_empty_pattern_tuple(ctx: &MacroContext) -> TokenStream {
-    let elements: Vec<_> = ctx
-        .field_infos
-        .iter()
-        .map(|info| {
-            let pascal = info.ident.to_string().to_upper_camel_case();
-            format_ident!("{}{}NotSet", ctx.struct_ident, pascal)
-        })
-        .collect();
-    quote! { (#(#elements),*) }
-}
-
-fn generate_marker_types(ctx: &MacroContext) -> Vec<TokenStream> {
-    ctx.field_infos
-        .iter()
-        .map(|info| {
-            let pascal = info.ident.to_string().to_upper_camel_case();
-            let set_marker = format_ident!("{}{}Set", ctx.struct_ident, pascal);
-            let not_set_marker = format_ident!("{}{}NotSet", ctx.struct_ident, pascal);
-
-            quote! {
-                pub struct #set_marker;
-                pub struct #not_set_marker;
-            }
-        })
-        .collect()
-}
 
 /// Generate constructor parameter and assignment based on field type category.
 fn generate_constructor_param(

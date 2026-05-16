@@ -83,14 +83,6 @@ fn column_name_const(table_ident: &Ident, field_ident: &Ident, dt: &DialectTypes
     }
 }
 
-/// Generate a `concatcp!` expression for a constraint name like `{table_name}_{suffix}`.
-fn constraint_name_concatcp(struct_ident: &Ident, suffix: &str, dt: &DialectTypes) -> TokenStream {
-    let table_name = table_name_const(struct_ident, dt);
-    quote! {
-        ::drizzle::const_format::concatcp!(#table_name, #suffix)
-    }
-}
-
 /// Generate a `concatcp!` expression for a constraint name like `{table_name}_{col_name}_{suffix}`.
 fn constraint_name_with_col_concatcp(
     struct_ident: &Ident,
@@ -111,11 +103,8 @@ fn constraint_name_with_col_concatcp(
 
 pub fn generate_primary_key<F: ConstraintFieldInfo>(
     field_infos: &[F],
-    _table_name: &str,
     struct_ident: &Ident,
     struct_vis: &syn::Visibility,
-    _sql_table_info: &TokenStream,
-    dt: &DialectTypes,
 ) -> (TokenStream, TokenStream, TokenStream, Option<Ident>) {
     let sql_primary_key = core_paths::sql_primary_key();
     let sql_constraint = core_paths::sql_constraint();
@@ -147,7 +136,6 @@ pub fn generate_primary_key<F: ConstraintFieldInfo>(
             format_ident!("{}{}", struct_ident, pascal)
         })
         .collect();
-    let _pk_name = constraint_name_concatcp(struct_ident, "_pk", dt);
     let pk_col_tuple = quote! { (#(#pk_col_zst_idents,)*) };
 
     let column_not_null = core_paths::column_not_null();
@@ -216,11 +204,8 @@ pub fn generate_primary_key<F: ConstraintFieldInfo>(
 
 pub fn generate_unique_constraints<F: ConstraintFieldInfo>(
     field_infos: &[F],
-    _table_name: &str,
     struct_ident: &Ident,
     struct_vis: &syn::Visibility,
-    _sql_table_info: &TokenStream,
-    _dt: &DialectTypes,
 ) -> (TokenStream, Vec<Ident>) {
     let sql_constraint = core_paths::sql_constraint();
     let unique_kind = core_paths::unique_kind();
@@ -272,16 +257,11 @@ pub fn generate_unique_constraints<F: ConstraintFieldInfo>(
     (quote! { #(#impls)* }, idents)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
     field_infos: &[F],
     composite_fks: &[C],
-    _table_name: &str,
     struct_ident: &Ident,
     struct_vis: &syn::Visibility,
-    _sql_table_info: &TokenStream,
-    _sql_column_info: &TokenStream,
-    _dt: &DialectTypes,
 ) -> (TokenStream, TokenStream, TokenStream, Vec<Ident>) {
     let sql_foreign_key = core_paths::sql_foreign_key();
     let sql_constraint = core_paths::sql_constraint();
@@ -459,7 +439,6 @@ pub fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
 
 pub fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
     field_infos: &[F],
-    _table_name: &str,
     struct_ident: &Ident,
     has_composite_fks: bool,
     has_check_constraints: bool,

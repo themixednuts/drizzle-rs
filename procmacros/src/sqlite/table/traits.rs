@@ -32,7 +32,6 @@ pub fn generate_table_impls(
     // Get paths for fully-qualified types
     let sql = core_paths::sql();
     let sql_schema = core_paths::sql_schema();
-    let sql_column_info = core_paths::sql_column_info();
     let sql_table_info = core_paths::sql_table_info();
     let no_constraint = core_paths::no_constraint();
     let schema_item_tables = core_paths::schema_item_tables();
@@ -71,30 +70,20 @@ pub fn generate_table_impls(
         crate::common::constraints::generate_foreign_keys(
             ctx.field_infos,
             &ctx.attrs.composite_foreign_keys,
-            &ctx.table_name,
             struct_ident,
             ctx.struct_vis,
-            &sql_table_info,
-            &sql_column_info,
-            &dialect_types,
         );
     let (primary_key_impls, _sql_primary_key, primary_key_type, pk_constraint_ident) =
         crate::common::constraints::generate_primary_key(
             ctx.field_infos,
-            &ctx.table_name,
             struct_ident,
             ctx.struct_vis,
-            &sql_table_info,
-            &dialect_types,
         );
     let (unique_constraint_impls, unique_constraint_idents) =
         crate::common::constraints::generate_unique_constraints(
             ctx.field_infos,
-            &ctx.table_name,
             struct_ident,
             ctx.struct_vis,
-            &sql_table_info,
-            &dialect_types,
         );
 
     let mut constraint_idents = Vec::new();
@@ -261,7 +250,6 @@ pub fn generate_table_impls(
     )?;
     let capability_impls = crate::common::constraints::generate_constraint_capabilities(
         ctx.field_infos,
-        &ctx.table_name,
         ctx.struct_ident,
         !ctx.attrs.composite_foreign_keys.is_empty(),
         false, // SQLite doesn't have CHECK constraints via attributes

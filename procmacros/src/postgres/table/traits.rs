@@ -34,7 +34,6 @@ pub(super) fn generate_table_impls(
     let type_set_cons = core_paths::type_set_cons();
     let type_set_nil = core_paths::type_set_nil();
     let sql_table_info = core_paths::sql_table_info();
-    let sql_column_info = core_paths::sql_column_info();
     let no_constraint = core_paths::no_constraint();
     let table_ref = core_paths::table_ref();
     let postgres_value = postgres_paths::postgres_value();
@@ -71,30 +70,20 @@ pub(super) fn generate_table_impls(
         crate::common::constraints::generate_foreign_keys(
             ctx.field_infos,
             &ctx.attrs.composite_foreign_keys,
-            &ctx.table_name,
             struct_ident,
             ctx.struct_vis,
-            &sql_table_info,
-            &sql_column_info,
-            &dialect_types,
         );
     let (primary_key_impls, _sql_primary_key, primary_key_type, pk_constraint_ident) =
         crate::common::constraints::generate_primary_key(
             ctx.field_infos,
-            &ctx.table_name,
             struct_ident,
             ctx.struct_vis,
-            &sql_table_info,
-            &dialect_types,
         );
     let (unique_constraint_impls, unique_constraint_idents) =
         crate::common::constraints::generate_unique_constraints(
             ctx.field_infos,
-            &ctx.table_name,
             struct_ident,
             ctx.struct_vis,
-            &sql_table_info,
-            &dialect_types,
         );
     let (check_constraint_impls, check_constraint_idents) =
         generate_check_constraints(ctx, struct_ident, ctx.struct_vis, &sql_table_info);
@@ -289,7 +278,6 @@ pub(super) fn generate_table_impls(
         .any(|f| f.check_constraint.as_ref().is_some());
     let capability_impls = crate::common::constraints::generate_constraint_capabilities(
         ctx.field_infos,
-        &ctx.table_name,
         ctx.struct_ident,
         !ctx.attrs.composite_foreign_keys.is_empty(),
         has_check,

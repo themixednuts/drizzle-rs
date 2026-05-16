@@ -306,34 +306,6 @@ struct AttributeData {
     marker_exprs: Vec<syn::ExprPath>,
 }
 
-/// Intermediate column-constraint flags lifted straight from user attributes.
-/// Each bool is independently set from a distinct attribute or type check and
-/// is consumed later when populating [`FieldInfo`].
-#[allow(clippy::struct_excessive_bools)]
-struct FieldProperties {
-    is_primary: bool,
-    is_autoincrement: bool,
-    is_unique: bool,
-    is_json: bool,
-    is_enum: bool,
-    is_uuid: bool,
-    has_default: bool,
-}
-
-impl FieldProperties {
-    fn from_flags_and_types(flags: &HashSet<String>, _field_type: &Type, base_type: &Type) -> Self {
-        Self {
-            is_primary: flags.contains("primary_key") || flags.contains("primary"),
-            is_autoincrement: flags.contains("autoincrement"),
-            is_unique: flags.contains("unique"),
-            is_json: flags.contains("json"),
-            is_enum: flags.contains("enum"),
-            is_uuid: type_is_uuid(base_type),
-            has_default: false, // Will be set in build() based on actual values
-        }
-    }
-}
-
 impl<'a> FieldInfo<'a> {
     /// Validate a referential action (ON DELETE/ON UPDATE)
     fn validate_referential_action(action: &syn::Ident) -> Result<String> {
@@ -648,16 +620,21 @@ impl<'a> FieldInfo<'a> {
         let is_nullable = is_option_type(field_type);
         let base_type = option_inner_type(field_type).unwrap_or(field_type);
 
-        let mut properties =
-            FieldProperties::from_flags_and_types(&attrs.flags, field_type, base_type);
-        properties.has_default = attrs.default_value.is_some() || attrs.default_fn.is_some();
+        // Constraint flags lifted straight from user attributes / Rust type.
+        let is_primary = attrs.flags.contains("primary_key") || attrs.flags.contains("primary");
+        let is_autoincrement = attrs.flags.contains("autoincrement");
+        let is_unique = attrs.flags.contains("unique");
+        let is_json = attrs.flags.contains("json");
+        let is_enum = attrs.flags.contains("enum");
+        let is_uuid = type_is_uuid(base_type);
+        let has_default = attrs.default_value.is_some() || attrs.default_fn.is_some();
 
         // Determine the SQLite type:
         // 1. Use explicit type from attribute if provided
         // 2. Otherwise, infer from Rust type (hard error if unsupported)
-        let type_category = if properties.is_json {
+        let type_category = if is_json {
             TypeCategory::Json
-        } else if properties.is_enum {
+        } else if is_enum {
             TypeCategory::Enum
         } else {
             type_category_from_type(base_type)
@@ -681,7 +658,11 @@ impl<'a> FieldInfo<'a> {
 
         Self::validate_constraints(
             &column_type,
-            &properties,
+            ConstraintFlags {
+                is_primary,
+                is_autoincrement,
+                is_uuid,
+            },
             attrs.default_value.as_ref(),
             attrs.default_fn.as_ref(),
             field_name,
@@ -691,10 +672,10 @@ impl<'a> FieldInfo<'a> {
             &column_name,
             &column_type,
             SqlDefinitionFlags {
-                is_primary_single: properties.is_primary && !is_part_of_composite_pk,
+                is_primary_single: is_primary && !is_part_of_composite_pk,
                 is_not_null: !is_nullable,
-                is_unique: properties.is_unique,
-                is_autoincrement: properties.is_autoincrement,
+                is_unique,
+                is_autoincrement,
             },
             attrs.default_value.as_ref(),
         );
@@ -717,24 +698,24 @@ impl<'a> FieldInfo<'a> {
             column_name,
             sql_definition,
             is_nullable,
-            has_default: properties.has_default,
-            is_autoincrement: properties.is_autoincrement,
-            is_json: properties.is_json,
-            is_enum: properties.is_enum,
-            is_uuid: properties.is_uuid,
+            has_default,
+            is_autoincrement,
+            is_json,
+            is_enum,
+            is_uuid,
             is_custom_type,
             column_type,
             foreign_key,
             constraint: crate::common::Constraint::from_flags(
-                properties.is_primary,
-                properties.is_unique,
+                is_primary,
+                is_unique,
                 is_part_of_composite_pk,
             ),
             collate: attrs.collate,
             default_value: attrs.default_value,
             default_fn: attrs.default_fn,
             marker_exprs: attrs.marker_exprs,
-            select_type: Some(select_type(base_type, is_nullable, properties.has_default)),
+            select_type: Some(select_type(base_type, is_nullable, has_default)),
             update_type: Some(update_type(base_type)),
         })
     }
@@ -742,7 +723,7 @@ impl<'a> FieldInfo<'a> {
     /// Validate field constraints and configuration
     fn validate_constraints(
         column_type: &SQLiteType,
-        props: &FieldProperties,
+        props: ConstraintFlags,
         default_value: Option<&Expr>,
         default_fn: Option<&Expr>,
         field_name: &Ident,
@@ -781,6 +762,16 @@ impl<'a> FieldInfo<'a> {
             .find(|(condition, _)| *condition)
             .map_or(Ok(()), |(_, msg)| Err(Error::new_spanned(field_name, msg)))
     }
+}
+
+/// Flags consumed by [`FieldInfo::validate_constraints`]. These are the
+/// subset of column flags that participate in validation rules (e.g.
+/// AUTOINCREMENT requires INTEGER PRIMARY KEY; UUID requires BLOB/TEXT).
+#[derive(Debug, Clone, Copy)]
+struct ConstraintFlags {
+    is_primary: bool,
+    is_autoincrement: bool,
+    is_uuid: bool,
 }
 
 /// Flags controlling SQL column definition output. Each flag corresponds to

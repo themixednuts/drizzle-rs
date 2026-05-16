@@ -276,23 +276,12 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
     let driver_impls = drivers::generate_all_driver_impls(&ctx);
 
     // Generate FK ZSTs and relation impls (logical-only, no SQL constraints in views)
-    let sql_table_info_path = core_paths::sql_table_info();
-    let sql_column_info_path = core_paths::sql_column_info();
-    let dialect_types = crate::common::constraints::DialectTypes {
-        sql_schema: core_paths::sql_schema(),
-        schema_type: postgres_paths::postgres_schema_type(),
-        value_type: postgres_paths::postgres_value(),
-    };
     let (foreign_key_impls, _sql_foreign_keys, foreign_keys_type, _fk_idents) =
         crate::common::constraints::generate_foreign_keys(
             ctx.field_infos,
             &ctx.attrs.composite_foreign_keys,
-            &ctx.table_name,
             struct_ident,
             &input.vis,
-            &sql_table_info_path,
-            &sql_column_info_path,
-            &dialect_types,
         );
     let relations_impl = crate::common::constraints::generate_relations(
         ctx.field_infos,
