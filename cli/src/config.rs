@@ -6,10 +6,9 @@
 //! This configuration format is designed to be compatible with drizzle-kit
 //! so TypeScript users can use the same config expectations.
 
-pub use drizzle_types::Casing;
+pub use drizzle_types::{Casing, EnvOr, EnvOrError};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use serde::de::{self, Deserializer, MapAccess, Visitor};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -204,130 +203,6 @@ impl Extension {
 impl std::fmt::Display for Extension {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
-    }
-}
-
-// ============================================================================
-// EnvOr - Environment variable or direct value
-// ============================================================================
-
-/// A value that can be either a direct string or an environment variable reference.
-///
-/// In TOML config, users can write:
-/// ```toml
-/// url = "postgres://localhost/db"           # Direct value
-/// url = { env = "DATABASE_URL" }            # Environment variable
-/// ```
-#[derive(Debug, Clone)]
-pub enum EnvOr {
-    /// Direct string value
-    Value(String),
-    /// Environment variable name to resolve
-    Env(String),
-}
-
-impl EnvOr {
-    /// Resolve the value, looking up environment variable if needed.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::EnvNotFound`] if this is an [`EnvOr::Env`] pointing to
-    /// a variable that is not set in the process environment.
-    pub fn resolve(&self) -> Result<String, Error> {
-        match self {
-            Self::Value(v) => Ok(v.clone()),
-            Self::Env(var) => std::env::var(var).map_err(|_| Error::EnvNotFound(var.clone())),
-        }
-    }
-
-    /// Resolve to an optional value (returns `None` for missing env vars).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::EnvInvalid`] if the referenced environment variable
-    /// is set but contains non-unicode bytes.
-    pub fn resolve_optional(&self) -> Result<Option<String>, Error> {
-        match self {
-            Self::Value(v) => Ok(Some(v.clone())),
-            Self::Env(var) => match std::env::var(var) {
-                Ok(v) => Ok(Some(v)),
-                Err(std::env::VarError::NotPresent) => Ok(None),
-                Err(std::env::VarError::NotUnicode(_)) => Err(Error::EnvInvalid(
-                    var.clone(),
-                    "contains invalid unicode".into(),
-                )),
-            },
-        }
-    }
-}
-
-impl JsonSchema for EnvOr {
-    fn schema_name() -> std::borrow::Cow<'static, str> {
-        "EnvOr".into()
-    }
-
-    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        use schemars::json_schema;
-
-        // EnvOr accepts either a plain string or { env: "VAR_NAME" }
-        json_schema!({
-            "oneOf": [
-                generator.subschema_for::<String>(),
-                {
-                    "type": "object",
-                    "properties": {
-                        "env": { "type": "string" }
-                    },
-                    "required": ["env"],
-                    "additionalProperties": false
-                }
-            ]
-        })
-    }
-}
-
-impl<'de> Deserialize<'de> for EnvOr {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct EnvOrVisitor;
-
-        impl<'de> Visitor<'de> for EnvOrVisitor {
-            type Value = EnvOr;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a string or { env = \"VAR_NAME\" }")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                Ok(EnvOr::Value(value.to_string()))
-            }
-
-            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
-            where
-                M: MapAccess<'de>,
-            {
-                let mut env_var: Option<String> = None;
-
-                while let Some(key) = map.next_key::<String>()? {
-                    if key == "env" {
-                        env_var = Some(map.next_value()?);
-                    } else {
-                        return Err(de::Error::unknown_field(&key, &["env"]));
-                    }
-                }
-
-                env_var
-                    .map(EnvOr::Env)
-                    .ok_or_else(|| de::Error::missing_field("env"))
-            }
-        }
-
-        deserializer.deserialize_any(EnvOrVisitor)
     }
 }
 
@@ -1057,8 +932,10 @@ impl DatabaseConfig {
 
         // Helper to resolve an optional EnvOr
         let resolve_opt = |opt: &Option<EnvOr>| -> Result<Option<Box<str>>, Error> {
-            opt.as_ref()
-                .map_or(Ok(None), |e| e.resolve().map(|s| Some(s.into_boxed_str())))
+            match opt.as_ref() {
+                None => Ok(None),
+                Some(e) => Ok(Some(e.resolve()?.into_boxed_str())),
+            }
         };
 
         let creds = match (self.dialect, raw) {
@@ -1580,6 +1457,15 @@ pub enum Error {
 
     #[error("multiple databases configured, use --db to specify: {}", .0.join(", "))]
     DatabaseRequired(Vec<String>),
+}
+
+impl From<EnvOrError> for Error {
+    fn from(err: EnvOrError) -> Self {
+        match err {
+            EnvOrError::NotPresent(var) => Self::EnvNotFound(var),
+            EnvOrError::NotUnicode(var) => Self::EnvInvalid(var, "contains invalid unicode".into()),
+        }
+    }
 }
 
 // ============================================================================

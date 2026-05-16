@@ -61,8 +61,10 @@ pub mod sql;
 pub mod sqlite;
 
 pub use dialect::{Dialect, DialectParseError};
+#[cfg(feature = "std")]
+pub use migration::EnvOrError;
 #[cfg(any(feature = "std", feature = "alloc"))]
-pub use migration::{Casing, MigrationTracking};
+pub use migration::{Casing, EnvOr, MigrationTracking};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use sql::*;
 

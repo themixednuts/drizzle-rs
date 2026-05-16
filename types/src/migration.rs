@@ -107,3 +107,152 @@ impl Default for MigrationTracking {
         Self::SQLITE
     }
 }
+
+/// A value that's either a literal string or an env-var reference.
+///
+/// In TOML this deserializes from `"literal"` or `{ env = "VAR_NAME" }` — the
+/// same shape `drizzle-kit` and the CLI accept for `dbCredentials.url`. Used
+/// anywhere a config value can be either inline or pulled from the
+/// environment at runtime.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnvOr {
+    /// Literal value taken from the config file.
+    Value(String),
+    /// Name of the environment variable to resolve.
+    Env(String),
+}
+
+#[cfg(feature = "std")]
+impl EnvOr {
+    /// Resolve to a concrete string, reading the environment if needed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvOrError::NotPresent`] if this is an [`EnvOr::Env`] pointing
+    /// to a variable that is not set, or [`EnvOrError::NotUnicode`] if the
+    /// variable is set but contains invalid UTF-8.
+    pub fn resolve(&self) -> Result<String, EnvOrError> {
+        match self {
+            Self::Value(v) => Ok(v.clone()),
+            Self::Env(var) => match std::env::var(var) {
+                Ok(v) => Ok(v),
+                Err(std::env::VarError::NotPresent) => Err(EnvOrError::NotPresent(var.clone())),
+                Err(std::env::VarError::NotUnicode(_)) => Err(EnvOrError::NotUnicode(var.clone())),
+            },
+        }
+    }
+
+    /// Resolve to an optional value (returns `None` when an `Env` var is unset).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnvOrError::NotUnicode`] if the env var is set but contains
+    /// invalid UTF-8. Missing env vars resolve to `Ok(None)`.
+    pub fn resolve_optional(&self) -> Result<Option<String>, EnvOrError> {
+        match self {
+            Self::Value(v) => Ok(Some(v.clone())),
+            Self::Env(var) => match std::env::var(var) {
+                Ok(v) => Ok(Some(v)),
+                Err(std::env::VarError::NotPresent) => Ok(None),
+                Err(std::env::VarError::NotUnicode(_)) => Err(EnvOrError::NotUnicode(var.clone())),
+            },
+        }
+    }
+}
+
+/// Failure resolving an [`EnvOr::Env`] reference.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnvOrError {
+    /// The named environment variable is not set in the process.
+    NotPresent(String),
+    /// The named environment variable is set but contains non-UTF-8 bytes.
+    NotUnicode(String),
+}
+
+#[cfg(feature = "std")]
+impl core::fmt::Display for EnvOrError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::NotPresent(var) => write!(f, "env var `{var}` not set"),
+            Self::NotUnicode(var) => write!(f, "env var `{var}` contains invalid unicode"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for EnvOrError {}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for EnvOr {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::{self, MapAccess, Visitor};
+
+        struct EnvOrVisitor;
+
+        impl<'de> Visitor<'de> for EnvOrVisitor {
+            type Value = EnvOr;
+
+            fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
+                formatter.write_str("a string or { env = \"VAR_NAME\" }")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(EnvOr::Value(value.to_string()))
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut env_var: Option<String> = None;
+
+                while let Some(key) = map.next_key::<String>()? {
+                    if key == "env" {
+                        env_var = Some(map.next_value()?);
+                    } else {
+                        return Err(de::Error::unknown_field(&key, &["env"]));
+                    }
+                }
+
+                env_var
+                    .map(EnvOr::Env)
+                    .ok_or_else(|| de::Error::missing_field("env"))
+            }
+        }
+
+        deserializer.deserialize_any(EnvOrVisitor)
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for EnvOr {
+    fn schema_name() -> Cow<'static, str> {
+        "EnvOr".into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        use schemars::json_schema;
+
+        // EnvOr accepts either a plain string or { env: "VAR_NAME" }
+        json_schema!({
+            "oneOf": [
+                generator.subschema_for::<String>(),
+                {
+                    "type": "object",
+                    "properties": {
+                        "env": { "type": "string" }
+                    },
+                    "required": ["env"],
+                    "additionalProperties": false
+                }
+            ]
+        })
+    }
+}
