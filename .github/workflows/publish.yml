@@ -38,43 +38,53 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify CI passed on the release PR
-        # Belt-and-suspenders: even if branch protection isn't enforced
-        # locally, refuse to publish unless the PR's head commit has a green
-        # CI run. workflow_dispatch is exempt — that path is an explicit
-        # human override.
+        # Belt-and-suspenders: refuse to publish unless every check on the
+        # release PR was green. We can't use `gh pr checks` directly because
+        # it includes the currently-running publish workflow as a "pending"
+        # check (self-reference), so we query the GitHub API for the PR head
+        # commit's check-runs and filter out the publish workflow itself.
+        #
+        # workflow_dispatch is exempt — that path is an explicit human
+        # override, e.g. when recovering from a partial publish failure.
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUMBER="${{ github.event.pull_request.number }}"
           PR_HEAD="${{ github.event.pull_request.head.sha }}"
+          REPO="${{ github.repository }}"
+          THIS_WORKFLOW="${{ github.workflow }}"
           echo "Verifying CI on PR #$PR_NUMBER (head: $PR_HEAD)..."
 
-          # gh pr checks output is empty when there are no checks at all
-          # (e.g. CI was skipped entirely, or the PR was opened before
-          # ci.yml was set up). Treat that as a failure — we want positive
-          # confirmation that lint/build/test ran and passed.
-          CHECKS_OUTPUT=$(gh pr checks "$PR_NUMBER" --repo "${{ github.repository }}" 2>&1 || true)
-          if [[ -z "$CHECKS_OUTPUT" ]] || echo "$CHECKS_OUTPUT" | grep -q "no checks reported"; then
-            echo "::error::PR #$PR_NUMBER has no CI checks reported. Refusing to publish."
-            echo "::error::Push a fresh commit to the PR to trigger CI."
+          # Pull all check-runs for the PR head commit, excluding this
+          # workflow's own pending check. Returns one line per check:
+          # "<conclusion> <name>". Conclusions: success / failure / cancelled
+          # / timed_out / skipped / neutral / action_required / null (running).
+          CHECKS=$(gh api \
+            "repos/$REPO/commits/$PR_HEAD/check-runs?per_page=100" \
+            --paginate \
+            --jq ".check_runs | map(select(.name != \"$THIS_WORKFLOW\")) | .[] | \"\(.conclusion // \"running\") \(.name)\"")
+
+          if [[ -z "$CHECKS" ]]; then
+            echo "::error::No CI checks found for PR #$PR_NUMBER head $PR_HEAD."
+            echo "::error::CI must run on release PRs before merge. Push a fresh commit to the PR to trigger it."
             exit 1
           fi
 
-          # gh pr checks exit codes:
-          #   0  all required checks succeeded
-          #   1  one or more failed
-          #   8  required checks still pending / in progress
-          if gh pr checks "$PR_NUMBER" --repo "${{ github.repository }}"; then
-            echo "$CHECKS_OUTPUT"
-            echo "All CI checks passed on PR #$PR_NUMBER"
-          else
-            EXIT=$?
-            echo "$CHECKS_OUTPUT"
-            echo "::error::CI on PR #$PR_NUMBER is not green (gh pr checks exited $EXIT). Refusing to publish."
-            echo "::error::If this is a stale skip from before the ci.yml fix, push a fresh commit to the PR to re-trigger CI."
+          echo "Found checks (excluding $THIS_WORKFLOW):"
+          echo "$CHECKS" | sed 's/^/  /'
+
+          # Any non-green conclusion is a hard refusal. `skipped` is OK
+          # (some matrix jobs may legitimately skip); `neutral` is OK
+          # (advisory checks).
+          BAD=$(echo "$CHECKS" | awk '$1 != "success" && $1 != "skipped" && $1 != "neutral"' || true)
+          if [[ -n "$BAD" ]]; then
+            echo "::error::PR #$PR_NUMBER has non-green checks:"
+            echo "$BAD" | sed 's/^/::error::  /'
             exit 1
           fi
+
+          echo "All checks on PR #$PR_NUMBER are green — proceeding to publish."
 
       - name: Get Rust version
         id: rust-version
