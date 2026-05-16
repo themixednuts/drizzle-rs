@@ -177,7 +177,7 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: drizzle-cli v${{ steps.version.outputs.version }}
           tag_name: ${{ github.ref_name }}
