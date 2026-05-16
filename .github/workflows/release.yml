@@ -4,7 +4,10 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v*'
+      # Only fire on versioned tags (e.g. v0.1.7), not on ad-hoc tags like
+      # v-experimental. release-plz emits `v{{ version }}` for the drizzle
+      # package per release-plz.toml.
+      - 'v[0-9]*'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -162,8 +165,7 @@ jobs:
         id: version
         run: |
           TAG="${{ github.ref_name }}"
-          VERSION="${TAG#cli-}"
-          VERSION="${VERSION#v}"
+          VERSION="${TAG#v}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
