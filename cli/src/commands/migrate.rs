@@ -6,10 +6,18 @@ use crate::config::{Config, Driver};
 use crate::error::CliError;
 use crate::output;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(clap::Args, Debug, Clone, Copy, Default)]
 pub struct MigrateOptions {
+    /// Verify migration consistency without applying changes
+    #[arg(long)]
     pub verify: bool,
+
+    /// Print pending migration plan without applying changes
+    #[arg(long)]
     pub plan: bool,
+
+    /// Verify first, then apply if checks pass
+    #[arg(long)]
     pub safe: bool,
 }
 
@@ -25,10 +33,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Resu
 
     let db = config.database(db_name)?;
 
-    if !config.is_single_database() {
-        let name = db_name.unwrap_or("(default)");
-        println!("{}: {}", output::label("Database"), name);
-    }
+    crate::commands::harness::print_db_header(config, db_name);
 
     println!("{}", output::heading(migrate_heading(opts)));
     println!();

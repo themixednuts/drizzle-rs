@@ -2,21 +2,37 @@
 //!
 //! Introspects an existing database and generates a snapshot/schema.
 
-use crate::commands::overrides::{self, ConnectionOverrides};
-use crate::config::{Config, Dialect, Extension, IntrospectCasing};
+use crate::commands::overrides::{self, ConnectionOverrides, FilterArgs};
+use crate::config::{Config, Dialect, IntrospectCasing};
 use crate::error::CliError;
 use crate::output;
 
-#[derive(Debug, Clone)]
+#[derive(clap::Args, Debug, Clone)]
 pub struct IntrospectOptions {
+    /// Initialize migration metadata after introspecting
+    #[arg(long = "init")]
     pub init_metadata: bool,
+
+    /// Casing for introspected identifiers (camel or preserve)
+    #[arg(long)]
     pub casing: Option<IntrospectCasing>,
+
+    /// Override output directory
+    #[arg(long)]
     pub out: Option<std::path::PathBuf>,
+
+    /// Override breakpoints setting
+    #[arg(long)]
     pub breakpoints: Option<bool>,
+
+    /// Override dialect from config
+    #[arg(long)]
     pub dialect: Option<Dialect>,
-    pub tables_filters: Option<Vec<String>>,
-    pub schema_filters: Option<Vec<String>>,
-    pub extensions_filters: Option<Vec<Extension>>,
+
+    #[command(flatten)]
+    pub filters: FilterArgs,
+
+    #[command(flatten)]
     pub connection: ConnectionOverrides,
 }
 
@@ -43,13 +59,19 @@ pub fn run(
     let effective_breakpoints = opts.breakpoints.unwrap_or(db.breakpoints);
 
     if effective_dialect != Dialect::Postgresql {
-        if opts.schema_filters.as_ref().is_some_and(|v| !v.is_empty()) {
+        if opts
+            .filters
+            .schema_filters
+            .as_ref()
+            .is_some_and(|v| !v.is_empty())
+        {
             println!(
                 "{}",
                 output::warning("Ignoring --schemaFilters: only supported for postgresql")
             );
         }
         if opts
+            .filters
             .extensions_filters
             .as_ref()
             .is_some_and(|v| !v.is_empty())
@@ -63,16 +85,16 @@ pub fn run(
 
     let filters = crate::db::SnapshotFilters {
         tables: overrides::resolve_filter_list(
-            opts.tables_filters.as_deref(),
+            opts.filters.tables_filter.as_deref(),
             db.tables_filter.as_ref(),
         ),
         schemas: overrides::resolve_schema_filters(
             effective_dialect,
-            opts.schema_filters.as_deref(),
+            opts.filters.schema_filters.as_deref(),
             db.schema_filter.as_ref(),
         ),
         extensions: overrides::resolve_extensions_filter(
-            opts.extensions_filters.as_deref(),
+            opts.filters.extensions_filters.as_deref(),
             db.extensions_filters.as_deref(),
         ),
     };
@@ -80,10 +102,7 @@ pub fn run(
     println!("{}", output::heading("Introspecting database..."));
     println!();
 
-    if !config.is_single_database() {
-        let name = db_name.unwrap_or("(default)");
-        println!("  {}: {}", output::label("Database"), name);
-    }
+    crate::commands::harness::print_db_header(config, db_name);
 
     println!(
         "  {}: {}",

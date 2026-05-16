@@ -25,12 +25,30 @@ use crate::output;
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
+#[derive(clap::Args, Debug)]
 pub struct NewOptions {
+    /// Override dialect (sqlite, postgresql)
+    #[arg(long)]
     pub dialect: Option<Dialect>,
+
+    /// Override schema output path
+    #[arg(long)]
     pub schema: Option<String>,
+
+    /// Read schema definition from JSON (stdin by default)
+    #[arg(long)]
     pub json: bool,
+
+    /// Read JSON from a file instead of stdin (requires --json)
+    #[arg(long, requires = "json", value_name = "PATH")]
     pub from: Option<PathBuf>,
+
+    /// Export the schema definition as JSON after building
+    #[arg(long = "export-json", value_name = "PATH")]
     pub export_json: Option<PathBuf>,
+
+    /// Print the expected JSON schema shape and exit
+    #[arg(long = "schema-help")]
     pub schema_help: bool,
 }
 

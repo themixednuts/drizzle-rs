@@ -1,10 +1,21 @@
 //! Check command - validates configuration
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::config::{Config, Credentials, Dialect, PostgresCreds};
 use crate::error::CliError;
 use crate::output;
+
+#[derive(clap::Args, Debug, Clone, Default)]
+pub struct CheckOptions {
+    /// Override dialect from config
+    #[arg(long)]
+    pub dialect: Option<Dialect>,
+
+    /// Override output directory
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+}
 
 /// Run the `check` command, validating that the resolved configuration is
 /// well-formed and printing a human-readable summary.
@@ -15,25 +26,20 @@ use crate::output;
 /// config, if schema-file discovery fails, if the credentials block is
 /// malformed, or if a warning-as-error condition is encountered (currently only
 /// if the filesystem enumeration of the migrations directory fails).
-pub fn run(
-    config: &Config,
-    db_name: Option<&str>,
-    dialect_override: Option<Dialect>,
-    out_override: Option<&Path>,
-) -> Result<(), CliError> {
+pub fn run(config: &Config, db_name: Option<&str>, opts: &CheckOptions) -> Result<(), CliError> {
     let db = config.database(db_name)?;
 
     // CLI flags override config
-    let effective_dialect = dialect_override.unwrap_or(db.dialect);
-    let effective_out = out_override.map_or_else(|| db.out.clone(), Path::to_path_buf);
+    let effective_dialect = opts.dialect.unwrap_or(db.dialect);
+    let effective_out = opts
+        .out
+        .as_deref()
+        .map_or_else(|| db.out.clone(), Path::to_path_buf);
 
     println!("{}", output::heading("Checking configuration..."));
     println!();
 
-    if !config.is_single_database() {
-        let name = db_name.unwrap_or("(default)");
-        println!("  {}: {}", output::label("Database"), name);
-    }
+    crate::commands::harness::print_db_header(config, db_name);
 
     let mut warnings = Vec::new();
     let mut has_errors = false;

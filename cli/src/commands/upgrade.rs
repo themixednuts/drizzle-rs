@@ -10,7 +10,18 @@ use drizzle_migrations::upgrade::upgrade_to_latest;
 use drizzle_migrations::version::{is_supported_version, snapshot_version};
 use drizzle_types::Dialect;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+#[derive(clap::Args, Debug, Clone, Default)]
+pub struct UpgradeOptions {
+    /// Override dialect from config
+    #[arg(long)]
+    pub dialect: Option<CliDialect>,
+
+    /// Override output directory
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+}
 
 /// Run the upgrade command.
 ///
@@ -19,17 +30,12 @@ use std::path::Path;
 /// Returns [`CliError`] if the database cannot be resolved, the migration
 /// directory is unreadable, the legacy journal cannot be parsed or migrated
 /// to the v3 format, or writing the upgraded snapshot files to disk fails.
-pub fn run(
-    config: &Config,
-    db_name: Option<&str>,
-    dialect_override: Option<CliDialect>,
-    out_override: Option<&Path>,
-) -> Result<(), CliError> {
+pub fn run(config: &Config, db_name: Option<&str>, opts: &UpgradeOptions) -> Result<(), CliError> {
     let db = config.database(db_name)?;
 
     // CLI flags override config
-    let dialect = dialect_override.unwrap_or(db.dialect).to_base();
-    let out_dir = out_override.unwrap_or_else(|| db.migrations_dir());
+    let dialect = opts.dialect.unwrap_or(db.dialect).to_base();
+    let out_dir = opts.out.as_deref().unwrap_or_else(|| db.migrations_dir());
 
     println!(
         "{}",

@@ -11,15 +11,38 @@ use crate::error::CliError;
 use crate::output;
 use crate::snapshot::parse_result_to_snapshot;
 
-#[derive(Debug, Clone)]
+#[derive(clap::Args, Debug, Clone)]
 pub struct GenerateOptions {
+    /// Migration name (optional, auto-generated if not provided)
+    #[arg(short, long)]
     pub name: Option<String>,
+
+    /// Create a custom (empty) migration file for manual SQL
+    #[arg(long)]
     pub custom: bool,
+
+    /// Casing for generated identifiers (`camelCase` or `snake_case`)
+    #[arg(long)]
     pub casing: Option<Casing>,
+
+    /// Override dialect from config
+    #[arg(long)]
     pub dialect: Option<Dialect>,
+
+    /// Override driver from config
+    #[arg(long)]
     pub driver: Option<Driver>,
+
+    /// Override schema path(s)
+    #[arg(long, value_delimiter = ',')]
     pub schema: Option<Vec<String>>,
+
+    /// Override output directory
+    #[arg(long)]
     pub out: Option<std::path::PathBuf>,
+
+    /// Override breakpoints setting
+    #[arg(long)]
     pub breakpoints: Option<bool>,
 }
 
@@ -45,10 +68,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
         .clone()
         .unwrap_or_else(|| db.migrations_dir().to_path_buf());
 
-    if !config.is_single_database() {
-        let name = db_name.unwrap_or("(default)");
-        println!("{}: {}", output::label("Database"), name);
-    }
+    crate::commands::harness::print_db_header(config, db_name);
 
     println!("{}", output::heading("Generating migration..."));
 

@@ -4,23 +4,42 @@
 //! Note: This command requires database connectivity which depends on
 //! driver-specific features being enabled.
 
-use crate::commands::overrides::{self, ConnectionOverrides};
-use crate::config::{Casing, Config, Dialect, Extension};
+use crate::commands::overrides::{self, ConnectionOverrides, FilterArgs};
+use crate::config::{Casing, Config, Dialect};
 use crate::error::CliError;
 use crate::output;
 use crate::snapshot::parse_result_to_snapshot;
 
-#[derive(Debug, Clone)]
+#[derive(clap::Args, Debug, Clone)]
 pub struct PushOptions {
-    pub cli_verbose: bool,
+    /// Show all SQL statements that would be executed
+    #[arg(long)]
+    pub verbose: bool,
+
+    /// Force execution without warnings (auto-approve data-loss statements)
+    #[arg(long)]
     pub force: bool,
-    pub cli_explain: bool,
+
+    /// Print planned SQL changes without executing them (dry run)
+    #[arg(long)]
+    pub explain: bool,
+
+    /// Casing for identifiers (`camelCase` or `snake_case`)
+    #[arg(long)]
     pub casing: Option<Casing>,
+
+    /// Override dialect from config
+    #[arg(long)]
     pub dialect: Option<Dialect>,
+
+    /// Override schema path(s)
+    #[arg(long, value_delimiter = ',')]
     pub schema: Option<Vec<String>>,
-    pub tables_filters: Option<Vec<String>>,
-    pub schema_filters: Option<Vec<String>>,
-    pub extensions_filters: Option<Vec<Extension>>,
+
+    #[command(flatten)]
+    pub filters: FilterArgs,
+
+    #[command(flatten)]
     pub connection: ConnectionOverrides,
 }
 
@@ -36,17 +55,14 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: &PushOptions) -> Result
     let db = config.database(db_name)?;
 
     // CLI flags override config
-    let verbose = opts.cli_verbose || db.verbose;
-    let explain = opts.cli_explain;
+    let verbose = opts.verbose || db.verbose;
+    let explain = opts.explain;
     let effective_casing = opts.casing.or(db.casing);
     let effective_dialect = overrides::resolve_dialect(db, opts.dialect);
 
     warn_unsupported_pg_filters(effective_dialect, opts);
 
-    if !config.is_single_database() {
-        let name = db_name.unwrap_or("(default)");
-        println!("{}: {}", output::label("Database"), name);
-    }
+    crate::commands::harness::print_db_header(config, db_name);
 
     println!("{}", output::heading("Pushing schema to database..."));
     println!();
@@ -88,16 +104,16 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: &PushOptions) -> Result
 
     let filters = crate::db::SnapshotFilters {
         tables: overrides::resolve_filter_list(
-            opts.tables_filters.as_deref(),
+            opts.filters.tables_filter.as_deref(),
             db.tables_filter.as_ref(),
         ),
         schemas: overrides::resolve_schema_filters(
             effective_dialect,
-            opts.schema_filters.as_deref(),
+            opts.filters.schema_filters.as_deref(),
             db.schema_filter.as_ref(),
         ),
         extensions: overrides::resolve_extensions_filter(
-            opts.extensions_filters.as_deref(),
+            opts.filters.extensions_filters.as_deref(),
             db.extensions_filters.as_deref(),
         ),
     };
@@ -160,13 +176,19 @@ fn warn_unsupported_pg_filters(effective_dialect: Dialect, opts: &PushOptions) {
     if effective_dialect == Dialect::Postgresql {
         return;
     }
-    if opts.schema_filters.as_ref().is_some_and(|v| !v.is_empty()) {
+    if opts
+        .filters
+        .schema_filters
+        .as_ref()
+        .is_some_and(|v| !v.is_empty())
+    {
         println!(
             "{}",
             output::warning("Ignoring --schemaFilters: only supported for postgresql")
         );
     }
     if opts
+        .filters
         .extensions_filters
         .as_ref()
         .is_some_and(|v| !v.is_empty())

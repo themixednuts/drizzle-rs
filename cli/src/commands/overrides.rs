@@ -5,16 +5,67 @@ use crate::config::{
 };
 use crate::error::CliError;
 
-#[derive(Debug, Clone, Default)]
+/// CLI overrides for database connection credentials.
+///
+/// Each field maps to a top-level `--{name}` flag. Embedded into commands
+/// that talk to a live database via `#[command(flatten)]` so the connection
+/// surface is defined once and reused across `push`, `introspect`/`pull`.
+#[derive(clap::Args, Debug, Clone, Default)]
 pub struct ConnectionOverrides {
+    /// Database connection URL
+    #[arg(long)]
     pub url: Option<String>,
+
+    /// Database host
+    #[arg(long)]
     pub host: Option<String>,
+
+    /// Database port
+    #[arg(long)]
     pub port: Option<u16>,
+
+    /// Database user
+    #[arg(long)]
     pub user: Option<String>,
+
+    /// Database password
+    #[arg(long)]
     pub password: Option<String>,
+
+    /// Database name
+    #[arg(long)]
     pub database: Option<String>,
+
+    /// SSL mode (true/false or require/prefer/verify-full/disable)
+    #[arg(long)]
     pub ssl: Option<String>,
+
+    /// Turso auth token
+    #[arg(long = "authToken", alias = "auth-token")]
     pub auth_token: Option<String>,
+}
+
+/// CLI overrides for snapshot filters (tables/schemas/extensions).
+///
+/// Embedded into commands that read or push a snapshot via
+/// `#[command(flatten)]`. Single source of truth for the filter surface.
+#[derive(clap::Args, Debug, Clone, Default)]
+pub struct FilterArgs {
+    /// Table name filters
+    #[arg(long = "tablesFilter", value_delimiter = ',')]
+    pub tables_filter: Option<Vec<String>>,
+
+    /// Schema name filters
+    #[arg(long = "schemaFilters", alias = "schemaFilter", value_delimiter = ',')]
+    pub schema_filters: Option<Vec<String>>,
+
+    /// Extension filters (e.g. postgis)
+    #[arg(long = "extensionsFilters", value_delimiter = ',', value_parser = parse_extension_arg)]
+    pub extensions_filters: Option<Vec<Extension>>,
+}
+
+fn parse_extension_arg(s: &str) -> Result<Extension, String> {
+    s.parse()
 }
 
 impl ConnectionOverrides {

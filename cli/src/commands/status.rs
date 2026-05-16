@@ -20,8 +20,7 @@ pub fn run(config: &Config, db_name: Option<&str>) -> Result<(), CliError> {
     println!();
 
     if !config.is_single_database() {
-        let name = db_name.unwrap_or("(default)");
-        println!("  {}: {}", output::label("Database"), name);
+        crate::commands::harness::print_db_header(config, db_name);
         println!();
     }
 

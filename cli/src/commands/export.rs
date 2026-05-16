@@ -11,10 +11,18 @@ use crate::error::CliError;
 use crate::output;
 use crate::snapshot::parse_result_to_snapshot;
 
-#[derive(Debug, Clone)]
+#[derive(clap::Args, Debug, Clone)]
 pub struct ExportOptions {
+    /// Output SQL to a file (default: stdout)
+    #[arg(long = "sql")]
     pub output_path: Option<PathBuf>,
+
+    /// Override dialect from config
+    #[arg(long)]
     pub dialect: Option<Dialect>,
+
+    /// Override schema path(s)
+    #[arg(long, value_delimiter = ',')]
     pub schema: Option<Vec<String>>,
 }
 
@@ -31,10 +39,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: ExportOptions) -> Resul
     let db = config.database(db_name)?;
     let effective_dialect = overrides::resolve_dialect(db, opts.dialect);
 
-    if !config.is_single_database() {
-        let name = db_name.unwrap_or("(default)");
-        println!("{}: {}", output::label("Database"), name);
-    }
+    crate::commands::harness::print_db_header(config, db_name);
 
     println!("{}", output::heading("Exporting schema as SQL..."));
     println!();
