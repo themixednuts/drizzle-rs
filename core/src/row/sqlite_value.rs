@@ -1,9 +1,10 @@
-//! Shared `FromDrizzleRow` machinery for value-enum-based SQLite drivers.
+//! Shared `FromDrizzleRow` machinery for SQLite-flavored driver rows.
 //!
-//! `libsql::Row` and `turso::Row` both expose a single per-cell fetch that
-//! returns a tagged union of integer / real / text / blob / null. The leaf
-//! `FromDrizzleRow` impls for each driver were ~250-line near-clones of the
-//! same match-on-variant pattern, differing only in how the fetch is spelled.
+//! `rusqlite::Row`, `libsql::Row`, and `turso::Row` all expose a single
+//! per-cell fetch that returns a tagged union of integer / real / text /
+//! blob / null. The leaf `FromDrizzleRow` impls for each driver were
+//! near-clones of the same match-on-variant pattern, differing only in how
+//! the fetch is spelled.
 //!
 //! This module captures that pattern as the [`SqliteValueRow`] trait. Each
 //! driver supplies one tiny adapter that normalizes its native cell into a
@@ -12,9 +13,14 @@
 //! serde types, `Option<T>`) live here once as blanket impls keyed on
 //! `R: SqliteValueRow`.
 //!
-//! `rusqlite::Row` is deliberately NOT routed through this trait — it has a
-//! typed `FromSql`-based path that's already lean and cheaper than a
-//! normalize-into-`SqliteCell` indirection.
+//! ## NULL probes
+//!
+//! `Option<T>::from_row_at` only needs to know whether a cell is NULL — it
+//! shouldn't pay the cost of materialising a large `Text`/`Blob` value into
+//! an owned [`SqliteCell`] just to throw it away. The trait therefore
+//! exposes a dedicated [`SqliteValueRow::is_null_at`] method with a
+//! `cell_at`-based default impl. Drivers that can probe NULL without
+//! allocating (e.g. `rusqlite::Row::get_ref`) override it.
 
 use crate::error::DrizzleError;
 use crate::row::FromDrizzleRow;
@@ -38,14 +44,26 @@ impl SqliteCell {
 }
 
 /// Implemented by SQLite-flavored row types whose cells live in a tagged
-/// union (`libsql::Value`, `turso::Value`). Drivers normalize one cell into a
-/// [`SqliteCell`]; the shared blanket impls below take care of every target
-/// type.
+/// union (`rusqlite::ValueRef`, `libsql::Value`, `turso::Value`). Drivers
+/// normalize one cell into a [`SqliteCell`]; the shared blanket impls below
+/// take care of every target type.
 pub trait SqliteValueRow {
     /// Fetch the column at `offset` and normalize it into a [`SqliteCell`].
-    /// Errors should reflect driver-side I/O / range failures — `Ok(Null)` is
-    /// the standard "NULL was here" outcome, not an error.
+    /// Errors should reflect driver-side I/O / range failures — `Ok(Null)`
+    /// is the standard "NULL was here" outcome, not an error.
     fn cell_at(&self, offset: usize) -> Result<SqliteCell, DrizzleError>;
+
+    /// Return `true` if the column at `offset` is NULL.
+    ///
+    /// The default implementation materialises the cell and inspects its
+    /// tag. Drivers that can probe NULL without allocating (e.g.
+    /// `rusqlite::Row::get_ref`) should override this — the `Option<T>`
+    /// blanket calls `is_null_at` on every fetch, so avoiding the
+    /// materialisation matters for large `Text` / `Blob` columns.
+    #[inline]
+    fn is_null_at(&self, offset: usize) -> Result<bool, DrizzleError> {
+        Ok(self.cell_at(offset)?.is_null())
+    }
 }
 
 // =============================================================================
@@ -206,7 +224,7 @@ where
 {
     const COLUMN_COUNT: usize = T::COLUMN_COUNT;
     fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
-        if row.cell_at(offset)?.is_null() {
+        if row.is_null_at(offset)? {
             Ok(None)
         } else {
             T::from_row_at(row, offset).map(Some)

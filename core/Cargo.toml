@@ -47,17 +47,41 @@ std = ["compact_str/std", "smallvec/write", "thiserror/std", "drizzle-types/std"
 # since this crate requires allocation unconditionally.
 alloc = []
 
-# Serialization
-serde = ["dep:serde_json", "serde_json/alloc", "dep:serde"]
-uuid = ["dep:uuid"]
-chrono = ["dep:chrono"]
-time = ["dep:time"]
+# Serialization.
+#
+# Each value-type feature (uuid/chrono/serde/...) toggles the matching
+# `with-X` feature on `postgres` / `tokio-postgres` so the `FromSql` impls
+# the `core::row::postgres` module relies on are actually available when
+# those drivers are enabled. The `?/` syntax means "only if the driver is
+# already pulled in" — sqlite-only builds aren't affected.
+serde = [
+    "dep:serde_json",
+    "serde_json/alloc",
+    "dep:serde",
+    "postgres?/with-serde_json-1",
+    "tokio-postgres?/with-serde_json-1",
+]
+uuid = ["dep:uuid", "postgres?/with-uuid-1", "tokio-postgres?/with-uuid-1"]
+chrono = ["dep:chrono", "postgres?/with-chrono-0_4", "tokio-postgres?/with-chrono-0_4"]
+time = ["dep:time", "postgres?/with-time-0_3", "tokio-postgres?/with-time-0_3"]
 arrayvec = ["dep:arrayvec"]
 bytes = ["dep:bytes"]
-rust-decimal = ["dep:rust_decimal"]
-cidr = ["dep:cidr"]
-geo-types = ["dep:geo-types"]
-bit-vec = ["dep:bit-vec"]
+rust-decimal = [
+    "dep:rust_decimal",
+    "rust_decimal?/db-postgres",
+    "rust_decimal?/db-tokio-postgres",
+]
+cidr = ["dep:cidr", "postgres?/with-cidr-0_3", "tokio-postgres?/with-cidr-0_3"]
+geo-types = [
+    "dep:geo-types",
+    "postgres?/with-geo-types-0_7",
+    "tokio-postgres?/with-geo-types-0_7",
+]
+bit-vec = [
+    "dep:bit-vec",
+    "postgres?/with-bit-vec-0_8",
+    "tokio-postgres?/with-bit-vec-0_8",
+]
 compact-str = []
 
 # Query API (relational query builder with JSON subqueries)

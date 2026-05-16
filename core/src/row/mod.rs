@@ -23,10 +23,10 @@ mod postgres;
 #[cfg(feature = "rusqlite")]
 mod rusqlite;
 // Shared blanket impls for SQLite-flavored drivers whose cells are tagged
-// unions (libsql, turso). The driver-specific files above just impl
-// `SqliteValueRow` for their row type; everything else lives here.
-#[cfg(any(feature = "libsql", feature = "turso"))]
-mod sqlite_value;
+// unions (rusqlite, libsql, turso). The driver-specific files above just
+// impl `SqliteValueRow` for their row type; everything else lives here.
+#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
+pub(crate) mod sqlite_value;
 #[cfg(feature = "turso")]
 mod turso;
 
