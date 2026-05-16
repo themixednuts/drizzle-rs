@@ -19,6 +19,7 @@ heck = { workspace = true }
 nom = { workspace = true }
 drizzle-types = { workspace = true, features = ["serde", "std"] }
 sha2 = { workspace = true }
+toml = { workspace = true }
 
 [dev-dependencies]
 rusqlite = { workspace = true }

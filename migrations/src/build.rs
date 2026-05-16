@@ -29,13 +29,15 @@
 //! }
 //! ```
 
+use crate::config::Tracking;
 use crate::generate::diff;
 use crate::parser::SchemaParser;
 use crate::schema::Snapshot;
 use crate::snapshot_builder::parse_result_to_snapshot;
 use crate::words::{PrefixMode, generate_migration_tag_with_mode};
 pub use drizzle_types::Casing;
-use drizzle_types::Dialect;
+use drizzle_types::{Dialect, EnvOr, EnvOrError};
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 /// Build-time migration generation configuration.
@@ -48,13 +50,22 @@ pub struct Config {
     breakpoints: bool,
     prefix_mode: PrefixMode,
     custom_name: Option<String>,
+    url: Option<EnvOr>,
+    tracking: Tracking,
+    /// Path of the TOML config this was loaded from (if any). Watched by
+    /// [`Config::watch`] alongside the schema files.
+    config_path: Option<PathBuf>,
+    /// Names of env vars referenced by `dbCredentials.url`. Emitted as
+    /// `cargo:rerun-if-env-changed=` by [`Config::watch`].
+    watched_env_vars: Vec<String>,
 }
 
 impl Config {
     /// Create a new configuration.
     ///
     /// `out_dir` defaults to `./drizzle`, breakpoints are enabled by default,
-    /// and migration tag prefixes default to timestamp mode.
+    /// and migration tag prefixes default to timestamp mode. Tracking defaults
+    /// to the dialect-appropriate `Tracking::SQLITE` / `Tracking::POSTGRES`.
     #[must_use]
     pub fn new(dialect: Dialect) -> Self {
         Self {
@@ -65,7 +76,76 @@ impl Config {
             breakpoints: true,
             prefix_mode: PrefixMode::Timestamp,
             custom_name: None,
+            url: None,
+            tracking: default_tracking(dialect),
+            config_path: None,
+            watched_env_vars: Vec::new(),
         }
+    }
+
+    /// Load configuration from a `drizzle.config.toml` file.
+    ///
+    /// Reads `dialect`, `schema` (one path or a list), `out`, `dbCredentials.url`
+    /// (literal string or `{ env = "VAR" }`), and an optional `[migrations]`
+    /// section with `table` / `schema` overrides for the tracking table.
+    ///
+    /// Anything else in the file is ignored — this loader covers only what
+    /// the build-time generate/migrate flow needs. The CLI's full loader
+    /// handles multi-database configs, filters, and casing-from-TOML.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BuildError::ConfigNotFound`] if the file is missing,
+    /// [`BuildError::Io`] for other read failures, or [`BuildError::Toml`]
+    /// if it fails to parse.
+    pub fn from_toml(path: impl AsRef<Path>) -> Result<Self, BuildError> {
+        let path = path.as_ref();
+        let content = std::fs::read_to_string(path).map_err(|source| {
+            if source.kind() == std::io::ErrorKind::NotFound {
+                BuildError::ConfigNotFound(path.to_path_buf())
+            } else {
+                BuildError::Io(source)
+            }
+        })?;
+        let raw: RawConfig = toml::from_str(&content).map_err(|source| BuildError::Toml {
+            path: path.to_path_buf(),
+            source,
+        })?;
+
+        let dialect = raw.dialect;
+        let mut cfg = Self::new(dialect);
+        cfg.config_path = Some(path.to_path_buf());
+
+        if let Some(out) = raw.out {
+            cfg.out_dir = out;
+        }
+        cfg.files = match raw.schema {
+            Some(SchemaPaths::One(s)) => vec![PathBuf::from(s)],
+            Some(SchemaPaths::Many(v)) => v.into_iter().map(PathBuf::from).collect(),
+            None => Vec::new(),
+        };
+        if let Some(b) = raw.breakpoints {
+            cfg.breakpoints = b;
+        }
+        if let Some(c) = raw.casing {
+            cfg.casing = Some(c);
+        }
+        if let Some(creds) = raw.db_credentials {
+            if let EnvOr::Env(ref var) = creds.url {
+                cfg.watched_env_vars.push(var.clone());
+            }
+            cfg.url = Some(creds.url);
+        }
+        if let Some(m) = raw.migrations {
+            if let Some(t) = m.table {
+                cfg.tracking = cfg.tracking.table(t);
+            }
+            if let Some(s) = m.schema {
+                cfg.tracking = cfg.tracking.schema(s);
+            }
+        }
+
+        Ok(cfg)
     }
 
     /// Add one Rust source file to the build input set.
@@ -111,12 +191,119 @@ impl Config {
         self
     }
 
-    /// Emit `cargo:rerun-if-changed=...` directives for each configured file.
+    /// Emit `cargo:rerun-if-changed=` for schema files (and the TOML config,
+    /// if loaded via [`Config::from_toml`]), and `cargo:rerun-if-env-changed=`
+    /// for any env vars referenced by `dbCredentials.url`.
+    ///
+    /// Call this once after construction so cargo reruns `build.rs` whenever
+    /// any relevant input changes.
     pub fn watch(&self) {
         for path in &self.files {
             println!("cargo:rerun-if-changed={}", path.display());
         }
+        if let Some(cfg_path) = &self.config_path {
+            println!("cargo:rerun-if-changed={}", cfg_path.display());
+        }
+        for var in &self.watched_env_vars {
+            println!("cargo:rerun-if-env-changed={var}");
+        }
     }
+
+    /// Dialect this config targets.
+    #[inline]
+    #[must_use]
+    pub const fn dialect(&self) -> Dialect {
+        self.dialect
+    }
+
+    /// Migrations output directory (where generated `migration.sql` /
+    /// `snapshot.json` folders are written).
+    #[inline]
+    #[must_use]
+    pub fn out_dir(&self) -> &Path {
+        &self.out_dir
+    }
+
+    /// Resolved database URL, reading from the environment if configured as
+    /// `{ env = "VAR" }`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BuildError::MissingUrl`] if no URL was configured,
+    /// [`BuildError::EnvVarNotSet`] if a referenced env var is unset, or
+    /// [`BuildError::EnvVarNotUnicode`] if it is set but contains invalid UTF-8.
+    pub fn url(&self) -> Result<String, BuildError> {
+        let cred = self.url.as_ref().ok_or(BuildError::MissingUrl)?;
+        cred.resolve().map_err(|e| match e {
+            EnvOrError::NotPresent(var) => BuildError::EnvVarNotSet(var),
+            EnvOrError::NotUnicode(var) => BuildError::EnvVarNotUnicode(var),
+        })
+    }
+
+    /// Migration tracking table/schema for this config.
+    ///
+    /// Defaults to the dialect-appropriate `Tracking::SQLITE` /
+    /// `Tracking::POSTGRES`, with overrides applied from
+    /// `[migrations] table = ...` / `schema = ...` in TOML if present.
+    #[inline]
+    #[must_use]
+    pub fn tracking(&self) -> Tracking {
+        self.tracking.clone()
+    }
+}
+
+#[inline]
+fn default_tracking(dialect: Dialect) -> Tracking {
+    match dialect {
+        Dialect::PostgreSQL => Tracking::POSTGRES,
+        _ => Tracking::SQLITE,
+    }
+}
+
+// ============================================================================
+// drizzle.config.toml — minimal shape for build.rs
+// ============================================================================
+
+/// Raw TOML shape — see [`Config::from_toml`] for the user-facing docs.
+///
+/// This deliberately ignores fields the build-time flow doesn't need
+/// (multi-DB, filters, driver, etc.); the CLI's loader covers those.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawConfig {
+    dialect: Dialect,
+    #[serde(default)]
+    schema: Option<SchemaPaths>,
+    #[serde(default)]
+    out: Option<PathBuf>,
+    #[serde(default)]
+    breakpoints: Option<bool>,
+    #[serde(default)]
+    casing: Option<Casing>,
+    #[serde(default)]
+    db_credentials: Option<RawCreds>,
+    #[serde(default)]
+    migrations: Option<RawMigrations>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum SchemaPaths {
+    One(String),
+    Many(Vec<String>),
+}
+
+#[derive(Debug, Deserialize)]
+struct RawCreds {
+    url: EnvOr,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawMigrations {
+    #[serde(default)]
+    table: Option<String>,
+    #[serde(default)]
+    schema: Option<String>,
 }
 
 /// Result of a build-time migration generation run.
@@ -163,6 +350,25 @@ pub enum BuildError {
 
     #[error("failed to generate migration diff: {0}")]
     Migration(#[from] crate::writer::MigrationError),
+
+    #[error("config file not found: {}", .0.display())]
+    ConfigNotFound(PathBuf),
+
+    #[error("failed to parse config `{}`: {source}", path.display())]
+    Toml {
+        path: PathBuf,
+        #[source]
+        source: toml::de::Error,
+    },
+
+    #[error("no database URL configured (set `dbCredentials.url` in TOML)")]
+    MissingUrl,
+
+    #[error("env var `{0}` not set")]
+    EnvVarNotSet(String),
+
+    #[error("env var `{0}` contains invalid unicode")]
+    EnvVarNotUnicode(String),
 }
 
 /// Generate and write a migration folder when schema changes are detected.
@@ -439,5 +645,87 @@ pub struct Schema {
         expected.sort();
 
         assert_eq!(statements, expected, "unexpected generated migration SQL");
+    }
+
+    #[test]
+    fn from_toml_loads_minimal_sqlite() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cfg_path = dir.path().join("drizzle.config.toml");
+        std::fs::write(
+            &cfg_path,
+            r#"
+dialect = "sqlite"
+schema = "src/schema.rs"
+out = "./drizzle"
+
+[dbCredentials]
+url = "./dev.db"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = Config::from_toml(&cfg_path).expect("load toml");
+
+        assert_eq!(cfg.dialect(), Dialect::SQLite);
+        assert_eq!(cfg.out_dir(), Path::new("./drizzle"));
+        assert_eq!(cfg.url().expect("resolve url"), "./dev.db");
+        assert_eq!(cfg.tracking(), Tracking::SQLITE);
+    }
+
+    #[test]
+    fn from_toml_handles_env_url_and_multiple_schemas() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cfg_path = dir.path().join("drizzle.config.toml");
+        std::fs::write(
+            &cfg_path,
+            r#"
+dialect = "postgresql"
+schema = ["src/users.rs", "src/posts.rs"]
+
+[dbCredentials]
+url = { env = "DRIZZLE_BUILD_TEST_URL" }
+
+[migrations]
+table = "my_migrations"
+schema = "drizzle_meta"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = Config::from_toml(&cfg_path).expect("load toml");
+        assert_eq!(cfg.dialect(), Dialect::PostgreSQL);
+
+        let tracking = cfg.tracking();
+        assert_eq!(tracking.table, "my_migrations");
+        assert_eq!(tracking.schema.as_deref(), Some("drizzle_meta"));
+
+        // SAFETY: single-test scope, no other env consumers race here.
+        unsafe { std::env::set_var("DRIZZLE_BUILD_TEST_URL", "postgres://x") };
+        assert_eq!(cfg.url().expect("resolve env"), "postgres://x");
+        unsafe { std::env::remove_var("DRIZZLE_BUILD_TEST_URL") };
+
+        let err = cfg.url().expect_err("missing env var should error");
+        assert!(
+            matches!(err, BuildError::EnvVarNotSet(ref v) if v == "DRIZZLE_BUILD_TEST_URL"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn from_toml_missing_url_errors_lazily() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cfg_path = dir.path().join("drizzle.config.toml");
+        std::fs::write(
+            &cfg_path,
+            r#"
+dialect = "sqlite"
+schema = "src/schema.rs"
+"#,
+        )
+        .expect("write config");
+
+        // Missing dbCredentials is fine — only fails when url() is called.
+        let cfg = Config::from_toml(&cfg_path).expect("load toml");
+        assert!(matches!(cfg.url(), Err(BuildError::MissingUrl)));
     }
 }
