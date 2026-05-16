@@ -1,79 +1,21 @@
-//! `PostgreSQL` DDL collection - entity storage and management
+//! `PostgreSQL` DDL collection — typed access to schema entities.
 //!
-//! This implements the DDL collection pattern from drizzle-kit beta,
-//! providing typed access to schema entities with push/list/one/update/delete operations.
+//! The generic [`EntityCollection<T>`] storage backbone lives in
+//! [`crate::collection`]; this file supplies the per-entity-type lookup
+//! helpers (`one`, `for_table`, etc.) whose shape depends on each
+//! Postgres entity's identity (`(schema, name)`, `(schema, table, name)`).
 
 use super::ddl::{
     CheckConstraint, Column, Enum, ForeignKey, Index, Policy, PostgresEntity, PrimaryKey, Role,
     Schema, Sequence, Table, UniqueConstraint, View,
 };
+use crate::collection::EntityCollection;
 use crate::traits::EntityKind;
 use std::collections::HashMap;
 
 // =============================================================================
-// Entity Collection - Typed Operations
+// Per-entity-type lookup helpers
 // =============================================================================
-
-/// DDL entity collection with typed operations
-#[derive(Debug, Clone)]
-pub struct EntityCollection<T> {
-    entities: Vec<T>,
-}
-
-impl<T> Default for EntityCollection<T> {
-    fn default() -> Self {
-        Self {
-            entities: Vec::new(),
-        }
-    }
-}
-
-impl<T> EntityCollection<T> {
-    /// Create empty collection
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            entities: Vec::new(),
-        }
-    }
-
-    /// Push an entity, returns true if inserted, false if duplicate
-    pub fn push(&mut self, entity: T) -> bool {
-        self.entities.push(entity);
-        true
-    }
-
-    /// List all entities matching filter
-    #[must_use]
-    pub fn list(&self) -> &[T] {
-        &self.entities
-    }
-
-    /// Get mutable access to entities
-    pub const fn list_mut(&mut self) -> &mut Vec<T> {
-        &mut self.entities
-    }
-
-    /// Check if empty
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.entities.is_empty()
-    }
-
-    /// Get count
-    #[must_use]
-    pub const fn len(&self) -> usize {
-        self.entities.len()
-    }
-}
-
-impl<T: Clone> EntityCollection<T> {
-    /// Convert to Vec
-    #[must_use]
-    pub fn into_vec(self) -> Vec<T> {
-        self.entities
-    }
-}
 
 // Schema-specific operations
 impl EntityCollection<Schema> {
@@ -304,8 +246,9 @@ impl PostgresDDL {
             PostgresEntity::UniqueConstraint(u) => self.uniques.push(u),
             PostgresEntity::CheckConstraint(c) => self.checks.push(c),
             PostgresEntity::View(v) => self.views.push(v),
-            PostgresEntity::Privilege(_) => true, // Privileges are not yet tracked in the DDL collection
-        };
+            // Privileges are not yet tracked in the DDL collection.
+            PostgresEntity::Privilege(_) => {}
+        }
     }
 
     /// Convert to entity array for snapshot serialization

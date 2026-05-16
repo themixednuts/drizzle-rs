@@ -1,351 +1,113 @@
-//! Generic entity collection for DDL storage
+//! Shared generic entity collection for DDL storage.
 //!
-//! This module provides a shared `Collection<E>` type that works with any
-//! entity implementing the `Entity` trait. Used by both `SQLite` and `PostgreSQL`.
-
-use crate::traits::{DiffType, Entity, EntityKey, EntityKind};
-use std::collections::HashMap;
+//! [`EntityCollection<T>`] is a thin `Vec<T>` wrapper that backs both the
+//! SQLite and Postgres DDL pipelines. The generic operations (push, list,
+//! is_empty, len, mutable access, ...) live here once; per-dialect `impl
+//! EntityCollection<DialectEntity>` blocks in `sqlite/collection.rs` and
+//! `postgres/collection.rs` add typed lookup helpers (`one(name)`,
+//! `for_table(table)`, etc.) whose shape depends on the dialect's entity
+//! identity (single-name vs (schema, name) vs (schema, table, name)).
+//!
+//! ## Why a Vec wrapper, not an indexed map
+//!
+//! The DDL serializer needs to emit entities in insertion order (the order
+//! the user declared them). A Vec preserves that for free; a HashMap would
+//! need a parallel ordering structure. Duplicate keys are also allowed
+//! during partial state — `push` always succeeds, callers de-duplicate
+//! explicitly when they need uniqueness.
 
 // =============================================================================
-// Generic Entity Collection
+// Entity Collection - Typed Operations
 // =============================================================================
 
-/// Generic collection for any DDL entity type.
+/// Generic DDL entity collection with typed operations.
 ///
-/// Provides O(1) lookup via an internal index, along with standard
-/// collection operations like push, list, delete.
+/// See module docs for the design rationale. Per-dialect `impl
+/// EntityCollection<…>` blocks supplying entity-aware lookups live in
+/// `sqlite/collection.rs` and `postgres/collection.rs`.
 #[derive(Debug, Clone)]
-pub struct Collection<E: Entity> {
-    entities: Vec<E>,
-    /// Index from entity key to position for fast lookups
-    index: HashMap<EntityKey, usize>,
+pub struct EntityCollection<T> {
+    /// Crate-private so per-dialect `impl EntityCollection<DialectEntity>`
+    /// blocks (in `sqlite/collection.rs` and `postgres/collection.rs`) can
+    /// supply entity-aware lookup helpers without going through accessor
+    /// methods. Not part of the public API.
+    pub(crate) entities: Vec<T>,
 }
 
-impl<E: Entity> Default for Collection<E> {
+impl<T> Default for EntityCollection<T> {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<E: Entity> Collection<E> {
-    /// Create an empty collection
-    #[must_use]
-    pub fn new() -> Self {
         Self {
             entities: Vec::new(),
-            index: HashMap::new(),
+        }
+    }
+}
+
+impl<T> EntityCollection<T> {
+    /// Create empty collection.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            entities: Vec::new(),
         }
     }
 
-    /// Push an entity, returns true if inserted, false if duplicate key
-    pub fn push(&mut self, entity: E) -> bool {
-        let key = entity.key();
-        if self.index.contains_key(&key) {
-            return false;
-        }
-        let idx = self.entities.len();
+    /// Push an entity. Always succeeds — duplicate detection is the
+    /// caller's responsibility (see module docs).
+    pub fn push(&mut self, entity: T) {
         self.entities.push(entity);
-        self.index.insert(key, idx);
-        true
     }
 
-    /// Get an entity by its key
+    /// List all entities in insertion order.
     #[must_use]
-    pub fn get(&self, key: &EntityKey) -> Option<&E> {
-        self.index.get(key).map(|&idx| &self.entities[idx])
-    }
-
-    /// Check if an entity with the given key exists
-    #[must_use]
-    pub fn contains(&self, key: &EntityKey) -> bool {
-        self.index.contains_key(key)
-    }
-
-    /// Delete an entity by key, returns the removed entity if found
-    pub fn delete(&mut self, key: &EntityKey) -> Option<E> {
-        if let Some(&idx) = self.index.get(key) {
-            self.index.remove(key);
-            // Swap remove and update index of moved element
-            let removed = self.entities.swap_remove(idx);
-            if idx < self.entities.len() {
-                // Update index for the element that was swapped in
-                let swapped_key = self.entities[idx].key();
-                self.index.insert(swapped_key, idx);
-            }
-            Some(removed)
-        } else {
-            None
-        }
-    }
-
-    /// List all entities
-    #[must_use]
-    pub fn list(&self) -> &[E] {
+    pub fn list(&self) -> &[T] {
         &self.entities
     }
 
-    /// Get mutable access to entities (invalidates index!)
-    /// Use with caution - prefer `update_where` for safe mutations
-    pub const fn list_mut(&mut self) -> &mut Vec<E> {
+    /// Mutable access to the underlying `Vec`.
+    pub const fn list_mut(&mut self) -> &mut Vec<T> {
         &mut self.entities
     }
 
-    /// Rebuild the index (call after `list_mut` modifications)
-    pub fn rebuild_index(&mut self) {
-        self.index.clear();
-        for (idx, entity) in self.entities.iter().enumerate() {
-            self.index.insert(entity.key(), idx);
-        }
-    }
-
-    /// Check if collection is empty
+    /// Check if empty.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.entities.is_empty()
     }
 
-    /// Get the count of entities
+    /// Number of entities currently in the collection.
     #[must_use]
     pub const fn len(&self) -> usize {
         self.entities.len()
     }
+}
 
-    /// Iterate over entities
-    pub fn iter(&self) -> impl Iterator<Item = &E> {
-        self.entities.iter()
-    }
-
-    /// Convert to Vec, consuming the collection
+impl<T: Clone> EntityCollection<T> {
+    /// Consume the collection and return the underlying `Vec`.
     #[must_use]
-    pub fn into_vec(self) -> Vec<E> {
+    pub fn into_vec(self) -> Vec<T> {
         self.entities
     }
 
-    /// Update entities matching a predicate
-    pub fn update_where<P, F>(&mut self, predicate: P, mut transform: F)
+    /// Update entities matching `predicate` with `transform`.
+    pub fn update_where<F, P>(&mut self, predicate: P, mut transform: F)
     where
-        P: Fn(&E) -> bool,
-        F: FnMut(&mut E),
+        F: FnMut(&mut T),
+        P: Fn(&T) -> bool,
     {
         for entity in &mut self.entities {
             if predicate(entity) {
                 transform(entity);
             }
         }
-        // Rebuild index in case keys changed
-        self.rebuild_index();
     }
 
-    /// Filter entities matching a predicate
-    pub fn filter<P>(&self, predicate: P) -> Vec<&E>
+    /// Update every entity with `transform`.
+    pub fn update_all<F>(&mut self, mut transform: F)
     where
-        P: Fn(&E) -> bool,
+        F: FnMut(&mut T),
     {
-        self.entities.iter().filter(|e| predicate(*e)).collect()
-    }
-}
-
-// =============================================================================
-// Entity Diff
-// =============================================================================
-
-/// A diff entry for any entity type
-#[derive(Debug, Clone)]
-pub struct EntityDiff<E: Entity> {
-    /// The type of diff operation
-    pub diff_type: DiffType,
-    /// The entity key
-    pub key: EntityKey,
-    /// Original entity (for Drop/Alter)
-    pub left: Option<E>,
-    /// New entity (for Create/Alter)
-    pub right: Option<E>,
-}
-
-impl<E: Entity> EntityDiff<E> {
-    /// Get the entity kind
-    pub const fn kind(&self) -> EntityKind {
-        E::KIND
-    }
-}
-
-/// Compute diff between two collections of the same entity type
-#[must_use]
-pub fn diff_collections<E: Entity>(
-    left: &Collection<E>,
-    right: &Collection<E>,
-) -> Vec<EntityDiff<E>> {
-    let mut diffs = Vec::new();
-
-    // Find dropped (in left but not in right)
-    for entity in left.iter() {
-        let key = entity.key();
-        if !right.contains(&key) {
-            diffs.push(EntityDiff {
-                diff_type: DiffType::Drop,
-                key,
-                left: Some(entity.clone()),
-                right: None,
-            });
+        for entity in &mut self.entities {
+            transform(entity);
         }
-    }
-
-    // Find created (in right but not in left)
-    for entity in right.iter() {
-        let key = entity.key();
-        if !left.contains(&key) {
-            diffs.push(EntityDiff {
-                diff_type: DiffType::Create,
-                key,
-                left: None,
-                right: Some(entity.clone()),
-            });
-        }
-    }
-
-    // Find altered (in both but different)
-    for left_entity in left.iter() {
-        let key = left_entity.key();
-        if let Some(right_entity) = right.get(&key)
-            && left_entity != right_entity
-        {
-            diffs.push(EntityDiff {
-                diff_type: DiffType::Alter,
-                key,
-                left: Some(left_entity.clone()),
-                right: Some(right_entity.clone()),
-            });
-        }
-    }
-
-    diffs
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Test entity
-    #[derive(Clone, Debug, PartialEq)]
-    struct TestEntity {
-        name: String,
-        value: i32,
-    }
-
-    impl Entity for TestEntity {
-        const KIND: EntityKind = EntityKind::Table;
-
-        fn key(&self) -> EntityKey {
-            EntityKey::simple(&self.name)
-        }
-    }
-
-    #[test]
-    fn test_collection_push_and_get() {
-        let mut col: Collection<TestEntity> = Collection::new();
-
-        let e1 = TestEntity {
-            name: "foo".into(),
-            value: 1,
-        };
-        assert!(col.push(e1.clone()));
-
-        // Duplicate should fail
-        let e1_dup = TestEntity {
-            name: "foo".into(),
-            value: 2,
-        };
-        assert!(!col.push(e1_dup));
-
-        // Get should return original
-        let key = EntityKey::simple("foo");
-        let got = col.get(&key).unwrap();
-        assert_eq!(got.value, 1);
-    }
-
-    #[test]
-    fn test_collection_delete() {
-        let mut col: Collection<TestEntity> = Collection::new();
-        col.push(TestEntity {
-            name: "a".into(),
-            value: 1,
-        });
-        col.push(TestEntity {
-            name: "b".into(),
-            value: 2,
-        });
-        col.push(TestEntity {
-            name: "c".into(),
-            value: 3,
-        });
-
-        let key_b = EntityKey::simple("b");
-        let removed = col.delete(&key_b);
-        assert!(removed.is_some());
-        assert_eq!(removed.unwrap().name, "b");
-
-        assert_eq!(col.len(), 2);
-        assert!(!col.contains(&key_b));
-
-        // Other elements still accessible
-        assert!(col.contains(&EntityKey::simple("a")));
-        assert!(col.contains(&EntityKey::simple("c")));
-    }
-
-    #[test]
-    fn test_diff_collections() {
-        let mut left: Collection<TestEntity> = Collection::new();
-        left.push(TestEntity {
-            name: "keep".into(),
-            value: 1,
-        });
-        left.push(TestEntity {
-            name: "drop".into(),
-            value: 2,
-        });
-        left.push(TestEntity {
-            name: "alter".into(),
-            value: 3,
-        });
-
-        let mut right: Collection<TestEntity> = Collection::new();
-        right.push(TestEntity {
-            name: "keep".into(),
-            value: 1,
-        });
-        right.push(TestEntity {
-            name: "create".into(),
-            value: 4,
-        });
-        right.push(TestEntity {
-            name: "alter".into(),
-            value: 99,
-        }); // Changed value
-
-        let diffs = diff_collections(&left, &right);
-
-        assert_eq!(diffs.len(), 3);
-
-        let dropped: Vec<_> = diffs
-            .iter()
-            .filter(|d| d.diff_type == DiffType::Drop)
-            .collect();
-        assert_eq!(dropped.len(), 1);
-        assert_eq!(dropped[0].left.as_ref().unwrap().name, "drop");
-
-        let created: Vec<_> = diffs
-            .iter()
-            .filter(|d| d.diff_type == DiffType::Create)
-            .collect();
-        assert_eq!(created.len(), 1);
-        assert_eq!(created[0].right.as_ref().unwrap().name, "create");
-
-        let altered: Vec<_> = diffs
-            .iter()
-            .filter(|d| d.diff_type == DiffType::Alter)
-            .collect();
-        assert_eq!(altered.len(), 1);
-        assert_eq!(altered[0].left.as_ref().unwrap().value, 3);
-        assert_eq!(altered[0].right.as_ref().unwrap().value, 99);
     }
 }

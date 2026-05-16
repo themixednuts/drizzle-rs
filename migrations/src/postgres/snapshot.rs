@@ -1,86 +1,45 @@
-//! `PostgreSQL` snapshot types matching drizzle-kit format
+//! `PostgreSQL` snapshot type matching drizzle-kit format.
+//!
+//! `PostgresSnapshot` is a type alias of the generic
+//! [`crate::snapshot::Snapshot`] — the CRUD / serde IO surface lives once
+//! in that module. This file supplies:
+//!
+//! * the [`SnapshotEntity`] impl pinning the Postgres dialect / version
+//!   constants used by `Snapshot::new()`;
+//! * Postgres-specific helpers (`scoped_to_tables`, `filter_serial_sequences`,
+//!   `normalize_columns_for_push`, `table_names`, `schema_names`,
+//!   `prepare_for_push`) attached via an `impl Snapshot<PostgresEntity>`
+//!   block, which orphan rules permit because `PostgresEntity` is local.
+//! * the legacy v7 type preserved for reading older snapshots.
 
 use crate::postgres::ddl::PostgresEntity;
 use crate::postgres::grammar::{extract_nextval_sequence, is_serial_expression};
-use crate::version::{ORIGIN_UUID, POSTGRES_SNAPSHOT_VERSION};
+use crate::snapshot::{Snapshot, SnapshotEntity};
+use crate::version::POSTGRES_SNAPSHOT_VERSION;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-/// `PostgreSQL` schema snapshot (version 8 - drizzle-kit beta)
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct PostgresSnapshot {
-    pub version: String,
-    pub dialect: String,
-    pub id: String,
-    pub prev_ids: Vec<String>,
-    pub ddl: Vec<PostgresEntity>,
-    /// Renames tracking (for table/column renames between migrations)
-    #[serde(default)]
-    pub renames: Vec<String>,
+impl SnapshotEntity for PostgresEntity {
+    const DIALECT: &'static str = "postgres";
+    const SNAPSHOT_VERSION: &'static str = POSTGRES_SNAPSHOT_VERSION;
 }
 
-impl Default for PostgresSnapshot {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+/// `PostgreSQL` schema snapshot (drizzle-kit beta v8 format).
+///
+/// Type alias of [`Snapshot<PostgresEntity>`]; see the generic type's docs
+/// for the field set and IO surface. Postgres-specific filtering and
+/// normalisation methods are attached below.
+pub type PostgresSnapshot = Snapshot<PostgresEntity>;
 
-impl PostgresSnapshot {
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            version: POSTGRES_SNAPSHOT_VERSION.to_string(),
-            dialect: "postgres".to_string(),
-            id: uuid::Uuid::new_v4().to_string(),
-            prev_ids: vec![ORIGIN_UUID.to_string()],
-            ddl: Vec::new(),
-            renames: Vec::new(),
-        }
-    }
+// =============================================================================
+// Postgres-specific snapshot operations
+// =============================================================================
+//
+// Allowed by orphan rules because `PostgresEntity` is local to this crate;
+// the alias `PostgresSnapshot = Snapshot<PostgresEntity>` resolves to this
+// concrete instantiation.
 
-    #[must_use]
-    pub fn with_prev_ids(prev_ids: Vec<String>) -> Self {
-        let mut snapshot = Self::new();
-        snapshot.prev_ids = prev_ids;
-        snapshot
-    }
-
-    pub fn add_entity(&mut self, entity: PostgresEntity) {
-        self.ddl.push(entity);
-    }
-
-    /// Load snapshot from JSON string.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`serde_json::Error`] if `json` is not a valid snapshot document.
-    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(json)
-    }
-
-    /// Serialize snapshot to JSON string.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`serde_json::Error`] if the snapshot cannot be serialized.
-    pub fn to_json(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string_pretty(self)
-    }
-
-    /// Load snapshot from file.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`std::io::Error`] if the file cannot be read, or
-    /// [`std::io::ErrorKind::InvalidData`] wrapping the underlying
-    /// [`serde_json::Error`] if the contents cannot be parsed.
-    pub fn load(path: &std::path::Path) -> std::io::Result<Self> {
-        let contents = std::fs::read_to_string(path)?;
-        serde_json::from_str(&contents)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-    }
-
+impl Snapshot<PostgresEntity> {
     /// Return a new snapshot scoped to only the given tables.
     ///
     /// - Schema entities are kept only if referenced by a desired table.
@@ -275,25 +234,6 @@ impl PostgresSnapshot {
         scoped.normalize_columns_for_push();
         scoped
     }
-
-    /// Save snapshot to file.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`std::io::ErrorKind::InvalidData`] wrapping the underlying
-    /// [`serde_json::Error`] if serialization fails, or any other
-    /// [`std::io::Error`] produced while creating the parent directory or
-    /// writing the file.
-    pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        std::fs::write(path, json)
-    }
 }
 
 // =============================================================================
@@ -334,6 +274,7 @@ pub struct PostgresSnapshotV7 {
 mod tests {
     use super::*;
     use crate::postgres::ddl::{Column, Schema, Sequence, Table};
+    use crate::version::ORIGIN_UUID;
 
     fn make_table(schema: &str, name: &str) -> PostgresEntity {
         PostgresEntity::Table(Table {

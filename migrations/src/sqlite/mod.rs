@@ -19,7 +19,7 @@ pub use serializer::*;
 pub use snapshot::*;
 
 // Re-export shared types from core
-pub use crate::collection::Collection;
+pub use crate::collection::EntityCollection;
 pub use crate::traits::{Entity, EntityKey, EntityKind};
 
 // Re-export commonly used DDL types at the sqlite module level

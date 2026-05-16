@@ -1,127 +1,28 @@
-//! `SQLite` snapshot types matching drizzle-kit format
+//! `SQLite` snapshot type matching drizzle-kit format.
 //!
-//! Version 7 uses the DDL entity array format.
+//! `SQLiteSnapshot` is a type alias of the generic [`crate::snapshot::Snapshot`]
+//! — the CRUD / serde IO surface lives once in that module. This file
+//! supplies only:
+//!
+//! * the [`SnapshotEntity`] impl that pins the SQLite dialect / version
+//!   constants used by `Snapshot::new()`;
+//! * the legacy v6 types preserved for reading old snapshots.
 
 use super::ddl::SqliteEntity;
-use crate::version::{ORIGIN_UUID, SQLITE_SNAPSHOT_VERSION};
+use crate::snapshot::{Snapshot, SnapshotEntity};
+use crate::version::SQLITE_SNAPSHOT_VERSION;
 use serde::{Deserialize, Serialize};
 
-// =============================================================================
-// V7 Snapshot Format (DDL Entity Array)
-// =============================================================================
+impl SnapshotEntity for SqliteEntity {
+    const DIALECT: &'static str = "sqlite";
+    const SNAPSHOT_VERSION: &'static str = SQLITE_SNAPSHOT_VERSION;
+}
 
-/// `SQLite` schema snapshot - matches drizzle-kit beta v7 format
+/// `SQLite` schema snapshot — drizzle-kit beta v7 format.
 ///
-/// This uses the new DDL entity array format where all schema elements
-/// are stored as flat entities with `entityType` discriminators.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct SQLiteSnapshot {
-    /// Schema version (currently "7")
-    pub version: String,
-    /// Dialect identifier
-    pub dialect: String,
-    /// Unique ID for this snapshot
-    pub id: String,
-    /// IDs of previous snapshots in the chain (v7 uses array instead of single string)
-    pub prev_ids: Vec<String>,
-    /// DDL entities (tables, columns, indexes, etc.)
-    pub ddl: Vec<SqliteEntity>,
-    /// Tracked renames for migration generation
-    #[serde(default)]
-    pub renames: Vec<String>,
-}
-
-impl Default for SQLiteSnapshot {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SQLiteSnapshot {
-    /// Create a new empty `SQLite` snapshot
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            version: SQLITE_SNAPSHOT_VERSION.to_string(),
-            dialect: "sqlite".to_string(),
-            id: uuid::Uuid::new_v4().to_string(),
-            prev_ids: vec![ORIGIN_UUID.to_string()],
-            ddl: Vec::new(),
-            renames: Vec::new(),
-        }
-    }
-
-    /// Create a new snapshot with specific previous IDs
-    #[must_use]
-    pub fn with_prev_ids(prev_ids: Vec<String>) -> Self {
-        let mut snapshot = Self::new();
-        snapshot.prev_ids = prev_ids;
-        snapshot
-    }
-
-    /// Add an entity to the DDL array
-    pub fn add_entity(&mut self, entity: SqliteEntity) {
-        self.ddl.push(entity);
-    }
-
-    /// Load snapshot from JSON string
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`serde_json::Error`] if `json` is not a valid v7 snapshot document.
-    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(json)
-    }
-
-    /// Serialize snapshot to JSON string
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`serde_json::Error`] if the snapshot cannot be serialized.
-    pub fn to_json(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string_pretty(self)
-    }
-
-    /// Load snapshot from file
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`std::io::Error`] if the file cannot be read, or
-    /// [`std::io::ErrorKind::InvalidData`] wrapping the underlying
-    /// [`serde_json::Error`] if the contents cannot be parsed as a v7 snapshot.
-    pub fn load(path: &std::path::Path) -> std::io::Result<Self> {
-        let contents = std::fs::read_to_string(path)?;
-        serde_json::from_str(&contents)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-    }
-
-    /// Save snapshot to file
-    ///
-    /// # Errors
-    ///
-    /// Returns [`std::io::ErrorKind::InvalidData`] wrapping the underlying
-    /// [`serde_json::Error`] if serialization fails, or any other
-    /// [`std::io::Error`] produced while creating the parent directory or
-    /// writing the file.
-    pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
-        // Ensure parent directory exists
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        std::fs::write(path, json)
-    }
-
-    /// Check if this snapshot is empty (no DDL entities)
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.ddl.is_empty()
-    }
-}
+/// Type alias of [`Snapshot<SqliteEntity>`]; see the generic type's docs
+/// for the field set and IO surface.
+pub type SQLiteSnapshot = Snapshot<SqliteEntity>;
 
 // =============================================================================
 // Legacy V6 Snapshot Format (for reading old snapshots)

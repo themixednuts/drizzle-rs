@@ -1,105 +1,22 @@
-//! `SQLite` DDL collection - entity storage and management
+//! `SQLite` DDL collection — typed access to schema entities.
 //!
-//! This implements the DDL collection pattern from drizzle-kit beta,
-//! providing typed access to schema entities with push/list/one/update/delete operations.
+//! The generic [`EntityCollection<T>`] storage backbone lives in
+//! [`crate::collection`]; this file supplies the per-entity-type lookup
+//! helpers (`one`, `for_table`, `delete`) whose shape depends on each
+//! SQLite entity's identity (single-name for `Table`/`Index`; `(table,
+//! name)` for `Column`).
 
 use super::ddl::{
     CheckConstraint, Column, ForeignKey, Index, PrimaryKey, SqliteEntity, Table, UniqueConstraint,
     View,
 };
+use crate::collection::EntityCollection;
 use crate::traits::EntityKind;
 use std::collections::HashMap;
 
 // =============================================================================
-// Entity Collection - Typed Operations
+// Per-entity-type lookup helpers
 // =============================================================================
-
-// Entity Collection - Typed Operations
-// =============================================================================
-
-/// DDL entity collection with typed operations
-#[derive(Debug, Clone)]
-pub struct EntityCollection<T> {
-    entities: Vec<T>,
-}
-
-impl<T> Default for EntityCollection<T> {
-    fn default() -> Self {
-        Self {
-            entities: Vec::new(),
-        }
-    }
-}
-
-impl<T> EntityCollection<T> {
-    /// Create empty collection
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            entities: Vec::new(),
-        }
-    }
-
-    /// Push an entity, returns true if inserted, false if duplicate
-    pub fn push(&mut self, entity: T) -> bool {
-        self.entities.push(entity);
-        true
-    }
-
-    /// List all entities matching filter
-    #[must_use]
-    pub fn list(&self) -> &[T] {
-        &self.entities
-    }
-
-    /// Get mutable access to entities
-    pub const fn list_mut(&mut self) -> &mut Vec<T> {
-        &mut self.entities
-    }
-
-    /// Check if empty
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.entities.is_empty()
-    }
-
-    /// Get count
-    #[must_use]
-    pub const fn len(&self) -> usize {
-        self.entities.len()
-    }
-}
-
-impl<T: Clone> EntityCollection<T> {
-    /// Convert to Vec
-    #[must_use]
-    pub fn into_vec(self) -> Vec<T> {
-        self.entities
-    }
-
-    /// Update entities matching a filter with a transformation function
-    pub fn update_where<F, P>(&mut self, predicate: P, mut transform: F)
-    where
-        F: FnMut(&mut T),
-        P: Fn(&T) -> bool,
-    {
-        for entity in &mut self.entities {
-            if predicate(entity) {
-                transform(entity);
-            }
-        }
-    }
-
-    /// Update all entities with a transformation function
-    pub fn update_all<F>(&mut self, mut transform: F)
-    where
-        F: FnMut(&mut T),
-    {
-        for entity in &mut self.entities {
-            transform(entity);
-        }
-    }
-}
 
 // Table-specific operations
 impl EntityCollection<Table> {

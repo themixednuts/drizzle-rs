@@ -124,6 +124,7 @@ pub mod migrator;
 pub mod parser;
 pub mod postgres;
 pub mod schema;
+pub mod snapshot;
 mod snapshot_builder;
 pub mod sqlite;
 pub mod traits;
@@ -160,8 +161,9 @@ pub use traits::{
     Mysql, Postgres, Sqlite, Upgradable, V5, V6, V7, V8, Version, Versioned, assert_can_upgrade,
 };
 
-// Collection types for diffing
-pub use collection::{Collection, EntityDiff, diff_collections};
+// Shared entity-collection backbone (per-dialect lookup helpers attach
+// in `sqlite::collection` and `postgres::collection`).
+pub use collection::EntityCollection;
 
 // Re-export serde_json for generated code
 pub use serde_json;
