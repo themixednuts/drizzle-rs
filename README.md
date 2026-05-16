@@ -5,6 +5,20 @@ A type-safe SQL query builder and ORM for Rust, inspired by Drizzle ORM.
 > [!WARNING]
 > This project is still evolving. Expect breaking changes.
 
+## Contents
+
+- [Getting Started](#getting-started)
+- [Migrations](#migrations)
+- [Generated Models](#generated-models)
+- [Querying](#querying)
+- [Expressions](#expressions)
+- [Relational Queries](#relational-queries)
+- [Transactions](#transactions)
+- [Prepared Statements](#prepared-statements)
+- [PostgreSQL](#postgresql)
+- [CLI Reference](#cli-reference)
+- [License](#license)
+
 ## Getting Started
 
 ### 1. Install
@@ -36,7 +50,7 @@ out = "./drizzle"
 url = "./dev.db"
 ```
 
-### 3. Define your schema
+### 3. Define Your Schema
 
 ```rust
 use drizzle::sqlite::prelude::*;
@@ -60,50 +74,94 @@ pub struct Posts {
     pub author_id: i64,
 }
 
+#[SQLiteTable]
+pub struct Comments {
+    #[column(primary, autoincrement)]
+    pub id: i64,
+    pub body: String,
+    #[column(references = Posts::id)]
+    pub post_id: i64,
+}
+
 #[derive(SQLiteSchema)]
 pub struct Schema {
     pub users: Users,
     pub posts: Posts,
+    pub comments: Comments,
 }
 ```
 
-Or use `drizzle introspect` to reverse-engineer a schema from an existing database.
+If you already have a database, run `drizzle introspect` to reverse-engineer the schema instead of writing it by hand.
 
-### 4. Connect & query
+### 4. Connect & Query
 
 ```rust
 use drizzle::sqlite::rusqlite::Drizzle;
 
 let conn = rusqlite::Connection::open("app.db")?;
-let (db, Schema { users, posts }) = Drizzle::new(conn, Schema::new());
+let (mut db, Schema { users, posts, comments }) = Drizzle::new(conn, Schema::new());
 ```
 
+> [!NOTE]
 > See [`examples/rusqlite.rs`](examples/rusqlite.rs) for a full runnable example.
 
 ## Migrations
 
-Drizzle offers three ways to get schema changes into your database. Pick one — these are alternatives, not layers.
+You have two workflows for keeping migration files in sync with your schema. Pick one — both produce the same committed SQL; the difference is whether you regenerate by hand or let `cargo` do it.
 
-| Approach | When | Files on disk |
+| Workflow | Generate migrations | Best for |
 |---|---|---|
-| CLI `drizzle migrate` | Most deploys; migrations run outside the app | Yes — committed SQL |
-| Runtime `db.migrate(...)` | Apply the same files from your app at startup | Yes — committed SQL |
-| `db.push(schema)` | Rapid local development | No — live diff |
+| **Manual** | Run `drizzle generate` yourself | Teams that want explicit control over when migrations are produced |
+| **Automatic** | Regenerated on every `cargo build` | Solo dev or small teams who want schema and migrations to stay in lockstep |
 
-### Generating migration files
+Both workflows apply migrations the same way — either with the CLI at deploy time, or from your app at startup. For local iteration without committed files at all, see [Push (Dev Only)](#push-dev-only).
+
+### Manual: Generate with the CLI
+
+Run `drizzle generate` whenever you change your schema, then commit the resulting SQL files:
 
 ```bash
 drizzle generate              # diff schema -> SQL migration files
-drizzle generate --name init  # name the migration
+drizzle generate --name init  # optional: name the migration
 ```
 
-### Applying with the CLI
+### Automatic: Generate from `build.rs`
+
+Add `drizzle-migrations` as a build dependency, then point it at your existing `drizzle.config.toml`. Migration files regenerate themselves whenever your schema changes — you commit them the same way as the manual workflow, you just never run `drizzle generate` by hand.
+
+```toml
+[build-dependencies]
+drizzle-migrations = { git = "https://github.com/themixednuts/drizzle-rs" }
+```
+
+```rust
+use drizzle_migrations::build::{Config, Output, run};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cfg = Config::from_toml("drizzle.config.toml")?;
+    cfg.watch();
+
+    if let Output::Generated { tag, .. } = run(&cfg)? {
+        println!("cargo:warning=generated migration {tag}");
+    }
+
+    Ok(())
+}
+```
+
+`cfg.watch()` tells cargo to rerun `build.rs` whenever a schema file, `drizzle.config.toml`, or a referenced env var changes.
+
+### Applying Migrations
+
+Once migration files exist, apply them one of three ways. They all use the same SQL files and tracking table — pick whichever fits your environment.
+
+**At deploy time, with the CLI:**
 
 ```bash
 drizzle migrate
 ```
 
-### Applying from your app
+**At app startup, from your code:**
 
 ```rust
 use drizzle::migrations::Tracking;
@@ -112,7 +170,7 @@ let migrations = drizzle::include_migrations!("./drizzle");
 db.migrate(&migrations, Tracking::SQLITE)?;
 ```
 
-Use `Tracking::POSTGRES` for PostgreSQL, and override the tracking table or schema when needed:
+Use `Tracking::POSTGRES` for PostgreSQL. Override the tracking table or schema when you need to:
 
 ```rust
 db.migrate(
@@ -123,50 +181,38 @@ db.migrate(
 )?;
 ```
 
-`migrate` creates the tracking schema/table if needed and skips migrations that have already been applied.
-
-### Generating from `build.rs`
-
-To avoid running `drizzle generate` manually, keep `./drizzle` in sync from the build script. This replaces the generation step; it does not add another migration system.
-
-```toml
-[build-dependencies]
-drizzle-migrations = { git = "https://github.com/themixednuts/drizzle-rs" }
-drizzle-types = { git = "https://github.com/themixednuts/drizzle-rs" }
-```
+**During `cargo build`, by extending the `build.rs` from above.** Set `DRIZZLE_MIGRATE=1` in your dev environment and your local database stays in lockstep with the schema:
 
 ```rust
-use drizzle_migrations::build::{Config, Output, run};
-use drizzle_types::Dialect;
+use drizzle::sqlite::rusqlite::Drizzle;
+use drizzle_migrations::{MigrateOutcome, MigrationDir};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cfg = Config::new(Dialect::SQLite)
-        .file("src/schema.rs")
-        .out("./drizzle");
+if std::env::var("DRIZZLE_MIGRATE").is_ok() {
+    let conn = rusqlite::Connection::open(cfg.url()?)?;
+    let (db, _) = Drizzle::new(conn, ());
+    let migrations = MigrationDir::new(cfg.out_dir()).discover()?;
 
-    cfg.watch();
-
-    match run(&cfg)? {
-        Output::NoChanges => {}
-        Output::Generated { tag, path, .. } => {
-            println!("cargo:warning=generated migration {tag} at {}", path.display());
-        }
+    if let MigrateOutcome::Applied { tags } = db.migrate(&migrations, cfg.tracking())? {
+        println!("cargo:warning=applied {} migration(s)", tags.len());
     }
-
-    Ok(())
 }
 ```
 
-For schemas split across files, chain `.file(...)` calls: `.file("src/schema/users.rs").file("src/schema/posts.rs")`.
+`cfg.tracking()` returns the same `Tracking` value the runtime path uses — just sourced from `drizzle.config.toml` instead of hardcoded.
 
-### Push (dev only)
+`migrate` creates the tracking schema/table if needed and skips migrations that have already been applied. Without `DRIZZLE_MIGRATE`, `cargo build` only generates files and never touches the database.
+
+### Push (Dev Only)
 
 ```rust
 let schema = Schema::new();
 db.push(&schema)?;
 ```
 
-`push` skips migration files entirely and applies the live schema diff directly. Great for iteration, not for production.
+`push` skips migration files entirely and applies the live schema diff directly.
+
+> [!CAUTION]
+> `push` is for local iteration only. It bypasses the migration tracking table and offers no audit trail. Never run it against a production database.
 
 ## Generated Models
 
@@ -174,10 +220,10 @@ Given the schema above, each `#[SQLiteTable]` (or `#[PostgresTable]`) generates 
 
 | Model | Purpose | Fields |
 |-------|---------|--------|
-| `SelectUsers` | Query results | Matches the table columns exactly |
+| `SelectUsers` | Full-row query results | Matches the table columns exactly |
 | `InsertUsers` | Insert rows | `new(name, age)` requires non-default fields; `with_email(...)` for optional ones |
 | `UpdateUsers` | Update rows | `default()` starts empty; `with_age(27)` sets fields to update |
-| `PartialSelectUsers` | Selective columns | All fields `Option<T>`; `with_name()` picks which columns to include |
+| `PartialSelectUsers` | Partial-column query results | All fields `Option<T>`; populated by `db.query(users).columns(...)` (see [Relational Queries](#relational-queries)) |
 
 ### Insert
 
@@ -198,22 +244,9 @@ UpdateUsers::default()
     .with_email("new@example.com")
 ```
 
-### Partial select
-
-Pick specific columns to return. Unselected fields come back as `None`:
-
-```rust
-let partial: Vec<PartialSelectUsers> = db
-    .select(PartialSelectUsers::default().with_name().with_email())
-    .from(users)
-    .all()?;
-```
-
 ## Querying
 
-```rust
-use drizzle::core::expr::*;
-```
+All comparison and expression functions used below (`eq`, `gt`, `and`, `asc`, `count`, etc.) live in `drizzle::core::expr`.
 
 ### Select
 
@@ -249,7 +282,7 @@ let rows: Vec<SelectUsers> = db
     .all()?;
 ```
 
-#### Ordering, limiting, pagination
+#### Ordering, Limiting, Pagination
 
 ```rust
 let rows: Vec<SelectUsers> = db
@@ -264,7 +297,7 @@ let rows: Vec<SelectUsers> = db
 .order_by([asc(users.name), desc(users.age)])
 ```
 
-#### Group by
+#### Group By
 
 ```rust
 db.select((users.name, alias(count(users.id), "total")))
@@ -288,7 +321,7 @@ db.insert(users)
     .value(InsertUsers::new("Alex Smith", 26i64).with_email("alex@example.com"))
     .execute()?;
 
-// Multiple rows — all rows must set the same optional fields
+// Multiple rows
 db.insert(users)
     .values([
         InsertUsers::new("Alex Smith", 26i64).with_email("alex@example.com"),
@@ -296,6 +329,9 @@ db.insert(users)
     ])
     .execute()?;
 ```
+
+> [!IMPORTANT]
+> In a multi-row insert, every row must set the same set of optional fields. Mixing `with_email(...)` on some rows but not others is a compile error.
 
 ### Update
 
@@ -328,8 +364,9 @@ struct UserWithPost {
     #[column(Users::id)]
     user_id: i64,
     name: String,
+    // LEFT JOIN — every Posts column must be Option<T> in case the user has no posts.
     #[column(Posts::id)]
-    post_id: i64,
+    post_id: Option<i64>,
     #[column(Posts::content)]
     content: Option<String>,
 }
@@ -349,7 +386,7 @@ let rows: Vec<UserWithPost> = db
     .all()?;
 ```
 
-### Subqueries & set operations
+### Subqueries & Set Operations
 
 `SELECT` builders are expressions — pass them directly into comparisons or `IN`:
 
@@ -418,9 +455,17 @@ let rows: Vec<(String,)> = db
     .all()?;
 ```
 
-Available in `drizzle::core::expr`: `count`, `sum`, `avg`, `min`, `max`, `coalesce`, `abs`, `upper`, `lower`, `length`, and more.
+Available in `drizzle::core::expr`:
 
-### Type casting
+- **Comparisons** — `eq`, `neq`, `gt`, `gte`, `lt`, `lte`
+- **Boolean** — `and`, `or`, `not`
+- **Aggregates** — `count`, `sum`, `avg`, `min`, `max`
+- **Null handling** — `coalesce`, `is_null`, `is_not_null`
+- **Strings** — `upper`, `lower`, `length`
+- **Math** — `abs`
+- **Ordering** — `asc`, `desc`
+
+### Type Casting
 
 Each dialect provides cast target markers for use with `cast()`. Pass a string when you need a custom SQL type name.
 
@@ -471,15 +516,6 @@ let first_post = &users[0].posts()[0];
 println!("{} comments", first_post.comments().len());
 ```
 
-Multiple relations on the same table:
-
-```rust
-let users = db.query(users)
-    .with(users.posts())
-    .with(users.invited_by())
-    .find_many()?;
-```
-
 Supports `where`, `order_by`, `limit`, and `offset` on the root query:
 
 ```rust
@@ -491,19 +527,40 @@ let users = db.query(users)
     .find_many()?;
 ```
 
+### Selecting Specific Columns
+
+Use `.columns(...)` to pick which columns to return (or `.omit(...)` for the inverse). The result type becomes `PartialSelectUsers` — same shape as `SelectUsers` but every field is `Option<T>`, with `None` for columns you didn't ask for:
+
+```rust
+let users = db.query(users)
+    .columns(users.columns().name().email())
+    .find_many()?;
+
+for u in &users {
+    assert!(u.name.is_some());
+    assert!(u.id.is_none()); // not selected
+}
+```
+
+### Type Aliases
+
 Each table generates convenient type aliases for use in function signatures:
 
 ```rust
-use schema::{UsersQueryRow, UsersWithPosts, QueryUsersPosts};
-
 fn print_user_posts(user: &UsersQueryRow<UsersWithPosts>) {
     println!("{} has {} posts", user.name, user.posts().len());
 }
 ```
 
+`UsersQueryRow<R>` is the row type returned by `db.query(users)`, parameterized over the `with(...)` shape (`UsersWithPosts` here means "include `posts`").
+
+> [!NOTE]
+> Accessing a relation on a returned row (`user.posts()`, `post.comments()`) requires the generated `Query{Table}{Relation}` trait to be in scope — import it from your schema module (e.g. `use crate::schema::{QueryUsersPosts, QueryPostsComments};`).
+
 ## Transactions
 
-Transactions auto-rollback on error or panic. Return `Ok(value)` to commit, `Err(...)` to rollback.
+> [!TIP]
+> Transactions auto-rollback on error or panic. Return `Ok(value)` to commit, `Err(...)` to rollback. No manual cleanup needed.
 
 ```rust
 use drizzle::sqlite::connection::SQLiteTransactionType;
@@ -523,7 +580,7 @@ Savepoints nest inside transactions — a failed savepoint rolls back without ab
 
 ```rust
 use drizzle::sqlite::connection::SQLiteTransactionType;
-use drizzle::core::error::DrizzleError;
+use drizzle::error::DrizzleError;
 
 let count = db.transaction(SQLiteTransactionType::Deferred, |tx| {
     tx.insert(users)
@@ -550,7 +607,8 @@ let count = db.transaction(SQLiteTransactionType::Deferred, |tx| {
 
 ## Prepared Statements
 
-Placeholders are created from columns — wrong bind types fail at compile time.
+> [!TIP]
+> Placeholders are typed by the column they came from. Binding the wrong type fails at compile time, not at runtime.
 
 ```rust
 use drizzle::core::expr::eq;
