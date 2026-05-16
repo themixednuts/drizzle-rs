@@ -1,13 +1,22 @@
 name: Update
 
 on:
+  # Auto-create / update the release PR on every push to main. release-plz
+  # internally checks whether there's anything releasable since the last tag —
+  # if not (e.g. the push was a pure chore: / style: commit that our parser
+  # skips, and no other unreleased work exists), no PR is created or updated.
+  # Manual trigger is kept so you can force a refresh if needed.
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: write
   pull-requests: write
 
 concurrency:
+  # Single in-flight release-PR update per branch — rapid pushes coalesce so
+  # we only do the work once, against the latest commit.
   group: update-${{ github.ref }}
   cancel-in-progress: true
 
