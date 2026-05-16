@@ -36,6 +36,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 """
 
+# Keep breaking-change commits in the changelog even if their type would
+# otherwise be skipped (e.g. `refactor!: ...`).
+protect_breaking_commits = true
+
+# Sort commits into Keep-a-Changelog buckets and drop internal noise
+# (chore / style / test / ci / lint / build) so the changelog stays
+# user-focused. Unconventional commits (no `type:` prefix) fall through
+# to "Other".
+commit_parsers = [
+  { message = "^feat", group = "Added" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Changed" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^revert", group = "Reverted" },
+  { message = "^chore", skip = true },
+  { message = "^style", skip = true },
+  { message = "^test", skip = true },
+  { message = "^ci", skip = true },
+  { message = "^lint", skip = true },
+  { message = "^build", skip = true },
+  { message = ".*", group = "Other" },
+]
+
 # Package-specific overrides
 [[package]]
 name = "drizzle"
