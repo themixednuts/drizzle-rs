@@ -81,6 +81,40 @@ just pg-down    # stop container
 just pg-shell   # connect with psql
 ```
 
+## Releases & Versioning (pre-1.0)
+
+While the project is pre-1.0, **every release is a patch bump** (`0.1.x → 0.1.(x+1)`) by default. The trend is intentional — pinning to a 0.1.x version means "I accept anything between 0.1.x and 0.1.<latest>", and we want that contract to hold for the whole 0.1 series.
+
+The release tooling enforces this:
+
+- `release-plz.toml` sets `features_always_increment_minor = false`. In 0.x, `feat:` commits are treated as patch-level changes (release-plz only starts incrementing the minor on `feat:` once the workspace hits `1.x`).
+- `semver_check = false` so `cargo-semver-checks` doesn't escalate the bump when it spots an API change. The developer decides when to roll the second number, not the tool.
+
+### Commit type → bump effect
+
+| Commit type | Bump | Use for |
+|---|---|---|
+| `fix:` | patch | bug fixes |
+| `refactor:` | patch | internal restructuring, no public-API surface change |
+| `chore:` | patch | repo housekeeping, deps, tooling |
+| `docs:` | patch | documentation only |
+| `perf:` | patch | performance only |
+| `test:` | patch | test-only |
+| `feat:` | **patch** (pre-1.0 policy) | new public API — tagged for changelog but doesn't escalate the version |
+| `feat!:` / `BREAKING CHANGE:` footer | **minor** (in 0.x: `0.1.x → 0.2.0`) | intentional breaking API change |
+
+### When to roll the second number
+
+Until we hit 1.0, stay on `0.1.x` and use `feat!:` only when you genuinely want to declare a `0.2.0`. When ready for 1.0:
+
+- Flip `features_always_increment_minor` to `true` in `release-plz.toml` so `feat:` starts incrementing minor again.
+- Re-enable `semver_check = true` so accidental API breaks get caught.
+- Bump `[workspace.package].version` to `1.0.0-rc.1` (or whatever prep version) and let release-plz take it from there.
+
+### Manual override
+
+If release-plz proposes a wrong version on a release PR, edit the workspace version in the PR before merging. release-plz publishes whatever's in `Cargo.toml` after the merge.
+
 ## Git: Splitting Commits by Intent
 
 When a single working tree has changes spanning multiple features, use `git apply --cached` to stage individual hunks non-interactively (no `-i` / `-p` needed).

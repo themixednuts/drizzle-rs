@@ -2,7 +2,16 @@
 # Release control
 publish = true
 release = true
-semver_check = true
+# Pre-1.0 policy: every release is a patch bump unless a commit explicitly
+# uses `feat!:` / `BREAKING CHANGE:`.
+#
+# `features_always_increment_minor` defaults to `false`, which means `feat:`
+# bumps PATCH in 0.x and only starts bumping MINOR once we hit 1.0 — exactly
+# what we want. Listing it here makes the policy explicit.
+features_always_increment_minor = false
+# Don't let cargo-semver-checks escalate the bump when it spots an API change.
+# The developer decides when 0.x.y rolls to 0.(x+1).0, not the tool.
+semver_check = false
 allow_dirty = false
 
 # Git and tagging
@@ -41,6 +50,7 @@ changelog_include = [
   "drizzle-mysql",
   "drizzle-migrations",
   "drizzle-types",
+  "drizzle-seed",
   "drizzle-cli",
 ]
 
@@ -70,6 +80,13 @@ changelog_update = false
 
 [[package]]
 name = "drizzle-mysql"
+changelog_update = false
+# MySQL driver is WIP — keep it out of crates.io for now.
+publish = false
+release = false
+
+[[package]]
+name = "drizzle-seed"
 changelog_update = false
 
 [[package]]

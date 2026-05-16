@@ -9,3 +9,7 @@
 .env
 .act-artifacts/
 tmpclaude-*
+
+# release-plz generates the config schema on demand for editor autocomplete:
+#   release-plz generate-schema
+.schema/

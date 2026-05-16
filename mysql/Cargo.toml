@@ -8,6 +8,8 @@ description.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+# MySQL driver is WIP — keep it off crates.io until it ships a real API surface.
+publish = false
 
 [dependencies]
 drizzle-core = { workspace = true, features = ["alloc"] }
