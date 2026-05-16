@@ -110,6 +110,13 @@ pub use drizzle_macros::test;
 #[doc(inline)]
 pub use drizzle_types::Dialect;
 
+/// Identifier casing used by codegen (`camelCase` / `snake_case`).
+///
+/// Re-exported from [`drizzle_types::Casing`] alongside [`Dialect`] so the
+/// two configuration enums are reachable through the same canonical path.
+#[doc(inline)]
+pub use drizzle_types::Casing;
+
 /// Re-export const_format for proc macro generated compile-time SQL.
 #[doc(hidden)]
 pub use const_format;
