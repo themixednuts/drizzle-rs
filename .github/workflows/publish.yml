@@ -10,6 +10,11 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  # Needed for the "Trigger binary release" step to dispatch release.yml.
+  # Tags created by release-plz are pushed using GITHUB_TOKEN, and pushes
+  # made with that token do NOT trigger tag-push workflows. We work around
+  # this by explicitly dispatching release.yml after publishing.
+  actions: write
 
 concurrency:
   group: publish
@@ -53,6 +58,13 @@ jobs:
         with:
           tool: release-plz
 
+      - name: Capture pre-release tag
+        id: pre
+        run: |
+          PRE_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo none)
+          echo "tag=$PRE_TAG" >> $GITHUB_OUTPUT
+          echo "Pre-release latest tag: $PRE_TAG"
+
       - name: Run release-plz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -62,6 +74,29 @@ jobs:
             echo "::error::release-plz release failed - some crates may have been partially published"
             exit 1
           }
+
+      - name: Trigger binary release
+        # Tag pushes by GITHUB_TOKEN don't trigger workflows, so dispatch
+        # release.yml explicitly. workflow_dispatch IS one of the two events
+        # that DOES fire when triggered by GITHUB_TOKEN.
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Fetch tags release-plz just pushed
+          git fetch --tags --force
+          NEW_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo none)
+          echo "Post-release latest tag: $NEW_TAG"
+          if [[ "$NEW_TAG" == "${{ steps.pre.outputs.tag }}" ]]; then
+            echo "No new tag created — skipping binary release."
+            exit 0
+          fi
+          if [[ "$NEW_TAG" != v[0-9]* ]]; then
+            echo "Latest tag '$NEW_TAG' is not a versioned release — skipping."
+            exit 0
+          fi
+          echo "Dispatching release.yml for $NEW_TAG"
+          gh workflow run release.yml --ref "$NEW_TAG"
 
       - name: Summary
         run: echo "Successfully published crates to crates.io" >> $GITHUB_STEP_SUMMARY
