@@ -1,8 +1,10 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
+  # CI runs on pull requests only. The PR's head commit is the same code that
+  # gets merged into main (modulo conflict resolution), so re-running on the
+  # push event after merge would duplicate the work that already gated the PR.
+  # Branch protection should require this workflow to be green before merge.
   pull_request:
     branches: [main]
 
@@ -11,43 +13,8 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  # Skip CI on the release-PR-merge commit pushed to main (CI already ran on
-  # the PR itself, so re-running on the merge commit would just burn minutes).
-  # Pull-request events ALWAYS run CI — even for release PRs opened by the
-  # bot — so we never publish without lint/fmt/build verification.
-  check-skip:
-    name: Check Skip
-    runs-on: ubuntu-latest
-    outputs:
-      should_skip: ${{ steps.check.outputs.should_skip }}
-    steps:
-      - name: Check if release commit
-        id: check
-        env:
-          COMMIT_MSG: ${{ github.event.head_commit.message }}
-        run: |
-          # Pull-request events always run CI. This is the safety gate for
-          # the release-PR review step.
-          if [[ "${{ github.event_name }}" != "push" ]]; then
-            echo "should_skip=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # Push events: skip when the commit is a release-PR merge (the same
-          # commit already had CI run on it as a PR) or when the bot is the
-          # author (release-plz auto-formatting commits, etc.).
-          if [[ "${{ github.actor }}" == "github-actions[bot]" ]] || \
-             [[ "$COMMIT_MSG" == chore:\ release* ]]; then
-            echo "should_skip=true" >> $GITHUB_OUTPUT
-            echo "Skipping CI for release-merge commit on main"
-          else
-            echo "should_skip=false" >> $GITHUB_OUTPUT
-          fi
-
   lint:
     name: Lint
-    needs: check-skip
-    if: needs.check-skip.outputs.should_skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -72,8 +39,7 @@ jobs:
   test-matrix:
     name: Test Matrix
     runs-on: ubuntu-latest
-    needs: [check-skip, lint]
-    if: needs.check-skip.outputs.should_skip != 'true'
+    needs: lint
     outputs:
       sqlite: ${{ steps.matrix.outputs.sqlite }}
       pg: ${{ steps.matrix.outputs.pg }}
@@ -92,8 +58,7 @@ jobs:
   test-sqlite:
     name: "test::sqlite (${{ matrix.features }})"
     runs-on: ubuntu-latest
-    needs: [check-skip, test-matrix]
-    if: needs.check-skip.outputs.should_skip != 'true'
+    needs: test-matrix
     strategy:
       fail-fast: false
       matrix:
@@ -123,8 +88,7 @@ jobs:
   test-pg:
     name: "test::pg (${{ matrix.features }})"
     runs-on: ubuntu-latest
-    needs: [check-skip, test-matrix]
-    if: needs.check-skip.outputs.should_skip != 'true'
+    needs: test-matrix
     strategy:
       fail-fast: false
       matrix:
@@ -150,8 +114,7 @@ jobs:
   test-turso:
     name: Test (Turso - Experimental)
     runs-on: ubuntu-latest
-    needs: [check-skip, lint]
-    if: needs.check-skip.outputs.should_skip != 'true'
+    needs: lint
     continue-on-error: true
     steps:
       - uses: actions/checkout@v6
@@ -239,8 +202,7 @@ jobs:
   docs:
     name: Documentation
     runs-on: ubuntu-latest
-    needs: [check-skip, lint]
-    if: needs.check-skip.outputs.should_skip != 'true'
+    needs: lint
     steps:
       - uses: actions/checkout@v6
 
@@ -259,8 +221,7 @@ jobs:
   build-matrix:
     name: Build (${{ matrix.rust }})
     runs-on: ubuntu-latest
-    needs: [check-skip, lint]
-    if: needs.check-skip.outputs.should_skip != 'true'
+    needs: lint
     strategy:
       matrix:
         rust: [stable, nightly]
@@ -285,8 +246,7 @@ jobs:
   msrv:
     name: MSRV Check
     runs-on: ubuntu-latest
-    needs: [check-skip, lint]
-    if: needs.check-skip.outputs.should_skip != 'true'
+    needs: lint
     steps:
       - uses: actions/checkout@v6
 
