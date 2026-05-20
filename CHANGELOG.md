@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7](https://github.com/themixednuts/drizzle-rs/compare/v0.1.6...v0.1.7) - 2026-05-20
+
+### Fixed
+
+- *(ci)* publish.yml verification no longer self-references
+- *(migrations)* preserve column marker metadata
+
 ## [0.1.6](https://github.com/themixednuts/drizzle-rs/compare/v0.1.5...v0.1.6) - 2026-05-16
 
 ### Added
