@@ -1,17 +1,11 @@
 //! `PostgreSQL` const DDL generation.
 //!
-//! Like the SQLite sibling module, this builds the `CREATE TABLE` SQL stored
-//! on each table's `SQLSchema::SQL` const. The output is intended to stay
-//! consistent across tables in a schema (same identifier quoting, same
-//! constraint shape, same ON UPDATE/ON DELETE ordering), and to align with
-//! `drizzle_types::postgres::ddl::sql::TableSql::create_table_sql()` so the
-//! compile-time SQL doesn't drift from the runtime emitter.
+//! Builds the `CREATE TABLE` SQL stored on each table's `SQLSchema::SQL` const.
+//! The generated SQL uses the same identifier quoting, constraint shape, and
+//! referential-action ordering as the runtime DDL renderer.
 //!
-//! Because the compile-time emitter sometimes needs to splice in
-//! `<OtherTable>::TABLE_NAME` for foreign-key targets (the referenced
-//! table's name isn't known to *this* macro), we always wrap the result
-//! in `concatcp!(...)`. When no FKs are present the args are all literals
-//! and the compiler folds them to a single `&'static str` at build time.
+//! Foreign-key targets are assembled with `concatcp!(...)` so referenced table
+//! names remain compile-time constants.
 
 use super::context::MacroContext;
 use crate::paths::ddl::postgres as ddl_paths;
@@ -251,8 +245,32 @@ fn column_to_sql(field: &FieldInfo) -> String {
         let _ = write!(sql, " COLLATE \"{name}\"");
     }
 
+    if field.is_generated_identity {
+        let identity_type = if matches!(
+            field.identity_mode,
+            Some(crate::postgres::field::IdentityMode::ByDefault)
+        ) {
+            "BY DEFAULT"
+        } else {
+            "ALWAYS"
+        };
+        let _ = write!(sql, " GENERATED {identity_type} AS IDENTITY");
+    }
+
+    if let Some(ref generated) = field.generated_column
+        && generated.stored
+    {
+        let _ = write!(
+            sql,
+            " GENERATED ALWAYS AS ({}) STORED",
+            generated.expression
+        );
+    }
+
     // Default value (serial types carry an implicit DEFAULT nextval(seq))
     if !field.is_serial
+        && !field.is_generated_identity
+        && field.generated_column.is_none()
         && let Some(ref default) = field.default
     {
         let default_str = match default {
@@ -300,7 +318,7 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
     let foreign_key_def = ddl_paths::foreign_key_def();
     let unique_constraint_def = ddl_paths::unique_constraint_def();
     let index_def = ddl_paths::index_def();
-    let _identity_def = ddl_paths::identity_def();
+    let identity_def = ddl_paths::identity_def();
     let table_sql = ddl_paths::table_sql();
     let referential_action = ddl_paths::referential_action();
 
@@ -337,6 +355,26 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
             }
             if let Some(ref collate_name) = field.collate {
                 modifiers.push(quote! { .collate(#collate_name) });
+            }
+            if let Some(ref generated) = field.generated_column
+                && generated.stored
+            {
+                let expression = &generated.expression;
+                modifiers.push(quote! { .generated_stored(#expression) });
+            }
+            if !field.is_serial && field.is_generated_identity {
+                let seq_name = format!("{table_name}_{column_name}_seq");
+                let identity_type = if matches!(
+                    field.identity_mode,
+                    Some(crate::postgres::field::IdentityMode::ByDefault)
+                ) {
+                    quote! { drizzle::ddl::postgres::ddl::IdentityType::ByDefault }
+                } else {
+                    quote! { drizzle::ddl::postgres::ddl::IdentityType::Always }
+                };
+                modifiers.push(quote! {
+                    .identity(#identity_def::new(#seq_name, #identity_type).schema(#schema_name))
+                });
             }
 
             quote! {
@@ -537,9 +575,47 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
 #[cfg(test)]
 mod tests {
     use super::generate_const_ddl;
-    use crate::postgres::field::{FieldInfo, PostgreSQLReference, PostgreSQLType};
+    use crate::postgres::field::{
+        FieldInfo, GeneratedColumn, IdentityMode, PostgreSQLDefault, PostgreSQLReference,
+        PostgreSQLType,
+    };
     use crate::postgres::table::{attributes::TableAttributes, context::MacroContext};
     use std::collections::HashSet;
+
+    fn base_field(name: &str, column_type: PostgreSQLType) -> FieldInfo {
+        let ident: syn::Ident = syn::parse_str(name).expect("valid ident");
+        let vis: syn::Visibility = syn::parse_str("pub").expect("valid visibility");
+        let field_type: syn::Type = syn::parse_str("i32").expect("valid type");
+
+        FieldInfo {
+            ident,
+            vis,
+            field_type: field_type.clone(),
+            base_type: field_type,
+            column_name: name.to_string(),
+            sql_definition: format!("\"{name}\" {}", column_type.to_sql_type()),
+            column_type,
+            flags: HashSet::new(),
+            is_nullable: false,
+            is_enum: false,
+            is_pgenum: false,
+            is_json: false,
+            is_jsonb: false,
+            is_serial: false,
+            is_custom_type: false,
+            is_generated_identity: false,
+            identity_mode: None,
+            generated_column: None,
+            default: None,
+            default_fn: None,
+            check_constraint: None,
+            foreign_key: None,
+            has_default: false,
+            marker_exprs: Vec::new(),
+            constraint: crate::common::Constraint::None,
+            collate: None,
+        }
+    }
 
     #[test]
     fn generated_fk_uses_referenced_table_schema_constant() {
@@ -613,5 +689,85 @@ mod tests {
             tokens.contains(":: DDL_TABLE . schema"),
             "expected FK references to use referenced table schema constant, got: {tokens}"
         );
+    }
+
+    #[test]
+    fn postgres_column_sql_preserves_marker_metadata() {
+        let mut identity = base_field("identity_id", PostgreSQLType::Integer);
+        identity.is_generated_identity = true;
+        identity.identity_mode = Some(IdentityMode::ByDefault);
+        identity.default = Some(PostgreSQLDefault::Literal("1".to_string()));
+        assert_eq!(
+            super::column_to_sql(&identity),
+            "\"identity_id\" INTEGER GENERATED BY DEFAULT AS IDENTITY NOT NULL"
+        );
+
+        let mut generated = base_field("full_name", PostgreSQLType::Text);
+        generated.generated_column = Some(GeneratedColumn {
+            expression: "first_name || ' ' || last_name".to_string(),
+            stored: true,
+        });
+        generated.default = Some(PostgreSQLDefault::Literal("'ignored'".to_string()));
+        assert_eq!(
+            super::column_to_sql(&generated),
+            "\"full_name\" TEXT GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED NOT NULL"
+        );
+
+        let mut collated = base_field("sortable", PostgreSQLType::Text);
+        collated.collate = Some("C".to_string());
+        assert_eq!(
+            super::column_to_sql(&collated),
+            "\"sortable\" TEXT COLLATE \"C\" NOT NULL"
+        );
+    }
+
+    #[test]
+    fn const_ddl_preserves_column_marker_metadata() {
+        let struct_ident: syn::Ident = syn::parse_str("Users").expect("valid ident");
+        let struct_vis: syn::Visibility = syn::parse_str("pub").expect("valid visibility");
+
+        let mut identity = base_field("identity_id", PostgreSQLType::Integer);
+        identity.is_generated_identity = true;
+        identity.identity_mode = Some(IdentityMode::ByDefault);
+
+        let mut generated = base_field("full_name", PostgreSQLType::Text);
+        generated.generated_column = Some(GeneratedColumn {
+            expression: "first_name || ' ' || last_name".to_string(),
+            stored: true,
+        });
+
+        let mut collated = base_field("sortable", PostgreSQLType::Text);
+        collated.collate = Some("C".to_string());
+
+        let fields = vec![identity, generated, collated];
+        let attrs = TableAttributes {
+            name: None,
+            schema: Some("app".to_string()),
+            unlogged: false,
+            temporary: false,
+            inherits: None,
+            tablespace: None,
+            composite_foreign_keys: Vec::new(),
+            marker_exprs: Vec::new(),
+        };
+
+        let ctx = MacroContext {
+            struct_ident: &struct_ident,
+            struct_vis: &struct_vis,
+            table_name: "users".to_string(),
+            field_infos: &fields,
+            select_model_ident: syn::parse_str("UsersSelect").expect("valid ident"),
+            select_model_partial_ident: syn::parse_str("UsersPartial").expect("valid ident"),
+            insert_model_ident: syn::parse_str("UsersInsert").expect("valid ident"),
+            update_model_ident: syn::parse_str("UsersUpdate").expect("valid ident"),
+            is_composite_pk: false,
+            attrs: &attrs,
+        };
+
+        let tokens = generate_const_ddl(&ctx, &[]).to_string();
+        assert!(tokens.contains(". identity"));
+        assert!(tokens.contains("IdentityType :: ByDefault"));
+        assert!(tokens.contains(". generated_stored"));
+        assert!(tokens.contains(". collate"));
     }
 }

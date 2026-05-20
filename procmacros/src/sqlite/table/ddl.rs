@@ -274,7 +274,7 @@ fn column_to_sql(field: &FieldInfo, inline_pk: bool, inline_unique: bool) -> Str
     }
 
     let sql_type = field.column_type.to_sql_type();
-    if !field.is_nullable && !(inline_pk && sql_type.to_lowercase().starts_with("int")) {
+    if !(field.is_nullable || inline_pk && sql_type.to_lowercase().starts_with("int")) {
         sql.push_str(" NOT NULL");
     }
 

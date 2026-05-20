@@ -1,4 +1,3 @@
-//! Schema snapshot builder from parsed schema files
 //! Schema snapshot builder from parsed schema files.
 //!
 //! This module converts [`ParseResult`] from the schema parser into
@@ -11,8 +10,8 @@ use crate::parser::{ParseResult, ParsedField, ParsedIndex, ParsedTable};
 use crate::postgres::PostgresSnapshot;
 use crate::schema::Snapshot;
 use crate::sqlite::SQLiteSnapshot;
-use drizzle_types::postgres::PostgreSQLType;
-use drizzle_types::sqlite::SQLiteType;
+use drizzle_types::postgres::{PostgreSQLType, TypeCategory as PgTypeCategory};
+use drizzle_types::sqlite::{SQLiteType, TypeCategory as SQLiteTypeCategory};
 use drizzle_types::{Casing, Dialect};
 use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::borrow::Cow;
@@ -114,6 +113,167 @@ fn resolve_field_name(field: &ParsedField, casing: Casing) -> String {
         || apply_casing(&field.name, casing),
         |v| trim_wrapping_quotes(&v),
     )
+}
+
+fn resolve_sqlite_type(field: &ParsedField) -> SQLiteType {
+    explicit_sqlite_type(field).unwrap_or_else(|| infer_sqlite_type(&field.ty))
+}
+
+fn explicit_sqlite_type(field: &ParsedField) -> Option<SQLiteType> {
+    for attr in &field.attrs {
+        let Some(name) = attr_name(attr) else {
+            continue;
+        };
+
+        if let Some(ty) = sqlite_type_marker(name) {
+            return Some(ty);
+        }
+
+        if !name.eq_ignore_ascii_case("column") {
+            continue;
+        }
+
+        let Some(args) = attr_args(attr) else {
+            continue;
+        };
+
+        for part in split_attr_parts(args) {
+            let marker = marker_key(part);
+            if let Some(ty) = sqlite_type_marker(marker) {
+                return Some(ty);
+            }
+        }
+    }
+
+    None
+}
+
+fn sqlite_type_marker(marker: &str) -> Option<SQLiteType> {
+    if marker.eq_ignore_ascii_case("json") {
+        Some(SQLiteType::Text)
+    } else if marker.eq_ignore_ascii_case("jsonb") {
+        Some(SQLiteType::Blob)
+    } else {
+        SQLiteType::from_attribute_name(marker)
+    }
+}
+
+fn attr_name(attr: &str) -> Option<&str> {
+    let rest = attr.trim().strip_prefix("#[")?;
+    let end = rest.find(['(', ']'])?;
+    Some(rest[..end].trim())
+}
+
+fn attr_args(attr: &str) -> Option<&str> {
+    let start = attr.find('(')?;
+    let end = attr.rfind(')')?;
+    (start < end).then_some(&attr[start + 1..end])
+}
+
+fn marker_key(part: &str) -> &str {
+    let part = part.trim();
+    let end = part.find(['=', '(']).unwrap_or(part.len());
+    part[..end].trim()
+}
+
+fn marker_args(part: &str) -> Option<&str> {
+    let start = part.find('(')?;
+    let end = part.rfind(')')?;
+    (start < end).then_some(&part[start + 1..end])
+}
+
+fn marker_value(part: &str) -> Option<&str> {
+    part.split_once('=')
+        .map(|(_, value)| value.trim())
+        .or_else(|| marker_args(part).map(str::trim))
+}
+
+fn field_marker_part<'a>(field: &'a ParsedField, marker: &str) -> Option<&'a str> {
+    for attr in &field.attrs {
+        let Some(name) = attr_name(attr) else {
+            continue;
+        };
+
+        if name.eq_ignore_ascii_case(marker) {
+            return Some(attr);
+        }
+
+        if !name.eq_ignore_ascii_case("column") {
+            continue;
+        }
+
+        let Some(args) = attr_args(attr) else {
+            continue;
+        };
+
+        for part in split_attr_parts(args) {
+            if marker_key(part).eq_ignore_ascii_case(marker) {
+                return Some(part);
+            }
+        }
+    }
+
+    None
+}
+
+fn field_has_marker(field: &ParsedField, marker: &str) -> bool {
+    field_marker_part(field, marker).is_some()
+}
+
+fn field_marker_args<'a>(field: &'a ParsedField, marker: &str) -> Option<&'a str> {
+    let part = field_marker_part(field, marker)?;
+    if part.trim_start().starts_with("#[") {
+        attr_args(part)
+    } else {
+        marker_args(part)
+    }
+}
+
+fn field_marker_value(field: &ParsedField, marker: &str) -> Option<String> {
+    let part = field_marker_part(field, marker)?;
+    let raw_value = if part.trim_start().starts_with("#[") {
+        attr_args(part)?
+    } else {
+        marker_value(part)?
+    };
+    Some(trim_wrapping_quotes(raw_value))
+}
+
+fn split_attr_parts(content: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+
+    for (i, c) in content.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match c {
+            '\\' if in_single || in_double => escaped = true,
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '(' | '<' | '[' | '{' if !in_single && !in_double => depth += 1,
+            ')' | '>' | ']' | '}' if !in_single && !in_double => {
+                depth = depth.saturating_sub(1);
+            }
+            ',' if depth == 0 && !in_single && !in_double => {
+                parts.push(content[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+
+    if start < content.len() {
+        parts.push(content[start..].trim());
+    }
+
+    parts
 }
 
 /// Build an `SQLite` snapshot from parsed schema
@@ -395,7 +555,7 @@ fn build_sqlite_column(
 ) -> crate::sqlite::Column {
     use crate::sqlite::Column;
 
-    let col_type = infer_sqlite_type(&field.ty);
+    let col_type = resolve_sqlite_type(field);
 
     let mut col = Column::new(
         table_name.to_string(),
@@ -418,6 +578,78 @@ fn build_sqlite_column(
     col
 }
 
+fn resolve_postgres_type(field: &ParsedField) -> PostgreSQLType {
+    if field_has_marker(field, "smallserial") {
+        PostgreSQLType::Smallserial
+    } else if field_has_marker(field, "bigserial") {
+        PostgreSQLType::Bigserial
+    } else if field_has_marker(field, "serial") {
+        PostgreSQLType::Serial
+    } else if field_has_marker(field, "json") {
+        PostgreSQLType::Json
+    } else if field_has_marker(field, "jsonb") {
+        PostgreSQLType::Jsonb
+    } else {
+        infer_postgres_type(&field.ty)
+    }
+}
+
+fn postgres_identity(
+    schema_name: &str,
+    table_name: &str,
+    col_name: &str,
+    field: &ParsedField,
+) -> Option<crate::postgres::Identity> {
+    use crate::postgres::Identity;
+    use crate::postgres::ddl::IdentityType;
+
+    if !field_has_marker(field, "identity") {
+        return None;
+    }
+
+    let type_ = match field_marker_args(field, "identity")
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("by_default") => IdentityType::ByDefault,
+        Some("always") | None => IdentityType::Always,
+        Some(_) => IdentityType::Always,
+    };
+
+    Some(Identity {
+        name: format!("{table_name}_{col_name}_seq").into(),
+        schema: Some(schema_name.to_string().into()),
+        type_,
+        increment: None,
+        min_value: None,
+        max_value: None,
+        start_with: None,
+        cache: None,
+        cycle: None,
+    })
+}
+
+fn postgres_generated(field: &ParsedField) -> Option<crate::postgres::Generated> {
+    use crate::postgres::Generated;
+    use crate::postgres::ddl::GeneratedType;
+
+    let args = field_marker_args(field, "generated")?;
+    let parts = split_attr_parts(args);
+    let [kind, expression] = parts.as_slice() else {
+        return None;
+    };
+
+    if !kind.trim().eq_ignore_ascii_case("stored") {
+        return None;
+    }
+
+    Some(Generated {
+        expression: trim_wrapping_quotes(expression).into(),
+        gen_type: GeneratedType::Stored,
+    })
+}
+
 /// Build a `PostgreSQL` column from a parsed field
 fn build_postgres_column(
     schema_name: &str,
@@ -425,56 +657,34 @@ fn build_postgres_column(
     field: &ParsedField,
     col_name: &str,
 ) -> crate::postgres::Column {
-    use crate::postgres::ddl::IdentityType;
-    use crate::postgres::{Column, Identity};
+    use crate::postgres::Column;
 
-    let col_type = infer_postgres_type(&field.ty);
-    let is_serial =
-        field.has_attr("smallserial") || field.has_attr("serial") || field.has_attr("bigserial");
-    let is_identity = field.has_attr("generated") || field.has_attr("identity");
+    let col_type = resolve_postgres_type(field);
+    let generated = postgres_generated(field);
+    let identity = postgres_identity(schema_name, table_name, col_name, field);
+    let default = if matches!(
+        &col_type,
+        PostgreSQLType::Smallserial | PostgreSQLType::Serial | PostgreSQLType::Bigserial
+    ) || generated.is_some()
+        || identity.is_some()
+    {
+        None
+    } else {
+        field.default_value().map(Cow::Owned)
+    };
 
     Column {
         schema: schema_name.to_string().into(),
         table: table_name.to_string().into(),
         name: col_name.to_string().into(),
-        // SERIAL pseudo-types must remain as-is and should not be rewritten to
-        // base integer SQL types.
-        sql_type: if is_serial {
-            field
-                .attr_value("type")
-                .map_or_else(|| postgres_type_sql(&col_type).into(), Cow::Owned)
-        } else {
-            postgres_type_sql(&col_type).into()
-        },
+        sql_type: postgres_type_sql(&col_type).into(),
         type_schema: None,
         not_null: !field.is_nullable(),
-        default: field.default_value().map(Cow::Owned),
-        generated: None,
-        // Only set identity for explicit GENERATED AS IDENTITY columns.
-        // Serial columns use the SERIAL pseudo-type which implies its own
-        // sequence via DEFAULT nextval(...); combining it with GENERATED AS
-        // IDENTITY is invalid in PostgreSQL.
-        identity: if is_identity {
-            Some(Identity {
-                name: format!("{table_name}_{col_name}_seq").into(),
-                schema: Some(schema_name.to_string().into()),
-                type_: IdentityType::Always,
-                increment: None,
-                min_value: None,
-                max_value: None,
-                start_with: None,
-                cache: None,
-                cycle: None,
-            })
-        } else {
-            None
-        },
+        default,
+        generated,
+        identity,
         dimensions: None,
-        // Snapshot ingestion doesn't yet carry collation off the field —
-        // when the macro grows a `#[column(COLLATE = "...")]` attribute,
-        // route it through `field.attr_value("collate")` here. Defer until
-        // the postgres macro picks up its own collate parsing.
-        collate: None,
+        collate: field_marker_value(field, "collate").map(Cow::Owned),
         ordinal_position: None,
     }
 }
@@ -657,32 +867,9 @@ fn build_postgres_index(
 
 /// Infer `SQLite` type from Rust type string
 fn infer_sqlite_type(rust_type: &str) -> SQLiteType {
-    let base_type = rust_type
-        .trim()
-        .strip_prefix("Option<")
-        .and_then(|s| s.strip_suffix(">"))
-        .unwrap_or(rust_type)
-        .trim();
-
-    match base_type {
-        "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "isize" | "usize"
-        | "bool" => SQLiteType::Integer,
-        "f32" | "f64" => SQLiteType::Real,
-        "String" | "&str" | "str" => SQLiteType::Text,
-        "Vec<u8>" | "[u8]" => SQLiteType::Blob,
-        _ if base_type.contains("CompactString") => SQLiteType::Text,
-        _ if base_type.contains("bytes::Bytes")
-            || base_type.contains("bytes::BytesMut")
-            || base_type == "Bytes"
-            || base_type == "BytesMut"
-            || (base_type.contains("SmallVec") && base_type.contains("u8")) =>
-        {
-            SQLiteType::Blob
-        }
-        _ if base_type.contains("Uuid") => SQLiteType::Text,
-        _ if base_type.contains("DateTime") => SQLiteType::Text,
-        _ if base_type.contains("NaiveDate") => SQLiteType::Text,
-        _ => SQLiteType::Any,
+    match SQLiteTypeCategory::from_type_string(rust_type) {
+        SQLiteTypeCategory::Unknown => SQLiteType::Any,
+        category => category.to_sqlite_type().unwrap_or(SQLiteType::Any),
     }
 }
 
@@ -696,29 +883,14 @@ fn infer_postgres_type(rust_type: &str) -> PostgreSQLType {
         .trim();
 
     match base_type {
-        "i16" => PostgreSQLType::Smallint,
-        "i32" | "u8" | "u16" | "u32" => PostgreSQLType::Integer,
-        "i64" | "u64" => PostgreSQLType::Bigint,
-        "f32" => PostgreSQLType::Real,
-        "f64" => PostgreSQLType::DoublePrecision,
-        "bool" => PostgreSQLType::Boolean,
-        "String" | "&str" | "str" => PostgreSQLType::Text,
-        "Vec<u8>" | "[u8]" => PostgreSQLType::Bytea,
-        _ if base_type.contains("CompactString") => PostgreSQLType::Text,
-        _ if base_type.contains("bytes::Bytes")
-            || base_type.contains("bytes::BytesMut")
-            || base_type == "Bytes"
-            || base_type == "BytesMut"
-            || (base_type.contains("SmallVec") && base_type.contains("u8")) =>
-        {
-            PostgreSQLType::Bytea
-        }
-        _ if base_type.contains("DateTime") => PostgreSQLType::Timestamptz,
-        _ if base_type.contains("NaiveDateTime") => PostgreSQLType::Timestamp,
-        _ if base_type.contains("NaiveDate") => PostgreSQLType::Date,
-        _ if base_type.contains("NaiveTime") => PostgreSQLType::Time,
+        "u8" | "u16" | "u32" => PostgreSQLType::Integer,
+        "u64" => PostgreSQLType::Bigint,
+        "&str" | "str" => PostgreSQLType::Text,
+        "[u8]" => PostgreSQLType::Bytea,
         _ if base_type.contains("Decimal") => PostgreSQLType::Numeric,
-        _ => PostgreSQLType::Text,
+        _ => PgTypeCategory::from_type_string(rust_type)
+            .to_postgres_type()
+            .unwrap_or(PostgreSQLType::Text),
     }
 }
 
@@ -743,6 +915,9 @@ mod tests {
         );
         assert_eq!(infer_sqlite_type("Option<String>"), SQLiteType::Text);
         assert_eq!(infer_sqlite_type("Vec<u8>"), SQLiteType::Blob);
+        assert_eq!(infer_sqlite_type("Uuid"), SQLiteType::Blob);
+        assert_eq!(infer_sqlite_type("uuid::Uuid"), SQLiteType::Blob);
+        assert_eq!(infer_sqlite_type("Option<uuid::Uuid>"), SQLiteType::Blob);
     }
 
     #[test]
@@ -753,7 +928,11 @@ mod tests {
         assert_eq!(infer_postgres_type("String"), PostgreSQLType::Text);
         assert_eq!(
             infer_postgres_type("compact_str::CompactString"),
-            PostgreSQLType::Text
+            PostgreSQLType::Varchar
+        );
+        assert_eq!(
+            infer_postgres_type("arrayvec::ArrayString<32>"),
+            PostgreSQLType::Varchar
         );
         assert_eq!(infer_postgres_type("bytes::Bytes"), PostgreSQLType::Bytea);
         assert_eq!(
@@ -761,7 +940,138 @@ mod tests {
             PostgreSQLType::Bytea
         );
         assert_eq!(infer_postgres_type("Vec<u8>"), PostgreSQLType::Bytea);
-        assert_eq!(infer_postgres_type("Uuid"), PostgreSQLType::Text);
+        assert_eq!(infer_postgres_type("Uuid"), PostgreSQLType::Uuid);
+        assert_eq!(
+            infer_postgres_type("serde_json::Value"),
+            PostgreSQLType::Jsonb
+        );
+    }
+
+    #[test]
+    fn test_postgres_snapshot_preserves_column_markers() {
+        use crate::parser::SchemaParser;
+        use crate::postgres::ddl::{GeneratedType, IdentityType, PostgresEntity};
+
+        let code = r#"
+#[PostgresTable(schema = "app")]
+pub struct PgMarkers {
+    #[column(serial, primary, default = 1)]
+    pub id: i32,
+    #[column(smallserial)]
+    pub small_id: i16,
+    #[column(bigserial)]
+    pub big_id: i64,
+    #[column(json)]
+    pub json_doc: AppDoc,
+    #[column(jsonb)]
+    pub jsonb_doc: AppDoc,
+    #[column(identity(by_default), default = 2)]
+    pub identity_id: i32,
+    #[column(generated(stored, "first_name || ' ' || last_name"), default = "'ignored'")]
+    pub full_name: String,
+    #[column(collate = "C")]
+    pub sortable: String,
+}
+"#;
+
+        let result = SchemaParser::parse(code);
+        let snapshot = parse_result_to_snapshot(&result, Dialect::PostgreSQL, None);
+        let snap = match snapshot {
+            Snapshot::Postgres(s) => s,
+            _ => panic!("Expected Postgres snapshot"),
+        };
+
+        let column = |name: &str| {
+            snap.ddl
+                .iter()
+                .find_map(|entity| {
+                    if let PostgresEntity::Column(column) = entity
+                        && column.name.as_ref() == name
+                    {
+                        Some(column)
+                    } else {
+                        None
+                    }
+                })
+                .expect("expected column")
+        };
+
+        assert_eq!(column("id").sql_type.as_ref(), "serial");
+        assert!(column("id").identity.is_none());
+        assert!(column("id").default.is_none());
+        assert_eq!(column("small_id").sql_type.as_ref(), "smallserial");
+        assert_eq!(column("big_id").sql_type.as_ref(), "bigserial");
+        assert_eq!(column("json_doc").sql_type.as_ref(), "json");
+        assert_eq!(column("jsonb_doc").sql_type.as_ref(), "jsonb");
+
+        let identity = column("identity_id")
+            .identity
+            .as_ref()
+            .expect("expected identity");
+        assert_eq!(identity.type_, IdentityType::ByDefault);
+        assert!(column("identity_id").default.is_none());
+
+        let generated = column("full_name")
+            .generated
+            .as_ref()
+            .expect("expected generated column");
+        assert_eq!(generated.gen_type, GeneratedType::Stored);
+        assert_eq!(
+            generated.expression.as_ref(),
+            "first_name || ' ' || last_name"
+        );
+        assert!(column("full_name").identity.is_none());
+        assert!(column("full_name").default.is_none());
+
+        assert_eq!(column("sortable").collate.as_deref(), Some("C"));
+    }
+
+    #[test]
+    fn test_sqlite_uuid_snapshot_storage_respects_column_type() {
+        use crate::parser::SchemaParser;
+        use crate::sqlite::SqliteEntity;
+
+        let code = r#"
+#[SQLiteTable]
+pub struct UuidStorage {
+    #[column(primary)]
+    pub id: i64,
+    pub blob_uuid: uuid::Uuid,
+    #[column(text)]
+    pub text_uuid: uuid::Uuid,
+    #[blob]
+    pub legacy_blob_uuid: uuid::Uuid,
+    #[text]
+    pub legacy_text_uuid: uuid::Uuid,
+}
+"#;
+
+        let result = SchemaParser::parse(code);
+        let snapshot = parse_result_to_snapshot(&result, Dialect::SQLite, None);
+        let snap = match snapshot {
+            Snapshot::Sqlite(s) => s,
+            _ => panic!("Expected SQLite snapshot"),
+        };
+
+        let column_type = |name: &str| {
+            snap.ddl
+                .iter()
+                .find_map(|entity| {
+                    if let SqliteEntity::Column(column) = entity
+                        && column.name.as_ref() == name
+                    {
+                        Some(column.sql_type.as_ref())
+                    } else {
+                        None
+                    }
+                })
+                .expect("expected column")
+        };
+
+        assert_eq!(column_type("blob_uuid"), "blob");
+        assert_eq!(column_type("text_uuid"), "text");
+        assert_eq!(column_type("legacy_blob_uuid"), "blob");
+        assert_eq!(column_type("legacy_text_uuid"), "text");
     }
 
     /// Test that changing a column from Option<String> to String generates table recreation

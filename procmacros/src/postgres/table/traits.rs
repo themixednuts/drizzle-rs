@@ -167,6 +167,21 @@ pub(super) fn generate_table_impls(
                 .identity_mode
                 .as_ref()
                 .is_some_and(|m| matches!(m, crate::postgres::field::IdentityMode::Always));
+            let generated_expression = f
+                .generated_column
+                .as_ref()
+                .filter(|generated| generated.stored)
+                .map_or_else(
+                    || quote! { ::core::option::Option::None },
+                    |generated| {
+                        let expression = &generated.expression;
+                        quote! { ::core::option::Option::Some(#expression) }
+                    },
+                );
+            let collate = f.collate.as_ref().map_or_else(
+                || quote! { ::core::option::Option::None },
+                |collate| quote! { ::core::option::Option::Some(#collate) },
+            );
             let flags = crate::common::ref_gen::ColumnRefFlags::new()
                 .with(
                     crate::common::ref_gen::ColumnRefFlags::NOT_NULL,
@@ -195,6 +210,8 @@ pub(super) fn generate_table_impls(
                         is_bigserial: #is_bigserial,
                         is_generated_identity: #is_generated_identity,
                         is_identity_always: #is_identity_always,
+                        generated_expression: #generated_expression,
+                        collate: #collate,
                     }
                 },
             }

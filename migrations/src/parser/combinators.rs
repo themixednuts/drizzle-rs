@@ -7,7 +7,7 @@ use nom::{
     bytes::complete::{tag, take_until, take_while, take_while1},
     character::complete::{char, multispace0, multispace1},
     combinator::{opt, recognize},
-    multi::many0,
+    multi::{many0, separated_list1},
     sequence::{delimited, pair, preceded},
 };
 
@@ -67,8 +67,9 @@ fn parse_attribute(input: &str) -> IResult<&str, &str> {
 
 /// Parse a Rust type (handles generics like Option<String>, Vec<u8>)
 fn parse_type(input: &str) -> IResult<&str, &str> {
-    recognize(pair(
-        identifier,
+    recognize((
+        opt(tag("::")),
+        separated_list1(tag("::"), identifier),
         opt(delimited(char('<'), balanced_content('<', '>'), char('>'))),
     ))
     .parse(input)
@@ -315,6 +316,11 @@ mod tests {
         assert_eq!(parse_type("i64"), Ok(("", "i64")));
         assert_eq!(parse_type("String"), Ok(("", "String")));
         assert_eq!(parse_type("Option<String>"), Ok(("", "Option<String>")));
+        assert_eq!(
+            parse_type("Option<uuid::Uuid>"),
+            Ok(("", "Option<uuid::Uuid>"))
+        );
+        assert_eq!(parse_type("uuid::Uuid"), Ok(("", "uuid::Uuid")));
         assert_eq!(parse_type("Vec<u8>"), Ok(("", "Vec<u8>")));
     }
 

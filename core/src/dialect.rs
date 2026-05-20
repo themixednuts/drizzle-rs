@@ -10,7 +10,7 @@ pub use drizzle_types::Dialect;
 /// Type-level marker for `SQLite`.
 ///
 /// Used by [`crate::row::SQLTypeToRust`] to provide SQLite-specific type mappings.
-/// `SQLite` stores dates, UUIDs, and JSON as TEXT, so String fallbacks are always available.
+/// `SQLite` stores UUIDs as BLOB by default and uses TEXT for date/time and JSON values.
 #[derive(Debug, Clone, Copy)]
 pub struct SQLiteDialect;
 
@@ -65,7 +65,7 @@ impl DialectTypes for SQLiteDialect {
     type Time = drizzle_types::sqlite::types::Text;
     type Timestamp = drizzle_types::sqlite::types::Text;
     type TimestampTz = drizzle_types::sqlite::types::Text;
-    type Uuid = drizzle_types::sqlite::types::Text;
+    type Uuid = drizzle_types::sqlite::types::Blob;
     type Json = drizzle_types::sqlite::types::Text;
     type Jsonb = drizzle_types::sqlite::types::Text;
     type Any = drizzle_types::sqlite::types::Any;
@@ -102,7 +102,7 @@ pub enum ParamStyle {
     DollarNumbered,
     /// `?` — `SQLite` / `MySQL` positional.
     Question,
-    /// `:1, :2, ...` — AWS Aurora Data API (and drizzle-orm TS driver).
+    /// `:1, :2, ...` — AWS Aurora Data API named parameters.
     ///
     /// Names are stringified 1-indexed ordinals, matching the
     /// `SqlParameter { name: "1", ... }` encoding the Data API expects.

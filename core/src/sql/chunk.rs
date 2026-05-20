@@ -17,6 +17,8 @@ pub enum ColumnDialect {
         is_bigserial: bool,
         is_generated_identity: bool,
         is_identity_always: bool,
+        generated_expression: Option<&'static str>,
+        collate: Option<&'static str>,
     },
 }
 

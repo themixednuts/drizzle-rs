@@ -87,6 +87,8 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
     let mig_pg_table = mig_paths::postgres::table();
     let mig_pg_column = mig_paths::postgres::column();
     let mig_pg_identity = mig_paths::postgres::identity();
+    let mig_pg_generated = quote! { drizzle::migrations::postgres::Generated };
+    let mig_pg_generated_type = quote! { drizzle::migrations::postgres::GeneratedType };
     let mig_pg_sequence = mig_paths::postgres::sequence();
     let mig_pg_index = mig_paths::postgres::index();
     let mig_pg_index_column = mig_paths::postgres::index_column();
@@ -200,14 +202,28 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
 
                             // Add column entities from TABLE_REF
                             for col in table_ref.columns {
-                                let (pg_type, is_generated_identity, is_identity_always) = match col.dialect {
+                                let (
+                                    pg_type,
+                                    is_generated_identity,
+                                    is_identity_always,
+                                    generated_expression,
+                                    collate,
+                                ) = match col.dialect {
                                     drizzle::core::ColumnDialect::PostgreSQL {
                                         postgres_type,
                                         is_generated_identity,
                                         is_identity_always,
+                                        generated_expression,
+                                        collate,
                                         ..
-                                    } => (postgres_type, is_generated_identity, is_identity_always),
-                                    _ => (col.sql_type, false, false),
+                                    } => (
+                                        postgres_type,
+                                        is_generated_identity,
+                                        is_identity_always,
+                                        generated_expression,
+                                        collate,
+                                    ),
+                                    _ => (col.sql_type, false, false, ::core::option::Option::None, ::core::option::Option::None),
                                 };
 
                                 let mut column = MigColumn::new(
@@ -233,6 +249,17 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                                         MigIdentity::by_default(seq_name)
                                     }.schema(table_schema);
                                     column = column.identity(identity);
+                                }
+
+                                if let ::core::option::Option::Some(expression) = generated_expression {
+                                    column.generated = ::core::option::Option::Some(#mig_pg_generated {
+                                        expression: ::std::borrow::Cow::Borrowed(expression),
+                                        gen_type: #mig_pg_generated_type::Stored,
+                                    });
+                                }
+
+                                if let ::core::option::Option::Some(collate) = collate {
+                                    column.collate = ::core::option::Option::Some(::std::borrow::Cow::Borrowed(collate));
                                 }
 
                                 snapshot.add_entity(MigEntity::Column(column));
