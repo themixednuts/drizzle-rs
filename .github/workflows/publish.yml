@@ -53,7 +53,7 @@ jobs:
           PR_NUMBER="${{ github.event.pull_request.number }}"
           PR_HEAD="${{ github.event.pull_request.head.sha }}"
           REPO="${{ github.repository }}"
-          THIS_WORKFLOW="${{ github.workflow }}"
+          THIS_RUN_ID="${{ github.run_id }}"
           echo "Verifying CI on PR #$PR_NUMBER (head: $PR_HEAD)..."
 
           # Pull all check-runs for the PR head commit, excluding this
@@ -63,7 +63,7 @@ jobs:
           CHECKS=$(gh api \
             "repos/$REPO/commits/$PR_HEAD/check-runs?per_page=100" \
             --paginate \
-            --jq ".check_runs | map(select(.name != \"$THIS_WORKFLOW\")) | .[] | \"\(.conclusion // \"running\") \(.name)\"")
+            --jq ".check_runs | map(select(((.details_url // \"\") | contains(\"/actions/runs/$THIS_RUN_ID/\")) | not)) | .[] | \"\(.conclusion // \"running\") \(.name)\"")
 
           if [[ -z "$CHECKS" ]]; then
             echo "::error::No CI checks found for PR #$PR_NUMBER head $PR_HEAD."
@@ -71,7 +71,7 @@ jobs:
             exit 1
           fi
 
-          echo "Found checks (excluding $THIS_WORKFLOW):"
+          echo "Found checks (excluding current run $THIS_RUN_ID):"
           echo "$CHECKS" | sed 's/^/  /'
 
           # Any non-green conclusion is a hard refusal. `skipped` is OK
