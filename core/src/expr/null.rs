@@ -10,7 +10,7 @@
 
 use crate::PostgresDialect;
 use crate::sql::{SQL, Token};
-use crate::traits::{SQLParam, ToSQL};
+use crate::traits::SQLParam;
 use crate::types::Compatible;
 
 use super::{AggOr, AggregateKind, Expr, NonNull, Null, Nullability, SQLExpr};
@@ -111,9 +111,9 @@ where
 {
     SQLExpr::new(SQL::func(
         "COALESCE",
-        expr.into_sql()
+        expr.into_expr_sql()
             .push(Token::COMMA)
-            .append(default.into_sql()),
+            .append(default.into_expr_sql()),
     ))
 }
 
@@ -155,9 +155,9 @@ where
     E::Aggregate: AggOr<<I::Item as Expr<'a, V>>::Aggregate>,
     <I::Item as Expr<'a, V>>::Aggregate: AggregateKind,
 {
-    let mut sql = first.into_sql();
+    let mut sql = first.into_expr_sql();
     for value in rest {
-        sql = sql.push(Token::COMMA).append(value.into_sql());
+        sql = sql.push(Token::COMMA).append(value.into_expr_sql());
     }
     SQLExpr::new(SQL::func("COALESCE", sql))
 }
@@ -196,7 +196,10 @@ where
 {
     SQLExpr::new(SQL::func(
         "NULLIF",
-        expr1.into_sql().push(Token::COMMA).append(expr2.into_sql()),
+        expr1
+            .into_expr_sql()
+            .push(Token::COMMA)
+            .append(expr2.into_expr_sql()),
     ))
 }
 
@@ -226,9 +229,9 @@ where
 {
     SQLExpr::new(SQL::func(
         "IFNULL",
-        expr.into_sql()
+        expr.into_expr_sql()
             .push(Token::COMMA)
-            .append(default.into_sql()),
+            .append(default.into_expr_sql()),
     ))
 }
 
@@ -285,7 +288,9 @@ where
 {
     SQLExpr::new(SQL::func(
         "GREATEST",
-        left.into_sql().push(Token::COMMA).append(right.into_sql()),
+        left.into_expr_sql()
+            .push(Token::COMMA)
+            .append(right.into_expr_sql()),
     ))
 }
 
@@ -329,6 +334,8 @@ where
 {
     SQLExpr::new(SQL::func(
         "LEAST",
-        left.into_sql().push(Token::COMMA).append(right.into_sql()),
+        left.into_expr_sql()
+            .push(Token::COMMA)
+            .append(right.into_expr_sql()),
     ))
 }

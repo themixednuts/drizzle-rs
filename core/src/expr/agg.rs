@@ -238,7 +238,7 @@ where
     V::DialectMarker: CountPolicy,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(SQL::func("COUNT", expr.into_sql()))
+    SQLExpr::new(SQL::func("COUNT", expr.into_expr_sql()))
 }
 
 /// COUNT(DISTINCT expr) - counts distinct non-null values.
@@ -255,7 +255,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "COUNT",
-        SQL::raw("DISTINCT").append(expr.into_sql()),
+        SQL::raw("DISTINCT").append(expr.into_expr_sql()),
     ))
 }
 
@@ -290,7 +290,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: AggregatePolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("SUM", expr.into_sql()))
+    SQLExpr::new(SQL::func("SUM", expr.into_expr_sql()))
 }
 
 /// SUM(DISTINCT expr) - sums distinct numeric values.
@@ -307,7 +307,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "SUM",
-        SQL::raw("DISTINCT").append(expr.into_sql()),
+        SQL::raw("DISTINCT").append(expr.into_expr_sql()),
     ))
 }
 
@@ -339,7 +339,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: AggregatePolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("AVG", expr.into_sql()))
+    SQLExpr::new(SQL::func("AVG", expr.into_expr_sql()))
 }
 
 /// AVG(DISTINCT expr) - calculates average of distinct numeric values.
@@ -355,7 +355,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "AVG",
-        SQL::raw("DISTINCT").append(expr.into_sql()),
+        SQL::raw("DISTINCT").append(expr.into_expr_sql()),
     ))
 }
 
@@ -385,7 +385,7 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(SQL::func("MIN", expr.into_sql()))
+    SQLExpr::new(SQL::func("MIN", expr.into_expr_sql()))
 }
 
 /// MAX(expr) - finds maximum value.
@@ -410,7 +410,7 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(SQL::func("MAX", expr.into_sql()))
+    SQLExpr::new(SQL::func("MAX", expr.into_expr_sql()))
 }
 
 // =============================================================================
@@ -449,7 +449,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: StatisticalAggregatePolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("STDDEV_POP", expr.into_sql()))
+    SQLExpr::new(SQL::func("STDDEV_POP", expr.into_expr_sql()))
 }
 
 /// `STDDEV_SAMP` / STDDEV - sample standard deviation.
@@ -484,7 +484,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: StatisticalAggregatePolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("STDDEV_SAMP", expr.into_sql()))
+    SQLExpr::new(SQL::func("STDDEV_SAMP", expr.into_expr_sql()))
 }
 
 /// `VAR_POP` - population variance.
@@ -513,7 +513,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: StatisticalAggregatePolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("VAR_POP", expr.into_sql()))
+    SQLExpr::new(SQL::func("VAR_POP", expr.into_expr_sql()))
 }
 
 /// `VAR_SAMP` / VARIANCE - sample variance.
@@ -542,7 +542,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: StatisticalAggregatePolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("VAR_SAMP", expr.into_sql()))
+    SQLExpr::new(SQL::func("VAR_SAMP", expr.into_expr_sql()))
 }
 
 /// VARIANCE - `PostgreSQL` alias for sample variance (`VAR_SAMP`).
@@ -554,7 +554,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: StatisticalAggregatePolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("VARIANCE", expr.into_sql()))
+    SQLExpr::new(SQL::func("VARIANCE", expr.into_expr_sql()))
 }
 
 /// `BOOL_AND` - true if all non-null inputs are true (`PostgreSQL`).
@@ -567,7 +567,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: BooleanAggregatePolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("BOOL_AND", expr.into_sql()))
+    SQLExpr::new(SQL::func("BOOL_AND", expr.into_expr_sql()))
 }
 
 /// `BOOL_OR` - true if any non-null input is true (`PostgreSQL`).
@@ -580,7 +580,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: BooleanAggregatePolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("BOOL_OR", expr.into_sql()))
+    SQLExpr::new(SQL::func("BOOL_OR", expr.into_expr_sql()))
 }
 
 /// `JSON_AGG` - aggregates values into a JSON array (`PostgreSQL`).
@@ -592,7 +592,7 @@ where
     V::DialectMarker: PostgresAggregateSupport,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(SQL::func("JSON_AGG", expr.into_sql()))
+    SQLExpr::new(SQL::func("JSON_AGG", expr.into_expr_sql()))
 }
 
 /// `JSONB_AGG` - aggregates values into a JSONB array (`PostgreSQL`).
@@ -604,7 +604,7 @@ where
     V::DialectMarker: PostgresAggregateSupport,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(SQL::func("JSONB_AGG", expr.into_sql()))
+    SQLExpr::new(SQL::func("JSONB_AGG", expr.into_expr_sql()))
 }
 
 /// `ARRAY_AGG` - aggregates values into a SQL array (`PostgreSQL`).
@@ -614,7 +614,7 @@ where
     V::DialectMarker: PostgresAggregateSupport,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(SQL::func("ARRAY_AGG", expr.into_sql()))
+    SQLExpr::new(SQL::func("ARRAY_AGG", expr.into_expr_sql()))
 }
 
 // =============================================================================
@@ -645,7 +645,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("TOTAL", expr.into_sql()))
+    SQLExpr::new(SQL::func("TOTAL", expr.into_expr_sql()))
 }
 
 // =============================================================================
@@ -664,7 +664,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: crate::types::Textual,
 {
-    SQLExpr::new(SQL::func("GROUP_CONCAT", expr.into_sql()))
+    SQLExpr::new(SQL::func("GROUP_CONCAT", expr.into_expr_sql()))
 }
 
 /// `STRING_AGG` - concatenates text values using a delimiter (`PostgreSQL`).
@@ -682,9 +682,9 @@ where
 {
     SQLExpr::new(SQL::func(
         "STRING_AGG",
-        expr.into_sql()
+        expr.into_expr_sql()
             .push(crate::Token::COMMA)
-            .append(delimiter.into_sql()),
+            .append(delimiter.into_expr_sql()),
     ))
 }
 
@@ -715,7 +715,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: BooleanAggregatePolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("EVERY", expr.into_sql()))
+    SQLExpr::new(SQL::func("EVERY", expr.into_expr_sql()))
 }
 
 /// `JSON_OBJECT_AGG` - aggregates key/value pairs into a JSON object (`PostgreSQL`).
@@ -742,9 +742,9 @@ where
 {
     SQLExpr::new(SQL::func(
         "JSON_OBJECT_AGG",
-        key.into_sql()
+        key.into_expr_sql()
             .push(crate::Token::COMMA)
-            .append(value.into_sql()),
+            .append(value.into_expr_sql()),
     ))
 }
 
@@ -772,9 +772,9 @@ where
 {
     SQLExpr::new(SQL::func(
         "JSONB_OBJECT_AGG",
-        key.into_sql()
+        key.into_expr_sql()
             .push(crate::Token::COMMA)
-            .append(value.into_sql()),
+            .append(value.into_expr_sql()),
     ))
 }
 
@@ -790,5 +790,5 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(SQL::raw("DISTINCT").append(expr.into_sql()))
+    SQLExpr::new(SQL::raw("DISTINCT").append(expr.into_expr_sql()))
 }

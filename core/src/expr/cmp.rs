@@ -23,7 +23,7 @@
 
 use crate::dialect::DialectTypes;
 use crate::sql::{SQL, Token};
-use crate::traits::{SQLParam, ToSQL};
+use crate::traits::SQLParam;
 use crate::types::{Compatible, DataType, Textual};
 
 use super::{AggOr, AggregateKind, Expr, NonNull, SQLExpr};
@@ -35,11 +35,11 @@ use super::{AggOr, AggregateKind, Expr, NonNull, SQLExpr};
 fn binary_op<'a, V, L, R>(left: L, operator: Token, right: R) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
-    L: ToSQL<'a, V>,
-    R: ToSQL<'a, V>,
+    L: Expr<'a, V>,
+    R: ComparisonOperand<'a, V, L::SQLType>,
 {
     let left_sql = operand_sql(left);
-    let right_sql = operand_sql(right);
+    let right_sql = right.into_comparison_sql();
 
     left_sql.push(operator).append(right_sql)
 }
@@ -48,9 +48,9 @@ where
 fn operand_sql<'a, V, T>(value: T) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
-    T: ToSQL<'a, V>,
+    T: Expr<'a, V>,
 {
-    value.into_sql().parens_if_subquery()
+    value.into_expr_sql()
 }
 
 /// Type-safe operand for comparison functions.
@@ -63,13 +63,15 @@ where
 /// The blanket impl below only fires when `Expected: Compatible<R::SQLType>`,
 /// so passing an incompatible type (e.g. comparing `Int` with `Text`) fails
 /// at compile time with a clear diagnostic.
-pub trait ComparisonOperand<'a, V, Expected>: ToSQL<'a, V>
+pub trait ComparisonOperand<'a, V, Expected>
 where
     V: SQLParam + 'a,
     Expected: DataType,
 {
     type SQLType: DataType;
     type Aggregate: AggregateKind;
+
+    fn into_comparison_sql(self) -> SQL<'a, V>;
 }
 
 impl<'a, V, Expected, R> ComparisonOperand<'a, V, Expected> for R
@@ -80,6 +82,10 @@ where
 {
     type SQLType = R::SQLType;
     type Aggregate = R::Aggregate;
+
+    fn into_comparison_sql(self) -> SQL<'a, V> {
+        self.into_expr_sql()
+    }
 }
 
 // =============================================================================
@@ -284,7 +290,7 @@ where
     SQLExpr::new(
         operand_sql(left)
             .push(Token::LIKE)
-            .append(operand_sql(pattern)),
+            .append(pattern.into_comparison_sql()),
     )
 }
 
@@ -314,7 +320,7 @@ where
         operand_sql(left)
             .push(Token::NOT)
             .push(Token::LIKE)
-            .append(operand_sql(pattern)),
+            .append(pattern.into_comparison_sql()),
     )
 }
 
@@ -351,9 +357,9 @@ where
         SQL::from(Token::LPAREN)
             .append(operand_sql(expr))
             .push(Token::BETWEEN)
-            .append(operand_sql(low))
+            .append(low.into_comparison_sql())
             .push(Token::AND)
-            .append(operand_sql(high))
+            .append(high.into_comparison_sql())
             .push(Token::RPAREN),
     )
 }
@@ -387,9 +393,9 @@ where
             .append(operand_sql(expr))
             .push(Token::NOT)
             .push(Token::BETWEEN)
-            .append(operand_sql(low))
+            .append(low.into_comparison_sql())
             .push(Token::AND)
-            .append(operand_sql(high))
+            .append(high.into_comparison_sql())
             .push(Token::RPAREN),
     )
 }
@@ -465,7 +471,7 @@ where
             .push(Token::IS)
             .push(Token::DISTINCT)
             .push(Token::FROM)
-            .append(operand_sql(right)),
+            .append(right.into_comparison_sql()),
     )
 }
 
@@ -499,7 +505,7 @@ where
             .push(Token::NOT)
             .push(Token::DISTINCT)
             .push(Token::FROM)
-            .append(operand_sql(right)),
+            .append(right.into_comparison_sql()),
     )
 }
 

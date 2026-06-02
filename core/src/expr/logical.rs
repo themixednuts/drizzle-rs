@@ -36,7 +36,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: BooleanLike,
 {
-    value.into_sql().parens_if_subquery()
+    value.into_expr_sql()
 }
 
 #[inline]
@@ -71,7 +71,7 @@ where
     E::SQLType: BooleanLike,
     E::Nullable: Nullability,
 {
-    let expr_sql: SQL<'a, V> = expr.into_sql().parens_if_subquery();
+    let expr_sql: SQL<'a, V> = expr.into_expr_sql();
     let needs_paren = expr_sql.chunks.len() > 1
         || (expr_sql.chunks.len() == 1
             && !matches!(

@@ -2,6 +2,7 @@ pub mod alias;
 pub mod arrayvec;
 pub mod async_edge_cases;
 pub mod attributes;
+pub mod blob_filter;
 pub mod comment;
 pub mod conditions;
 pub mod delete;
