@@ -22,6 +22,13 @@ members = [
   "cli",
   "seed",
 ]
+exclude = [
+  "examples/orm-comparison/drizzle",
+  "examples/orm-comparison/sqlx",
+  "examples/orm-comparison/diesel",
+  "examples/orm-comparison/seaorm",
+  "examples/orm-comparison/toasty",
+]
 
 [workspace.package]
 version = "0.1.7"
@@ -52,10 +59,10 @@ hashbrown = { version = "0.16", default-features = false, features = [
   "default-hasher",
 ] }
 futures-util = { version = "0.3" }
-libsql = { version = "0.9" }
+libsql = { version = ">=0.9.1, <0.10" }
 paste = { version = "1.0" }
 rand = { version = "0.9" }
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = ">=0.36, <0.40", features = ["bundled"] }
 schemars = { version = "1.2" }
 serde = { version = "1.0", features = [
   "derive",
@@ -70,7 +77,7 @@ smallvec = { version = "1.15", default-features = false, features = [
 thiserror = { version = "2.0", default-features = false }
 toml = { version = "0.9" }
 tokio = { version = "1.48" }
-turso = { version = "0.6", default-features = false, features = ["pure-rust-crypto"] }
+turso = { version = ">=0.6, <0.7", default-features = false, features = ["pure-rust-crypto"] }
 worker = { version = "0.8", default-features = false }
 wasm-bindgen = { version = "0.2" }
 js-sys = { version = "0.3" }
@@ -79,8 +86,8 @@ chrono = { version = "0.4", default-features = false }
 puffin = { version = "0.19" }
 tracing = { version = "0.1" }
 arrayvec = { version = "0.7", default-features = false, features = ["serde"] }
-postgres = { version = "0.19.12" }
-tokio-postgres = { version = "0.7.15", default-features = false, features = [
+postgres = { version = ">=0.19.11, <0.20" }
+tokio-postgres = { version = ">=0.7.15, <0.8", default-features = false, features = [
   "runtime",
 ] }
 # AWS Aurora Data API (RDS Data Service) — Postgres + MySQL over HTTP.

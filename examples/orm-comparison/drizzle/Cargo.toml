@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+
+[package]
+name = "orm-drizzle"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "drizzle"
+path = "src/main.rs"
+
+[dependencies]
+drizzle = { path = "../../..", features = ["rusqlite", "query"] }
+rusqlite = { version = "0.37", features = ["bundled"] }

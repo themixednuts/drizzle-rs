@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+
+[package]
+name = "orm-sqlx"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "sqlx"
+path = "src/main.rs"
+
+[dependencies]
+sqlx = { version = ">=0.9, <0.10", features = ["sqlite", "runtime-tokio"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -1,0 +1,15 @@
+[workspace]
+resolver = "3"
+
+[package]
+name = "orm-diesel"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "diesel"
+path = "src/main.rs"
+
+[dependencies]
+diesel = { version = ">=2.3, <3", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }

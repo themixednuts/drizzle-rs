@@ -61,7 +61,7 @@ async fn main() {
         #[column(Posts::id)]
         post_id: i64,
         name: String,
-        age: u64,
+        age: i64,
     }
 
     let row: JoinedResult = db
