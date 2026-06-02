@@ -5,7 +5,8 @@
 
 use crate::dialect::DialectTypes;
 use crate::prelude::*;
-use crate::traits::SQLParam;
+use crate::sql::SQL;
+use crate::traits::{SQLBytes, SQLParam};
 
 use super::{Expr, NonNull, Null, Nullability, Scalar};
 
@@ -165,6 +166,101 @@ where
 }
 
 // =============================================================================
+// Binary Types
+// =============================================================================
+
+impl<'a, V> Expr<'a, V> for &'a [u8]
+where
+    V: SQLParam + 'a + From<&'a [u8]> + From<Vec<u8>> + From<u8> + Into<Cow<'a, V>>,
+{
+    type SQLType = <V::DialectMarker as DialectTypes>::Bytes;
+    type Nullable = NonNull;
+    type Aggregate = Scalar;
+
+    fn to_expr_sql(&self) -> SQL<'a, V> {
+        SQL::bytes(*self)
+    }
+
+    fn into_expr_sql(self) -> SQL<'a, V> {
+        SQL::bytes(self)
+    }
+}
+
+impl<'a, V, const N: usize> Expr<'a, V> for [u8; N]
+where
+    V: SQLParam + 'a + From<&'a [u8]> + From<Vec<u8>> + From<u8> + Into<Cow<'a, V>>,
+{
+    type SQLType = <V::DialectMarker as DialectTypes>::Bytes;
+    type Nullable = NonNull;
+    type Aggregate = Scalar;
+
+    fn to_expr_sql(&self) -> SQL<'a, V> {
+        SQL::bytes(self.to_vec())
+    }
+
+    fn into_expr_sql(self) -> SQL<'a, V> {
+        SQL::bytes(self.to_vec())
+    }
+}
+
+impl<'a, V> Expr<'a, V> for Vec<u8>
+where
+    V: SQLParam + 'a + From<&'a [u8]> + From<Vec<u8>> + From<u8> + Into<Cow<'a, V>>,
+{
+    type SQLType = <V::DialectMarker as DialectTypes>::Bytes;
+    type Nullable = NonNull;
+    type Aggregate = Scalar;
+
+    fn to_expr_sql(&self) -> SQL<'a, V> {
+        SQL::bytes(self.clone())
+    }
+
+    fn into_expr_sql(self) -> SQL<'a, V> {
+        SQL::bytes(self)
+    }
+}
+
+impl<'a, V> Expr<'a, V> for Cow<'a, [u8]>
+where
+    V: SQLParam + 'a + From<&'a [u8]> + From<Vec<u8>> + Into<Cow<'a, V>>,
+{
+    type SQLType = <V::DialectMarker as DialectTypes>::Bytes;
+    type Nullable = NonNull;
+    type Aggregate = Scalar;
+
+    fn to_expr_sql(&self) -> SQL<'a, V> {
+        match self {
+            Cow::Borrowed(value) => SQL::bytes(*value),
+            Cow::Owned(value) => SQL::bytes(value.clone()),
+        }
+    }
+
+    fn into_expr_sql(self) -> SQL<'a, V> {
+        SQL::bytes(self)
+    }
+}
+
+impl<'a, V> Expr<'a, V> for SQLBytes<'a>
+where
+    V: SQLParam + 'a + From<&'a [u8]> + From<Vec<u8>> + Into<Cow<'a, V>>,
+{
+    type SQLType = <V::DialectMarker as DialectTypes>::Bytes;
+    type Nullable = NonNull;
+    type Aggregate = Scalar;
+
+    fn to_expr_sql(&self) -> SQL<'a, V> {
+        match &self.0 {
+            Cow::Borrowed(value) => SQL::bytes(*value),
+            Cow::Owned(value) => SQL::bytes(value.clone()),
+        }
+    }
+
+    fn into_expr_sql(self) -> SQL<'a, V> {
+        SQL::bytes(self.0)
+    }
+}
+
+// =============================================================================
 // Option<T> - Makes Any Expression Nullable
 // =============================================================================
 
@@ -192,6 +288,14 @@ where
     type SQLType = T::SQLType;
     type Nullable = T::Nullable;
     type Aggregate = T::Aggregate;
+
+    fn to_expr_sql(&self) -> SQL<'a, V> {
+        (**self).to_expr_sql()
+    }
+
+    fn into_expr_sql(self) -> SQL<'a, V> {
+        (*self).to_expr_sql()
+    }
 }
 
 // =============================================================================

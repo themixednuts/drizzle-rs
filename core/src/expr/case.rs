@@ -84,9 +84,9 @@ impl<'a, V: SQLParam + 'a> CaseInit<'a, V> {
         let sql = self
             .sql
             .push(Token::WHEN)
-            .append(condition.into_sql())
+            .append(condition.into_expr_sql())
             .push(Token::THEN)
-            .append(result.into_sql());
+            .append(result.into_expr_sql());
 
         CaseBuilder {
             sql,
@@ -145,9 +145,9 @@ where
         let sql = self
             .sql
             .push(Token::WHEN)
-            .append(condition.into_sql())
+            .append(condition.into_expr_sql())
             .push(Token::THEN)
-            .append(result.into_sql());
+            .append(result.into_expr_sql());
 
         CaseBuilder {
             sql,
@@ -184,7 +184,7 @@ where
         let sql = self
             .sql
             .push(Token::ELSE)
-            .append(default.into_sql())
+            .append(default.into_expr_sql())
             .push(Token::END);
         SQLExpr::new(sql)
     }

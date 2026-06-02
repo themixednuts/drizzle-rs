@@ -18,10 +18,9 @@ where
     L: Expr<'a, V>,
     R: Expr<'a, V>,
 {
-    left.into_sql()
-        .parens_if_subquery()
+    left.into_expr_sql()
         .push(operator)
-        .append(right.into_sql().parens_if_subquery())
+        .append(right.into_expr_sql())
 }
 
 // =============================================================================
@@ -173,6 +172,6 @@ where
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        SQLExpr::new(SQL::from(Token::MINUS).append(self.into_sql().parens()))
+        SQLExpr::new(SQL::from(Token::MINUS).append(self.into_expr_sql().parens()))
     }
 }

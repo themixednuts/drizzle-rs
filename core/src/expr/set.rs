@@ -11,9 +11,9 @@ use super::{AggregateKind, Expr, NonNull, SQLExpr, Scalar};
 fn operand_sql<'a, V, T>(value: T) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
-    T: ToSQL<'a, V>,
+    T: Expr<'a, V>,
 {
-    value.into_sql().parens_if_subquery()
+    value.into_expr_sql()
 }
 
 // =============================================================================
@@ -47,7 +47,7 @@ where
     type SQLType = E::SQLType;
     type Aggregate = E::Aggregate;
     fn into_lhs_sql(self) -> SQL<'a, V> {
-        self.into_sql().parens_if_subquery()
+        self.into_expr_sql()
     }
 }
 

@@ -44,6 +44,14 @@ where
     type SQLType = E::SQLType;
     type Nullable = E::Nullable;
     type Aggregate = E::Aggregate;
+
+    fn to_expr_sql(&self) -> SQL<'a, V> {
+        self.expr.to_expr_sql().alias(self.name)
+    }
+
+    fn into_expr_sql(self) -> SQL<'a, V> {
+        self.expr.into_expr_sql().alias(self.name)
+    }
 }
 
 impl<E: super::HasAggStatus> super::HasAggStatus for AliasedExpr<E> {
@@ -118,7 +126,7 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
 {
-    SQLExpr::new(SQL::func("TYPEOF", expr.into_sql()))
+    SQLExpr::new(SQL::func("TYPEOF", expr.into_expr_sql()))
 }
 
 /// Alias for typeof_ (uses Rust raw identifier syntax).
@@ -341,7 +349,7 @@ where
 {
     SQLExpr::new(SQL::func(
         "CAST",
-        expr.into_sql()
+        expr.into_expr_sql()
             .push(Token::AS)
             .append(SQL::raw(target_type.cast_type_name())),
     ))
