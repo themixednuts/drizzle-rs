@@ -1311,6 +1311,55 @@ impl FieldInfo {
         // Detect from the base type string
         TypeCategory::from_type(&self.field_type)
     }
+
+    /// SQL type string expression for generated schema metadata.
+    ///
+    /// Built-in columns use a literal. Custom columns use the associated const
+    /// from `DrizzlePostgresColumn`, making the trait the source of truth.
+    pub(crate) fn sql_type_expr(&self) -> TokenStream {
+        if self.is_custom_type {
+            let base_type = &self.base_type;
+            let drizzle_postgres_column = crate::paths::postgres::drizzle_postgres_column();
+            quote!(<#base_type as #drizzle_postgres_column>::SQL_TYPE)
+        } else {
+            let sql_type = self.column_type.to_sql_type();
+            quote!(#sql_type)
+        }
+    }
+
+    /// Drizzle SQL type marker used by expression generation.
+    pub(crate) fn sql_type_marker(&self) -> TokenStream {
+        if self.is_custom_type {
+            let base_type = &self.base_type;
+            let drizzle_postgres_column = crate::paths::postgres::drizzle_postgres_column();
+            quote!(<#base_type as #drizzle_postgres_column>::SQLType)
+        } else {
+            crate::common::postgres_column_type_to_sql_type(&self.column_type)
+        }
+    }
+
+    /// Column SQL definition expression for `SQLSchema::SQL`.
+    pub(crate) fn sql_definition_expr(&self) -> TokenStream {
+        if !self.is_custom_type {
+            let sql_definition = &self.sql_definition;
+            return quote!(#sql_definition);
+        }
+
+        let const_format = crate::common::paths::const_format();
+        let sql_type = self.sql_type_expr();
+        let prefix = format!("\"{}\" ", self.column_name);
+        let placeholder = format!(
+            "\"{}\" {}",
+            self.column_name,
+            self.column_type.to_sql_type()
+        );
+        let suffix = self
+            .sql_definition
+            .strip_prefix(&placeholder)
+            .unwrap_or_default();
+
+        quote!(#const_format::concatcp!(#prefix, #sql_type, #suffix))
+    }
 }
 
 // =============================================================================

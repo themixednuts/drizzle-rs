@@ -109,7 +109,7 @@ pub trait SQLPartial<'a, Value: SQLParam> {
 pub trait SQLTable<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
     SQLSchema<'a, Type, Value> + SQLTableInfo + Default + Clone + Copy
 {
-    type Select: SQLModel<'a, Value> + SQLPartial<'a, Value> + Default + 'a;
+    type Select: SQLModel<'a, Value> + SQLPartial<'a, Value> + 'a;
     type ForeignKeys;
     type PrimaryKey;
     type Constraints;

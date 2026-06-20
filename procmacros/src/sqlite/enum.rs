@@ -18,12 +18,11 @@ pub fn generate_enum_impl(
     let row_column_list = core_paths::row_column_list();
     let type_set_cons = core_paths::type_set_cons();
     let core_expr = core_paths::expr();
-    #[allow(unused_variables)]
-    let from_sqlite_value = sqlite_paths::from_sqlite_value();
     let impl_try_from_int = core_paths::impl_try_from_int();
     let value_type_for_dialect = core_paths::value_type_for_dialect();
     let sqlite_dialect = core_paths::sqlite_dialect();
     let sqlite_value = sqlite_paths::sqlite_value();
+    let sqlite_value_ref = sqlite_paths::sqlite_value_ref();
     let sqlite_types = sqlite_paths::types();
 
     let display_variants = data.variants.iter().map(|variant| {
@@ -95,13 +94,20 @@ pub fn generate_enum_impl(
         })
         .collect();
 
+    // Detect storage format: INTEGER if has explicit discriminants or #[repr(iN)]
+    let is_integer_storage = has_explicit_discriminants(data) || has_integer_repr(attrs);
+    let enum_sql_type = if is_integer_storage {
+        quote! { #sqlite_types::Integer }
+    } else {
+        quote! { #sqlite_types::Text }
+    };
+
     let base_impls = quote! {
 
         // Implement Expr trait for type-safe comparisons
-        // Uses Any type since enums can be stored as TEXT or INTEGER
         // Note: &T impl is handled by blanket impl in drizzle_core
         impl<'a> #core_expr::Expr<'a, #sqlite_value<'a>> for #name {
-            type SQLType = #sqlite_types::Any;
+            type SQLType = #enum_sql_type;
             type Nullable = #core_expr::NonNull;
             type Aggregate = #core_expr::Scalar;
         }
@@ -300,59 +306,32 @@ pub fn generate_enum_impl(
     #[cfg(not(feature = "turso"))]
     let row_column_list_turso = quote! {};
 
-    // Generate FromSQLiteValue implementation for all SQLite drivers
-    // This trait provides a unified interface for value conversion
-    let from_sqlite_value_impl = quote! {
-        impl #from_sqlite_value for #name {
-            fn from_sqlite_integer(value: i64) -> ::std::result::Result<Self, #drizzle_error> {
-                Self::try_from(value).map_err(::std::convert::Into::into)
-            }
-
-            fn from_sqlite_text(value: &str) -> ::std::result::Result<Self, #drizzle_error> {
-                Self::try_from(value).map_err(::std::convert::Into::into)
-            }
-
-            fn from_sqlite_real(_value: f64) -> ::std::result::Result<Self, #drizzle_error> {
-                ::std::result::Result::Err(#drizzle_error::ConversionError(
-                    ::std::format!("cannot convert REAL to {}", stringify!(#name)).into()
-                ))
-            }
-
-            fn from_sqlite_blob(_value: &[u8]) -> ::std::result::Result<Self, #drizzle_error> {
-                ::std::result::Result::Err(#drizzle_error::ConversionError(
-                    ::std::format!("cannot convert BLOB to {}", stringify!(#name)).into()
-                ))
-            }
-        }
-    };
-
-    // Detect storage format: INTEGER if has explicit discriminants or #[repr(iN)]
-    let is_integer_storage = has_explicit_discriminants(data) || has_integer_repr(attrs);
     let drizzle_sqlite_column = sqlite_paths::drizzle_sqlite_column();
 
     let drizzle_sqlite_column_impl = if is_integer_storage {
         quote! {
             impl #drizzle_sqlite_column for #name {
+                type SQLType = #sqlite_types::Integer;
                 const SQL_TYPE: &'static str = "INTEGER";
 
-                fn to_sqlite_value(&self) -> #sqlite_value<'static> {
+                fn decode(value: #sqlite_value_ref<'_>) -> ::std::result::Result<Self, #drizzle_error> {
+                    match value {
+                        #sqlite_value_ref::Integer(value) => Self::try_from(value).map_err(::std::convert::Into::into),
+                        #sqlite_value_ref::Text(value) => Self::try_from(value).map_err(::std::convert::Into::into),
+                        #sqlite_value_ref::Real(_) => ::std::result::Result::Err(#drizzle_error::ConversionError(
+                            ::std::format!("cannot convert REAL to {}", stringify!(#name)).into()
+                        )),
+                        #sqlite_value_ref::Blob(_) => ::std::result::Result::Err(#drizzle_error::ConversionError(
+                            ::std::format!("cannot convert BLOB to {}", stringify!(#name)).into()
+                        )),
+                        #sqlite_value_ref::Null => ::std::result::Result::Err(#drizzle_error::ConversionError(
+                            ::std::format!("cannot convert NULL to {}", stringify!(#name)).into()
+                        )),
+                    }
+                }
+
+                fn encode(&self) -> #sqlite_value<'_> {
                     let integer: i64 = self.into();
-                    #sqlite_value::Integer(integer)
-                }
-            }
-
-            // From<Enum> for SQLiteValue (owned)
-            impl<'a> ::std::convert::From<#name> for #sqlite_value<'a> {
-                fn from(value: #name) -> Self {
-                    let integer: i64 = value.into();
-                    #sqlite_value::Integer(integer)
-                }
-            }
-
-            // From<&Enum> for SQLiteValue (reference)
-            impl<'a> ::std::convert::From<&#name> for #sqlite_value<'a> {
-                fn from(value: &#name) -> Self {
-                    let integer: i64 = value.into();
                     #sqlite_value::Integer(integer)
                 }
             }
@@ -360,26 +339,27 @@ pub fn generate_enum_impl(
     } else {
         quote! {
             impl #drizzle_sqlite_column for #name {
+                type SQLType = #sqlite_types::Text;
                 const SQL_TYPE: &'static str = "TEXT";
 
-                fn to_sqlite_value(&self) -> #sqlite_value<'static> {
+                fn decode(value: #sqlite_value_ref<'_>) -> ::std::result::Result<Self, #drizzle_error> {
+                    match value {
+                        #sqlite_value_ref::Integer(value) => Self::try_from(value).map_err(::std::convert::Into::into),
+                        #sqlite_value_ref::Text(value) => Self::try_from(value).map_err(::std::convert::Into::into),
+                        #sqlite_value_ref::Real(_) => ::std::result::Result::Err(#drizzle_error::ConversionError(
+                            ::std::format!("cannot convert REAL to {}", stringify!(#name)).into()
+                        )),
+                        #sqlite_value_ref::Blob(_) => ::std::result::Result::Err(#drizzle_error::ConversionError(
+                            ::std::format!("cannot convert BLOB to {}", stringify!(#name)).into()
+                        )),
+                        #sqlite_value_ref::Null => ::std::result::Result::Err(#drizzle_error::ConversionError(
+                            ::std::format!("cannot convert NULL to {}", stringify!(#name)).into()
+                        )),
+                    }
+                }
+
+                fn encode(&self) -> #sqlite_value<'_> {
                     let text: &str = self.into();
-                    #sqlite_value::Text(::std::borrow::Cow::Borrowed(text))
-                }
-            }
-
-            // From<Enum> for SQLiteValue (owned)
-            impl<'a> ::std::convert::From<#name> for #sqlite_value<'a> {
-                fn from(value: #name) -> Self {
-                    let text: &str = value.into();
-                    #sqlite_value::Text(::std::borrow::Cow::Borrowed(text))
-                }
-            }
-
-            // From<&Enum> for SQLiteValue (reference)
-            impl<'a> ::std::convert::From<&#name> for #sqlite_value<'a> {
-                fn from(value: &#name) -> Self {
-                    let text: &str = value.into();
                     #sqlite_value::Text(::std::borrow::Cow::Borrowed(text))
                 }
             }
@@ -392,28 +372,30 @@ pub fn generate_enum_impl(
     Ok(quote! {
         #base_impls
         #rusqlite_impls
-        #from_sqlite_value_impl
         #row_column_list_rusqlite
         #row_column_list_libsql
         #row_column_list_turso
 
-        // DrizzleSQLiteColumn marker trait + From<Enum> for SQLiteValue
+        // DrizzleSQLiteColumn supplies schema metadata plus read/write conversion.
+        // FromSQLiteValue is provided by the blanket DrizzleSQLiteColumn impl.
         #drizzle_sqlite_column_impl
 
         // ToSQL implementation (delegates to From)
         impl<'a> #to_sql<'a, #sqlite_value<'a>> for #name {
             fn to_sql(&self) -> #sql<'a, #sqlite_value<'a>> {
-                <#sqlite_value<'_> as ::std::convert::From<&#name>>::from(self).into()
+                let owned = <#name as #drizzle_sqlite_column>::encode(self).into_owned();
+                let value: #sqlite_value<'a> = owned.into();
+                value.into()
             }
         }
 
         // Implement ValueTypeForDialect so enums can be used as bind parameters
         impl #value_type_for_dialect<#sqlite_dialect> for #name {
-            type SQLType = #sqlite_types::Any;
+            type SQLType = #enum_sql_type;
         }
 
         impl #value_type_for_dialect<#sqlite_dialect> for &#name {
-            type SQLType = #sqlite_types::Any;
+            type SQLType = #enum_sql_type;
         }
 
         // TryFrom<SQLiteValue> for the enum (read path via Drizzle value layer)

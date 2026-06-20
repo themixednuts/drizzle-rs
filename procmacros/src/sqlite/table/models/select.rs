@@ -39,9 +39,19 @@ pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
             ctx,
         ));
     }
+    let select_model_derive = if field_infos.iter().any(|info| info.is_custom_type) {
+        quote! {}
+    } else {
+        quote! { #[derive(Debug, Clone, PartialEq, Default)] }
+    };
+    let partial_select_model_derive = if field_infos.iter().any(|info| info.is_custom_type) {
+        quote! { #[derive(Default)] }
+    } else {
+        quote! { #[derive(Debug, Clone, PartialEq, Default)] }
+    };
     let partial_impl = quote! {
             // Partial Select Model - all fields are optional for selective querying
-            #[derive(Debug, Clone, PartialEq, Default)]
+            #partial_select_model_derive
             #struct_vis struct #select_model_partial_ident { #(#partial_select_fields,)* }
 
             impl #select_model_partial_ident {
@@ -52,7 +62,7 @@ pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
 
     quote! {
         // Select Model
-        #[derive(Debug, Clone, PartialEq, Default)]
+        #select_model_derive
         #struct_vis struct #select_model_ident { #(#select_fields,)* }
 
         impl From<(#(#select_types,)*)> for #select_model_ident {

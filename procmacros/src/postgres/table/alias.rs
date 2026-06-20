@@ -1,4 +1,5 @@
 use crate::paths::core as core_paths;
+use crate::paths::postgres as postgres_paths;
 use crate::paths::std as std_paths;
 use crate::postgres::table::context::MacroContext;
 use heck::ToUpperCamelCase;
@@ -21,6 +22,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> TokenStream {
     let tagged = core_paths::tagged();
     let phantom_data = std_paths::phantom_data();
     let token = core_paths::token();
+    let postgres_value = postgres_paths::postgres_value();
 
     // Generate aliased field structs and their names
     let aliased_fields: Vec<_> = ctx
@@ -42,6 +44,12 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> TokenStream {
         // Use the same naming pattern as original column types
         let field_name_pascal = field_name.to_string().to_upper_camel_case();
         let original_field_type = format_ident!("{}{}", table_name, field_name_pascal);
+        let custom_comparison_operand_impls =
+            super::column_definitions::generate_custom_comparison_operand_impls(
+                field,
+                aliased_field_type,
+                &postgres_value,
+            );
 
         quote! {
             #[allow(non_upper_case_globals, dead_code)]
@@ -159,6 +167,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> TokenStream {
             impl<'a> drizzle::core::IntoGroupBy<'a, PostgresValue<'a>> for #aliased_field_type {
                 type Columns = drizzle::core::Cons<#aliased_field_type, drizzle::core::Nil>;
             }
+            #custom_comparison_operand_impls
         }
     }).collect();
 

@@ -1,7 +1,7 @@
 use super::context::MacroContext;
 use crate::common::{
     generate_arithmetic_ops, generate_expr_impl, postgres_column_type_is_numeric,
-    postgres_column_type_to_sql_type, rust_type_to_nullability,
+    rust_type_to_nullability,
 };
 use crate::paths::core as core_paths;
 use crate::paths::postgres as postgres_paths;
@@ -32,6 +32,44 @@ fn generate_marker_const(info: &FieldInfo, _zst_ident: &Ident) -> TokenStream {
         const #marker_const_name: () = {
             #( let _ = #markers; )*
         };
+    }
+}
+
+pub(super) fn generate_custom_comparison_operand_impls(
+    field_info: &FieldInfo,
+    zst_ident: &Ident,
+    postgres_value: &TokenStream,
+) -> TokenStream {
+    if !field_info.is_custom_type {
+        return TokenStream::new();
+    }
+
+    let value_type = &field_info.base_type;
+    let drizzle_postgres_column = postgres_paths::drizzle_postgres_column();
+
+    quote! {
+        impl<'a> drizzle::core::expr::ComparisonOperand<'a, #postgres_value<'a>, #zst_ident> for #value_type {
+            type SQLType = <#value_type as #drizzle_postgres_column>::SQLType;
+            type Aggregate = drizzle::core::expr::Scalar;
+
+            fn into_comparison_sql(self) -> drizzle::core::SQL<'a, #postgres_value<'a>> {
+                let value: #postgres_value<'a> =
+                    <#value_type as #drizzle_postgres_column>::encode_owned(self).into();
+                drizzle::core::SQL::param(value)
+            }
+        }
+
+        impl<'a, 'value> drizzle::core::expr::ComparisonOperand<'a, #postgres_value<'a>, #zst_ident> for &'value #value_type {
+            type SQLType = <#value_type as #drizzle_postgres_column>::SQLType;
+            type Aggregate = drizzle::core::expr::Scalar;
+
+            fn into_comparison_sql(self) -> drizzle::core::SQL<'a, #postgres_value<'a>> {
+                let value: #postgres_value<'a> =
+                    <#value_type as #drizzle_postgres_column>::encode(self).into_owned().into();
+                drizzle::core::SQL::param(value)
+            }
+        }
+
     }
 }
 
@@ -92,8 +130,8 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
         );
 
         let name = field_info.column_name.clone();
-        let col_type = field_info.column_type.to_sql_type();
-        let sql = format!("{name} {col_type}"); // Basic SQL definition
+        let col_type = field_info.sql_type_expr();
+        let sql = field_info.sql_definition_expr();
 
         // Generate direct From implementations for all enum fields
         // Custom types (is_custom_type) already have these impls from their enum derive
@@ -208,7 +246,7 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
         let is_unique = field_info.is_unique();
 
         // Compute SQL type and nullability markers for type-safe expressions
-        let sql_type_marker = postgres_column_type_to_sql_type(&field_info.column_type);
+        let sql_type_marker = field_info.sql_type_marker();
         let sql_nullable_marker = rust_type_to_nullability(rust_type);
 
         // Only Serial/Bigserial columns have is_serial/is_bigserial fields - others are always false
@@ -238,6 +276,8 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
             &sql_type_marker,
             &sql_nullable_marker,
         );
+        let custom_comparison_operand_impls =
+            generate_custom_comparison_operand_impls(field_info, &zst_ident, &postgres_value);
 
         // Generate arithmetic operators for numeric columns
         let arithmetic_ops = if postgres_column_type_is_numeric(&field_info.column_type) {
@@ -365,6 +405,7 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
 
             // Expr trait implementation for type-safe expressions
             #expr_impl
+            #custom_comparison_operand_impls
 
             // Arithmetic operators for numeric columns
             #arithmetic_ops

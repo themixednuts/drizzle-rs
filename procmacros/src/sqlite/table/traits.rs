@@ -167,7 +167,7 @@ pub fn generate_table_impls(
                 );
             ColumnRefInput {
                 column_name: f.column_name.clone(),
-                sql_type: f.column_type.to_sql_type().to_string(),
+                sql_type: f.sql_type_expr(),
                 flags,
                 dialect: quote! { #column_dialect::SQLite { autoincrement: #autoincrement } },
             }

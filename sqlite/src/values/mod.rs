@@ -36,6 +36,81 @@ pub enum SQLiteValue<'a> {
     Null,
 }
 
+/// Borrowed view of a `SQLite` value.
+///
+/// This is the zero-copy read-side representation used by custom column
+/// decoders. Text and blob payloads borrow directly from the driver row or
+/// from an existing [`SQLiteValue`].
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default)]
+pub enum SQLiteValueRef<'a> {
+    /// Integer value (i64)
+    Integer(i64),
+    /// Real value (f64)
+    Real(f64),
+    /// Text value
+    Text(&'a str),
+    /// Blob value
+    Blob(&'a [u8]),
+    /// NULL value
+    #[default]
+    Null,
+}
+
+impl<'a> SQLiteValueRef<'a> {
+    /// Converts this borrowed value into a `SQLiteValue`.
+    #[inline]
+    #[must_use]
+    pub const fn into_value(self) -> SQLiteValue<'a> {
+        match self {
+            Self::Integer(value) => SQLiteValue::Integer(value),
+            Self::Real(value) => SQLiteValue::Real(value),
+            Self::Text(value) => SQLiteValue::Text(Cow::Borrowed(value)),
+            Self::Blob(value) => SQLiteValue::Blob(Cow::Borrowed(value)),
+            Self::Null => SQLiteValue::Null,
+        }
+    }
+
+    /// Converts a rusqlite borrowed value into a dialect-neutral borrowed
+    /// value.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ConversionError`] if a `TEXT` value is not valid
+    /// UTF-8.
+    #[cfg(feature = "rusqlite")]
+    #[inline]
+    pub fn try_from_rusqlite_value_ref(
+        value: ::rusqlite::types::ValueRef<'a>,
+    ) -> Result<Self, DrizzleError> {
+        match value {
+            ::rusqlite::types::ValueRef::Null => Ok(Self::Null),
+            ::rusqlite::types::ValueRef::Integer(value) => Ok(Self::Integer(value)),
+            ::rusqlite::types::ValueRef::Real(value) => Ok(Self::Real(value)),
+            ::rusqlite::types::ValueRef::Text(value) => {
+                let value = core::str::from_utf8(value).map_err(|e| {
+                    DrizzleError::ConversionError(format!("invalid UTF-8: {e}").into())
+                })?;
+                Ok(Self::Text(value))
+            }
+            ::rusqlite::types::ValueRef::Blob(value) => Ok(Self::Blob(value)),
+        }
+    }
+}
+
+impl<'a> From<SQLiteValueRef<'a>> for SQLiteValue<'a> {
+    #[inline]
+    fn from(value: SQLiteValueRef<'a>) -> Self {
+        value.into_value()
+    }
+}
+
+impl<'a> From<&'a SQLiteValue<'_>> for SQLiteValueRef<'a> {
+    #[inline]
+    fn from(value: &'a SQLiteValue<'_>) -> Self {
+        value.as_ref()
+    }
+}
+
 impl SQLiteValue<'_> {
     /// Returns true if this value is NULL.
     #[inline]
@@ -84,6 +159,19 @@ impl SQLiteValue<'_> {
         }
     }
 
+    /// Returns a borrowed view of this value.
+    #[inline]
+    #[must_use]
+    pub fn as_ref(&self) -> SQLiteValueRef<'_> {
+        match self {
+            SQLiteValue::Integer(value) => SQLiteValueRef::Integer(*value),
+            SQLiteValue::Real(value) => SQLiteValueRef::Real(*value),
+            SQLiteValue::Text(value) => SQLiteValueRef::Text(value.as_ref()),
+            SQLiteValue::Blob(value) => SQLiteValueRef::Blob(value.as_ref()),
+            SQLiteValue::Null => SQLiteValueRef::Null,
+        }
+    }
+
     /// Converts this value into an owned representation.
     #[inline]
     #[must_use]
@@ -109,13 +197,7 @@ impl SQLiteValue<'_> {
     /// # "####;
     /// ```
     pub fn convert<T: FromSQLiteValue>(self) -> Result<T, DrizzleError> {
-        match self {
-            SQLiteValue::Integer(i) => T::from_sqlite_integer(i),
-            SQLiteValue::Text(s) => T::from_sqlite_text(&s),
-            SQLiteValue::Real(r) => T::from_sqlite_real(r),
-            SQLiteValue::Blob(b) => T::from_sqlite_blob(&b),
-            SQLiteValue::Null => T::from_sqlite_null(),
-        }
+        T::from_sqlite_ref(self.as_ref())
     }
 
     /// Convert a reference to this `SQLite` value to a Rust type.
@@ -125,13 +207,7 @@ impl SQLiteValue<'_> {
     /// Returns [`DrizzleError::ConversionError`] when the stored variant cannot
     /// be decoded into `T`.
     pub fn convert_ref<T: FromSQLiteValue>(&self) -> Result<T, DrizzleError> {
-        match self {
-            SQLiteValue::Integer(i) => T::from_sqlite_integer(*i),
-            SQLiteValue::Text(s) => T::from_sqlite_text(s),
-            SQLiteValue::Real(r) => T::from_sqlite_real(*r),
-            SQLiteValue::Blob(b) => T::from_sqlite_blob(b),
-            SQLiteValue::Null => T::from_sqlite_null(),
-        }
+        T::from_sqlite_ref(self.as_ref())
     }
 }
 

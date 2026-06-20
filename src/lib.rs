@@ -300,8 +300,10 @@ pub mod sqlite {
         // SQLite types
         pub use drizzle_sqlite::attrs::*;
         pub use drizzle_sqlite::common::SQLiteSchemaType;
-        pub use drizzle_sqlite::traits::{SQLiteColumn, SQLiteTable};
-        pub use drizzle_sqlite::values::{SQLiteInsertValue, SQLiteUpdateValue, SQLiteValue};
+        pub use drizzle_sqlite::traits::{DrizzleSQLiteColumn, SQLiteColumn, SQLiteTable};
+        pub use drizzle_sqlite::values::{
+            OwnedSQLiteValue, SQLiteInsertValue, SQLiteUpdateValue, SQLiteValue, SQLiteValueRef,
+        };
     }
 }
 
@@ -383,9 +385,9 @@ pub mod postgres {
         // PostgreSQL types
         pub use drizzle_postgres::attrs::*;
         pub use drizzle_postgres::common::PostgresSchemaType;
-        pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
+        pub use drizzle_postgres::traits::{DrizzlePostgresColumn, PostgresColumn, PostgresTable};
         pub use drizzle_postgres::values::{
-            PostgresInsertValue, PostgresUpdateValue, PostgresValue,
+            OwnedPostgresValue, PostgresInsertValue, PostgresUpdateValue, PostgresValue,
         };
     }
 }

@@ -37,7 +37,7 @@ impl ColumnRefFlags {
 /// these from their own `FieldInfo` types.
 pub struct ColumnRefInput {
     pub column_name: String,
-    pub sql_type: String,
+    pub sql_type: TokenStream,
     pub flags: ColumnRefFlags,
     /// The `ColumnDialect` variant as a `TokenStream`.
     pub dialect: TokenStream,

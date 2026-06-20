@@ -63,13 +63,13 @@ fn generate_select_field_conversion(idx: &TokenStream, info: &FieldInfo) -> Toke
                     if is_null {
                         None
                     } else {
-                        Some(<#base_type as drizzle::postgres::traits::DrizzlePostgresColumn>::from_postgres_row(row, #idx)?)
+                        Some(<#base_type as drizzle::postgres::traits::DrizzlePostgresColumn>::decode(row, #idx)?)
                     }
                 },
             };
         }
         return quote! {
-            #name: <#base_type as drizzle::postgres::traits::DrizzlePostgresColumn>::from_postgres_row(row, #idx)?,
+            #name: <#base_type as drizzle::postgres::traits::DrizzlePostgresColumn>::decode(row, #idx)?,
         };
     }
 
@@ -194,7 +194,7 @@ fn generate_partial_field_conversion(idx: usize, info: &FieldInfo) -> TokenStrea
     // Custom types (auto-detected enums): use DrizzlePostgresColumn trait
     if info.is_custom_type {
         return quote! {
-            #name: <#base_type as drizzle::postgres::traits::DrizzlePostgresColumn>::from_postgres_row(row, #idx).ok(),
+            #name: <#base_type as drizzle::postgres::traits::DrizzlePostgresColumn>::decode(row, #idx).ok(),
         };
     }
 

@@ -640,8 +640,10 @@ impl<'a> FieldInfo<'a> {
             type_category_from_type(base_type)
         };
 
-        // Track whether this is a custom type (unknown to the macro, validated via trait bounds)
-        let mut is_custom_type = false;
+        // Track whether this is a custom type (unknown to the macro, validated via trait bounds).
+        // This remains true even when a user writes an explicit storage marker like
+        // #[column(blob)] so the read/write path still uses DrizzleSQLiteColumn.
+        let mut is_custom_type = matches!(type_category, TypeCategory::Unknown);
 
         let column_type = if attrs.has_explicit_type {
             // Use the explicit type from the attribute
@@ -920,6 +922,55 @@ impl FieldInfo<'_> {
     pub(crate) fn insert_param_type(&self) -> TokenStream {
         let insert_value_type = self.sqlite_insert_value_type();
         quote!(impl Into<#insert_value_type>)
+    }
+
+    /// SQL type string expression for generated schema metadata.
+    ///
+    /// Built-in columns use a literal. Custom columns use the associated const
+    /// from `DrizzleSQLiteColumn`, making the trait the source of truth.
+    pub(crate) fn sql_type_expr(&self) -> TokenStream {
+        if self.is_custom_type {
+            let base_type = self.base_type;
+            let drizzle_sqlite_column = crate::paths::sqlite::drizzle_sqlite_column();
+            quote!(<#base_type as #drizzle_sqlite_column>::SQL_TYPE)
+        } else {
+            let sql_type = self.column_type.to_sql_type();
+            quote!(#sql_type)
+        }
+    }
+
+    /// Drizzle SQL type marker used by expression generation.
+    pub(crate) fn sql_type_marker(&self) -> TokenStream {
+        if self.is_custom_type {
+            let base_type = self.base_type;
+            let drizzle_sqlite_column = crate::paths::sqlite::drizzle_sqlite_column();
+            quote!(<#base_type as #drizzle_sqlite_column>::SQLType)
+        } else {
+            crate::common::sqlite_column_type_to_sql_type(&self.column_type)
+        }
+    }
+
+    /// Column SQL definition expression for `SQLSchema::SQL`.
+    pub(crate) fn sql_definition_expr(&self) -> TokenStream {
+        if !self.is_custom_type {
+            let sql_definition = &self.sql_definition;
+            return quote!(#sql_definition);
+        }
+
+        let const_format = crate::common::paths::const_format();
+        let sql_type = self.sql_type_expr();
+        let prefix = format!("\"{}\" ", self.column_name);
+        let placeholder = format!(
+            "\"{}\" {}",
+            self.column_name,
+            self.column_type.to_sql_type()
+        );
+        let suffix = self
+            .sql_definition
+            .strip_prefix(&placeholder)
+            .unwrap_or_default();
+
+        quote!(#const_format::concatcp!(#prefix, #sql_type, #suffix))
     }
 
     // =========================================================================

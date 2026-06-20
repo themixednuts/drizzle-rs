@@ -32,9 +32,19 @@ pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
         select_types.push(select_type);
         tuple_indices.push(syn::Index::from(i));
     }
+    let select_model_derive = if ctx.field_infos.iter().any(|info| info.is_custom_type) {
+        quote! {}
+    } else {
+        quote! { #[derive(Debug, Clone, Default)] }
+    };
+    let partial_select_model_derive = if ctx.field_infos.iter().any(|info| info.is_custom_type) {
+        quote! { #[derive(Default)] }
+    } else {
+        quote! { #[derive(Debug, Clone, Default)] }
+    };
 
     quote! {
-        #[derive(Debug, Clone, Default)]
+        #select_model_derive
         #struct_vis struct #select_ident {
             #(#select_fields)*
         }
@@ -47,7 +57,7 @@ pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
             }
         }
 
-        #[derive(Debug, Clone, Default)]
+        #partial_select_model_derive
         #struct_vis struct #partial_select_ident {
             #(#partial_select_fields)*
         }

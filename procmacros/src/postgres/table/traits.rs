@@ -151,7 +151,7 @@ pub(super) fn generate_table_impls(
         .field_infos
         .iter()
         .map(|f| {
-            let pg_type = f.column_type.to_sql_type().to_string();
+            let pg_type = f.sql_type_expr();
             let is_serial = f.is_serial
                 && matches!(
                     f.column_type,
@@ -201,7 +201,7 @@ pub(super) fn generate_table_impls(
                 );
             ColumnRefInput {
                 column_name: f.column_name.clone(),
-                sql_type: f.column_type.to_sql_type().to_string(),
+                sql_type: f.sql_type_expr(),
                 flags,
                 dialect: quote! {
                     #column_dialect::PostgreSQL {

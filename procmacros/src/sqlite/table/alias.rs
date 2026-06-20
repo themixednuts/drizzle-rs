@@ -162,6 +162,12 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             &quote! {<#original_field_type as #expr::Expr<'a, #sqlite_value<'a>>>::SQLType},
             &quote! {<#original_field_type as #expr::Expr<'a, #sqlite_value<'a>>>::Nullable},
         );
+        let custom_comparison_operand_impls =
+            super::column_definitions::generate_custom_comparison_operand_impls(
+                field,
+                aliased_field_type,
+                &sqlite_value,
+            );
 
         let expr_value_type = core_paths::expr_value_type();
         let into_select_target = core_paths::into_select_target();
@@ -177,6 +183,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             #to_sql_custom_impl
             #into_sqlite_value_impl
             #expr_impl
+            #custom_comparison_operand_impls
             impl #expr_value_type for #aliased_field_type {
                 type ValueType = <#original_field_type as #expr_value_type>::ValueType;
             }

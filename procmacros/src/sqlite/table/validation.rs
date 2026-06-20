@@ -7,6 +7,10 @@ pub fn validate_strict_affinity(field_infos: &[FieldInfo], strict: bool) -> syn:
     let mut errors: Vec<syn::Error> = Vec::new();
 
     for info in field_infos {
+        if info.is_custom_type {
+            continue;
+        }
+
         if strict && !info.column_type.is_strict_allowed() {
             errors.push(syn::Error::new_spanned(
                 info.ident,

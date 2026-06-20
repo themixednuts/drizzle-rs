@@ -9,6 +9,7 @@ pub mod async_edge_cases;
 pub mod codecs;
 pub mod comment;
 pub mod conditions;
+pub mod custom_column;
 pub mod delete;
 pub mod r#enum;
 pub mod expr;

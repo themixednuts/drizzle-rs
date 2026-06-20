@@ -22,6 +22,7 @@ use syn::Ident;
 /// names resolve at compile time; everything else is a plain literal.
 enum DdlPiece {
     Literal(String),
+    Expr(TokenStream),
     TableNameOf(Ident),
 }
 
@@ -29,6 +30,7 @@ impl DdlPiece {
     fn to_token(&self) -> TokenStream {
         match self {
             Self::Literal(s) => quote! { #s },
+            Self::Expr(expr) => quote! { #expr },
             Self::TableNameOf(ident) => quote! { <#ident>::TABLE_NAME },
         }
     }
@@ -80,10 +82,9 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
 
     // Columns
     for field in field_infos {
-        lines.push(vec![DdlPiece::Literal(format!(
-            "\t{}",
-            column_to_sql(field)
-        ))]);
+        let mut line = vec![DdlPiece::Literal("\t".to_string())];
+        line.extend(column_to_sql_pieces(field));
+        lines.push(line);
     }
 
     // Primary key (always at table level for Postgres, matching TableSql).
@@ -288,6 +289,29 @@ fn column_to_sql(field: &FieldInfo) -> String {
     sql
 }
 
+fn column_to_sql_pieces(field: &FieldInfo) -> Vec<DdlPiece> {
+    if !field.is_custom_type {
+        return vec![DdlPiece::Literal(column_to_sql(field))];
+    }
+
+    let sql = column_to_sql(field);
+    let placeholder = format!(
+        "\"{}\" {}",
+        field.column_name,
+        field.column_type.to_sql_type()
+    );
+    let suffix = sql.strip_prefix(&placeholder).unwrap_or_default();
+
+    let mut pieces = vec![
+        DdlPiece::Literal(format!("\"{}\" ", field.column_name)),
+        DdlPiece::Expr(field.sql_type_expr()),
+    ];
+    if !suffix.is_empty() {
+        pieces.push(DdlPiece::Literal(suffix.to_string()));
+    }
+    pieces
+}
+
 /// Convert a referential action string to the corresponding enum variant token
 fn referential_action_token(action: &str, referential_action: &TokenStream) -> TokenStream {
     match action.to_uppercase().as_str() {
@@ -328,7 +352,7 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
         .iter()
         .map(|field| {
             let column_name = &field.column_name;
-            let sql_type = field.column_type.to_sql_type();
+            let sql_type = field.sql_type_expr();
 
             let mut modifiers = Vec::new();
 

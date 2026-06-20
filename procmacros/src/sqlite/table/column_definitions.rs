@@ -1,7 +1,7 @@
 use super::context::MacroContext;
 use crate::common::{
     generate_arithmetic_ops, generate_expr_impl, rust_type_to_nullability,
-    sqlite_column_type_is_numeric, sqlite_column_type_to_sql_type,
+    sqlite_column_type_is_numeric,
 };
 use crate::generators::{generate_impl, generate_sql_column_info};
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
@@ -35,6 +35,44 @@ fn generate_marker_const(info: &FieldInfo, _zst_ident: &Ident) -> TokenStream {
         const #marker_const_name: () = {
             #( let _ = #markers; )*
         };
+    }
+}
+
+pub(super) fn generate_custom_comparison_operand_impls(
+    info: &FieldInfo,
+    zst_ident: &Ident,
+    sqlite_value: &TokenStream,
+) -> TokenStream {
+    if !info.is_custom_type {
+        return TokenStream::new();
+    }
+
+    let value_type = info.base_type;
+    let drizzle_sqlite_column = sqlite_paths::drizzle_sqlite_column();
+
+    quote! {
+        impl<'a> drizzle::core::expr::ComparisonOperand<'a, #sqlite_value<'a>, #zst_ident> for #value_type {
+            type SQLType = <#value_type as #drizzle_sqlite_column>::SQLType;
+            type Aggregate = drizzle::core::expr::Scalar;
+
+            fn into_comparison_sql(self) -> drizzle::core::SQL<'a, #sqlite_value<'a>> {
+                let value: #sqlite_value<'a> =
+                    <#value_type as #drizzle_sqlite_column>::encode_owned(self).into();
+                drizzle::core::SQL::param(value)
+            }
+        }
+
+        impl<'a, 'value> drizzle::core::expr::ComparisonOperand<'a, #sqlite_value<'a>, #zst_ident> for &'value #value_type {
+            type SQLType = <#value_type as #drizzle_sqlite_column>::SQLType;
+            type Aggregate = drizzle::core::expr::Scalar;
+
+            fn into_comparison_sql(self) -> drizzle::core::SQL<'a, #sqlite_value<'a>> {
+                let value: #sqlite_value<'a> =
+                    <#value_type as #drizzle_sqlite_column>::encode(self).into_owned().into();
+                drizzle::core::SQL::param(value)
+            }
+        }
+
     }
 }
 
@@ -87,10 +125,10 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             |func| quote! { ::std::option::Option::Some(#func) },
         );
 
-        let sql_def = &info.sql_definition;
+        let sql_def = info.sql_definition_expr();
 
         let name = &info.column_name;
-        let col_type = &info.column_type.to_sql_type();
+        let col_type = info.sql_type_expr();
 
         // Generate enum implementations using the shared generator
         let enum_impl = super::enum_impls::generate_enum_impls_for_field(info)?;
@@ -145,12 +183,8 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
         };
 
         // Use generators for trait implementations
-        let sql_schema_field_impl = generate_sql_schema_field(
-            &zst_ident,
-            &quote! {#name},
-            &quote! {#col_type},
-            &quote! {#sql_def},
-        );
+        let sql_schema_field_impl =
+            generate_sql_schema_field(&zst_ident, &quote! {#name}, &col_type, &sql_def);
         let sql_column_info_impl = generate_sql_column_info(
             &zst_ident,
             &quote! {
@@ -184,7 +218,7 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
         let is_autoincrement = info.is_autoincrement;
 
         // Compute SQL type and nullability markers for type-safe expressions
-        let sql_type_marker = sqlite_column_type_to_sql_type(&info.column_type);
+        let sql_type_marker = info.sql_type_marker();
         let sql_nullable_marker = rust_type_to_nullability(rust_type);
 
         let mut foreign_key_types = Vec::new();
@@ -225,6 +259,8 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             &sql_type_marker,
             &sql_nullable_marker,
         );
+        let custom_comparison_operand_impls =
+            generate_custom_comparison_operand_impls(info, &zst_ident, &sqlite_value);
 
         // Generate arithmetic operators for numeric columns
         let arithmetic_ops = if sqlite_column_type_is_numeric(&info.column_type) {
@@ -296,6 +332,7 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             }
             #into_sqlite_value_impl
             #expr_impl
+            #custom_comparison_operand_impls
             #arithmetic_ops
 
             // Include enum implementation if this is an enum field

@@ -27,6 +27,7 @@ use std::fmt::Write;
 /// expands to `<RefTable>::TABLE_NAME` so the lookup happens at compile time.
 enum DdlPiece {
     Literal(String),
+    Expr(TokenStream),
     TableNameOf(syn::Ident),
 }
 
@@ -34,6 +35,7 @@ impl DdlPiece {
     fn to_token(&self) -> TokenStream {
         match self {
             Self::Literal(s) => quote! { #s },
+            Self::Expr(expr) => quote! { #expr },
             Self::TableNameOf(ident) => quote! { <#ident>::TABLE_NAME },
         }
     }
@@ -92,14 +94,13 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
     // UNIQUE?" questions are answered by `Constraint`, set during the
     // table-level pass.
     for field in field_infos {
-        lines.push(vec![DdlPiece::Literal(format!(
-            "\t{}",
-            column_to_sql(
-                field,
-                field.constraint.is_inline_primary(),
-                field.constraint.is_inline_unique(),
-            )
-        ))]);
+        let mut line = vec![DdlPiece::Literal("\t".to_string())];
+        line.extend(column_to_sql_pieces(
+            field,
+            field.constraint.is_inline_primary(),
+            field.constraint.is_inline_unique(),
+        ));
+        lines.push(line);
     }
 
     // Composite primary key (only when there are 2+ PK columns)
@@ -291,6 +292,33 @@ fn column_to_sql(field: &FieldInfo, inline_pk: bool, inline_unique: bool) -> Str
     sql
 }
 
+fn column_to_sql_pieces(field: &FieldInfo, inline_pk: bool, inline_unique: bool) -> Vec<DdlPiece> {
+    if !field.is_custom_type {
+        return vec![DdlPiece::Literal(column_to_sql(
+            field,
+            inline_pk,
+            inline_unique,
+        ))];
+    }
+
+    let sql = column_to_sql(field, inline_pk, inline_unique);
+    let placeholder = format!(
+        "`{}` {}",
+        field.column_name,
+        field.column_type.to_sql_type()
+    );
+    let suffix = sql.strip_prefix(&placeholder).unwrap_or_default();
+
+    let mut pieces = vec![
+        DdlPiece::Literal(format!("`{}` ", field.column_name)),
+        DdlPiece::Expr(field.sql_type_expr()),
+    ];
+    if !suffix.is_empty() {
+        pieces.push(DdlPiece::Literal(suffix.to_string()));
+    }
+    pieces
+}
+
 /// Generate const DDL definitions for the table and its columns.
 ///
 /// This generates:
@@ -334,7 +362,7 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
         .iter()
         .map(|field| {
             let column_name = &field.column_name;
-            let sql_type = field.column_type.to_sql_type();
+            let sql_type = field.sql_type_expr();
 
             let mut modifiers = Vec::new();
 

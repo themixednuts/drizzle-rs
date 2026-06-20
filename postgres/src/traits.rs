@@ -10,7 +10,7 @@ use drizzle_core::error::DrizzleError;
 pub use table::*;
 pub use value::*;
 
-use crate::values::PostgresValue;
+use crate::values::{OwnedPostgresValue, PostgresValue};
 
 /// Trait for `PostgreSQL` native enum types that can be used as dyn objects
 #[allow(clippy::wrong_self_convention)]
@@ -82,45 +82,86 @@ impl PartialEq for Box<dyn PostgresEnum> {
 ///
 /// # Associated Constants
 ///
+/// - `SQLType`: The Drizzle SQL type marker used for typed expressions
 /// - `SQL_TYPE`: The `PostgreSQL` column type (e.g. `"text"`, `"integer"`, or the lowercased enum name)
 /// - `NEEDS_CREATE_TYPE`: Whether this requires a `CREATE TYPE` (native PG enum)
 ///
 /// # Required Methods
 ///
-/// - `from_postgres_row`: Read self from a postgres Row at the given index
-/// - `to_postgres_value`: Convert self to a `PostgresValue` for insertion/updates
+/// - `decode`: Read self from a postgres Row at the given index
+/// - `encode`: Convert self to a `PostgresValue` for insertion/updates
+///
+/// The blanket `From<Self> for PostgresValue` owns the encoded value because
+/// insert/update models may store SQL fragments after the source value is
+/// dropped. Call `encode()` directly when you need an immediate borrowed value.
+/// Override `encode_owned()` when consuming `self` can avoid cloning owned data.
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot be used as a PostgreSQL column type",
     note = "add #[derive(PostgresEnum)] for enum types, or use a supported primitive type"
 )]
 pub trait DrizzlePostgresColumn: Sized {
+    /// Drizzle SQL type marker for this column.
+    ///
+    /// Use one of the built-in PostgreSQL markers, such as `Text`, `Int4`,
+    /// `Bytea`, `Boolean`, `Numeric`, `Enum`, or `Any`.
+    type SQLType: drizzle_core::types::DataType;
+
     /// `PostgreSQL` column type: `"text"`, `"integer"`, or native enum type name
     const SQL_TYPE: &'static str;
 
     /// Whether this requires a `CREATE TYPE` (native PG enum).
     const NEEDS_CREATE_TYPE: bool = false;
 
-    /// Read self from a postgres Row at the given index.
+    /// Decode self from a postgres Row at the given index.
     ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ConversionError`] when the column at `idx`
     /// cannot be decoded into this type.
-    fn from_postgres_row(row: &crate::Row, idx: usize) -> Result<Self, DrizzleError>;
+    fn decode(row: &crate::Row, idx: usize) -> Result<Self, DrizzleError>;
 
     /// Convert self to a `PostgresValue` for insertion/updates.
-    fn to_postgres_value(&self) -> PostgresValue<'static>;
+    fn encode(&self) -> PostgresValue<'_>;
+
+    /// Convert self to an owned `PostgreSQL` value for stored bind parameters.
+    ///
+    /// The default implementation owns the borrowed result of [`encode`](Self::encode).
+    /// Override this for wrappers that can move an internal string or byte buffer
+    /// directly into the SQL parameter.
+    fn encode_owned(self) -> OwnedPostgresValue {
+        self.encode().into_owned()
+    }
+}
+
+impl<'a, T> From<T> for PostgresValue<'a>
+where
+    T: DrizzlePostgresColumn,
+{
+    fn from(value: T) -> Self {
+        value.encode_owned().into()
+    }
 }
 
 /// Stub trait when no postgres driver is enabled — allows enum derives to compile
 /// without a driver feature, but the table macro's `TryFrom` impls won't be generated.
+///
+/// The blanket `From<Self> for PostgresValue` owns the encoded value because
+/// insert/update models may store SQL fragments after the source value is
+/// dropped. Call `encode()` directly when you need an immediate borrowed value.
+/// Override `encode_owned()` when consuming `self` can avoid cloning owned data.
 #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot be used as a PostgreSQL column type",
     note = "add #[derive(PostgresEnum)] for enum types, or use a supported primitive type"
 )]
 pub trait DrizzlePostgresColumn: Sized {
+    /// Drizzle SQL type marker for this column.
+    ///
+    /// Use one of the built-in PostgreSQL markers, such as `Text`, `Int4`,
+    /// `Bytea`, `Boolean`, `Numeric`, `Enum`, or `Any`.
+    type SQLType: drizzle_core::types::DataType;
+
     /// `PostgreSQL` column type: `"text"`, `"integer"`, or native enum type name
     const SQL_TYPE: &'static str;
 
@@ -128,5 +169,14 @@ pub trait DrizzlePostgresColumn: Sized {
     const NEEDS_CREATE_TYPE: bool = false;
 
     /// Convert self to a `PostgresValue` for insertion/updates.
-    fn to_postgres_value(&self) -> PostgresValue<'static>;
+    fn encode(&self) -> PostgresValue<'_>;
+
+    /// Convert self to an owned `PostgreSQL` value for stored bind parameters.
+    ///
+    /// The default implementation owns the borrowed result of [`encode`](Self::encode).
+    /// Override this for wrappers that can move an internal string or byte buffer
+    /// directly into the SQL parameter.
+    fn encode_owned(self) -> OwnedPostgresValue {
+        self.encode().into_owned()
+    }
 }

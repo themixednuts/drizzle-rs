@@ -421,6 +421,10 @@ pub mod sqlite {
         quote!(drizzle::sqlite::values::SQLiteValue)
     }
 
+    pub fn sqlite_value_ref() -> TokenStream {
+        quote!(drizzle::sqlite::values::SQLiteValueRef)
+    }
+
     pub fn sqlite_insert_value() -> TokenStream {
         quote!(drizzle::sqlite::values::SQLiteInsertValue)
     }
