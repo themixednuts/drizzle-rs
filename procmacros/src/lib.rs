@@ -36,6 +36,12 @@
 //! #  pub use drizzle_core::error::Result;
 //! #  pub mod sqlite {
 //! #      pub use drizzle_sqlite::{*, attrs::*};
+//! #      #[cfg(feature = "rusqlite")]
+//! #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+//! #      #[cfg(feature = "libsql")]
+//! #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+//! #      #[cfg(feature = "turso")]
+//! #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 //! #      pub mod prelude {
 //! #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 //! #          pub use drizzle_sqlite::{*, attrs::*};
@@ -149,6 +155,12 @@ use syn::parse_macro_input;
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -224,6 +236,12 @@ use syn::parse_macro_input;
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -378,6 +396,12 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -451,6 +475,12 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -519,6 +549,12 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -600,6 +636,12 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -680,6 +722,12 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -792,6 +840,12 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -865,6 +919,12 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -931,6 +991,12 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -1052,6 +1118,12 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -1118,6 +1190,12 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -1204,6 +1282,12 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -1267,6 +1351,12 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -1332,6 +1422,12 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -1404,6 +1500,12 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -1485,6 +1587,12 @@ pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -1570,6 +1678,12 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -1639,6 +1753,12 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -1713,6 +1833,12 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -1817,6 +1943,12 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -1888,6 +2020,12 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -1958,6 +2096,12 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -2023,6 +2167,12 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -2097,6 +2247,12 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -2175,6 +2331,12 @@ pub fn sql(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -2294,6 +2456,12 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -2365,6 +2533,12 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -2519,6 +2693,12 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -2589,6 +2769,12 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -2672,6 +2858,12 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -2811,6 +3003,12 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};
@@ -2882,6 +3080,12 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #  pub use drizzle_core::error::Result;
 /// #  pub mod sqlite {
 /// #      pub use drizzle_sqlite::{*, attrs::*};
+/// #      #[cfg(feature = "rusqlite")]
+/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #      #[cfg(feature = "libsql")]
+/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #      #[cfg(feature = "turso")]
+/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #      pub mod prelude {
 /// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
 /// #          pub use drizzle_sqlite::{*, attrs::*};

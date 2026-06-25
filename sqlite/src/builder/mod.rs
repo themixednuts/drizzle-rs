@@ -61,6 +61,12 @@ impl ExecutableState for CTEInit {}
 /// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #         pub use drizzle_sqlite::*;
+/// #         #[cfg(feature = "rusqlite")]
+/// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #         #[cfg(feature = "libsql")]
+/// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #         #[cfg(feature = "turso")]
+/// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #         pub mod prelude {
 /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// #             pub use drizzle_sqlite::{*, attrs::*};
@@ -109,6 +115,12 @@ impl ExecutableState for CTEInit {}
 /// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #         pub use drizzle_sqlite::*;
+/// #         #[cfg(feature = "rusqlite")]
+/// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #         #[cfg(feature = "libsql")]
+/// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #         #[cfg(feature = "turso")]
+/// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #         pub mod prelude {
 /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// #             pub use drizzle_sqlite::{*, attrs::*};
@@ -138,6 +150,12 @@ impl ExecutableState for CTEInit {}
 /// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #         pub use drizzle_sqlite::*;
+/// #         #[cfg(feature = "rusqlite")]
+/// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #         #[cfg(feature = "libsql")]
+/// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #         #[cfg(feature = "turso")]
+/// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #         pub mod prelude {
 /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// #             pub use drizzle_sqlite::{*, attrs::*};
@@ -167,6 +185,12 @@ impl ExecutableState for CTEInit {}
 /// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #         pub use drizzle_sqlite::*;
+/// #         #[cfg(feature = "rusqlite")]
+/// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #         #[cfg(feature = "libsql")]
+/// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #         #[cfg(feature = "turso")]
+/// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #         pub mod prelude {
 /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// #             pub use drizzle_sqlite::{*, attrs::*};
@@ -198,6 +222,12 @@ impl ExecutableState for CTEInit {}
 /// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #         pub use drizzle_sqlite::*;
+/// #         #[cfg(feature = "rusqlite")]
+/// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #         #[cfg(feature = "libsql")]
+/// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #         #[cfg(feature = "turso")]
+/// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #         pub mod prelude {
 /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// #             pub use drizzle_sqlite::{*, attrs::*};
@@ -231,6 +261,12 @@ impl ExecutableState for CTEInit {}
 /// #     pub use drizzle_types as ddl;
 /// #     pub mod sqlite {
 /// #         pub use drizzle_sqlite::*;
+/// #         #[cfg(feature = "rusqlite")]
+/// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #         #[cfg(feature = "libsql")]
+/// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #         #[cfg(feature = "turso")]
+/// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
 /// #         pub mod prelude {
 /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
 /// #             pub use drizzle_sqlite::{*, attrs::*};
@@ -358,6 +394,12 @@ impl<'a> QueryBuilder<'a> {
     /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
+    /// #         #[cfg(feature = "rusqlite")]
+    /// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+    /// #         #[cfg(feature = "libsql")]
+    /// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+    /// #         #[cfg(feature = "turso")]
+    /// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
     /// #         pub mod prelude {
     /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// #             pub use drizzle_sqlite::{*, attrs::*};
@@ -414,6 +456,12 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
+    /// #         #[cfg(feature = "rusqlite")]
+    /// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+    /// #         #[cfg(feature = "libsql")]
+    /// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+    /// #         #[cfg(feature = "turso")]
+    /// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
     /// #         pub mod prelude {
     /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// #             pub use drizzle_sqlite::{*, attrs::*};
@@ -470,6 +518,12 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
+    /// #         #[cfg(feature = "rusqlite")]
+    /// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+    /// #         #[cfg(feature = "libsql")]
+    /// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+    /// #         #[cfg(feature = "turso")]
+    /// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
     /// #         pub mod prelude {
     /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// #             pub use drizzle_sqlite::{*, attrs::*};
@@ -664,6 +718,12 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
+    /// #         #[cfg(feature = "rusqlite")]
+    /// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+    /// #         #[cfg(feature = "libsql")]
+    /// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+    /// #         #[cfg(feature = "turso")]
+    /// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
     /// #         pub mod prelude {
     /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// #             pub use drizzle_sqlite::{*, attrs::*};
@@ -719,6 +779,12 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
+    /// #         #[cfg(feature = "rusqlite")]
+    /// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+    /// #         #[cfg(feature = "libsql")]
+    /// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+    /// #         #[cfg(feature = "turso")]
+    /// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
     /// #         pub mod prelude {
     /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// #             pub use drizzle_sqlite::{*, attrs::*};
@@ -776,6 +842,12 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #     pub use drizzle_types as ddl;
     /// #     pub mod sqlite {
     /// #         pub use drizzle_sqlite::*;
+    /// #         #[cfg(feature = "rusqlite")]
+    /// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+    /// #         #[cfg(feature = "libsql")]
+    /// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+    /// #         #[cfg(feature = "turso")]
+    /// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
     /// #         pub mod prelude {
     /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
     /// #             pub use drizzle_sqlite::{*, attrs::*};
