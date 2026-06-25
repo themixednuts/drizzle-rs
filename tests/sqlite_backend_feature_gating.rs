@@ -1,3 +1,5 @@
+#![cfg(feature = "uuid")]
+
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,36 +12,48 @@ fn sqlite_derive_macros_do_not_require_direct_backend_dependencies() {
     let fixture_root = fresh_fixture_root(&root);
     let drizzle_path = root.display().to_string().replace('\\', "/");
 
-    write_single_driver_fixture(
-        &fixture_root.join("libsql_only"),
-        "sqlite_feature_gate_libsql_only",
-        &drizzle_path,
-        "libsql",
-    );
-    cargo_check(&root, &fixture_root.join("libsql_only/Cargo.toml"), &[]);
+    #[cfg(all(feature = "libsql", feature = "uuid"))]
+    {
+        write_single_driver_fixture(
+            &fixture_root.join("libsql_only"),
+            "sqlite_feature_gate_libsql_only",
+            &drizzle_path,
+            "libsql",
+        );
+        cargo_check(&root, &fixture_root.join("libsql_only/Cargo.toml"), &[]);
+    }
 
-    write_single_driver_fixture(
-        &fixture_root.join("rusqlite_only"),
-        "sqlite_feature_gate_rusqlite_only",
-        &drizzle_path,
-        "rusqlite",
-    );
-    cargo_check(&root, &fixture_root.join("rusqlite_only/Cargo.toml"), &[]);
+    #[cfg(all(feature = "rusqlite", feature = "uuid"))]
+    {
+        write_single_driver_fixture(
+            &fixture_root.join("rusqlite_only"),
+            "sqlite_feature_gate_rusqlite_only",
+            &drizzle_path,
+            "rusqlite",
+        );
+        cargo_check(&root, &fixture_root.join("rusqlite_only/Cargo.toml"), &[]);
+    }
 
-    write_single_driver_fixture(
-        &fixture_root.join("turso_only"),
-        "sqlite_feature_gate_turso_only",
-        &drizzle_path,
-        "turso",
-    );
-    cargo_check(&root, &fixture_root.join("turso_only/Cargo.toml"), &[]);
+    #[cfg(all(feature = "turso", feature = "uuid"))]
+    {
+        write_single_driver_fixture(
+            &fixture_root.join("turso_only"),
+            "sqlite_feature_gate_turso_only",
+            &drizzle_path,
+            "turso",
+        );
+        cargo_check(&root, &fixture_root.join("turso_only/Cargo.toml"), &[]);
+    }
 
-    write_unification_fixture(&fixture_root.join("unified"), &drizzle_path);
-    cargo_check(
-        &root,
-        &fixture_root.join("unified/Cargo.toml"),
-        &["--workspace"],
-    );
+    #[cfg(all(feature = "libsql", feature = "rusqlite", feature = "uuid"))]
+    {
+        write_unification_fixture(&fixture_root.join("unified"), &drizzle_path);
+        cargo_check(
+            &root,
+            &fixture_root.join("unified/Cargo.toml"),
+            &["--workspace"],
+        );
+    }
 }
 
 fn fresh_fixture_root(root: &Path) -> PathBuf {
@@ -61,11 +75,20 @@ fn fresh_fixture_root(root: &Path) -> PathBuf {
 fn cargo_check(root: &Path, manifest_path: &Path, extra_args: &[&str]) {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"));
     let target_dir = root.join("target");
+    let fixture_workspace = manifest_path
+        .parent()
+        .expect("fixture manifest should have a parent directory");
+    fs::copy(
+        root.join("Cargo.lock"),
+        fixture_workspace.join("Cargo.lock"),
+    )
+    .expect("copy root Cargo.lock into sqlite feature-gating fixture");
     let output = Command::new(cargo)
         .current_dir(root)
         .arg("check")
         .arg("--manifest-path")
         .arg(manifest_path)
+        .arg("--offline")
         .args(extra_args)
         .arg("--quiet")
         .env("CARGO_TARGET_DIR", target_dir)
@@ -93,6 +116,7 @@ fn write_single_driver_fixture(dir: &Path, package_name: &str, drizzle_path: &st
         .expect("write single-driver fixture source");
 }
 
+#[cfg(all(feature = "libsql", feature = "rusqlite"))]
 fn write_unification_fixture(dir: &Path, drizzle_path: &str) {
     fs::create_dir_all(dir).expect("create unified fixture root");
     fs::write(

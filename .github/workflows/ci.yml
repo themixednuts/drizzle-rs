@@ -11,6 +11,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  RUST_TEST_THREADS: 4
 
 jobs:
   lint:
@@ -84,6 +85,25 @@ jobs:
       - name: Run example
         if: contains(matrix.features, 'uuid')  && startsWith(matrix.features, 'rusqlite')
         run: cargo run --example rusqlite --features "rusqlite,uuid,serde"
+
+  test-sqlite-unification:
+    name: Test SQLite Feature Unification
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: stable
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Run feature-unification regression
+        run: cargo test -p drizzle --test sqlite_backend_feature_gating --features "rusqlite,libsql,uuid" -- --test-threads=4
 
   test-pg:
     name: "test::pg (${{ matrix.features }})"
