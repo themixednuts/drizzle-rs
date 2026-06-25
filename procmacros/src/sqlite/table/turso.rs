@@ -21,7 +21,7 @@ pub struct TursoDriver;
 
 impl DriverConfig for TursoDriver {
     fn row_type() -> TokenStream {
-        quote!(::turso::Row)
+        quote!(drizzle::sqlite::turso::Row)
     }
 
     fn integer_accessor(idx: &TokenStream) -> TokenStream {
@@ -123,10 +123,10 @@ pub fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
         column_list = quote!(#type_set_cons<#select_ty, #column_list>);
     }
     let from_drizzle_row_impl = quote! {
-        impl drizzle::core::FromDrizzleRow<::turso::Row> for #select_model_ident {
+        impl drizzle::core::FromDrizzleRow<drizzle::sqlite::turso::Row> for #select_model_ident {
             const COLUMN_COUNT: usize = #field_count;
 
-            fn from_row_at(row: &::turso::Row, offset: usize) -> ::std::result::Result<Self, #drizzle_error> {
+            fn from_row_at(row: &drizzle::sqlite::turso::Row, offset: usize) -> ::std::result::Result<Self, #drizzle_error> {
                 Ok(Self {
                     #(#from_drizzle_select)*
                 })
@@ -134,7 +134,7 @@ pub fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
         }
     };
     let row_column_list_impl = quote! {
-        impl #row_column_list<::turso::Row> for #select_model_ident {
+        impl #row_column_list<drizzle::sqlite::turso::Row> for #select_model_ident {
             type Columns = #column_list;
         }
     };
@@ -177,36 +177,36 @@ pub fn generate_json_impls(
             let struct_name = info.base_type;
             let into_value_impl = match storage_type {
                 SQLiteType::Text => quote! {
-                    impl ::turso::IntoValue for #struct_name {
-                        fn into_value(self) -> ::turso::Result<::turso::Value> {
+                    impl drizzle::sqlite::turso::IntoValue for #struct_name {
+                        fn into_value(self) -> drizzle::sqlite::turso::Result<drizzle::sqlite::turso::Value> {
                             let json_data = serde_json::to_string(&self)
-                                .map_err(|e| ::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
-                            Ok(::turso::Value::Text(json_data))
+                                .map_err(|e| drizzle::sqlite::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
+                            Ok(drizzle::sqlite::turso::Value::Text(json_data))
                         }
                     }
 
-                    impl ::turso::IntoValue for &#struct_name {
-                        fn into_value(self) -> ::turso::Result<::turso::Value> {
+                    impl drizzle::sqlite::turso::IntoValue for &#struct_name {
+                        fn into_value(self) -> drizzle::sqlite::turso::Result<drizzle::sqlite::turso::Value> {
                             let json_data = serde_json::to_string(self)
-                                .map_err(|e| ::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
-                            Ok(::turso::Value::Text(json_data))
+                                .map_err(|e| drizzle::sqlite::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
+                            Ok(drizzle::sqlite::turso::Value::Text(json_data))
                         }
                     }
                 },
                 SQLiteType::Blob => quote! {
-                    impl ::turso::IntoValue for #struct_name {
-                        fn into_value(self) -> ::turso::Result<::turso::Value> {
+                    impl drizzle::sqlite::turso::IntoValue for #struct_name {
+                        fn into_value(self) -> drizzle::sqlite::turso::Result<drizzle::sqlite::turso::Value> {
                             let json_data = serde_json::to_vec(&self)
-                                .map_err(|e| ::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
-                            Ok(::turso::Value::Blob(json_data))
+                                .map_err(|e| drizzle::sqlite::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
+                            Ok(drizzle::sqlite::turso::Value::Blob(json_data))
                         }
                     }
 
-                    impl ::turso::IntoValue for &#struct_name {
-                        fn into_value(self) -> ::turso::Result<::turso::Value> {
+                    impl drizzle::sqlite::turso::IntoValue for &#struct_name {
+                        fn into_value(self) -> drizzle::sqlite::turso::Result<drizzle::sqlite::turso::Value> {
                             let json_data = serde_json::to_vec(self)
-                                .map_err(|e| ::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
-                            Ok(::turso::Value::Blob(json_data))
+                                .map_err(|e| drizzle::sqlite::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
+                            Ok(drizzle::sqlite::turso::Value::Blob(json_data))
                         }
                     }
                 },
@@ -233,30 +233,30 @@ pub fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
 
     match info.column_type {
         SQLiteType::Integer => Ok(quote! {
-            impl ::turso::IntoValue for #value_type {
-                fn into_value(self) -> ::turso::Result<::turso::Value> {
+            impl drizzle::sqlite::turso::IntoValue for #value_type {
+                fn into_value(self) -> drizzle::sqlite::turso::Result<drizzle::sqlite::turso::Value> {
                     let integer: i64 = self.into();
-                    Ok(::turso::Value::Integer(integer))
+                    Ok(drizzle::sqlite::turso::Value::Integer(integer))
                 }
             }
 
-            impl ::turso::IntoValue for &#value_type {
-                fn into_value(self) -> ::turso::Result<::turso::Value> {
+            impl drizzle::sqlite::turso::IntoValue for &#value_type {
+                fn into_value(self) -> drizzle::sqlite::turso::Result<drizzle::sqlite::turso::Value> {
                     let integer: i64 = (*self).clone().into();
-                    Ok(::turso::Value::Integer(integer))
+                    Ok(drizzle::sqlite::turso::Value::Integer(integer))
                 }
             }
         }),
         SQLiteType::Text => Ok(quote! {
-            impl ::turso::IntoValue for #value_type {
-                fn into_value(self) -> ::turso::Result<::turso::Value> {
-                    Ok(::turso::Value::Text(self.to_string()))
+            impl drizzle::sqlite::turso::IntoValue for #value_type {
+                fn into_value(self) -> drizzle::sqlite::turso::Result<drizzle::sqlite::turso::Value> {
+                    Ok(drizzle::sqlite::turso::Value::Text(self.to_string()))
                 }
             }
 
-            impl ::turso::IntoValue for &#value_type {
-                fn into_value(self) -> ::turso::Result<::turso::Value> {
-                    Ok(::turso::Value::Text(self.to_string()))
+            impl drizzle::sqlite::turso::IntoValue for &#value_type {
+                fn into_value(self) -> drizzle::sqlite::turso::Result<drizzle::sqlite::turso::Value> {
+                    Ok(drizzle::sqlite::turso::Value::Text(self.to_string()))
                 }
             }
         }),

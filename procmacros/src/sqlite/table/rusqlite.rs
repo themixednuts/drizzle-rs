@@ -43,10 +43,10 @@ pub fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream> {
         .collect::<Result<(Vec<_>, Vec<_>)>>()?;
 
     let select_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #select_model_ident {
+        impl ::std::convert::TryFrom<&drizzle::sqlite::rusqlite::Row<'_>> for #select_model_ident {
             type Error = #drizzle_error;
 
-            fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
+            fn try_from(row: &drizzle::sqlite::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
                     #(#select)*
                 })
@@ -57,10 +57,10 @@ pub fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream> {
     let partial_ident = format_ident!("Partial{}", select_model_ident);
 
     let partial_select_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&::rusqlite::Row<'_>> for #partial_ident {
+        impl ::std::convert::TryFrom<&drizzle::sqlite::rusqlite::Row<'_>> for #partial_ident {
             type Error = #drizzle_error;
 
-            fn try_from(row: &::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
+            fn try_from(row: &drizzle::sqlite::rusqlite::Row<'_>) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
                     #(#partial)*
                 })
@@ -156,10 +156,10 @@ pub fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream> {
         column_list = quote!(#type_set_cons<#select_ty, #column_list>);
     }
     let from_drizzle_row_impl = quote! {
-        impl<'__drizzle_r> drizzle::core::FromDrizzleRow<::rusqlite::Row<'__drizzle_r>> for #select_model_ident {
+        impl<'__drizzle_r> drizzle::core::FromDrizzleRow<drizzle::sqlite::rusqlite::Row<'__drizzle_r>> for #select_model_ident {
             const COLUMN_COUNT: usize = #field_count;
 
-            fn from_row_at(row: &::rusqlite::Row<'__drizzle_r>, offset: usize) -> ::std::result::Result<Self, #drizzle_error> {
+            fn from_row_at(row: &drizzle::sqlite::rusqlite::Row<'__drizzle_r>, offset: usize) -> ::std::result::Result<Self, #drizzle_error> {
                 Ok(Self {
                     #(#from_drizzle_row_fields)*
                 })
@@ -167,7 +167,7 @@ pub fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream> {
         }
     };
     let row_column_list_impl = quote! {
-        impl<'__drizzle_r> #row_column_list<::rusqlite::Row<'__drizzle_r>> for #select_model_ident {
+        impl<'__drizzle_r> #row_column_list<drizzle::sqlite::rusqlite::Row<'__drizzle_r>> for #select_model_ident {
             type Columns = #column_list;
         }
     };
@@ -297,7 +297,7 @@ fn generate_field_from_row(idx: usize, info: &FieldInfo) -> Result<TokenStream> 
                         #name: {
                             let value_ref = row.get_ref(#idx)?;
                             match value_ref {
-                                ::rusqlite::types::ValueRef::Null => None,
+                                drizzle::sqlite::rusqlite::types::ValueRef::Null => None,
                                 _ => Some(<#base_type as #from_sqlite_value>::from_value_ref(value_ref)?),
                             }
                         },
@@ -320,7 +320,7 @@ fn generate_field_from_row(idx: usize, info: &FieldInfo) -> Result<TokenStream> 
             #name: {
                 let value_ref = row.get_ref(#idx)?;
                 match value_ref {
-                    ::rusqlite::types::ValueRef::Null => None,
+                    drizzle::sqlite::rusqlite::types::ValueRef::Null => None,
                     _ => Some(<#base_type as #from_sqlite_value>::from_value_ref(value_ref)?),
                 }
             },
@@ -351,9 +351,9 @@ fn generate_partial_field_from_row(idx: usize, info: &FieldInfo) -> TokenStream 
     // Partial models have all fields as Option<T>
     quote! {
         #name: {
-            let value_ref = row.get_ref(#idx).unwrap_or(::rusqlite::types::ValueRef::Null);
-            match value_ref {
-                ::rusqlite::types::ValueRef::Null => None,
+                    let value_ref = row.get_ref(#idx).unwrap_or(drizzle::sqlite::rusqlite::types::ValueRef::Null);
+                    match value_ref {
+                        drizzle::sqlite::rusqlite::types::ValueRef::Null => None,
                 _ => <#base_type as #from_sqlite_value>::from_value_ref(value_ref).ok(),
             }
         },
@@ -388,29 +388,29 @@ pub fn generate_json_impls(
                 SQLiteType::Text => (
                     quote! {
                         match value {
-                            ::rusqlite::types::ValueRef::Text(items) => serde_json::from_slice(items)
-                                .map_err(|_| ::rusqlite::types::FromSqlError::InvalidType),
-                            _ => Err(::rusqlite::types::FromSqlError::InvalidType),
+                            drizzle::sqlite::rusqlite::types::ValueRef::Text(items) => serde_json::from_slice(items)
+                                .map_err(|_| drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType),
+                            _ => Err(drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType),
                         }
                     },
                     quote! {
                         let json_data = serde_json::to_string(self)
-                            .map_err(|e| ::rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                        Ok(::rusqlite::types::ToSqlOutput::Owned(::rusqlite::types::Value::Text(json_data)))
+                            .map_err(|e| drizzle::sqlite::rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                        Ok(drizzle::sqlite::rusqlite::types::ToSqlOutput::Owned(drizzle::sqlite::rusqlite::types::Value::Text(json_data)))
                     },
                 ),
                 SQLiteType::Blob => (
                     quote! {
                         match value {
-                            ::rusqlite::types::ValueRef::Blob(items) => serde_json::from_slice(items)
-                                .map_err(|_| ::rusqlite::types::FromSqlError::InvalidType),
-                            _ => Err(::rusqlite::types::FromSqlError::InvalidType),
+                            drizzle::sqlite::rusqlite::types::ValueRef::Blob(items) => serde_json::from_slice(items)
+                                .map_err(|_| drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType),
+                            _ => Err(drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType),
                         }
                     },
                     quote! {
                         let json_data = serde_json::to_vec(self)
-                            .map_err(|e| ::rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                        Ok(::rusqlite::types::ToSqlOutput::Owned(::rusqlite::types::Value::Blob(json_data)))
+                            .map_err(|e| drizzle::sqlite::rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                        Ok(drizzle::sqlite::rusqlite::types::ToSqlOutput::Owned(drizzle::sqlite::rusqlite::types::Value::Blob(json_data)))
                     },
                 ),
                 _ => {
@@ -422,16 +422,16 @@ pub fn generate_json_impls(
             };
 
             Ok(quote! {
-                impl ::rusqlite::types::FromSql for #struct_name {
+                impl drizzle::sqlite::rusqlite::types::FromSql for #struct_name {
                     fn column_result(
-                        value: ::rusqlite::types::ValueRef<'_>,
-                    ) -> ::rusqlite::types::FromSqlResult<Self> {
+                        value: drizzle::sqlite::rusqlite::types::ValueRef<'_>,
+                    ) -> drizzle::sqlite::rusqlite::types::FromSqlResult<Self> {
                         #from_impl
                     }
                 }
 
-                impl ::rusqlite::types::ToSql for #struct_name {
-                    fn to_sql(&self) -> ::rusqlite::Result<::rusqlite::types::ToSqlOutput<'_>> {
+                impl drizzle::sqlite::rusqlite::types::ToSql for #struct_name {
+                    fn to_sql(&self) -> drizzle::sqlite::rusqlite::Result<drizzle::sqlite::rusqlite::types::ToSqlOutput<'_>> {
                         #to_impl
                     }
                 }

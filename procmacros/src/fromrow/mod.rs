@@ -363,7 +363,7 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
 
         impl_blocks.push(generate_driver_try_from(
             struct_name,
-            &quote!(::rusqlite::Row<'_>),
+            &quote!(drizzle::sqlite::rusqlite::Row<'_>),
             &quote!(#drizzle_error),
             &field_assignments,
             is_tuple,
@@ -371,7 +371,7 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
         impl_blocks.push(generate_driver_from_drizzle_row_impl(
             struct_name,
             &quote!(<'__drizzle_r>),
-            &quote!(::rusqlite::Row<'__drizzle_r>),
+            &quote!(drizzle::sqlite::rusqlite::Row<'__drizzle_r>),
             &quote!(#drizzle_error),
             &from_drizzle_assignments,
             is_tuple,
@@ -380,7 +380,7 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
         impl_blocks.push(generate_driver_row_column_list_impl(
             struct_name,
             &quote!(<'__drizzle_r>),
-            &quote!(::rusqlite::Row<'__drizzle_r>),
+            &quote!(drizzle::sqlite::rusqlite::Row<'__drizzle_r>),
             fields,
         ));
     }
@@ -405,7 +405,7 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
 
         impl_blocks.push(generate_driver_try_from(
             struct_name,
-            &quote!(::turso::Row),
+            &quote!(drizzle::sqlite::turso::Row),
             &quote!(#drizzle_error),
             &field_assignments,
             is_tuple,
@@ -413,7 +413,7 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
         impl_blocks.push(generate_driver_from_drizzle_row_impl(
             struct_name,
             &quote!(),
-            &quote!(::turso::Row),
+            &quote!(drizzle::sqlite::turso::Row),
             &quote!(#drizzle_error),
             &from_drizzle_assignments,
             is_tuple,
@@ -422,7 +422,7 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
         impl_blocks.push(generate_driver_row_column_list_impl(
             struct_name,
             &quote!(),
-            &quote!(::turso::Row),
+            &quote!(drizzle::sqlite::turso::Row),
             fields,
         ));
     }
@@ -451,7 +451,7 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
 
         impl_blocks.push(generate_driver_try_from(
             struct_name,
-            &quote!(::libsql::Row),
+            &quote!(drizzle::sqlite::libsql::Row),
             &quote!(#drizzle_error),
             &field_assignments,
             is_tuple,
@@ -459,7 +459,7 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
         impl_blocks.push(generate_driver_from_drizzle_row_impl(
             struct_name,
             &quote!(),
-            &quote!(::libsql::Row),
+            &quote!(drizzle::sqlite::libsql::Row),
             &quote!(#drizzle_error),
             &from_drizzle_assignments,
             is_tuple,
@@ -468,7 +468,7 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
         impl_blocks.push(generate_driver_row_column_list_impl(
             struct_name,
             &quote!(),
-            &quote!(::libsql::Row),
+            &quote!(drizzle::sqlite::libsql::Row),
             fields,
         ));
     }

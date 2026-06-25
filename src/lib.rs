@@ -244,6 +244,8 @@ pub mod sqlite {
         pub use crate::builder::sqlite::rusqlite::{Drizzle, DrizzleBuilder};
         #[doc(inline)]
         pub use crate::transaction::sqlite::rusqlite::Transaction;
+        #[doc(hidden)]
+        pub use ::rusqlite::{Error, Result, Row, types};
     }
 
     #[cfg(feature = "libsql")]
@@ -253,6 +255,8 @@ pub mod sqlite {
         pub use crate::builder::sqlite::libsql::{Drizzle, DrizzleBuilder};
         #[doc(inline)]
         pub use crate::transaction::sqlite::libsql::Transaction;
+        #[doc(hidden)]
+        pub use ::libsql::{Row, Value};
     }
 
     #[cfg(feature = "turso")]
@@ -262,6 +266,8 @@ pub mod sqlite {
         pub use crate::builder::sqlite::turso::{Drizzle, DrizzleBuilder};
         #[doc(inline)]
         pub use crate::transaction::sqlite::turso::Transaction;
+        #[doc(hidden)]
+        pub use ::turso::{Error, IntoValue, Result, Row, Value};
     }
 
     /// Cloudflare D1 driver (async, WASM-only).

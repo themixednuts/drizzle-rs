@@ -43,10 +43,10 @@ pub fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
         .collect::<Result<Vec<_>>>()?;
 
     let select_model_try_from_impl = quote! {
-        impl ::std::convert::TryFrom<&::libsql::Row> for #select_model_ident {
+        impl ::std::convert::TryFrom<&drizzle::sqlite::libsql::Row> for #select_model_ident {
             type Error = #drizzle_error;
 
-            fn try_from(row: &::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
+            fn try_from(row: &drizzle::sqlite::libsql::Row) -> ::std::result::Result<Self, Self::Error> {
                 Ok(Self {
                     #(#select)*
                 })
@@ -61,10 +61,10 @@ pub fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
         column_list = quote!(#type_set_cons<#select_ty, #column_list>);
     }
     let from_drizzle_row_impl = quote! {
-        impl drizzle::core::FromDrizzleRow<::libsql::Row> for #select_model_ident {
+        impl drizzle::core::FromDrizzleRow<drizzle::sqlite::libsql::Row> for #select_model_ident {
             const COLUMN_COUNT: usize = #field_count;
 
-            fn from_row_at(row: &::libsql::Row, offset: usize) -> ::std::result::Result<Self, #drizzle_error> {
+            fn from_row_at(row: &drizzle::sqlite::libsql::Row, offset: usize) -> ::std::result::Result<Self, #drizzle_error> {
                 Ok(Self {
                     #(#from_drizzle_select)*
                 })
@@ -72,7 +72,7 @@ pub fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
         }
     };
     let row_column_list_impl = quote! {
-        impl #row_column_list<::libsql::Row> for #select_model_ident {
+        impl #row_column_list<drizzle::sqlite::libsql::Row> for #select_model_ident {
             type Columns = #column_list;
         }
     };
@@ -378,39 +378,39 @@ pub fn generate_json_impls(
             let struct_name = info.base_type;
             let into_value_impl = match storage_type {
                 SQLiteType::Text => quote! {
-                    impl From<#struct_name> for ::libsql::Value {
+                    impl From<#struct_name> for drizzle::sqlite::libsql::Value {
                         fn from(value: #struct_name) -> Self {
                             match serde_json::to_string(&value) {
-                                Ok(json_data) => ::libsql::Value::Text(json_data),
-                                Err(_) => ::libsql::Value::Null,
+                                Ok(json_data) => drizzle::sqlite::libsql::Value::Text(json_data),
+                                Err(_) => drizzle::sqlite::libsql::Value::Null,
                             }
                         }
                     }
 
-                    impl From<&#struct_name> for ::libsql::Value {
+                    impl From<&#struct_name> for drizzle::sqlite::libsql::Value {
                         fn from(value: &#struct_name) -> Self {
                             match serde_json::to_string(value) {
-                                Ok(json_data) => ::libsql::Value::Text(json_data),
-                                Err(_) => ::libsql::Value::Null,
+                                Ok(json_data) => drizzle::sqlite::libsql::Value::Text(json_data),
+                                Err(_) => drizzle::sqlite::libsql::Value::Null,
                             }
                         }
                     }
                 },
                 SQLiteType::Blob => quote! {
-                    impl From<#struct_name> for ::libsql::Value {
+                    impl From<#struct_name> for drizzle::sqlite::libsql::Value {
                         fn from(value: #struct_name) -> Self {
                             match serde_json::to_vec(&value) {
-                                Ok(json_data) => ::libsql::Value::Blob(json_data),
-                                Err(_) => ::libsql::Value::Null,
+                                Ok(json_data) => drizzle::sqlite::libsql::Value::Blob(json_data),
+                                Err(_) => drizzle::sqlite::libsql::Value::Null,
                             }
                         }
                     }
 
-                    impl From<&#struct_name> for ::libsql::Value {
+                    impl From<&#struct_name> for drizzle::sqlite::libsql::Value {
                         fn from(value: &#struct_name) -> Self {
                             match serde_json::to_vec(value) {
-                                Ok(json_data) => ::libsql::Value::Blob(json_data),
-                                Err(_) => ::libsql::Value::Null,
+                                Ok(json_data) => drizzle::sqlite::libsql::Value::Blob(json_data),
+                                Err(_) => drizzle::sqlite::libsql::Value::Null,
                             }
                         }
                     }
@@ -438,30 +438,30 @@ pub fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
 
     match info.column_type {
         SQLiteType::Integer => Ok(quote! {
-            impl From<#value_type> for ::libsql::Value {
+            impl From<#value_type> for drizzle::sqlite::libsql::Value {
                 fn from(value: #value_type) -> Self {
                     let integer: i64 = value.into();
-                    ::libsql::Value::Integer(integer)
+                    drizzle::sqlite::libsql::Value::Integer(integer)
                 }
             }
 
-            impl From<&#value_type> for ::libsql::Value {
+            impl From<&#value_type> for drizzle::sqlite::libsql::Value {
                 fn from(value: &#value_type) -> Self {
                     let integer: i64 = (*value).clone().into();
-                    ::libsql::Value::Integer(integer)
+                    drizzle::sqlite::libsql::Value::Integer(integer)
                 }
             }
         }),
         SQLiteType::Text => Ok(quote! {
-            impl From<#value_type> for ::libsql::Value {
+            impl From<#value_type> for drizzle::sqlite::libsql::Value {
                 fn from(value: #value_type) -> Self {
-                    ::libsql::Value::Text(value.to_string())
+                    drizzle::sqlite::libsql::Value::Text(value.to_string())
                 }
             }
 
-            impl From<&#value_type> for ::libsql::Value {
+            impl From<&#value_type> for drizzle::sqlite::libsql::Value {
                 fn from(value: &#value_type) -> Self {
-                    ::libsql::Value::Text(value.to_string())
+                    drizzle::sqlite::libsql::Value::Text(value.to_string())
                 }
             }
         }),
