@@ -25,15 +25,19 @@ jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Skip when the push is the release-PR merge commit itself. Otherwise the
-    # Update workflow races the Publish workflow: release-plz can create the
-    # next release PR before Publish has pushed the tag for the release that
-    # just merged.
+    # Skip release-PR merge commits and internal-only commits. release-plz can
+    # bump on package-content diffs even when its changelog parser skips the
+    # commit, so CI/config-only pushes must not run the release-PR updater.
     # workflow_dispatch always runs so you can force a refresh if needed.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (
-        !startsWith(github.event.head_commit.message, 'chore: release') &&
+        !startsWith(github.event.head_commit.message, 'chore') &&
+        !startsWith(github.event.head_commit.message, 'style') &&
+        !startsWith(github.event.head_commit.message, 'test') &&
+        !startsWith(github.event.head_commit.message, 'ci') &&
+        !startsWith(github.event.head_commit.message, 'lint') &&
+        !startsWith(github.event.head_commit.message, 'build') &&
         !contains(github.event.head_commit.message, 'release-plz-')
       )
     steps:
