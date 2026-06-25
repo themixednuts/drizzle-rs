@@ -11,6 +11,7 @@ on:
     branches: [main]
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -75,3 +76,26 @@ jobs:
             echo "::error::release-plz release-pr failed"
             exit 1
           }
+
+      - name: Trigger release PR checks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=$(gh pr list \
+            --state open \
+            --label release \
+            --base main \
+            --json number,headRefName \
+            --jq 'map(select(.headRefName | startswith("release-plz-")))[0].number // empty')
+
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "No open release PR found; skipping explicit CI dispatch."
+            exit 0
+          fi
+
+          HEAD_REF=$(gh pr view "$PR_NUMBER" --json headRefName --jq '.headRefName')
+          HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid --jq '.headRefOid')
+
+          echo "Dispatching CI for release PR #$PR_NUMBER ($HEAD_REF @ $HEAD_SHA)."
+          gh workflow run ci.yml --ref "$HEAD_REF"
+          gh workflow run benchmarks.yml --ref "$HEAD_REF"

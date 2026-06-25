@@ -40,7 +40,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Restore Criterion baseline
-        if: github.event_name == 'pull_request'
+        if: github.ref != 'refs/heads/main'
         uses: actions/cache/restore@v5
         with:
           path: target/criterion
@@ -57,8 +57,8 @@ jobs:
             --output-format bencher \
             --color never | tee bench_output.txt
 
-      - name: Run SQLite benchmarks (compare on PR)
-        if: github.event_name == 'pull_request'
+      - name: Run SQLite benchmarks (compare on PR or release branch)
+        if: github.ref != 'refs/heads/main'
         shell: bash
         run: |
           cargo bench --bench sqlite --features "${{ matrix.sqlite_features }}" -- \
@@ -76,7 +76,7 @@ jobs:
             echo "**Commit:** ${{ github.sha }}"
             echo "**Platform:** ${{ runner.os }} (${{ runner.arch }})"
             echo "**Features:** ${{ matrix.sqlite_features }}"
-            echo "**Mode:** ${{ github.event_name == 'pull_request' && 'baseline compare' || 'baseline save' }}"
+            echo "**Mode:** ${{ github.ref != 'refs/heads/main' && 'baseline compare' || 'baseline save' }}"
             echo ""
             echo '```'
             cat bench_output.txt
@@ -136,7 +136,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Restore Criterion baseline
-        if: github.event_name == 'pull_request'
+        if: github.ref != 'refs/heads/main'
         uses: actions/cache/restore@v5
         with:
           path: target/criterion
@@ -166,8 +166,8 @@ jobs:
             --output-format bencher \
             --color never | tee tokio_output.txt
 
-      - name: Run PostgreSQL sync benchmarks (compare on PR)
-        if: github.event_name == 'pull_request'
+      - name: Run PostgreSQL sync benchmarks (compare on PR or release branch)
+        if: github.ref != 'refs/heads/main'
         env:
           DATABASE_URL: "host=localhost user=postgres password=postgres dbname=drizzle_test"
         shell: bash
@@ -177,8 +177,8 @@ jobs:
             --output-format bencher \
             --color never | tee sync_output.txt
 
-      - name: Run PostgreSQL tokio benchmarks (compare on PR)
-        if: github.event_name == 'pull_request'
+      - name: Run PostgreSQL tokio benchmarks (compare on PR or release branch)
+        if: github.ref != 'refs/heads/main'
         env:
           DATABASE_URL: "host=localhost user=postgres password=postgres dbname=drizzle_test"
         shell: bash
@@ -197,7 +197,7 @@ jobs:
             echo "**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo "**Commit:** ${{ github.sha }}"
             echo "**Platform:** ${{ runner.os }} (${{ runner.arch }})"
-            echo "**Mode:** ${{ github.event_name == 'pull_request' && 'baseline compare' || 'baseline save' }}"
+            echo "**Mode:** ${{ github.ref != 'refs/heads/main' && 'baseline compare' || 'baseline save' }}"
             echo ""
             echo "## sync"
             echo ""

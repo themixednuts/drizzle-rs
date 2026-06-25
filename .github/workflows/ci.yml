@@ -1,10 +1,10 @@
 name: CI
 
 on:
-  # CI runs on pull requests only. The PR's head commit is the same code that
-  # gets merged into main (modulo conflict resolution), so re-running on the
-  # push event after merge would duplicate the work that already gated the PR.
-  # Branch protection should require this workflow to be green before merge.
+  workflow_dispatch:
+  # CI normally runs on pull requests only. The manual dispatch path is used by
+  # update.yml for release-plz PRs, because PRs opened by GITHUB_TOKEN do not
+  # trigger normal pull_request workflow runs.
   pull_request:
     branches: [main]
 
