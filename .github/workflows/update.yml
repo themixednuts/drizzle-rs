@@ -25,12 +25,17 @@ jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Skip when the push is the release-PR merge commit itself (release-plz
-    # would just no-op anyway, but the CI run still takes ~2 minutes).
+    # Skip when the push is the release-PR merge commit itself. Otherwise the
+    # Update workflow races the Publish workflow: release-plz can create the
+    # next release PR before Publish has pushed the tag for the release that
+    # just merged.
     # workflow_dispatch always runs so you can force a refresh if needed.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      !startsWith(github.event.head_commit.message, 'chore: release')
+      (
+        !startsWith(github.event.head_commit.message, 'chore: release') &&
+        !contains(github.event.head_commit.message, 'release-plz-')
+      )
     steps:
       - name: Clone repository
         uses: actions/checkout@v6

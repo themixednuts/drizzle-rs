@@ -41,8 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 protect_breaking_commits = true
 
 # Sort commits into Keep-a-Changelog buckets and drop internal noise
-# (chore / style / test / ci / lint / build) so the changelog stays
-# user-focused. Unconventional commits (no `type:` prefix) fall through
+# (chore / style / test / ci / lint / build / merge commits) so the changelog
+# stays user-focused. Unconventional commits (no `type:` prefix) fall through
 # to "Other".
 commit_parsers = [
   { message = "^feat", group = "Added" },
@@ -57,6 +57,7 @@ commit_parsers = [
   { message = "^ci", skip = true },
   { message = "^lint", skip = true },
   { message = "^build", skip = true },
+  { message = "^Merge pull request", skip = true },
   { message = ".*", group = "Other" },
 ]
 
