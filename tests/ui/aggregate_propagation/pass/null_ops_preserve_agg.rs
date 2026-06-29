@@ -1,4 +1,4 @@
-use drizzle::core::expr::{count_all, is_not_null, is_null, nullif, sum, window, NonNull, SQLExpr, Scalar};
+use drizzle::core::expr::{count, is_not_null, is_null, nullif, sum, window, NonNull, SQLExpr, Scalar};
 use drizzle::sqlite::prelude::*;
 
 #[SQLiteTable]
@@ -15,8 +15,8 @@ fn main() {
     let _: SQLExpr<'_, SQLiteValue, drizzle::sqlite::types::Integer, NonNull, Scalar> =
         is_null(sum(item.price)).over(window());
 
-    // is_not_null(count_all()) preserves Agg
-    let _ = is_not_null(count_all::<SQLiteValue>()).over(window());
+    // is_not_null(count(())) preserves Agg
+    let _ = is_not_null(count::<SQLiteValue, _>(())).over(window());
 
     // nullif(sum(price), sum(price)) preserves Agg
     let _ = nullif(sum(item.price), sum(item.price)).over(window());

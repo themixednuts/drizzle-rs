@@ -16,7 +16,7 @@
 //!
 //! # Type Safety
 //!
-//! - `eq`, `neq`, `gt`, `gte`, `lt`, `lte`: Require compatible types
+//! - `eq`, `ne`, `gt`, `gte`, `lt`, `lte`: Require compatible types
 //! - `like`, `not_like`: Require textual types on both sides
 //! - `between`: Requires expr compatible with both bounds
 //! - `is_null`, `is_not_null`: No type constraint (any type can be null-checked)
@@ -134,9 +134,33 @@ where
     SQLExpr::new(binary_op(left, Token::EQ, right))
 }
 
-/// Inequality comparison (`<>` or `!=`).
+/// Inequality comparison (`<>`).
 ///
 /// Requires both operands to have compatible SQL types.
+#[allow(clippy::type_complexity)]
+pub fn ne<'a, V, L, R>(
+    left: L,
+    right: R,
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+>
+where
+    V: SQLParam + 'a,
+    L: Expr<'a, V>,
+    R: ComparisonOperand<'a, V, L>,
+    L::SQLType: Compatible<<R as ComparisonOperand<'a, V, L>>::SQLType>,
+    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
+{
+    SQLExpr::new(binary_op(left, Token::NE, right))
+}
+
+/// Inequality comparison (`<>`).
+///
+/// Alias for [`ne`].
 #[allow(clippy::type_complexity)]
 pub fn neq<'a, V, L, R>(
     left: L,
@@ -155,7 +179,7 @@ where
     L::SQLType: Compatible<<R as ComparisonOperand<'a, V, L>>::SQLType>,
     L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
 {
-    SQLExpr::new(binary_op(left, Token::NE, right))
+    ne(left, right)
 }
 
 // =============================================================================
@@ -635,7 +659,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         Self::SQLType: Compatible<<R as ComparisonOperand<'a, V, Self>>::SQLType>,
         Self::Aggregate: AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
     {
-        neq(self, other)
+        ne(self, other)
     }
 
     /// Greater-than comparison (`>`).

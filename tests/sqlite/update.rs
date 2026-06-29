@@ -58,6 +58,31 @@ fn simple_update(db: &mut TestDb<SimpleSchema>) {
     assert_eq!(old_results.len(), 0);
 }
 
+#[drizzle::test]
+fn update_returning_star(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([InsertSimple::new("before_returning").with_id(102)])
+        .execute();
+
+    let stmt = db
+        .update(simple)
+        .set(UpdateSimple::default().with_name("after_returning"))
+        .r#where(eq(simple.id, 102))
+        .returning(());
+
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"UPDATE "simple" SET "name" = ? WHERE "simple"."id" = ? RETURNING *"#
+    );
+
+    let rows: Vec<SelectSimple> = stmt.all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, 102);
+    assert_eq!(rows[0].name, "after_returning");
+}
+
 #[cfg(feature = "uuid")]
 #[drizzle::test]
 fn complex_update(db: &mut TestDb<ComplexSchema>) {

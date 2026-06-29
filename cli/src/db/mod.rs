@@ -3744,7 +3744,8 @@ fn query_pg_sync_core(
             identity_type: row.get::<_, Option<String>>(8),
             is_generated: row.get::<_, bool>(9),
             generated_expression: row.get::<_, Option<String>>(10),
-            ordinal_position: row.get::<_, i32>(11),
+            generated_stored: row.get::<_, bool>(11),
+            ordinal_position: row.get::<_, i32>(12),
         })
         .collect();
 
@@ -4021,7 +4022,8 @@ async fn query_pg_async_core(
             identity_type: row.get::<_, Option<String>>(8),
             is_generated: row.get::<_, bool>(9),
             generated_expression: row.get::<_, Option<String>>(10),
-            ordinal_position: row.get::<_, i32>(11),
+            generated_stored: row.get::<_, bool>(11),
+            ordinal_position: row.get::<_, i32>(12),
         })
         .collect();
 

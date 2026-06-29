@@ -152,7 +152,7 @@ mod prepared;
 
 use std::sync::Arc;
 
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
 use drizzle_core::prepared::prepare_render;
 use drizzle_core::traits::ToSQL;
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
@@ -175,6 +175,11 @@ pub type DrizzleBuilder<'a, Schema, Builder, State> =
     common::DrizzleBuilder<'a, &'a Drizzle<Schema>, Schema, Builder, State>;
 
 use crate::transaction::postgres::tokio_postgres::Transaction;
+
+#[cfg(feature = "query")]
+impl<Schema> common::RelationalPreparedDriver for &Drizzle<Schema> {
+    type PreparedDriver = Client;
+}
 
 crate::drizzle_prepare_impl!();
 
@@ -303,20 +308,24 @@ impl<Schema> Drizzle<Schema> {
         T: ToSQL<'a, PostgresValue<'a>>,
     {
         let sql = query.to_sql();
-        let (sql_str, param_refs) = {
+        let (sql_str, params) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.all");
             let (sql_str, params) = sql.build();
             drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-
-            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-                .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            (sql_str, param_refs)
+            (sql_str, params)
         };
 
-        let rows = self.client.query(&sql_str, &param_refs[..]).await?;
+        let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
+            .iter()
+            .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
+
+        let rows = self
+            .client
+            .query(&sql_str, &param_refs[..])
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         Ok(Rows::new(rows))
     }
@@ -333,27 +342,31 @@ impl<Schema> Drizzle<Schema> {
         T: ToSQL<'a, PostgresValue<'a>>,
     {
         let sql = query.to_sql();
-        let (sql_str, param_refs) = {
+        let (sql_str, params) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.get");
             let (sql_str, params) = sql.build();
             drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-
-            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-                .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            (sql_str, param_refs)
+            (sql_str, params)
         };
 
-        let row = self.client.query_one(&sql_str, &param_refs[..]).await?;
+        let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
+            .iter()
+            .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
+
+        let row = self
+            .client
+            .query_one(&sql_str, &param_refs[..])
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         R::try_from(&row).map_err(Into::into)
     }
 
     /// Creates a relational query builder for the given table.
     #[cfg(feature = "query")]
-    pub fn query<T>(&self, _table: T) -> common::DrizzleQueryBuilder<'_, '_, &Self, Schema, T>
+    pub fn query<'a, T>(&self, _table: T) -> common::DrizzleQueryBuilder<'_, 'a, &Self, Schema, T>
     where
         T: drizzle_core::query::QueryTable,
     {
@@ -656,7 +669,8 @@ async fn pg_async_query_columns(
             identity_type: row.get(8),
             is_generated: row.get(9),
             generated_expression: row.get(10),
-            ordinal_position: row.get(11),
+            generated_stored: row.get(11),
+            ordinal_position: row.get(12),
         })
         .collect())
 }
@@ -925,16 +939,21 @@ impl<Schema> Drizzle<Schema> {
         use drizzle_migrations::postgres::{PostgresDDL, ddl::Schema as PgSchema};
 
         let schemas: Vec<PgSchema> = pg_async_query_schemas(&self.client).await?;
+        let accessible_schema_names = schemas
+            .iter()
+            .map(|schema| schema.name().to_string())
+            .collect::<Vec<_>>();
+        let effective_schema_filter = schema_filter.or(Some(accessible_schema_names.as_slice()));
         let raw_tables = pg_async_query_tables(&self.client).await?;
         let raw_columns = pg_async_query_columns(&self.client).await?;
         let raw_enums = pg_async_query_enums(&self.client).await?;
         let raw_sequences = pg_async_query_sequences(&self.client).await?;
-        let raw_views = pg_async_query_views(&self.client, schema_filter).await?;
-        let raw_indexes = pg_async_query_indexes(&self.client, schema_filter).await?;
+        let raw_views = pg_async_query_views(&self.client, effective_schema_filter).await?;
+        let raw_indexes = pg_async_query_indexes(&self.client, effective_schema_filter).await?;
         let raw_fks = pg_async_query_foreign_keys(&self.client).await?;
         let raw_primary_keys = pg_async_query_primary_keys(&self.client).await?;
         let raw_uniques = pg_async_query_uniques(&self.client).await?;
-        let raw_checks = pg_async_query_checks(&self.client, schema_filter).await?;
+        let raw_checks = pg_async_query_checks(&self.client, effective_schema_filter).await?;
         let raw_roles = pg_async_query_roles(&self.client).await?;
         let raw_policies = pg_async_query_policies(&self.client).await?;
 
@@ -1040,24 +1059,24 @@ where
 {
     /// Runs the query and returns the number of affected rows
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
-        let (sql_str, param_refs) = {
+        let (sql_str, params) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.execute");
             let (sql_str, params) = self.builder.sql.build();
             drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-
-            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-                .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            (sql_str, param_refs)
+            (sql_str, params)
         };
 
-        Ok(self
-            .runner
+        let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
+            .iter()
+            .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
+
+        self.runner
             .client
             .execute(&sql_str, &param_refs[..])
-            .await?)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
     /// Runs the query and returns all matching rows using the builder's row type.
@@ -1069,20 +1088,25 @@ where
             + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, R>,
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
-        let (sql_str, param_refs) = {
+        let (sql_str, params) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.all");
             let (sql_str, params) = self.builder.sql.build();
             drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-
-            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-                .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            (sql_str, param_refs)
+            (sql_str, params)
         };
 
-        let rows = self.runner.client.query(&sql_str, &param_refs[..]).await?;
+        let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
+            .iter()
+            .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
+
+        let rows = self
+            .runner
+            .client
+            .query(&sql_str, &param_refs[..])
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
             decoded.push(<Mk as drizzle_core::row::DecodeSelectedRef<
@@ -1099,20 +1123,25 @@ where
         Rw: for<'r> TryFrom<&'r Row>,
         for<'r> <Rw as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
-        let (sql_str, param_refs) = {
+        let (sql_str, params) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.rows");
             let (sql_str, params) = self.builder.sql.build();
             drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-
-            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-                .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            (sql_str, param_refs)
+            (sql_str, params)
         };
 
-        let rows = self.runner.client.query(&sql_str, &param_refs[..]).await?;
+        let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
+            .iter()
+            .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
+
+        let rows = self
+            .runner
+            .client
+            .query(&sql_str, &param_refs[..])
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         Ok(Rows::new(rows))
     }
@@ -1126,24 +1155,25 @@ where
             + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, R>,
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
-        let (sql_str, param_refs) = {
+        let (sql_str, params) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.get");
             let (sql_str, params) = self.builder.sql.build();
             drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-
-            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-                .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            (sql_str, param_refs)
+            (sql_str, params)
         };
+
+        let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
+            .iter()
+            .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
 
         let row = self
             .runner
             .client
             .query_one(&sql_str, &param_refs[..])
-            .await?;
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         <Mk as drizzle_core::row::DecodeSelectedRef<&::tokio_postgres::Row, R>>::decode(&row)
     }
 }
@@ -1188,7 +1218,7 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         for<'r> <<T as drizzle_core::query::QueryTable>::Select as TryFrom<&'r Row>>::Error:
             Into<drizzle_core::error::DrizzleError>,
         Rels: drizzle_core::query::BuildStore
-            + drizzle_core::query::RenderRelations<PostgresValue<'a>>,
+            + drizzle_core::query::RenderRelations<'a, PostgresValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         let num_base_cols = T::COLUMN_NAMES.len();
@@ -1196,18 +1226,18 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         let builder = self.builder;
         let mut rendered = Vec::new();
         builder.relations.render_into(&mut rendered);
-        let (sql, bind_params) = drizzle_core::query::build_query_sql(
+        let query_sql = drizzle_core::query::build_query_sql(
             T::TABLE_NAME,
             T::COLUMN_NAMES,
             T::BLOB_COLUMNS,
-            &rendered,
-            &builder.where_clause,
-            &builder.where_params,
-            &builder.order_by_clause,
+            rendered,
+            builder.where_sql,
+            builder.order_by_sql,
             builder.limit,
             builder.offset,
             false,
         );
+        let (sql, bind_params) = query_sql.build();
 
         drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
@@ -1216,7 +1246,12 @@ impl<'db, 'a, Schema, T, Rels, Cl>
             .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
 
-        let rows = self.runner.client.query(&sql, &param_refs[..]).await?;
+        let rows = self
+            .runner
+            .client
+            .query(&sql, &param_refs[..])
+            .await
+            .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::with_capacity(rows.len());
 
         for row in &rows {
@@ -1270,7 +1305,7 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
         for<'r> <<T as drizzle_core::query::QueryTable>::Select as TryFrom<&'r Row>>::Error:
             Into<drizzle_core::error::DrizzleError>,
         Rels: drizzle_core::query::BuildStore
-            + drizzle_core::query::RenderRelations<PostgresValue<'a>>,
+            + drizzle_core::query::RenderRelations<'a, PostgresValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         Ok(self.limit(1).find_many().await?.into_iter().next())
@@ -1308,7 +1343,7 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         T: drizzle_core::query::QueryTable,
         <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
         Rels: drizzle_core::query::BuildStore
-            + drizzle_core::query::RenderRelations<PostgresValue<'a>>,
+            + drizzle_core::query::RenderRelations<'a, PostgresValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         let builder = self.builder;
@@ -1316,18 +1351,18 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         let mut rendered = Vec::new();
         builder.relations.render_into(&mut rendered);
         let col_refs: Vec<&str> = column_names.clone();
-        let (sql, bind_params) = drizzle_core::query::build_query_sql(
+        let query_sql = drizzle_core::query::build_query_sql(
             T::TABLE_NAME,
             &col_refs,
             T::BLOB_COLUMNS,
-            &rendered,
-            &builder.where_clause,
-            &builder.where_params,
-            &builder.order_by_clause,
+            rendered,
+            builder.where_sql,
+            builder.order_by_sql,
             builder.limit,
             builder.offset,
             true,
         );
+        let (sql, bind_params) = query_sql.build();
 
         drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
@@ -1336,7 +1371,12 @@ impl<'db, 'a, Schema, T, Rels, Cl>
             .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
             .collect();
 
-        let rows = self.runner.client.query(&sql, &param_refs[..]).await?;
+        let rows = self
+            .runner
+            .client
+            .query(&sql, &param_refs[..])
+            .await
+            .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::with_capacity(rows.len());
 
         for row in &rows {
@@ -1391,9 +1431,200 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
         T: drizzle_core::query::QueryTable,
         <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
         Rels: drizzle_core::query::BuildStore
-            + drizzle_core::query::RenderRelations<PostgresValue<'a>>,
+            + drizzle_core::query::RenderRelations<'a, PostgresValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         Ok(self.limit(1).find_many().await?.into_iter().next())
+    }
+}
+
+#[cfg(feature = "query")]
+impl<'a, T, Rels>
+    common::DrizzlePreparedQuery<'a, Client, T, Rels, drizzle_core::query::AllColumns>
+{
+    /// Executes the prepared relational query and returns all matching rows.
+    pub async fn find_many<const N: usize>(
+        &self,
+        client: &Client,
+        params: [drizzle_core::param::ParamBind<'a, PostgresValue<'a>>; N],
+    ) -> drizzle_core::error::Result<
+        Vec<
+            drizzle_core::query::QueryRow<
+                <T as drizzle_core::query::QueryTable>::Select,
+                <Rels as drizzle_core::query::BuildStore>::Store,
+            >,
+        >,
+    >
+    where
+        T: drizzle_core::query::QueryTable,
+        <T as drizzle_core::query::QueryTable>::Select: for<'r> TryFrom<&'r Row>,
+        for<'r> <<T as drizzle_core::query::QueryTable>::Select as TryFrom<&'r Row>>::Error:
+            Into<drizzle_core::error::DrizzleError>,
+        Rels: drizzle_core::query::BuildStore,
+        <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
+    {
+        debug_assert_eq!(
+            N,
+            self.inner.external_param_count(),
+            "parameter count mismatch: expected {} params but got {}",
+            self.inner.external_param_count(),
+            N
+        );
+
+        let num_base_cols = T::COLUMN_NAMES.len();
+        let (sql_str, bound_params) = self.inner.bind(params)?;
+        let (lower, upper) = bound_params.size_hint();
+        let mut params_vec: SmallVec<[PostgresValue<'a>; 8]> =
+            SmallVec::with_capacity(upper.unwrap_or(lower));
+        params_vec.extend(bound_params);
+        let mut param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> =
+            SmallVec::with_capacity(params_vec.len());
+        for param in &params_vec {
+            param_refs.push(param as &(dyn tokio_postgres::types::ToSql + Sync));
+        }
+        let param_types =
+            crate::builder::postgres::prepared_common::tokio_postgres_param_types(&params_vec);
+
+        let statement = client.prepare_typed(sql_str, &param_types).await?;
+        let rows = client.query(&statement, &param_refs).await?;
+        let mut results = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            let base = <T as drizzle_core::query::QueryTable>::Select::try_from(&row)
+                .map_err(Into::into)?;
+
+            let mut rel_col = num_base_cols;
+            let mut next_rel = || {
+                let json: Option<String> = row.get(rel_col);
+                rel_col += 1;
+                Ok(json)
+            };
+            let store =
+                <Rels as drizzle_core::query::BuildStore>::Store::from_json_columns(&mut next_rel)?;
+
+            results.push(drizzle_core::query::QueryRow::new(base, store));
+        }
+
+        Ok(results)
+    }
+
+    /// Executes the prepared relational query and returns the first row, if any.
+    ///
+    /// To apply `LIMIT 1` in SQL, call `.limit(1)` before `.prepare()`.
+    pub async fn find_first<const N: usize>(
+        &self,
+        client: &Client,
+        params: [drizzle_core::param::ParamBind<'a, PostgresValue<'a>>; N],
+    ) -> drizzle_core::error::Result<
+        Option<
+            drizzle_core::query::QueryRow<
+                <T as drizzle_core::query::QueryTable>::Select,
+                <Rels as drizzle_core::query::BuildStore>::Store,
+            >,
+        >,
+    >
+    where
+        T: drizzle_core::query::QueryTable,
+        <T as drizzle_core::query::QueryTable>::Select: for<'r> TryFrom<&'r Row>,
+        for<'r> <<T as drizzle_core::query::QueryTable>::Select as TryFrom<&'r Row>>::Error:
+            Into<drizzle_core::error::DrizzleError>,
+        Rels: drizzle_core::query::BuildStore,
+        <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
+    {
+        Ok(self.find_many(client, params).await?.into_iter().next())
+    }
+}
+
+#[cfg(feature = "query")]
+impl<'a, T, Rels>
+    common::DrizzlePreparedQuery<'a, Client, T, Rels, drizzle_core::query::PartialColumns>
+{
+    /// Executes the prepared relational query and returns all matching rows.
+    pub async fn find_many<const N: usize>(
+        &self,
+        client: &Client,
+        params: [drizzle_core::param::ParamBind<'a, PostgresValue<'a>>; N],
+    ) -> drizzle_core::error::Result<
+        Vec<
+            drizzle_core::query::QueryRow<
+                <T as drizzle_core::query::QueryTable>::PartialSelect,
+                <Rels as drizzle_core::query::BuildStore>::Store,
+            >,
+        >,
+    >
+    where
+        T: drizzle_core::query::QueryTable,
+        <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
+        Rels: drizzle_core::query::BuildStore,
+        <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
+    {
+        debug_assert_eq!(
+            N,
+            self.inner.external_param_count(),
+            "parameter count mismatch: expected {} params but got {}",
+            self.inner.external_param_count(),
+            N
+        );
+
+        let (sql_str, bound_params) = self.inner.bind(params)?;
+        let (lower, upper) = bound_params.size_hint();
+        let mut params_vec: SmallVec<[PostgresValue<'a>; 8]> =
+            SmallVec::with_capacity(upper.unwrap_or(lower));
+        params_vec.extend(bound_params);
+        let mut param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> =
+            SmallVec::with_capacity(params_vec.len());
+        for param in &params_vec {
+            param_refs.push(param as &(dyn tokio_postgres::types::ToSql + Sync));
+        }
+        let param_types =
+            crate::builder::postgres::prepared_common::tokio_postgres_param_types(&params_vec);
+
+        let statement = client.prepare_typed(sql_str, &param_types).await?;
+        let rows = client.query(&statement, &param_refs).await?;
+        let mut results = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            let base_json: String = row.get(0);
+            let base = <T as drizzle_core::query::QueryTable>::PartialSelect::from_json_str(
+                &base_json, "base",
+            )?;
+
+            let mut rel_col = 1usize;
+            let mut next_rel = || {
+                let json: Option<String> = row.get(rel_col);
+                rel_col += 1;
+                Ok(json)
+            };
+            let store =
+                <Rels as drizzle_core::query::BuildStore>::Store::from_json_columns(&mut next_rel)?;
+
+            results.push(drizzle_core::query::QueryRow::new(base, store));
+        }
+
+        Ok(results)
+    }
+
+    /// Executes the prepared relational query and returns the first row, if any.
+    ///
+    /// To apply `LIMIT 1` in SQL, call `.limit(1)` before `.prepare()`.
+    pub async fn find_first<const N: usize>(
+        &self,
+        client: &Client,
+        params: [drizzle_core::param::ParamBind<'a, PostgresValue<'a>>; N],
+    ) -> drizzle_core::error::Result<
+        Option<
+            drizzle_core::query::QueryRow<
+                <T as drizzle_core::query::QueryTable>::PartialSelect,
+                <Rels as drizzle_core::query::BuildStore>::Store,
+            >,
+        >,
+    >
+    where
+        T: drizzle_core::query::QueryTable,
+        <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
+        Rels: drizzle_core::query::BuildStore,
+        <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
+    {
+        Ok(self.find_many(client, params).await?.into_iter().next())
     }
 }

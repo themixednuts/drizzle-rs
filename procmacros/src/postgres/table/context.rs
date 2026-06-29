@@ -36,9 +36,14 @@ pub struct MacroContext<'a> {
 impl MacroContext<'_> {
     /// Determines if a field should be optional in the Insert model.
     /// A field is optional when it is nullable, has a database or runtime default,
-    /// or is auto-generated (serial/bigserial).
+    /// or is auto-generated (serial/bigserial, identity, generated column).
     pub(crate) const fn is_field_optional_in_insert(field: &FieldInfo) -> bool {
-        field.is_nullable || field.has_default || field.default_fn.is_some() || field.is_serial
+        field.is_nullable
+            || field.has_default
+            || field.default_fn.is_some()
+            || field.is_serial
+            || field.is_generated_identity
+            || field.generated_column.is_some()
     }
 
     /// Gets the appropriate field type for a specific model.

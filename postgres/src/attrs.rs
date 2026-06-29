@@ -171,7 +171,7 @@ pub const IDENTITY: ColumnMarker = ColumnMarker;
 ///
 /// ## Syntax
 /// - `generated(stored, "expression")` - Computed on write, stored on disk
-/// - `generated(virtual, "expression")` - Computed on read, not stored (`PostgreSQL` 17+)
+/// - `generated(virtual, "expression")` - Computed on read, not stored (`PostgreSQL` 18+)
 ///
 /// ## Example
 /// ```rust
@@ -187,7 +187,7 @@ pub const IDENTITY: ColumnMarker = ColumnMarker;
 /// ## Technical Details
 /// Generated columns cannot be written to directly.
 /// STORED columns are computed and stored on write.
-/// VIRTUAL columns are computed on read (`PostgreSQL` 17+).
+/// VIRTUAL columns are computed on read (`PostgreSQL` 18+).
 ///
 /// See: <https://www.postgresql.org/docs/current/ddl-generated-columns.html>
 pub const GENERATED: ColumnMarker = ColumnMarker;

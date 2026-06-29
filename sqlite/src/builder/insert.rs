@@ -220,6 +220,25 @@ where
             grouped: PhantomData,
         }
     }
+
+    /// Inserts rows produced by a SELECT query without an explicit column list.
+    ///
+    /// The SELECT output must provide every table column in declaration order.
+    #[inline]
+    pub fn select<Q>(self, query: Q) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+    where
+        Q: ToSQL<'a, SQLiteValue<'a>>,
+    {
+        InsertBuilder {
+            sql: append_sql(self.sql, query.to_sql()),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
+            grouped: PhantomData,
+        }
+    }
 }
 
 //------------------------------------------------------------------------------

@@ -219,7 +219,13 @@ pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQL<'a, PostgresValue<'a>>
 where
     I: ToSQL<'a, PostgresValue<'a>>,
 {
-    SQL::from(Token::RETURNING).append(columns.to_sql())
+    let columns = columns.to_sql();
+    let columns = if columns.chunks.is_empty() {
+        SQL::from(Token::STAR)
+    } else {
+        columns
+    };
+    SQL::from(Token::RETURNING).append(columns)
 }
 
 //------------------------------------------------------------------------------

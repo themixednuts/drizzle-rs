@@ -77,7 +77,7 @@ impl Column {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Generated {
     #[serde(rename = "type")]
-    pub gen_type: String, // "stored"
+    pub gen_type: String, // "stored" or "virtual"
     #[serde(rename = "as")]
     pub expression: String,
 }

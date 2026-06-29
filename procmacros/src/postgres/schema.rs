@@ -207,6 +207,7 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                                     is_generated_identity,
                                     is_identity_always,
                                     generated_expression,
+                                    generated_stored,
                                     collate,
                                 ) = match col.dialect {
                                     drizzle::core::ColumnDialect::PostgreSQL {
@@ -214,6 +215,7 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                                         is_generated_identity,
                                         is_identity_always,
                                         generated_expression,
+                                        generated_stored,
                                         collate,
                                         ..
                                     } => (
@@ -221,9 +223,10 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                                         is_generated_identity,
                                         is_identity_always,
                                         generated_expression,
+                                        generated_stored,
                                         collate,
                                     ),
-                                    _ => (col.sql_type, false, false, ::core::option::Option::None, ::core::option::Option::None),
+                                    _ => (col.sql_type, false, false, ::core::option::Option::None, false, ::core::option::Option::None),
                                 };
 
                                 let mut column = MigColumn::new(
@@ -254,7 +257,11 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                                 if let ::core::option::Option::Some(expression) = generated_expression {
                                     column.generated = ::core::option::Option::Some(#mig_pg_generated {
                                         expression: ::std::borrow::Cow::Borrowed(expression),
-                                        gen_type: #mig_pg_generated_type::Stored,
+                                        gen_type: if generated_stored {
+                                            #mig_pg_generated_type::Stored
+                                        } else {
+                                            #mig_pg_generated_type::Virtual
+                                        },
                                     });
                                 }
 

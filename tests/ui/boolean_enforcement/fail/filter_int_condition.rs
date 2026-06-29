@@ -1,4 +1,4 @@
-use drizzle::core::expr::count_all;
+use drizzle::core::expr::count;
 use drizzle::postgres::prelude::*;
 
 #[PostgresTable]
@@ -11,5 +11,5 @@ struct User {
 fn main() {
     let user = User::default();
     // Int4 is not BooleanLike — FILTER should reject integer conditions
-    let _ = count_all::<PostgresValue>().filter(user.age);
+    let _ = count::<PostgresValue, _>(()).filter(user.age);
 }

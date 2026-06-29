@@ -71,6 +71,13 @@ impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind> SQLExpr<'a,
         }
     }
 
+    /// Mark this expression as nullable while preserving its SQL type and aggregate kind.
+    #[inline]
+    #[must_use]
+    pub fn nullable(self) -> SQLExpr<'a, V, T, Null, A> {
+        self.with_nullability::<Null>()
+    }
+
     /// Change the aggregation marker (internal use only).
     #[inline]
     #[allow(dead_code)]

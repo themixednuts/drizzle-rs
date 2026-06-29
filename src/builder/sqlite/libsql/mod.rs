@@ -84,7 +84,7 @@
 
 mod prepared;
 
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
 use drizzle_core::prepared::prepare_render;
 use drizzle_core::traits::ToSQL;
 use libsql::{Connection, Row};
@@ -116,12 +116,17 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     {
         let query = query.to_sql();
         let (sql, params) = query.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
+        let driver_params: Vec<libsql::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
 
         self.conn
-            .execute(&sql, params)
+            .execute(&sql, driver_params)
             .await
             .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))
+            .with_query(|| QueryContext::new(&sql, &params))
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
@@ -144,13 +149,18 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
+        let driver_params: Vec<libsql::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
 
         let rows = self
             .conn
-            .query(&sql_str, params)
+            .query(&sql_str, driver_params)
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         Ok(Rows::new(rows))
     }
@@ -164,17 +174,23 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
+        let driver_params: Vec<libsql::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
 
         let mut rows = self
             .conn
-            .query(&sql_str, params)
+            .query(&sql_str, driver_params)
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         rows.next()
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))
+            .with_query(|| QueryContext::new(&sql_str, &params))?
             .map_or_else(
                 || Err(DrizzleError::NotFound),
                 |row| R::try_from(&row).map_err(Into::into),
@@ -710,8 +726,8 @@ impl<'a, Schema, T, Rels, Cl>
         <T as drizzle_core::query::QueryTable>::Select: for<'r> TryFrom<&'r ::libsql::Row>,
         for<'r> <<T as drizzle_core::query::QueryTable>::Select as TryFrom<&'r ::libsql::Row>>::Error:
             Into<drizzle_core::error::DrizzleError>,
-        Rels:
-            drizzle_core::query::BuildStore + drizzle_core::query::RenderRelations<SQLiteValue<'a>>,
+        Rels: drizzle_core::query::BuildStore
+            + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         let num_base_cols = T::COLUMN_NAMES.len();
@@ -719,21 +735,22 @@ impl<'a, Schema, T, Rels, Cl>
         let builder = self.builder;
         let mut rendered = Vec::new();
         builder.relations.render_into(&mut rendered);
-        let (sql, bind_params) = drizzle_core::query::build_query_sql(
+        let query_sql = drizzle_core::query::build_query_sql(
             T::TABLE_NAME,
             T::COLUMN_NAMES,
             T::BLOB_COLUMNS,
-            &rendered,
-            &builder.where_clause,
-            &builder.where_params,
-            &builder.order_by_clause,
+            rendered,
+            builder.where_sql,
+            builder.order_by_sql,
             builder.limit,
             builder.offset,
             false,
         );
+        let (sql, bind_params) = query_sql.build();
 
         let params: Vec<libsql::Value> = bind_params
-            .into_iter()
+            .iter()
+            .copied()
             .map(std::convert::Into::into)
             .collect();
         let mut raw_rows = self
@@ -741,13 +758,15 @@ impl<'a, Schema, T, Rels, Cl>
             .conn
             .query(&sql, params)
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))
+            .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::new();
 
         while let Some(row) = raw_rows
             .next()
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?
+            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))
+            .with_query(|| QueryContext::new(&sql, &bind_params))?
         {
             let base = <T as drizzle_core::query::QueryTable>::Select::try_from(&row)
                 .map_err(Into::into)?;
@@ -803,8 +822,8 @@ impl<'a, Schema, T, Rels, W, Ord>
         <T as drizzle_core::query::QueryTable>::Select: for<'r> TryFrom<&'r ::libsql::Row>,
         for<'r> <<T as drizzle_core::query::QueryTable>::Select as TryFrom<&'r ::libsql::Row>>::Error:
             Into<drizzle_core::error::DrizzleError>,
-        Rels:
-            drizzle_core::query::BuildStore + drizzle_core::query::RenderRelations<SQLiteValue<'a>>,
+        Rels: drizzle_core::query::BuildStore
+            + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         Ok(self.limit(1).find_many().await?.into_iter().next())
@@ -841,8 +860,8 @@ impl<'a, Schema, T, Rels, Cl>
     where
         T: drizzle_core::query::QueryTable,
         <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
-        Rels:
-            drizzle_core::query::BuildStore + drizzle_core::query::RenderRelations<SQLiteValue<'a>>,
+        Rels: drizzle_core::query::BuildStore
+            + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         let builder = self.builder;
@@ -850,21 +869,22 @@ impl<'a, Schema, T, Rels, Cl>
         let mut rendered = Vec::new();
         builder.relations.render_into(&mut rendered);
         let col_refs: Vec<&str> = column_names.clone();
-        let (sql, bind_params) = drizzle_core::query::build_query_sql(
+        let query_sql = drizzle_core::query::build_query_sql(
             T::TABLE_NAME,
             &col_refs,
             T::BLOB_COLUMNS,
-            &rendered,
-            &builder.where_clause,
-            &builder.where_params,
-            &builder.order_by_clause,
+            rendered,
+            builder.where_sql,
+            builder.order_by_sql,
             builder.limit,
             builder.offset,
             true,
         );
+        let (sql, bind_params) = query_sql.build();
 
         let params: Vec<libsql::Value> = bind_params
-            .into_iter()
+            .iter()
+            .copied()
             .map(std::convert::Into::into)
             .collect();
         let mut raw_rows = self
@@ -872,13 +892,15 @@ impl<'a, Schema, T, Rels, Cl>
             .conn
             .query(&sql, params)
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))
+            .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::new();
 
         while let Some(row) = raw_rows
             .next()
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?
+            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))
+            .with_query(|| QueryContext::new(&sql, &bind_params))?
         {
             // Column 0 is the JSON "__base" object
             let base_json: String = row
@@ -937,11 +959,192 @@ impl<'a, Schema, T, Rels, W, Ord>
     where
         T: drizzle_core::query::QueryTable,
         <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
-        Rels:
-            drizzle_core::query::BuildStore + drizzle_core::query::RenderRelations<SQLiteValue<'a>>,
+        Rels: drizzle_core::query::BuildStore
+            + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         Ok(self.limit(1).find_many().await?.into_iter().next())
+    }
+}
+
+#[cfg(feature = "query")]
+impl<'a, T, Rels>
+    common::DrizzlePreparedQuery<'a, Connection, T, Rels, drizzle_core::query::AllColumns>
+{
+    /// Executes the prepared relational query and returns all matching rows.
+    pub async fn find_many<const N: usize>(
+        &self,
+        conn: &impl prepared::LibsqlExecutor,
+        params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
+    ) -> drizzle_core::error::Result<
+        Vec<
+            drizzle_core::query::QueryRow<
+                <T as drizzle_core::query::QueryTable>::Select,
+                <Rels as drizzle_core::query::BuildStore>::Store,
+            >,
+        >,
+    >
+    where
+        T: drizzle_core::query::QueryTable,
+        <T as drizzle_core::query::QueryTable>::Select: for<'r> TryFrom<&'r ::libsql::Row>,
+        for<'r> <<T as drizzle_core::query::QueryTable>::Select as TryFrom<&'r ::libsql::Row>>::Error:
+            Into<drizzle_core::error::DrizzleError>,
+        Rels: drizzle_core::query::BuildStore,
+        <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
+    {
+        debug_assert_eq!(
+            N,
+            self.inner.external_param_count(),
+            "parameter count mismatch: expected {} params but got {}",
+            self.inner.external_param_count(),
+            N
+        );
+
+        let num_base_cols = T::COLUMN_NAMES.len();
+        let (sql_str, params) = self.inner.bind(params)?;
+        let mut driver_params = Vec::with_capacity(self.inner.params.len());
+        driver_params.extend(params.map(Into::into));
+        let mut raw_rows = conn.fetch(sql_str, driver_params).await?;
+        let mut results = Vec::new();
+
+        while let Some(row) = raw_rows.next().await? {
+            let base = <T as drizzle_core::query::QueryTable>::Select::try_from(&row)
+                .map_err(Into::into)?;
+
+            let mut rel_col = num_base_cols;
+            let mut next_rel = || {
+                let idx = i32::try_from(rel_col).map_err(|_| {
+                    drizzle_core::error::DrizzleError::Other("column index overflow".into())
+                })?;
+                let json = row
+                    .get::<Option<String>>(idx)
+                    .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+                rel_col += 1;
+                Ok(json)
+            };
+            let store =
+                <Rels as drizzle_core::query::BuildStore>::Store::from_json_columns(&mut next_rel)?;
+
+            results.push(drizzle_core::query::QueryRow::new(base, store));
+        }
+
+        Ok(results)
+    }
+
+    /// Executes the prepared relational query and returns the first row, if any.
+    ///
+    /// To apply `LIMIT 1` in SQL, call `.limit(1)` before `.prepare()`.
+    pub async fn find_first<const N: usize>(
+        &self,
+        conn: &impl prepared::LibsqlExecutor,
+        params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
+    ) -> drizzle_core::error::Result<
+        Option<
+            drizzle_core::query::QueryRow<
+                <T as drizzle_core::query::QueryTable>::Select,
+                <Rels as drizzle_core::query::BuildStore>::Store,
+            >,
+        >,
+    >
+    where
+        T: drizzle_core::query::QueryTable,
+        <T as drizzle_core::query::QueryTable>::Select: for<'r> TryFrom<&'r ::libsql::Row>,
+        for<'r> <<T as drizzle_core::query::QueryTable>::Select as TryFrom<&'r ::libsql::Row>>::Error:
+            Into<drizzle_core::error::DrizzleError>,
+        Rels: drizzle_core::query::BuildStore,
+        <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
+    {
+        Ok(self.find_many(conn, params).await?.into_iter().next())
+    }
+}
+
+#[cfg(feature = "query")]
+impl<'a, T, Rels>
+    common::DrizzlePreparedQuery<'a, Connection, T, Rels, drizzle_core::query::PartialColumns>
+{
+    /// Executes the prepared relational query and returns all matching rows.
+    pub async fn find_many<const N: usize>(
+        &self,
+        conn: &impl prepared::LibsqlExecutor,
+        params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
+    ) -> drizzle_core::error::Result<
+        Vec<
+            drizzle_core::query::QueryRow<
+                <T as drizzle_core::query::QueryTable>::PartialSelect,
+                <Rels as drizzle_core::query::BuildStore>::Store,
+            >,
+        >,
+    >
+    where
+        T: drizzle_core::query::QueryTable,
+        <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
+        Rels: drizzle_core::query::BuildStore,
+        <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
+    {
+        debug_assert_eq!(
+            N,
+            self.inner.external_param_count(),
+            "parameter count mismatch: expected {} params but got {}",
+            self.inner.external_param_count(),
+            N
+        );
+
+        let (sql_str, params) = self.inner.bind(params)?;
+        let mut driver_params = Vec::with_capacity(self.inner.params.len());
+        driver_params.extend(params.map(Into::into));
+        let mut raw_rows = conn.fetch(sql_str, driver_params).await?;
+        let mut results = Vec::new();
+
+        while let Some(row) = raw_rows.next().await? {
+            let base_json: String = row
+                .get::<String>(0)
+                .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+            let base = <T as drizzle_core::query::QueryTable>::PartialSelect::from_json_str(
+                &base_json, "base",
+            )?;
+
+            let mut rel_col = 1usize;
+            let mut next_rel = || {
+                let idx = i32::try_from(rel_col).map_err(|_| {
+                    drizzle_core::error::DrizzleError::Other("column index overflow".into())
+                })?;
+                let json = row
+                    .get::<Option<String>>(idx)
+                    .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+                rel_col += 1;
+                Ok(json)
+            };
+            let store =
+                <Rels as drizzle_core::query::BuildStore>::Store::from_json_columns(&mut next_rel)?;
+
+            results.push(drizzle_core::query::QueryRow::new(base, store));
+        }
+
+        Ok(results)
+    }
+
+    /// Executes the prepared relational query and returns the first row, if any.
+    ///
+    /// To apply `LIMIT 1` in SQL, call `.limit(1)` before `.prepare()`.
+    pub async fn find_first<const N: usize>(
+        &self,
+        conn: &impl prepared::LibsqlExecutor,
+        params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
+    ) -> drizzle_core::error::Result<
+        Option<
+            drizzle_core::query::QueryRow<
+                <T as drizzle_core::query::QueryTable>::PartialSelect,
+                <Rels as drizzle_core::query::BuildStore>::Store,
+            >,
+        >,
+    >
+    where
+        T: drizzle_core::query::QueryTable,
+        <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
+        Rels: drizzle_core::query::BuildStore,
+        <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
+    {
+        Ok(self.find_many(conn, params).await?.into_iter().next())
     }
 }
 
@@ -954,8 +1157,16 @@ where
     /// Runs the query and returns the number of affected rows
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         let (sql_str, params) = self.builder.sql.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
-        Ok(self.runner.conn.execute(&sql_str, params).await?)
+        let driver_params: Vec<libsql::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
+        self.runner
+            .conn
+            .execute(&sql_str, driver_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
     /// Runs the query and returns all matching rows using the builder's row type.
@@ -968,10 +1179,23 @@ where
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = self.builder.sql.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
-        let mut rows = self.runner.conn.query(&sql_str, params).await?;
+        let driver_params: Vec<libsql::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
+        let mut rows = self
+            .runner
+            .conn
+            .query(&sql_str, driver_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let mut decoded = Vec::new();
-        while let Some(row) = rows.next().await? {
+        while let Some(row) = rows
+            .next()
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?
+        {
             decoded.push(<Mk as drizzle_core::row::DecodeSelectedRef<
                 &::libsql::Row,
                 R,
@@ -987,9 +1211,18 @@ where
         for<'r> <Rw as TryFrom<&'r libsql::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
         let (sql_str, params) = self.builder.sql.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
+        let driver_params: Vec<libsql::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
 
-        let rows = self.runner.conn.query(&sql_str, params).await?;
+        let rows = self
+            .runner
+            .conn
+            .query(&sql_str, driver_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(Rows::new(rows))
     }
 
@@ -1003,11 +1236,23 @@ where
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = self.builder.sql.build();
-        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
-        let mut rows = self.runner.conn.query(&sql_str, params).await?;
-        rows.next().await?.map_or_else(
-            || Err(drizzle_core::error::DrizzleError::NotFound),
-            |row| <Mk as drizzle_core::row::DecodeSelectedRef<&::libsql::Row, R>>::decode(&row),
-        )
+        let driver_params: Vec<libsql::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
+        let mut rows = self
+            .runner
+            .conn
+            .query(&sql_str, driver_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
+        rows.next()
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?
+            .map_or_else(
+                || Err(drizzle_core::error::DrizzleError::NotFound),
+                |row| <Mk as drizzle_core::row::DecodeSelectedRef<&::libsql::Row, R>>::decode(&row),
+            )
     }
 }

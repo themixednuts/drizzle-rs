@@ -1,4 +1,4 @@
-use drizzle::core::expr::{alias, count_all};
+use drizzle::core::expr::{alias, count};
 use drizzle::sqlite::prelude::*;
 use drizzle::sqlite::rusqlite::Drizzle;
 
@@ -26,7 +26,7 @@ fn main() {
 
     // Scalar column `name` not in GROUP BY (only `id` is grouped) — should fail
     let _: drizzle::Result<Vec<MixedRow>> = db
-        .select((user.name, alias(count_all(), "total")))
+        .select((user.name, alias(count(()), "total")))
         .from(user)
         .group_by(user.id)
         .all();

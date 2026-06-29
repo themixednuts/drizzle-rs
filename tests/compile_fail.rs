@@ -174,6 +174,13 @@ fn query_api_sqlite_ui() {
 
 #[cfg(feature = "rusqlite")]
 #[test]
+fn pagination_sqlite_ui() {
+    must_pass("tests/ui/pagination_sqlite/pass/*.rs");
+    must_fail("tests/ui/pagination_sqlite/fail/*.rs");
+}
+
+#[cfg(feature = "rusqlite")]
+#[test]
 fn aggregate_mixing_sqlite_ui() {
     must_pass("tests/ui/aggregate_mixing_sqlite/pass/*.rs");
     must_fail("tests/ui/aggregate_mixing_sqlite/fail/*.rs");

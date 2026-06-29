@@ -63,6 +63,7 @@ pub mod traits;
 pub mod expr;
 pub mod helpers;
 pub mod join;
+pub mod pagination;
 pub mod param;
 pub mod placeholder;
 pub mod prepared;
@@ -91,6 +92,7 @@ pub use builder::{
 };
 pub use dialect::{Dialect, DialectTypes, PostgresDialect, SQLiteDialect};
 pub use join::{Join, JoinType};
+pub use pagination::PaginationArg;
 pub use param::{OwnedParam, Param, ParamBind, ParamSet};
 pub use placeholder::*;
 #[cfg(feature = "query")]

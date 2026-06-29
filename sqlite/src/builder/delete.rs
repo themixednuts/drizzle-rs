@@ -192,7 +192,25 @@ impl ExecutableState for DeleteReturningSet {}
 /// let query = builder.delete(log);
 /// assert_eq!(query.to_sql().sql(), r#"DELETE FROM "logs""#);
 /// ```
-pub type DeleteBuilder<'a, Schema, State, Table> = super::QueryBuilder<'a, Schema, State, Table>;
+pub type DeleteBuilder<'a, Schema, State, Table, Marker = (), Row = ()> =
+    super::QueryBuilder<'a, Schema, State, Table, Marker, Row>;
+
+type ReturningMarker<Table, Columns> = drizzle_core::Scoped<
+    <Columns as drizzle_core::IntoSelectTarget>::Marker,
+    drizzle_core::Cons<Table, drizzle_core::Nil>,
+>;
+
+type ReturningRow<Table, Columns> =
+    <<Columns as drizzle_core::IntoSelectTarget>::Marker as drizzle_core::ResolveRow<Table>>::Row;
+
+type ReturningBuilder<'a, S, T, Columns> = DeleteBuilder<
+    'a,
+    S,
+    DeleteReturningSet,
+    T,
+    ReturningMarker<T, Columns>,
+    ReturningRow<T, Columns>,
+>;
 
 //------------------------------------------------------------------------------
 // Initial State Implementation
@@ -270,10 +288,11 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
 
     /// Adds a RETURNING clause to the query
     #[inline]
-    pub fn returning(
-        self,
-        columns: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> DeleteBuilder<'a, S, DeleteReturningSet, T> {
+    pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    where
+        Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<T>,
+    {
         let returning_sql = crate::helpers::returning(columns);
         DeleteBuilder {
             sql: append_sql(self.sql, returning_sql),
@@ -294,10 +313,11 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
 impl<'a, S, T> DeleteBuilder<'a, S, DeleteWhereSet, T> {
     /// Adds a RETURNING clause after WHERE
     #[inline]
-    pub fn returning(
-        self,
-        columns: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> DeleteBuilder<'a, S, DeleteReturningSet, T> {
+    pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    where
+        Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<T>,
+    {
         let returning_sql = crate::helpers::returning(columns);
         DeleteBuilder {
             sql: append_sql(self.sql, returning_sql),

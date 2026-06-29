@@ -1,4 +1,4 @@
-use drizzle::core::expr::{alias, count_all, sum};
+use drizzle::core::expr::{alias, count, sum};
 use drizzle::sqlite::prelude::*;
 use drizzle::sqlite::rusqlite::Drizzle;
 
@@ -26,7 +26,7 @@ fn main() {
 
     // Pure aggregate select — no GROUP BY needed
     let _: drizzle::Result<Vec<AggRow>> = db
-        .select((alias(count_all(), "total"), alias(sum(user.id), "id_sum")))
+        .select((alias(count(()), "total"), alias(sum(user.id), "id_sum")))
         .from(user)
         .all();
 }

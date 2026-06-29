@@ -42,8 +42,48 @@ pub struct DrizzleQueryBuilder<
     Cl = drizzle_core::query::Clauses,
 > {
     pub(crate) runner: Runner,
-    pub(crate) builder: drizzle_core::query::QueryBuilder<PostgresValue<'a>, T, Rels, Cols, Cl>,
+    pub(crate) builder: drizzle_core::query::QueryBuilder<'a, PostgresValue<'a>, T, Rels, Cols, Cl>,
     pub(crate) _schema: PhantomData<(&'db (), Schema)>,
+}
+
+/// Prepared relational query.
+///
+/// Created by [`DrizzleQueryBuilder::prepare`]. The prepared query is detached
+/// from the connection; driver modules provide `find_many` and `find_first`
+/// methods that take an explicit client plus parameter bindings.
+#[cfg(feature = "query")]
+#[derive(Debug, Clone)]
+pub struct DrizzlePreparedQuery<'a, Driver, T, Rels, Cols> {
+    pub(crate) inner: drizzle_core::prepared::PreparedStatement<'a, PostgresValue<'a>>,
+    pub(crate) _marker: PhantomData<(Driver, T, Rels, Cols)>,
+}
+
+#[cfg(feature = "query")]
+impl<'a, Driver, T, Rels, Cols> DrizzlePreparedQuery<'a, Driver, T, Rels, Cols> {
+    /// Returns the prepared SQL string with dialect placeholders.
+    #[must_use]
+    pub fn sql(&self) -> &str {
+        self.inner.sql()
+    }
+
+    /// Returns the number of external parameter bindings expected.
+    #[must_use]
+    pub fn param_count(&self) -> usize {
+        self.inner.external_param_count()
+    }
+}
+
+#[cfg(feature = "query")]
+impl<Driver, T, Rels, Cols> core::fmt::Display for DrizzlePreparedQuery<'_, Driver, T, Rels, Cols> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.sql())
+    }
+}
+
+/// Maps a relational query runner to the detached prepared-query driver marker.
+#[cfg(feature = "query")]
+pub trait RelationalPreparedDriver {
+    type PreparedDriver;
 }
 
 #[cfg(feature = "query")]
@@ -54,7 +94,7 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, Cl>
     #[allow(clippy::type_complexity)]
     pub fn with<R, N, C, RCl>(
         self,
-        handle: drizzle_core::query::RelationHandle<PostgresValue<'a>, R, N, C, RCl>,
+        handle: drizzle_core::query::RelationHandle<'a, PostgresValue<'a>, R, N, C, RCl>,
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
@@ -62,7 +102,7 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, Cl>
         Schema,
         T,
         (
-            drizzle_core::query::RelationHandle<PostgresValue<'a>, R, N, C, RCl>,
+            drizzle_core::query::RelationHandle<'a, PostgresValue<'a>, R, N, C, RCl>,
             Rels,
         ),
         Cols,
@@ -75,6 +115,85 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, Cl>
             runner: self.runner,
             builder: self.builder.with(handle),
             _schema: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "query")]
+impl<'db, 'a, Runner, Schema, T, Rels, Cl>
+    DrizzleQueryBuilder<'db, 'a, Runner, Schema, T, Rels, drizzle_core::query::AllColumns, Cl>
+where
+    T: drizzle_core::query::QueryTable,
+    Rels: drizzle_core::query::RenderRelations<'a, PostgresValue<'a>>,
+    Runner: RelationalPreparedDriver,
+{
+    /// Creates a prepared relational query.
+    pub fn prepare(
+        self,
+    ) -> DrizzlePreparedQuery<
+        'a,
+        <Runner as RelationalPreparedDriver>::PreparedDriver,
+        T,
+        Rels,
+        drizzle_core::query::AllColumns,
+    > {
+        let builder = self.builder;
+        let mut rendered = Vec::new();
+        builder.relations.render_into(&mut rendered);
+        let query_sql = drizzle_core::query::build_query_sql(
+            T::TABLE_NAME,
+            T::COLUMN_NAMES,
+            T::BLOB_COLUMNS,
+            rendered,
+            builder.where_sql,
+            builder.order_by_sql,
+            builder.limit,
+            builder.offset,
+            false,
+        );
+        DrizzlePreparedQuery {
+            inner: drizzle_core::prepared::prepare_render(&query_sql),
+            _marker: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "query")]
+impl<'db, 'a, Runner, Schema, T, Rels, Cl>
+    DrizzleQueryBuilder<'db, 'a, Runner, Schema, T, Rels, drizzle_core::query::PartialColumns, Cl>
+where
+    T: drizzle_core::query::QueryTable,
+    Rels: drizzle_core::query::RenderRelations<'a, PostgresValue<'a>>,
+    Runner: RelationalPreparedDriver,
+{
+    /// Creates a prepared relational query.
+    pub fn prepare(
+        self,
+    ) -> DrizzlePreparedQuery<
+        'a,
+        <Runner as RelationalPreparedDriver>::PreparedDriver,
+        T,
+        Rels,
+        drizzle_core::query::PartialColumns,
+    > {
+        let builder = self.builder;
+        let mut rendered = Vec::new();
+        builder.relations.render_into(&mut rendered);
+        let col_refs: Vec<&str> = builder.cols.columns;
+        let query_sql = drizzle_core::query::build_query_sql(
+            T::TABLE_NAME,
+            &col_refs,
+            T::BLOB_COLUMNS,
+            rendered,
+            builder.where_sql,
+            builder.order_by_sql,
+            builder.limit,
+            builder.offset,
+            true,
+        );
+        DrizzlePreparedQuery {
+            inner: drizzle_core::prepared::prepare_render(&query_sql),
+            _marker: PhantomData,
         }
     }
 }
@@ -175,9 +294,9 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Ord>
     >
 {
     /// Sets a LIMIT on the query. Can only be called once.
-    pub fn limit(
+    pub fn limit<P>(
         self,
-        n: u32,
+        n: P,
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
@@ -187,7 +306,10 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Ord>
         Rels,
         Cols,
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::HasLimit>,
-    > {
+    >
+    where
+        P: drizzle_core::PaginationArg<'a, PostgresValue<'a>>,
+    {
         DrizzleQueryBuilder {
             runner: self.runner,
             builder: self.builder.limit(n),
@@ -211,9 +333,9 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Ord>
     >
 {
     /// Sets an OFFSET on the query. Requires `.limit()` first.
-    pub fn offset(
+    pub fn offset<P>(
         self,
-        n: u32,
+        n: P,
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
@@ -223,7 +345,10 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Ord>
         Rels,
         Cols,
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::HasOffset>,
-    > {
+    >
+    where
+        P: drizzle_core::PaginationArg<'a, PostgresValue<'a>>,
+    {
         DrizzleQueryBuilder {
             runner: self.runner,
             builder: self.builder.offset(n),
@@ -552,10 +677,12 @@ macro_rules! impl_select_methods {
     };
 
     (@method limit) => {
-        pub fn limit(
+        pub fn limit<P>(
             self,
-            limit: usize,
+            limit: P,
         ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T, M, R, G>, SelectLimitSet>
+        where
+            P: drizzle_core::PaginationArg<'a, PostgresValue<'a>>,
         {
             let builder = self.builder.limit(limit);
             DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
@@ -563,10 +690,12 @@ macro_rules! impl_select_methods {
     };
 
     (@method offset) => {
-        pub fn offset(
+        pub fn offset<P>(
             self,
-            offset: usize,
+            offset: P,
         ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R, G>, SelectOffsetSet>
+        where
+            P: drizzle_core::PaginationArg<'a, PostgresValue<'a>>,
         {
             let builder = self.builder.offset(offset);
             DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
@@ -847,6 +976,29 @@ impl<'a, 'b, Runner, Schema, Table>
         Table::Insert<T>: SQLModel<'b, PostgresValue<'b>>,
     {
         let builder = self.builder.values(values);
+        DrizzleBuilder {
+            runner: self.runner,
+            builder,
+            state: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn select<Q>(
+        self,
+        query: Q,
+    ) -> DrizzleBuilder<
+        'a,
+        Runner,
+        Schema,
+        InsertBuilder<'b, Schema, InsertValuesSet, Table>,
+        InsertValuesSet,
+    >
+    where
+        Table: PostgresTable<'b>,
+        Q: ToSQL<'b, PostgresValue<'b>>,
+    {
+        let builder = self.builder.select(query);
         DrizzleBuilder {
             runner: self.runner,
             builder,

@@ -424,6 +424,7 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
         use super::ddl::GeneratedType;
         let gen_type = match generated.gen_type {
             GeneratedType::Stored => "stored",
+            GeneratedType::Virtual => "virtual",
         };
         // Escape quotes in expression
         let expr = generated.expression.replace('"', "\\\"");

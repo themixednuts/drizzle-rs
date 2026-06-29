@@ -65,6 +65,7 @@ pub struct RawColumnInfo {
     pub identity_type: Option<String>,
     pub is_generated: bool,
     pub generated_expression: Option<String>,
+    pub generated_stored: bool,
     pub ordinal_position: i32,
 }
 
@@ -372,7 +373,11 @@ pub fn process_columns(raw_columns: &[RawColumnInfo]) -> Vec<Column> {
                     .as_ref()
                     .map(|expr| super::ddl::Generated {
                         expression: expr.clone().into(),
-                        gen_type: GeneratedType::Stored,
+                        gen_type: if c.generated_stored {
+                            GeneratedType::Stored
+                        } else {
+                            GeneratedType::Virtual
+                        },
                     })
             } else {
                 None
@@ -641,6 +646,7 @@ pub mod queries {
         FROM pg_namespace
         WHERE nspname NOT LIKE 'pg_%'
           AND nspname != 'information_schema'
+          AND has_schema_privilege(current_user, nspname, 'USAGE')
         ORDER BY nspname
     ";
 
@@ -653,6 +659,8 @@ pub mod queries {
         FROM pg_tables
         WHERE schemaname NOT LIKE 'pg_%'
           AND schemaname != 'information_schema'
+          AND has_schema_privilege(current_user, schemaname, 'USAGE')
+          AND has_table_privilege(current_user, format('%I.%I', schemaname, tablename), 'SELECT')
         ORDER BY schemaname, tablename
     ";
 
@@ -670,10 +678,22 @@ pub mod queries {
             c.identity_generation AS identity_type,
             c.is_generated = 'ALWAYS' AS is_generated,
             c.generation_expression AS generated_expression,
+            COALESCE(a.attgenerated = 's', false) AS generated_stored,
             c.ordinal_position
         FROM information_schema.columns c
+        LEFT JOIN pg_namespace n
+          ON n.nspname = c.table_schema
+        LEFT JOIN pg_class cls
+          ON cls.relnamespace = n.oid
+         AND cls.relname = c.table_name
+        LEFT JOIN pg_attribute a
+          ON a.attrelid = cls.oid
+         AND a.attname = c.column_name
+         AND a.attnum > 0
+         AND NOT a.attisdropped
         WHERE c.table_schema NOT LIKE 'pg_%'
           AND c.table_schema != 'information_schema'
+          AND has_schema_privilege(current_user, c.table_schema, 'USAGE')
         ORDER BY c.table_schema, c.table_name, c.ordinal_position
     ";
 
@@ -688,6 +708,7 @@ pub mod queries {
         JOIN pg_namespace n ON n.oid = t.typnamespace
         WHERE n.nspname NOT LIKE 'pg_%'
           AND n.nspname != 'information_schema'
+          AND has_schema_privilege(current_user, n.oid, 'USAGE')
         GROUP BY n.nspname, t.typname
         ORDER BY n.nspname, t.typname
     ";
@@ -718,6 +739,11 @@ pub mod queries {
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname NOT LIKE 'pg_%'
           AND n.nspname != 'information_schema'
+          AND has_schema_privilege(current_user, n.oid, 'USAGE')
+          AND (
+              has_sequence_privilege(current_user, c.oid, 'USAGE')
+              OR has_sequence_privilege(current_user, c.oid, 'SELECT')
+          )
         ORDER BY n.nspname, c.relname
     ";
 
@@ -732,9 +758,14 @@ pub mod queries {
             definition,
             FALSE AS is_materialized
         FROM pg_views
-        WHERE ($1::text[] IS NOT NULL AND schemaname = ANY($1::text[]))
-           OR ($1::text[] IS NULL AND schemaname NOT LIKE 'pg_%'
-               AND schemaname != 'information_schema')
+        WHERE (
+            ($1::text[] IS NOT NULL AND schemaname = ANY($1::text[]))
+            OR ($1::text[] IS NULL AND schemaname NOT LIKE 'pg_%'
+                AND schemaname != 'information_schema')
+        )
+          AND has_schema_privilege(current_user, schemaname, 'USAGE')
+          AND has_table_privilege(current_user, format('%I.%I', schemaname, viewname), 'SELECT')
+          AND definition IS NOT NULL
         UNION ALL
         SELECT
             schemaname AS schema,
@@ -742,9 +773,14 @@ pub mod queries {
             definition,
             TRUE AS is_materialized
         FROM pg_matviews
-        WHERE ($1::text[] IS NOT NULL AND schemaname = ANY($1::text[]))
-           OR ($1::text[] IS NULL AND schemaname NOT LIKE 'pg_%'
-               AND schemaname != 'information_schema')
+        WHERE (
+            ($1::text[] IS NOT NULL AND schemaname = ANY($1::text[]))
+            OR ($1::text[] IS NULL AND schemaname NOT LIKE 'pg_%'
+                AND schemaname != 'information_schema')
+        )
+          AND has_schema_privilege(current_user, schemaname, 'USAGE')
+          AND has_table_privilege(current_user, format('%I.%I', schemaname, matviewname), 'SELECT')
+          AND definition IS NOT NULL
         ORDER BY schema, name
     ";
 
@@ -767,6 +803,8 @@ JOIN pg_am am ON am.oid = idx.relam
 JOIN generate_series(1, ix.indnkeyatts) AS s(n) ON TRUE
 WHERE ns.nspname NOT LIKE 'pg_%'
   AND ns.nspname <> 'information_schema'
+  AND has_schema_privilege(current_user, ns.oid, 'USAGE')
+  AND has_table_privilege(current_user, tbl.oid, 'SELECT')
 GROUP BY ns.nspname, tbl.relname, idx.relname, ix.indisunique, ix.indisprimary, am.amname, ix.indpred, ix.indrelid
 ORDER BY ns.nspname, tbl.relname, idx.relname
 ";
@@ -794,6 +832,8 @@ JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
 JOIN pg_am am ON am.oid = idx.relam
 JOIN generate_series(1, ix.indnkeyatts) AS s(n) ON TRUE
 WHERE ns.nspname = ANY($1::text[])
+  AND has_schema_privilege(current_user, ns.oid, 'USAGE')
+  AND has_table_privilege(current_user, tbl.oid, 'SELECT')
 GROUP BY ns.nspname, tbl.relname, idx.relname, ix.indisunique, ix.indisprimary, am.amname, ix.indpred, ix.indrelid
 ORDER BY ns.nspname, tbl.relname, idx.relname
 ";
@@ -822,6 +862,8 @@ JOIN pg_attribute dst ON dst.attrelid = tbl_to.oid AND dst.attnum = r.attnum
 WHERE con.contype = 'f'
   AND ns.nspname NOT LIKE 'pg_%'
   AND ns.nspname <> 'information_schema'
+  AND has_schema_privilege(current_user, ns.oid, 'USAGE')
+  AND has_table_privilege(current_user, tbl.oid, 'SELECT')
 GROUP BY ns.nspname, tbl.relname, con.conname, ns_to.nspname, tbl_to.relname, con.confupdtype, con.confdeltype
 ORDER BY ns.nspname, tbl.relname, con.conname
 ";
@@ -841,6 +883,8 @@ JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = s.attnum
 WHERE con.contype = 'p'
   AND ns.nspname NOT LIKE 'pg_%'
   AND ns.nspname <> 'information_schema'
+  AND has_schema_privilege(current_user, ns.oid, 'USAGE')
+  AND has_table_privilege(current_user, tbl.oid, 'SELECT')
 GROUP BY ns.nspname, tbl.relname, con.conname
 ORDER BY ns.nspname, tbl.relname, con.conname
 ";
@@ -861,6 +905,8 @@ JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = s.attnum
 WHERE con.contype = 'u'
   AND ns.nspname NOT LIKE 'pg_%'
   AND ns.nspname <> 'information_schema'
+  AND has_schema_privilege(current_user, ns.oid, 'USAGE')
+  AND has_table_privilege(current_user, tbl.oid, 'SELECT')
 GROUP BY ns.nspname, tbl.relname, con.conname
 ORDER BY ns.nspname, tbl.relname, con.conname
 ";
@@ -878,6 +924,8 @@ JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
 WHERE con.contype = 'c'
   AND ns.nspname NOT LIKE 'pg_%'
   AND ns.nspname <> 'information_schema'
+  AND has_schema_privilege(current_user, ns.oid, 'USAGE')
+  AND has_table_privilege(current_user, tbl.oid, 'SELECT')
 ORDER BY ns.nspname, tbl.relname, con.conname
 ";
 
@@ -897,6 +945,8 @@ JOIN pg_class tbl ON tbl.oid = con.conrelid
 JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
 WHERE con.contype = 'c'
   AND ns.nspname = ANY($1::text[])
+  AND has_schema_privilege(current_user, ns.oid, 'USAGE')
+  AND has_table_privilege(current_user, tbl.oid, 'SELECT')
 ORDER BY ns.nspname, tbl.relname, con.conname
 ";
 
@@ -925,6 +975,8 @@ SELECT
 FROM pg_policies
 WHERE schemaname NOT LIKE 'pg_%'
   AND schemaname <> 'information_schema'
+  AND has_schema_privilege(current_user, schemaname, 'USAGE')
+  AND has_table_privilege(current_user, format('%I.%I', schemaname, tablename), 'SELECT')
 ORDER BY schemaname, tablename, policyname
 ";
 }
@@ -1038,5 +1090,50 @@ mod tests {
 
         let snapshot = result.to_snapshot();
         assert_eq!(snapshot.ddl.len(), 2);
+    }
+
+    #[test]
+    fn postgres_catalog_queries_are_privilege_scoped() {
+        use queries::{
+            CHECKS_QUERY, COLUMNS_QUERY, ENUMS_QUERY, FOREIGN_KEYS_QUERY, INDEXES_QUERY,
+            POLICIES_QUERY, PRIMARY_KEYS_QUERY, SCHEMAS_QUERY, SEQUENCES_QUERY, TABLES_QUERY,
+            UNIQUES_QUERY, VIEWS_QUERY,
+        };
+
+        for query in [
+            SCHEMAS_QUERY,
+            TABLES_QUERY,
+            COLUMNS_QUERY,
+            ENUMS_QUERY,
+            SEQUENCES_QUERY,
+            VIEWS_QUERY,
+            INDEXES_QUERY,
+            FOREIGN_KEYS_QUERY,
+            PRIMARY_KEYS_QUERY,
+            UNIQUES_QUERY,
+            CHECKS_QUERY,
+            POLICIES_QUERY,
+        ] {
+            assert!(
+                query.contains("has_schema_privilege"),
+                "query is not schema-privilege scoped: {query}"
+            );
+        }
+
+        for query in [
+            TABLES_QUERY,
+            VIEWS_QUERY,
+            INDEXES_QUERY,
+            FOREIGN_KEYS_QUERY,
+            PRIMARY_KEYS_QUERY,
+            UNIQUES_QUERY,
+            CHECKS_QUERY,
+            POLICIES_QUERY,
+        ] {
+            assert!(
+                query.contains("has_table_privilege"),
+                "query is not table-privilege scoped: {query}"
+            );
+        }
     }
 }

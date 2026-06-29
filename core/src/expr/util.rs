@@ -446,7 +446,17 @@ where
     SQLExpr::new(SQL::raw(sql))
 }
 
-/// Create a raw SQL expression with explicit nullability.
+/// Create a raw SQL expression with explicit nullable nullability.
+#[must_use]
+pub fn raw_nullable<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, Null, Scalar>
+where
+    V: SQLParam + 'a,
+    T: DataType,
+{
+    SQLExpr::new(SQL::raw(sql))
+}
+
+/// Create a raw SQL expression with explicit non-null nullability.
 #[must_use]
 pub fn raw_non_null<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, NonNull, Scalar>
 where

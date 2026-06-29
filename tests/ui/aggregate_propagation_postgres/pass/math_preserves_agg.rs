@@ -1,4 +1,4 @@
-use drizzle::core::expr::{abs, count_all, round, sum, window, NonNull, Null, SQLExpr, Scalar};
+use drizzle::core::expr::{abs, count, round, sum, window, NonNull, Null, SQLExpr, Scalar};
 use drizzle::postgres::prelude::*;
 
 #[PostgresTable]
@@ -15,9 +15,9 @@ fn main() {
     let _: SQLExpr<'_, PostgresValue, _, _, Scalar> =
         abs(sum(item.price)).over(window());
 
-    // round(count_all()) preserves Agg
+    // round(count(())) preserves Agg
     let _: SQLExpr<'_, PostgresValue, _, NonNull, Scalar> =
-        round(count_all()).over(window());
+        round(count(())).over(window());
 
     // Negation: -sum(price) preserves Agg
     let _: SQLExpr<'_, PostgresValue, _, Null, Scalar> =

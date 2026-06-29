@@ -1,4 +1,4 @@
-use drizzle::core::expr::count_all;
+use drizzle::core::expr::count;
 use drizzle::sqlite::prelude::*;
 
 #[SQLiteTable]
@@ -11,5 +11,5 @@ struct User {
 fn main() {
     let user = User::default();
     // Text is NOT BooleanLike — filter() should reject text conditions
-    let _ = count_all::<SQLiteValue>().filter(user.name);
+    let _ = count::<SQLiteValue, _>(()).filter(user.name);
 }

@@ -53,6 +53,26 @@ fn insert_with_table_and_column_refs(db: &mut TestDb<SimpleSchema>) {
 }
 
 #[drizzle::test]
+fn insert_from_select_with_returning(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    let stmt = db
+        .insert(simple)
+        .select(SQL::raw("SELECT 9001, 'pg_from_select'"))
+        .returning((simple.id, simple.name));
+
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"INSERT INTO "simple" SELECT 9001, 'pg_from_select' RETURNING "simple"."id", "simple"."name""#
+    );
+
+    let results: Vec<SelectSimple> = stmt.all();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "pg_from_select");
+    assert_eq!(results[0].id, 9001);
+}
+
+#[drizzle::test]
 fn insert_multiple_rows(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 

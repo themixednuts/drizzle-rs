@@ -2,9 +2,9 @@
 
 use core::marker::PhantomData;
 
-use crate::SQLParam;
 use crate::prelude::*;
 use crate::relation::{CardWrap, RelationDef};
+use crate::{PaginationArg, SQL, SQLParam};
 
 use super::handle::RelationHandle;
 use super::row::QueryRow;
@@ -85,7 +85,7 @@ pub trait IntoColumnSelection {
 /// Core query builder. Holds relation handles and query config.
 ///
 /// The `Rels` type parameter is the actual storage for relation handles —
-/// `()` when empty, `(RelationHandle<V, R, N, C>, Rest)` when populated.
+/// `()` when empty, `(RelationHandle<'a, V, R, N, C>, Rest)` when populated.
 /// This preserves the full relation tree in the type system.
 ///
 /// The `Cols` type parameter controls column selection — `AllColumns` (default)
@@ -96,17 +96,15 @@ pub trait IntoColumnSelection {
 /// only be set once — the typestate prevents double-calling at compile time.
 ///
 /// The driver layer wraps this with a connection reference for execution.
-pub struct QueryBuilder<V: SQLParam, T, Rels = (), Cols = AllColumns, Cl = Clauses> {
+pub struct QueryBuilder<'a, V: SQLParam, T, Rels = (), Cols = AllColumns, Cl = Clauses> {
     #[doc(hidden)]
-    pub where_clause: String,
+    pub where_sql: SQL<'a, V>,
     #[doc(hidden)]
-    pub where_params: Vec<V>,
+    pub order_by_sql: SQL<'a, V>,
     #[doc(hidden)]
-    pub order_by_clause: String,
+    pub limit: Option<SQL<'a, V>>,
     #[doc(hidden)]
-    pub limit: Option<u32>,
-    #[doc(hidden)]
-    pub offset: Option<u32>,
+    pub offset: Option<SQL<'a, V>>,
     #[doc(hidden)]
     pub relations: Rels,
     #[doc(hidden)]
@@ -114,14 +112,13 @@ pub struct QueryBuilder<V: SQLParam, T, Rels = (), Cols = AllColumns, Cl = Claus
     _marker: PhantomData<(T, Cl)>,
 }
 
-impl<V: SQLParam, T> QueryBuilder<V, T> {
+impl<'a, V: SQLParam, T> QueryBuilder<'a, V, T> {
     /// Creates a new empty `QueryBuilder` for the given table type.
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            where_clause: String::new(),
-            where_params: Vec::new(),
-            order_by_clause: String::new(),
+            where_sql: SQL::empty(),
+            order_by_sql: SQL::empty(),
             limit: None,
             offset: None,
             relations: (),
@@ -131,26 +128,25 @@ impl<V: SQLParam, T> QueryBuilder<V, T> {
     }
 }
 
-impl<V: SQLParam, T> Default for QueryBuilder<V, T> {
+impl<'a, V: SQLParam, T> Default for QueryBuilder<'a, V, T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<V: SQLParam, T, Rels, Cols, Cl> QueryBuilder<V, T, Rels, Cols, Cl> {
+impl<'a, V: SQLParam, T, Rels, Cols, Cl> QueryBuilder<'a, V, T, Rels, Cols, Cl> {
     /// Includes a relation in the query results.
     #[allow(clippy::type_complexity)]
     pub fn with<R, N, C, RCl>(
         self,
-        handle: RelationHandle<V, R, N, C, RCl>,
-    ) -> QueryBuilder<V, T, (RelationHandle<V, R, N, C, RCl>, Rels), Cols, Cl>
+        handle: RelationHandle<'a, V, R, N, C, RCl>,
+    ) -> QueryBuilder<'a, V, T, (RelationHandle<'a, V, R, N, C, RCl>, Rels), Cols, Cl>
     where
         R: RelationDef<Source = T> + 'static,
     {
         QueryBuilder {
-            where_clause: self.where_clause,
-            where_params: self.where_params,
-            order_by_clause: self.order_by_clause,
+            where_sql: self.where_sql,
+            order_by_sql: self.order_by_sql,
             limit: self.limit,
             offset: self.offset,
             relations: (handle, self.relations),
@@ -161,28 +157,25 @@ impl<V: SQLParam, T, Rels, Cols, Cl> QueryBuilder<V, T, Rels, Cols, Cl> {
 }
 
 /// WHERE is only available when no WHERE clause has been set yet.
-impl<V: SQLParam, T, Rels, Cols, Ord, Lim>
-    QueryBuilder<V, T, Rels, Cols, Clauses<NoWhere, Ord, Lim>>
+impl<'a, V: SQLParam, T, Rels, Cols, Ord, Lim>
+    QueryBuilder<'a, V, T, Rels, Cols, Clauses<NoWhere, Ord, Lim>>
 {
     /// Sets the WHERE clause for the query.
     ///
     /// Can only be called once. To combine multiple conditions, use boolean
     /// operators: `and(cond_a, cond_b)` or `or(cond_a, cond_b)`.
-    pub fn r#where<'a, E>(
+    pub fn r#where<E>(
         self,
         condition: E,
-    ) -> QueryBuilder<V, T, Rels, Cols, Clauses<HasWhere, Ord, Lim>>
+    ) -> QueryBuilder<'a, V, T, Rels, Cols, Clauses<HasWhere, Ord, Lim>>
     where
         E: crate::expr::Expr<'a, V>,
         E::SQLType: crate::types::BooleanLike,
         V: 'a,
     {
-        let sql = condition.to_sql();
-        let (text, params) = sql.build();
         QueryBuilder {
-            where_clause: text,
-            where_params: params.into_iter().cloned().collect(),
-            order_by_clause: self.order_by_clause,
+            where_sql: condition.to_sql(),
+            order_by_sql: self.order_by_sql,
             limit: self.limit,
             offset: self.offset,
             relations: self.relations,
@@ -193,27 +186,24 @@ impl<V: SQLParam, T, Rels, Cols, Ord, Lim>
 }
 
 /// ORDER BY is only available when no ORDER BY clause has been set yet.
-impl<V: SQLParam, T, Rels, Cols, W, Lim>
-    QueryBuilder<V, T, Rels, Cols, Clauses<W, NoOrderBy, Lim>>
+impl<'a, V: SQLParam, T, Rels, Cols, W, Lim>
+    QueryBuilder<'a, V, T, Rels, Cols, Clauses<W, NoOrderBy, Lim>>
 {
     /// Adds a typed ORDER BY clause.
     ///
     /// Can only be called once. ORDER BY expressions are column references
     /// (e.g., `asc(col)`, `desc(col)`), which never produce bind parameters.
-    pub fn order_by<'a, E>(
+    pub fn order_by<E>(
         self,
         expr: E,
-    ) -> QueryBuilder<V, T, Rels, Cols, Clauses<W, HasOrderBy, Lim>>
+    ) -> QueryBuilder<'a, V, T, Rels, Cols, Clauses<W, HasOrderBy, Lim>>
     where
         E: crate::traits::ToSQL<'a, V>,
         V: 'a,
     {
-        let sql = expr.to_sql();
-        let (text, _) = sql.build();
         QueryBuilder {
-            where_clause: self.where_clause,
-            where_params: self.where_params,
-            order_by_clause: text,
+            where_sql: self.where_sql,
+            order_by_sql: expr.to_sql(),
             limit: self.limit,
             offset: self.offset,
             relations: self.relations,
@@ -224,16 +214,21 @@ impl<V: SQLParam, T, Rels, Cols, W, Lim>
 }
 
 /// LIMIT is only available when no LIMIT has been set yet.
-impl<V: SQLParam, T, Rels, Cols, W, Ord> QueryBuilder<V, T, Rels, Cols, Clauses<W, Ord, NoLimit>> {
+impl<'a, V: SQLParam, T, Rels, Cols, W, Ord>
+    QueryBuilder<'a, V, T, Rels, Cols, Clauses<W, Ord, NoLimit>>
+{
     /// Sets a LIMIT on the query.
     ///
     /// Can only be called once. Enables calling `.offset()`.
-    pub fn limit(self, n: u32) -> QueryBuilder<V, T, Rels, Cols, Clauses<W, Ord, HasLimit>> {
+    pub fn limit<P>(self, n: P) -> QueryBuilder<'a, V, T, Rels, Cols, Clauses<W, Ord, HasLimit>>
+    where
+        P: PaginationArg<'a, V>,
+        V: 'a,
+    {
         QueryBuilder {
-            where_clause: self.where_clause,
-            where_params: self.where_params,
-            order_by_clause: self.order_by_clause,
-            limit: Some(n),
+            where_sql: self.where_sql,
+            order_by_sql: self.order_by_sql,
+            limit: Some(n.into_pagination_sql()),
             offset: self.offset,
             relations: self.relations,
             cols: self.cols,
@@ -243,15 +238,20 @@ impl<V: SQLParam, T, Rels, Cols, W, Ord> QueryBuilder<V, T, Rels, Cols, Clauses<
 }
 
 /// OFFSET requires LIMIT to have been set first.
-impl<V: SQLParam, T, Rels, Cols, W, Ord> QueryBuilder<V, T, Rels, Cols, Clauses<W, Ord, HasLimit>> {
+impl<'a, V: SQLParam, T, Rels, Cols, W, Ord>
+    QueryBuilder<'a, V, T, Rels, Cols, Clauses<W, Ord, HasLimit>>
+{
     /// Sets an OFFSET on the query. Requires `.limit()` to have been called first.
-    pub fn offset(self, n: u32) -> QueryBuilder<V, T, Rels, Cols, Clauses<W, Ord, HasOffset>> {
+    pub fn offset<P>(self, n: P) -> QueryBuilder<'a, V, T, Rels, Cols, Clauses<W, Ord, HasOffset>>
+    where
+        P: PaginationArg<'a, V>,
+        V: 'a,
+    {
         QueryBuilder {
-            where_clause: self.where_clause,
-            where_params: self.where_params,
-            order_by_clause: self.order_by_clause,
+            where_sql: self.where_sql,
+            order_by_sql: self.order_by_sql,
             limit: self.limit,
-            offset: Some(n),
+            offset: Some(n.into_pagination_sql()),
             relations: self.relations,
             cols: self.cols,
             _marker: PhantomData,
@@ -260,18 +260,17 @@ impl<V: SQLParam, T, Rels, Cols, W, Ord> QueryBuilder<V, T, Rels, Cols, Clauses<
 }
 
 /// Methods only available when all columns are selected (prevents double-calling).
-impl<V: SQLParam, T: QueryTable, Rels, Cl> QueryBuilder<V, T, Rels, AllColumns, Cl> {
+impl<'a, V: SQLParam, T: QueryTable, Rels, Cl> QueryBuilder<'a, V, T, Rels, AllColumns, Cl> {
     /// Selects only the specified columns (include list).
     ///
     /// The result model becomes `T::PartialSelect` with only selected columns populated.
     pub fn columns<S: IntoColumnSelection>(
         self,
         selector: S,
-    ) -> QueryBuilder<V, T, Rels, PartialColumns, Cl> {
+    ) -> QueryBuilder<'a, V, T, Rels, PartialColumns, Cl> {
         QueryBuilder {
-            where_clause: self.where_clause,
-            where_params: self.where_params,
-            order_by_clause: self.order_by_clause,
+            where_sql: self.where_sql,
+            order_by_sql: self.order_by_sql,
             limit: self.limit,
             offset: self.offset,
             relations: self.relations,
@@ -288,7 +287,7 @@ impl<V: SQLParam, T: QueryTable, Rels, Cl> QueryBuilder<V, T, Rels, AllColumns, 
     pub fn omit<S: IntoColumnSelection>(
         self,
         selector: S,
-    ) -> QueryBuilder<V, T, Rels, PartialColumns, Cl> {
+    ) -> QueryBuilder<'a, V, T, Rels, PartialColumns, Cl> {
         let omitted = selector.into_column_names();
         let columns = T::COLUMN_NAMES
             .iter()
@@ -296,9 +295,8 @@ impl<V: SQLParam, T: QueryTable, Rels, Cl> QueryBuilder<V, T, Rels, AllColumns, 
             .filter(|c| !omitted.contains(c))
             .collect();
         QueryBuilder {
-            where_clause: self.where_clause,
-            where_params: self.where_params,
-            order_by_clause: self.order_by_clause,
+            where_sql: self.where_sql,
+            order_by_sql: self.order_by_sql,
             limit: self.limit,
             offset: self.offset,
             relations: self.relations,
@@ -322,8 +320,8 @@ impl BuildStore for () {
     type Store = ();
 }
 
-impl<V: SQLParam, R, Nested, Rest, Cols, Cl> BuildStore
-    for (RelationHandle<V, R, Nested, Cols, Cl>, Rest)
+impl<'a, V: SQLParam, R, Nested, Rest, Cols, Cl> BuildStore
+    for (RelationHandle<'a, V, R, Nested, Cols, Cl>, Rest)
 where
     R: RelationDef,
     R::Target: QueryTable,

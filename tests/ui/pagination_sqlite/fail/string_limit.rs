@@ -1,4 +1,3 @@
-use drizzle::core::expr::{alias, count};
 use drizzle::sqlite::prelude::*;
 use drizzle::sqlite::rusqlite::Drizzle;
 
@@ -14,20 +13,9 @@ struct Schema {
     user: User,
 }
 
-#[derive(SQLiteFromRow)]
-struct MixedRow {
-    name: String,
-    total: i64,
-}
-
 fn main() {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
     let (db, Schema { user, .. }) = Drizzle::new(conn, Schema::default());
 
-    // Mixed scalar + aggregate WITH GROUP BY — should pass
-    let _: drizzle::Result<Vec<MixedRow>> = db
-        .select((user.name, alias(count(()), "total")))
-        .from(user)
-        .group_by(user.name)
-        .all();
+    let _ = db.select(()).from(user).limit("not a limit");
 }

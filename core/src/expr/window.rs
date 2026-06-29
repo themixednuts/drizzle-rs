@@ -14,7 +14,7 @@
 //! use drizzle_core::expr::*;
 //!
 //! // Aggregate as window function
-//! count_all().over(window().partition_by([users.dept]))
+//! count(()).over(window().partition_by([users.dept]))
 //! // → SQLExpr<CountType, NonNull, Scalar>
 //!
 //! // Pure window function

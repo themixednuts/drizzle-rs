@@ -78,6 +78,47 @@ pub trait CountPolicy {
     type Count: crate::types::DataType;
 }
 
+mod count_arg_private {
+    use super::SQLParam;
+
+    pub trait Sealed<'a, V: SQLParam> {}
+
+    impl<'a, V: SQLParam> Sealed<'a, V> for () {}
+
+    impl<'a, V, E> Sealed<'a, V> for E
+    where
+        V: SQLParam + 'a,
+        E: crate::traits::ToSQL<'a, V> + crate::row::ExprValueType,
+    {
+    }
+}
+
+/// Argument accepted by [`count`].
+///
+/// This trait is sealed and exists only to support `count(())` for `COUNT(*)`
+/// and `count(expr)` for `COUNT(expr)` without making `()` a general SQL
+/// expression.
+#[doc(hidden)]
+pub trait CountArg<'a, V: SQLParam>: count_arg_private::Sealed<'a, V> {
+    fn count_sql(self) -> SQL<'a, V>;
+}
+
+impl<'a, V: SQLParam + 'a> CountArg<'a, V> for () {
+    fn count_sql(self) -> SQL<'a, V> {
+        SQL::raw("COUNT(*)")
+    }
+}
+
+impl<'a, V, E> CountArg<'a, V> for E
+where
+    V: SQLParam + 'a,
+    E: crate::traits::ToSQL<'a, V> + crate::row::ExprValueType,
+{
+    fn count_sql(self) -> SQL<'a, V> {
+        SQL::func("COUNT", self.into_sql().parens_if_subquery())
+    }
+}
+
 impl CountPolicy for SQLiteDialect {
     type Count = drizzle_types::sqlite::types::Integer;
 }
@@ -192,33 +233,11 @@ impl AggregatePolicy<PostgresDialect> for PgNumeric {
 // COUNT
 // =============================================================================
 
-/// COUNT(*) - counts all rows.
+/// COUNT aggregate.
+///
+/// Pass `()` for `COUNT(*)`, or a column/expression for `COUNT(expr)`.
 ///
 /// Returns a `BigInt`, `NonNull` (count is never NULL), Aggregate expression.
-///
-/// # Example
-///
-/// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::count_all;
-///
-/// let total = count_all();
-/// // Generates: COUNT(*)
-/// # "####;
-/// ```
-#[must_use]
-pub fn count_all<'a, V>() -> SQLExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull, Agg>
-where
-    V: SQLParam + 'a,
-    V::DialectMarker: CountPolicy,
-{
-    SQLExpr::new(SQL::raw("COUNT(*)"))
-}
-
-/// COUNT(expr) - counts non-null values.
-///
-/// Returns a `BigInt`, `NonNull` (count is never NULL), Aggregate expression.
-/// Works with any expression type.
 ///
 /// # Example
 ///
@@ -226,19 +245,22 @@ where
 /// # let _ = r####"
 /// use drizzle_core::expr::count;
 ///
-/// let count = count(users.email);
+/// let all_rows = count(());
+/// // Generates: COUNT(*)
+///
+/// let email_count = count(users.email);
 /// // Generates: COUNT("users"."email")
 /// # "####;
 /// ```
-pub fn count<'a, V, E>(
-    expr: E,
+pub fn count<'a, V, A>(
+    arg: A,
 ) -> SQLExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull, Agg>
 where
     V: SQLParam + 'a,
     V::DialectMarker: CountPolicy,
-    E: Expr<'a, V>,
+    A: CountArg<'a, V>,
 {
-    SQLExpr::new(SQL::func("COUNT", expr.into_expr_sql()))
+    SQLExpr::new(arg.count_sql())
 }
 
 /// COUNT(DISTINCT expr) - counts distinct non-null values.

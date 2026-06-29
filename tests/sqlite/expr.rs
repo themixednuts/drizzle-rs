@@ -114,7 +114,16 @@ fn test_aggregate_functions(db: &mut TestDb<SimpleSchema>) {
 
     db.insert(simple).values(test_data).execute();
 
-    // Test count function
+    // Test count all rows
+    let stmt = db.select(alias(count(()), "count")).from(simple);
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"SELECT COUNT(*) AS "count" FROM "simple""#
+    );
+    let result: Vec<CountResult> = stmt.all();
+    assert_eq!(result[0].count, 4);
+
+    // Test count non-null values
     let result: Vec<CountResult> = db
         .select(alias(count(simple.id), "count"))
         .from(simple)
@@ -136,6 +145,32 @@ fn test_aggregate_functions(db: &mut TestDb<SimpleSchema>) {
     // Test avg function
     let result: Vec<AvgResult> = db.select(alias(avg(simple.id), "avg")).from(simple).all();
     assert_eq!(result[0].avg, Some(25.0));
+}
+
+#[drizzle::test]
+fn test_ne_condition(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alice").with_id(1),
+            InsertSimple::new("bob").with_id(2),
+        ])
+        .execute();
+
+    let stmt = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(ne(simple.id, 1));
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"SELECT "simple"."id", "simple"."name" FROM "simple" WHERE "simple"."id" <> ?"#
+    );
+
+    let rows: Vec<SelectSimple> = stmt.all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, 2);
+    assert_eq!(rows[0].name, "bob");
 }
 
 #[cfg(feature = "uuid")]
@@ -1293,7 +1328,7 @@ fn test_datetime_strftime(db: &mut TestDb<SimpleSchema>) {
 // =============================================================================
 // SQLTypeToRust Inference Tests
 // =============================================================================
-// These tests verify that expression functions (current_date, count_all, etc.)
+// These tests verify that expression functions (current_date, count, etc.)
 // produce types that can be deserialized correctly via the String fallback
 // when chrono/uuid/serde features are not enabled.
 

@@ -568,7 +568,7 @@ impl VisitMut for BodyVisitor {
             {
                 *expr = rewrite_one_arg_terminal(mc, self.async_mode);
             }
-            ("execute" | "all" | "get", 2)
+            ("execute" | "all" | "get" | "find_many" | "find_first", 2)
                 if !self.asyncify_only && is_path_receiver(&mc.receiver) =>
             {
                 *expr = rewrite_prepared_terminal(mc, self.async_mode);
@@ -705,7 +705,8 @@ fn rewrite_one_arg_terminal(mc: &ExprMethodCall, async_mode: bool) -> Expr {
     )
 }
 
-/// Rewrites `<prep>.execute(conn, params)` and the `all`/`get` variants.
+/// Rewrites `<prep>.execute(conn, params)`, `all`/`get`, and prepared
+/// relational `find_many`/`find_first` variants.
 /// Receiver must be a simple path expression (evaluated twice); complex
 /// receivers fall through to the default visitor behavior.
 fn rewrite_prepared_terminal(mc: &ExprMethodCall, async_mode: bool) -> Expr {

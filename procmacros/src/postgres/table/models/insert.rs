@@ -7,7 +7,7 @@ use super::convenience::generate_convenience_method;
 use crate::common::model_markers::{
     generate_empty_pattern_tuple, generate_marker_types, generate_pattern_literal,
 };
-use crate::postgres::field::{FieldInfo, TypeCategory};
+use crate::postgres::field::{FieldInfo, IdentityMode, TypeCategory};
 use proc_macro2::TokenStream;
 use quote::quote;
 
@@ -44,7 +44,13 @@ pub fn generate_insert_model(ctx: &MacroContext, required_fields_pattern: &[bool
         insert_default_fields.push(get_insert_default_value(info));
         insert_field_names.push(name);
         insert_field_indices.push(quote! { #field_index });
-        insert_convenience_methods.push(generate_convenience_method(info, ModelType::Insert, ctx));
+        if should_generate_insert_setter(info) {
+            insert_convenience_methods.push(generate_convenience_method(
+                info,
+                ModelType::Insert,
+                ctx,
+            ));
+        }
 
         // Generate constructor parameters only for required fields
         if !is_optional {
@@ -166,6 +172,10 @@ fn get_insert_default_value(field: &FieldInfo) -> TokenStream {
     quote! { #name: PostgresInsertValue::Omit }
 }
 
+fn should_generate_insert_setter(field: &FieldInfo) -> bool {
+    !matches!(field.identity_mode, Some(IdentityMode::Always)) && field.generated_column.is_none()
+}
+
 /// Generate constructor parameter and assignment based on field type category.
 fn generate_constructor_param(info: &FieldInfo) -> (TokenStream, TokenStream) {
     let field_name = &info.ident;
@@ -187,5 +197,154 @@ fn generate_constructor_param(info: &FieldInfo) -> (TokenStream, TokenStream) {
             quote! { #field_name: impl Into<PostgresInsertValue<'a, PostgresValue<'a>, #base_type>> },
             quote! { #field_name: #field_name.into() },
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{generate_insert_model, should_generate_insert_setter};
+    use crate::postgres::field::{FieldInfo, GeneratedColumn, IdentityMode, PostgreSQLType};
+    use crate::postgres::table::{attributes::TableAttributes, context::MacroContext};
+    use std::collections::HashSet;
+
+    fn base_field(name: &str) -> FieldInfo {
+        let ident: syn::Ident = syn::parse_str(name).expect("valid ident");
+        let vis: syn::Visibility = syn::parse_str("pub").expect("valid visibility");
+        let field_type: syn::Type = syn::parse_str("i32").expect("valid type");
+
+        FieldInfo {
+            ident,
+            vis,
+            field_type: field_type.clone(),
+            base_type: field_type,
+            column_name: name.to_string(),
+            sql_definition: format!("\"{name}\" INTEGER"),
+            column_type: PostgreSQLType::Integer,
+            flags: HashSet::new(),
+            is_nullable: false,
+            is_enum: false,
+            is_pgenum: false,
+            is_json: false,
+            is_jsonb: false,
+            is_serial: false,
+            is_custom_type: false,
+            is_generated_identity: false,
+            identity_mode: None,
+            generated_column: None,
+            default: None,
+            default_fn: None,
+            check_constraint: None,
+            foreign_key: None,
+            has_default: false,
+            marker_exprs: Vec::new(),
+            constraint: crate::common::Constraint::None,
+            collate: None,
+        }
+    }
+
+    #[test]
+    fn generated_and_identity_fields_are_optional_for_insert_constructor() {
+        let mut identity_always = base_field("identity_always");
+        identity_always.is_generated_identity = true;
+        identity_always.identity_mode = Some(IdentityMode::Always);
+
+        let mut identity_by_default = base_field("identity_by_default");
+        identity_by_default.is_generated_identity = true;
+        identity_by_default.identity_mode = Some(IdentityMode::ByDefault);
+
+        let mut generated = base_field("computed_value");
+        generated.generated_column = Some(GeneratedColumn {
+            expression: "identity_by_default + 1".to_string(),
+            stored: true,
+        });
+
+        let required = base_field("required_value");
+
+        assert!(MacroContext::is_field_optional_in_insert(&identity_always));
+        assert!(MacroContext::is_field_optional_in_insert(
+            &identity_by_default
+        ));
+        assert!(MacroContext::is_field_optional_in_insert(&generated));
+        assert!(!MacroContext::is_field_optional_in_insert(&required));
+    }
+
+    #[test]
+    fn insert_setters_are_suppressed_only_for_unsettable_generated_fields() {
+        let mut identity_always = base_field("identity_always");
+        identity_always.is_generated_identity = true;
+        identity_always.identity_mode = Some(IdentityMode::Always);
+
+        let mut identity_by_default = base_field("identity_by_default");
+        identity_by_default.is_generated_identity = true;
+        identity_by_default.identity_mode = Some(IdentityMode::ByDefault);
+
+        let mut generated = base_field("computed_value");
+        generated.generated_column = Some(GeneratedColumn {
+            expression: "identity_by_default + 1".to_string(),
+            stored: true,
+        });
+
+        let regular = base_field("regular_value");
+
+        assert!(!should_generate_insert_setter(&identity_always));
+        assert!(should_generate_insert_setter(&identity_by_default));
+        assert!(!should_generate_insert_setter(&generated));
+        assert!(should_generate_insert_setter(&regular));
+    }
+
+    #[test]
+    fn generated_insert_model_omits_setters_for_unsettable_generated_fields() {
+        let struct_ident: syn::Ident = syn::parse_str("GeneratedUsers").expect("valid ident");
+        let struct_vis: syn::Visibility = syn::parse_str("pub").expect("valid visibility");
+
+        let mut identity_always = base_field("identity_always");
+        identity_always.is_generated_identity = true;
+        identity_always.identity_mode = Some(IdentityMode::Always);
+
+        let mut identity_by_default = base_field("identity_by_default");
+        identity_by_default.is_generated_identity = true;
+        identity_by_default.identity_mode = Some(IdentityMode::ByDefault);
+
+        let mut generated = base_field("computed_value");
+        generated.generated_column = Some(GeneratedColumn {
+            expression: "identity_by_default + 1".to_string(),
+            stored: true,
+        });
+
+        let regular = base_field("regular_value");
+        let fields = vec![identity_always, identity_by_default, generated, regular];
+        let attrs = TableAttributes {
+            name: None,
+            schema: None,
+            unlogged: false,
+            temporary: false,
+            inherits: None,
+            tablespace: None,
+            composite_foreign_keys: Vec::new(),
+            marker_exprs: Vec::new(),
+        };
+
+        let ctx = MacroContext {
+            struct_ident: &struct_ident,
+            struct_vis: &struct_vis,
+            table_name: "generated_users".to_string(),
+            field_infos: &fields,
+            select_model_ident: syn::parse_str("SelectGeneratedUsers").expect("valid ident"),
+            select_model_partial_ident: syn::parse_str("SelectGeneratedUsersPartial")
+                .expect("valid ident"),
+            insert_model_ident: syn::parse_str("InsertGeneratedUsers").expect("valid ident"),
+            update_model_ident: syn::parse_str("UpdateGeneratedUsers").expect("valid ident"),
+            is_composite_pk: false,
+            attrs: &attrs,
+        };
+
+        let tokens = generate_insert_model(&ctx, &[false, false, false, true]).to_string();
+        assert!(!tokens.contains("with_identity_always"));
+        assert!(tokens.contains("with_identity_by_default"));
+        assert!(!tokens.contains("with_computed_value"));
+        assert!(tokens.contains("with_regular_value"));
+        assert!(tokens.contains("regular_value : impl Into"));
+        assert!(!tokens.contains("identity_always : impl Into"));
+        assert!(!tokens.contains("computed_value : impl Into"));
     }
 }

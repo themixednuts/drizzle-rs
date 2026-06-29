@@ -21,6 +21,8 @@ pub enum GeneratedType {
     /// Stored generated column
     #[default]
     Stored,
+    /// Virtual generated column
+    Virtual,
 }
 
 /// Generated column configuration (const-friendly)
@@ -39,6 +41,15 @@ impl GeneratedDef {
         Self {
             expression,
             gen_type: GeneratedType::Stored,
+        }
+    }
+
+    /// Create a new virtual generated column
+    #[must_use]
+    pub const fn virtual_col(expression: &'static str) -> Self {
+        Self {
+            expression,
+            gen_type: GeneratedType::Virtual,
         }
     }
 
@@ -425,6 +436,15 @@ impl ColumnDef {
         }
     }
 
+    /// Set as generated virtual column
+    #[must_use]
+    pub const fn generated_virtual(self, expression: &'static str) -> Self {
+        Self {
+            generated: Some(GeneratedDef::virtual_col(expression)),
+            ..self
+        }
+    }
+
     /// Set as identity column
     #[must_use]
     pub const fn identity(self, identity: IdentityDef) -> Self {
@@ -702,6 +722,23 @@ mod tests {
             ColumnDef::new("public", "users", "id", "INTEGER").identity(IDENTITY_DEF);
 
         assert!(COL.identity.is_some());
+    }
+
+    #[test]
+    fn test_generated_virtual_column() {
+        const COL: ColumnDef = ColumnDef::new("public", "users", "name_len", "INTEGER")
+            .generated_virtual("length(name)");
+
+        assert_eq!(
+            COL.generated.expect("generated column").gen_type,
+            GeneratedType::Virtual
+        );
+
+        let col = COL.into_column();
+        assert_eq!(
+            col.generated.expect("generated column").gen_type,
+            GeneratedType::Virtual
+        );
     }
 
     #[cfg(feature = "serde")]

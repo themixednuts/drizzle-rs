@@ -67,6 +67,52 @@ fn insert_with_table_and_column_refs(db: &mut TestDb<SimpleSchema>) {
     assert_eq!(results[0].name, "ref_test");
 }
 
+#[drizzle::test]
+fn insert_from_select(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    let stmt = db
+        .insert(simple)
+        .select(SQL::raw("SELECT 42, 'from_select'"));
+
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"INSERT INTO "simple" SELECT 42, 'from_select'"#
+    );
+
+    let rows = stmt.execute();
+    assert_eq!(rows, 1);
+
+    let results: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, 42))
+        .all();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "from_select");
+}
+
+#[drizzle::test]
+fn insert_returning_star(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    let stmt = db
+        .insert(simple)
+        .values([InsertSimple::new("returning_star").with_id(101)])
+        .returning(());
+
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"INSERT INTO "simple" ("id", "name") VALUES (?, ?) RETURNING *"#
+    );
+
+    let rows: Vec<SelectSimple> = stmt.all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, 101);
+    assert_eq!(rows[0].name, "returning_star");
+}
+
 #[cfg(feature = "uuid")]
 #[drizzle::test]
 fn complex_insert(db: &mut TestDb<ComplexSchema>) {

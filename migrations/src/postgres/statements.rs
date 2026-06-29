@@ -1170,9 +1170,14 @@ impl PostgresGenerator {
         }
 
         if let Some(generated_col) = &col.generated {
+            use super::ddl::GeneratedType;
+            let generated_type = match generated_col.gen_type {
+                GeneratedType::Stored => "STORED",
+                GeneratedType::Virtual => "VIRTUAL",
+            };
             let _ = write!(
                 def,
-                " GENERATED ALWAYS AS ({}) STORED",
+                " GENERATED ALWAYS AS ({}) {generated_type}",
                 generated_col.expression
             );
         }

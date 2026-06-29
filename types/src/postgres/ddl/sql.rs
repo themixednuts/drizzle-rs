@@ -344,6 +344,7 @@ impl Generated {
     pub fn to_sql(&self) -> String {
         let gen_type = match self.gen_type {
             GeneratedType::Stored => "STORED",
+            GeneratedType::Virtual => "VIRTUAL",
         };
         format!(" GENERATED ALWAYS AS ({}) {}", self.expression, gen_type)
     }

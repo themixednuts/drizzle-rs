@@ -1396,12 +1396,14 @@ impl FieldInfo {
             col = col.default_value(default);
         }
 
-        if let Some(generated) = &self.generated_column
-            && generated.stored
-        {
+        if let Some(generated) = &self.generated_column {
             col.generated = Some(drizzle_types::postgres::ddl::Generated {
                 expression: std::borrow::Cow::Owned(generated.expression.clone()),
-                gen_type: drizzle_types::postgres::ddl::GeneratedType::Stored,
+                gen_type: if generated.stored {
+                    drizzle_types::postgres::ddl::GeneratedType::Stored
+                } else {
+                    drizzle_types::postgres::ddl::GeneratedType::Virtual
+                },
             });
         }
 
@@ -1534,12 +1536,15 @@ fn build_sql_definition(ctx: &SqlDefinitionContext<'_>) -> String {
         let _ = write!(sql, " GENERATED {identity_type} AS IDENTITY");
     }
 
-    if let Some(generated) = ctx.generated_column
-        && generated.stored
-    {
+    if let Some(generated) = ctx.generated_column {
+        let generated_type = if generated.stored {
+            "STORED"
+        } else {
+            "VIRTUAL"
+        };
         let _ = write!(
             sql,
-            " GENERATED ALWAYS AS ({}) STORED",
+            " GENERATED ALWAYS AS ({}) {generated_type}",
             generated.expression
         );
     }
@@ -1716,6 +1721,18 @@ mod tests {
         assert_eq!(
             build_sql_definition(&generated_column),
             "\"full_name\" TEXT GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED NOT NULL"
+        );
+
+        let virtual_generated = GeneratedColumn {
+            expression: "length(name)".to_string(),
+            stored: false,
+        };
+        let mut virtual_generated_column = base_context("name_len", &integer_type);
+        virtual_generated_column.generated_column = Some(&virtual_generated);
+        virtual_generated_column.default = Some(&default);
+        assert_eq!(
+            build_sql_definition(&virtual_generated_column),
+            "\"name_len\" INTEGER GENERATED ALWAYS AS (length(name)) VIRTUAL NOT NULL"
         );
     }
 }

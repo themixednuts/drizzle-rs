@@ -416,6 +416,7 @@ fn test_process_columns() {
             identity_type: Some("ALWAYS".into()),
             is_generated: false,
             generated_expression: None,
+            generated_stored: false,
             ordinal_position: 1,
         },
         RawColumnInfo {
@@ -430,6 +431,7 @@ fn test_process_columns() {
             identity_type: None,
             is_generated: false,
             generated_expression: None,
+            generated_stored: false,
             ordinal_position: 2,
         },
     ];
@@ -443,6 +445,30 @@ fn test_process_columns() {
 
     let name_col = columns.iter().find(|c| c.name == "name").unwrap();
     assert_eq!(name_col.default, Some("'Anonymous'::text".into()));
+}
+
+#[test]
+fn test_process_columns_preserves_virtual_generated_kind() {
+    let raw = vec![RawColumnInfo {
+        schema: "public".into(),
+        table: "users".into(),
+        name: "name_len".into(),
+        column_type: "int4".into(),
+        type_schema: None,
+        not_null: false,
+        default_value: None,
+        is_identity: false,
+        identity_type: None,
+        is_generated: true,
+        generated_expression: Some("length(name)".into()),
+        generated_stored: false,
+        ordinal_position: 1,
+    }];
+
+    let columns = process_columns(&raw);
+    let generated = columns[0].generated.as_ref().expect("generated column");
+    assert_eq!(generated.gen_type, GeneratedType::Virtual);
+    assert_eq!(generated.expression, "length(name)");
 }
 
 #[test]

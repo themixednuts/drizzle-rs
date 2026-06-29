@@ -1096,6 +1096,55 @@ fn query_relation_limit_offset(db: &mut TestDb<ComplexPostQuerySchema>) {
     assert_eq!(users[0].posts()[1].title, "CCC");
 }
 
+#[drizzle::test]
+fn query_prepare_with_placeholders(db: &mut TestDb<ComplexPostQuerySchema>) {
+    let ComplexPostQuerySchema { complex, post } = schema;
+
+    db.insert(complex)
+        .values([
+            InsertComplex::new("Alice", true, Role::User),
+            InsertComplex::new("Bob", true, Role::User),
+        ])
+        .execute();
+
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
+    let alice_id = all_users.iter().find(|u| u.name == "Alice").unwrap().id;
+    let bob_id = all_users.iter().find(|u| u.name == "Bob").unwrap().id;
+
+    db.insert(post)
+        .values([
+            InsertPost::new("AAA", true).with_author_id(alice_id),
+            InsertPost::new("BBB", true).with_author_id(alice_id),
+            InsertPost::new("CCC", true).with_author_id(alice_id),
+            InsertPost::new("Bob Post", true).with_author_id(bob_id),
+        ])
+        .execute();
+
+    let name = complex.name.placeholder("name");
+    let root_limit =
+        drizzle::core::Placeholder::typed::<drizzle::sqlite::types::Integer>("root_limit");
+    let post_limit =
+        drizzle::core::Placeholder::typed::<drizzle::sqlite::types::Integer>("post_limit");
+    let prepared = db
+        .query(complex)
+        .with(complex.posts().order_by(asc(post.title)).limit(post_limit))
+        .r#where(eq(complex.name, name))
+        .order_by(asc(complex.name))
+        .limit(root_limit)
+        .prepare();
+
+    let users = prepared.find_many(
+        db.conn(),
+        [name.bind("Alice"), root_limit.bind(1), post_limit.bind(2)],
+    );
+
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0].name, "Alice");
+    assert_eq!(users[0].posts().len(), 2);
+    assert_eq!(users[0].posts()[0].title, "AAA");
+    assert_eq!(users[0].posts()[1].title, "BBB");
+}
+
 // =============================================================================
 // Partial Column Selection
 // =============================================================================

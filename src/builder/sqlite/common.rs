@@ -8,11 +8,11 @@ use drizzle_core::ConflictTarget;
 use drizzle_core::traits::{SQLModel, SQLTable, ToSQL};
 use drizzle_sqlite::{
     builder::{
-        self, CTEView, DeleteInitial, DeleteWhereSet, InsertDoUpdateSet, InsertInitial,
-        InsertOnConflictSet, InsertReturningSet, InsertValuesSet, OnConflictBuilder, QueryBuilder,
-        SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet,
-        SelectOffsetSet, SelectOrderSet, SelectWhereSet, UpdateInitial, UpdateSetClauseSet,
-        UpdateWhereSet,
+        self, CTEView, DeleteInitial, DeleteReturningSet, DeleteWhereSet, InsertDoUpdateSet,
+        InsertInitial, InsertOnConflictSet, InsertReturningSet, InsertValuesSet, OnConflictBuilder,
+        QueryBuilder, SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet,
+        SelectOffsetSet, SelectOrderSet, SelectWhereSet, UpdateInitial, UpdateReturningSet,
+        UpdateSetClauseSet, UpdateWhereSet,
         delete::DeleteBuilder,
         insert::InsertBuilder,
         select::{AsCteState, IntoSelect, SelectBuilder, SelectSetOpSet},
@@ -303,7 +303,41 @@ pub struct DrizzleQueryBuilder<
     Cl = drizzle_core::query::Clauses,
 > {
     pub(crate) runner: &'db Drizzle<Conn, Schema>,
-    pub(crate) builder: drizzle_core::query::QueryBuilder<SQLiteValue<'a>, T, Rels, Cols, Cl>,
+    pub(crate) builder: drizzle_core::query::QueryBuilder<'a, SQLiteValue<'a>, T, Rels, Cols, Cl>,
+}
+
+/// Prepared relational query.
+///
+/// Created by [`DrizzleQueryBuilder::prepare`]. The prepared query is detached
+/// from the connection; driver modules provide `find_many` and `find_first`
+/// methods that take an explicit connection plus parameter bindings.
+#[cfg(all(feature = "sqlite", feature = "query"))]
+#[derive(Debug, Clone)]
+pub struct DrizzlePreparedQuery<'a, Driver, T, Rels, Cols> {
+    pub(crate) inner: drizzle_core::prepared::PreparedStatement<'a, SQLiteValue<'a>>,
+    pub(crate) _marker: PhantomData<(Driver, T, Rels, Cols)>,
+}
+
+#[cfg(all(feature = "sqlite", feature = "query"))]
+impl<'a, Driver, T, Rels, Cols> DrizzlePreparedQuery<'a, Driver, T, Rels, Cols> {
+    /// Returns the prepared SQL string with dialect placeholders.
+    #[must_use]
+    pub fn sql(&self) -> &str {
+        self.inner.sql()
+    }
+
+    /// Returns the number of external parameter bindings expected.
+    #[must_use]
+    pub fn param_count(&self) -> usize {
+        self.inner.external_param_count()
+    }
+}
+
+#[cfg(all(feature = "sqlite", feature = "query"))]
+impl<Driver, T, Rels, Cols> core::fmt::Display for DrizzlePreparedQuery<'_, Driver, T, Rels, Cols> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.sql())
+    }
 }
 
 #[cfg(all(feature = "sqlite", feature = "query"))]
@@ -317,13 +351,78 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
     ///     .find_many()?;
     /// # "####;
     /// ```
-    pub fn query<T>(&self, _table: T) -> DrizzleQueryBuilder<'_, '_, Conn, Schema, T>
+    pub fn query<'a, T>(&self, _table: T) -> DrizzleQueryBuilder<'_, 'a, Conn, Schema, T>
     where
         T: drizzle_core::query::QueryTable,
     {
         DrizzleQueryBuilder {
             runner: self,
             builder: drizzle_core::query::QueryBuilder::new(),
+        }
+    }
+}
+
+#[cfg(all(feature = "sqlite", feature = "query"))]
+impl<'db, 'a, Conn, Schema, T, Rels, Cl>
+    DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::AllColumns, Cl>
+where
+    T: drizzle_core::query::QueryTable,
+    Rels: drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
+{
+    /// Creates a prepared relational query.
+    pub fn prepare(
+        self,
+    ) -> DrizzlePreparedQuery<'a, Conn, T, Rels, drizzle_core::query::AllColumns> {
+        let builder = self.builder;
+        let mut rendered = Vec::new();
+        builder.relations.render_into(&mut rendered);
+        let query_sql = drizzle_core::query::build_query_sql(
+            T::TABLE_NAME,
+            T::COLUMN_NAMES,
+            T::BLOB_COLUMNS,
+            rendered,
+            builder.where_sql,
+            builder.order_by_sql,
+            builder.limit,
+            builder.offset,
+            false,
+        );
+        DrizzlePreparedQuery {
+            inner: drizzle_core::prepared::prepare_render(&query_sql),
+            _marker: PhantomData,
+        }
+    }
+}
+
+#[cfg(all(feature = "sqlite", feature = "query"))]
+impl<'db, 'a, Conn, Schema, T, Rels, Cl>
+    DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::PartialColumns, Cl>
+where
+    T: drizzle_core::query::QueryTable,
+    Rels: drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
+{
+    /// Creates a prepared relational query.
+    pub fn prepare(
+        self,
+    ) -> DrizzlePreparedQuery<'a, Conn, T, Rels, drizzle_core::query::PartialColumns> {
+        let builder = self.builder;
+        let mut rendered = Vec::new();
+        builder.relations.render_into(&mut rendered);
+        let col_refs: Vec<&str> = builder.cols.columns;
+        let query_sql = drizzle_core::query::build_query_sql(
+            T::TABLE_NAME,
+            &col_refs,
+            T::BLOB_COLUMNS,
+            rendered,
+            builder.where_sql,
+            builder.order_by_sql,
+            builder.limit,
+            builder.offset,
+            true,
+        );
+        DrizzlePreparedQuery {
+            inner: drizzle_core::prepared::prepare_render(&query_sql),
+            _marker: PhantomData,
         }
     }
 }
@@ -336,7 +435,7 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols, Cl>
     #[allow(clippy::type_complexity)]
     pub fn with<R, N, C, RCl>(
         self,
-        handle: drizzle_core::query::RelationHandle<SQLiteValue<'a>, R, N, C, RCl>,
+        handle: drizzle_core::query::RelationHandle<'a, SQLiteValue<'a>, R, N, C, RCl>,
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
@@ -344,7 +443,7 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols, Cl>
         Schema,
         T,
         (
-            drizzle_core::query::RelationHandle<SQLiteValue<'a>, R, N, C, RCl>,
+            drizzle_core::query::RelationHandle<'a, SQLiteValue<'a>, R, N, C, RCl>,
             Rels,
         ),
         Cols,
@@ -456,9 +555,9 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols, W, Ord>
     >
 {
     /// Sets a LIMIT on the query. Can only be called once.
-    pub fn limit(
+    pub fn limit<P>(
         self,
-        n: u32,
+        n: P,
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
@@ -468,7 +567,10 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols, W, Ord>
         Rels,
         Cols,
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::HasLimit>,
-    > {
+    >
+    where
+        P: drizzle_core::PaginationArg<'a, SQLiteValue<'a>>,
+    {
         DrizzleQueryBuilder {
             runner: self.runner,
             builder: self.builder.limit(n),
@@ -491,9 +593,9 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols, W, Ord>
     >
 {
     /// Sets an OFFSET on the query. Requires `.limit()` to have been called first.
-    pub fn offset(
+    pub fn offset<P>(
         self,
-        n: u32,
+        n: P,
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
@@ -503,7 +605,10 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols, W, Ord>
         Rels,
         Cols,
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::HasOffset>,
-    > {
+    >
+    where
+        P: drizzle_core::PaginationArg<'a, SQLiteValue<'a>>,
+    {
         DrizzleQueryBuilder {
             runner: self.runner,
             builder: self.builder.offset(n),
@@ -734,10 +839,12 @@ macro_rules! impl_select_methods {
     };
 
     (@method limit) => {
-        pub fn limit(
+        pub fn limit<P>(
             self,
-            limit: usize,
+            limit: P,
         ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectLimitSet, T, M, R, G>, SelectLimitSet>
+        where
+            P: drizzle_core::PaginationArg<'a, SQLiteValue<'a>>,
         {
             let builder = self.builder.limit(limit);
             DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
@@ -745,10 +852,12 @@ macro_rules! impl_select_methods {
     };
 
     (@method offset) => {
-        pub fn offset(
+        pub fn offset<P>(
             self,
-            offset: usize,
+            offset: P,
         ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectOffsetSet, T, M, R, G>, SelectOffsetSet>
+        where
+            P: drizzle_core::PaginationArg<'a, SQLiteValue<'a>>,
         {
             let builder = self.builder.offset(offset);
             DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
@@ -1034,6 +1143,29 @@ impl<'a, 'b, Runner, Schema, Table>
             state: PhantomData,
         }
     }
+
+    #[inline]
+    pub fn select<Q>(
+        self,
+        query: Q,
+    ) -> DrizzleBuilder<
+        'a,
+        Runner,
+        Schema,
+        InsertBuilder<'b, Schema, InsertValuesSet, Table>,
+        InsertValuesSet,
+    >
+    where
+        Table: SQLiteTable<'b>,
+        Q: ToSQL<'b, SQLiteValue<'b>>,
+    {
+        let builder = self.builder.select(query);
+        DrizzleBuilder {
+            runner: self.runner,
+            builder,
+            state: PhantomData,
+        }
+    }
 }
 
 impl<'a, 'b, Runner, Schema, Table>
@@ -1269,6 +1401,74 @@ impl<'a, 'b, Runner, Schema, Table>
             state: PhantomData,
         }
     }
+
+    pub fn returning<Columns>(
+        self,
+        columns: Columns,
+    ) -> DrizzleBuilder<
+        'a,
+        Runner,
+        Schema,
+        UpdateBuilder<
+            'b,
+            Schema,
+            UpdateReturningSet,
+            Table,
+            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
+            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
+        >,
+        UpdateReturningSet,
+    >
+    where
+        Columns: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
+        let builder = self.builder.returning(columns);
+        DrizzleBuilder {
+            runner: self.runner,
+            builder,
+            state: PhantomData,
+        }
+    }
+}
+
+impl<'a, 'b, Runner, Schema, Table>
+    DrizzleBuilder<
+        'a,
+        Runner,
+        Schema,
+        UpdateBuilder<'b, Schema, UpdateWhereSet, Table>,
+        UpdateWhereSet,
+    >
+{
+    pub fn returning<Columns>(
+        self,
+        columns: Columns,
+    ) -> DrizzleBuilder<
+        'a,
+        Runner,
+        Schema,
+        UpdateBuilder<
+            'b,
+            Schema,
+            UpdateReturningSet,
+            Table,
+            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
+            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
+        >,
+        UpdateReturningSet,
+    >
+    where
+        Columns: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<Table>,
+    {
+        let builder = self.builder.returning(columns);
+        DrizzleBuilder {
+            runner: self.runner,
+            builder,
+            state: PhantomData,
+        }
+    }
 }
 
 impl<'a, 'b, Runner, Schema, T>
@@ -1291,6 +1491,68 @@ where
         E::SQLType: drizzle_core::types::BooleanLike,
     {
         let builder = self.builder.r#where(condition);
+        DrizzleBuilder {
+            runner: self.runner,
+            builder,
+            state: PhantomData,
+        }
+    }
+
+    pub fn returning<Columns>(
+        self,
+        columns: Columns,
+    ) -> DrizzleBuilder<
+        'a,
+        Runner,
+        Schema,
+        DeleteBuilder<
+            'b,
+            Schema,
+            DeleteReturningSet,
+            T,
+            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<T, drizzle_core::Nil>>,
+            <Columns::Marker as drizzle_core::ResolveRow<T>>::Row,
+        >,
+        DeleteReturningSet,
+    >
+    where
+        Columns: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<T>,
+    {
+        let builder = self.builder.returning(columns);
+        DrizzleBuilder {
+            runner: self.runner,
+            builder,
+            state: PhantomData,
+        }
+    }
+}
+
+impl<'a, 'b, Runner, Schema, T>
+    DrizzleBuilder<'a, Runner, Schema, DeleteBuilder<'b, Schema, DeleteWhereSet, T>, DeleteWhereSet>
+{
+    pub fn returning<Columns>(
+        self,
+        columns: Columns,
+    ) -> DrizzleBuilder<
+        'a,
+        Runner,
+        Schema,
+        DeleteBuilder<
+            'b,
+            Schema,
+            DeleteReturningSet,
+            T,
+            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<T, drizzle_core::Nil>>,
+            <Columns::Marker as drizzle_core::ResolveRow<T>>::Row,
+        >,
+        DeleteReturningSet,
+    >
+    where
+        Columns: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
+        Columns::Marker: drizzle_core::ResolveRow<T>,
+    {
+        let builder = self.builder.returning(columns);
         DrizzleBuilder {
             runner: self.runner,
             builder,

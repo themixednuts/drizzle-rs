@@ -75,6 +75,60 @@ fn simple_select_with_conditions(db: &mut TestDb<SimpleSchema>) {
     assert_eq!(offset_results[1].name, "gamma");
 }
 
+#[drizzle::test]
+fn select_limit_offset_with_placeholders(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alpha").with_id(1),
+            InsertSimple::new("beta").with_id(2),
+            InsertSimple::new("gamma").with_id(3),
+            InsertSimple::new("delta").with_id(4),
+        ])
+        .execute();
+
+    let literal = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .order_by([asc(simple.name)])
+        .limit(2)
+        .offset(1);
+    assert_eq!(
+        literal.to_sql().sql(),
+        r#"SELECT "simple"."id", "simple"."name" FROM "simple" ORDER BY "simple"."name" ASC LIMIT 2 OFFSET 1"#
+    );
+
+    let untyped_limit = drizzle::core::Placeholder::named("limit");
+    let untyped_offset = drizzle::core::Placeholder::named("offset");
+    let untyped_stmt = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .order_by([asc(simple.name)])
+        .limit(untyped_limit)
+        .offset(untyped_offset);
+    assert_eq!(
+        untyped_stmt.to_sql().sql(),
+        r#"SELECT "simple"."id", "simple"."name" FROM "simple" ORDER BY "simple"."name" ASC LIMIT :limit OFFSET :offset"#
+    );
+
+    let limit = simple.id.placeholder("limit");
+    let offset = simple.id.placeholder("offset");
+    let prepared = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .order_by([asc(simple.name)])
+        .limit(limit)
+        .offset(offset)
+        .prepare()
+        .into_owned();
+
+    let rows: Vec<SelectSimple> = prepared.all(db.conn(), [limit.bind(2), offset.bind(1)]);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].name, "beta");
+    assert_eq!(rows[1].name, "delta");
+}
+
 #[cfg(feature = "uuid")]
 #[drizzle::test]
 fn complex_select_with_conditions(db: &mut TestDb<ComplexSchema>) {

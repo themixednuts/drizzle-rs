@@ -433,6 +433,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
                         is_generated_identity: #is_generated_identity,
                         is_identity_always: #is_identity_always,
                         generated_expression: ::core::option::Option::None,
+                        generated_stored: false,
                         collate: ::core::option::Option::None,
                     },
                 }

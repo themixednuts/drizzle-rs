@@ -455,6 +455,40 @@ fn test_create_table_with_generated_column() {
     );
 }
 
+#[test]
+fn test_create_table_with_virtual_generated_column() {
+    let from = PostgresDDL::new();
+
+    let mut to = PostgresDDL::new();
+    to.tables.push(table("users"));
+    to.columns.push(column_not_null("users", "id", "integer"));
+    to.columns.push(column("users", "name", "text"));
+
+    let mut name_len = column("users", "name_len", "integer");
+    name_len.generated = Some(Generated {
+        expression: Cow::Borrowed("length(name)"),
+        gen_type: GeneratedType::Virtual,
+    });
+    to.columns.push(name_len);
+    to.pks.push(primary_key("users", vec!["id"]));
+
+    let sql = diff_to_sql(&from, &to);
+
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    let expected = "CREATE TABLE \"users\" (\n\
+        \t\"id\" integer NOT NULL,\n\
+        \t\"name\" text,\n\
+        \t\"name_len\" integer GENERATED ALWAYS AS (length(name)) VIRTUAL,\n\
+        \tPRIMARY KEY(\"id\")\n\
+        );";
+    assert_eq!(
+        normalize_create_table(&sql[0]),
+        normalize_create_table(expected),
+        "Unexpected CREATE TABLE with virtual generated column SQL: {}",
+        sql[0]
+    );
+}
+
 /// Test: Adding generated expression to existing column requires DROP+ADD
 #[test]
 fn test_alter_column_add_generated_expression() {

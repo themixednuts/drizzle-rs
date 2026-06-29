@@ -875,6 +875,42 @@ fn test_add_generated_column_expression() {
     );
 }
 
+/// Test adding a virtual generated expression renders VIRTUAL
+#[test]
+fn test_add_virtual_generated_column_expression() {
+    let mut from = PostgresDDL::new();
+    let mut to = PostgresDDL::new();
+
+    from.tables.push(table("users"));
+    from.columns.push(column_not_null("users", "id", "integer"));
+    from.columns.push(column("users", "name", "text"));
+    from.columns.push(column("users", "name_len", "integer"));
+    from.pks.push(primary_key("users", vec!["id"]));
+
+    to.tables.push(table("users"));
+    to.columns.push(column_not_null("users", "id", "integer"));
+    to.columns.push(column("users", "name", "text"));
+
+    let mut name_len_col = column("users", "name_len", "integer");
+    name_len_col.generated = Some(Generated {
+        expression: Cow::Borrowed("length(name)"),
+        gen_type: GeneratedType::Virtual,
+    });
+    to.columns.push(name_len_col);
+    to.pks.push(primary_key("users", vec!["id"]));
+
+    let sql = diff_to_sql(&from, &to);
+
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" DROP COLUMN \"name_len\";\n\
+         ALTER TABLE \"users\" ADD COLUMN \"name_len\" integer GENERATED ALWAYS AS (length(name)) VIRTUAL;",
+        "Unexpected virtual generated column recreation SQL: {}",
+        sql[0]
+    );
+}
+
 #[test]
 fn test_drop_policy_sql_is_well_formed() {
     let mut from = PostgresDDL::new();

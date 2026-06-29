@@ -1,5 +1,6 @@
 use crate::{
-    SQL, SQLSchemaType, SQLTable, ToSQL, Token, expr::Expr, traits::SQLParam, types::BooleanLike,
+    PaginationArg, SQL, SQLSchemaType, SQLTable, ToSQL, Token, expr::Expr, traits::SQLParam,
+    types::BooleanLike,
 };
 
 /// Helper function to create a SELECT statement with the given columns
@@ -172,21 +173,35 @@ where
 }
 
 /// Helper function to create a LIMIT clause
+///
+/// # Panics
+///
+/// Panics when a signed numeric argument is negative or a numeric value does
+/// not fit in `usize`.
 #[must_use]
-pub fn limit<'a, V>(value: usize) -> SQL<'a, V>
+#[track_caller]
+pub fn limit<'a, V, P>(value: P) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
+    P: PaginationArg<'a, V>,
 {
-    SQL::from(Token::LIMIT).append(SQL::number(value))
+    SQL::from(Token::LIMIT).append(value.into_pagination_sql())
 }
 
 /// Helper function to create an OFFSET clause
+///
+/// # Panics
+///
+/// Panics when a signed numeric argument is negative or a numeric value does
+/// not fit in `usize`.
 #[must_use]
-pub fn offset<'a, V>(value: usize) -> SQL<'a, V>
+#[track_caller]
+pub fn offset<'a, V, P>(value: P) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
+    P: PaginationArg<'a, V>,
 {
-    SQL::from(Token::OFFSET).append(SQL::number(value))
+    SQL::from(Token::OFFSET).append(value.into_pagination_sql())
 }
 
 /// Helper function to create an UPDATE statement

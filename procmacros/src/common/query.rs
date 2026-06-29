@@ -318,7 +318,7 @@ impl RelEmitter<'_> {
                 drizzle::core::query::RelEntry<#rel_zst, #data_type, Rest>;
 
             impl #accessor_receiver {
-                #vis fn #method<__V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<__V, #rel_zst> {
+                #vis fn #method<'a, __V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<'a, __V, #rel_zst> {
                     drizzle::core::query::RelationHandle::new()
                 }
             }

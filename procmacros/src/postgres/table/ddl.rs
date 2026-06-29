@@ -258,12 +258,15 @@ fn column_to_sql(field: &FieldInfo) -> String {
         let _ = write!(sql, " GENERATED {identity_type} AS IDENTITY");
     }
 
-    if let Some(ref generated) = field.generated_column
-        && generated.stored
-    {
+    if let Some(ref generated) = field.generated_column {
+        let generated_type = if generated.stored {
+            "STORED"
+        } else {
+            "VIRTUAL"
+        };
         let _ = write!(
             sql,
-            " GENERATED ALWAYS AS ({}) STORED",
+            " GENERATED ALWAYS AS ({}) {generated_type}",
             generated.expression
         );
     }
@@ -380,11 +383,13 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
             if let Some(ref collate_name) = field.collate {
                 modifiers.push(quote! { .collate(#collate_name) });
             }
-            if let Some(ref generated) = field.generated_column
-                && generated.stored
-            {
+            if let Some(ref generated) = field.generated_column {
                 let expression = &generated.expression;
-                modifiers.push(quote! { .generated_stored(#expression) });
+                if generated.stored {
+                    modifiers.push(quote! { .generated_stored(#expression) });
+                } else {
+                    modifiers.push(quote! { .generated_virtual(#expression) });
+                }
             }
             if !field.is_serial && field.is_generated_identity {
                 let seq_name = format!("{table_name}_{column_name}_seq");
@@ -737,6 +742,16 @@ mod tests {
             "\"full_name\" TEXT GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED NOT NULL"
         );
 
+        let mut virtual_generated = base_field("name_len", PostgreSQLType::Integer);
+        virtual_generated.generated_column = Some(GeneratedColumn {
+            expression: "length(name)".to_string(),
+            stored: false,
+        });
+        assert_eq!(
+            super::column_to_sql(&virtual_generated),
+            "\"name_len\" INTEGER GENERATED ALWAYS AS (length(name)) VIRTUAL NOT NULL"
+        );
+
         let mut collated = base_field("sortable", PostgreSQLType::Text);
         collated.collate = Some("C".to_string());
         assert_eq!(
@@ -760,10 +775,16 @@ mod tests {
             stored: true,
         });
 
+        let mut virtual_generated = base_field("name_len", PostgreSQLType::Integer);
+        virtual_generated.generated_column = Some(GeneratedColumn {
+            expression: "length(name)".to_string(),
+            stored: false,
+        });
+
         let mut collated = base_field("sortable", PostgreSQLType::Text);
         collated.collate = Some("C".to_string());
 
-        let fields = vec![identity, generated, collated];
+        let fields = vec![identity, generated, virtual_generated, collated];
         let attrs = TableAttributes {
             name: None,
             schema: Some("app".to_string()),
@@ -792,6 +813,7 @@ mod tests {
         assert!(tokens.contains(". identity"));
         assert!(tokens.contains("IdentityType :: ByDefault"));
         assert!(tokens.contains(". generated_stored"));
+        assert!(tokens.contains(". generated_virtual"));
         assert!(tokens.contains(". collate"));
     }
 }

@@ -1,4 +1,4 @@
-use drizzle::core::expr::{abs, count_all, round, sum, window, NonNull, Null, SQLExpr, Scalar};
+use drizzle::core::expr::{abs, count, round, sum, window, NonNull, Null, SQLExpr, Scalar};
 use drizzle::sqlite::prelude::*;
 
 #[SQLiteTable]
@@ -16,9 +16,9 @@ fn main() {
         abs(sum(item.price)).over(window());
     let _ = windowed;
 
-    // round(count_all()) preserves Agg
+    // round(count(())) preserves Agg
     let _: SQLExpr<'_, SQLiteValue, _, NonNull, Scalar> =
-        round(count_all()).over(window());
+        round(count(())).over(window());
 
     // Negation preserves Agg: -sum(price) is still Agg
     let _: SQLExpr<'_, SQLiteValue, _, Null, Scalar> =

@@ -60,6 +60,27 @@ fn simple_delete(db: &mut TestDb<SimpleSchema>) {
     assert_eq!(deleted_results.len(), 0);
 }
 
+#[drizzle::test]
+fn delete_returning_star(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([InsertSimple::new("delete_returning").with_id(103)])
+        .execute();
+
+    let stmt = db.delete(simple).r#where(eq(simple.id, 103)).returning(());
+
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"DELETE FROM "simple" WHERE "simple"."id" = ? RETURNING *"#
+    );
+
+    let rows: Vec<SelectSimple> = stmt.all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, 103);
+    assert_eq!(rows[0].name, "delete_returning");
+}
+
 #[cfg(feature = "uuid")]
 #[drizzle::test]
 fn feature_gated_delete(db: &mut TestDb<SimpleComplexSchema>) {

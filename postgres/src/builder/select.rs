@@ -434,9 +434,18 @@ where
     State: drizzle_core::LimitAllowed,
 {
     /// Limits the number of rows returned.
+    ///
+    /// # Panics
+    ///
+    /// Panics when a signed numeric argument is negative or a numeric value
+    /// does not fit in `usize`.
     #[inline]
     #[must_use]
-    pub fn limit(self, limit: usize) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G> {
+    #[track_caller]
+    pub fn limit<P>(self, limit: P) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G>
+    where
+        P: drizzle_core::PaginationArg<'a, PostgresValue<'a>>,
+    {
         SelectBuilder {
             sql: self.sql.append(helpers::limit(limit)),
             schema: PhantomData,
@@ -455,9 +464,18 @@ where
     State: drizzle_core::OffsetAllowed,
 {
     /// Sets the offset for the query results.
+    ///
+    /// # Panics
+    ///
+    /// Panics when a signed numeric argument is negative or a numeric value
+    /// does not fit in `usize`.
     #[inline]
     #[must_use]
-    pub fn offset(self, offset: usize) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G> {
+    #[track_caller]
+    pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
+    where
+        P: drizzle_core::PaginationArg<'a, PostgresValue<'a>>,
+    {
         SelectBuilder {
             sql: self.sql.append(helpers::offset(offset)),
             schema: PhantomData,

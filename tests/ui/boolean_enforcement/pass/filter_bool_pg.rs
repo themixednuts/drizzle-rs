@@ -1,4 +1,4 @@
-use drizzle::core::expr::{count_all, eq};
+use drizzle::core::expr::{count, eq};
 use drizzle::postgres::prelude::*;
 
 #[PostgresTable]
@@ -12,8 +12,8 @@ fn main() {
     let user = User::default();
 
     // Boolean column is BooleanLike — filter() should accept it directly
-    let _ = count_all::<PostgresValue>().filter(user.active);
+    let _ = count::<PostgresValue, _>(()).filter(user.active);
 
     // Comparison expression returns Boolean — filter() should accept it too
-    let _ = count_all::<PostgresValue>().filter(eq(user.id, 1));
+    let _ = count::<PostgresValue, _>(()).filter(eq(user.id, 1));
 }
