@@ -92,10 +92,9 @@ jobs:
         run: |
           PR_NUMBER=$(gh pr list \
             --state open \
-            --label release \
             --base main \
-            --json number,headRefName \
-            --jq 'map(select(.headRefName | startswith("release-plz-")))[0].number // empty')
+            --json number,headRefName,updatedAt \
+            --jq 'map(select(.headRefName | startswith("release-plz-"))) | sort_by(.updatedAt) | last | .number // empty')
 
           if [[ -z "$PR_NUMBER" ]]; then
             echo "No open release PR found; skipping explicit CI dispatch."

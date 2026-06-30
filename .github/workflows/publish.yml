@@ -56,22 +56,35 @@ jobs:
           THIS_RUN_ID="${{ github.run_id }}"
           echo "Verifying CI on PR #$PR_NUMBER (head: $PR_HEAD)..."
 
-          # Pull all check-runs for the PR head commit, excluding this
-          # workflow's own pending check. Returns one line per check:
-          # "<conclusion> <name>". Conclusions: success / failure / cancelled
-          # / timed_out / skipped / neutral / action_required / null (running).
+          # Pull check-runs for the PR head commit, excluding publish checks.
+          # A commit can have historical check-runs from previous attempts, so
+          # keep only the latest run for each check name.
+          # Returns one line per check: "<conclusion> <name>". Conclusions:
+          # success / failure / cancelled / timed_out / skipped / neutral /
+          # action_required / null (running).
           CHECKS=$(gh api \
             "repos/$REPO/commits/$PR_HEAD/check-runs?per_page=100" \
-            --paginate \
-            --jq ".check_runs | map(select(((.details_url // \"\") | contains(\"/actions/runs/$THIS_RUN_ID/\")) | not)) | .[] | \"\(.conclusion // \"running\") \(.name)\"")
+            --jq ".check_runs
+              | map(select(.name != \"publish\"))
+              | map(select(((.details_url // \"\") | contains(\"/actions/runs/$THIS_RUN_ID/\")) | not))
+              | map({
+                  name,
+                  conclusion: (.conclusion // \"running\"),
+                  timestamp: (.completed_at // .started_at // \"\")
+                })
+              | sort_by(.name, .timestamp)
+              | group_by(.name)
+              | map(last)
+              | .[]
+              | \"\(.conclusion) \(.name)\"")
 
           if [[ -z "$CHECKS" ]]; then
             echo "::error::No CI checks found for PR #$PR_NUMBER head $PR_HEAD."
-            echo "::error::CI must run on release PRs before merge. Push a fresh commit to the PR to trigger it."
+            echo "::error::CI must run on release PRs before merge."
             exit 1
           fi
 
-          echo "Found checks (excluding current run $THIS_RUN_ID):"
+          echo "Latest checks (excluding publish runs):"
           echo "$CHECKS" | sed 's/^/  /'
 
           # Any non-green conclusion is a hard refusal. `skipped` is OK
@@ -81,6 +94,23 @@ jobs:
           if [[ -n "$BAD" ]]; then
             echo "::error::PR #$PR_NUMBER has non-green checks:"
             echo "$BAD" | sed 's/^/::error::  /'
+            exit 1
+          fi
+
+          for required in "Lint" "Documentation" "MSRV Check"; do
+            if ! echo "$CHECKS" | awk -v required="$required" '$1 == "success" { $1=""; sub(/^ /, ""); if ($0 == required) found = 1 } END { exit !found }'; then
+              echo "::error::Missing successful required check: $required"
+              exit 1
+            fi
+          done
+
+          if ! echo "$CHECKS" | awk '$1 == "success" && $0 ~ /test::sqlite \(/ && $0 !~ /\$\{\{/ { found = 1 } END { exit !found }'; then
+            echo "::error::Missing successful SQLite test matrix check."
+            exit 1
+          fi
+
+          if ! echo "$CHECKS" | awk '$1 == "success" && $0 ~ /test::pg \(/ && $0 !~ /\$\{\{/ { found = 1 } END { exit !found }'; then
+            echo "::error::Missing successful PostgreSQL test matrix check."
             exit 1
           fi
 

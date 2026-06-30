@@ -291,7 +291,7 @@ fn config_relation_groups_composite_fk_values_per_parent() {
         .unwrap();
 
     let mut fk_pairs = Vec::new();
-    for row_params in params.chunks_exact(4) {
+    for row_params in params.as_chunks::<4>().0 {
         let drizzle::sqlite::values::OwnedSQLiteValue::Integer(parent_a) = row_params[1] else {
             panic!("expected integer parent_a param");
         };
