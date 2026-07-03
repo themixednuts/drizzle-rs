@@ -5,13 +5,16 @@
 //! - Convertor functions convert statements to SQL strings
 
 use crate::sqlite::ddl::{
-    CheckConstraint, Column, ForeignKey, GeneratedType, Index, PrimaryKey, UniqueConstraint, View,
+    CheckConstraint, Column, ForeignKey, Index, PrimaryKey, Table, TableSql, UniqueConstraint, View,
 };
 use serde::{Deserialize, Serialize};
-use std::fmt::Write;
 
 /// SQL statement breakpoint marker (used by drizzle-kit)
 pub const BREAKPOINT: &str = "--> statement-breakpoint";
+
+fn quote_ident(ident: &str) -> String {
+    format!("`{}`", ident.replace('`', "``"))
+}
 
 // =============================================================================
 // JSON Statement Types (matching statements.ts)
@@ -49,6 +52,25 @@ impl TableFull {
             without_rowid: false,
         }
     }
+}
+
+fn table_full_to_table(table: &TableFull) -> Table {
+    Table {
+        name: table.name.clone().into(),
+        strict: table.strict,
+        without_rowid: table.without_rowid,
+    }
+}
+
+fn create_table_sql(table: &TableFull) -> String {
+    let ddl_table = table_full_to_table(table);
+    TableSql::new(&ddl_table)
+        .columns(&table.columns)
+        .primary_key(table.pk.as_ref())
+        .foreign_keys(&table.fks)
+        .unique_constraints(&table.uniques)
+        .check_constraints(&table.checks)
+        .create_table_sql()
 }
 
 /// All possible JSON statement types
@@ -259,238 +281,80 @@ pub fn from_json(statements: Vec<JsonStatement>) -> ConversionResult {
 // Individual Convertors
 // =============================================================================
 
-fn format_column_def(column: &super::ddl::Column, table: &TableFull) -> String {
-    // Check if this column is the sole PK (inline PRIMARY KEY)
-    let is_column_pk = table.pk.as_ref().is_some_and(|pk| {
-        pk.columns.len() == 1 && pk.columns[0] == column.name && !pk.name_explicit
-    });
-
-    // For INTEGER PRIMARY KEY, SQLite allows NULL unless NOT NULL is explicit
-    let omit_not_null = is_column_pk && column.sql_type.to_lowercase().starts_with("int");
-
-    let pk_statement = if is_column_pk { " PRIMARY KEY" } else { "" };
-    let not_null = if column.not_null && !omit_not_null {
-        " NOT NULL"
-    } else {
-        ""
-    };
-
-    // Check for single-column unique constraint
-    let unique = table
-        .uniques
-        .iter()
-        .find(|u| u.columns.len() == 1 && u.columns[0] == column.name && !u.name_explicit);
-    let unique_statement = if unique.is_some() { " UNIQUE" } else { "" };
-
-    let default = column
-        .default
-        .as_ref()
-        .map(|d| format!(" DEFAULT {d}"))
-        .unwrap_or_default();
-
-    let autoincrement = if column.autoincrement.unwrap_or(false) {
-        " AUTOINCREMENT"
-    } else {
-        ""
-    };
-
-    let generated = column
-        .generated
-        .as_ref()
-        .map(|g| {
-            let gen_type = match g.gen_type {
-                GeneratedType::Stored => "STORED",
-                GeneratedType::Virtual => "VIRTUAL",
-            };
-            format!(" GENERATED ALWAYS AS {} {}", g.expression, gen_type)
-        })
-        .unwrap_or_default();
-
-    format!(
-        "\t`{}` {}{pk_statement}{autoincrement}{default}{generated}{not_null}{unique_statement}",
-        column.name,
-        column.sql_type.to_uppercase(),
-    )
-}
-
-fn append_table_constraints(sql: &mut String, table: &TableFull) {
-    // Composite PK or explicit named PK
-    if let Some(pk) = &table.pk
-        && (pk.columns.len() > 1 || pk.name_explicit)
-    {
-        sql.push_str(",\n\t");
-        let cols = pk
-            .columns
-            .iter()
-            .map(|c| format!("`{c}`"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let _ = write!(sql, "CONSTRAINT `{}` PRIMARY KEY({})", pk.name, cols);
-    }
-
-    // Foreign keys
-    for fk in &table.fks {
-        sql.push_str(",\n\t");
-        let from_cols = fk
-            .columns
-            .iter()
-            .map(|c| format!("`{c}`"))
-            .collect::<Vec<_>>()
-            .join(",");
-        let to_cols = fk
-            .columns_to
-            .iter()
-            .map(|c| format!("`{c}`"))
-            .collect::<Vec<_>>()
-            .join(",");
-
-        let on_update = fk
-            .on_update
-            .as_ref()
-            .filter(|a| *a != "NO ACTION")
-            .map(|a| format!(" ON UPDATE {a}"))
-            .unwrap_or_default();
-        let on_delete = fk
-            .on_delete
-            .as_ref()
-            .filter(|a| *a != "NO ACTION")
-            .map(|a| format!(" ON DELETE {a}"))
-            .unwrap_or_default();
-
-        let _ = write!(
-            sql,
-            "CONSTRAINT `{}` FOREIGN KEY ({}) REFERENCES `{}`({}){}{}",
-            fk.name, from_cols, fk.table_to, to_cols, on_update, on_delete
-        );
-    }
-
-    // Multi-column unique constraints
-    for unique in table.uniques.iter().filter(|u| u.columns.len() > 1) {
-        sql.push_str(",\n\t");
-        let cols = unique
-            .columns
-            .iter()
-            .map(|c| format!("`{c}`"))
-            .collect::<Vec<_>>()
-            .join("`,`");
-        let _ = write!(sql, "CONSTRAINT `{}` UNIQUE(`{}`)", unique.name, cols);
-    }
-
-    // Check constraints
-    for check in &table.checks {
-        sql.push_str(",\n\t");
-        let _ = write!(sql, "CONSTRAINT \"{}\" CHECK({})", check.name, check.value);
-    }
-}
-
 fn convert_create_table(st: &CreateTableStatement) -> String {
-    let table = &st.table;
-    let mut sql = format!("CREATE TABLE `{}` (\n", table.name);
-
-    // Column definitions
-    let last_idx = table.columns.len().saturating_sub(1);
-    for (i, column) in table.columns.iter().enumerate() {
-        sql.push_str(&format_column_def(column, table));
-        if i < last_idx {
-            sql.push_str(",\n");
-        }
-    }
-
-    append_table_constraints(&mut sql, table);
-
-    sql.push_str("\n)");
-
-    // Add table options
-    if table.without_rowid {
-        sql.push_str(" WITHOUT ROWID");
-    }
-    if table.strict {
-        sql.push_str(" STRICT");
-    }
-
-    sql.push_str(";\n");
-    sql
+    create_table_sql(&st.table)
 }
 
 fn convert_drop_table(st: &DropTableStatement) -> String {
-    format!("DROP TABLE `{}`;", st.table_name)
+    format!("DROP TABLE {};", quote_ident(&st.table_name))
 }
 
 fn convert_rename_table(st: &RenameTableStatement) -> String {
-    format!("ALTER TABLE `{}` RENAME TO `{}`;", st.from, st.to)
+    format!(
+        "ALTER TABLE {} RENAME TO {};",
+        quote_ident(&st.from),
+        quote_ident(&st.to)
+    )
 }
 
 fn convert_add_column(st: &AddColumnStatement) -> String {
     let column = &st.column;
-
-    let default = column
-        .default
-        .as_ref()
-        .map(|d| format!(" DEFAULT {d}"))
-        .unwrap_or_default();
-
-    let not_null = if column.not_null { " NOT NULL" } else { "" };
-
-    let generated = column
-        .generated
-        .as_ref()
-        .map(|g| {
-            let gen_type = match g.gen_type {
-                GeneratedType::Stored => "STORED",
-                GeneratedType::Virtual => "VIRTUAL",
-            };
-            format!(" GENERATED ALWAYS AS {} {}", g.expression, gen_type)
-        })
-        .unwrap_or_default();
+    let column_def = column.to_column_sql(false, false);
 
     let reference = st
         .fk
         .as_ref()
         .map(|fk| {
+            let to_cols = fk
+                .columns_to
+                .iter()
+                .map(|c| quote_ident(c))
+                .collect::<Vec<_>>()
+                .join(",");
             if fk.name_explicit {
                 format!(
-                    " CONSTRAINT `{}` REFERENCES {}({})",
-                    fk.name,
-                    fk.table_to,
-                    fk.columns_to.join(",")
+                    " CONSTRAINT {} REFERENCES {}({})",
+                    quote_ident(&fk.name),
+                    quote_ident(&fk.table_to),
+                    to_cols
                 )
             } else {
-                format!(" REFERENCES {}({})", fk.table_to, fk.columns_to.join(","))
+                format!(" REFERENCES {}({})", quote_ident(&fk.table_to), to_cols)
             }
         })
         .unwrap_or_default();
 
     format!(
-        "ALTER TABLE `{}` ADD `{}` {}{}{}{}{};",
-        column.table,
-        column.name,
-        column.sql_type.to_uppercase(),
-        default,
-        generated,
-        not_null,
+        "ALTER TABLE {} ADD {}{};",
+        quote_ident(&column.table),
+        column_def,
         reference
     )
 }
 
 fn convert_drop_column(st: &DropColumnStatement) -> String {
     format!(
-        "ALTER TABLE `{}` DROP COLUMN `{}`;",
-        st.column.table, st.column.name
+        "ALTER TABLE {} DROP COLUMN {};",
+        quote_ident(&st.column.table),
+        quote_ident(&st.column.name)
     )
 }
 
 fn convert_rename_column(st: &RenameColumnStatement) -> String {
     format!(
-        "ALTER TABLE `{}` RENAME COLUMN `{}` TO `{}`;",
-        st.table, st.from, st.to
+        "ALTER TABLE {} RENAME COLUMN {} TO {};",
+        quote_ident(&st.table),
+        quote_ident(&st.from),
+        quote_ident(&st.to)
     )
 }
 
 fn convert_recreate_column(st: &RecreateColumnStatement) -> Vec<String> {
     // Drop and re-add the column
     let drop = format!(
-        "ALTER TABLE `{}` DROP COLUMN `{}`;",
-        st.column.table, st.column.name
+        "ALTER TABLE {} DROP COLUMN {};",
+        quote_ident(&st.column.table),
+        quote_ident(&st.column.name)
     );
     let add = convert_add_column(&AddColumnStatement {
         column: st.column.clone(),
@@ -516,7 +380,7 @@ fn convert_recreate_table(st: &RecreateTableStatement) -> Vec<String> {
                     .iter()
                     .any(|c| c.name == col.name && c.generated.is_none())
         })
-        .map(|col| format!("`{}`", col.name))
+        .map(|col| quote_ident(&col.name))
         .collect();
     let cols_str = column_names.join(", ");
 
@@ -538,15 +402,19 @@ fn convert_recreate_table(st: &RecreateTableStatement) -> Vec<String> {
 
     // 3. Copy data
     statements.push(format!(
-        "INSERT INTO `{new_table_name}`({cols_str}) SELECT {cols_str} FROM `{name}`;"
+        "INSERT INTO {}({cols_str}) SELECT {cols_str} FROM {};",
+        quote_ident(&new_table_name),
+        quote_ident(name)
     ));
 
     // 4. Drop old table
-    statements.push(format!("DROP TABLE `{name}`;"));
+    statements.push(format!("DROP TABLE {};", quote_ident(name)));
 
     // 5. Rename new table
     statements.push(format!(
-        "ALTER TABLE `{new_table_name}` RENAME TO `{name}`;"
+        "ALTER TABLE {} RENAME TO {};",
+        quote_ident(&new_table_name),
+        quote_ident(name)
     ));
 
     // 6. Re-enable foreign keys
@@ -556,59 +424,27 @@ fn convert_recreate_table(st: &RecreateTableStatement) -> Vec<String> {
 }
 
 fn convert_create_index(st: &CreateIndexStatement) -> String {
-    let index = &st.index;
-    let unique = if index.is_unique { "UNIQUE " } else { "" };
-
-    let cols = index
-        .columns
-        .iter()
-        .map(|c| {
-            if c.is_expression {
-                c.value.to_string()
-            } else {
-                format!("`{}`", c.value)
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-
-    let where_clause = index
-        .where_clause
-        .as_ref()
-        .map(|w| format!(" WHERE {w}"))
-        .unwrap_or_default();
-
-    format!(
-        "CREATE {}INDEX `{}` ON `{}` ({}){};",
-        unique, index.name, index.table, cols, where_clause
-    )
+    st.index.create_index_sql()
 }
 
 fn convert_drop_index(st: &DropIndexStatement) -> String {
-    format!("DROP INDEX IF EXISTS `{}`;", st.index.name)
+    format!("DROP INDEX IF EXISTS {};", quote_ident(&st.index.name))
 }
 
 fn convert_create_view(st: &CreateViewStatement) -> String {
-    let default_def = std::borrow::Cow::Borrowed("");
-    format!(
-        "CREATE VIEW `{}` AS {};",
-        st.view.name,
-        st.view.definition.as_ref().unwrap_or(&default_def)
-    )
+    st.view.create_view_sql()
 }
 
 fn convert_drop_view(st: &DropViewStatement) -> String {
-    format!("DROP VIEW `{}`;", st.view.name)
+    format!("DROP VIEW {};", quote_ident(&st.view.name))
 }
 
 fn convert_rename_view(st: &RenameViewStatement) -> String {
-    let default_def = std::borrow::Cow::Borrowed("");
     // SQLite doesn't support RENAME VIEW, so we drop and recreate
     format!(
-        "DROP VIEW IF EXISTS `{}`;\nCREATE VIEW `{}` AS {};",
-        st.from.name,
-        st.to.name,
-        st.to.definition.as_ref().unwrap_or(&default_def)
+        "DROP VIEW IF EXISTS {};\n{}",
+        quote_ident(&st.from.name),
+        st.to.create_view_sql()
     )
 }
 
@@ -1013,7 +849,7 @@ mod tests {
         let sql = convert_create_table(&CreateTableStatement { table });
         assert_eq!(
             sql,
-            "CREATE TABLE `users` (\n\t`id` INTEGER NOT NULL,\n\t`name` TEXT NOT NULL\n);\n"
+            "CREATE TABLE `users` (\n\t`id` INTEGER NOT NULL,\n\t`name` TEXT NOT NULL\n);"
         );
     }
 
@@ -1037,7 +873,7 @@ mod tests {
         let sql = convert_create_table(&CreateTableStatement { table });
         assert_eq!(
             sql,
-            "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY\n);\n"
+            "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY\n);"
         );
     }
 
@@ -1073,7 +909,7 @@ mod tests {
         let sql = convert_create_index(&CreateIndexStatement { index });
         assert_eq!(
             sql,
-            "CREATE UNIQUE INDEX `idx_users_email` ON `users` (`email`);"
+            "CREATE UNIQUE INDEX `idx_users_email` ON `users`(`email`);"
         );
     }
 
@@ -1096,7 +932,7 @@ mod tests {
         let sql = convert_create_table(&CreateTableStatement { table });
         assert_eq!(
             sql,
-            "CREATE TABLE `data` (\n\t`id` INTEGER NOT NULL,\n\t`value` TEXT NOT NULL\n) STRICT;\n"
+            "CREATE TABLE `data` (\n\t`id` INTEGER NOT NULL,\n\t`value` TEXT NOT NULL\n) STRICT;"
         );
     }
 
@@ -1123,7 +959,7 @@ mod tests {
         let sql = convert_create_table(&CreateTableStatement { table });
         assert_eq!(
             sql,
-            "CREATE TABLE `kv` (\n\t`key` TEXT PRIMARY KEY NOT NULL,\n\t`value` BLOB\n) WITHOUT ROWID;\n"
+            "CREATE TABLE `kv` (\n\t`key` TEXT PRIMARY KEY NOT NULL,\n\t`value` BLOB\n) WITHOUT ROWID;"
         );
     }
 
@@ -1150,7 +986,7 @@ mod tests {
         let sql = convert_create_table(&CreateTableStatement { table });
         assert_eq!(
             sql,
-            "CREATE TABLE `cache` (\n\t`key` TEXT PRIMARY KEY NOT NULL,\n\t`data` BLOB\n) WITHOUT ROWID STRICT;\n"
+            "CREATE TABLE `cache` (\n\t`key` TEXT PRIMARY KEY NOT NULL,\n\t`data` BLOB\n) WITHOUT ROWID, STRICT;"
         );
     }
 }

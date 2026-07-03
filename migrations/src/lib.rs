@@ -173,8 +173,8 @@ pub use schema::{Schema, Snapshot};
 
 // Programmatic migration generation
 pub use generate::{
-    ColumnRenameHint, Options, Plan, RenameHints, TableRenameHint, diff, diff_schemas,
-    diff_schemas_with, diff_with,
+    ColumnRenameHint, Options, Plan, RenameHints, SchemaRenameHint, TableRenameHint, diff,
+    diff_schemas, diff_schemas_with, diff_with,
 };
 pub use snapshot_builder::parse_result_to_snapshot;
 

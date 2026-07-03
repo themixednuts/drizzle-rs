@@ -8,8 +8,51 @@ use core::fmt::Write;
 
 use super::{
     CheckConstraint, Column, Enum, ForeignKey, Generated, GeneratedType, Identity, IdentityType,
-    Index, IndexColumnDef, Policy, PrimaryKey, Sequence, Table, UniqueConstraint, View,
+    Index, IndexColumn, IndexColumnDef, Policy, PrimaryKey, Sequence, Table, UniqueConstraint,
+    View,
 };
+
+fn quote_ident(ident: &str) -> String {
+    format!("\"{}\"", ident.replace('"', "\"\""))
+}
+
+fn quote_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+fn schema_prefix(schema: &str) -> String {
+    if schema == "public" {
+        String::new()
+    } else {
+        format!("{}.", quote_ident(schema))
+    }
+}
+
+fn qualified_name(schema: &str, name: &str) -> String {
+    format!("{}{}", schema_prefix(schema), quote_ident(name))
+}
+
+fn index_column_sql(column: &IndexColumn) -> String {
+    let mut sql = if column.is_expression {
+        format!("({})", column.value)
+    } else {
+        quote_ident(&column.value)
+    };
+
+    if let Some(op) = column.opclass.as_ref() {
+        let _ = write!(sql, " {op}");
+    }
+
+    if !column.asc {
+        sql.push_str(" DESC");
+    }
+
+    if column.nulls_first {
+        sql.push_str(" NULLS FIRST");
+    }
+
+    sql
+}
 
 // =============================================================================
 // Table SQL Generation
@@ -93,22 +136,20 @@ impl<'a> TableSql<'a> {
         self
     }
 
-    fn schema_prefix(&self) -> String {
-        if self.table.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.table.schema())
-        }
-    }
-
     /// Generate CREATE TABLE SQL
     #[must_use]
     pub fn create_table_sql(&self) -> String {
-        let schema_prefix = self.schema_prefix();
+        let table_kind = if self.table.is_temporary.unwrap_or(false) {
+            "TEMPORARY "
+        } else if self.table.is_unlogged.unwrap_or(false) {
+            "UNLOGGED "
+        } else {
+            ""
+        };
         let mut sql = format!(
-            "CREATE TABLE {}\"{}\" (\n",
-            schema_prefix,
-            self.table.name()
+            "CREATE {}TABLE {} (\n",
+            table_kind,
+            qualified_name(self.table.schema(), self.table.name())
         );
 
         let mut lines = Vec::new();
@@ -123,13 +164,13 @@ impl<'a> TableSql<'a> {
             let cols = pk
                 .columns
                 .iter()
-                .map(|c| format!("\"{c}\""))
+                .map(|c| quote_ident(c))
                 .collect::<Vec<_>>()
                 .join(", ");
             if pk.name_explicit {
                 lines.push(format!(
-                    "\tCONSTRAINT \"{}\" PRIMARY KEY({})",
-                    pk.name(),
+                    "\tCONSTRAINT {} PRIMARY KEY({})",
+                    quote_ident(pk.name()),
                     cols
                 ));
             } else {
@@ -144,30 +185,31 @@ impl<'a> TableSql<'a> {
 
         // Unique constraints
         for unique in self.unique_constraints {
-            let cols = unique
-                .columns
-                .iter()
-                .map(|c| format!("\"{c}\""))
-                .collect::<Vec<_>>()
-                .join(", ");
-            lines.push(format!(
-                "\tCONSTRAINT \"{}\" UNIQUE({})",
-                unique.name(),
-                cols
-            ));
+            lines.push(format!("\t{}", unique.to_constraint_sql()));
         }
 
         // Check constraints
         for check in self.check_constraints {
             lines.push(format!(
-                "\tCONSTRAINT \"{}\" CHECK ({})",
-                check.name(),
+                "\tCONSTRAINT {} CHECK ({})",
+                quote_ident(check.name()),
                 check.value
             ));
         }
 
         sql.push_str(&lines.join(",\n"));
-        sql.push_str("\n);");
+        sql.push('\n');
+        sql.push(')');
+
+        if let Some(inherits) = self.table.inherits.as_ref() {
+            let _ = write!(sql, " INHERITS ({})", quote_ident(inherits));
+        }
+
+        if let Some(tablespace) = self.table.tablespace.as_ref() {
+            let _ = write!(sql, " TABLESPACE {}", quote_ident(tablespace));
+        }
+
+        sql.push(';');
 
         sql
     }
@@ -175,8 +217,10 @@ impl<'a> TableSql<'a> {
     /// Generate DROP TABLE SQL
     #[must_use]
     pub fn drop_table_sql(&self) -> String {
-        let schema_prefix = self.schema_prefix();
-        format!("DROP TABLE {}\"{}\";", schema_prefix, self.table.name())
+        format!(
+            "DROP TABLE {};",
+            qualified_name(self.table.schema(), self.table.name())
+        )
     }
 
     /// Generate all related indexes
@@ -188,15 +232,41 @@ impl<'a> TableSql<'a> {
             .collect()
     }
 
+    /// Generate COMMENT ON statements for the table and its columns.
+    #[must_use]
+    pub fn create_comments_sql(&self) -> Vec<String> {
+        let mut comments = Vec::new();
+        let table_name = qualified_name(self.table.schema(), self.table.name());
+
+        if let Some(comment) = self.table.comment.as_ref() {
+            comments.push(format!(
+                "COMMENT ON TABLE {} IS {};",
+                table_name,
+                quote_literal(comment)
+            ));
+        }
+
+        for column in self.columns {
+            if let Some(comment) = column.comment.as_ref() {
+                comments.push(format!(
+                    "COMMENT ON COLUMN {}.{} IS {};",
+                    table_name,
+                    quote_ident(column.name()),
+                    quote_literal(comment)
+                ));
+            }
+        }
+
+        comments
+    }
+
     /// Generate RLS enable statement if needed
     #[must_use]
     pub fn enable_rls_sql(&self) -> Option<String> {
         if self.table.is_rls_enabled.unwrap_or(false) {
-            let schema_prefix = self.schema_prefix();
             Some(format!(
-                "ALTER TABLE {}\"{}\" ENABLE ROW LEVEL SECURITY;",
-                schema_prefix,
-                self.table.name()
+                "ALTER TABLE {} ENABLE ROW LEVEL SECURITY;",
+                qualified_name(self.table.schema(), self.table.name())
             ))
         } else {
             None
@@ -221,13 +291,21 @@ impl Column {
     /// Generate the column definition SQL (without leading/trailing punctuation)
     #[must_use]
     pub fn to_column_sql(&self) -> String {
-        let mut sql = format!("\"{}\" {}", self.name(), self.sql_type());
+        let mut sql = format!("{} {}", quote_ident(self.name()), self.sql_type());
+
+        if let Some(dimensions) = self.dimensions
+            && dimensions > 0
+        {
+            for _ in 0..dimensions {
+                sql.push_str("[]");
+            }
+        }
 
         // COLLATE follows the type in the PostgreSQL grammar. Collation
         // names are double-quoted identifiers (`COLLATE "en_US"`,
         // `COLLATE "C"`).
         if let Some(collate) = self.collate.as_ref() {
-            let _ = write!(sql, " COLLATE \"{collate}\"");
+            let _ = write!(sql, " COLLATE {}", quote_ident(collate));
         }
 
         // Handle identity columns
@@ -259,15 +337,9 @@ impl Column {
     /// Generate ADD COLUMN SQL
     #[must_use]
     pub fn add_column_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
         format!(
-            "ALTER TABLE {}\"{}\" ADD COLUMN {};",
-            schema_prefix,
-            self.table(),
+            "ALTER TABLE {} ADD COLUMN {};",
+            qualified_name(self.schema(), self.table()),
             self.to_column_sql()
         )
     }
@@ -275,16 +347,10 @@ impl Column {
     /// Generate DROP COLUMN SQL
     #[must_use]
     pub fn drop_column_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
         format!(
-            "ALTER TABLE {}\"{}\" DROP COLUMN \"{}\";",
-            schema_prefix,
-            self.table(),
-            self.name()
+            "ALTER TABLE {} DROP COLUMN {};",
+            qualified_name(self.schema(), self.table()),
+            quote_ident(self.name())
         )
     }
 }
@@ -361,42 +427,42 @@ impl ForeignKey {
         let from_cols = self
             .columns
             .iter()
-            .map(|c| format!("\"{c}\""))
+            .map(|c| quote_ident(c))
             .collect::<Vec<_>>()
             .join(", ");
 
         let to_cols = self
             .columns_to
             .iter()
-            .map(|c| format!("\"{c}\""))
+            .map(|c| quote_ident(c))
             .collect::<Vec<_>>()
             .join(", ");
 
-        let to_schema_prefix = if self.schema_to() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema_to())
-        };
-
         let mut sql = format!(
-            "CONSTRAINT \"{}\" FOREIGN KEY ({}) REFERENCES {}\"{}\"({})",
-            self.name(),
+            "CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {}({})",
+            quote_ident(self.name()),
             from_cols,
-            to_schema_prefix,
-            self.table_to(),
+            qualified_name(self.schema_to(), self.table_to()),
             to_cols
         );
 
+        if let Some(on_delete) = self.on_delete.as_ref()
+            && !on_delete.eq_ignore_ascii_case("NO ACTION")
+        {
+            let _ = write!(sql, " ON DELETE {}", on_delete.to_uppercase());
+        }
+
         if let Some(on_update) = self.on_update.as_ref()
-            && on_update != "NO ACTION"
+            && !on_update.eq_ignore_ascii_case("NO ACTION")
         {
             let _ = write!(sql, " ON UPDATE {}", on_update.to_uppercase());
         }
 
-        if let Some(on_delete) = self.on_delete.as_ref()
-            && on_delete != "NO ACTION"
-        {
-            let _ = write!(sql, " ON DELETE {}", on_delete.to_uppercase());
+        if self.deferrable || self.initially_deferred {
+            sql.push_str(" DEFERRABLE");
+            if self.initially_deferred {
+                sql.push_str(" INITIALLY DEFERRED");
+            }
         }
 
         sql
@@ -405,15 +471,9 @@ impl ForeignKey {
     /// Generate ADD FOREIGN KEY SQL
     #[must_use]
     pub fn add_fk_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
         format!(
-            "ALTER TABLE {}\"{}\" ADD {};",
-            schema_prefix,
-            self.table(),
+            "ALTER TABLE {} ADD {};",
+            qualified_name(self.schema(), self.table()),
             self.to_constraint_sql()
         )
     }
@@ -421,16 +481,10 @@ impl ForeignKey {
     /// Generate DROP FOREIGN KEY SQL
     #[must_use]
     pub fn drop_fk_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
         format!(
-            "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",
-            schema_prefix,
-            self.table(),
-            self.name()
+            "ALTER TABLE {} DROP CONSTRAINT {};",
+            qualified_name(self.schema(), self.table()),
+            quote_ident(self.name())
         )
     }
 }
@@ -451,16 +505,10 @@ impl Index {
             ""
         };
 
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
-
         let columns = self
             .columns
             .iter()
-            .map(super::index::IndexColumn::to_sql)
+            .map(index_column_sql)
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -471,34 +519,31 @@ impl Index {
             .unwrap_or_default();
 
         let mut sql = format!(
-            "CREATE {}{}INDEX \"{}\" ON {}\"{}\"{}({});",
+            "CREATE {}INDEX {}{} ON {}{}({})",
             unique,
             concurrently,
-            self.name(),
-            schema_prefix,
-            self.table(),
+            quote_ident(self.name()),
+            qualified_name(self.schema(), self.table()),
             using,
             columns
         );
 
-        if let Some(where_clause) = self.where_clause.as_ref() {
-            // Remove trailing semicolon to add WHERE
-            sql.pop();
-            let _ = write!(sql, " WHERE {where_clause};");
+        if let Some(with) = self.with.as_ref() {
+            let _ = write!(sql, " WITH ({with})");
         }
 
+        if let Some(where_clause) = self.where_clause.as_ref() {
+            let _ = write!(sql, " WHERE {where_clause}");
+        }
+
+        sql.push(';');
         sql
     }
 
     /// Generate DROP INDEX SQL
     #[must_use]
     pub fn drop_index_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
-        format!("DROP INDEX {}\"{}\";", schema_prefix, self.name())
+        format!("DROP INDEX {};", qualified_name(self.schema(), self.name()))
     }
 }
 
@@ -509,7 +554,7 @@ impl IndexColumnDef {
         let mut sql = if self.is_expression {
             format!("({})", self.value)
         } else {
-            format!("\"{}\"", self.value)
+            quote_ident(self.value)
         };
 
         if let Some(op) = self.opclass.as_ref() {
@@ -536,21 +581,15 @@ impl Enum {
     /// Generate CREATE TYPE ... AS ENUM SQL
     #[must_use]
     pub fn create_enum_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
         let values = self
             .values
             .iter()
-            .map(|v| format!("'{v}'"))
+            .map(|v| quote_literal(v))
             .collect::<Vec<_>>()
             .join(", ");
         format!(
-            "CREATE TYPE {}\"{}\" AS ENUM ({});",
-            schema_prefix,
-            self.name(),
+            "CREATE TYPE {} AS ENUM ({});",
+            qualified_name(self.schema(), self.name()),
             values
         )
     }
@@ -558,38 +597,26 @@ impl Enum {
     /// Generate DROP TYPE SQL
     #[must_use]
     pub fn drop_enum_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
-        format!("DROP TYPE {}\"{}\";", schema_prefix, self.name())
+        format!("DROP TYPE {};", qualified_name(self.schema(), self.name()))
     }
 
     /// Generate ALTER TYPE ... ADD VALUE SQL
     #[must_use]
     pub fn add_value_sql(&self, value: &str, before: Option<&str>) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
         before.map_or_else(
             || {
                 format!(
-                    "ALTER TYPE {}\"{}\" ADD VALUE '{}';",
-                    schema_prefix,
-                    self.name(),
-                    value
+                    "ALTER TYPE {} ADD VALUE {};",
+                    qualified_name(self.schema(), self.name()),
+                    quote_literal(value)
                 )
             },
             |before_value| {
                 format!(
-                    "ALTER TYPE {}\"{}\" ADD VALUE '{}' BEFORE '{}';",
-                    schema_prefix,
-                    self.name(),
-                    value,
-                    before_value
+                    "ALTER TYPE {} ADD VALUE {} BEFORE {};",
+                    qualified_name(self.schema(), self.name()),
+                    quote_literal(value),
+                    quote_literal(before_value)
                 )
             },
         )
@@ -604,13 +631,10 @@ impl Sequence {
     /// Generate CREATE SEQUENCE SQL
     #[must_use]
     pub fn create_sequence_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
-
-        let mut sql = format!("CREATE SEQUENCE {}\"{}\"", schema_prefix, self.name());
+        let mut sql = format!(
+            "CREATE SEQUENCE {}",
+            qualified_name(self.schema(), self.name())
+        );
 
         if let Some(inc) = self.increment_by.as_ref() {
             let _ = write!(sql, " INCREMENT BY {inc}");
@@ -638,12 +662,10 @@ impl Sequence {
     /// Generate DROP SEQUENCE SQL
     #[must_use]
     pub fn drop_sequence_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
-        format!("DROP SEQUENCE {}\"{}\";", schema_prefix, self.name())
+        format!(
+            "DROP SEQUENCE {};",
+            qualified_name(self.schema(), self.name())
+        )
     }
 }
 
@@ -744,12 +766,6 @@ impl View {
     /// Generate CREATE VIEW SQL
     #[must_use]
     pub fn create_view_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
-
         let materialized = if self.materialized {
             "MATERIALIZED "
         } else {
@@ -758,20 +774,18 @@ impl View {
 
         let Some(def) = self.definition.as_ref() else {
             return format!(
-                "-- {}View {}\"{}\" has no definition",
+                "-- {}View {} has no definition",
                 materialized,
-                schema_prefix,
-                self.name()
+                qualified_name(self.schema(), self.name())
             );
         };
 
         let mut sql = String::with_capacity(def.len() + 64);
         let _ = write!(
             sql,
-            "CREATE {}VIEW {}\"{}\"",
+            "CREATE {}VIEW {}",
             materialized,
-            schema_prefix,
-            self.name(),
+            qualified_name(self.schema(), self.name()),
         );
 
         if let Some(using) = self.using.as_ref() {
@@ -784,7 +798,7 @@ impl View {
             .and_then(|with_opts| append_view_with_options(&mut sql, with_opts));
 
         if let Some(tablespace) = self.tablespace.as_ref() {
-            let _ = write!(sql, " TABLESPACE \"{tablespace}\"");
+            let _ = write!(sql, " TABLESPACE {}", quote_ident(tablespace));
         }
 
         sql.push_str(" AS ");
@@ -805,21 +819,15 @@ impl View {
     /// Generate DROP VIEW SQL
     #[must_use]
     pub fn drop_view_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
         let materialized = if self.materialized {
             "MATERIALIZED "
         } else {
             ""
         };
         format!(
-            "DROP {}VIEW {}\"{}\";",
+            "DROP {}VIEW {};",
             materialized,
-            schema_prefix,
-            self.name()
+            qualified_name(self.schema(), self.name())
         )
     }
 }
@@ -832,18 +840,14 @@ impl Policy {
     /// Generate CREATE POLICY SQL
     #[must_use]
     pub fn create_policy_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
-
         let mut sql = format!(
-            "CREATE POLICY \"{}\" ON {}\"{}\"",
-            self.name(),
-            schema_prefix,
-            self.table()
+            "CREATE POLICY {} ON {}",
+            quote_ident(self.name()),
+            qualified_name(self.schema(), self.table())
         );
+
+        let as_clause = self.as_clause.as_deref().unwrap_or("PERMISSIVE");
+        let _ = write!(sql, " AS {}", as_clause.to_uppercase());
 
         if let Some(r#for) = self.for_clause.as_ref() {
             let _ = write!(sql, " FOR {}", r#for.to_uppercase());
@@ -855,10 +859,10 @@ impl Policy {
             let to_roles = to
                 .iter()
                 .map(|r| {
-                    if *r == "public" {
+                    if r.eq_ignore_ascii_case("public") {
                         "PUBLIC".to_string()
                     } else {
-                        format!("\"{r}\"")
+                        quote_ident(r)
                     }
                 })
                 .collect::<Vec<_>>()
@@ -881,16 +885,10 @@ impl Policy {
     /// Generate DROP POLICY SQL
     #[must_use]
     pub fn drop_policy_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
         format!(
-            "DROP POLICY \"{}\" ON {}\"{}\";",
-            self.name(),
-            schema_prefix,
-            self.table()
+            "DROP POLICY {} ON {};",
+            quote_ident(self.name()),
+            qualified_name(self.schema(), self.table())
         )
     }
 }
@@ -903,27 +901,16 @@ impl Table {
     /// Generate DROP TABLE SQL
     #[must_use]
     pub fn drop_table_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
-        format!("DROP TABLE {}\"{}\";", schema_prefix, self.name())
+        format!("DROP TABLE {};", qualified_name(self.schema(), self.name()))
     }
 
     /// Generate RENAME TABLE SQL
     #[must_use]
     pub fn rename_table_sql(&self, new_name: &str) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
         format!(
-            "ALTER TABLE {}\"{}\" RENAME TO \"{}\";",
-            schema_prefix,
-            self.name(),
-            new_name
+            "ALTER TABLE {} RENAME TO {};",
+            qualified_name(self.schema(), self.name()),
+            quote_ident(new_name)
         )
     }
 }
@@ -939,25 +926,23 @@ impl PrimaryKey {
         let cols = self
             .columns
             .iter()
-            .map(|c| format!("\"{c}\""))
+            .map(|c| quote_ident(c))
             .collect::<Vec<_>>()
             .join(", ");
 
-        format!("CONSTRAINT \"{}\" PRIMARY KEY({})", self.name(), cols)
+        format!(
+            "CONSTRAINT {} PRIMARY KEY({})",
+            quote_ident(self.name()),
+            cols
+        )
     }
 
     /// Generate ADD PRIMARY KEY SQL
     #[must_use]
     pub fn add_pk_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
         format!(
-            "ALTER TABLE {}\"{}\" ADD {};",
-            schema_prefix,
-            self.table(),
+            "ALTER TABLE {} ADD {};",
+            qualified_name(self.schema(), self.table()),
             self.to_constraint_sql()
         )
     }
@@ -965,16 +950,10 @@ impl PrimaryKey {
     /// Generate DROP PRIMARY KEY SQL
     #[must_use]
     pub fn drop_pk_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
         format!(
-            "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",
-            schema_prefix,
-            self.table(),
-            self.name()
+            "ALTER TABLE {} DROP CONSTRAINT {};",
+            qualified_name(self.schema(), self.table()),
+            quote_ident(self.name())
         )
     }
 }
@@ -984,48 +963,53 @@ impl PrimaryKey {
 // =============================================================================
 
 impl UniqueConstraint {
-    /// Generate the UNIQUE constraint clause
-    #[must_use]
-    pub fn to_constraint_sql(&self) -> String {
+    fn constraint_sql(&self, space_before_columns: bool) -> String {
         let cols = self
             .columns
             .iter()
-            .map(|c| format!("\"{c}\""))
+            .map(|c| quote_ident(c))
             .collect::<Vec<_>>()
             .join(", ");
 
-        format!("CONSTRAINT \"{}\" UNIQUE({})", self.name(), cols)
+        let separator = if space_before_columns { " " } else { "" };
+        let mut sql = format!(
+            "CONSTRAINT {} UNIQUE{}({})",
+            quote_ident(self.name()),
+            separator,
+            cols
+        );
+        if self.deferrable || self.initially_deferred {
+            sql.push_str(" DEFERRABLE");
+            if self.initially_deferred {
+                sql.push_str(" INITIALLY DEFERRED");
+            }
+        }
+        sql
+    }
+
+    /// Generate the UNIQUE constraint clause
+    #[must_use]
+    pub fn to_constraint_sql(&self) -> String {
+        self.constraint_sql(false)
     }
 
     /// Generate ADD UNIQUE SQL
     #[must_use]
     pub fn add_unique_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
         format!(
-            "ALTER TABLE {}\"{}\" ADD {};",
-            schema_prefix,
-            self.table(),
-            self.to_constraint_sql()
+            "ALTER TABLE {} ADD {};",
+            qualified_name(self.schema(), self.table()),
+            self.constraint_sql(true)
         )
     }
 
     /// Generate DROP UNIQUE SQL
     #[must_use]
     pub fn drop_unique_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
         format!(
-            "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",
-            schema_prefix,
-            self.table(),
-            self.name()
+            "ALTER TABLE {} DROP CONSTRAINT {};",
+            qualified_name(self.schema(), self.table()),
+            quote_ident(self.name())
         )
     }
 }
@@ -1038,21 +1022,19 @@ impl CheckConstraint {
     /// Generate the CHECK constraint clause
     #[must_use]
     pub fn to_constraint_sql(&self) -> String {
-        format!("CONSTRAINT \"{}\" CHECK ({})", self.name(), self.value)
+        format!(
+            "CONSTRAINT {} CHECK ({})",
+            quote_ident(self.name()),
+            self.value
+        )
     }
 
     /// Generate ADD CHECK SQL
     #[must_use]
     pub fn add_check_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
         format!(
-            "ALTER TABLE {}\"{}\" ADD {};",
-            schema_prefix,
-            self.table(),
+            "ALTER TABLE {} ADD {};",
+            qualified_name(self.schema(), self.table()),
             self.to_constraint_sql()
         )
     }
@@ -1060,16 +1042,10 @@ impl CheckConstraint {
     /// Generate DROP CHECK SQL
     #[must_use]
     pub fn drop_check_sql(&self) -> String {
-        let schema_prefix = if self.schema() == "public" {
-            String::new()
-        } else {
-            format!("\"{}\".", self.schema())
-        };
         format!(
-            "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",
-            schema_prefix,
-            self.table(),
-            self.name()
+            "ALTER TABLE {} DROP CONSTRAINT {};",
+            qualified_name(self.schema(), self.table()),
+            quote_ident(self.name())
         )
     }
 }
@@ -1113,5 +1089,33 @@ mod tests {
         let table = TableDef::new("myschema", "users").into_table();
         let sql = TableSql::new(&table).create_table_sql();
         assert!(sql.contains("\"myschema\".\"users\""));
+    }
+
+    #[test]
+    fn test_unique_concurrently_index_word_order() {
+        let mut index = Index::new(
+            "public",
+            "users",
+            "users_email_idx",
+            vec![IndexColumn::new("email")],
+        )
+        .unique();
+        index.concurrently = true;
+
+        assert_eq!(
+            index.create_index_sql(),
+            "CREATE UNIQUE INDEX CONCURRENTLY \"users_email_idx\" ON \"users\"(\"email\");"
+        );
+    }
+
+    #[test]
+    fn test_policy_uses_explicit_as_and_public_role() {
+        let mut policy = Policy::new("public", "users", "users_policy");
+        policy.to = Some(vec![Cow::Borrowed("public")]);
+
+        assert_eq!(
+            policy.create_policy_sql(),
+            "CREATE POLICY \"users_policy\" ON \"users\" AS PERMISSIVE TO PUBLIC;"
+        );
     }
 }

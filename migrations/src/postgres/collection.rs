@@ -11,6 +11,7 @@ use super::ddl::{
 };
 use crate::collection::EntityCollection;
 use crate::traits::EntityKind;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 // =============================================================================
@@ -364,13 +365,14 @@ fn diff_top_level_entities(left: &PostgresDDL, right: &PostgresDDL, diffs: &mut 
         EntityKind::Role,
         diffs,
     );
-    diff_entity_type(
+    diff_entity_type_with(
         left.tables.list(),
         right.tables.list(),
         |e| format!("{}.{}", e.schema, e.name),
         |e| PostgresEntity::Table(e.clone()),
         EntityKind::Table,
         diffs,
+        tables_equivalent,
     );
     diff_entity_type(
         left.views.list(),
@@ -383,13 +385,14 @@ fn diff_top_level_entities(left: &PostgresDDL, right: &PostgresDDL, diffs: &mut 
 }
 
 fn diff_table_entities(left: &PostgresDDL, right: &PostgresDDL, diffs: &mut Vec<EntityDiff>) {
-    diff_entity_type(
+    diff_entity_type_with(
         left.columns.list(),
         right.columns.list(),
         |e| format!("{}.{}.{}", e.schema, e.table, e.name),
         |e| PostgresEntity::Column(e.clone()),
         EntityKind::Column,
         diffs,
+        columns_equivalent,
     );
     diff_entity_type(
         left.indexes.list(),
@@ -399,13 +402,14 @@ fn diff_table_entities(left: &PostgresDDL, right: &PostgresDDL, diffs: &mut Vec<
         EntityKind::Index,
         diffs,
     );
-    diff_entity_type(
+    diff_entity_type_with(
         left.fks.list(),
         right.fks.list(),
         |e| format!("{}.{}", e.schema, e.name),
         |e| PostgresEntity::ForeignKey(e.clone()),
         EntityKind::ForeignKey,
         diffs,
+        foreign_keys_equivalent,
     );
     diff_entity_type(
         left.pks.list(),
@@ -431,13 +435,14 @@ fn diff_table_entities(left: &PostgresDDL, right: &PostgresDDL, diffs: &mut Vec<
         EntityKind::CheckConstraint,
         diffs,
     );
-    diff_entity_type(
+    diff_entity_type_with(
         left.policies.list(),
         right.policies.list(),
         |e| format!("{}.{}.{}", e.schema, e.table, e.name),
         |e| PostgresEntity::Policy(e.clone()),
         EntityKind::Policy,
         diffs,
+        policies_equivalent,
     );
 }
 
@@ -459,16 +464,29 @@ fn diff_entity_type<T: Clone + PartialEq>(
     kind: EntityKind,
     diffs: &mut Vec<EntityDiff>,
 ) {
+    diff_entity_type_with(left, right, key_fn, to_entity, kind, diffs, PartialEq::eq);
+}
+
+fn diff_entity_type_with<T: Clone>(
+    left: &[T],
+    right: &[T],
+    key_fn: impl Fn(&T) -> String,
+    to_entity: impl Fn(&T) -> PostgresEntity,
+    kind: EntityKind,
+    diffs: &mut Vec<EntityDiff>,
+    equivalent: impl Fn(&T, &T) -> bool,
+) {
     let left_map: HashMap<String, &T> = left.iter().map(|e| (key_fn(e), e)).collect();
     let right_map: HashMap<String, &T> = right.iter().map(|e| (key_fn(e), e)).collect();
 
     // Find dropped
-    for (key, left_entity) in &left_map {
-        if !right_map.contains_key(key) {
+    for left_entity in left {
+        let key = key_fn(left_entity);
+        if !right_map.contains_key(&key) {
             diffs.push(EntityDiff {
                 diff_type: DiffType::Drop,
                 kind,
-                name: key.clone(),
+                name: key,
                 changes: HashMap::new(),
                 left: Some(to_entity(left_entity)),
                 right: None,
@@ -477,12 +495,13 @@ fn diff_entity_type<T: Clone + PartialEq>(
     }
 
     // Find created
-    for (key, right_entity) in &right_map {
-        if !left_map.contains_key(key) {
+    for right_entity in right {
+        let key = key_fn(right_entity);
+        if !left_map.contains_key(&key) {
             diffs.push(EntityDiff {
                 diff_type: DiffType::Create,
                 kind,
-                name: key.clone(),
+                name: key,
                 changes: HashMap::new(),
                 left: None,
                 right: Some(to_entity(right_entity)),
@@ -491,18 +510,234 @@ fn diff_entity_type<T: Clone + PartialEq>(
     }
 
     // Find altered
-    for (key, left_entity) in &left_map {
-        if let Some(right_entity) = right_map.get(key)
-            && *left_entity != *right_entity
+    for left_entity in left {
+        let key = key_fn(left_entity);
+        if let Some(right_entity) = right_map.get(&key)
+            && !equivalent(left_entity, right_entity)
         {
             diffs.push(EntityDiff {
                 diff_type: DiffType::Alter,
                 kind,
-                name: key.clone(),
+                name: key,
                 changes: HashMap::new(), // Rely on left/right for details
                 left: Some(to_entity(left_entity)),
                 right: Some(to_entity(right_entity)),
             });
         }
+    }
+}
+
+fn tables_equivalent(left: &Table, right: &Table) -> bool {
+    let mut left = left.clone();
+    let mut right = right.clone();
+    left.is_rls_enabled = Some(left.is_rls_enabled.unwrap_or(false));
+    right.is_rls_enabled = Some(right.is_rls_enabled.unwrap_or(false));
+    left.is_unlogged = Some(left.is_unlogged.unwrap_or(false));
+    right.is_unlogged = Some(right.is_unlogged.unwrap_or(false));
+    left.is_temporary = Some(left.is_temporary.unwrap_or(false));
+    right.is_temporary = Some(right.is_temporary.unwrap_or(false));
+    left == right
+}
+
+fn columns_equivalent(left: &Column, right: &Column) -> bool {
+    let mut left = left.clone();
+    let mut right = right.clone();
+    left.sql_type = Cow::Owned(normalize_column_type_for_compare(&left));
+    right.sql_type = Cow::Owned(normalize_column_type_for_compare(&right));
+    left.dimensions = None;
+    right.dimensions = None;
+    left.ordinal_position = None;
+    right.ordinal_position = None;
+    left == right
+}
+
+fn foreign_keys_equivalent(left: &ForeignKey, right: &ForeignKey) -> bool {
+    let mut left = left.clone();
+    let mut right = right.clone();
+    left.on_delete = normalize_fk_action(left.on_delete.as_deref());
+    left.on_update = normalize_fk_action(left.on_update.as_deref());
+    right.on_delete = normalize_fk_action(right.on_delete.as_deref());
+    right.on_update = normalize_fk_action(right.on_update.as_deref());
+    left == right
+}
+
+fn policies_equivalent(left: &Policy, right: &Policy) -> bool {
+    let mut left = left.clone();
+    let mut right = right.clone();
+    normalize_policy(&mut left);
+    normalize_policy(&mut right);
+    left == right
+}
+
+fn normalize_fk_action(action: Option<&str>) -> Option<Cow<'static, str>> {
+    match action {
+        None => None,
+        Some(action) if action.eq_ignore_ascii_case("NO ACTION") => None,
+        Some(action) => Some(Cow::Owned(action.to_ascii_uppercase())),
+    }
+}
+
+fn normalize_policy(policy: &mut Policy) {
+    policy.as_clause = Some(Cow::Owned(
+        policy
+            .as_clause
+            .as_deref()
+            .unwrap_or("PERMISSIVE")
+            .to_ascii_uppercase(),
+    ));
+    policy.for_clause = Some(Cow::Owned(
+        policy
+            .for_clause
+            .as_deref()
+            .unwrap_or("ALL")
+            .to_ascii_uppercase(),
+    ));
+    if let Some(roles) = policy.to.as_mut() {
+        for role in roles {
+            if role.eq_ignore_ascii_case("public") {
+                *role = Cow::Borrowed("PUBLIC");
+            }
+        }
+    }
+}
+
+fn collapse_sql_whitespace(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn normalize_pg_type_for_compare(sql_type: &str) -> String {
+    let mut ty = collapse_sql_whitespace(&sql_type.trim().to_ascii_lowercase());
+    let mut dimensions = String::new();
+
+    while let Some(stripped) = ty.strip_suffix("[]") {
+        dimensions.push_str("[]");
+        ty = stripped.trim_end().to_string();
+    }
+
+    if let Some(stripped) = ty.strip_prefix('_') {
+        dimensions.push_str("[]");
+        ty = stripped.to_string();
+    }
+
+    let params = ty
+        .find('(')
+        .map(|idx| ty[idx..].to_string())
+        .unwrap_or_default();
+
+    let canonical = match ty.as_str() {
+        "int" | "int4" | "integer" => "integer".to_string(),
+        "int2" | "smallint" => "smallint".to_string(),
+        "int8" | "bigint" => "bigint".to_string(),
+        "bool" | "boolean" => "boolean".to_string(),
+        "timestamptz" | "timestamp with time zone" => "timestamp with time zone".to_string(),
+        "timestamp" | "timestamp without time zone" => "timestamp".to_string(),
+        "timetz" | "time with time zone" => "time with time zone".to_string(),
+        "time" | "time without time zone" => "time".to_string(),
+        _ if ty.starts_with("varchar") || ty.starts_with("character varying") => {
+            format!("character varying{params}")
+        }
+        _ => match super::grammar::PgTypeCategory::from_sql_type(&ty) {
+            super::grammar::PgTypeCategory::SmallInt => "smallint".to_string(),
+            super::grammar::PgTypeCategory::Integer => "integer".to_string(),
+            super::grammar::PgTypeCategory::BigInt => "bigint".to_string(),
+            super::grammar::PgTypeCategory::Boolean => "boolean".to_string(),
+            super::grammar::PgTypeCategory::Text => "text".to_string(),
+            super::grammar::PgTypeCategory::Varchar => format!("character varying{params}"),
+            super::grammar::PgTypeCategory::TimestampTz => "timestamp with time zone".to_string(),
+            super::grammar::PgTypeCategory::Timestamp => "timestamp".to_string(),
+            super::grammar::PgTypeCategory::TimeTz => "time with time zone".to_string(),
+            super::grammar::PgTypeCategory::Time => "time".to_string(),
+            _ => ty,
+        },
+    };
+
+    format!("{canonical}{dimensions}")
+}
+
+fn normalize_column_type_for_compare(column: &Column) -> String {
+    let mut sql_type = column.sql_type.to_string();
+    if let Some(dimensions) = column.dimensions
+        && dimensions > 0
+    {
+        for _ in 0..dimensions {
+            sql_type.push_str("[]");
+        }
+    }
+    normalize_pg_type_for_compare(&sql_type)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn column_with_type(sql_type: &str) -> Column {
+        Column::new("public", "users", "value", sql_type.to_string())
+    }
+
+    #[test]
+    fn postgres_type_aliases_compare_equal() {
+        let cases = [
+            ("int4", "INTEGER"),
+            ("varchar(255)", "character varying(255)"),
+            ("timestamptz", "TIMESTAMP WITH TIME ZONE"),
+            ("bool", "BOOLEAN"),
+        ];
+
+        for (left_type, right_type) in cases {
+            let left = PostgresDDL::from_entities(vec![
+                PostgresEntity::Table(Table::new("public", "users")),
+                PostgresEntity::Column(column_with_type(left_type)),
+            ]);
+            let right = PostgresDDL::from_entities(vec![
+                PostgresEntity::Table(Table::new("public", "users")),
+                PostgresEntity::Column(column_with_type(right_type)),
+            ]);
+
+            let diffs = diff_ddl(&left, &right);
+            assert!(
+                diffs.is_empty(),
+                "expected {left_type:?} and {right_type:?} to compare equal, got {diffs:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn foreign_key_no_action_compares_equal_to_omitted_actions() {
+        let mut left = ForeignKey::from_strings(
+            "public".to_string(),
+            "posts".to_string(),
+            "posts_user_fk".to_string(),
+            vec!["user_id".to_string()],
+            "public".to_string(),
+            "users".to_string(),
+            vec!["id".to_string()],
+        );
+        left.on_delete = Some(Cow::Borrowed("NO ACTION"));
+        left.on_update = Some(Cow::Borrowed("no action"));
+
+        let right = ForeignKey::from_strings(
+            "public".to_string(),
+            "posts".to_string(),
+            "posts_user_fk".to_string(),
+            vec!["user_id".to_string()],
+            "public".to_string(),
+            "users".to_string(),
+            vec!["id".to_string()],
+        );
+
+        assert!(foreign_keys_equivalent(&left, &right));
+    }
+
+    #[test]
+    fn public_policy_roles_compare_equal_case_insensitively() {
+        let mut left = Policy::new("public", "users", "users_policy");
+        left.to = Some(vec![Cow::Borrowed("public")]);
+
+        let mut right = Policy::new("public", "users", "users_policy");
+        right.as_clause = Some(Cow::Borrowed("PERMISSIVE"));
+        right.for_clause = Some(Cow::Borrowed("ALL"));
+        right.to = Some(vec![Cow::Borrowed("PUBLIC")]);
+
+        assert!(policies_equivalent(&left, &right));
     }
 }

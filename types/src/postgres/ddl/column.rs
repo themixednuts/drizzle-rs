@@ -370,6 +370,8 @@ pub struct ColumnDef {
     pub identity: Option<IdentityDef>,
     /// Array dimensions (for array types)
     pub dimensions: Option<i32>,
+    /// Column comment emitted through COMMENT ON COLUMN.
+    pub comment: Option<&'static str>,
     /// Collation name (e.g. `"en_US"`, `"C"`, `"POSIX"`, or any custom
     /// `CREATE COLLATION` value). `None` means "use the database default
     /// collation for this column type" and no `COLLATE` clause is emitted.
@@ -396,6 +398,7 @@ impl ColumnDef {
             generated: None,
             identity: None,
             dimensions: None,
+            comment: None,
             collate: None,
         }
     }
@@ -463,6 +466,15 @@ impl ColumnDef {
         }
     }
 
+    /// Set the column comment.
+    #[must_use]
+    pub const fn comment(self, comment: &'static str) -> Self {
+        Self {
+            comment: Some(comment),
+            ..self
+        }
+    }
+
     /// Set the collation for this column.
     ///
     /// PostgreSQL treats `COLLATE` identifiers as quoted names — e.g.
@@ -505,6 +517,10 @@ impl ColumnDef {
                 None => None,
             },
             dimensions: self.dimensions,
+            comment: match self.comment {
+                Some(s) => Some(Cow::Borrowed(s)),
+                None => None,
+            },
             collate: match self.collate {
                 Some(s) => Some(Cow::Borrowed(s)),
                 None => None,
@@ -582,6 +598,17 @@ pub struct Column {
     #[cfg_attr(feature = "serde", serde(default))]
     pub dimensions: Option<i32>,
 
+    /// Column comment emitted through COMMENT ON COLUMN.
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "cow_option_from_string"
+        )
+    )]
+    pub comment: Option<Cow<'static, str>>,
+
     /// Collation name (e.g. `"en_US"`, `"C"`). `None` means the database
     /// default collation and no `COLLATE` clause is emitted.
     #[cfg_attr(
@@ -620,6 +647,7 @@ impl Column {
             generated: None,
             identity: None,
             dimensions: None,
+            comment: None,
             collate: None,
             ordinal_position: None,
         }
@@ -643,6 +671,13 @@ impl Column {
     #[must_use]
     pub fn identity(mut self, identity: Identity) -> Self {
         self.identity = Some(identity);
+        self
+    }
+
+    /// Set the column comment.
+    #[must_use]
+    pub fn comment(mut self, comment: impl Into<Cow<'static, str>>) -> Self {
+        self.comment = Some(comment.into());
         self
     }
 

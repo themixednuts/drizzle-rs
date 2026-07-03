@@ -3,7 +3,7 @@
 use super::collection::{DiffType, EntityDiff};
 use super::ddl::{
     CheckConstraint, Column, Enum, ForeignKey, Index, Policy, PostgresEntity, PrimaryKey, Role,
-    Schema, Sequence, Table, UniqueConstraint, View,
+    Schema, Sequence, Table, TableSql, UniqueConstraint, View,
 };
 use crate::traits::EntityKind;
 use serde::Serialize;
@@ -11,6 +11,12 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 pub const BREAKPOINT: &str = "--> statement-breakpoint";
+
+#[derive(Debug, Clone)]
+struct CreateTableOrder {
+    ordered: Vec<String>,
+    cycle_tables: HashSet<String>,
+}
 
 // =============================================================================
 // JSON Statements
@@ -136,6 +142,18 @@ pub enum JsonStatement {
     DropPolicy {
         policy: Policy,
     },
+    AlterTable {
+        old_table: Table,
+        new_table: Table,
+    },
+    RecreateFk {
+        old_fk: ForeignKey,
+        new_fk: ForeignKey,
+    },
+    RecreateUnique {
+        old_unique: UniqueConstraint,
+        new_unique: UniqueConstraint,
+    },
     /// Recreate column by dropping and re-adding (for generated columns, type changes, etc.)
     RecreateColumn {
         old_column: Box<Column>,
@@ -168,7 +186,30 @@ pub struct RichTable {
     pub checks: Vec<CheckConstraint>,
     pub policies: Vec<Policy>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub is_rls_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_unlogged: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_temporary: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherits: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tablespace: Option<String>,
+}
+
+fn rich_table_to_table(table: &RichTable) -> Table {
+    Table {
+        schema: table.schema.clone().into(),
+        name: table.name.clone().into(),
+        is_unlogged: table.is_unlogged,
+        is_temporary: table.is_temporary,
+        inherits: table.inherits.clone().map(Into::into),
+        tablespace: table.tablespace.clone().map(Into::into),
+        is_rls_enabled: table.is_rls_enabled,
+        comment: table.comment.clone().map(Into::into),
+    }
 }
 
 // =============================================================================
@@ -257,15 +298,46 @@ impl PostgresGenerator {
 
         // 7. Process Table creations (Rich tables) in dependency order
         let sorted_creates = topological_sort_tables_for_create(&created_tables, diff);
-        for table_key in &sorted_creates {
-            let table_diff = diff
-                .iter()
-                .find(|d| &d.name == table_key && d.kind == EntityKind::Table)
-                .unwrap();
-            if let Some(PostgresEntity::Table(table)) = &table_diff.right {
-                let rich_table = Self::build_rich_table(table, diff);
-                let stmt = JsonStatement::CreateTable { table: rich_table };
-                sqls.push(Self::statement_to_sql(stmt));
+        if sorted_creates.cycle_tables.is_empty() {
+            for table_key in &sorted_creates.ordered {
+                let table_diff = diff
+                    .iter()
+                    .find(|d| &d.name == table_key && d.kind == EntityKind::Table)
+                    .unwrap();
+                if let Some(PostgresEntity::Table(table)) = &table_diff.right {
+                    let rich_table = Self::build_rich_table(table, diff);
+                    sqls.push(Self::create_table_sql(&rich_table));
+                    Self::push_created_table_extras(&mut sqls, &rich_table);
+                }
+            }
+        } else {
+            let mut deferred_fks = Vec::new();
+            let mut rich_tables = Vec::new();
+
+            for table_key in &sorted_creates.ordered {
+                let table_diff = diff
+                    .iter()
+                    .find(|d| &d.name == table_key && d.kind == EntityKind::Table)
+                    .unwrap();
+                if let Some(PostgresEntity::Table(table)) = &table_diff.right {
+                    let mut rich_table = Self::build_rich_table(table, diff);
+                    let (inline_fks, cycle_fks): (Vec<_>, Vec<_>) = rich_table
+                        .foreign_keys
+                        .into_iter()
+                        .partition(|fk| !Self::is_cycle_fk(fk, &sorted_creates.cycle_tables));
+                    rich_table.foreign_keys = inline_fks;
+                    deferred_fks.extend(cycle_fks);
+                    sqls.push(Self::create_table_sql(&rich_table));
+                    rich_tables.push(rich_table);
+                }
+            }
+
+            for fk in &deferred_fks {
+                sqls.push(Self::add_fk_sql(fk));
+            }
+
+            for rich_table in &rich_tables {
+                Self::push_created_table_extras(&mut sqls, rich_table);
             }
         }
 
@@ -279,8 +351,12 @@ impl PostgresGenerator {
                 continue;
             }
 
-            // Skip table create/drop (already handled with topo sort)
-            if d.kind == EntityKind::Table {
+            // Skip table create/drop (already handled with topo sort), but
+            // keep altered table metadata changes such as SET UNLOGGED and
+            // SET TABLESPACE.
+            if d.kind == EntityKind::Table
+                && matches!(d.diff_type, DiffType::Create | DiffType::Drop)
+            {
                 continue;
             }
 
@@ -340,6 +416,34 @@ impl PostgresGenerator {
                 }
             }
             _ => None,
+        }
+    }
+
+    fn table_key(schema: &str, table: &str) -> String {
+        format!("{schema}.{table}")
+    }
+
+    fn is_cycle_fk(fk: &ForeignKey, cycle_tables: &HashSet<String>) -> bool {
+        cycle_tables.contains(&Self::table_key(&fk.schema, &fk.table))
+            && cycle_tables.contains(&Self::table_key(&fk.schema_to, &fk.table_to))
+    }
+
+    fn push_created_table_extras(sqls: &mut Vec<String>, table: &RichTable) {
+        sqls.extend(Self::created_table_comments_sql(table));
+
+        for index in &table.indexes {
+            sqls.push(Self::create_index_sql(index));
+        }
+
+        if table.is_rls_enabled.unwrap_or(false) {
+            sqls.push(format!(
+                "ALTER TABLE {} ENABLE ROW LEVEL SECURITY;",
+                Self::qualified_name(&table.schema, &table.name)
+            ));
+        }
+
+        for policy in &table.policies {
+            sqls.push(Self::create_policy_sql(policy));
         }
     }
 
@@ -411,6 +515,10 @@ impl PostgresGenerator {
             name: table.name.to_string(),
             schema: table.schema.to_string(),
             is_rls_enabled: table.is_rls_enabled,
+            is_unlogged: table.is_unlogged,
+            is_temporary: table.is_temporary,
+            inherits: table.inherits.as_ref().map(ToString::to_string),
+            tablespace: table.tablespace.as_ref().map(ToString::to_string),
             columns,
             indexes,
             foreign_keys,
@@ -418,6 +526,7 @@ impl PostgresGenerator {
             uniques,
             checks,
             policies,
+            comment: table.comment.as_ref().map(ToString::to_string),
         }
     }
 
@@ -532,12 +641,20 @@ impl PostgresGenerator {
         match (left, right) {
             (Some(PostgresEntity::Enum(old)), Some(PostgresEntity::Enum(new))) => {
                 let mut diffs = Vec::new();
-                for val in new.values.iter() {
+                for (idx, val) in new.values.iter().enumerate() {
                     if !old.values.iter().any(|v| v == val) {
+                        let before_value = new
+                            .values
+                            .iter()
+                            .skip(idx + 1)
+                            .find(|candidate| {
+                                old.values.iter().any(|old_value| old_value == *candidate)
+                            })
+                            .map(ToString::to_string);
                         diffs.push(EnumDiff {
                             r#type: "added".to_string(),
                             value: val.to_string(),
-                            before_value: None,
+                            before_value,
                         });
                     }
                 }
@@ -571,6 +688,29 @@ impl PostgresGenerator {
                     })
                 }
             }
+            (Some(PostgresEntity::Table(old)), Some(PostgresEntity::Table(new))) => {
+                if Self::alter_table_sql(old, new).is_some() {
+                    Some(JsonStatement::AlterTable {
+                        old_table: old.clone(),
+                        new_table: new.clone(),
+                    })
+                } else {
+                    None
+                }
+            }
+            (Some(PostgresEntity::ForeignKey(old)), Some(PostgresEntity::ForeignKey(new))) => {
+                Some(JsonStatement::RecreateFk {
+                    old_fk: old.clone(),
+                    new_fk: new.clone(),
+                })
+            }
+            (
+                Some(PostgresEntity::UniqueConstraint(old)),
+                Some(PostgresEntity::UniqueConstraint(new)),
+            ) => Some(JsonStatement::RecreateUnique {
+                old_unique: old.clone(),
+                new_unique: new.clone(),
+            }),
             // PostgreSQL doesn't support ALTER VIEW for definition changes,
             // so we drop and recreate the view.
             (Some(PostgresEntity::View(old)), Some(PostgresEntity::View(new))) => {
@@ -620,10 +760,21 @@ impl PostgresGenerator {
         let mut diff = HashMap::new();
 
         // Type change
-        if old.sql_type != new.sql_type || old.type_schema != new.type_schema {
+        if old.sql_type != new.sql_type
+            || old.type_schema != new.type_schema
+            || old.dimensions != new.dimensions
+        {
             let mut type_diff = serde_json::Map::new();
             type_diff.insert("from".to_string(), serde_json::json!(old.sql_type));
             type_diff.insert("to".to_string(), serde_json::json!(new.sql_type));
+            type_diff.insert(
+                "fromDimensions".to_string(),
+                serde_json::json!(old.dimensions),
+            );
+            type_diff.insert(
+                "toDimensions".to_string(),
+                serde_json::json!(new.dimensions),
+            );
             diff.insert("type".to_string(), serde_json::Value::Object(type_diff));
 
             if old.type_schema != new.type_schema {
@@ -669,6 +820,16 @@ impl PostgresGenerator {
             diff.insert("identity".to_string(), serde_json::Value::Object(id_diff));
         }
 
+        if old.comment != new.comment {
+            let mut comment_diff = serde_json::Map::new();
+            comment_diff.insert("from".to_string(), serde_json::json!(old.comment));
+            comment_diff.insert("to".to_string(), serde_json::json!(new.comment));
+            diff.insert(
+                "comment".to_string(),
+                serde_json::Value::Object(comment_diff),
+            );
+        }
+
         diff
     }
 
@@ -676,200 +837,209 @@ impl PostgresGenerator {
         if schema == "public" {
             String::new()
         } else {
-            format!("\"{schema}\".")
+            format!("{}.", Self::quote_ident(schema))
         }
+    }
+
+    fn quote_ident(ident: &str) -> String {
+        format!("\"{}\"", ident.replace('"', "\"\""))
+    }
+
+    fn quote_literal(value: &str) -> String {
+        format!("'{}'", value.replace('\'', "''"))
+    }
+
+    fn qualified_name(schema: &str, name: &str) -> String {
+        format!("{}{}", Self::schema_prefix(schema), Self::quote_ident(name))
+    }
+
+    fn comment_value_sql(comment: Option<&str>) -> String {
+        comment.map_or_else(|| "NULL".to_string(), Self::quote_literal)
+    }
+
+    fn comment_on_table_sql(schema: &str, table: &str, comment: Option<&str>) -> String {
+        format!(
+            "COMMENT ON TABLE {} IS {};",
+            Self::qualified_name(schema, table),
+            Self::comment_value_sql(comment)
+        )
+    }
+
+    fn comment_on_column_sql(
+        schema: &str,
+        table: &str,
+        column: &str,
+        comment: Option<&str>,
+    ) -> String {
+        format!(
+            "COMMENT ON COLUMN {}.{} IS {};",
+            Self::qualified_name(schema, table),
+            Self::quote_ident(column),
+            Self::comment_value_sql(comment)
+        )
+    }
+
+    fn created_table_comments_sql(table: &RichTable) -> Vec<String> {
+        let ddl_table = rich_table_to_table(table);
+        TableSql::new(&ddl_table)
+            .columns(&table.columns)
+            .create_comments_sql()
+    }
+
+    fn column_type_sql(col: &Column) -> String {
+        let mut sql = col.sql_type.to_string();
+        if let Some(dimensions) = col.dimensions
+            && dimensions > 0
+        {
+            for _ in 0..dimensions {
+                sql.push_str("[]");
+            }
+        }
+        sql
+    }
+
+    fn identity_sql(col: &Column, id: &super::ddl::Identity) -> Option<String> {
+        use super::ddl::IdentityType;
+        use super::grammar::PgTypeCategory;
+
+        if PgTypeCategory::from_sql_type(&col.sql_type).is_serial() {
+            return None;
+        }
+
+        let type_str = match id.type_ {
+            IdentityType::Always => "ALWAYS",
+            IdentityType::ByDefault => "BY DEFAULT",
+        };
+
+        let mut sql = format!(" GENERATED {type_str} AS IDENTITY");
+        let mut options = Vec::new();
+        if let Some(increment) = id.increment.as_ref() {
+            options.push(format!("INCREMENT BY {increment}"));
+        }
+        if let Some(min) = id.min_value.as_ref() {
+            options.push(format!("MINVALUE {min}"));
+        }
+        if let Some(max) = id.max_value.as_ref() {
+            options.push(format!("MAXVALUE {max}"));
+        }
+        if let Some(start) = id.start_with.as_ref() {
+            options.push(format!("START WITH {start}"));
+        }
+        if let Some(cache) = id.cache {
+            options.push(format!("CACHE {cache}"));
+        }
+        if id.cycle.unwrap_or(false) {
+            options.push("CYCLE".to_string());
+        }
+        if !options.is_empty() {
+            let _ = write!(sql, " ({})", options.join(" "));
+        }
+        Some(sql)
     }
 
     fn create_sequence_sql(s: &super::ddl::Sequence) -> String {
-        let schema_prefix = Self::schema_prefix(&s.schema);
-        let mut sql = format!("CREATE SEQUENCE {}\"{}\"", schema_prefix, s.name);
-        if let Some(ref inc) = s.increment_by {
-            let _ = write!(sql, " INCREMENT BY {inc}");
-        }
-        if let Some(ref min) = s.min_value {
-            let _ = write!(sql, " MINVALUE {min}");
-        }
-        if let Some(ref max) = s.max_value {
-            let _ = write!(sql, " MAXVALUE {max}");
-        }
-        if let Some(ref start) = s.start_with {
-            let _ = write!(sql, " START WITH {start}");
-        }
-        if let Some(cache) = s.cache_size {
-            let _ = write!(sql, " CACHE {cache}");
-        }
-        if s.cycle.unwrap_or(false) {
-            sql.push_str(" CYCLE");
-        }
-        sql.push(';');
-        sql
+        s.create_sequence_sql()
     }
 
     fn create_table_sql(table: &RichTable) -> String {
-        let schema_prefix = Self::schema_prefix(&table.schema);
-        let mut sql = format!("CREATE TABLE {}\"{}\" (\n", schema_prefix, table.name);
-        let mut lines = Vec::new();
-
-        for col in &table.columns {
-            lines.push(format!("\t{}", Self::column_def(col)));
-        }
-
-        if let Some(pk) = &table.pk {
-            let cols = pk
-                .columns
-                .iter()
-                .map(|c| format!("\"{c}\""))
-                .collect::<Vec<_>>()
-                .join(", ");
-            if pk.name_explicit {
-                lines.push(format!(
-                    "\tCONSTRAINT \"{}\" PRIMARY KEY({})",
-                    pk.name, cols
-                ));
-            } else {
-                lines.push(format!("\tPRIMARY KEY({cols})"));
-            }
-        }
-
-        for fk in &table.foreign_keys {
-            lines.push(format!("\t{}", Self::fk_def(fk)));
-        }
-
-        for u in &table.uniques {
-            let cols = u
-                .columns
-                .iter()
-                .map(|c| format!("\"{c}\""))
-                .collect::<Vec<_>>()
-                .join(", ");
-            lines.push(format!("\tCONSTRAINT \"{}\" UNIQUE({})", u.name, cols));
-        }
-
-        for c in &table.checks {
-            lines.push(format!("\tCONSTRAINT \"{}\" CHECK ({})", c.name, c.value));
-        }
-
-        sql.push_str(&lines.join(",\n"));
-        sql.push_str("\n);");
-        sql
+        let ddl_table = rich_table_to_table(table);
+        TableSql::new(&ddl_table)
+            .columns(&table.columns)
+            .primary_key(table.pk.as_ref())
+            .foreign_keys(&table.foreign_keys)
+            .unique_constraints(&table.uniques)
+            .check_constraints(&table.checks)
+            .create_table_sql()
     }
 
     fn drop_constraint_sql(schema: &str, table: &str, name: &str) -> String {
         format!(
-            "ALTER TABLE {}\"{}\" DROP CONSTRAINT \"{}\";",
-            Self::schema_prefix(schema),
-            table,
-            name
+            "ALTER TABLE {} DROP CONSTRAINT {};",
+            Self::qualified_name(schema, table),
+            Self::quote_ident(name)
         )
     }
 
     fn create_enum_sql(e: &super::ddl::Enum) -> String {
-        let values = e
-            .values
-            .iter()
-            .map(|v| format!("'{v}'"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!(
-            "CREATE TYPE {}\"{}\" AS ENUM ({});",
-            Self::schema_prefix(&e.schema),
-            e.name,
-            values
-        )
+        e.create_enum_sql()
     }
 
     fn alter_enum_sql(to: &super::ddl::Enum, diff: &[EnumDiff]) -> String {
-        let schema_prefix = Self::schema_prefix(&to.schema);
         diff.iter()
-            .map(|d| {
-                format!(
-                    "ALTER TYPE {}\"{}\" ADD VALUE '{}';",
-                    schema_prefix, to.name, d.value
-                )
-            })
+            .map(|d| to.add_value_sql(&d.value, d.before_value.as_deref()))
             .collect::<Vec<_>>()
             .join("\n")
     }
 
     fn add_pk_sql(pk: &super::ddl::PrimaryKey) -> String {
-        let cols = pk
-            .columns
-            .iter()
-            .map(|c| format!("\"{c}\""))
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!(
-            "ALTER TABLE {}\"{}\" ADD CONSTRAINT \"{}\" PRIMARY KEY ({});",
-            Self::schema_prefix(&pk.schema),
-            pk.table,
-            pk.name,
-            cols
-        )
+        pk.add_pk_sql()
     }
 
     fn add_unique_sql(unique: &super::ddl::UniqueConstraint) -> String {
-        let cols = unique
-            .columns
-            .iter()
-            .map(|c| format!("\"{c}\""))
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!(
-            "ALTER TABLE {}\"{}\" ADD CONSTRAINT \"{}\" UNIQUE ({});",
-            Self::schema_prefix(&unique.schema),
-            unique.table,
-            unique.name,
-            cols
-        )
+        unique.add_unique_sql()
     }
 
     fn recreate_column_sql(old_column: &Column, new_column: &Column) -> String {
         // Recreate column by dropping and adding.
         // Used for adding generated expressions, which PostgreSQL doesn't support via ALTER.
-        let table_key = format!(
-            "{}\"{}\"",
-            Self::schema_prefix(&new_column.schema),
-            new_column.table
-        );
+        let table_key = Self::qualified_name(&new_column.schema, &new_column.table);
         let drop_sql = format!(
-            "ALTER TABLE {} DROP COLUMN \"{}\";",
-            table_key, old_column.name
+            "ALTER TABLE {} DROP COLUMN {};",
+            table_key,
+            Self::quote_ident(&old_column.name)
         );
         let add_sql = format!(
             "ALTER TABLE {} ADD COLUMN {};",
             table_key,
-            Self::column_def(new_column)
+            new_column.to_column_sql()
         );
-        format!("{drop_sql}\n{add_sql}")
+        if new_column.comment.is_some() {
+            format!(
+                "{drop_sql}\n{add_sql}\n{}",
+                Self::comment_on_column_sql(
+                    &new_column.schema,
+                    &new_column.table,
+                    &new_column.name,
+                    new_column.comment.as_deref(),
+                )
+            )
+        } else {
+            format!("{drop_sql}\n{add_sql}")
+        }
     }
 
     fn add_column_sql(column: &Column, is_pk: bool) -> String {
         let pk_clause = if is_pk { " PRIMARY KEY" } else { "" };
-        format!(
-            "ALTER TABLE {}\"{}\" ADD COLUMN {}{};",
-            Self::schema_prefix(&column.schema),
-            column.table,
-            Self::column_def(column),
+        let add_sql = format!(
+            "ALTER TABLE {} ADD COLUMN {}{};",
+            Self::qualified_name(&column.schema, &column.table),
+            column.to_column_sql(),
             pk_clause
-        )
+        );
+        if column.comment.is_some() {
+            format!(
+                "{add_sql}\n{}",
+                Self::comment_on_column_sql(
+                    &column.schema,
+                    &column.table,
+                    &column.name,
+                    column.comment.as_deref(),
+                )
+            )
+        } else {
+            add_sql
+        }
     }
 
     fn add_check_sql(check: &super::ddl::CheckConstraint) -> String {
-        format!(
-            "ALTER TABLE {}\"{}\" ADD CONSTRAINT \"{}\" CHECK ({});",
-            Self::schema_prefix(&check.schema),
-            check.table,
-            check.name,
-            check.value
-        )
+        check.add_check_sql()
     }
 
     fn drop_policy_sql(policy: &super::ddl::Policy) -> String {
         format!(
-            "DROP POLICY \"{}\" ON {}\"{}\";",
-            policy.name,
-            Self::schema_prefix(&policy.schema),
-            policy.table
+            "DROP POLICY {} ON {};",
+            Self::quote_ident(&policy.name),
+            Self::qualified_name(&policy.schema, &policy.table)
         )
     }
 
@@ -881,51 +1051,52 @@ impl PostgresGenerator {
         format!("{drop_sql}\n{create_sql}")
     }
 
-    fn statement_to_sql(stmt: JsonStatement) -> String {
+    pub(crate) fn statement_to_sql(stmt: JsonStatement) -> String {
         match stmt {
-            JsonStatement::CreateSchema { name } => format!("CREATE SCHEMA \"{name}\";"),
-            JsonStatement::DropSchema { name } => format!("DROP SCHEMA \"{name}\";"),
+            JsonStatement::CreateSchema { name } => {
+                format!("CREATE SCHEMA {};", Self::quote_ident(&name))
+            }
+            JsonStatement::DropSchema { name } => {
+                format!("DROP SCHEMA {};", Self::quote_ident(&name))
+            }
             JsonStatement::RenameSchema { from, to } => {
-                format!("ALTER SCHEMA \"{}\" RENAME TO \"{}\";", from.name, to.name)
+                format!(
+                    "ALTER SCHEMA {} RENAME TO {};",
+                    Self::quote_ident(&from.name),
+                    Self::quote_ident(&to.name)
+                )
             }
             JsonStatement::CreateEnum { enum_: e } => Self::create_enum_sql(&e),
             JsonStatement::DropEnum { enum_: e } => {
-                format!(
-                    "DROP TYPE {}\"{}\";",
-                    Self::schema_prefix(&e.schema),
-                    e.name
-                )
+                format!("DROP TYPE {};", Self::qualified_name(&e.schema, &e.name))
             }
             JsonStatement::AlterEnum { from: _, to, diff } => Self::alter_enum_sql(&to, &diff),
             JsonStatement::CreateSequence { sequence: s } => Self::create_sequence_sql(&s),
             JsonStatement::DropSequence { sequence: s } => format!(
-                "DROP SEQUENCE {}\"{}\";",
-                Self::schema_prefix(&s.schema),
-                s.name
+                "DROP SEQUENCE {};",
+                Self::qualified_name(&s.schema, &s.name)
             ),
             JsonStatement::CreateTable { table } => Self::create_table_sql(&table),
             JsonStatement::DropTable { table, .. } => format!(
-                "DROP TABLE {}\"{}\";",
-                Self::schema_prefix(&table.schema),
-                table.name
+                "DROP TABLE {};",
+                Self::qualified_name(&table.schema, &table.name)
             ),
             JsonStatement::RenameTable { schema, from, to } => format!(
-                "ALTER TABLE {}\"{from}\" RENAME TO \"{to}\";",
-                Self::schema_prefix(&schema)
+                "ALTER TABLE {} RENAME TO {};",
+                Self::qualified_name(&schema, &from),
+                Self::quote_ident(&to)
             ),
             JsonStatement::AddColumn { column, is_pk, .. } => Self::add_column_sql(&column, is_pk),
             JsonStatement::DropColumn { column } => format!(
-                "ALTER TABLE {}\"{}\" DROP COLUMN \"{}\";",
-                Self::schema_prefix(&column.schema),
-                column.table,
-                column.name
+                "ALTER TABLE {} DROP COLUMN {};",
+                Self::qualified_name(&column.schema, &column.table),
+                Self::quote_ident(&column.name)
             ),
             JsonStatement::RenameColumn { from, to } => format!(
-                "ALTER TABLE {}\"{}\" RENAME COLUMN \"{}\" TO \"{}\";",
-                Self::schema_prefix(&from.schema),
-                from.table,
-                from.name,
-                to.name
+                "ALTER TABLE {} RENAME COLUMN {} TO {};",
+                Self::qualified_name(&from.schema, &from.table),
+                Self::quote_ident(&from.name),
+                Self::quote_ident(&to.name)
             ),
             JsonStatement::AlterColumn { to, diff, .. } => Self::alter_column_sql(&to, &diff),
             JsonStatement::RecreateColumn {
@@ -934,16 +1105,10 @@ impl PostgresGenerator {
             } => Self::recreate_column_sql(&old_column, &new_column),
             JsonStatement::CreateIndex { index } => Self::create_index_sql(&index),
             JsonStatement::DropIndex { index } => format!(
-                "DROP INDEX {}\"{}\";",
-                Self::schema_prefix(&index.schema),
-                index.name
+                "DROP INDEX {};",
+                Self::qualified_name(&index.schema, &index.name)
             ),
-            JsonStatement::CreateFk { fk } => format!(
-                "ALTER TABLE {}\"{}\" ADD {};",
-                Self::schema_prefix(&fk.schema),
-                fk.table,
-                Self::fk_def(&fk)
-            ),
+            JsonStatement::CreateFk { fk } => Self::add_fk_sql(&fk),
             JsonStatement::DropFk { fk } => {
                 Self::drop_constraint_sql(&fk.schema, &fk.table, &fk.name)
             }
@@ -965,67 +1130,38 @@ impl PostgresGenerator {
                 Self::drop_constraint_sql(&check.schema, &check.table, &check.name)
             }
             JsonStatement::CreateRole { role } => Self::create_role_sql(&role),
-            JsonStatement::DropRole { role } => format!("DROP ROLE \"{}\";", role.name),
+            JsonStatement::DropRole { role } => {
+                format!("DROP ROLE {};", Self::quote_ident(&role.name))
+            }
             JsonStatement::CreatePolicy { policy } => Self::create_policy_sql(&policy),
             JsonStatement::DropPolicy { policy } => Self::drop_policy_sql(&policy),
+            JsonStatement::AlterTable {
+                old_table,
+                new_table,
+            } => Self::alter_table_sql(&old_table, &new_table)
+                .expect("alter table statement was prechecked"),
+            JsonStatement::RecreateFk { old_fk, new_fk } => format!(
+                "{}\n{}",
+                Self::drop_constraint_sql(&old_fk.schema, &old_fk.table, &old_fk.name),
+                Self::add_fk_sql(&new_fk)
+            ),
+            JsonStatement::RecreateUnique {
+                old_unique,
+                new_unique,
+            } => format!(
+                "{}\n{}",
+                Self::drop_constraint_sql(&old_unique.schema, &old_unique.table, &old_unique.name),
+                Self::add_unique_sql(&new_unique)
+            ),
         }
     }
 
     fn create_index_sql(index: &Index) -> String {
-        let unique = if index.is_unique { "UNIQUE " } else { "" };
-        let concurrently = if index.concurrently {
-            " CONCURRENTLY"
-        } else {
-            ""
-        };
-        let schema_prefix = Self::schema_prefix(&index.schema);
-
-        let cols = index
-            .columns
-            .iter()
-            .map(|c| {
-                let val = if c.is_expression {
-                    c.value.to_string()
-                } else {
-                    format!("\"{}\"", c.value)
-                };
-                let order = if c.asc { "" } else { " DESC" };
-                let nulls = if c.nulls_first {
-                    " NULLS FIRST"
-                } else {
-                    " NULLS LAST"
-                };
-                format!("{val}{order}{nulls}")
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        format!(
-            "CREATE {}INDEX{} \"{}\" ON {}\"{}\" USING {} ({});",
-            unique,
-            concurrently,
-            index.name,
-            schema_prefix,
-            index.table,
-            index.method.as_deref().unwrap_or("btree"),
-            cols
-        )
+        index.create_index_sql()
     }
 
     fn create_view_sql(view: &View) -> String {
-        let mat = if view.materialized {
-            "MATERIALIZED "
-        } else {
-            ""
-        };
-        let def = view.definition.as_deref().unwrap_or("");
-        format!(
-            "CREATE {}VIEW {}\"{}\" AS {};",
-            mat,
-            Self::schema_prefix(&view.schema),
-            view.name,
-            def
-        )
+        view.create_view_sql()
     }
 
     fn drop_view_sql(view: &View) -> String {
@@ -1035,35 +1171,40 @@ impl PostgresGenerator {
             ""
         };
         format!(
-            "DROP {}VIEW {}\"{}\";",
+            "DROP {}VIEW {};",
             mat,
-            Self::schema_prefix(&view.schema),
-            view.name
+            Self::qualified_name(&view.schema, &view.name)
         )
     }
 
     fn alter_column_sql(to: &Column, diff: &HashMap<String, serde_json::Value>) -> String {
-        let table_key = format!("{}\"{}\"", Self::schema_prefix(&to.schema), to.table);
+        let table_key = Self::qualified_name(&to.schema, &to.table);
         let mut stmts = Vec::new();
 
         if diff.contains_key("type") {
-            let using_clause = format!(" USING \"{}\"::{}", to.name, to.sql_type);
+            let type_sql = Self::column_type_sql(to);
+            let using_clause = format!(" USING {}::{type_sql}", Self::quote_ident(&to.name));
             stmts.push(format!(
-                "ALTER TABLE {} ALTER COLUMN \"{}\" SET DATA TYPE {}{};",
-                table_key, to.name, to.sql_type, using_clause
+                "ALTER TABLE {} ALTER COLUMN {} SET DATA TYPE {}{};",
+                table_key,
+                Self::quote_ident(&to.name),
+                type_sql,
+                using_clause
             ));
         }
 
         if diff.contains_key("notNull") {
             if to.not_null {
                 stmts.push(format!(
-                    "ALTER TABLE {} ALTER COLUMN \"{}\" SET NOT NULL;",
-                    table_key, to.name
+                    "ALTER TABLE {} ALTER COLUMN {} SET NOT NULL;",
+                    table_key,
+                    Self::quote_ident(&to.name)
                 ));
             } else {
                 stmts.push(format!(
-                    "ALTER TABLE {} ALTER COLUMN \"{}\" DROP NOT NULL;",
-                    table_key, to.name
+                    "ALTER TABLE {} ALTER COLUMN {} DROP NOT NULL;",
+                    table_key,
+                    Self::quote_ident(&to.name)
                 ));
             }
         }
@@ -1071,21 +1212,25 @@ impl PostgresGenerator {
         if diff.contains_key("default") {
             if let Some(default) = &to.default {
                 stmts.push(format!(
-                    "ALTER TABLE {} ALTER COLUMN \"{}\" SET DEFAULT {};",
-                    table_key, to.name, default
+                    "ALTER TABLE {} ALTER COLUMN {} SET DEFAULT {};",
+                    table_key,
+                    Self::quote_ident(&to.name),
+                    default
                 ));
             } else {
                 stmts.push(format!(
-                    "ALTER TABLE {} ALTER COLUMN \"{}\" DROP DEFAULT;",
-                    table_key, to.name
+                    "ALTER TABLE {} ALTER COLUMN {} DROP DEFAULT;",
+                    table_key,
+                    Self::quote_ident(&to.name)
                 ));
             }
         }
 
         if diff.contains_key("generated") && to.generated.is_none() {
             stmts.push(format!(
-                "ALTER TABLE {} ALTER COLUMN \"{}\" DROP EXPRESSION;",
-                table_key, to.name
+                "ALTER TABLE {} ALTER COLUMN {} DROP EXPRESSION;",
+                table_key,
+                Self::quote_ident(&to.name)
             ));
         }
 
@@ -1093,21 +1238,30 @@ impl PostgresGenerator {
             && !super::grammar::PgTypeCategory::from_sql_type(&to.sql_type).is_serial()
         {
             if let Some(id) = &to.identity {
-                use super::ddl::IdentityType;
-                let type_str = match id.type_ {
-                    IdentityType::Always => "ALWAYS",
-                    IdentityType::ByDefault => "BY DEFAULT",
-                };
-                stmts.push(format!(
-                    "ALTER TABLE {} ALTER COLUMN \"{}\" ADD GENERATED {} AS IDENTITY;",
-                    table_key, to.name, type_str
-                ));
+                if let Some(identity_sql) = Self::identity_sql(to, id) {
+                    stmts.push(format!(
+                        "ALTER TABLE {} ALTER COLUMN {} ADD{};",
+                        table_key,
+                        Self::quote_ident(&to.name),
+                        identity_sql
+                    ));
+                }
             } else {
                 stmts.push(format!(
-                    "ALTER TABLE {} ALTER COLUMN \"{}\" DROP IDENTITY;",
-                    table_key, to.name
+                    "ALTER TABLE {} ALTER COLUMN {} DROP IDENTITY;",
+                    table_key,
+                    Self::quote_ident(&to.name)
                 ));
             }
+        }
+
+        if diff.contains_key("comment") {
+            stmts.push(Self::comment_on_column_sql(
+                &to.schema,
+                &to.table,
+                &to.name,
+                to.comment.as_deref(),
+            ));
         }
 
         if stmts.is_empty() {
@@ -1118,7 +1272,7 @@ impl PostgresGenerator {
     }
 
     fn create_role_sql(role: &super::ddl::Role) -> String {
-        let mut sql = format!("CREATE ROLE \"{}\"", role.name);
+        let mut sql = format!("CREATE ROLE {}", Self::quote_ident(&role.name));
         if role.create_db.unwrap_or(false) {
             sql.push_str(" CREATEDB");
         }
@@ -1135,102 +1289,44 @@ impl PostgresGenerator {
     }
 
     fn create_policy_sql(policy: &super::ddl::Policy) -> String {
-        let schema_prefix = Self::schema_prefix(&policy.schema);
-        let mut sql = format!(
-            "CREATE POLICY \"{}\" ON {}\"{}\"",
-            policy.name, schema_prefix, policy.table
-        );
-        if let Some(as_clause) = &policy.as_clause {
-            let _ = write!(sql, " AS {as_clause}");
-        }
-        if let Some(for_clause) = &policy.for_clause {
-            let _ = write!(sql, " FOR {for_clause}");
-        }
-        if let Some(to) = &policy.to {
-            let to_list: Vec<&str> = to.iter().map(std::convert::AsRef::as_ref).collect();
-            let _ = write!(sql, " TO {}", to_list.join(", "));
-        }
-        if let Some(using) = &policy.using {
-            let _ = write!(sql, " USING ({using})");
-        }
-        if let Some(with_check) = &policy.with_check {
-            let _ = write!(sql, " WITH CHECK ({with_check})");
-        }
-        sql.push(';');
-        sql
+        policy.create_policy_sql()
     }
 
-    fn column_def(col: &Column) -> String {
-        let mut def = format!("\"{}\" {}", col.name, col.sql_type);
-        if col.not_null {
-            def.push_str(" NOT NULL");
-        }
-        if let Some(default) = &col.default {
-            let _ = write!(def, " DEFAULT {default}");
-        }
-
-        if let Some(generated_col) = &col.generated {
-            use super::ddl::GeneratedType;
-            let generated_type = match generated_col.gen_type {
-                GeneratedType::Stored => "STORED",
-                GeneratedType::Virtual => "VIRTUAL",
-            };
-            let _ = write!(
-                def,
-                " GENERATED ALWAYS AS ({}) {generated_type}",
-                generated_col.expression
-            );
-        }
-
-        // Only emit GENERATED AS IDENTITY for non-serial types. SERIAL
-        // already implies DEFAULT nextval(...) and combining the two is
-        // invalid in PostgreSQL.
-        if let Some(id) = &col.identity {
-            use super::grammar::PgTypeCategory;
-            if !PgTypeCategory::from_sql_type(&col.sql_type).is_serial() {
-                use super::ddl::IdentityType;
-                let type_str = match id.type_ {
-                    IdentityType::Always => "ALWAYS",
-                    IdentityType::ByDefault => "BY DEFAULT",
-                };
-                let _ = write!(def, " GENERATED {type_str} AS IDENTITY");
-            }
-        }
-
-        def
+    fn add_fk_sql(fk: &ForeignKey) -> String {
+        fk.add_fk_sql()
     }
 
-    fn fk_def(fk: &ForeignKey) -> String {
-        let cols_from = fk
-            .columns
-            .iter()
-            .map(|c| format!("\"{c}\""))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let cols_to = fk
-            .columns_to
-            .iter()
-            .map(|c| format!("\"{c}\""))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let schema_to_prefix = if fk.schema_to == "public" {
-            String::new()
+    fn alter_table_sql(old: &Table, new: &Table) -> Option<String> {
+        let mut stmts = Vec::new();
+        let table_name = Self::qualified_name(&new.schema, &new.name);
+        let old_unlogged = old.is_unlogged.unwrap_or(false);
+        let new_unlogged = new.is_unlogged.unwrap_or(false);
+        if old_unlogged != new_unlogged {
+            let logged = if new_unlogged { "UNLOGGED" } else { "LOGGED" };
+            stmts.push(format!("ALTER TABLE {table_name} SET {logged};"));
+        }
+
+        if old.tablespace.as_deref() != new.tablespace.as_deref() {
+            let tablespace = new.tablespace.as_deref().unwrap_or("pg_default");
+            stmts.push(format!(
+                "ALTER TABLE {table_name} SET TABLESPACE {};",
+                Self::quote_ident(tablespace)
+            ));
+        }
+
+        if old.comment.as_deref() != new.comment.as_deref() {
+            stmts.push(Self::comment_on_table_sql(
+                &new.schema,
+                &new.name,
+                new.comment.as_deref(),
+            ));
+        }
+
+        if stmts.is_empty() {
+            None
         } else {
-            format!("\"{}\".", fk.schema_to)
-        };
-
-        let mut def = format!(
-            "CONSTRAINT \"{}\" FOREIGN KEY ({}) REFERENCES {}\"{}\"({})",
-            fk.name, cols_from, schema_to_prefix, fk.table_to, cols_to
-        );
-
-        if let Some(on_delete) = &fk.on_delete {
-            let _ = write!(def, " ON DELETE {on_delete}");
+            Some(stmts.join("\n"))
         }
-        if let Some(on_update) = &fk.on_update {
-            let _ = write!(def, " ON UPDATE {on_update}");
-        }
-        def
     }
 }
 
@@ -1239,9 +1335,15 @@ impl PostgresGenerator {
 // =============================================================================
 
 /// Topological sort tables for CREATE: referenced tables come first
-fn topological_sort_tables_for_create(table_keys: &[String], diff: &[EntityDiff]) -> Vec<String> {
+fn topological_sort_tables_for_create(
+    table_keys: &[String],
+    diff: &[EntityDiff],
+) -> CreateTableOrder {
     if table_keys.len() <= 1 {
-        return table_keys.to_vec();
+        return CreateTableOrder {
+            ordered: table_keys.to_vec(),
+            cycle_tables: HashSet::new(),
+        };
     }
 
     // Build a set of table keys for quick lookup
@@ -1276,6 +1378,7 @@ fn topological_sort_tables_for_create(table_keys: &[String], diff: &[EntityDiff]
     let mut result = Vec::new();
     let mut remaining: HashSet<String> = table_keys.iter().cloned().collect();
     let mut satisfied: HashSet<String> = HashSet::new();
+    let mut cycle_tables = HashSet::new();
 
     while !remaining.is_empty() {
         // Find tables whose dependencies are all satisfied
@@ -1290,7 +1393,9 @@ fn topological_sort_tables_for_create(table_keys: &[String], diff: &[EntityDiff]
             .collect();
 
         if ready.is_empty() {
-            // Circular dependency - just add remaining in any order
+            // Circular dependency: create remaining tables without their cycle FKs,
+            // then add those constraints after all tables exist.
+            cycle_tables = remaining.clone();
             result.extend(remaining);
             break;
         }
@@ -1302,12 +1407,15 @@ fn topological_sort_tables_for_create(table_keys: &[String], diff: &[EntityDiff]
         }
     }
 
-    result
+    CreateTableOrder {
+        ordered: result,
+        cycle_tables,
+    }
 }
 
 /// Topological sort tables for DROP: tables with FKs come first (reverse of create)
 fn topological_sort_tables_for_drop(table_keys: &[String], diff: &[EntityDiff]) -> Vec<String> {
     // For drops, reverse the create order: tables that reference others drop first
     let create_order = topological_sort_tables_for_create(table_keys, diff);
-    create_order.into_iter().rev().collect()
+    create_order.ordered.into_iter().rev().collect()
 }

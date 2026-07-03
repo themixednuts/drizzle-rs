@@ -278,12 +278,12 @@ mod tests {
         let pk = PrimaryKey::from_strings(
             "public".to_string(),
             "users".to_string(),
-            "users_pk".to_string(),
+            "users_pkey".to_string(),
             vec!["id".to_string()],
         );
         assert_eq!(pk.schema(), "public");
         assert_eq!(pk.table(), "users");
-        assert_eq!(pk.name(), "users_pk");
+        assert_eq!(pk.name(), "users_pkey");
         assert_eq!(pk.columns.len(), 1);
     }
 }

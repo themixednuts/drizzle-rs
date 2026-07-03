@@ -449,7 +449,12 @@ fn add_postgres_table_entities(
     snapshot.add_entity(PostgresEntity::Table(Table {
         schema: schema_name.clone().into(),
         name: table_name.clone().into(),
+        is_unlogged: None,
+        is_temporary: None,
+        inherits: None,
+        tablespace: None,
         is_rls_enabled: None,
+        comment: None,
     }));
 
     let mut pk_columns = Vec::new();
@@ -684,6 +689,7 @@ fn build_postgres_column(
         generated,
         identity,
         dimensions: None,
+        comment: None,
         collate: field_marker_value(field, "collate").map(Cow::Owned),
         ordinal_position: None,
     }
@@ -769,6 +775,8 @@ fn build_postgres_foreign_key(
         columns_to: Cow::Owned(vec![Cow::Owned(ref_column)]),
         on_update: field.on_update().map(Cow::Owned),
         on_delete: field.on_delete().map(Cow::Owned),
+        deferrable: false,
+        initially_deferred: false,
     })
 }
 

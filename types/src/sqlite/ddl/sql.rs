@@ -11,6 +11,10 @@ use super::{
     PrimaryKey, Table, UniqueConstraint, View,
 };
 
+fn quote_ident(ident: &str) -> String {
+    format!("`{}`", ident.replace('`', "``"))
+}
+
 // =============================================================================
 // Table SQL Generation
 // =============================================================================
@@ -78,7 +82,7 @@ impl<'a> TableSql<'a> {
     /// Generate CREATE TABLE SQL
     #[must_use]
     pub fn create_table_sql(&self) -> String {
-        let mut sql = format!("CREATE TABLE `{}` (\n", self.table.name());
+        let mut sql = format!("CREATE TABLE {} (\n", quote_ident(self.table.name()));
 
         let mut lines = Vec::new();
 
@@ -109,12 +113,12 @@ impl<'a> TableSql<'a> {
             let cols = pk
                 .columns
                 .iter()
-                .map(|c| format!("`{c}`"))
+                .map(|c| quote_ident(c))
                 .collect::<Vec<_>>()
                 .join(", ");
             lines.push(format!(
-                "\tCONSTRAINT `{}` PRIMARY KEY({})",
-                pk.name(),
+                "\tCONSTRAINT {} PRIMARY KEY({})",
+                quote_ident(pk.name()),
                 cols
             ));
         }
@@ -133,17 +137,21 @@ impl<'a> TableSql<'a> {
             let cols = unique
                 .columns
                 .iter()
-                .map(|c| format!("`{c}`"))
+                .map(|c| quote_ident(c))
                 .collect::<Vec<_>>()
                 .join(", ");
-            lines.push(format!("\tCONSTRAINT `{}` UNIQUE({})", unique.name(), cols));
+            lines.push(format!(
+                "\tCONSTRAINT {} UNIQUE({})",
+                quote_ident(unique.name()),
+                cols
+            ));
         }
 
         // Check constraints
         for check in self.check_constraints {
             lines.push(format!(
-                "\tCONSTRAINT `{}` CHECK({})",
-                check.name(),
+                "\tCONSTRAINT {} CHECK({})",
+                quote_ident(check.name()),
                 check.value
             ));
         }
@@ -152,11 +160,15 @@ impl<'a> TableSql<'a> {
         sql.push_str("\n)");
 
         // Table options
+        let mut options = Vec::new();
         if self.table.without_rowid {
-            sql.push_str(" WITHOUT ROWID");
+            options.push("WITHOUT ROWID");
         }
         if self.table.strict {
-            sql.push_str(" STRICT");
+            options.push("STRICT");
+        }
+        if !options.is_empty() {
+            let _ = write!(sql, " {}", options.join(", "));
         }
 
         sql.push(';');
@@ -166,7 +178,7 @@ impl<'a> TableSql<'a> {
     /// Generate DROP TABLE SQL
     #[must_use]
     pub fn drop_table_sql(&self) -> String {
-        format!("DROP TABLE `{}`;", self.table.name())
+        format!("DROP TABLE {};", quote_ident(self.table.name()))
     }
 }
 
@@ -178,13 +190,19 @@ impl Column {
     /// Generate the column definition SQL (without leading/trailing punctuation)
     #[must_use]
     pub fn to_column_sql(&self, inline_pk: bool, inline_unique: bool) -> String {
-        let mut sql = format!("`{}` {}", self.name(), self.sql_type().to_uppercase());
+        let mut sql = format!(
+            "{} {}",
+            quote_ident(self.name()),
+            self.sql_type().to_uppercase()
+        );
 
         if inline_pk {
             sql.push_str(" PRIMARY KEY");
             if self.autoincrement.unwrap_or(false) {
                 sql.push_str(" AUTOINCREMENT");
             }
+        } else if self.autoincrement.unwrap_or(false) {
+            sql.push_str(" AUTOINCREMENT");
         }
 
         if let Some(default) = self.default.as_ref() {
@@ -217,8 +235,8 @@ impl Column {
     #[must_use]
     pub fn add_column_sql(&self) -> String {
         format!(
-            "ALTER TABLE `{}` ADD COLUMN {};",
-            self.table(),
+            "ALTER TABLE {} ADD COLUMN {};",
+            quote_ident(self.table()),
             self.to_column_sql(false, false)
         )
     }
@@ -227,9 +245,9 @@ impl Column {
     #[must_use]
     pub fn drop_column_sql(&self) -> String {
         format!(
-            "ALTER TABLE `{}` DROP COLUMN `{}`;",
-            self.table(),
-            self.name()
+            "ALTER TABLE {} DROP COLUMN {};",
+            quote_ident(self.table()),
+            quote_ident(self.name())
         )
     }
 }
@@ -261,22 +279,22 @@ impl ForeignKey {
         let from_cols = self
             .columns
             .iter()
-            .map(|c| format!("`{c}`"))
+            .map(|c| quote_ident(c))
             .collect::<Vec<_>>()
             .join(", ");
 
         let to_cols = self
             .columns_to
             .iter()
-            .map(|c| format!("`{c}`"))
+            .map(|c| quote_ident(c))
             .collect::<Vec<_>>()
             .join(", ");
 
         let mut sql = format!(
-            "CONSTRAINT `{}` FOREIGN KEY ({}) REFERENCES `{}`({})",
-            self.name(),
+            "CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {}({})",
+            quote_ident(self.name()),
             from_cols,
-            self.table_to,
+            quote_ident(&self.table_to),
             to_cols
         );
 
@@ -301,9 +319,9 @@ impl ForeignKey {
         // SQLite doesn't support ADD CONSTRAINT for foreign keys directly
         // This would require table recreation
         format!(
-            "-- SQLite requires table recreation to add foreign keys\n-- FK: {} on `{}`",
+            "-- SQLite requires table recreation to add foreign keys\n-- FK: {} on {}",
             self.name(),
-            self.table()
+            quote_ident(self.table())
         )
     }
 
@@ -311,9 +329,9 @@ impl ForeignKey {
     #[must_use]
     pub fn drop_fk_sql(&self) -> String {
         format!(
-            "-- SQLite requires table recreation to drop foreign keys\n-- FK: {} on `{}`",
+            "-- SQLite requires table recreation to drop foreign keys\n-- FK: {} on {}",
             self.name(),
-            self.table()
+            quote_ident(self.table())
         )
     }
 }
@@ -336,10 +354,10 @@ impl Index {
             .join(", ");
 
         let mut sql = format!(
-            "CREATE {}INDEX `{}` ON `{}`({});",
+            "CREATE {}INDEX {} ON {}({});",
             unique,
-            self.name(),
-            self.table(),
+            quote_ident(self.name()),
+            quote_ident(self.table()),
             columns
         );
 
@@ -355,7 +373,7 @@ impl Index {
     /// Generate DROP INDEX SQL
     #[must_use]
     pub fn drop_index_sql(&self) -> String {
-        format!("DROP INDEX `{}`;", self.name())
+        format!("DROP INDEX {};", quote_ident(self.name()))
     }
 }
 
@@ -366,7 +384,7 @@ impl IndexColumnDef {
         if self.is_expression {
             self.value.to_string()
         } else {
-            format!("`{}`", self.value)
+            quote_ident(self.value)
         }
     }
 }
@@ -380,15 +398,15 @@ impl View {
     #[must_use]
     pub fn create_view_sql(&self) -> String {
         self.definition.as_ref().map_or_else(
-            || format!("-- View `{}` has no definition", self.name()),
-            |def| format!("CREATE VIEW `{}` AS {};", self.name(), def),
+            || format!("-- View {} has no definition", quote_ident(self.name())),
+            |def| format!("CREATE VIEW {} AS {};", quote_ident(self.name()), def),
         )
     }
 
     /// Generate DROP VIEW SQL
     #[must_use]
     pub fn drop_view_sql(&self) -> String {
-        format!("DROP VIEW `{}`;", self.name())
+        format!("DROP VIEW {};", quote_ident(self.name()))
     }
 }
 
@@ -400,13 +418,17 @@ impl Table {
     /// Generate DROP TABLE SQL
     #[must_use]
     pub fn drop_table_sql(&self) -> String {
-        format!("DROP TABLE `{}`;", self.name())
+        format!("DROP TABLE {};", quote_ident(self.name()))
     }
 
     /// Generate RENAME TABLE SQL
     #[must_use]
     pub fn rename_table_sql(&self, new_name: &str) -> String {
-        format!("ALTER TABLE `{}` RENAME TO `{}`;", self.name(), new_name)
+        format!(
+            "ALTER TABLE {} RENAME TO {};",
+            quote_ident(self.name()),
+            quote_ident(new_name)
+        )
     }
 }
 
@@ -421,11 +443,15 @@ impl PrimaryKey {
         let cols = self
             .columns
             .iter()
-            .map(|c| format!("`{c}`"))
+            .map(|c| quote_ident(c))
             .collect::<Vec<_>>()
             .join(", ");
 
-        format!("CONSTRAINT `{}` PRIMARY KEY({})", self.name(), cols)
+        format!(
+            "CONSTRAINT {} PRIMARY KEY({})",
+            quote_ident(self.name()),
+            cols
+        )
     }
 }
 
@@ -440,11 +466,11 @@ impl UniqueConstraint {
         let cols = self
             .columns
             .iter()
-            .map(|c| format!("`{c}`"))
+            .map(|c| quote_ident(c))
             .collect::<Vec<_>>()
             .join(", ");
 
-        format!("CONSTRAINT `{}` UNIQUE({})", self.name(), cols)
+        format!("CONSTRAINT {} UNIQUE({})", quote_ident(self.name()), cols)
     }
 }
 
@@ -456,7 +482,11 @@ impl CheckConstraint {
     /// Generate the CHECK constraint clause
     #[must_use]
     pub fn to_constraint_sql(&self) -> String {
-        format!("CONSTRAINT `{}` CHECK({})", self.name(), self.value)
+        format!(
+            "CONSTRAINT {} CHECK({})",
+            quote_ident(self.name()),
+            self.value
+        )
     }
 }
 
@@ -563,6 +593,6 @@ mod tests {
             .primary_key(Some(&pk))
             .create_table_sql();
 
-        assert!(sql.ends_with("WITHOUT ROWID STRICT;"));
+        assert!(sql.ends_with("WITHOUT ROWID, STRICT;"));
     }
 }

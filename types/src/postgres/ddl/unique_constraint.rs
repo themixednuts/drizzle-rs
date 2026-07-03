@@ -32,6 +32,10 @@ pub struct UniqueConstraintDef {
     pub columns: &'static [Cow<'static, str>],
     /// NULLS NOT DISTINCT flag (`PostgreSQL` 15+)
     pub nulls_not_distinct: bool,
+    /// Whether the constraint is DEFERRABLE
+    pub deferrable: bool,
+    /// Whether the constraint is INITIALLY DEFERRED
+    pub initially_deferred: bool,
 }
 
 impl UniqueConstraintDef {
@@ -45,6 +49,8 @@ impl UniqueConstraintDef {
             name_explicit: false,
             columns: &[],
             nulls_not_distinct: false,
+            deferrable: false,
+            initially_deferred: false,
         }
     }
 
@@ -75,6 +81,25 @@ impl UniqueConstraintDef {
         }
     }
 
+    /// Mark the constraint DEFERRABLE.
+    #[must_use]
+    pub const fn deferrable(self) -> Self {
+        Self {
+            deferrable: true,
+            ..self
+        }
+    }
+
+    /// Mark the constraint DEFERRABLE INITIALLY DEFERRED.
+    #[must_use]
+    pub const fn initially_deferred(self) -> Self {
+        Self {
+            deferrable: true,
+            initially_deferred: true,
+            ..self
+        }
+    }
+
     /// Convert to runtime [`UniqueConstraint`] type
     #[must_use]
     pub const fn into_unique_constraint(self) -> UniqueConstraint {
@@ -85,6 +110,8 @@ impl UniqueConstraintDef {
             columns: Cow::Borrowed(self.columns),
             name_explicit: self.name_explicit,
             nulls_not_distinct: self.nulls_not_distinct,
+            deferrable: self.deferrable,
+            initially_deferred: self.initially_deferred,
         }
     }
 }
@@ -123,6 +150,12 @@ pub struct UniqueConstraint {
 
     /// NULLS NOT DISTINCT flag (`PostgreSQL` 15+)
     pub nulls_not_distinct: bool,
+
+    /// Whether the constraint is DEFERRABLE
+    pub deferrable: bool,
+
+    /// Whether the constraint is INITIALLY DEFERRED
+    pub initially_deferred: bool,
 }
 
 impl UniqueConstraint {
@@ -141,6 +174,8 @@ impl UniqueConstraint {
             columns: columns.into(),
             name_explicit: false,
             nulls_not_distinct: false,
+            deferrable: false,
+            initially_deferred: false,
         }
     }
 
@@ -155,6 +190,8 @@ impl UniqueConstraint {
             columns: Cow::Owned(columns.into_iter().map(Cow::Owned).collect()),
             name_explicit: false,
             nulls_not_distinct: false,
+            deferrable: false,
+            initially_deferred: false,
         }
     }
 
@@ -183,6 +220,21 @@ impl UniqueConstraint {
     #[must_use]
     pub const fn explicit_name(mut self) -> Self {
         self.name_explicit = true;
+        self
+    }
+
+    /// Mark the constraint DEFERRABLE.
+    #[must_use]
+    pub const fn deferrable(mut self) -> Self {
+        self.deferrable = true;
+        self
+    }
+
+    /// Mark the constraint DEFERRABLE INITIALLY DEFERRED.
+    #[must_use]
+    pub const fn initially_deferred(mut self) -> Self {
+        self.deferrable = true;
+        self.initially_deferred = true;
         self
     }
 }
@@ -214,7 +266,7 @@ mod serde_impl {
             S: Serializer,
         {
             use serde::ser::SerializeStruct;
-            let mut state = serializer.serialize_struct("UniqueConstraint", 6)?;
+            let mut state = serializer.serialize_struct("UniqueConstraint", 8)?;
             state.serialize_field("schema", &*self.schema)?;
             state.serialize_field("table", &*self.table)?;
             state.serialize_field("name", &*self.name)?;
@@ -223,6 +275,8 @@ mod serde_impl {
             state.serialize_field("columns", &cols)?;
             state.serialize_field("nameExplicit", &self.name_explicit)?;
             state.serialize_field("nullsNotDistinct", &self.nulls_not_distinct)?;
+            state.serialize_field("deferrable", &self.deferrable)?;
+            state.serialize_field("initiallyDeferred", &self.initially_deferred)?;
             state.end()
         }
     }
@@ -244,6 +298,10 @@ mod serde_impl {
                 name_explicit: bool,
                 #[serde(default)]
                 nulls_not_distinct: bool,
+                #[serde(default)]
+                deferrable: bool,
+                #[serde(default)]
+                initially_deferred: bool,
             }
 
             let helper = Helper::deserialize(deserializer)?;
@@ -254,6 +312,8 @@ mod serde_impl {
                 columns: Cow::Owned(helper.columns.into_iter().map(Cow::Owned).collect()),
                 name_explicit: helper.name_explicit,
                 nulls_not_distinct: helper.nulls_not_distinct,
+                deferrable: helper.deferrable,
+                initially_deferred: helper.initially_deferred,
             })
         }
     }
@@ -277,6 +337,18 @@ mod tests {
         const {
             assert!(UNIQ.nulls_not_distinct);
         }
+    }
+
+    #[test]
+    fn test_const_deferrable_unique_def() {
+        const COLS: &[Cow<'static, str>] = &[Cow::Borrowed("email")];
+        const DEF: UniqueConstraintDef = UniqueConstraintDef::new("public", "users", "uq_email")
+            .columns(COLS)
+            .initially_deferred();
+
+        let unique = DEF.into_unique_constraint();
+        assert!(unique.deferrable);
+        assert!(unique.initially_deferred);
     }
 
     #[test]
@@ -306,12 +378,12 @@ mod tests {
         let uniq = UniqueConstraint::from_strings(
             "public".to_string(),
             "users".to_string(),
-            "users_email_unique".to_string(),
+            "users_email_key".to_string(),
             vec!["email".to_string()],
         );
         assert_eq!(uniq.schema(), "public");
         assert_eq!(uniq.table(), "users");
-        assert_eq!(uniq.name(), "users_email_unique");
+        assert_eq!(uniq.name(), "users_email_key");
         assert_eq!(uniq.columns.len(), 1);
     }
 }

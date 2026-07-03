@@ -12,7 +12,7 @@ use super::statements::{
     RecreateTableStatement, RenameColumnStatement, RenameTableStatement, TableFull, from_json,
 };
 use crate::traits::EntityKind;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 // Re-export diff types from collection
 pub use super::collection::{DiffType as SchemaDiffType, EntityDiff as SchemaEntityDiff};
@@ -253,6 +253,7 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
     let mut rename_statements: Vec<JsonStatement> = Vec::new();
     let mut table_renames: Vec<TableRename> = Vec::new();
     let mut column_renames: Vec<ColumnRename> = Vec::new();
+    let mut warnings = Vec::new();
 
     detect_and_apply_sqlite_renames(
         &mut prev_normalized,
@@ -260,11 +261,11 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
         &mut rename_statements,
         &mut table_renames,
         &mut column_renames,
+        &mut warnings,
     );
 
     let schema_diff = diff_collections(&prev_normalized, cur);
     let mut statements = Vec::new();
-    let mut warnings = Vec::new();
     let renames = prepare_migration_renames(&table_renames, &column_renames);
 
     // Emit rename statements first so subsequent diffs apply to the renamed schema.
@@ -533,37 +534,53 @@ fn collect_stored_generated_warnings(warnings: &mut Vec<String>, schema_diff: &S
     }
 }
 
-fn sqlite_table_signature(table_name: &str, ddl: &SQLiteDDL) -> Vec<SqliteEntity> {
-    // A stable-ish signature for rename matching: table + its entities (columns/constraints/indexes)
-    // using the existing entity shapes, sorted by their EntityKey ordering via serialization key.
-    // We intentionally exclude views (not tied to a table by name reliably).
-    let mut entities = Vec::new();
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct TableColumnFingerprint {
+    name: String,
+    sql_type: String,
+    not_null: bool,
+}
 
-    if let Some(t) = ddl.tables.one(table_name) {
-        entities.push(SqliteEntity::Table(t.clone()));
-    }
-    for c in ddl.columns.for_table(table_name) {
-        entities.push(SqliteEntity::Column(c.clone()));
-    }
-    if let Some(pk) = ddl.pks.for_table(table_name) {
-        entities.push(SqliteEntity::PrimaryKey(pk.clone()));
-    }
-    for u in ddl.uniques.for_table(table_name) {
-        entities.push(SqliteEntity::UniqueConstraint(u.clone()));
-    }
-    for fk in ddl.fks.for_table(table_name) {
-        entities.push(SqliteEntity::ForeignKey(fk.clone()));
-    }
-    for idx in ddl.indexes.for_table(table_name) {
-        entities.push(SqliteEntity::Index(idx.clone()));
-    }
-    for chk in ddl.checks.for_table(table_name) {
-        entities.push(SqliteEntity::CheckConstraint(chk.clone()));
-    }
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct TableFingerprint {
+    columns: Vec<TableColumnFingerprint>,
+    pk_columns: Vec<String>,
+}
 
-    // Sort by debug string as a simple stable ordering for comparisons.
-    entities.sort_by(|a, b| format!("{a:?}").cmp(&format!("{b:?}")));
-    entities
+fn sqlite_table_fingerprint(table_name: &str, ddl: &SQLiteDDL) -> TableFingerprint {
+    let mut columns: Vec<_> = ddl
+        .columns
+        .for_table(table_name)
+        .into_iter()
+        .map(|c| TableColumnFingerprint {
+            name: c.name.to_string(),
+            sql_type: c.sql_type.to_string(),
+            not_null: c.not_null,
+        })
+        .collect();
+    columns.sort();
+
+    let pk_columns = if let Some(pk) = ddl.pks.for_table(table_name) {
+        pk.columns.iter().map(ToString::to_string).collect()
+    } else {
+        let mut inline_pk_columns: Vec<_> = ddl
+            .columns
+            .for_table(table_name)
+            .into_iter()
+            .filter(|c| c.primary_key.unwrap_or(false))
+            .map(|c| (c.ordinal_position.unwrap_or(i32::MAX), c.name.to_string()))
+            .collect();
+        inline_pk_columns.sort();
+        inline_pk_columns
+            .into_iter()
+            .map(|(_, name)| name)
+            .collect()
+    };
+
+    TableFingerprint {
+        columns,
+        pk_columns,
+    }
 }
 
 fn detect_and_apply_sqlite_renames(
@@ -572,8 +589,9 @@ fn detect_and_apply_sqlite_renames(
     rename_statements: &mut Vec<JsonStatement>,
     table_renames: &mut Vec<TableRename>,
     column_renames: &mut Vec<ColumnRename>,
+    warnings: &mut Vec<String>,
 ) {
-    // Table renames: exact match of signatures, different table name.
+    // Table renames: exact match of columns (name/type/nullability) and PK shape.
     let prev_tables: Vec<String> = prev
         .tables
         .list()
@@ -598,23 +616,33 @@ fn detect_and_apply_sqlite_renames(
         .cloned()
         .collect();
 
-    let mut used_created: HashSet<String> = HashSet::new();
-    for from in &dropped {
-        let from_sig = sqlite_table_signature(from, prev);
-        let mut best: Option<String> = None;
-        for to in &created {
-            if used_created.contains(to) {
-                continue;
-            }
-            let to_sig = sqlite_table_signature(to, cur);
-            if from_sig == to_sig {
-                best = Some(to.clone());
-                break;
-            }
+    let mut candidates: BTreeMap<TableFingerprint, (Vec<String>, Vec<String>)> = BTreeMap::new();
+    for from in dropped {
+        candidates
+            .entry(sqlite_table_fingerprint(&from, prev))
+            .or_default()
+            .0
+            .push(from);
+    }
+    for to in created {
+        candidates
+            .entry(sqlite_table_fingerprint(&to, cur))
+            .or_default()
+            .1
+            .push(to);
+    }
+
+    for (_, (mut dropped, mut created)) in candidates {
+        if dropped.is_empty() || created.is_empty() {
+            continue;
         }
-        if let Some(to) = best {
-            used_created.insert(to.clone());
-            // Record and emit rename
+
+        dropped.sort();
+        created.sort();
+
+        if dropped.len() == 1 && created.len() == 1 {
+            let from = &dropped[0];
+            let to = &created[0];
             table_renames.push(TableRename {
                 from: from.clone(),
                 to: to.clone(),
@@ -623,7 +651,13 @@ fn detect_and_apply_sqlite_renames(
                 from: from.clone(),
                 to: to.clone(),
             }));
-            apply_sqlite_table_rename(prev, from, &to);
+            apply_sqlite_table_rename(prev, from, to);
+        } else {
+            warnings.push(format!(
+                "Ambiguous SQLite table rename candidates between dropped tables [{}] and created tables [{}]; no rename was inferred. Use Options::rename_table(...) with diff_with or diff_schemas_with to provide an explicit rename hint.",
+                dropped.join(", "),
+                created.join(", ")
+            ));
         }
     }
 
@@ -841,7 +875,8 @@ pub fn prepare_migration_renames(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sqlite::ddl::{Column, SqliteEntity, Table};
+    use crate::sqlite::ddl::{Column, ForeignKey, Index, IndexColumn, SqliteEntity, Table};
+    use std::borrow::Cow;
 
     #[test]
     fn test_empty_diff() {
@@ -877,6 +912,120 @@ mod tests {
         let diff = diff_snapshots(&prev, &cur);
         assert!(diff.has_changes());
         assert_eq!(diff.dropped_tables().len(), 1);
+    }
+
+    fn sqlite_table_with_id(table: &str) -> SQLiteDDL {
+        let mut ddl = SQLiteDDL::new();
+        ddl.tables.push(Table::new(table.to_string()));
+        ddl.columns
+            .push(Column::new(table.to_string(), "id", "integer").not_null());
+        ddl
+    }
+
+    #[test]
+    fn pure_table_rename_emits_single_rename_statement() {
+        let prev = sqlite_table_with_id("users");
+        let cur = sqlite_table_with_id("accounts");
+
+        let migration = compute_migration(&prev, &cur);
+
+        assert_eq!(migration.statements.len(), 1);
+        assert!(matches!(
+            migration.statements[0],
+            JsonStatement::RenameTable(_)
+        ));
+        assert_eq!(
+            migration.sql_statements,
+            vec!["ALTER TABLE `users` RENAME TO `accounts`;"]
+        );
+        assert!(
+            !migration
+                .statements
+                .iter()
+                .any(|statement| matches!(statement, JsonStatement::DropTable(_)))
+        );
+    }
+
+    #[test]
+    fn table_rename_rewrites_indexes_and_foreign_keys() {
+        let mut prev = sqlite_table_with_id("users");
+        prev.tables.push(Table::new("posts"));
+        prev.columns
+            .push(Column::new("posts", "id", "integer").not_null());
+        prev.columns
+            .push(Column::new("posts", "user_id", "integer").not_null());
+        prev.indexes.push(Index::new(
+            "users",
+            "idx_users_id",
+            vec![IndexColumn::new("id")],
+        ));
+        prev.fks.push(ForeignKey::new(
+            "posts",
+            "fk_posts_user",
+            vec![Cow::Borrowed("user_id")],
+            "users",
+            vec![Cow::Borrowed("id")],
+        ));
+
+        let mut cur = sqlite_table_with_id("accounts");
+        cur.tables.push(Table::new("posts"));
+        cur.columns
+            .push(Column::new("posts", "id", "integer").not_null());
+        cur.columns
+            .push(Column::new("posts", "user_id", "integer").not_null());
+        cur.indexes.push(Index::new(
+            "accounts",
+            "idx_users_id",
+            vec![IndexColumn::new("id")],
+        ));
+        cur.fks.push(ForeignKey::new(
+            "posts",
+            "fk_posts_user",
+            vec![Cow::Borrowed("user_id")],
+            "accounts",
+            vec![Cow::Borrowed("id")],
+        ));
+
+        let migration = compute_migration(&prev, &cur);
+
+        assert_eq!(
+            migration.sql_statements,
+            vec!["ALTER TABLE `users` RENAME TO `accounts`;"]
+        );
+        assert!(
+            !migration.sql_statements.iter().any(|statement| {
+                statement.starts_with("DROP")
+                    || statement.starts_with("CREATE INDEX")
+                    || statement.contains("fk_posts_user")
+            }),
+            "unexpected dependent churn: {:?}",
+            migration.sql_statements
+        );
+    }
+
+    #[test]
+    fn ambiguous_table_rename_does_not_guess_and_warns() {
+        let mut prev = sqlite_table_with_id("users");
+        let mut admins = sqlite_table_with_id("admins");
+        prev.tables.list_mut().append(admins.tables.list_mut());
+        prev.columns.list_mut().append(admins.columns.list_mut());
+        let cur = sqlite_table_with_id("accounts");
+
+        let migration = compute_migration(&prev, &cur);
+
+        assert!(
+            migration.warnings.iter().any(|warning| warning
+                .contains("Ambiguous SQLite table rename candidates")
+                && warning.contains("rename_table")),
+            "expected ambiguous rename warning, got {:?}",
+            migration.warnings
+        );
+        assert!(
+            !migration
+                .statements
+                .iter()
+                .any(|statement| matches!(statement, JsonStatement::RenameTable(_)))
+        );
     }
 
     #[test]

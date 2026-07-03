@@ -12,6 +12,7 @@ use super::ddl::{
 };
 use crate::collection::EntityCollection;
 use crate::traits::EntityKind;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 // =============================================================================
@@ -307,13 +308,14 @@ pub fn diff_ddl(left: &SQLiteDDL, right: &SQLiteDDL) -> Vec<EntityDiff> {
     );
 
     // Diff columns - extract table name from column
-    diff_entity_type(
+    diff_entity_type_with(
         left.columns.list(),
         right.columns.list(),
         |c| format!("{}:{}", c.table, c.name),
         |c| SqliteEntity::Column(c.clone()),
         Some(&|c: &Column| c.table.to_string()),
         EntityKind::Column,
+        columns_equivalent,
         &mut diffs,
     );
 
@@ -329,13 +331,14 @@ pub fn diff_ddl(left: &SQLiteDDL, right: &SQLiteDDL) -> Vec<EntityDiff> {
     );
 
     // Diff foreign keys - extract table name from FK
-    diff_entity_type(
+    diff_entity_type_with(
         left.fks.list(),
         right.fks.list(),
         |f| f.name.to_string(),
         |f| SqliteEntity::ForeignKey(f.clone()),
         Some(&|f: &ForeignKey| f.table.to_string()),
         EntityKind::ForeignKey,
+        foreign_keys_equivalent,
         &mut diffs,
     );
 
@@ -396,17 +399,41 @@ fn diff_entity_type<T: Clone + PartialEq>(
     kind: EntityKind,
     diffs: &mut Vec<EntityDiff>,
 ) {
+    diff_entity_type_with(
+        left,
+        right,
+        key_fn,
+        to_entity,
+        table_fn,
+        kind,
+        PartialEq::eq,
+        diffs,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn diff_entity_type_with<T: Clone>(
+    left: &[T],
+    right: &[T],
+    key_fn: impl Fn(&T) -> String,
+    to_entity: impl Fn(&T) -> SqliteEntity,
+    table_fn: Option<&dyn Fn(&T) -> String>,
+    kind: EntityKind,
+    equivalent: impl Fn(&T, &T) -> bool,
+    diffs: &mut Vec<EntityDiff>,
+) {
     let left_map: HashMap<String, &T> = left.iter().map(|e| (key_fn(e), e)).collect();
     let right_map: HashMap<String, &T> = right.iter().map(|e| (key_fn(e), e)).collect();
 
     // Find dropped (in left but not in right)
-    for (key, left_entity) in &left_map {
-        if !right_map.contains_key(key) {
+    for left_entity in left {
+        let key = key_fn(left_entity);
+        if !right_map.contains_key(&key) {
             diffs.push(EntityDiff {
                 diff_type: DiffType::Drop,
                 kind,
                 table: table_fn.map(|f| f(left_entity)),
-                name: key.clone(),
+                name: key,
                 changes: HashMap::new(),
                 left: Some(to_entity(left_entity)),
                 right: None,
@@ -415,13 +442,14 @@ fn diff_entity_type<T: Clone + PartialEq>(
     }
 
     // Find created (in right but not in left)
-    for (key, right_entity) in &right_map {
-        if !left_map.contains_key(key) {
+    for right_entity in right {
+        let key = key_fn(right_entity);
+        if !left_map.contains_key(&key) {
             diffs.push(EntityDiff {
                 diff_type: DiffType::Create,
                 kind,
                 table: table_fn.map(|f| f(right_entity)),
-                name: key.clone(),
+                name: key,
                 changes: HashMap::new(),
                 left: None,
                 right: Some(to_entity(right_entity)),
@@ -430,21 +458,48 @@ fn diff_entity_type<T: Clone + PartialEq>(
     }
 
     // Find altered (in both, but different)
-    for (key, left_entity) in &left_map {
-        if let Some(right_entity) = right_map.get(key)
-            && *left_entity != *right_entity
+    for left_entity in left {
+        let key = key_fn(left_entity);
+        if let Some(right_entity) = right_map.get(&key)
+            && !equivalent(left_entity, right_entity)
         {
             diffs.push(EntityDiff {
                 diff_type: DiffType::Alter,
                 kind,
                 table: table_fn.map(|f| f(right_entity)),
-                name: key.clone(),
+                name: key,
                 changes: HashMap::new(), // Field-level comparison available via left/right entities
                 left: Some(to_entity(left_entity)),
                 right: Some(to_entity(right_entity)),
             });
         }
     }
+}
+
+fn columns_equivalent(left: &Column, right: &Column) -> bool {
+    let mut left = left.clone();
+    let mut right = right.clone();
+    left.sql_type = Cow::Owned(left.sql_type.to_ascii_lowercase());
+    right.sql_type = Cow::Owned(right.sql_type.to_ascii_lowercase());
+    left == right
+}
+
+fn normalize_fk_action(action: &Option<Cow<'static, str>>) -> Option<Cow<'static, str>> {
+    match action.as_deref() {
+        None => None,
+        Some(action) if action.eq_ignore_ascii_case("NO ACTION") => None,
+        Some(action) => Some(Cow::Owned(action.to_ascii_uppercase())),
+    }
+}
+
+fn foreign_keys_equivalent(left: &ForeignKey, right: &ForeignKey) -> bool {
+    let mut left = left.clone();
+    let mut right = right.clone();
+    left.on_delete = normalize_fk_action(&left.on_delete);
+    left.on_update = normalize_fk_action(&left.on_update);
+    right.on_delete = normalize_fk_action(&right.on_delete);
+    right.on_update = normalize_fk_action(&right.on_update);
+    left == right
 }
 
 #[cfg(test)]
@@ -496,5 +551,49 @@ mod tests {
         let diffs = diff_ddl(&left, &right);
         assert_eq!(diffs.len(), 1);
         assert_eq!(diffs[0].diff_type, DiffType::Drop);
+    }
+
+    #[test]
+    fn introspected_types_and_no_action_fks_match_macro_snapshots() {
+        let mut introspected = SQLiteDDL::new();
+        introspected.tables.push(Table::new("child"));
+        introspected.tables.push(Table::new("parent"));
+        introspected
+            .columns
+            .push(Column::new("child", "id", "integer").not_null());
+        introspected
+            .columns
+            .push(Column::new("child", "parent_id", "integer").not_null());
+        introspected.fks.push(
+            ForeignKey::from_strings(
+                "child".to_string(),
+                "child_parent_id_fk".to_string(),
+                vec!["parent_id".to_string()],
+                "parent".to_string(),
+                vec!["id".to_string()],
+            )
+            .on_delete("NO ACTION")
+            .on_update("no action"),
+        );
+
+        let mut macro_snapshot = SQLiteDDL::new();
+        macro_snapshot.tables.push(Table::new("child"));
+        macro_snapshot.tables.push(Table::new("parent"));
+        macro_snapshot
+            .columns
+            .push(Column::new("child", "id", "INTEGER").not_null());
+        macro_snapshot
+            .columns
+            .push(Column::new("child", "parent_id", "INTEGER").not_null());
+        macro_snapshot.fks.push(ForeignKey::from_strings(
+            "child".to_string(),
+            "child_parent_id_fk".to_string(),
+            vec!["parent_id".to_string()],
+            "parent".to_string(),
+            vec!["id".to_string()],
+        ));
+
+        let diffs = diff_ddl(&introspected, &macro_snapshot);
+        assert!(diffs.is_empty(), "unexpected diffs: {diffs:#?}");
     }
 }

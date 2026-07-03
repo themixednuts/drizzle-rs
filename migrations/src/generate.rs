@@ -52,6 +52,7 @@ use crate::postgres::collection::PostgresDDL;
 use crate::schema::{Schema, Snapshot};
 use crate::sqlite::collection::SQLiteDDL;
 use crate::writer::MigrationError;
+use std::borrow::Cow;
 use std::io::{self, Write};
 
 /// Generated migration payload.
@@ -59,6 +60,8 @@ use std::io::{self, Write};
 pub struct Plan {
     /// SQL statements for the migration.
     pub statements: Vec<String>,
+    /// Warning messages emitted while planning the migration.
+    pub warnings: Vec<String>,
     /// Schema snapshot after this migration is applied.
     pub snapshot: Snapshot,
 }
@@ -94,6 +97,8 @@ impl Plan {
 /// Explicit rename hints used during migration generation.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RenameHints {
+    /// PostgreSQL schema rename hints.
+    pub schema_renames: Vec<SchemaRenameHint>,
     /// Table rename hints.
     pub table_renames: Vec<TableRenameHint>,
     /// Column rename hints.
@@ -104,6 +109,15 @@ impl RenameHints {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    #[must_use]
+    pub fn rename_schema(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
+        self.schema_renames.push(SchemaRenameHint {
+            from: from.into(),
+            to: to.into(),
+        });
+        self
     }
 
     #[must_use]
@@ -165,6 +179,15 @@ impl RenameHints {
     }
 }
 
+/// PostgreSQL schema rename hint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SchemaRenameHint {
+    /// Current schema name.
+    pub from: String,
+    /// New schema name.
+    pub to: String,
+}
+
 /// Table rename hint.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TableRenameHint {
@@ -213,6 +236,12 @@ impl Options {
     #[must_use]
     pub const fn strict_renames(mut self, strict: bool) -> Self {
         self.strict_renames = strict;
+        self
+    }
+
+    #[must_use]
+    pub fn rename_schema(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
+        self.renames = self.renames.rename_schema(from, to);
         self
     }
 
@@ -291,14 +320,14 @@ pub fn diff_with(
     current: &Snapshot,
     options: &Options,
 ) -> Result<Plan, MigrationError> {
-    let statements = match (prev, current) {
+    let (statements, warnings) = match (prev, current) {
         (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => {
             let mut prev_ddl = SQLiteDDL::from_entities(p.ddl.clone());
             let cur_ddl = crate::sqlite::collection::SQLiteDDL::from_entities(c.ddl.clone());
             let mut statements = apply_sqlite_rename_hints(&mut prev_ddl, &cur_ddl, options)?;
             let diff = crate::sqlite::diff::compute_migration(&prev_ddl, &cur_ddl);
             statements.extend(diff.sql_statements);
-            statements
+            (statements, diff.warnings)
         }
         (Snapshot::Postgres(p), Snapshot::Postgres(c)) => {
             let mut prev_ddl = PostgresDDL::from_entities(p.ddl.clone());
@@ -306,13 +335,14 @@ pub fn diff_with(
             let mut statements = apply_postgres_rename_hints(&mut prev_ddl, &cur_ddl, options)?;
             let diff = crate::postgres::diff::compute_migration(&prev_ddl, &cur_ddl);
             statements.extend(diff.sql_statements);
-            statements
+            (statements, diff.warnings)
         }
         _ => return Err(MigrationError::DialectMismatch),
     };
 
     Ok(Plan {
         statements,
+        warnings,
         snapshot: current.clone(),
     })
 }
@@ -384,6 +414,12 @@ fn apply_sqlite_rename_hints(
     options: &Options,
 ) -> Result<Vec<String>, MigrationError> {
     let mut statements = Vec::new();
+
+    if !options.renames.schema_renames.is_empty() && options.strict_renames {
+        return Err(MigrationError::ConfigError(
+            "sqlite rename_schema hint is not supported".to_string(),
+        ));
+    }
 
     for hint in &options.renames.table_renames {
         if hint.schema.is_some() {
@@ -480,6 +516,38 @@ fn apply_postgres_rename_hints(
     options: &Options,
 ) -> Result<Vec<String>, MigrationError> {
     let mut statements = Vec::new();
+
+    for hint in &options.renames.schema_renames {
+        if !valid_rename_name(&hint.from) || !valid_rename_name(&hint.to) || hint.from == hint.to {
+            if options.strict_renames {
+                return Err(MigrationError::ConfigError(format!(
+                    "invalid postgres schema rename hint: {} -> {}",
+                    hint.from, hint.to
+                )));
+            }
+            continue;
+        }
+
+        let can_apply = prev.schemas.one(&hint.from).is_some()
+            && cur.schemas.one(&hint.to).is_some()
+            && prev.schemas.one(&hint.to).is_none();
+
+        if !can_apply {
+            if options.strict_renames {
+                return Err(MigrationError::ConfigError(format!(
+                    "postgres schema rename hint did not match snapshots: {} -> {}",
+                    hint.from, hint.to
+                )));
+            }
+            continue;
+        }
+
+        statements.push(format!(
+            "ALTER SCHEMA \"{}\" RENAME TO \"{}\";",
+            hint.from, hint.to
+        ));
+        apply_postgres_schema_rename(prev, &hint.from, &hint.to);
+    }
 
     for hint in &options.renames.table_renames {
         let schema = hint.schema.as_deref().unwrap_or("public");
@@ -695,16 +763,104 @@ fn apply_sqlite_column_rename(ddl: &mut SQLiteDDL, table: &str, from: &str, to: 
     }
 }
 
+fn rewrite_cow(value: &mut Cow<'static, str>, from: &str, to: &str) {
+    if value.as_ref() == from {
+        *value = to.to_string().into();
+    }
+}
+
+fn rewrite_optional_cow(value: &mut Option<Cow<'static, str>>, from: &str, to: &str) {
+    if value.as_deref() == Some(from) {
+        *value = Some(to.to_string().into());
+    }
+}
+
+fn rewrite_schema_qualified_value(value: &mut Option<Cow<'static, str>>, from: &str, to: &str) {
+    let Some(current) = value.as_deref() else {
+        return;
+    };
+    let Some(rest) = current
+        .strip_prefix(from)
+        .and_then(|rest| rest.strip_prefix('.'))
+    else {
+        return;
+    };
+    *value = Some(format!("{to}.{rest}").into());
+}
+
+fn apply_postgres_schema_rename(ddl: &mut PostgresDDL, from: &str, to: &str) {
+    for schema in ddl.schemas.list_mut() {
+        rewrite_cow(&mut schema.name, from, to);
+    }
+
+    for table in ddl.tables.list_mut() {
+        rewrite_cow(&mut table.schema, from, to);
+        rewrite_schema_qualified_value(&mut table.inherits, from, to);
+    }
+
+    for column in ddl.columns.list_mut() {
+        rewrite_cow(&mut column.schema, from, to);
+        rewrite_optional_cow(&mut column.type_schema, from, to);
+        if let Some(identity) = &mut column.identity {
+            rewrite_optional_cow(&mut identity.schema, from, to);
+        }
+    }
+
+    for index in ddl.indexes.list_mut() {
+        rewrite_cow(&mut index.schema, from, to);
+    }
+
+    for fk in ddl.fks.list_mut() {
+        rewrite_cow(&mut fk.schema, from, to);
+        rewrite_cow(&mut fk.schema_to, from, to);
+    }
+
+    for pk in ddl.pks.list_mut() {
+        rewrite_cow(&mut pk.schema, from, to);
+    }
+
+    for unique in ddl.uniques.list_mut() {
+        rewrite_cow(&mut unique.schema, from, to);
+    }
+
+    for check in ddl.checks.list_mut() {
+        rewrite_cow(&mut check.schema, from, to);
+    }
+
+    for policy in ddl.policies.list_mut() {
+        rewrite_cow(&mut policy.schema, from, to);
+    }
+
+    for enum_ in ddl.enums.list_mut() {
+        rewrite_cow(&mut enum_.schema, from, to);
+    }
+
+    for sequence in ddl.sequences.list_mut() {
+        rewrite_cow(&mut sequence.schema, from, to);
+    }
+
+    for view in ddl.views.list_mut() {
+        rewrite_cow(&mut view.schema, from, to);
+    }
+}
+
 fn apply_postgres_table_rename(ddl: &mut PostgresDDL, schema: &str, from: &str, to: &str) {
     let to = to.to_string();
 
-    if let Some(t) = ddl
-        .tables
-        .list_mut()
-        .iter_mut()
-        .find(|t| t.schema.as_ref() == schema && t.name.as_ref() == from)
-    {
-        t.name = to.clone().into();
+    for table in ddl.tables.list_mut() {
+        if table.schema.as_ref() == schema && table.name.as_ref() == from {
+            table.name = to.clone().into();
+        }
+
+        if table.schema.as_ref() == schema
+            && let Some(inherits) = &mut table.inherits
+        {
+            if inherits.as_ref() == from {
+                *inherits = to.clone().into();
+            } else if inherits.as_ref() == format!("{schema}.{from}") {
+                *inherits = format!("{schema}.{to}").into();
+            }
+        }
     }
 
     for c in ddl
@@ -850,6 +1006,10 @@ fn valid_rename_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::postgres::PostgresSnapshot;
+    use crate::postgres::ddl::{
+        Column as PgColumn, PostgresEntity, Schema as PgSchema, Table as PgTable,
+    };
     use crate::schema::Schema as MigrationSchema;
     use crate::sqlite::SQLiteSnapshot;
     use crate::sqlite::ddl::{Column, SqliteEntity, Table};
@@ -951,12 +1111,89 @@ mod tests {
     }
 
     #[test]
+    fn test_diff_with_sqlite_table_rename_hint_and_add_column() {
+        let mut prev_snap = SQLiteSnapshot::new();
+        prev_snap.add_entity(SqliteEntity::Table(Table::new("users")));
+        prev_snap.add_entity(SqliteEntity::Column(
+            Column::new("users", "id", "integer").not_null(),
+        ));
+
+        let mut cur_snap = SQLiteSnapshot::new();
+        cur_snap.add_entity(SqliteEntity::Table(Table::new("accounts")));
+        cur_snap.add_entity(SqliteEntity::Column(
+            Column::new("accounts", "id", "integer").not_null(),
+        ));
+        cur_snap.add_entity(SqliteEntity::Column(Column::new(
+            "accounts", "email", "text",
+        )));
+
+        let migration = diff_with(
+            &Snapshot::Sqlite(prev_snap),
+            &Snapshot::Sqlite(cur_snap),
+            &Options::new().rename_table("users", "accounts"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            migration.statements,
+            vec![
+                "ALTER TABLE `users` RENAME TO `accounts`;".to_string(),
+                "ALTER TABLE `accounts` ADD `email` TEXT;".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_diff_with_postgres_table_rename_hint_and_add_column() {
+        let mut prev_snap = PostgresSnapshot::new();
+        prev_snap.add_entity(PostgresEntity::Schema(PgSchema::new("public")));
+        prev_snap.add_entity(PostgresEntity::Table(PgTable::new("public", "users")));
+        prev_snap.add_entity(PostgresEntity::Column(
+            PgColumn::new("public", "users", "id", "integer").not_null(),
+        ));
+
+        let mut cur_snap = PostgresSnapshot::new();
+        cur_snap.add_entity(PostgresEntity::Schema(PgSchema::new("public")));
+        cur_snap.add_entity(PostgresEntity::Table(PgTable::new("public", "accounts")));
+        cur_snap.add_entity(PostgresEntity::Column(
+            PgColumn::new("public", "accounts", "id", "integer").not_null(),
+        ));
+        cur_snap.add_entity(PostgresEntity::Column(PgColumn::new(
+            "public", "accounts", "email", "text",
+        )));
+
+        let migration = diff_with(
+            &Snapshot::Postgres(prev_snap),
+            &Snapshot::Postgres(cur_snap),
+            &Options::new().rename_table("users", "accounts"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            migration.statements,
+            vec![
+                "ALTER TABLE \"public\".\"users\" RENAME TO \"accounts\";".to_string(),
+                "ALTER TABLE \"accounts\" ADD COLUMN \"email\" text;".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn test_diff_with_strict_rename_hints_errors() {
         let prev = Snapshot::empty(drizzle_types::Dialect::SQLite);
         let cur = Snapshot::empty(drizzle_types::Dialect::SQLite);
         let options = Options::new()
             .strict_renames(true)
             .rename_table("missing_table", "users");
+
+        let result = diff_with(&prev, &cur, &options);
+        assert!(matches!(result, Err(MigrationError::ConfigError(_))));
+
+        let prev = Snapshot::empty(drizzle_types::Dialect::PostgreSQL);
+        let cur = Snapshot::empty(drizzle_types::Dialect::PostgreSQL);
+        let options = Options::new()
+            .strict_renames(true)
+            .rename_schema("missing_schema", "app");
 
         let result = diff_with(&prev, &cur, &options);
         assert!(matches!(result, Err(MigrationError::ConfigError(_))));

@@ -95,6 +95,10 @@ pub struct ForeignKeyDef {
     pub on_delete: Option<ReferentialAction>,
     /// ON UPDATE action
     pub on_update: Option<ReferentialAction>,
+    /// Whether the constraint is DEFERRABLE
+    pub deferrable: bool,
+    /// Whether the constraint is INITIALLY DEFERRED
+    pub initially_deferred: bool,
 }
 
 impl ForeignKeyDef {
@@ -112,6 +116,8 @@ impl ForeignKeyDef {
             columns_to: &[],
             on_delete: None,
             on_update: None,
+            deferrable: false,
+            initially_deferred: false,
         }
     }
 
@@ -158,6 +164,25 @@ impl ForeignKeyDef {
         }
     }
 
+    /// Mark the constraint DEFERRABLE.
+    #[must_use]
+    pub const fn deferrable(self) -> Self {
+        Self {
+            deferrable: true,
+            ..self
+        }
+    }
+
+    /// Mark the constraint DEFERRABLE INITIALLY DEFERRED.
+    #[must_use]
+    pub const fn initially_deferred(self) -> Self {
+        Self {
+            deferrable: true,
+            initially_deferred: true,
+            ..self
+        }
+    }
+
     /// Mark the name as explicitly specified
     #[must_use]
     pub const fn explicit_name(self) -> Self {
@@ -187,6 +212,8 @@ impl ForeignKeyDef {
                 Some(a) => Some(Cow::Borrowed(a.as_sql())),
                 None => None,
             },
+            deferrable: self.deferrable,
+            initially_deferred: self.initially_deferred,
         }
     }
 }
@@ -237,6 +264,12 @@ pub struct ForeignKey {
 
     /// ON DELETE action
     pub on_delete: Option<Cow<'static, str>>,
+
+    /// Whether the constraint is DEFERRABLE
+    pub deferrable: bool,
+
+    /// Whether the constraint is INITIALLY DEFERRED
+    pub initially_deferred: bool,
 }
 
 impl ForeignKey {
@@ -258,6 +291,8 @@ impl ForeignKey {
             columns_to: Cow::Borrowed(&[]),
             on_update: None,
             on_delete: None,
+            deferrable: false,
+            initially_deferred: false,
         }
     }
 
@@ -284,6 +319,8 @@ impl ForeignKey {
             columns_to: Cow::Owned(columns_to.into_iter().map(Cow::Owned).collect()),
             on_update: None,
             on_delete: None,
+            deferrable: false,
+            initially_deferred: false,
         }
     }
 
@@ -298,6 +335,21 @@ impl ForeignKey {
     #[must_use]
     pub fn on_update(mut self, action: impl Into<Cow<'static, str>>) -> Self {
         self.on_update = Some(action.into());
+        self
+    }
+
+    /// Mark the constraint DEFERRABLE.
+    #[must_use]
+    pub const fn deferrable(mut self) -> Self {
+        self.deferrable = true;
+        self
+    }
+
+    /// Mark the constraint DEFERRABLE INITIALLY DEFERRED.
+    #[must_use]
+    pub const fn initially_deferred(mut self) -> Self {
+        self.deferrable = true;
+        self.initially_deferred = true;
         self
     }
 
@@ -364,7 +416,7 @@ mod serde_impl {
             S: Serializer,
         {
             use serde::ser::SerializeStruct;
-            let mut state = serializer.serialize_struct("ForeignKey", 10)?;
+            let mut state = serializer.serialize_struct("ForeignKey", 12)?;
             state.serialize_field("schema", &*self.schema)?;
             state.serialize_field("table", &*self.table)?;
             state.serialize_field("name", &*self.name)?;
@@ -377,6 +429,8 @@ mod serde_impl {
             state.serialize_field("columnsTo", &cols_to)?;
             state.serialize_field("onUpdate", &self.on_update.as_deref())?;
             state.serialize_field("onDelete", &self.on_delete.as_deref())?;
+            state.serialize_field("deferrable", &self.deferrable)?;
+            state.serialize_field("initiallyDeferred", &self.initially_deferred)?;
             state.end()
         }
     }
@@ -404,6 +458,10 @@ mod serde_impl {
                 on_update: Option<String>,
                 #[serde(default)]
                 on_delete: Option<String>,
+                #[serde(default)]
+                deferrable: bool,
+                #[serde(default)]
+                initially_deferred: bool,
             }
 
             let helper = Helper::deserialize(deserializer)?;
@@ -418,6 +476,8 @@ mod serde_impl {
                 columns_to: Cow::Owned(helper.columns_to.into_iter().map(Cow::Owned).collect()),
                 on_update: helper.on_update.map(Cow::Owned),
                 on_delete: helper.on_delete.map(Cow::Owned),
+                deferrable: helper.deferrable,
+                initially_deferred: helper.initially_deferred,
             })
         }
     }
@@ -440,6 +500,22 @@ mod tests {
         assert_eq!(FK.name, "fk_posts_user");
         assert_eq!(FK.table, "posts");
         assert_eq!(FK.columns.len(), 1);
+        const { assert!(!FK.deferrable) };
+    }
+
+    #[test]
+    fn test_const_deferrable_fk_def() {
+        const COLS: &[Cow<'static, str>] = &[Cow::Borrowed("user_id")];
+        const REFS: &[Cow<'static, str>] = &[Cow::Borrowed("id")];
+
+        const DEF: ForeignKeyDef = ForeignKeyDef::new("public", "posts", "fk")
+            .columns(COLS)
+            .references("public", "users", REFS)
+            .initially_deferred();
+
+        let fk = DEF.into_foreign_key();
+        assert!(fk.deferrable);
+        assert!(fk.initially_deferred);
     }
 
     #[test]
@@ -475,7 +551,7 @@ mod tests {
         let fk = ForeignKey::from_strings(
             "public".to_string(),
             "posts".to_string(),
-            "fk_posts_user".to_string(),
+            "posts_user_id_fkey".to_string(),
             vec!["user_id".to_string()],
             "public".to_string(),
             "users".to_string(),
@@ -483,7 +559,7 @@ mod tests {
         );
         assert_eq!(fk.schema(), "public");
         assert_eq!(fk.table(), "posts");
-        assert_eq!(fk.name(), "fk_posts_user");
+        assert_eq!(fk.name(), "posts_user_id_fkey");
         assert_eq!(fk.columns.len(), 1);
     }
 

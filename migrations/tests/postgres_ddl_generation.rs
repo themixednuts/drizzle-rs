@@ -8,8 +8,8 @@ use drizzle_migrations::postgres::{
     PostgresDDL,
     collection::diff_ddl,
     ddl::{
-        Column, Enum, ForeignKey, Generated, GeneratedType, Index, IndexColumn, Policy, PrimaryKey,
-        Table, UniqueConstraint,
+        Column, Enum, ForeignKey, Generated, GeneratedType, Index, IndexColumn, Opclass, Policy,
+        PrimaryKey, Table, UniqueConstraint,
     },
     statements::PostgresGenerator,
 };
@@ -56,6 +56,7 @@ fn column(table: &str, name: &str, sql_type: &str) -> Column {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     }
@@ -74,7 +75,12 @@ fn table(name: &str) -> Table {
     Table {
         schema: Cow::Borrowed("public"),
         name: Cow::Owned(name.to_string()),
+        is_unlogged: None,
+        is_temporary: None,
+        inherits: None,
+        tablespace: None,
         is_rls_enabled: None,
+        comment: None,
     }
 }
 
@@ -174,6 +180,27 @@ fn test_create_table_basic() {
         ),
         "Unexpected CREATE TABLE SQL: {}",
         sql[0]
+    );
+}
+
+#[test]
+fn test_create_table_with_storage_attrs() {
+    let from = PostgresDDL::new();
+    let mut to = PostgresDDL::new();
+
+    let mut events = table("events");
+    events.is_unlogged = Some(true);
+    events.inherits = Some(Cow::Borrowed("base_events"));
+    events.tablespace = Some(Cow::Borrowed("fast_storage"));
+    to.tables.push(events);
+    to.columns.push(column_not_null("events", "id", "integer"));
+
+    let sql = diff_to_sql(&from, &to);
+
+    assert_eq!(sql.len(), 1);
+    assert_eq!(
+        sql[0],
+        "CREATE UNLOGGED TABLE \"events\" (\n\t\"id\" integer NOT NULL\n) INHERITS (\"base_events\") TABLESPACE \"fast_storage\";"
     );
 }
 
@@ -330,6 +357,44 @@ fn test_foreign_key_on_delete_cascade() {
 }
 
 #[test]
+fn test_foreign_key_actions_are_canonicalized() {
+    let from = PostgresDDL::new();
+    let mut to = PostgresDDL::new();
+
+    to.tables.push(table("users"));
+    to.columns.push(column_not_null("users", "id", "integer"));
+    to.pks.push(primary_key("users", vec!["id"]));
+
+    to.tables.push(table("posts"));
+    to.columns.push(column_not_null("posts", "id", "integer"));
+    to.columns
+        .push(column_not_null("posts", "author_id", "integer"));
+    to.pks.push(primary_key("posts", vec!["id"]));
+
+    let mut fk = foreign_key(
+        "posts",
+        "posts_author_fk",
+        vec!["author_id"],
+        "users",
+        vec!["id"],
+    );
+    fk.on_delete = Some(Cow::Borrowed("set null"));
+    fk.on_update = Some(Cow::Borrowed("cascade"));
+    to.fks.push(fk);
+
+    let sql = diff_to_sql(&from, &to);
+    let posts_sql = sql
+        .iter()
+        .find(|s| s.contains("CREATE TABLE \"posts\""))
+        .unwrap();
+
+    assert!(
+        posts_sql.contains("ON DELETE SET NULL ON UPDATE CASCADE"),
+        "expected canonical FK action order, got: {posts_sql}"
+    );
+}
+
+#[test]
 fn test_create_table_with_unique_constraint() {
     let from = PostgresDDL::new();
     let mut to = PostgresDDL::new();
@@ -355,6 +420,57 @@ fn test_create_table_with_unique_constraint() {
         "Unexpected CREATE TABLE with unique constraint SQL: {}",
         sql[0]
     );
+}
+
+#[test]
+fn test_create_table_with_deferrable_fk_and_composite_unique() {
+    let from = PostgresDDL::new();
+    let mut to = PostgresDDL::new();
+
+    to.tables.push(table("parents"));
+    to.columns
+        .push(column_not_null("parents", "tenant_id", "integer"));
+    to.columns.push(column_not_null("parents", "id", "integer"));
+
+    to.tables.push(table("children"));
+    to.columns
+        .push(column_not_null("children", "tenant_id", "integer"));
+    to.columns
+        .push(column_not_null("children", "parent_id", "integer"));
+    to.columns.push(column_not_null("children", "slug", "text"));
+
+    let mut fk = foreign_key(
+        "children",
+        "children_parent_fkey",
+        vec!["tenant_id", "parent_id"],
+        "parents",
+        vec!["tenant_id", "id"],
+    );
+    fk.deferrable = true;
+    fk.initially_deferred = true;
+    to.fks.push(fk);
+
+    let mut unique = unique_constraint(
+        "children",
+        "children_tenant_slug_key",
+        vec!["tenant_id", "slug"],
+    );
+    unique.deferrable = true;
+    unique.initially_deferred = true;
+    to.uniques.push(unique);
+
+    let sql = diff_to_sql(&from, &to);
+    let child_sql = sql
+        .iter()
+        .find(|stmt| stmt.contains("CREATE TABLE \"children\""))
+        .expect("children create table");
+
+    assert!(child_sql.contains(
+        "CONSTRAINT \"children_parent_fkey\" FOREIGN KEY (\"tenant_id\", \"parent_id\") REFERENCES \"parents\"(\"tenant_id\", \"id\") DEFERRABLE INITIALLY DEFERRED"
+    ));
+    assert!(child_sql.contains(
+        "CONSTRAINT \"children_tenant_slug_key\" UNIQUE(\"tenant_id\", \"slug\") DEFERRABLE INITIALLY DEFERRED"
+    ));
 }
 
 #[test]
@@ -457,7 +573,7 @@ fn test_create_index() {
 
     assert_eq!(sql.len(), 1);
     assert_eq!(
-        sql[0], "CREATE INDEX \"users_email_idx\" ON \"users\" USING btree (\"email\" NULLS LAST);",
+        sql[0], "CREATE INDEX \"users_email_idx\" ON \"users\"(\"email\");",
         "Unexpected CREATE INDEX SQL"
     );
 }
@@ -484,9 +600,37 @@ fn test_create_unique_index() {
 
     assert_eq!(sql.len(), 1);
     assert_eq!(
-        sql[0],
-        "CREATE UNIQUE INDEX \"users_email_unique_idx\" ON \"users\" USING btree (\"email\" NULLS LAST);",
+        sql[0], "CREATE UNIQUE INDEX \"users_email_unique_idx\" ON \"users\"(\"email\");",
         "Unexpected CREATE UNIQUE INDEX SQL"
+    );
+}
+
+#[test]
+fn test_create_index_with_method_opclass_where_and_with() {
+    let mut from = PostgresDDL::new();
+    let mut to = PostgresDDL::new();
+
+    from.tables.push(table("users"));
+    from.columns.push(column_not_null("users", "id", "integer"));
+    from.columns.push(column("users", "email", "text"));
+
+    to.tables.push(table("users"));
+    to.columns.push(column_not_null("users", "id", "integer"));
+    to.columns.push(column("users", "email", "text"));
+
+    let mut idx = index("users", "users_email_idx", vec!["email"]);
+    idx.method = Some(Cow::Borrowed("btree"));
+    idx.where_clause = Some(Cow::Borrowed("email IS NOT NULL"));
+    idx.with = Some(Cow::Borrowed("fillfactor = 80"));
+    idx.columns[0].opclass = Some(Opclass::new("text_pattern_ops"));
+    to.indexes.push(idx);
+
+    let sql = diff_to_sql(&from, &to);
+
+    assert_eq!(sql.len(), 1);
+    assert_eq!(
+        sql[0],
+        "CREATE INDEX \"users_email_idx\" ON \"users\" USING btree(\"email\" text_pattern_ops) WITH (fillfactor = 80) WHERE email IS NOT NULL;"
     );
 }
 
@@ -710,7 +854,12 @@ fn test_create_table_in_custom_schema() {
     to.tables.push(Table {
         schema: Cow::Borrowed("myschema"),
         name: Cow::Borrowed("users"),
+        is_unlogged: None,
+        is_temporary: None,
+        inherits: None,
+        tablespace: None,
         is_rls_enabled: None,
+        comment: None,
     });
     to.columns.push(Column {
         schema: Cow::Borrowed("myschema"),
@@ -723,6 +872,7 @@ fn test_create_table_in_custom_schema() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -984,6 +1134,169 @@ fn test_create_index_concurrently_sql() {
     assert_eq!(sql.len(), 1, "Expected one CREATE INDEX statement: {sql:?}");
     assert_eq!(
         sql[0],
-        "CREATE INDEX CONCURRENTLY \"users_email_concurrent_idx\" ON \"users\" USING btree (\"email\" NULLS LAST);"
+        "CREATE INDEX CONCURRENTLY \"users_email_concurrent_idx\" ON \"users\"(\"email\");"
+    );
+}
+
+#[test]
+fn test_first_migration_emits_index_rls_and_policy_after_table() {
+    let from = PostgresDDL::new();
+    let mut to = PostgresDDL::new();
+
+    let mut users = table("users");
+    users.is_rls_enabled = Some(true);
+    to.tables.push(users);
+    to.columns.push(column_not_null("users", "id", "integer"));
+    to.columns.push(column("users", "email", "text"));
+    to.pks.push(primary_key("users", vec!["id"]));
+    to.indexes
+        .push(unique_index("users", "users_email_idx", vec!["email"]));
+    let mut policy = Policy::new("public", "users", "users_policy");
+    policy.as_clause = Some(Cow::Borrowed("permissive"));
+    policy.for_clause = Some(Cow::Borrowed("select"));
+    policy.to = Some(vec![Cow::Borrowed("public")]);
+    policy.using = Some(Cow::Borrowed("true"));
+    to.policies.push(policy);
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(sql.len(), 4, "expected table, index, RLS, policy: {sql:?}");
+    assert!(sql[0].starts_with("CREATE TABLE \"users\""));
+    assert_eq!(
+        sql[1],
+        "CREATE UNIQUE INDEX \"users_email_idx\" ON \"users\"(\"email\");"
+    );
+    assert_eq!(sql[2], "ALTER TABLE \"users\" ENABLE ROW LEVEL SECURITY;");
+    assert_eq!(
+        sql[3],
+        "CREATE POLICY \"users_policy\" ON \"users\" AS PERMISSIVE FOR SELECT TO PUBLIC USING (true);"
+    );
+}
+
+#[test]
+fn test_table_unlogged_toggle_generates_alter_table() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("events"));
+    from.columns
+        .push(column_not_null("events", "id", "integer"));
+
+    let mut to = from.clone();
+    to.tables.list_mut()[0].is_unlogged = Some(true);
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(sql, vec!["ALTER TABLE \"events\" SET UNLOGGED;"]);
+
+    let sql = diff_to_sql(&to, &from);
+    assert_eq!(sql, vec!["ALTER TABLE \"events\" SET LOGGED;"]);
+}
+
+#[test]
+fn test_table_tablespace_change_generates_alter_table() {
+    let mut from = PostgresDDL::new();
+    let mut events = table("events");
+    events.tablespace = Some(Cow::Borrowed("slow_storage"));
+    from.tables.push(events);
+    from.columns
+        .push(column_not_null("events", "id", "integer"));
+
+    let mut to = from.clone();
+    to.tables.list_mut()[0].tablespace = Some(Cow::Borrowed("fast_storage"));
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(
+        sql,
+        vec!["ALTER TABLE \"events\" SET TABLESPACE \"fast_storage\";"]
+    );
+}
+
+#[test]
+fn test_table_comment_change_and_removal_generates_comment_on() {
+    let mut from = PostgresDDL::new();
+    let mut users = table("users");
+    users.comment = Some(Cow::Borrowed("Old docs"));
+    from.tables.push(users);
+
+    let mut to = from.clone();
+    to.tables.list_mut()[0].comment = Some(Cow::Borrowed("It's documented"));
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(
+        sql,
+        vec!["COMMENT ON TABLE \"users\" IS 'It''s documented';"]
+    );
+
+    let mut removed = to.clone();
+    removed.tables.list_mut()[0].comment = None;
+    let sql = diff_to_sql(&to, &removed);
+    assert_eq!(sql, vec!["COMMENT ON TABLE \"users\" IS NULL;"]);
+}
+
+#[test]
+fn test_create_policy_on_existing_table() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    from.columns.push(column_not_null("users", "id", "integer"));
+
+    let mut to = from.clone();
+    let mut policy = Policy::new("public", "users", "users_select_policy");
+    policy.for_clause = Some(Cow::Borrowed("select"));
+    policy.using = Some(Cow::Borrowed("id > 0"));
+    to.policies.push(policy);
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(
+        sql,
+        vec![
+            "CREATE POLICY \"users_select_policy\" ON \"users\" AS PERMISSIVE FOR SELECT USING (id > 0);"
+        ]
+    );
+}
+
+#[test]
+fn test_circular_created_foreign_keys_are_deferred() {
+    let from = PostgresDDL::new();
+    let mut to = PostgresDDL::new();
+
+    to.tables.push(table("a"));
+    to.columns.push(column_not_null("a", "id", "integer"));
+    to.columns.push(column("a", "b_id", "integer"));
+    to.pks.push(primary_key("a", vec!["id"]));
+    to.fks
+        .push(foreign_key("a", "a_b_fk", vec!["b_id"], "b", vec!["id"]));
+
+    to.tables.push(table("b"));
+    to.columns.push(column_not_null("b", "id", "integer"));
+    to.columns.push(column("b", "a_id", "integer"));
+    to.pks.push(primary_key("b", vec!["id"]));
+    to.fks
+        .push(foreign_key("b", "b_a_fk", vec!["a_id"], "a", vec!["id"]));
+
+    let sql = diff_to_sql(&from, &to);
+
+    assert_eq!(
+        sql.len(),
+        4,
+        "expected two creates then two FK alters: {sql:?}"
+    );
+    assert!(sql[0].starts_with("CREATE TABLE "));
+    assert!(sql[1].starts_with("CREATE TABLE "));
+    assert!(
+        !sql[0].contains("FOREIGN KEY"),
+        "first table should not inline cycle FK: {}",
+        sql[0]
+    );
+    assert!(
+        !sql[1].contains("FOREIGN KEY"),
+        "second table should not inline cycle FK: {}",
+        sql[1]
+    );
+    assert!(
+        sql[2].starts_with("ALTER TABLE ") && sql[2].contains(" ADD CONSTRAINT "),
+        "first deferred FK missing: {}",
+        sql[2]
+    );
+    assert!(
+        sql[3].starts_with("ALTER TABLE ") && sql[3].contains(" ADD CONSTRAINT "),
+        "second deferred FK missing: {}",
+        sql[3]
     );
 }

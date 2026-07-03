@@ -56,6 +56,7 @@ fn column(table: &str, name: &str, sql_type: &str) -> Column {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     }
@@ -82,7 +83,12 @@ fn table(name: &str) -> Table {
     Table {
         schema: Cow::Borrowed("public"),
         name: Cow::Owned(name.to_string()),
+        is_unlogged: None,
+        is_temporary: None,
+        inherits: None,
+        tablespace: None,
         is_rls_enabled: None,
+        comment: None,
     }
 }
 
@@ -381,6 +387,54 @@ fn test_alter_column_type_change() {
         sql[0],
         "ALTER TABLE \"users\" ALTER COLUMN \"age\" SET DATA TYPE integer USING \"age\"::integer;"
     );
+}
+
+#[test]
+fn test_alter_column_array_dimension_change() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    from.columns.push(column("users", "scores", "integer"));
+
+    let mut to = PostgresDDL::new();
+    to.tables.push(table("users"));
+    let mut scores = column("users", "scores", "integer");
+    scores.dimensions = Some(1);
+    to.columns.push(scores);
+
+    let sql = diff_to_sql(&from, &to);
+
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" ALTER COLUMN \"scores\" SET DATA TYPE integer[] USING \"scores\"::integer[];"
+    );
+}
+
+#[test]
+fn test_column_comment_change_and_removal() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    let mut from_email = column("users", "email", "text");
+    from_email.comment = Some(Cow::Borrowed("Old comment"));
+    from.columns.push(from_email);
+
+    let mut to = PostgresDDL::new();
+    to.tables.push(table("users"));
+    let mut to_email = column("users", "email", "text");
+    to_email.comment = Some(Cow::Borrowed("It's new"));
+    to.columns.push(to_email);
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(
+        sql,
+        vec!["COMMENT ON COLUMN \"users\".\"email\" IS 'It''s new';"]
+    );
+
+    let mut removed = PostgresDDL::new();
+    removed.tables.push(table("users"));
+    removed.columns.push(column("users", "email", "text"));
+    let sql = diff_to_sql(&to, &removed);
+    assert_eq!(sql, vec!["COMMENT ON COLUMN \"users\".\"email\" IS NULL;"]);
 }
 
 /// Test: Alter column multiple properties at once
@@ -690,6 +744,40 @@ fn test_drop_foreign_key() {
     );
 }
 
+/// Test: Change foreign key deferrability (drop + recreate)
+#[test]
+fn test_foreign_key_deferrability_change_recreates_constraint() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    from.columns.push(column_not_null("users", "id", "integer"));
+    from.pks.push(primary_key("users", vec!["id"]));
+
+    from.tables.push(table("posts"));
+    from.columns.push(column_not_null("posts", "id", "integer"));
+    from.columns.push(column("posts", "author_id", "integer"));
+    from.pks.push(primary_key("posts", vec!["id"]));
+    from.fks.push(foreign_key(
+        "posts",
+        "posts_author_fk",
+        vec!["author_id"],
+        "users",
+        vec!["id"],
+    ));
+
+    let mut to = from.clone();
+    to.fks.list_mut()[0].deferrable = true;
+    to.fks.list_mut()[0].initially_deferred = true;
+
+    let sql = diff_to_sql(&from, &to);
+
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"posts\" DROP CONSTRAINT \"posts_author_fk\";\n\
+         ALTER TABLE \"posts\" ADD CONSTRAINT \"posts_author_fk\" FOREIGN KEY (\"author_id\") REFERENCES \"users\"(\"id\") DEFERRABLE INITIALLY DEFERRED;"
+    );
+}
+
 /// Test: Add primary key to existing table
 #[test]
 fn test_add_primary_key() {
@@ -710,7 +798,7 @@ fn test_add_primary_key() {
     assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
     assert_eq!(
         sql[0],
-        "ALTER TABLE \"users\" ADD CONSTRAINT \"users_pkey\" PRIMARY KEY (\"id\");"
+        "ALTER TABLE \"users\" ADD CONSTRAINT \"users_pkey\" PRIMARY KEY(\"id\");"
     );
 }
 
@@ -793,6 +881,34 @@ fn test_drop_unique_constraint() {
     );
 }
 
+/// Test: Change unique constraint deferrability (drop + recreate)
+#[test]
+fn test_unique_constraint_deferrability_change_recreates_constraint() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    from.columns.push(column_not_null("users", "id", "integer"));
+    from.columns.push(column("users", "email", "text"));
+    from.pks.push(primary_key("users", vec!["id"]));
+    from.uniques.push(unique_constraint(
+        "users",
+        "users_email_unique",
+        vec!["email"],
+    ));
+
+    let mut to = from.clone();
+    to.uniques.list_mut()[0].deferrable = true;
+    to.uniques.list_mut()[0].initially_deferred = true;
+
+    let sql = diff_to_sql(&from, &to);
+
+    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(
+        sql[0],
+        "ALTER TABLE \"users\" DROP CONSTRAINT \"users_email_unique\";\n\
+         ALTER TABLE \"users\" ADD CONSTRAINT \"users_email_unique\" UNIQUE (\"email\") DEFERRABLE INITIALLY DEFERRED;"
+    );
+}
+
 // =============================================================================
 // Index Tests
 // =============================================================================
@@ -815,7 +931,7 @@ fn test_add_index() {
     assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
     assert_eq!(
         sql[0],
-        "CREATE INDEX \"users_email_idx\" ON \"users\" USING btree (\"email\" NULLS LAST);"
+        "CREATE INDEX \"users_email_idx\" ON \"users\"(\"email\");"
     );
 }
 
@@ -920,7 +1036,12 @@ fn test_custom_schema_alterations() {
     from.tables.push(Table {
         schema: Cow::Borrowed("myschema"),
         name: Cow::Borrowed("users"),
+        is_unlogged: None,
+        is_temporary: None,
+        inherits: None,
+        tablespace: None,
         is_rls_enabled: None,
+        comment: None,
     });
     from.columns.push(Column {
         schema: Cow::Borrowed("myschema"),
@@ -933,6 +1054,7 @@ fn test_custom_schema_alterations() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -949,6 +1071,7 @@ fn test_custom_schema_alterations() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
