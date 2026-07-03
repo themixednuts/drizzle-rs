@@ -118,7 +118,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     #[must_use]
     pub fn table(table: TableRef) -> Self {
         Self {
-            chunks: smallvec::smallvec![SQLChunk::Table(table)],
+            chunks: smallvec::smallvec![SQLChunk::Table(TableSqlRef::from_table_ref(table))],
         }
     }
 
@@ -127,7 +127,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     #[must_use]
     pub fn column(column: ColumnRef) -> Self {
         Self {
-            chunks: smallvec::smallvec![SQLChunk::Column(column)],
+            chunks: smallvec::smallvec![SQLChunk::Column(ColumnSqlRef::from_column_ref(column))],
         }
     }
 
@@ -263,6 +263,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Creates an aliased version: self AS "name"
+    #[inline]
     #[must_use]
     pub fn alias(self, name: impl Into<Cow<'a, str>>) -> Self {
         self.push(Token::AS).push(SQLChunk::Ident(name.into()))
@@ -270,14 +271,16 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Creates a comma-separated list of parameters.
     /// Builds chunks directly without intermediate SQL allocations.
+    #[inline]
     pub fn param_list<I>(values: I) -> Self
     where
         I: IntoIterator,
         I::Item: Into<Cow<'a, V>>,
     {
         let iter = values.into_iter();
-        let (lower, _) = iter.size_hint();
-        let mut chunks = SmallVec::with_capacity(lower.saturating_mul(2));
+        let (lower, upper) = iter.size_hint();
+        let count = upper.unwrap_or(lower);
+        let mut chunks = SmallVec::with_capacity(count.saturating_mul(2).saturating_sub(1));
         for (i, v) in iter.enumerate() {
             if i > 0 {
                 chunks.push(SQLChunk::Token(Token::COMMA));
@@ -292,15 +295,17 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Creates a comma-separated list of column assignments: "col" = ?
     /// Builds chunks directly without intermediate SQL allocations.
+    #[inline]
     pub fn assignments<I, T>(pairs: I) -> Self
     where
         I: IntoIterator<Item = (&'static str, T)>,
         T: Into<Cow<'a, V>>,
     {
         let iter = pairs.into_iter();
-        let (lower, _) = iter.size_hint();
+        let (lower, upper) = iter.size_hint();
+        let count = upper.unwrap_or(lower);
         // Each assignment: Ident + EQ + Param = 3 chunks, plus commas
-        let mut chunks = SmallVec::with_capacity(lower.saturating_mul(4));
+        let mut chunks = SmallVec::with_capacity(count.saturating_mul(4).saturating_sub(1));
         for (i, (col, val)) in iter.enumerate() {
             if i > 0 {
                 chunks.push(SQLChunk::Token(Token::COMMA));
@@ -320,13 +325,15 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     /// Unlike `assignments()` which wraps each value in `SQL::param()`, this variant
     /// accepts pre-built `SQL` fragments, preserving placeholders and raw expressions.
     /// Builds chunks directly without intermediate SQL allocations.
+    #[inline]
     pub fn assignments_sql<I>(pairs: I) -> Self
     where
         I: IntoIterator<Item = (&'static str, Self)>,
     {
         let iter = pairs.into_iter();
-        let (lower, _) = iter.size_hint();
-        let mut chunks = SmallVec::with_capacity(lower.saturating_mul(4));
+        let (lower, upper) = iter.size_hint();
+        let count = upper.unwrap_or(lower);
+        let mut chunks = SmallVec::with_capacity(count.saturating_mul(4).saturating_sub(1));
         for (i, (col, sql)) in iter.enumerate() {
             if i > 0 {
                 chunks.push(SQLChunk::Token(Token::COMMA));
@@ -366,6 +373,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Converts to owned version (consuming self to avoid clone)
+    #[inline]
     pub fn into_owned(self) -> OwnedSQL<V> {
         OwnedSQL::from(self)
     }
@@ -377,7 +385,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         profile_sql!("sql");
         #[cfg(feature = "profiling")]
         crate::drizzle_profile_scope!("sql_render", "sql.estimate");
-        let sql_cap = self.chunks.len().saturating_mul(8).max(128);
+        let (sql_cap, _) = self.render_capacity_estimate();
         let mut buf = String::with_capacity(sql_cap);
         self.write_to(&mut buf);
         buf
@@ -402,8 +410,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         crate::drizzle_profile_scope!("sql_render", "build");
         #[cfg(feature = "profiling")]
         crate::drizzle_profile_scope!("sql_render", "build.estimate");
-        let sql_cap = self.chunks.len().saturating_mul(8).max(128);
-        let param_cap = self.chunks.len().saturating_div(8).max(8);
+        let (sql_cap, param_cap) = self.render_capacity_estimate();
         let mut buf = String::with_capacity(sql_cap);
         let mut params: SmallVec<[&V; 8]> = SmallVec::with_capacity(param_cap);
         let mut param_index = 1usize;
@@ -443,6 +450,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     /// Write SQL to a buffer with dialect-appropriate placeholders.
     /// Uses `$1, $2, ...` for `PostgreSQL`, `?` or `:name` for `SQLite`, `?` for `MySQL`.
+    #[inline]
     pub fn write_to(&self, buf: &mut impl core::fmt::Write) {
         self.write_to_with(buf, crate::dialect::ParamStyle::for_dialect(V::DIALECT));
     }
@@ -486,6 +494,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Write a single chunk with pattern detection
+    #[inline]
     pub fn write_chunk_to(
         &self,
         buf: &mut impl core::fmt::Write,
@@ -502,6 +511,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Write appropriate columns for SELECT statement
+    #[inline]
     pub(crate) fn write_select_columns(
         &self,
         buf: &mut impl core::fmt::Write,
@@ -522,7 +532,8 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Write fully qualified columns for a table
-    pub fn write_qualified_columns(buf: &mut impl core::fmt::Write, table: &TableRef) {
+    #[inline]
+    pub fn write_qualified_columns(buf: &mut impl core::fmt::Write, table: &TableSqlRef) {
         if table.column_names.is_empty() {
             let _ = buf.write_char('*');
             return;
@@ -539,6 +550,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     }
 
     /// Simplified spacing logic
+    #[inline]
     fn needs_space(&self, index: usize) -> bool {
         let Some(next) = self.chunks.get(index + 1) else {
             return false;
@@ -548,8 +560,30 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         chunk_needs_space(current, next)
     }
 
+    #[inline]
+    fn render_capacity_estimate(&self) -> (usize, usize) {
+        let mut sql_cap = 0usize;
+        let mut param_cap = 0usize;
+
+        for chunk in &self.chunks {
+            sql_cap = sql_cap.saturating_add(match chunk {
+                SQLChunk::Ident(_) | SQLChunk::Raw(_) => 20,
+                SQLChunk::Column(_) => 30,
+                SQLChunk::Table(_) => 15,
+                SQLChunk::Token(_) => 8,
+                SQLChunk::Number(_) | SQLChunk::Param(_) => 4,
+            });
+            if matches!(chunk, SQLChunk::Param(_)) {
+                param_cap = param_cap.saturating_add(1);
+            }
+        }
+
+        (sql_cap.max(128), param_cap)
+    }
+
     /// Returns an iterator over references to parameter values
     /// (avoids allocating a Vec - callers can collect if needed)
+    #[inline]
     pub fn params(&self) -> impl Iterator<Item = &V> + use<'_, V> {
         self.chunks.iter().filter_map(|chunk| {
             if let SQLChunk::Param(Param {
@@ -572,12 +606,36 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         #[cfg(feature = "profiling")]
         profile_sql!("bind");
 
-        let param_map: HashMap<&str, V> = params
+        let binds: SmallVec<[(&str, V); 4]> = params
             .into_iter()
             .map(Into::into)
             .map(|p| (p.name, p.value.into()))
             .collect();
 
+        if binds.len() <= 4 {
+            let bound_chunks: SmallVec<[SQLChunk<'a, V>; 8]> = self
+                .chunks
+                .into_iter()
+                .map(|chunk| match chunk {
+                    SQLChunk::Param(mut param) => {
+                        if let Some(name) = param.placeholder.name
+                            && let Some((_, value)) =
+                                binds.iter().find(|(param_name, _)| *param_name == name)
+                        {
+                            param.value = Some(Cow::Owned(value.clone()));
+                        }
+                        SQLChunk::Param(param)
+                    }
+                    other => other,
+                })
+                .collect();
+
+            return SQL {
+                chunks: bound_chunks,
+            };
+        }
+
+        let param_map: HashMap<&str, V> = binds.into_iter().collect();
         let bound_chunks: SmallVec<[SQLChunk<'a, V>; 8]> = self
             .chunks
             .into_iter()
@@ -602,6 +660,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
 /// Canonical spacing logic for SQL chunk rendering.
 /// Used by both `SQL::write_to()` and `prepare_render()`.
+#[inline]
 pub(crate) fn chunk_needs_space<V: SQLParam>(
     current: &SQLChunk<'_, V>,
     next: &SQLChunk<'_, V>,
@@ -642,24 +701,28 @@ pub(crate) fn chunk_needs_space<V: SQLParam>(
 // ==================== trait implementations ====================
 
 impl<V: SQLParam> Default for SQL<'_, V> {
+    #[inline]
     fn default() -> Self {
         Self::empty()
     }
 }
 
 impl<'a, V: SQLParam + 'a> From<&'a str> for SQL<'a, V> {
+    #[inline]
     fn from(s: &'a str) -> Self {
         SQL::raw(s)
     }
 }
 
 impl<V: SQLParam> From<Token> for SQL<'_, V> {
+    #[inline]
     fn from(value: Token) -> Self {
         SQL::token(value)
     }
 }
 
 impl<'a, V: SQLParam + 'a> AsRef<Self> for SQL<'a, V> {
+    #[inline]
     fn as_ref(&self) -> &Self {
         self
     }

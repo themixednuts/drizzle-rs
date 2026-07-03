@@ -9,7 +9,7 @@ where
     Value: SQLParam,
     T: ToSQL<'a, Value>,
 {
-    SQL::from(Token::SELECT).append(&columns)
+    SQL::from(Token::SELECT).append(columns.into_sql())
 }
 
 /// Helper function to create a SELECT DISTINCT statement with the given columns
@@ -18,7 +18,7 @@ where
     Value: SQLParam,
     T: ToSQL<'a, Value>,
 {
-    SQL::from_iter([Token::SELECT, Token::DISTINCT]).append(&columns)
+    SQL::from_iter([Token::SELECT, Token::DISTINCT]).append(columns.into_sql())
 }
 
 fn set_op<'a, Value, L, R>(left: L, op: Token, all: bool, right: R) -> SQL<'a, Value>
@@ -27,8 +27,8 @@ where
     L: ToSQL<'a, Value>,
     R: ToSQL<'a, Value>,
 {
-    let left = left.to_sql();
-    let right = right.to_sql();
+    let left = left.into_sql();
+    let right = right.into_sql();
     let op_sql = if all {
         SQL::from(op).push(Token::ALL)
     } else {
@@ -114,7 +114,7 @@ where
     T: ToSQL<'a, Value>,
     Value: SQLParam,
 {
-    SQL::from(Token::FROM).append(&query)
+    SQL::from(Token::FROM).append(query.into_sql())
 }
 
 /// Helper function to create a WHERE clause
@@ -124,7 +124,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: BooleanLike,
 {
-    SQL::from(Token::WHERE).append(&condition)
+    SQL::from(Token::WHERE).append(condition.into_sql())
 }
 
 /// Helper function to create a GROUP BY clause
@@ -135,7 +135,7 @@ where
     T: ToSQL<'a, V>,
 {
     SQL::from_iter([Token::GROUP, Token::BY]).append(SQL::join(
-        expressions.into_iter().map(|e| e.to_sql()),
+        expressions.into_iter().map(ToSQL::into_sql),
         Token::COMMA,
     ))
 }
@@ -150,7 +150,7 @@ where
     V: SQLParam + 'a,
     T: ToSQL<'a, V>,
 {
-    SQL::from_iter([Token::GROUP, Token::BY]).append(expr.to_sql())
+    SQL::from_iter([Token::GROUP, Token::BY]).append(expr.into_sql())
 }
 
 /// Helper function to create a HAVING clause
@@ -160,7 +160,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: BooleanLike,
 {
-    SQL::from(Token::HAVING).append(&condition)
+    SQL::from(Token::HAVING).append(condition.into_sql())
 }
 
 /// Helper function to create an ORDER BY clause
@@ -169,7 +169,7 @@ where
     T: ToSQL<'a, V>,
     V: SQLParam + 'a,
 {
-    SQL::from_iter([Token::ORDER, Token::BY]).append(expressions.to_sql())
+    SQL::from_iter([Token::ORDER, Token::BY]).append(expressions.into_sql())
 }
 
 /// Helper function to create a LIMIT clause

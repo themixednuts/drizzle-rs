@@ -725,6 +725,10 @@ where
             flags,
             dialect: drizzle_core::ColumnDialect::SQLite {
                 autoincrement: false,
+                default: None,
+                generated_expression: None,
+                generated_stored: false,
+                collate: None,
             },
         };
         inference::infer_generator(&col_ref)

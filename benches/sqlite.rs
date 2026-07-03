@@ -2,7 +2,7 @@ use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_m
 use std::hint::black_box;
 
 #[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-use drizzle::core::expr::{count, eq};
+use drizzle::core::expr::{count, eq, gt};
 #[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use drizzle::sqlite::prelude::*;
 
@@ -232,6 +232,18 @@ fn bench_rusqlite(c: &mut Criterion) {
             criterion::BatchSize::SmallInput,
         );
     });
+    read.bench_function("select_drizzle_warm", |b| {
+        let (db, user) = rs_db();
+        db.insert(user).values(users!(100)).execute().expect("seed");
+        b.iter(|| {
+            let out: Vec<(i32, String, String)> = db
+                .select((user.id, user.name, user.email))
+                .from(user)
+                .all()
+                .expect("select");
+            black_box(out);
+        });
+    });
     read.finish();
 
     let mut write = c.benchmark_group("rusqlite/write");
@@ -365,6 +377,7 @@ fn bench_rusqlite(c: &mut Criterion) {
             criterion::BatchSize::SmallInput,
         );
     });
+    #[cfg(feature = "query")]
     query.bench_function("relations_json_decode", |b| {
         b.iter_batched(
             || {
@@ -449,6 +462,23 @@ fn bench_rusqlite(c: &mut Criterion) {
                     .to_sql();
                 black_box(sql.sql());
                 black_box(sql.params().count());
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+    extra.bench_function("build", |b| {
+        b.iter_batched(
+            rs_db,
+            |(db, user)| {
+                let sql = db
+                    .select((user.id, user.name, user.email))
+                    .from(user)
+                    .r#where(gt(user.id, 10))
+                    .order_by([asc(user.name)])
+                    .limit(10)
+                    .to_sql();
+                let built = sql.build();
+                black_box(built);
             },
             criterion::BatchSize::SmallInput,
         );
@@ -636,6 +666,22 @@ fn bench_turso(c: &mut Criterion) {
                     .to_sql();
                 black_box(sql.sql());
                 black_box(sql.params().count());
+            })
+        })
+    });
+    extra.bench_function("build", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = tu_db().await;
+                let sql = db
+                    .select((user.id, user.name, user.email))
+                    .from(user)
+                    .r#where(gt(user.id, 10))
+                    .order_by([asc(user.name)])
+                    .limit(10)
+                    .to_sql();
+                let built = sql.build();
+                black_box(built);
             })
         })
     });
@@ -836,6 +882,22 @@ fn bench_libsql(c: &mut Criterion) {
                     .to_sql();
                 black_box(sql.sql());
                 black_box(sql.params().count());
+            })
+        })
+    });
+    extra.bench_function("build", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let (db, user) = ls_db().await;
+                let sql = db
+                    .select((user.id, user.name, user.email))
+                    .from(user)
+                    .r#where(gt(user.id, 10))
+                    .order_by([asc(user.name)])
+                    .limit(10)
+                    .to_sql();
+                let built = sql.build();
+                black_box(built);
             })
         })
     });

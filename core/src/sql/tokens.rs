@@ -214,6 +214,7 @@ impl Token {
         )
     }
 
+    #[inline]
     #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match Self::as_str_a_to_f(*self) {

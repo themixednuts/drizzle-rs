@@ -10,28 +10,54 @@ use crate::{Param, Placeholder, SQLParam, sql::tokens::Token};
 pub enum ColumnDialect {
     SQLite {
         autoincrement: bool,
-    },
-    PostgreSQL {
-        postgres_type: &'static str,
-        is_serial: bool,
-        is_bigserial: bool,
-        is_generated_identity: bool,
-        is_identity_always: bool,
+        default: Option<&'static str>,
         generated_expression: Option<&'static str>,
         generated_stored: bool,
         collate: Option<&'static str>,
     },
+    PostgreSQL {
+        postgres_type: &'static str,
+        dimensions: Option<i32>,
+        is_serial: bool,
+        is_bigserial: bool,
+        is_generated_identity: bool,
+        is_identity_always: bool,
+        default: Option<&'static str>,
+        generated_expression: Option<&'static str>,
+        generated_stored: bool,
+        collate: Option<&'static str>,
+        comment: Option<&'static str>,
+    },
 }
 
 /// Dialect-specific table metadata.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TableDialect {
-    #[default]
-    PostgreSQL,
+    PostgreSQL {
+        is_unlogged: bool,
+        is_temporary: bool,
+        inherits: Option<&'static str>,
+        tablespace: Option<&'static str>,
+        is_rls_enabled: bool,
+        comment: Option<&'static str>,
+    },
     SQLite {
         without_rowid: bool,
         strict: bool,
     },
+}
+
+impl Default for TableDialect {
+    fn default() -> Self {
+        Self::PostgreSQL {
+            is_unlogged: false,
+            is_temporary: false,
+            inherits: None,
+            tablespace: None,
+            is_rls_enabled: false,
+            comment: None,
+        }
+    }
 }
 
 // ==================== Ref structs ====================
@@ -39,9 +65,16 @@ pub enum TableDialect {
 /// Foreign key reference as a const Copy struct.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ForeignKeyRef {
+    pub name: &'static str,
+    pub name_explicit: bool,
     pub target_table: &'static str,
+    pub target_schema: &'static str,
     pub source_columns: &'static [&'static str],
     pub target_columns: &'static [&'static str],
+    pub on_delete: Option<&'static str>,
+    pub on_update: Option<&'static str>,
+    pub deferrable: bool,
+    pub initially_deferred: bool,
 }
 
 /// Primary key reference as a const Copy struct.
@@ -54,9 +87,12 @@ pub struct PrimaryKeyRef {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConstraintRef {
     pub name: Option<&'static str>,
+    pub name_explicit: bool,
     pub kind: SQLConstraintKind,
     pub columns: &'static [&'static str],
     pub check_expression: Option<&'static str>,
+    pub deferrable: bool,
+    pub initially_deferred: bool,
 }
 
 // ==================== Enhanced TableRef and ColumnRef ====================
@@ -102,8 +138,56 @@ impl TableRef {
             foreign_keys: &[],
             constraints: &[],
             dependency_names: &[],
-            dialect: TableDialect::PostgreSQL,
+            dialect: TableDialect::PostgreSQL {
+                is_unlogged: false,
+                is_temporary: false,
+                inherits: None,
+                tablespace: None,
+                is_rls_enabled: false,
+                comment: None,
+            },
         }
+    }
+}
+
+/// Table fields needed by SQL rendering.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableSqlRef {
+    pub name: &'static str,
+    pub column_names: &'static [&'static str],
+}
+
+impl TableSqlRef {
+    #[inline]
+    #[must_use]
+    pub const fn from_table_ref(table: TableRef) -> Self {
+        Self {
+            name: table.name,
+            column_names: table.column_names,
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn from_table_ref_ref(table: &TableRef) -> Self {
+        Self {
+            name: table.name,
+            column_names: table.column_names,
+        }
+    }
+}
+
+impl From<&TableRef> for TableSqlRef {
+    #[inline]
+    fn from(value: &TableRef) -> Self {
+        Self::from_table_ref_ref(value)
+    }
+}
+
+impl From<TableRef> for TableSqlRef {
+    #[inline]
+    fn from(value: TableRef) -> Self {
+        Self::from_table_ref(value)
     }
 }
 
@@ -202,6 +286,10 @@ impl ColumnRef {
             flags: ColumnFlags::empty(),
             dialect: ColumnDialect::SQLite {
                 autoincrement: false,
+                default: None,
+                generated_expression: None,
+                generated_stored: false,
+                collate: None,
             },
         }
     }
@@ -228,6 +316,47 @@ impl ColumnRef {
     #[must_use]
     pub const fn has_default(&self) -> bool {
         self.flags.contains(ColumnFlags::HAS_DEFAULT)
+    }
+}
+
+/// Column fields needed by SQL rendering.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ColumnSqlRef {
+    pub table: &'static str,
+    pub name: &'static str,
+}
+
+impl ColumnSqlRef {
+    #[inline]
+    #[must_use]
+    pub const fn from_column_ref(column: ColumnRef) -> Self {
+        Self {
+            table: column.table,
+            name: column.name,
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn from_column_ref_ref(column: &ColumnRef) -> Self {
+        Self {
+            table: column.table,
+            name: column.name,
+        }
+    }
+}
+
+impl From<&ColumnRef> for ColumnSqlRef {
+    #[inline]
+    fn from(value: &ColumnRef) -> Self {
+        Self::from_column_ref_ref(value)
+    }
+}
+
+impl From<ColumnRef> for ColumnSqlRef {
+    #[inline]
+    fn from(value: ColumnRef) -> Self {
+        Self::from_column_ref(value)
     }
 }
 
@@ -269,8 +398,8 @@ pub fn write_quoted_ident(buf: &mut impl core::fmt::Write, name: &str) {
 /// - `Ident` - Quoted identifiers ("`table_name`", "`column_name`")
 /// - `Raw` - Unquoted raw SQL text (function names, expressions)
 /// - `Param` - Parameter placeholders with values
-/// - `Table` - Table reference via `TableRef`
-/// - `Column` - Column reference via `ColumnRef`
+/// - `Table` - Table reference via `TableSqlRef`
+/// - `Column` - Column reference via `ColumnSqlRef`
 #[derive(Clone)]
 pub enum SQLChunk<'a, V: SQLParam> {
     /// SQL keywords and operators: SELECT, FROM, WHERE, =, AND, etc.
@@ -300,11 +429,11 @@ pub enum SQLChunk<'a, V: SQLParam> {
     /// Table reference with static name and column names.
     /// Renders as: "`table_name`"
     /// Column names used for SELECT * expansion.
-    Table(TableRef),
+    Table(TableSqlRef),
 
     /// Column reference with static table and column names.
     /// Renders as: "`table_name"."column_name`"
-    Column(ColumnRef),
+    Column(ColumnSqlRef),
 }
 
 impl<'a, V: SQLParam> SQLChunk<'a, V> {
@@ -335,14 +464,14 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
     #[inline]
     #[must_use]
     pub const fn table(table: TableRef) -> Self {
-        Self::Table(table)
+        Self::Table(TableSqlRef::from_table_ref(table))
     }
 
     /// Creates a column chunk - const
     #[inline]
     #[must_use]
     pub const fn column(column: ColumnRef) -> Self {
-        Self::Column(column)
+        Self::Column(ColumnSqlRef::from_column_ref(column))
     }
 
     /// Creates a parameter chunk with borrowed value - const
@@ -387,6 +516,7 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
     // ==================== write implementation ====================
 
     /// Write chunk content to buffer
+    #[inline]
     pub(crate) fn write(&self, buf: &mut impl core::fmt::Write) {
         match self {
             SQLChunk::Token(token) => {
@@ -459,14 +589,14 @@ impl<V: SQLParam> From<Token> for SQLChunk<'_, V> {
 impl<V: SQLParam> From<TableRef> for SQLChunk<'_, V> {
     #[inline]
     fn from(value: TableRef) -> Self {
-        Self::Table(value)
+        Self::Table(value.into())
     }
 }
 
 impl<V: SQLParam> From<ColumnRef> for SQLChunk<'_, V> {
     #[inline]
     fn from(value: ColumnRef) -> Self {
-        Self::Column(value)
+        Self::Column(value.into())
     }
 }
 
@@ -474,5 +604,27 @@ impl<'a, V: SQLParam> From<Param<'a, V>> for SQLChunk<'a, V> {
     #[inline]
     fn from(value: Param<'a, V>) -> Self {
         Self::Param(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dialect::{Dialect, SQLiteDialect};
+    use core::mem::size_of;
+
+    #[allow(dead_code)]
+    #[derive(Clone, Debug)]
+    struct TestParam([usize; 4]);
+
+    impl SQLParam for TestParam {
+        const DIALECT: Dialect = Dialect::SQLite;
+        type DialectMarker = SQLiteDialect;
+    }
+
+    #[test]
+    fn sql_chunk_stays_slim() {
+        // Param is the dominant variant for this 32-byte test parameter.
+        assert!(size_of::<SQLChunk<'static, TestParam>>() <= 64);
     }
 }

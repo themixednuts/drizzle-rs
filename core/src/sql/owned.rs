@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use crate::sql::{ColumnRef, TableRef};
+use crate::sql::{ColumnRef, ColumnSqlRef, TableRef, TableSqlRef};
 use crate::{OwnedParam, SQL, SQLChunk, SQLParam, ToSQL, Token};
 use smallvec::SmallVec;
 
@@ -11,8 +11,8 @@ pub enum OwnedSQLChunk<V: SQLParam> {
     Raw(Box<str>),
     Number(usize),
     Param(OwnedParam<V>),
-    Table(TableRef),
-    Column(ColumnRef),
+    Table(TableSqlRef),
+    Column(ColumnSqlRef),
 }
 
 impl<V: SQLParam> OwnedSQLChunk<V> {
@@ -27,14 +27,14 @@ impl<V: SQLParam> OwnedSQLChunk<V> {
     #[inline]
     #[must_use]
     pub const fn table(table: TableRef) -> Self {
-        Self::Table(table)
+        Self::Table(TableSqlRef::from_table_ref(table))
     }
 
     /// Creates a column chunk.
     #[inline]
     #[must_use]
     pub const fn column(column: ColumnRef) -> Self {
-        Self::Column(column)
+        Self::Column(ColumnSqlRef::from_column_ref(column))
     }
 
     /// Creates a quoted identifier from a runtime string.
