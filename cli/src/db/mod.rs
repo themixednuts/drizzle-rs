@@ -4719,7 +4719,7 @@ pub struct UsersEmailIdx(Users::email);
         assert_eq!(sql.len(), 1);
         assert_eq!(
             sql[0],
-            "CREATE INDEX CONCURRENTLY \"users_email_idx\" ON \"users\" USING btree (\"email\" NULLS LAST);"
+            "CREATE INDEX CONCURRENTLY \"users_email_idx\" ON \"users\"(\"email\");"
         );
     }
 

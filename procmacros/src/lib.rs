@@ -3157,12 +3157,46 @@ pub fn PostgresIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// ```rust,no_run
 /// # extern crate self as drizzle;
-/// # mod drizzle { pub mod core { pub use drizzle_core::*; } pub mod error { pub use drizzle_core::error::*; } pub mod ddl { pub use drizzle_types::*; } pub mod postgres { pub mod common { pub use drizzle_postgres::common::*; } pub mod values { pub use drizzle_postgres::values::*; } pub mod traits { pub use drizzle_postgres::traits::*; } pub mod attrs { pub use drizzle_postgres::attrs::*; } pub mod prelude { pub use drizzle_macros::{PostgresPolicy, PostgresTable}; pub use drizzle_core::*; } } }
-/// # use drizzle::postgres::prelude::*;
-/// # #[PostgresTable]
-/// # struct Users { id: i32 }
+/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
+/// #  pub mod error { pub use drizzle_core::error::*; }
+/// #  pub use drizzle_types as ddl;
+/// #  pub mod postgres {
+/// #      pub mod values { pub use drizzle_postgres::values::*; }
+/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
+/// #      pub mod common { pub use drizzle_postgres::common::*; }
+/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
+/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
+/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
+/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
+/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+/// #      pub use ::postgres::Row;
+/// #      #[cfg(feature = "tokio-postgres")]
+/// #      pub use ::tokio_postgres::Row;
+/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
+/// #      pub struct Row;
+/// #      pub mod prelude {
+/// #          #[cfg(feature = "postgres")]
+/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresPolicy, PostgresFromRow};
+/// #          pub use drizzle_postgres::attrs::*;
+/// #          pub use drizzle_postgres::common::PostgresSchemaType;
+/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
+/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+/// #          pub use drizzle_core::*;
+/// #      }
+/// #  }
+/// # fn main() {
+/// use drizzle::postgres::prelude::*;
+///
+/// #[PostgresTable]
+/// struct Users {
+///     #[column(primary)]
+///     id: i32,
+/// }
+///
 /// #[PostgresPolicy(FOR = "SELECT", TO("public"), USING = "id > 0")]
 /// struct UsersReadPolicy(Users);
+/// # }
 /// ```
 #[cfg(feature = "postgres")]
 #[allow(non_snake_case)]
