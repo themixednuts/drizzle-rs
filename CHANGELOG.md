@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.12](https://github.com/themixednuts/drizzle-rs/compare/v0.1.11...v0.1.12) - 2026-07-03
+
+### Added
+
+- *(macros)* DDL macro surface, attr-const docs, and constraint fixes
+- *(migrations)* DDL correctness, new features, and a single renderer per dialect
+
+### Changed
+
+- unify dialect query builders on shared state machine
+
+### Documentation
+
+- update AGENTS.md test recipe references to just test:: module
+
+### Fixed
+
+- *(drivers)* typed errors, statement caching, savepoint cleanup, cancellation
+- *(ci)* correct CLI push-SQL assertion and PostgresPolicy doctest shim
+
+### Performance
+
+- *(core)* slim SQL chunks, capacity heuristics, and shared builder infra
+
 ## [0.1.11](https://github.com/themixednuts/drizzle-rs/compare/v0.1.10...v0.1.11) - 2026-06-29
 
 ### Added
