@@ -30,7 +30,7 @@ fn diff_to_sql(from: &SQLiteDDL, to: &SQLiteDDL) -> Vec<String> {
 /// Normalize a CREATE TABLE statement by sorting column/constraint lines.
 /// This allows deterministic comparison when column order is non-deterministic.
 fn normalize_create_table(sql: &str) -> String {
-    // Find the body between "(" and ");\n" (or ") STRICT;\n" etc.)
+    // Find the body between "(" and ");" (or ") STRICT;" etc.)
     let open = match sql.find('(') {
         Some(i) => i,
         None => return sql.to_string(),
@@ -42,7 +42,7 @@ fn normalize_create_table(sql: &str) -> String {
 
     let prefix = &sql[..=open]; // "CREATE TABLE `name` ("
     let body = &sql[open + 1..close]; // column lines
-    let suffix = &sql[close..]; // ");\n" or ") STRICT;\n"
+    let suffix = &sql[close..]; // ");" or ") STRICT;"
 
     let mut lines: Vec<&str> = body.split(",\n").map(|l| l.trim_matches('\n')).collect();
     lines.sort();
@@ -67,7 +67,7 @@ fn test_create_table_basic() {
 
     assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
     assert_eq!(
-        sql[0], "CREATE TABLE `users` (\n\t`id` INTEGER\n);\n",
+        sql[0], "CREATE TABLE `users` (\n\t`id` INTEGER\n);",
         "Unexpected CREATE TABLE SQL"
     );
 }
@@ -90,7 +90,7 @@ fn test_create_table_with_primary_key_autoincrement() {
 
     assert_eq!(sql.len(), 1);
     assert_eq!(
-        sql[0], "CREATE TABLE `users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL\n);\n",
+        sql[0], "CREATE TABLE `users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL\n);",
         "Unexpected CREATE TABLE with PRIMARY KEY AUTOINCREMENT"
     );
 }
@@ -118,7 +118,7 @@ fn test_create_table_with_named_pk_constraint() {
     assert_eq!(sql.len(), 1);
     // Single-column PK is rendered inline
     assert_eq!(
-        sql[0], "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY\n);\n",
+        sql[0], "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY\n);",
         "Unexpected CREATE TABLE with named PK constraint"
     );
 }
@@ -152,11 +152,11 @@ fn test_create_multiple_tables() {
     sorted_sql.sort();
 
     assert_eq!(
-        sorted_sql[0], "CREATE TABLE `posts` (\n\t`id` INTEGER\n);\n",
+        sorted_sql[0], "CREATE TABLE `posts` (\n\t`id` INTEGER\n);",
         "Unexpected posts table SQL"
     );
     assert_eq!(
-        sorted_sql[1], "CREATE TABLE `users` (\n\t`id` INTEGER\n);\n",
+        sorted_sql[1], "CREATE TABLE `users` (\n\t`id` INTEGER\n);",
         "Unexpected users table SQL"
     );
 }
@@ -187,7 +187,7 @@ fn test_create_table_composite_pk() {
     assert_eq!(
         normalize_create_table(&sql[0]),
         normalize_create_table(
-            "CREATE TABLE `users` (\n\t`id1` INTEGER,\n\t`id2` INTEGER,\n\tCONSTRAINT `users_pk` PRIMARY KEY(`id1`, `id2`)\n);\n"
+            "CREATE TABLE `users` (\n\t`id1` INTEGER,\n\t`id2` INTEGER,\n\tCONSTRAINT `users_pk` PRIMARY KEY(`id1`, `id2`)\n);"
         ),
     );
 }
@@ -224,7 +224,7 @@ fn test_drop_and_create_table() {
         "Unexpected DROP TABLE SQL"
     );
     assert_eq!(
-        *create_sql, "CREATE TABLE `users2` (\n\t`id` INTEGER\n);\n",
+        *create_sql, "CREATE TABLE `users2` (\n\t`id` INTEGER\n);",
         "Unexpected CREATE TABLE SQL"
     );
 }
@@ -261,7 +261,7 @@ fn test_create_table_self_referencing_fk() {
     assert_eq!(
         normalize_create_table(&sql[0]),
         normalize_create_table(
-            "CREATE TABLE `users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`reportee_id` INTEGER,\n\tCONSTRAINT `fk_users_reportee_id_users_id_fk` FOREIGN KEY (`reportee_id`) REFERENCES `users`(`id`)\n);\n"
+            "CREATE TABLE `users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`reportee_id` INTEGER,\n\tCONSTRAINT `fk_users_reportee_id_users_id_fk` FOREIGN KEY (`reportee_id`) REFERENCES `users`(`id`)\n);"
         ),
     );
 }
@@ -303,12 +303,12 @@ fn test_create_table_with_index() {
     assert_eq!(
         normalize_create_table(create_table),
         normalize_create_table(
-            "CREATE TABLE `users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`reportee_id` INTEGER\n);\n"
+            "CREATE TABLE `users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`reportee_id` INTEGER\n);"
         ),
     );
     assert_eq!(
         *create_index,
-        "CREATE INDEX `reportee_idx` ON `users` (`reportee_id`);",
+        "CREATE INDEX `reportee_idx` ON `users`(`reportee_id`);",
     );
 }
 
@@ -356,7 +356,7 @@ fn test_column_types() {
     assert_eq!(
         normalize_create_table(&sql[0]),
         normalize_create_table(
-            "CREATE TABLE `types_test` (\n\t`int_col` INTEGER,\n\t`text_col` TEXT NOT NULL,\n\t`real_col` REAL DEFAULT 0.0,\n\t`blob_col` BLOB,\n\t`numeric_col` NUMERIC\n);\n"
+            "CREATE TABLE `types_test` (\n\t`int_col` INTEGER,\n\t`text_col` TEXT NOT NULL,\n\t`real_col` REAL DEFAULT 0.0,\n\t`blob_col` BLOB,\n\t`numeric_col` NUMERIC\n);"
         ),
     );
 }
@@ -390,8 +390,55 @@ fn test_unique_column() {
     assert_eq!(
         normalize_create_table(&sql[0]),
         normalize_create_table(
-            "CREATE TABLE `users` (\n\t`id` INTEGER NOT NULL,\n\t`email` TEXT NOT NULL\n);\n"
+            "CREATE TABLE `users` (\n\t`id` INTEGER NOT NULL,\n\t`email` TEXT NOT NULL\n);"
         ),
+    );
+}
+
+#[test]
+fn test_named_single_column_unique_is_table_constraint() {
+    let mut to = SQLiteDDL::default();
+
+    to.tables.push(TableDef::new("users").into_table());
+    to.columns
+        .push(ColumnDef::new("users", "email", "text").into_column());
+
+    const UQ_COLS: &[Cow<'static, str>] = &[Cow::Borrowed("email")];
+    to.uniques.push(
+        drizzle_migrations::sqlite::ddl::UniqueConstraintDef::new("users", "users_email_unique")
+            .columns(UQ_COLS)
+            .explicit_name()
+            .into_unique_constraint(),
+    );
+
+    let sql = diff_to_sql(&SQLiteDDL::default(), &to);
+
+    assert_eq!(sql.len(), 1);
+    assert_eq!(
+        normalize_create_table(&sql[0]),
+        normalize_create_table(
+            "CREATE TABLE `users` (\n\t`email` TEXT,\n\tCONSTRAINT `users_email_unique` UNIQUE(`email`)\n);"
+        ),
+    );
+}
+
+#[test]
+fn test_column_collate_is_preserved_in_create_table() {
+    let mut to = SQLiteDDL::default();
+
+    to.tables.push(TableDef::new("users").into_table());
+    to.columns.push(
+        ColumnDef::new("users", "name", "text")
+            .collate("NOCASE")
+            .into_column(),
+    );
+
+    let sql = diff_to_sql(&SQLiteDDL::default(), &to);
+
+    assert_eq!(sql.len(), 1);
+    assert_eq!(
+        sql[0],
+        "CREATE TABLE `users` (\n\t`name` TEXT COLLATE NOCASE\n);"
     );
 }
 
@@ -432,12 +479,12 @@ fn test_unique_index() {
     assert_eq!(
         normalize_create_table(create_table),
         normalize_create_table(
-            "CREATE TABLE `users` (\n\t`id` INTEGER NOT NULL,\n\t`email` TEXT\n);\n"
+            "CREATE TABLE `users` (\n\t`id` INTEGER NOT NULL,\n\t`email` TEXT\n);"
         ),
     );
     assert_eq!(
         *create_index,
-        "CREATE UNIQUE INDEX `idx_users_email` ON `users` (`email`);",
+        "CREATE UNIQUE INDEX `idx_users_email` ON `users`(`email`);",
     );
 }
 
@@ -495,12 +542,12 @@ fn test_foreign_key_on_delete_cascade() {
 
     assert_eq!(
         *users_sql,
-        "CREATE TABLE `users` (\n\t`id` INTEGER NOT NULL\n);\n",
+        "CREATE TABLE `users` (\n\t`id` INTEGER NOT NULL\n);",
     );
     assert_eq!(
         normalize_create_table(posts_sql),
         normalize_create_table(
-            "CREATE TABLE `posts` (\n\t`id` INTEGER NOT NULL,\n\t`author_id` INTEGER NOT NULL,\n\tCONSTRAINT `fk_posts_author` FOREIGN KEY (`author_id`) REFERENCES `users`(`id`) ON DELETE CASCADE\n);\n"
+            "CREATE TABLE `posts` (\n\t`id` INTEGER NOT NULL,\n\t`author_id` INTEGER NOT NULL,\n\tCONSTRAINT `fk_posts_author` FOREIGN KEY (`author_id`) REFERENCES `users`(`id`) ON DELETE CASCADE\n);"
         ),
     );
 }
@@ -610,7 +657,7 @@ fn test_strict_table() {
     assert_eq!(sql.len(), 1);
     // primary_key() renders as NOT NULL for column def
     assert_eq!(
-        sql[0], "CREATE TABLE `settings` (\n\t`id` INTEGER NOT NULL\n) STRICT;\n",
+        sql[0], "CREATE TABLE `settings` (\n\t`id` INTEGER NOT NULL\n) STRICT;",
         "Unexpected STRICT table SQL"
     );
 }
@@ -633,7 +680,7 @@ fn test_without_rowid_table() {
     assert_eq!(sql.len(), 1);
     // primary_key() renders as NOT NULL for column def
     assert_eq!(
-        sql[0], "CREATE TABLE `settings` (\n\t`id` INTEGER NOT NULL\n) WITHOUT ROWID;\n",
+        sql[0], "CREATE TABLE `settings` (\n\t`id` INTEGER NOT NULL\n) WITHOUT ROWID;",
         "Unexpected WITHOUT ROWID table SQL"
     );
 }
@@ -709,13 +756,13 @@ fn test_circular_fk_dependencies() {
     assert_eq!(
         normalize_create_table(create_a),
         normalize_create_table(
-            "CREATE TABLE `table_a` (\n\t`id` INTEGER NOT NULL,\n\t`b_id` INTEGER,\n\tCONSTRAINT `fk_a_to_b` FOREIGN KEY (`b_id`) REFERENCES `table_b`(`id`)\n);\n"
+            "CREATE TABLE `table_a` (\n\t`id` INTEGER NOT NULL,\n\t`b_id` INTEGER,\n\tCONSTRAINT `fk_a_to_b` FOREIGN KEY (`b_id`) REFERENCES `table_b`(`id`)\n);"
         ),
     );
     assert_eq!(
         normalize_create_table(create_b),
         normalize_create_table(
-            "CREATE TABLE `table_b` (\n\t`id` INTEGER NOT NULL,\n\t`a_id` INTEGER,\n\tCONSTRAINT `fk_b_to_a` FOREIGN KEY (`a_id`) REFERENCES `table_a`(`id`)\n);\n"
+            "CREATE TABLE `table_b` (\n\t`id` INTEGER NOT NULL,\n\t`a_id` INTEGER,\n\tCONSTRAINT `fk_b_to_a` FOREIGN KEY (`a_id`) REFERENCES `table_a`(`id`)\n);"
         ),
     );
 

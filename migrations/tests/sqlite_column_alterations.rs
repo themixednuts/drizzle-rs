@@ -315,7 +315,7 @@ fn test_alter_column_drop_not_null() {
         sql
     );
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
-    assert_eq!(sql[1], "CREATE TABLE `__new_table` (\n\t`name` TEXT\n);\n");
+    assert_eq!(sql[1], "CREATE TABLE `__new_table` (\n\t`name` TEXT\n);");
     assert_eq!(
         sql[2],
         "INSERT INTO `__new_table`(`name`) SELECT `name` FROM `table`;"
@@ -347,7 +347,7 @@ fn test_alter_column_add_not_null() {
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[1],
-        "CREATE TABLE `__new_table` (\n\t`name` TEXT NOT NULL\n);\n"
+        "CREATE TABLE `__new_table` (\n\t`name` TEXT NOT NULL\n);"
     );
     assert_eq!(
         sql[2],
@@ -380,7 +380,7 @@ fn test_alter_column_add_default() {
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[1],
-        "CREATE TABLE `__new_table` (\n\t`name` TEXT DEFAULT 'dan'\n);\n"
+        "CREATE TABLE `__new_table` (\n\t`name` TEXT DEFAULT 'dan'\n);"
     );
     assert_eq!(
         sql[2],
@@ -411,7 +411,7 @@ fn test_alter_column_drop_default() {
 
     assert_eq!(sql.len(), 6, "Expected 6 SQL statements, got: {:?}", sql);
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
-    assert_eq!(sql[1], "CREATE TABLE `__new_table` (\n\t`name` TEXT\n);\n");
+    assert_eq!(sql[1], "CREATE TABLE `__new_table` (\n\t`name` TEXT\n);");
     assert_eq!(
         sql[2],
         "INSERT INTO `__new_table`(`name`) SELECT `name` FROM `table`;"
@@ -444,7 +444,7 @@ fn test_alter_column_add_default_not_null() {
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[1],
-        "CREATE TABLE `__new_table` (\n\t`name` TEXT DEFAULT 'dan' NOT NULL\n);\n"
+        "CREATE TABLE `__new_table` (\n\t`name` TEXT DEFAULT 'dan' NOT NULL\n);"
     );
     assert_eq!(
         sql[2],
@@ -476,7 +476,7 @@ fn test_alter_column_drop_default_not_null() {
 
     assert_eq!(sql.len(), 6, "Expected 6 SQL statements, got: {:?}", sql);
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
-    assert_eq!(sql[1], "CREATE TABLE `__new_table` (\n\t`name` TEXT\n);\n");
+    assert_eq!(sql[1], "CREATE TABLE `__new_table` (\n\t`name` TEXT\n);");
     assert_eq!(
         sql[2],
         "INSERT INTO `__new_table`(`name`) SELECT `name` FROM `table`;"
@@ -503,10 +503,7 @@ fn test_alter_column_type_change() {
 
     assert_eq!(sql.len(), 6, "Expected 6 SQL statements, got: {:?}", sql);
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
-    assert_eq!(
-        sql[1],
-        "CREATE TABLE `__new_users` (\n\t`age` INTEGER\n);\n"
-    );
+    assert_eq!(sql[1], "CREATE TABLE `__new_users` (\n\t`age` INTEGER\n);");
     assert_eq!(
         sql[2],
         "INSERT INTO `__new_users`(`age`) SELECT `age` FROM `users`;"
@@ -544,7 +541,7 @@ fn test_drop_autoincrement() {
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[1],
-        "CREATE TABLE `__new_companies` (\n\t`id` INTEGER NOT NULL\n);\n"
+        "CREATE TABLE `__new_companies` (\n\t`id` INTEGER NOT NULL\n);"
     );
     assert_eq!(
         sql[2],
@@ -604,7 +601,7 @@ fn test_add_foreign_key() {
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[1],
-        "CREATE TABLE `__new_users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`report_to` INTEGER,\n\tCONSTRAINT `fk_users_report_to_users_id_fk` FOREIGN KEY (`report_to`) REFERENCES `users`(`id`)\n);\n"
+        "CREATE TABLE `__new_users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`report_to` INTEGER,\n\tCONSTRAINT `fk_users_report_to_users_id_fk` FOREIGN KEY (`report_to`) REFERENCES `users`(`id`)\n);"
     );
     assert_eq!(
         sql[2],
@@ -650,7 +647,7 @@ fn test_add_composite_pk() {
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[1],
-        "CREATE TABLE `__new_table` (\n\t`id1` INTEGER,\n\t`id2` INTEGER,\n\tCONSTRAINT `table_pk` PRIMARY KEY(`id1`, `id2`)\n);\n"
+        "CREATE TABLE `__new_table` (\n\t`id1` INTEGER,\n\t`id2` INTEGER,\n\tCONSTRAINT `table_pk` PRIMARY KEY(`id1`, `id2`)\n);"
     );
     assert_eq!(
         sql[2],
@@ -689,7 +686,7 @@ fn test_add_generated_stored_column() {
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[1],
-        "CREATE TABLE `__new_users` (\n\t`id` INTEGER,\n\t`gen_name` TEXT GENERATED ALWAYS AS 123 STORED\n);\n"
+        "CREATE TABLE `__new_users` (\n\t`id` INTEGER,\n\t`gen_name` TEXT GENERATED ALWAYS AS 123 STORED\n);"
     );
     assert_eq!(
         sql[2],
@@ -813,7 +810,7 @@ fn test_alter_column_multiple_tables() {
     assert_eq!(sql[posts_start], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[posts_start + 1],
-        "CREATE TABLE `__new_posts` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`name` TEXT NOT NULL,\n\t`user_id` INTEGER\n);\n"
+        "CREATE TABLE `__new_posts` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`name` TEXT NOT NULL,\n\t`user_id` INTEGER\n);"
     );
     assert_eq!(
         sql[posts_start + 2],
@@ -830,7 +827,7 @@ fn test_alter_column_multiple_tables() {
     assert_eq!(sql[users_start], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[users_start + 1],
-        "CREATE TABLE `__new_users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`name` TEXT\n);\n"
+        "CREATE TABLE `__new_users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`name` TEXT\n);"
     );
     assert_eq!(
         sql[users_start + 2],
@@ -878,7 +875,7 @@ fn test_recreate_preserves_columns() {
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[1],
-        "CREATE TABLE `__new_users` (\n\t`id` INTEGER,\n\t`name` TEXT NOT NULL,\n\t`age` INTEGER\n);\n"
+        "CREATE TABLE `__new_users` (\n\t`id` INTEGER,\n\t`name` TEXT NOT NULL,\n\t`age` INTEGER\n);"
     );
     assert_eq!(
         sql[2],
@@ -930,7 +927,7 @@ fn test_recreate_with_indexes() {
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[1],
-        "CREATE TABLE `__new_table` (\n\t`name` TEXT DEFAULT 'dan' NOT NULL\n);\n"
+        "CREATE TABLE `__new_table` (\n\t`name` TEXT DEFAULT 'dan' NOT NULL\n);"
     );
     assert_eq!(
         sql[2],
@@ -939,7 +936,7 @@ fn test_recreate_with_indexes() {
     assert_eq!(sql[3], "DROP TABLE `table`;");
     assert_eq!(sql[4], "ALTER TABLE `__new_table` RENAME TO `table`;");
     assert_eq!(sql[5], "PRAGMA foreign_keys=ON;");
-    assert_eq!(sql[6], "CREATE INDEX `index_name` ON `table` (`name`);");
+    assert_eq!(sql[6], "CREATE INDEX `index_name` ON `table`(`name`);");
 }
 
 // =============================================================================
@@ -1056,7 +1053,7 @@ fn test_recreate_table_with_nested_references() {
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[1],
-        "CREATE TABLE `__new_users` (\n\t`id` INTEGER NOT NULL,\n\t`name` TEXT,\n\t`age` INTEGER\n);\n"
+        "CREATE TABLE `__new_users` (\n\t`id` INTEGER NOT NULL,\n\t`name` TEXT,\n\t`age` INTEGER\n);"
     );
     assert_eq!(
         sql[2],

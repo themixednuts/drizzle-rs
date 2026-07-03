@@ -5,7 +5,7 @@
 //! that is the current recommended style.
 
 use super::collection::SQLiteDDL;
-use super::ddl::{Column, ForeignKey, Index, Table, View};
+use super::ddl::{CheckConstraint, Column, ForeignKey, Index, Table, UniqueConstraint, View};
 use crate::utils::escape_for_rust_literal;
 use drizzle_types::sqlite::SQLTypeCategory;
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
@@ -84,7 +84,9 @@ fn apply_field_casing(name: &str, casing: FieldCasing) -> String {
 struct SchemaMaps<'a> {
     table_columns: HashMap<String, Vec<&'a Column>>,
     table_pks: HashMap<String, HashSet<String>>,
-    table_uniques: HashMap<String, HashSet<String>>,
+    single_unique_columns: HashMap<String, HashSet<String>>,
+    table_uniques: HashMap<String, Vec<&'a UniqueConstraint>>,
+    table_checks: HashMap<String, Vec<&'a CheckConstraint>>,
     fk_map: HashMap<(String, String), (&'a ForeignKey, usize)>,
 }
 
@@ -107,14 +109,27 @@ fn build_schema_maps(ddl: &SQLiteDDL) -> SchemaMaps<'_> {
         }
     }
 
-    let mut table_uniques: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut single_unique_columns: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut table_uniques: HashMap<String, Vec<&UniqueConstraint>> = HashMap::new();
     for unique in ddl.uniques.list() {
-        if unique.columns.len() == 1 {
-            table_uniques
+        table_uniques
+            .entry(unique.table.to_string())
+            .or_default()
+            .push(unique);
+        if unique.columns.len() == 1 && !unique.name_explicit {
+            single_unique_columns
                 .entry(unique.table.to_string())
                 .or_default()
                 .insert(unique.columns[0].to_string());
         }
+    }
+
+    let mut table_checks: HashMap<String, Vec<&CheckConstraint>> = HashMap::new();
+    for check in ddl.checks.list() {
+        table_checks
+            .entry(check.table.to_string())
+            .or_default()
+            .push(check);
     }
 
     let mut fk_map: HashMap<(String, String), (&ForeignKey, usize)> = HashMap::new();
@@ -127,7 +142,9 @@ fn build_schema_maps(ddl: &SQLiteDDL) -> SchemaMaps<'_> {
     SchemaMaps {
         table_columns,
         table_pks,
+        single_unique_columns,
         table_uniques,
+        table_checks,
         fk_map,
     }
 }
@@ -157,7 +174,9 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
     let SchemaMaps {
         table_columns,
         table_pks,
+        single_unique_columns,
         table_uniques,
+        table_checks,
         fk_map,
     } = build_schema_maps(ddl);
 
@@ -176,7 +195,13 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
             ao.cmp(&bo).then_with(|| a.name.cmp(&b.name))
         });
         let pk_columns = table_pks.get(&table_name);
-        let unique_columns = table_uniques.get(&table_name);
+        let unique_columns = single_unique_columns.get(&table_name);
+        let unique_constraints = table_uniques
+            .get(&table_name)
+            .map_or(&[][..], std::vec::Vec::as_slice);
+        let check_constraints = table_checks
+            .get(&table_name)
+            .map_or(&[][..], std::vec::Vec::as_slice);
         let is_composite_pk = pk_columns.is_some_and(|pks| pks.len() > 1);
 
         let ctx = TableGenContext {
@@ -184,6 +209,8 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
             columns: &columns_sorted,
             pk_columns,
             unique_columns,
+            unique_constraints,
+            check_constraints,
             is_composite_pk,
             fk_map: &fk_map,
             use_pub: options.use_pub,
@@ -243,6 +270,8 @@ struct TableGenContext<'a> {
     columns: &'a [&'a Column],
     pk_columns: Option<&'a HashSet<String>>,
     unique_columns: Option<&'a HashSet<String>>,
+    unique_constraints: &'a [&'a UniqueConstraint],
+    check_constraints: &'a [&'a CheckConstraint],
     is_composite_pk: bool,
     fk_map: &'a HashMap<(String, String), (&'a ForeignKey, usize)>,
     use_pub: bool,
@@ -271,6 +300,16 @@ fn generate_table_struct(ctx: &TableGenContext<'_>) -> String {
     if ctx.table.without_rowid {
         table_attrs.push("without_rowid".to_string());
     }
+    for unique in ctx.unique_constraints {
+        if should_emit_table_unique(unique) {
+            table_attrs.push(format_table_unique_attr(unique, ctx.field_casing));
+        }
+    }
+    for (idx, check) in ctx.check_constraints.iter().enumerate() {
+        if check_column_target(check, ctx).is_none() {
+            table_attrs.push(format_table_check_attr(check, ctx, idx));
+        }
+    }
 
     // Table attribute
     if table_attrs.is_empty() {
@@ -284,15 +323,7 @@ fn generate_table_struct(ctx: &TableGenContext<'_>) -> String {
 
     // Fields
     for column in ctx.columns {
-        let field_code = generate_column_field(
-            column,
-            ctx.pk_columns,
-            ctx.unique_columns,
-            ctx.is_composite_pk,
-            ctx.fk_map,
-            ctx.use_pub,
-            ctx.field_casing,
-        );
+        let field_code = generate_column_field(column, ctx);
         code.push_str(&field_code);
     }
 
@@ -300,27 +331,128 @@ fn generate_table_struct(ctx: &TableGenContext<'_>) -> String {
     code
 }
 
-/// Generate a single column as a struct field
-fn generate_column_field(
-    column: &Column,
-    pk_columns: Option<&HashSet<String>>,
-    unique_columns: Option<&HashSet<String>>,
-    is_composite_pk: bool,
-    fk_map: &HashMap<(String, String), (&ForeignKey, usize)>,
-    use_pub: bool,
-    field_casing: FieldCasing,
+fn should_emit_table_unique(unique: &UniqueConstraint) -> bool {
+    unique.columns.len() > 1 || unique.name_explicit
+}
+
+fn default_unique_name(table: &str, columns: &[impl AsRef<str>]) -> String {
+    format!(
+        "{}_{}_unique",
+        table,
+        columns
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<_>>()
+            .join("_")
+    )
+}
+
+fn format_table_unique_attr(unique: &UniqueConstraint, field_casing: FieldCasing) -> String {
+    let columns: Vec<String> = unique
+        .columns
+        .iter()
+        .map(|col| apply_field_casing(col.as_ref(), field_casing))
+        .collect();
+    let mut args = vec![format!("columns({})", columns.join(", "))];
+    let default_name = default_unique_name(&unique.table, &unique.columns);
+    if unique.name_explicit || unique.name != default_name {
+        args.push(format!(
+            "name = \"{}\"",
+            escape_for_rust_literal(&unique.name)
+        ));
+    }
+    format!("unique({})", args.join(", "))
+}
+
+fn format_table_check_attr(
+    check: &CheckConstraint,
+    _ctx: &TableGenContext<'_>,
+    _idx: usize,
 ) -> String {
-    let vis = if use_pub { "pub " } else { "" };
+    let mut args = Vec::new();
+    args.push(format!(
+        "name = \"{}\"",
+        escape_for_rust_literal(&check.name)
+    ));
+    args.push(format!(
+        "expr = \"{}\"",
+        escape_for_rust_literal(&check.value)
+    ));
+    format!("check({})", args.join(", "))
+}
+
+fn check_column_target(check: &CheckConstraint, ctx: &TableGenContext<'_>) -> Option<String> {
+    let referenced = expression_referenced_columns(&check.value, ctx.columns);
+    if referenced.len() != 1 {
+        return None;
+    }
+    let column = referenced.into_iter().next()?;
+    if check.name == format!("{}_{}_check", ctx.table.name, column) {
+        Some(column)
+    } else {
+        None
+    }
+}
+
+fn expression_referenced_columns(expr: &str, columns: &[&Column]) -> Vec<String> {
+    columns
+        .iter()
+        .filter_map(|column| {
+            let name = column.name.as_ref();
+            if expression_references_identifier(expr, name) {
+                Some(name.to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn expression_references_identifier(expr: &str, ident: &str) -> bool {
+    let expr_lower = expr.to_ascii_lowercase();
+    let ident_lower = ident.to_ascii_lowercase();
+    if expr_lower.contains(&format!("`{ident_lower}`"))
+        || expr_lower.contains(&format!("\"{ident_lower}\""))
+    {
+        return true;
+    }
+
+    let mut offset = 0;
+    while let Some(pos) = expr_lower[offset..].find(&ident_lower) {
+        let start = offset + pos;
+        let end = start + ident_lower.len();
+        let before = expr_lower[..start].chars().next_back();
+        let after = expr_lower[end..].chars().next();
+        let before_boundary = before.is_none_or(|c| !(c == '_' || c.is_ascii_alphanumeric()));
+        let after_boundary = after.is_none_or(|c| !(c == '_' || c.is_ascii_alphanumeric()));
+        if before_boundary && after_boundary {
+            return true;
+        }
+        offset = end;
+    }
+    false
+}
+
+fn column_check_for<'a>(column: &Column, ctx: &TableGenContext<'a>) -> Option<&'a CheckConstraint> {
+    ctx.check_constraints
+        .iter()
+        .copied()
+        .find(|check| check_column_target(check, ctx).as_deref() == Some(column.name.as_ref()))
+}
+
+/// Generate a single column as a struct field
+fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
+    let vis = if ctx.use_pub { "pub " } else { "" };
 
     // Determine column attributes
     let mut attrs = Vec::new();
     let column_name = column.name.to_string();
 
     // Check if primary key
-    let is_pk = pk_columns.is_some_and(|pks| pks.contains(&column_name));
+    let is_pk = ctx.pk_columns.is_some_and(|pks| pks.contains(&column_name));
 
     // Only add primary if it's a single-column PK (not composite)
-    if is_pk && !is_composite_pk {
+    if is_pk && !ctx.is_composite_pk {
         attrs.push("primary".to_string());
     }
 
@@ -330,22 +462,55 @@ fn generate_column_field(
     }
 
     // Check unique (only for single-column constraints)
-    let is_unique = unique_columns.is_some_and(|uniques| uniques.contains(&column_name));
+    let is_unique = ctx
+        .unique_columns
+        .is_some_and(|uniques| uniques.contains(&column_name));
     if is_unique {
         attrs.push("unique".to_string());
     }
 
+    if let Some(generated) = &column.generated {
+        use super::ddl::GeneratedType;
+        let gen_type = match generated.gen_type {
+            GeneratedType::Stored => "stored",
+            GeneratedType::Virtual => "virtual",
+        };
+        attrs.push(format!(
+            "generated({gen_type}, \"{}\")",
+            escape_for_rust_literal(&generated.expression)
+        ));
+    }
+
     // Check default value
-    if let Some(default) = &column.default {
-        // Format default value for Rust
-        let default_str = format_default_value(default, &column.sql_type);
-        if let Some(d) = default_str {
+    if let Some(default) = &column.default
+        && column.generated.is_none()
+    {
+        if let Some(d) = format_default_value(default, &column.sql_type) {
             attrs.push(format!("default = {d}"));
+        } else if !default.trim().eq_ignore_ascii_case("null") {
+            attrs.push(format!(
+                "default_sql = \"{}\"",
+                escape_for_rust_literal(default)
+            ));
         }
     }
 
+    if let Some(collate) = &column.collate {
+        attrs.push(format!(
+            "collate = \"{}\"",
+            escape_for_rust_literal(collate)
+        ));
+    }
+
+    if let Some(check) = column_check_for(column, ctx) {
+        attrs.push(format!(
+            "check = \"{}\"",
+            escape_for_rust_literal(&check.value)
+        ));
+    }
+
     // Check foreign key
-    if let Some((fk, idx)) = fk_map.get(&(column.table.to_string(), column_name))
+    if let Some((fk, idx)) = ctx.fk_map.get(&(column.table.to_string(), column_name))
         && let Some(ref_col) = fk.columns_to.get(*idx)
     {
         let ref_table_struct = fk.table_to.to_pascal_case();
@@ -388,19 +553,22 @@ fn generate_column_field(
     let rust_type = sql_type_to_rust_type(&column.sql_type, is_not_null);
 
     // Field name (snake_case)
-    let field_name = apply_field_casing(column.name.as_ref(), field_casing);
+    let field_name = apply_field_casing(column.name.as_ref(), ctx.field_casing);
 
     format!("{attr_str}    {vis}{field_name}: {rust_type},\n")
 }
 
 /// Format a default value for Rust syntax
 fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
+    let default = default.trim();
     let category = SQLTypeCategory::from_sql_type(sql_type);
 
-    // Skip function calls or complex expressions - these need default_fn
+    if default.eq_ignore_ascii_case("null") {
+        return None;
+    }
+
+    // Skip function calls or complex expressions; these use default_sql.
     if default.contains('(') && default.contains(')') {
-        // Could be a function like CURRENT_TIMESTAMP - we'll return None
-        // and add a warning instead
         return None;
     }
 
@@ -415,9 +583,14 @@ fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
         }
         SQLTypeCategory::Real => default.parse::<f64>().ok().map(|v| v.to_string()),
         SQLTypeCategory::Text | SQLTypeCategory::Blob => {
-            // Remove surrounding quotes if present
-            let trimmed = default.trim_matches(|c| c == '\'' || c == '"');
-            Some(format!("\"{trimmed}\""))
+            let quoted = (default.starts_with('\'') && default.ends_with('\''))
+                || (default.starts_with('"') && default.ends_with('"'));
+            if quoted {
+                let trimmed = default.trim_matches(|c| c == '\'' || c == '"');
+                Some(format!("\"{}\"", escape_for_rust_literal(trimmed)))
+            } else {
+                None
+            }
         }
         SQLTypeCategory::Numeric => default
             .parse::<i64>()

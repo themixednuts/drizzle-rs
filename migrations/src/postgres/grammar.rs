@@ -18,16 +18,11 @@ pub fn default_name_for_pk(table: &str) -> String {
 pub fn default_name_for_fk(
     table: &str,
     columns: &[String],
-    table_to: &str,
-    columns_to: &[String],
+    _table_to: &str,
+    _columns_to: &[String],
 ) -> String {
-    let desired = format!(
-        "{}_{}_{}_{}_fkey",
-        table,
-        columns.join("_"),
-        table_to,
-        columns_to.join("_")
-    );
+    let first_column = columns.first().map_or("", String::as_str);
+    let desired = format!("{table}_{first_column}_fkey");
 
     // PostgreSQL identifier max length is 63
     if desired.len() > 63 {
@@ -575,7 +570,18 @@ mod tests {
             "users",
             &["id".to_string()],
         );
-        assert_eq!(name, "posts_author_id_users_id_fkey");
+        assert_eq!(name, "posts_author_id_fkey");
+    }
+
+    #[test]
+    fn test_default_name_for_composite_fk_uses_first_column() {
+        let name = default_name_for_fk(
+            "order_lines",
+            &["order_id".to_string(), "tenant_id".to_string()],
+            "orders",
+            &["id".to_string(), "tenant_id".to_string()],
+        );
+        assert_eq!(name, "order_lines_order_id_fkey");
     }
 
     #[test]

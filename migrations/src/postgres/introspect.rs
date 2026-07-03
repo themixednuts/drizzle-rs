@@ -49,6 +49,10 @@ pub struct RawTableInfo {
     pub schema: String,
     pub name: String,
     pub is_rls_enabled: bool,
+    pub is_unlogged: bool,
+    pub is_temporary: bool,
+    pub tablespace: Option<String>,
+    pub comment: Option<String>,
 }
 
 /// Raw column info from `information_schema`
@@ -66,6 +70,8 @@ pub struct RawColumnInfo {
     pub is_generated: bool,
     pub generated_expression: Option<String>,
     pub generated_stored: bool,
+    pub dimensions: Option<i32>,
+    pub comment: Option<String>,
     pub ordinal_position: i32,
 }
 
@@ -130,6 +136,8 @@ pub struct RawForeignKeyInfo {
     pub columns_to: Vec<String>,
     pub on_update: String,
     pub on_delete: String,
+    pub deferrable: bool,
+    pub initially_deferred: bool,
 }
 
 /// Raw primary key info
@@ -149,6 +157,8 @@ pub struct RawUniqueInfo {
     pub name: String,
     pub columns: Vec<String>,
     pub nulls_not_distinct: bool,
+    pub deferrable: bool,
+    pub initially_deferred: bool,
 }
 
 /// Raw check constraint info
@@ -354,7 +364,12 @@ pub fn process_tables(raw_tables: &[RawTableInfo]) -> Vec<Table> {
         .map(|t| Table {
             schema: t.schema.clone().into(),
             name: t.name.clone().into(),
+            is_unlogged: if t.is_unlogged { Some(true) } else { None },
+            is_temporary: if t.is_temporary { Some(true) } else { None },
+            inherits: None,
+            tablespace: t.tablespace.clone().map(Into::into),
             is_rls_enabled: Some(t.is_rls_enabled),
+            comment: t.comment.clone().map(Into::into),
         })
         .collect()
 }
@@ -406,17 +421,34 @@ pub fn process_columns(raw_columns: &[RawColumnInfo]) -> Vec<Column> {
                 None
             };
 
+            let dimensions = c.dimensions.filter(|dims| *dims > 0).or_else(|| {
+                if c.column_type.starts_with('_') {
+                    Some(1)
+                } else {
+                    None
+                }
+            });
+            let column_type = if dimensions.is_some() {
+                c.column_type
+                    .strip_prefix('_')
+                    .unwrap_or(&c.column_type)
+                    .to_string()
+            } else {
+                c.column_type.clone()
+            };
+
             Column {
                 schema: c.schema.clone().into(),
                 table: c.table.clone().into(),
                 name: c.name.clone().into(),
-                sql_type: c.column_type.clone().into(),
+                sql_type: column_type.into(),
                 type_schema: c.type_schema.clone().map(std::convert::Into::into),
                 not_null: c.not_null,
                 default: c.default_value.clone().map(std::convert::Into::into),
                 generated,
                 identity,
-                dimensions: None,
+                dimensions,
+                comment: c.comment.clone().map(std::convert::Into::into),
                 // pg_attribute exposes attcollation but we don't read it yet
                 // (the introspect SQL doesn't pull it). Collation drift
                 // detection requires extending the SELECT — defer to a
@@ -515,6 +547,8 @@ pub fn process_foreign_keys(raw_fks: &[RawForeignKeyInfo]) -> Vec<ForeignKey> {
             columns_to: f.columns_to.iter().map(|c| c.clone().into()).collect(),
             on_update: Some(f.on_update.clone().into()),
             on_delete: Some(f.on_delete.clone().into()),
+            deferrable: f.deferrable,
+            initially_deferred: f.initially_deferred,
         })
         .collect()
 }
@@ -548,6 +582,8 @@ pub fn process_unique_constraints(raw_uniques: &[RawUniqueInfo]) -> Vec<UniqueCo
             name_explicit: true,
             columns: u.columns.iter().map(|c| c.clone().into()).collect(),
             nulls_not_distinct: u.nulls_not_distinct,
+            deferrable: u.deferrable,
+            initially_deferred: u.initially_deferred,
         })
         .collect()
 }
@@ -642,26 +678,33 @@ pub fn process_roles(raw_roles: &[RawRoleInfo]) -> Vec<Role> {
 pub mod queries {
     /// Query to get all schemas
     pub const SCHEMAS_QUERY: &str = r"
-        SELECT nspname AS name
-        FROM pg_namespace
-        WHERE nspname NOT LIKE 'pg_%'
-          AND nspname != 'information_schema'
-          AND has_schema_privilege(current_user, nspname, 'USAGE')
-        ORDER BY nspname
+        SELECT n.nspname AS name
+        FROM pg_namespace n
+        WHERE n.nspname NOT LIKE 'pg_%'
+          AND n.nspname != 'information_schema'
+          AND has_schema_privilege(current_user, n.oid, 'USAGE')
+        ORDER BY n.nspname
     ";
 
     /// Query to get all tables
     pub const TABLES_QUERY: &str = r"
         SELECT 
-            schemaname AS schema,
-            tablename AS name,
-            rowsecurity AS is_rls_enabled
-        FROM pg_tables
-        WHERE schemaname NOT LIKE 'pg_%'
-          AND schemaname != 'information_schema'
-          AND has_schema_privilege(current_user, schemaname, 'USAGE')
-          AND has_table_privilege(current_user, format('%I.%I', schemaname, tablename), 'SELECT')
-        ORDER BY schemaname, tablename
+            n.nspname AS schema,
+            c.relname AS name,
+            c.relrowsecurity AS is_rls_enabled,
+            c.relpersistence = 'u' AS is_unlogged,
+            c.relpersistence = 't' AS is_temporary,
+            tsp.spcname AS tablespace,
+            obj_description(c.oid, 'pg_class') AS comment
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        LEFT JOIN pg_tablespace tsp ON tsp.oid = c.reltablespace
+        WHERE c.relkind IN ('r', 'p')
+          AND n.nspname NOT LIKE 'pg_%'
+          AND n.nspname != 'information_schema'
+          AND has_schema_privilege(current_user, n.oid, 'USAGE')
+          AND has_table_privilege(current_user, c.oid, 'SELECT')
+        ORDER BY n.nspname, c.relname
     ";
 
     /// Query to get all columns
@@ -679,6 +722,8 @@ pub mod queries {
             c.is_generated = 'ALWAYS' AS is_generated,
             c.generation_expression AS generated_expression,
             COALESCE(a.attgenerated = 's', false) AS generated_stored,
+            NULLIF(a.attndims::int4, 0) AS dimensions,
+            col_description(cls.oid, a.attnum) AS comment,
             c.ordinal_position
         FROM information_schema.columns c
         LEFT JOIN pg_namespace n
@@ -693,7 +738,8 @@ pub mod queries {
          AND NOT a.attisdropped
         WHERE c.table_schema NOT LIKE 'pg_%'
           AND c.table_schema != 'information_schema'
-          AND has_schema_privilege(current_user, c.table_schema, 'USAGE')
+          AND n.oid IS NOT NULL
+          AND has_schema_privilege(current_user, n.oid, 'USAGE')
         ORDER BY c.table_schema, c.table_name, c.ordinal_position
     ";
 
@@ -741,8 +787,12 @@ pub mod queries {
           AND n.nspname != 'information_schema'
           AND has_schema_privilege(current_user, n.oid, 'USAGE')
           AND (
-              has_sequence_privilege(current_user, c.oid, 'USAGE')
-              OR has_sequence_privilege(current_user, c.oid, 'SELECT')
+              -- Reference s.seqrelid (not c.oid) so this qual only depends on
+              -- pg_sequence: PostgreSQL 18's planner can push it down to the
+              -- pg_class scan before the join filters to sequences, and
+              -- has_sequence_privilege errors on non-sequence relations.
+              has_sequence_privilege(current_user, s.seqrelid, 'USAGE')
+              OR has_sequence_privilege(current_user, s.seqrelid, 'SELECT')
           )
         ORDER BY n.nspname, c.relname
     ";
@@ -753,34 +803,38 @@ pub mod queries {
     /// when NULL, returns all non-system views.
     pub const VIEWS_QUERY: &str = r"
         SELECT
-            schemaname AS schema,
-            viewname AS name,
-            definition,
+            n.nspname AS schema,
+            c.relname AS name,
+            pg_get_viewdef(c.oid) AS definition,
             FALSE AS is_materialized
-        FROM pg_views
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE (
-            ($1::text[] IS NOT NULL AND schemaname = ANY($1::text[]))
-            OR ($1::text[] IS NULL AND schemaname NOT LIKE 'pg_%'
-                AND schemaname != 'information_schema')
+            ($1::text[] IS NOT NULL AND n.nspname = ANY($1::text[]))
+            OR ($1::text[] IS NULL AND n.nspname NOT LIKE 'pg_%'
+                AND n.nspname != 'information_schema')
         )
-          AND has_schema_privilege(current_user, schemaname, 'USAGE')
-          AND has_table_privilege(current_user, format('%I.%I', schemaname, viewname), 'SELECT')
-          AND definition IS NOT NULL
+          AND c.relkind = 'v'
+          AND has_schema_privilege(current_user, n.oid, 'USAGE')
+          AND has_table_privilege(current_user, c.oid, 'SELECT')
+          AND pg_get_viewdef(c.oid) IS NOT NULL
         UNION ALL
         SELECT
-            schemaname AS schema,
-            matviewname AS name,
-            definition,
+            n.nspname AS schema,
+            c.relname AS name,
+            pg_get_viewdef(c.oid) AS definition,
             TRUE AS is_materialized
-        FROM pg_matviews
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE (
-            ($1::text[] IS NOT NULL AND schemaname = ANY($1::text[]))
-            OR ($1::text[] IS NULL AND schemaname NOT LIKE 'pg_%'
-                AND schemaname != 'information_schema')
+            ($1::text[] IS NOT NULL AND n.nspname = ANY($1::text[]))
+            OR ($1::text[] IS NULL AND n.nspname NOT LIKE 'pg_%'
+                AND n.nspname != 'information_schema')
         )
-          AND has_schema_privilege(current_user, schemaname, 'USAGE')
-          AND has_table_privilege(current_user, format('%I.%I', schemaname, matviewname), 'SELECT')
-          AND definition IS NOT NULL
+          AND c.relkind = 'm'
+          AND has_schema_privilege(current_user, n.oid, 'USAGE')
+          AND has_table_privilege(current_user, c.oid, 'SELECT')
+          AND pg_get_viewdef(c.oid) IS NOT NULL
         ORDER BY schema, name
     ";
 
@@ -849,7 +903,9 @@ SELECT
     tbl_to.relname AS table_to,
     array_agg(dst.attname ORDER BY s.ord) AS columns_to,
     con.confupdtype::text AS on_update,
-    con.confdeltype::text AS on_delete
+    con.confdeltype::text AS on_delete,
+    con.condeferrable AS deferrable,
+    con.condeferred AS initially_deferred
 FROM pg_constraint con
 JOIN pg_class tbl ON tbl.oid = con.conrelid
 JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
@@ -864,7 +920,7 @@ WHERE con.contype = 'f'
   AND ns.nspname <> 'information_schema'
   AND has_schema_privilege(current_user, ns.oid, 'USAGE')
   AND has_table_privilege(current_user, tbl.oid, 'SELECT')
-GROUP BY ns.nspname, tbl.relname, con.conname, ns_to.nspname, tbl_to.relname, con.confupdtype, con.confdeltype
+GROUP BY ns.nspname, tbl.relname, con.conname, ns_to.nspname, tbl_to.relname, con.confupdtype, con.confdeltype, con.condeferrable, con.condeferred
 ORDER BY ns.nspname, tbl.relname, con.conname
 ";
 
@@ -896,7 +952,9 @@ SELECT
     tbl.relname AS table,
     con.conname AS name,
     array_agg(att.attname ORDER BY s.ord) AS columns,
-    FALSE AS nulls_not_distinct
+    FALSE AS nulls_not_distinct,
+    con.condeferrable AS deferrable,
+    con.condeferred AS initially_deferred
 FROM pg_constraint con
 JOIN pg_class tbl ON tbl.oid = con.conrelid
 JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
@@ -907,7 +965,7 @@ WHERE con.contype = 'u'
   AND ns.nspname <> 'information_schema'
   AND has_schema_privilege(current_user, ns.oid, 'USAGE')
   AND has_table_privilege(current_user, tbl.oid, 'SELECT')
-GROUP BY ns.nspname, tbl.relname, con.conname
+GROUP BY ns.nspname, tbl.relname, con.conname, con.condeferrable, con.condeferred
 ORDER BY ns.nspname, tbl.relname, con.conname
 ";
 
@@ -962,23 +1020,43 @@ ORDER BY rolname
 ";
 
     /// Query to get all policies
-    pub const POLICIES_QUERY: &str = r"
+    pub const POLICIES_QUERY: &str = r#"
 SELECT
-    schemaname AS schema,
-    tablename AS table,
-    policyname AS name,
-    upper(permissive) AS as_clause,
-    upper(cmd) AS for_clause,
-    roles AS to,
-    qual AS using,
-    with_check AS with_check
-FROM pg_policies
-WHERE schemaname NOT LIKE 'pg_%'
-  AND schemaname <> 'information_schema'
-  AND has_schema_privilege(current_user, schemaname, 'USAGE')
-  AND has_table_privilege(current_user, format('%I.%I', schemaname, tablename), 'SELECT')
-ORDER BY schemaname, tablename, policyname
-";
+    n.nspname AS schema,
+    c.relname AS table,
+    p.polname AS name,
+    CASE
+        WHEN p.polpermissive THEN 'PERMISSIVE'::text
+        ELSE 'RESTRICTIVE'::text
+    END AS as_clause,
+    CASE p.polcmd
+        WHEN 'r'::"char" THEN 'SELECT'::text
+        WHEN 'a'::"char" THEN 'INSERT'::text
+        WHEN 'w'::"char" THEN 'UPDATE'::text
+        WHEN 'd'::"char" THEN 'DELETE'::text
+        WHEN '*'::"char" THEN 'ALL'::text
+        ELSE NULL::text
+    END AS for_clause,
+    CASE
+        WHEN p.polroles = '{0}'::oid[] THEN (string_to_array('public'::text, ''::text))::name[]
+        ELSE ARRAY(
+            SELECT pg_authid.rolname
+            FROM pg_authid
+            WHERE pg_authid.oid = ANY(p.polroles)
+            ORDER BY pg_authid.rolname
+        )
+    END AS to,
+    pg_get_expr(p.polqual, p.polrelid) AS using,
+    pg_get_expr(p.polwithcheck, p.polrelid) AS with_check
+FROM pg_policy p
+JOIN pg_class c ON c.oid = p.polrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname NOT LIKE 'pg_%'
+  AND n.nspname <> 'information_schema'
+  AND has_schema_privilege(current_user, n.oid, 'USAGE')
+  AND has_table_privilege(current_user, c.oid, 'SELECT')
+ORDER BY n.nspname, c.relname, p.polname
+"#;
 }
 
 // =============================================================================
@@ -1064,11 +1142,19 @@ mod tests {
             RawTableInfo {
                 schema: "public".to_string(),
                 name: "users".to_string(),
+                is_unlogged: false,
+                is_temporary: false,
+                tablespace: None,
+                comment: None,
                 is_rls_enabled: false,
             },
             RawTableInfo {
                 schema: "pg_catalog".to_string(),
                 name: "pg_class".to_string(),
+                is_unlogged: false,
+                is_temporary: false,
+                tablespace: None,
+                comment: None,
                 is_rls_enabled: false,
             },
         ];
@@ -1085,7 +1171,12 @@ mod tests {
         result.tables.push(Table {
             schema: "public".into(),
             name: "users".into(),
+            is_unlogged: None,
+            is_temporary: None,
+            inherits: None,
+            tablespace: None,
             is_rls_enabled: None,
+            comment: None,
         });
 
         let snapshot = result.to_snapshot();

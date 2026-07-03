@@ -9,7 +9,10 @@ use drizzle_migrations::{
     sqlite::{
         SQLiteDDL,
         codegen::{CodegenOptions, GeneratedSchema, generate_rust_schema},
-        ddl::{Table, parse_table_ddl},
+        ddl::{
+            CheckConstraint, Column, Generated, GeneratedType, Table, UniqueConstraint,
+            parse_table_ddl,
+        },
         introspect::{
             IntrospectionResult, RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo,
             process_columns, process_foreign_keys, process_indexes,
@@ -1261,6 +1264,69 @@ fn test_check_constraint_parsing() {
         introspection.tables.iter().any(|t| t.name == "with_checks"),
         "Should have with_checks table"
     );
+}
+
+#[test]
+fn test_sqlite_codegen_new_macro_surfaces() {
+    let mut ddl = SQLiteDDL::new();
+
+    ddl.tables.push(Table::new("metrics"));
+    ddl.columns
+        .push(Column::new("metrics", "id", "integer").not_null());
+    ddl.columns
+        .push(Column::new("metrics", "account_id", "integer").not_null());
+    ddl.columns
+        .push(Column::new("metrics", "name", "text").not_null());
+    ddl.columns
+        .push(Column::new("metrics", "score", "integer").not_null());
+    let mut name_key = Column::new("metrics", "name_key", "text").not_null();
+    name_key.generated = Some(Generated {
+        expression: "lower(name)".into(),
+        gen_type: GeneratedType::Stored,
+    });
+    ddl.columns.push(name_key);
+    ddl.columns.push(
+        Column::new("metrics", "created_at", "text")
+            .not_null()
+            .default_value("CURRENT_TIMESTAMP"),
+    );
+    let mut display_name = Column::new("metrics", "display_name", "text");
+    display_name.collate = Some("NOCASE".into());
+    ddl.columns.push(display_name);
+    ddl.uniques.push(UniqueConstraint::from_strings(
+        "metrics".to_string(),
+        "metrics_account_id_name_unique".to_string(),
+        vec!["account_id".to_string(), "name".to_string()],
+    ));
+    ddl.checks.push(CheckConstraint::new(
+        "metrics",
+        "metrics_score_check",
+        "score >= 0",
+    ));
+    ddl.checks.push(CheckConstraint::new(
+        "metrics",
+        "metrics_name_score_check",
+        "score >= 0 AND length(name) > 0",
+    ));
+
+    let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+
+    assert!(generated.code.contains("unique(columns(account_id, name))"));
+    assert!(generated.code.contains(
+        "check(name = \"metrics_name_score_check\", expr = \"score >= 0 AND length(name) > 0\")"
+    ));
+    assert!(generated.code.contains("check = \"score >= 0\""));
+    assert!(
+        generated
+            .code
+            .contains("generated(stored, \"lower(name)\")")
+    );
+    assert!(
+        generated
+            .code
+            .contains("default_sql = \"CURRENT_TIMESTAMP\"")
+    );
+    assert!(generated.code.contains("collate = \"NOCASE\""));
 }
 
 #[test]

@@ -423,6 +423,10 @@ pub fn run(config: &Config) -> Result<Output, BuildError> {
         return Ok(Output::NoChanges);
     }
 
+    for warning in &generated.warnings {
+        println!("cargo:warning={warning}");
+    }
+
     std::fs::create_dir_all(&config.out_dir)?;
     let next_idx = next_migration_index(&config.out_dir)?;
     let tag = generate_migration_tag_with_mode(
@@ -639,8 +643,8 @@ pub struct Schema {
         statements.sort();
 
         let mut expected = vec![
-            "CREATE TABLE `posts` (\n\t`id` INTEGER PRIMARY KEY,\n\t`author_id` INTEGER NOT NULL,\n\tCONSTRAINT `posts_author_id_users_id_fk` FOREIGN KEY (`author_id`) REFERENCES `users`(`id`)\n);\n".to_string(),
-            "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY,\n\t`name` TEXT NOT NULL\n);\n".to_string(),
+            "CREATE TABLE `posts` (\n\t`id` INTEGER PRIMARY KEY,\n\t`author_id` INTEGER NOT NULL,\n\tCONSTRAINT `posts_author_id_users_id_fk` FOREIGN KEY (`author_id`) REFERENCES `users`(`id`)\n);".to_string(),
+            "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY,\n\t`name` TEXT NOT NULL\n);".to_string(),
         ];
         expected.sort();
 

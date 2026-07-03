@@ -7,10 +7,14 @@ use drizzle_migrations::{
     parser::SchemaParser,
     postgres::{
         PostgresDDL,
-        codegen::{CodegenOptions, generate_rust_schema, sql_type_to_rust_type},
+        codegen::{
+            CodegenOptions, generate_rust_schema, sql_type_to_rust_type,
+            sql_type_to_rust_type_with_dimensions,
+        },
+        collection::diff_ddl,
         ddl::{
-            Column, Enum, ForeignKey, GeneratedType, Identity, IdentityType, Index, IndexColumn,
-            PrimaryKey, Table, UniqueConstraint,
+            CheckConstraint, Column, Enum, ForeignKey, Generated, GeneratedType, Identity,
+            IdentityType, Index, IndexColumn, Policy, PrimaryKey, Table, UniqueConstraint,
         },
         introspect::{
             RawColumnInfo, RawForeignKeyInfo, RawIndexColumnInfo, RawIndexInfo, RawPrimaryKeyInfo,
@@ -48,7 +52,12 @@ fn create_test_ddl() -> PostgresDDL {
     ddl.tables.push(Table {
         schema: Cow::Borrowed("public"),
         name: Cow::Borrowed("users"),
+        is_unlogged: None,
+        is_temporary: None,
+        inherits: None,
+        tablespace: None,
         is_rls_enabled: Some(false),
+        comment: None,
     });
 
     // Add columns for users
@@ -63,6 +72,7 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: Some(identity_always()),
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -78,6 +88,7 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -93,37 +104,37 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
 
     // Add primary key for users
-    ddl.pks.push(
-        PrimaryKey::from_strings(
-            "public".to_string(),
-            "users".to_string(),
-            "users_pkey".to_string(),
-            vec!["id".to_string()],
-        )
-        .explicit_name(),
-    );
+    ddl.pks.push(PrimaryKey::from_strings(
+        "public".to_string(),
+        "users".to_string(),
+        "users_pkey".to_string(),
+        vec!["id".to_string()],
+    ));
 
     // Add unique constraint for email
-    ddl.uniques.push(
-        UniqueConstraint::from_strings(
-            "public".to_string(),
-            "users".to_string(),
-            "users_email_key".to_string(),
-            vec!["email".to_string()],
-        )
-        .explicit_name(),
-    );
+    ddl.uniques.push(UniqueConstraint::from_strings(
+        "public".to_string(),
+        "users".to_string(),
+        "users_email_key".to_string(),
+        vec!["email".to_string()],
+    ));
 
     // Add a posts table
     ddl.tables.push(Table {
         schema: Cow::Borrowed("public"),
         name: Cow::Borrowed("posts"),
+        is_unlogged: None,
+        is_temporary: None,
+        inherits: None,
+        tablespace: None,
         is_rls_enabled: Some(false),
+        comment: None,
     });
 
     ddl.columns.push(Column {
@@ -137,6 +148,7 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: Some(identity_always()),
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -152,6 +164,7 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -167,20 +180,18 @@ fn create_test_ddl() -> PostgresDDL {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
 
     // Add primary key for posts
-    ddl.pks.push(
-        PrimaryKey::from_strings(
-            "public".to_string(),
-            "posts".to_string(),
-            "posts_pkey".to_string(),
-            vec!["id".to_string()],
-        )
-        .explicit_name(),
-    );
+    ddl.pks.push(PrimaryKey::from_strings(
+        "public".to_string(),
+        "posts".to_string(),
+        "posts_pkey".to_string(),
+        vec!["id".to_string()],
+    ));
 
     // Add foreign key from posts to users
     ddl.fks.push(ForeignKey {
@@ -194,6 +205,8 @@ fn create_test_ddl() -> PostgresDDL {
         columns_to: Cow::Owned(vec![Cow::Borrowed("id")]),
         on_update: Some(Cow::Borrowed("NO ACTION")),
         on_delete: Some(Cow::Borrowed("CASCADE")),
+        deferrable: false,
+        initially_deferred: false,
     });
 
     // Add an index
@@ -314,6 +327,196 @@ fn test_postgres_foreign_key_generation() {
 }
 
 #[test]
+fn test_postgres_codegen_new_macro_surfaces() {
+    let mut ddl = PostgresDDL::new();
+
+    ddl.tables.push(Table {
+        schema: "public".into(),
+        name: "accounts".into(),
+        is_unlogged: Some(true),
+        is_temporary: None,
+        inherits: None,
+        tablespace: Some("fast_space".into()),
+        is_rls_enabled: Some(true),
+        comment: None,
+    });
+
+    for (name, sql_type, not_null, default, generated, collate) in [
+        ("id", "int4", true, None, None, None),
+        ("email", "text", true, None, None, None),
+        ("tenant_id", "int4", true, None, None, None),
+        ("score", "int4", true, None, None, None),
+        ("created_at", "timestamp", true, Some("now()"), None, None),
+        (
+            "email_len",
+            "int4",
+            true,
+            None,
+            Some(Generated {
+                expression: "length(email)".into(),
+                gen_type: GeneratedType::Stored,
+            }),
+            None,
+        ),
+        ("display_name", "text", false, None, None, Some("C")),
+    ] {
+        ddl.columns.push(Column {
+            schema: "public".into(),
+            table: "accounts".into(),
+            name: name.into(),
+            sql_type: sql_type.into(),
+            type_schema: None,
+            not_null,
+            default: default.map(Into::into),
+            generated,
+            identity: None,
+            dimensions: None,
+            comment: None,
+            collate: collate.map(Into::into),
+            ordinal_position: None,
+        });
+    }
+
+    ddl.pks.push(PrimaryKey::from_strings(
+        "public".to_string(),
+        "accounts".to_string(),
+        "accounts_pkey".to_string(),
+        vec!["id".to_string()],
+    ));
+    ddl.uniques.push(
+        UniqueConstraint::from_strings(
+            "public".to_string(),
+            "accounts".to_string(),
+            "accounts_email_tenant_id_key".to_string(),
+            vec!["email".to_string(), "tenant_id".to_string()],
+        )
+        .initially_deferred(),
+    );
+    ddl.checks.push(CheckConstraint::new(
+        "public",
+        "accounts",
+        "accounts_score_check",
+        "score >= 0",
+    ));
+    ddl.checks.push(CheckConstraint::new(
+        "public",
+        "accounts",
+        "accounts_score_tenant_check",
+        "score >= 0 AND tenant_id > 0",
+    ));
+    ddl.policies.push(Policy {
+        schema: "public".into(),
+        table: "accounts".into(),
+        name: "accounts_select_policy".into(),
+        as_clause: Some("PERMISSIVE".into()),
+        for_clause: Some("SELECT".into()),
+        to: Some(vec!["app_user".into()]),
+        using: Some("tenant_id = current_setting('app.tenant_id')::int".into()),
+        with_check: None,
+    });
+    ddl.indexes.push(Index {
+        schema: "public".into(),
+        table: "accounts".into(),
+        name: "accounts_email_active_idx".into(),
+        name_explicit: false,
+        columns: vec![IndexColumn::new("email")],
+        is_unique: true,
+        where_clause: Some("deleted_at IS NULL".into()),
+        method: Some("hash".into()),
+        with: None,
+        concurrently: true,
+    });
+
+    let generated = generate_rust_schema(
+        &ddl,
+        &CodegenOptions {
+            include_schema: true,
+            schema_name: "AppSchema".to_string(),
+            ..Default::default()
+        },
+    );
+
+    assert!(generated.code.contains("unlogged"));
+    assert!(generated.code.contains("tablespace = \"fast_space\""));
+    assert!(generated.code.contains("rls"));
+    assert!(
+        generated
+            .code
+            .contains("unique(columns(email, tenant_id), deferrable, initially_deferred)")
+    );
+    assert!(
+        generated.code.contains("check = \"score >= 0\""),
+        "single-column default-named check should be column-level"
+    );
+    assert!(generated.code.contains(
+        "check(name = \"accounts_score_tenant_check\", expr = \"score >= 0 AND tenant_id > 0\")"
+    ));
+    assert!(generated.code.contains("default_sql = \"now()\""));
+    assert!(
+        generated
+            .code
+            .contains("generated(stored, \"length(email)\")")
+    );
+    assert!(generated.code.contains("collate = \"C\""));
+    assert!(generated.code.contains(
+        "#[PostgresIndex(unique, concurrent, method = \"hash\", where = \"deleted_at IS NULL\")]"
+    ));
+    assert!(generated.code.contains(
+        "#[PostgresPolicy(as = \"PERMISSIVE\", for = \"SELECT\", to(\"app_user\"), using = \"tenant_id = current_setting('app.tenant_id')::int\")]"
+    ));
+    assert!(
+        generated
+            .code
+            .contains("accounts_select_policy: AccountsSelectPolicy")
+    );
+}
+
+#[test]
+fn test_postgres_default_named_constraints_diff_clean() {
+    let mut pulled = PostgresDDL::new();
+    let mut generated = PostgresDDL::new();
+
+    for ddl in [&mut pulled, &mut generated] {
+        ddl.tables.push(Table::new("public", "users"));
+        ddl.tables.push(Table::new("public", "posts"));
+        ddl.columns
+            .push(Column::new("public", "users", "id", "int4").not_null());
+        ddl.columns
+            .push(Column::new("public", "users", "email", "text").not_null());
+        ddl.columns
+            .push(Column::new("public", "posts", "id", "int4").not_null());
+        ddl.columns
+            .push(Column::new("public", "posts", "author_id", "int4").not_null());
+        ddl.pks.push(PrimaryKey::from_strings(
+            "public".to_string(),
+            "users".to_string(),
+            "users_pkey".to_string(),
+            vec!["id".to_string()],
+        ));
+        ddl.uniques.push(UniqueConstraint::from_strings(
+            "public".to_string(),
+            "users".to_string(),
+            "users_email_key".to_string(),
+            vec!["email".to_string()],
+        ));
+        ddl.fks.push(ForeignKey::from_strings(
+            "public".to_string(),
+            "posts".to_string(),
+            "posts_author_id_fkey".to_string(),
+            vec!["author_id".to_string()],
+            "public".to_string(),
+            "users".to_string(),
+            vec!["id".to_string()],
+        ));
+    }
+
+    assert!(
+        diff_ddl(&pulled, &generated).is_empty(),
+        "PG default-named pkey/key/fkey constraints should diff clean"
+    );
+}
+
+#[test]
 fn test_postgres_index_generation() {
     let ddl = create_test_ddl();
     let options = CodegenOptions::default();
@@ -363,6 +566,14 @@ fn test_postgres_type_mapping() {
     // Nullable
     assert_eq!(sql_type_to_rust_type("int4", false), "Option<i32>");
     assert_eq!(sql_type_to_rust_type("text", false), "Option<String>");
+    assert_eq!(
+        sql_type_to_rust_type_with_dimensions("int4", Some(1), true),
+        "Vec<i32>"
+    );
+    assert_eq!(
+        sql_type_to_rust_type_with_dimensions("text", Some(1), false),
+        "Option<Vec<String>>"
+    );
 }
 
 // =============================================================================
@@ -375,18 +586,30 @@ fn test_process_tables() {
         RawTableInfo {
             schema: "public".into(),
             name: "users".into(),
+            is_unlogged: false,
+            is_temporary: false,
+            tablespace: None,
             is_rls_enabled: false,
+            comment: None,
         },
         RawTableInfo {
             schema: "public".into(),
             name: "posts".into(),
+            is_unlogged: false,
+            is_temporary: false,
+            tablespace: None,
             is_rls_enabled: true,
+            comment: None,
         },
         // System table should be filtered
         RawTableInfo {
             schema: "pg_catalog".into(),
             name: "pg_class".into(),
+            is_unlogged: false,
+            is_temporary: false,
+            tablespace: None,
             is_rls_enabled: false,
+            comment: None,
         },
     ];
 
@@ -417,6 +640,8 @@ fn test_process_columns() {
             is_generated: false,
             generated_expression: None,
             generated_stored: false,
+            dimensions: None,
+            comment: None,
             ordinal_position: 1,
         },
         RawColumnInfo {
@@ -432,6 +657,8 @@ fn test_process_columns() {
             is_generated: false,
             generated_expression: None,
             generated_stored: false,
+            dimensions: None,
+            comment: None,
             ordinal_position: 2,
         },
     ];
@@ -445,6 +672,100 @@ fn test_process_columns() {
 
     let name_col = columns.iter().find(|c| c.name == "name").unwrap();
     assert_eq!(name_col.default, Some("'Anonymous'::text".into()));
+}
+
+#[test]
+fn test_process_columns_arrays_and_comments() {
+    let tables = process_tables(&[RawTableInfo {
+        schema: "public".into(),
+        name: "array_comments".into(),
+        is_unlogged: false,
+        is_temporary: false,
+        tablespace: None,
+        is_rls_enabled: false,
+        comment: Some("Table docs".into()),
+    }]);
+    assert_eq!(tables[0].comment.as_deref(), Some("Table docs"));
+
+    let raw = vec![
+        RawColumnInfo {
+            schema: "public".into(),
+            table: "array_comments".into(),
+            name: "numbers".into(),
+            column_type: "_int4".into(),
+            type_schema: None,
+            not_null: true,
+            default_value: None,
+            is_identity: false,
+            identity_type: None,
+            is_generated: false,
+            generated_expression: None,
+            generated_stored: false,
+            dimensions: Some(1),
+            comment: Some("Numbers docs".into()),
+            ordinal_position: 1,
+        },
+        RawColumnInfo {
+            schema: "public".into(),
+            table: "array_comments".into(),
+            name: "tags".into(),
+            column_type: "_text".into(),
+            type_schema: None,
+            not_null: false,
+            default_value: None,
+            is_identity: false,
+            identity_type: None,
+            is_generated: false,
+            generated_expression: None,
+            generated_stored: false,
+            dimensions: Some(1),
+            comment: Some("Tags docs".into()),
+            ordinal_position: 2,
+        },
+    ];
+
+    let columns = process_columns(&raw);
+    let numbers = columns.iter().find(|c| c.name == "numbers").unwrap();
+    assert_eq!(numbers.sql_type, "int4");
+    assert_eq!(numbers.dimensions, Some(1));
+    assert_eq!(numbers.comment.as_deref(), Some("Numbers docs"));
+
+    let mut ddl = PostgresDDL::new();
+    for table in tables {
+        ddl.tables.push(table);
+    }
+    for column in columns {
+        ddl.columns.push(column);
+    }
+
+    let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+    let code = generated.code;
+    assert!(code.contains("/// Table docs"));
+    assert!(code.contains("/// Numbers docs"));
+    assert!(code.contains("numbers: Vec<i32>,"));
+    assert!(code.contains("/// Tags docs"));
+    assert!(code.contains("tags: Option<Vec<String>>,"));
+
+    let mut desired = PostgresDDL::new();
+    desired
+        .tables
+        .push(Table::new("public", "array_comments").comment("Table docs"));
+    let mut desired_numbers = Column::new("public", "array_comments", "numbers", "INTEGER");
+    desired_numbers.not_null = true;
+    desired_numbers.dimensions = Some(1);
+    desired_numbers.comment = Some(Cow::Borrowed("Numbers docs"));
+    desired.columns.push(desired_numbers);
+
+    let mut desired_tags = Column::new("public", "array_comments", "tags", "TEXT");
+    desired_tags.dimensions = Some(1);
+    desired_tags.comment = Some(Cow::Borrowed("Tags docs"));
+    desired.columns.push(desired_tags);
+
+    let diffs = diff_ddl(&ddl, &desired);
+    assert!(
+        diffs.is_empty(),
+        "expected introspected arrays/comments to diff cleanly: {diffs:?}"
+    );
 }
 
 #[test]
@@ -462,6 +783,8 @@ fn test_process_columns_preserves_virtual_generated_kind() {
         is_generated: true,
         generated_expression: Some("length(name)".into()),
         generated_stored: false,
+        dimensions: None,
+        comment: None,
         ordinal_position: 1,
     }];
 
@@ -529,6 +852,8 @@ fn test_process_foreign_keys() {
         columns_to: vec!["id".into()],
         on_update: "NO ACTION".into(),
         on_delete: "CASCADE".into(),
+        deferrable: false,
+        initially_deferred: false,
     }];
 
     static RAW_FKS: OnceLock<Vec<RawForeignKeyInfo>> = OnceLock::new();
@@ -564,6 +889,8 @@ fn test_process_unique_constraints() {
             name: "users_email_key".into(),
             columns: vec!["email".into()],
             nulls_not_distinct: false,
+            deferrable: false,
+            initially_deferred: false,
         },
         RawUniqueInfo {
             schema: "public".into(),
@@ -571,6 +898,8 @@ fn test_process_unique_constraints() {
             name: "users_username_domain_key".into(),
             columns: vec!["username".into(), "domain".into()],
             nulls_not_distinct: true,
+            deferrable: false,
+            initially_deferred: false,
         },
     ];
 
@@ -756,7 +1085,12 @@ fn test_generated_column_codegen() {
     ddl.tables.push(Table {
         schema: "public".into(),
         name: "products".into(),
+        is_unlogged: None,
+        is_temporary: None,
+        inherits: None,
+        tablespace: None,
         is_rls_enabled: Some(false),
+        comment: None,
     });
 
     ddl.columns.push(Column {
@@ -770,6 +1104,7 @@ fn test_generated_column_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -785,6 +1120,7 @@ fn test_generated_column_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -803,6 +1139,7 @@ fn test_generated_column_codegen() {
         }),
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -838,6 +1175,29 @@ fn test_generated_column_codegen() {
     );
 }
 
+#[test]
+fn test_table_storage_attrs_codegen() {
+    let mut ddl = PostgresDDL::new();
+
+    let mut table = Table::new("public", "audit_log").unlogged();
+    table.tablespace = Some("fast_storage".into());
+    table.is_rls_enabled = Some(true);
+    ddl.tables.push(table);
+    ddl.columns
+        .push(Column::new("public", "audit_log", "id", "int4").not_null());
+
+    let options = CodegenOptions::default();
+    let generated = generate_rust_schema(&ddl, &options);
+
+    assert!(
+        generated
+            .code
+            .contains("#[PostgresTable(unlogged, tablespace = \"fast_storage\", rls)]"),
+        "expected storage attrs in generated code:\n{}",
+        generated.code
+    );
+}
+
 // =============================================================================
 // Default Value Tests
 // =============================================================================
@@ -849,7 +1209,12 @@ fn test_default_value_codegen() {
     ddl.tables.push(Table {
         schema: "public".into(),
         name: "settings".into(),
+        is_unlogged: None,
+        is_temporary: None,
+        inherits: None,
+        tablespace: None,
         is_rls_enabled: Some(false),
+        comment: None,
     });
 
     ddl.columns.push(Column {
@@ -863,6 +1228,7 @@ fn test_default_value_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -878,6 +1244,7 @@ fn test_default_value_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -893,6 +1260,7 @@ fn test_default_value_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -929,7 +1297,12 @@ fn test_identity_column_types() {
     ddl.tables.push(Table {
         schema: "public".into(),
         name: "test_identity".into(),
+        is_unlogged: None,
+        is_temporary: None,
+        inherits: None,
+        tablespace: None,
         is_rls_enabled: Some(false),
+        comment: None,
     });
 
     // Identity ALWAYS
@@ -954,6 +1327,7 @@ fn test_identity_column_types() {
             cycle: None,
         }),
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -980,6 +1354,7 @@ fn test_identity_column_types() {
             cycle: None,
         }),
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -1032,7 +1407,12 @@ fn test_unique_index_generation() {
     ddl.tables.push(Table {
         schema: "public".into(),
         name: "items".into(),
+        is_unlogged: None,
+        is_temporary: None,
+        inherits: None,
+        tablespace: None,
         is_rls_enabled: Some(false),
+        comment: None,
     });
 
     ddl.columns.push(Column {
@@ -1046,6 +1426,7 @@ fn test_unique_index_generation() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -1218,7 +1599,12 @@ fn test_enum_codegen() {
     ddl.tables.push(Table {
         schema: "public".into(),
         name: "orders".into(),
+        is_unlogged: None,
+        is_temporary: None,
+        inherits: None,
+        tablespace: None,
         is_rls_enabled: Some(false),
+        comment: None,
     });
 
     ddl.columns.push(Column {
@@ -1232,6 +1618,7 @@ fn test_enum_codegen() {
         generated: None,
         identity: Some(identity_always()),
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -1247,6 +1634,7 @@ fn test_enum_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -1262,6 +1650,7 @@ fn test_enum_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -1355,7 +1744,12 @@ fn test_multiple_enums_codegen() {
     ddl.tables.push(Table {
         schema: "public".into(),
         name: "tasks".into(),
+        is_unlogged: None,
+        is_temporary: None,
+        inherits: None,
+        tablespace: None,
         is_rls_enabled: Some(false),
+        comment: None,
     });
 
     ddl.columns.push(Column {
@@ -1369,6 +1763,7 @@ fn test_multiple_enums_codegen() {
         generated: None,
         identity: Some(identity_always()),
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -1384,6 +1779,7 @@ fn test_multiple_enums_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -1399,6 +1795,7 @@ fn test_multiple_enums_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: None,
     });
@@ -1557,6 +1954,7 @@ fn test_materialized_view_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: Some(1),
     });
@@ -1572,6 +1970,7 @@ fn test_materialized_view_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: Some(2),
     });
@@ -1601,6 +2000,7 @@ fn test_materialized_view_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: Some(1),
     });
@@ -1616,6 +2016,7 @@ fn test_materialized_view_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: Some(2),
     });
@@ -1692,6 +2093,7 @@ fn test_materialized_view_with_options_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: Some(1),
     });
@@ -1707,6 +2109,7 @@ fn test_materialized_view_with_options_codegen() {
         generated: None,
         identity: None,
         dimensions: None,
+        comment: None,
         collate: None,
         ordinal_position: Some(2),
     });

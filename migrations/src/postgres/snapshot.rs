@@ -280,7 +280,12 @@ mod tests {
         PostgresEntity::Table(Table {
             schema: schema.to_string().into(),
             name: name.to_string().into(),
+            is_unlogged: None,
+            is_temporary: None,
+            inherits: None,
+            tablespace: None,
             is_rls_enabled: None,
+            comment: None,
         })
     }
 
@@ -326,7 +331,12 @@ mod tests {
         let table = Table {
             schema: "public".into(),
             name: "users".into(),
+            is_unlogged: None,
+            is_temporary: None,
+            inherits: None,
+            tablespace: None,
             is_rls_enabled: None,
+            comment: None,
         };
         snapshot.add_entity(PostgresEntity::Table(table));
 
