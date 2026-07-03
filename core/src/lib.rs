@@ -107,8 +107,8 @@ pub use row::{
 };
 pub use schema::{OrderBy, asc, desc};
 pub use sql::{
-    ColumnDialect, ColumnFlags, ColumnRef, ConstraintRef, ForeignKeyRef, OwnedSQL, OwnedSQLChunk,
-    PrimaryKeyRef, SQL, SQLChunk, TableDialect, TableRef, Token,
+    ColumnDialect, ColumnFlags, ColumnRef, ColumnSqlRef, ConstraintRef, ForeignKeyRef, OwnedSQL,
+    OwnedSQLChunk, PrimaryKeyRef, SQL, SQLChunk, TableDialect, TableRef, TableSqlRef, Token,
 };
 pub use traits::*;
 

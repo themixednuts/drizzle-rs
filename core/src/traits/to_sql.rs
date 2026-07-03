@@ -16,7 +16,8 @@ use uuid::Uuid;
 /// borrowed.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot be converted to SQL",
-    label = "this type does not implement ToSQL for the current dialect"
+    label = "this type does not implement ToSQL for the current dialect",
+    note = "tuples larger than the enabled arity need a larger `colN` feature (col16, col32, col64, col128, col200) on drizzle-core"
 )]
 pub trait ToSQL<'a, V: SQLParam> {
     fn to_sql(&self) -> SQL<'a, V>;

@@ -87,6 +87,13 @@ where
     fn to_sql(&self) -> SQL<'a, V> {
         self.lhs.to_sql().push(Op::TOKEN).append(self.rhs.to_sql())
     }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        self.lhs
+            .into_sql()
+            .push(Op::TOKEN)
+            .append(self.rhs.into_sql())
+    }
 }
 
 impl<'a, V, Lhs, Rhs, Op> Expr<'a, V> for ColumnBinOp<Lhs, Rhs, Op>
@@ -142,6 +149,10 @@ where
 {
     fn to_sql(&self) -> SQL<'a, V> {
         SQL::raw("-").append(self.inner.to_sql())
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        SQL::raw("-").append(self.inner.into_sql())
     }
 }
 
