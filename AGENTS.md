@@ -16,8 +16,8 @@ cargo build --all-features
 cargo test --features "rusqlite,uuid"
 
 # Test PostgreSQL (requires Docker)
-just test-pg              # starts container, runs tests, stops container
-just test-pg-dev          # keeps container running for development
+just test::pg             # starts container automatically, runs tests
+just test::pg-matrix      # full PostgreSQL feature matrix
 
 # Test with libsql (requires single-threaded execution)
 cargo test --features "rusqlite,libsql,uuid" -- --test-threads=1
