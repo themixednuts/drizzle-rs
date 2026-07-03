@@ -20,6 +20,8 @@ use tokio_postgres::{
 
 use crate::builder::postgres::prepared_common::postgres_prepared_async_impl;
 
+const STATEMENT_CACHE_CAP: usize = 32;
+
 /// A prepared statement that can be executed multiple times with different parameters.
 ///
 /// This statement can be run against a `tokio-postgres` client.
@@ -31,7 +33,7 @@ pub struct PreparedStatement<'a, Marker = (), DecodedRow = ()> {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct StatementCache(Arc<Mutex<Option<CachedStatement>>>);
+pub(crate) struct StatementCache(Arc<Mutex<Vec<CachedStatement>>>);
 
 struct CachedStatement {
     client_key: usize,
@@ -47,7 +49,7 @@ impl std::fmt::Debug for StatementCache {
 }
 
 impl StatementCache {
-    async fn statement(
+    pub(crate) async fn statement(
         &self,
         client: &Client,
         sql: &str,
@@ -55,24 +57,41 @@ impl StatementCache {
     ) -> Result<Statement, tokio_postgres::Error> {
         let client_key = client as *const Client as usize;
         {
-            let cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
-            if let Some(cached) = cache.as_ref()
-                && cached.client_key == client_key
-                && cached.sql.as_ref() == sql
-                && cached.param_types.as_ref() == param_types
-            {
-                return Ok(cached.statement.clone());
+            let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
+            if let Some(pos) = cache.iter().position(|cached| {
+                cached.client_key == client_key
+                    && cached.sql.as_ref() == sql
+                    && cached.param_types.as_ref() == param_types
+            }) {
+                let cached = cache.remove(pos);
+                let statement = cached.statement.clone();
+                cache.insert(0, cached);
+                return Ok(statement);
             }
         }
 
         let statement = client.prepare_typed(sql, param_types).await?;
         let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
-        *cache = Some(CachedStatement {
-            client_key,
-            sql: sql.into(),
-            param_types: param_types.into(),
-            statement: statement.clone(),
-        });
+        if let Some(pos) = cache.iter().position(|cached| {
+            cached.client_key == client_key
+                && cached.sql.as_ref() == sql
+                && cached.param_types.as_ref() == param_types
+        }) {
+            let cached = cache.remove(pos);
+            let statement = cached.statement.clone();
+            cache.insert(0, cached);
+            return Ok(statement);
+        }
+        cache.insert(
+            0,
+            CachedStatement {
+                client_key,
+                sql: sql.into(),
+                param_types: param_types.into(),
+                statement: statement.clone(),
+            },
+        );
+        cache.truncate(STATEMENT_CACHE_CAP);
         Ok(statement)
     }
 }

@@ -158,7 +158,10 @@ use drizzle_core::traits::ToSQL;
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 use drizzle_postgres::traits::PostgresTable;
 use smallvec::SmallVec;
-use tokio_postgres::{Client, IsolationLevel, Row};
+use tokio_postgres::{
+    Client, IsolationLevel, Row, Statement,
+    types::{ToSql, Type},
+};
 
 use drizzle_postgres::builder::{
     self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
@@ -194,6 +197,7 @@ crate::drizzle_prepare_impl!();
 pub struct Drizzle<Schema = ()> {
     client: Arc<Client>,
     schema: Schema,
+    statement_cache: prepared::StatementCache,
 }
 
 impl<S: Clone> Clone for Drizzle<S> {
@@ -202,12 +206,37 @@ impl<S: Clone> Clone for Drizzle<S> {
         Self {
             client: self.client.clone(),
             schema: self.schema.clone(),
+            statement_cache: self.statement_cache.clone(),
         }
     }
 }
 
 /// Lazy decoded row cursor for tokio-postgres queries.
 pub type Rows<R> = DecodeRows<Row, R>;
+
+fn tokio_postgres_materialize_params<'p>(
+    params: &[&'p PostgresValue<'_>],
+) -> (SmallVec<[Type; 8]>, SmallVec<[&'p (dyn ToSql + Sync); 8]>) {
+    let mut param_types = SmallVec::with_capacity(params.len());
+    let mut param_refs = SmallVec::with_capacity(params.len());
+    let mut collect_types = true;
+
+    for &param in params {
+        param_refs.push(param as &(dyn ToSql + Sync));
+        if collect_types {
+            if let Some(ty) =
+                crate::builder::postgres::prepared_common::tokio_postgres_param_type(param)
+            {
+                param_types.push(ty);
+            } else {
+                param_types.clear();
+                collect_types = false;
+            }
+        }
+    }
+
+    (param_types, param_refs)
+}
 
 impl Drizzle {
     /// Creates a new `Drizzle` instance.
@@ -218,6 +247,7 @@ impl Drizzle {
         let drizzle = Drizzle {
             client: Arc::new(client),
             schema,
+            statement_cache: prepared::StatementCache::default(),
         };
         (drizzle, schema)
     }
@@ -251,6 +281,16 @@ impl<Schema> Drizzle<Schema> {
         &self.schema
     }
 
+    async fn cached_statement(
+        &self,
+        sql: &str,
+        param_types: &[Type],
+    ) -> Result<Statement, tokio_postgres::Error> {
+        self.statement_cache
+            .statement(self.client.as_ref(), sql, param_types)
+            .await
+    }
+
     postgres_builder_constructors!();
 
     /// Execute a statement and return the number of affected rows.
@@ -263,20 +303,17 @@ impl<Schema> Drizzle<Schema> {
         T: ToSQL<'a, PostgresValue<'a>>,
     {
         let query = query.to_sql();
-        let (sql, param_refs) = {
+        let (sql, params) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "drizzle.execute");
             let (sql, params) = query.build();
             drizzle_core::drizzle_trace_query!(&sql, params.len());
-
-            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-                .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            (sql, param_refs)
+            (sql, params)
         };
 
-        self.client.execute(&sql, &param_refs[..]).await
+        let (param_types, param_refs) = tokio_postgres_materialize_params(&params);
+        let statement = self.cached_statement(&sql, &param_types).await?;
+        self.client.execute(&statement, &param_refs[..]).await
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
@@ -316,14 +353,15 @@ impl<Schema> Drizzle<Schema> {
             (sql_str, params)
         };
 
-        let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-            .iter()
-            .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-            .collect();
+        let (param_types, param_refs) = tokio_postgres_materialize_params(&params);
+        let statement = self
+            .cached_statement(&sql_str, &param_types)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         let rows = self
             .client
-            .query(&sql_str, &param_refs[..])
+            .query(&statement, &param_refs[..])
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
@@ -350,14 +388,15 @@ impl<Schema> Drizzle<Schema> {
             (sql_str, params)
         };
 
-        let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-            .iter()
-            .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-            .collect();
+        let (param_types, param_refs) = tokio_postgres_materialize_params(&params);
+        let statement = self
+            .cached_statement(&sql_str, &param_types)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         let row = self
             .client
-            .query_one(&sql_str, &param_refs[..])
+            .query_one(&statement, &param_refs[..])
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
@@ -432,6 +471,10 @@ impl<Schema> Drizzle<Schema> {
         drizzle_core::drizzle_trace_tx!("begin", "postgres.tokio");
         let tx = builder.start().await?;
 
+        // Cancellation safety: tokio-postgres 0.7.17 rolls back an unfinished
+        // Transaction in Drop by queuing ROLLBACK on the client. If the user
+        // future below is dropped, this wrapper is dropped with it and the
+        // inner transaction's Drop handles rollback.
         let transaction = Transaction::new(tx, tx_type, self.schema);
 
         match f(&transaction).await {
@@ -611,7 +654,12 @@ async fn ensure_postgres_migration_table(
 }
 
 fn pg_async_err(msg: &str, e: &tokio_postgres::Error) -> DrizzleError {
-    DrizzleError::Other(format!("{msg}: {e}").into())
+    // `tokio_postgres::Error`'s Display is just "db error"; the server's
+    // actual message lives in the DbError source.
+    match e.as_db_error() {
+        Some(db) => DrizzleError::Other(format!("{msg}: {db}").into()),
+        None => DrizzleError::Other(format!("{msg}: {e}").into()),
+    }
 }
 
 async fn pg_async_query_schemas(
@@ -643,6 +691,10 @@ async fn pg_async_query_tables(
             schema: row.get(0),
             name: row.get(1),
             is_rls_enabled: row.get(2),
+            is_unlogged: row.get(3),
+            is_temporary: row.get(4),
+            tablespace: row.get(5),
+            comment: row.get(6),
         })
         .collect())
 }
@@ -670,7 +722,9 @@ async fn pg_async_query_columns(
             is_generated: row.get(9),
             generated_expression: row.get(10),
             generated_stored: row.get(11),
-            ordinal_position: row.get(12),
+            dimensions: row.get(12),
+            comment: row.get(13),
+            ordinal_position: row.get(14),
         })
         .collect())
 }
@@ -792,6 +846,8 @@ async fn pg_async_query_foreign_keys(
             columns_to: row.get(6),
             on_update: pg_action_code_to_string(&row.get::<_, String>(7)),
             on_delete: pg_action_code_to_string(&row.get::<_, String>(8)),
+            deferrable: row.get(9),
+            initially_deferred: row.get(10),
         })
         .collect())
 }
@@ -831,6 +887,8 @@ async fn pg_async_query_uniques(
             name: row.get(2),
             columns: row.get(3),
             nulls_not_distinct: row.get(4),
+            deferrable: row.get(5),
+            initially_deferred: row.get(6),
         })
         .collect())
 }
@@ -1067,14 +1125,16 @@ where
             (sql_str, params)
         };
 
-        let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-            .iter()
-            .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-            .collect();
+        let (param_types, param_refs) = tokio_postgres_materialize_params(&params);
+        let statement = self
+            .runner
+            .cached_statement(&sql_str, &param_types)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         self.runner
             .client
-            .execute(&sql_str, &param_refs[..])
+            .execute(&statement, &param_refs[..])
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))
     }
@@ -1096,15 +1156,17 @@ where
             (sql_str, params)
         };
 
-        let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-            .iter()
-            .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-            .collect();
+        let (param_types, param_refs) = tokio_postgres_materialize_params(&params);
+        let statement = self
+            .runner
+            .cached_statement(&sql_str, &param_types)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         let rows = self
             .runner
             .client
-            .query(&sql_str, &param_refs[..])
+            .query(&statement, &param_refs[..])
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))?;
         let mut decoded = Vec::with_capacity(rows.len());
@@ -1131,15 +1193,17 @@ where
             (sql_str, params)
         };
 
-        let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-            .iter()
-            .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-            .collect();
+        let (param_types, param_refs) = tokio_postgres_materialize_params(&params);
+        let statement = self
+            .runner
+            .cached_statement(&sql_str, &param_types)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         let rows = self
             .runner
             .client
-            .query(&sql_str, &param_refs[..])
+            .query(&statement, &param_refs[..])
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
@@ -1163,15 +1227,17 @@ where
             (sql_str, params)
         };
 
-        let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-            .iter()
-            .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-            .collect();
+        let (param_types, param_refs) = tokio_postgres_materialize_params(&params);
+        let statement = self
+            .runner
+            .cached_statement(&sql_str, &param_types)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         let row = self
             .runner
             .client
-            .query_one(&sql_str, &param_refs[..])
+            .query_one(&statement, &param_refs[..])
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))?;
         <Mk as drizzle_core::row::DecodeSelectedRef<&::tokio_postgres::Row, R>>::decode(&row)
@@ -1241,15 +1307,17 @@ impl<'db, 'a, Schema, T, Rels, Cl>
 
         drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
-        let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = bind_params
-            .iter()
-            .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-            .collect();
+        let (param_types, param_refs) = tokio_postgres_materialize_params(&bind_params);
+        let statement = self
+            .runner
+            .cached_statement(&sql, &param_types)
+            .await
+            .with_query(|| QueryContext::new(&sql, &bind_params))?;
 
         let rows = self
             .runner
             .client
-            .query(&sql, &param_refs[..])
+            .query(&statement, &param_refs[..])
             .await
             .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::with_capacity(rows.len());
@@ -1366,15 +1434,17 @@ impl<'db, 'a, Schema, T, Rels, Cl>
 
         drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
-        let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = bind_params
-            .iter()
-            .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-            .collect();
+        let (param_types, param_refs) = tokio_postgres_materialize_params(&bind_params);
+        let statement = self
+            .runner
+            .cached_statement(&sql, &param_types)
+            .await
+            .with_query(|| QueryContext::new(&sql, &bind_params))?;
 
         let rows = self
             .runner
             .client
-            .query(&sql, &param_refs[..])
+            .query(&statement, &param_refs[..])
             .await
             .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::with_capacity(rows.len());
@@ -1477,10 +1547,10 @@ impl<'a, T, Rels>
         let mut params_vec: SmallVec<[PostgresValue<'a>; 8]> =
             SmallVec::with_capacity(upper.unwrap_or(lower));
         params_vec.extend(bound_params);
-        let mut param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> =
+        let mut param_refs: SmallVec<[&(dyn ToSql + Sync); 8]> =
             SmallVec::with_capacity(params_vec.len());
         for param in &params_vec {
-            param_refs.push(param as &(dyn tokio_postgres::types::ToSql + Sync));
+            param_refs.push(param as &(dyn ToSql + Sync));
         }
         let param_types =
             crate::builder::postgres::prepared_common::tokio_postgres_param_types(&params_vec);
@@ -1571,10 +1641,10 @@ impl<'a, T, Rels>
         let mut params_vec: SmallVec<[PostgresValue<'a>; 8]> =
             SmallVec::with_capacity(upper.unwrap_or(lower));
         params_vec.extend(bound_params);
-        let mut param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> =
+        let mut param_refs: SmallVec<[&(dyn ToSql + Sync); 8]> =
             SmallVec::with_capacity(params_vec.len());
         for param in &params_vec {
-            param_refs.push(param as &(dyn tokio_postgres::types::ToSql + Sync));
+            param_refs.push(param as &(dyn ToSql + Sync));
         }
         let param_types =
             crate::builder::postgres::prepared_common::tokio_postgres_param_types(&params_vec);

@@ -320,7 +320,8 @@ pub mod sqlite {
 pub mod postgres {
     #[doc(inline)]
     pub use drizzle_macros::{
-        PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable, PostgresView,
+        PostgresEnum, PostgresFromRow, PostgresIndex, PostgresPolicy, PostgresSchema,
+        PostgresTable, PostgresView,
     };
     #[doc(hidden)]
     pub use drizzle_postgres::driver_types;
@@ -387,8 +388,8 @@ pub mod postgres {
         pub use drizzle_core::traits::*;
         // PostgreSQL macros
         pub use drizzle_macros::{
-            PostgresEnum, PostgresFromRow, PostgresIndex, PostgresSchema, PostgresTable,
-            PostgresView,
+            PostgresEnum, PostgresFromRow, PostgresIndex, PostgresPolicy, PostgresSchema,
+            PostgresTable, PostgresView,
         };
         // PostgreSQL types
         pub use drizzle_postgres::attrs::*;

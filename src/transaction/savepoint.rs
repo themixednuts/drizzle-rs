@@ -18,7 +18,72 @@
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use drizzle_core::error::Result;
+use drizzle_core::error::{DrizzleError, Result};
+
+fn cleanup_error(
+    scope: &str,
+    original: DrizzleError,
+    action: &str,
+    cleanup: DrizzleError,
+) -> DrizzleError {
+    DrizzleError::TransactionError(
+        format!("{scope} callback failed: {original}; {action} failed: {cleanup}").into(),
+    )
+}
+
+fn trace_panic_cleanup_error(scope: &str, name: &str, action: &str, err: &DrizzleError) {
+    #[cfg(feature = "tracing")]
+    tracing::error!(
+        scope,
+        name,
+        action,
+        error = %err,
+        "transaction cleanup failed after panic"
+    );
+
+    #[cfg(not(feature = "tracing"))]
+    let _ = (scope, name, action, err);
+}
+
+/// Run a synchronous transaction around `body`.
+///
+/// The driver owns how a transaction is begun and supplies commit/rollback
+/// closures for its transaction type. This helper centralizes the shared
+/// callback protocol: commit on `Ok`, rollback on `Err`, and rollback before
+/// resuming a panic.
+pub fn sync_transaction<Tx, R>(
+    transaction: Tx,
+    trace_name: &'static str,
+    trace_commit: impl Fn(),
+    trace_rollback: impl Fn(),
+    body: impl FnOnce(&Tx) -> Result<R>,
+    commit: impl FnOnce(Tx) -> Result<()>,
+    rollback: impl FnOnce(Tx) -> Result<()>,
+) -> Result<R> {
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body(&transaction)));
+
+    match outcome {
+        Ok(Ok(value)) => {
+            trace_commit();
+            commit(transaction)?;
+            Ok(value)
+        }
+        Ok(Err(e)) => {
+            trace_rollback();
+            match rollback(transaction) {
+                Ok(()) => Err(e),
+                Err(rollback_err) => Err(cleanup_error("transaction", e, "rollback", rollback_err)),
+            }
+        }
+        Err(panic_payload) => {
+            trace_rollback();
+            if let Err(err) = rollback(transaction) {
+                trace_panic_cleanup_error("transaction", trace_name, "rollback", &err);
+            }
+            std::panic::resume_unwind(panic_payload);
+        }
+    }
+}
 
 /// Run a savepoint block synchronously around `body`.
 ///
@@ -50,13 +115,36 @@ pub fn sync_savepoint<R>(
             Ok(value)
         }
         Ok(Err(e)) => {
-            let _ = execute_raw(&format!("ROLLBACK TO SAVEPOINT {sp}"));
-            let _ = execute_raw(&format!("RELEASE SAVEPOINT {sp}"));
+            if let Err(rollback_err) = execute_raw(&format!("ROLLBACK TO SAVEPOINT {sp}")) {
+                return Err(cleanup_error(
+                    "savepoint",
+                    e,
+                    "rollback to savepoint",
+                    rollback_err,
+                ));
+            }
+            if let Err(release_err) = execute_raw(&format!("RELEASE SAVEPOINT {sp}")) {
+                return Err(cleanup_error(
+                    "savepoint",
+                    e,
+                    "release savepoint after rollback",
+                    release_err,
+                ));
+            }
             Err(e)
         }
         Err(panic_payload) => {
-            let _ = execute_raw(&format!("ROLLBACK TO SAVEPOINT {sp}"));
-            let _ = execute_raw(&format!("RELEASE SAVEPOINT {sp}"));
+            if let Err(err) = execute_raw(&format!("ROLLBACK TO SAVEPOINT {sp}")) {
+                trace_panic_cleanup_error("savepoint", &sp, "rollback to savepoint", &err);
+            }
+            if let Err(err) = execute_raw(&format!("RELEASE SAVEPOINT {sp}")) {
+                trace_panic_cleanup_error(
+                    "savepoint",
+                    &sp,
+                    "release savepoint after rollback",
+                    &err,
+                );
+            }
             std::panic::resume_unwind(panic_payload);
         }
     }
@@ -94,8 +182,22 @@ where
             Ok(value)
         }
         Err(e) => {
-            let _ = execute_raw(format!("ROLLBACK TO SAVEPOINT {sp}")).await;
-            let _ = execute_raw(format!("RELEASE SAVEPOINT {sp}")).await;
+            if let Err(rollback_err) = execute_raw(format!("ROLLBACK TO SAVEPOINT {sp}")).await {
+                return Err(cleanup_error(
+                    "savepoint",
+                    e,
+                    "rollback to savepoint",
+                    rollback_err,
+                ));
+            }
+            if let Err(release_err) = execute_raw(format!("RELEASE SAVEPOINT {sp}")).await {
+                return Err(cleanup_error(
+                    "savepoint",
+                    e,
+                    "release savepoint after rollback",
+                    release_err,
+                ));
+            }
             Err(e)
         }
     }

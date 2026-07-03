@@ -92,6 +92,7 @@ use drizzle_sqlite::{
 crate::drizzle_prepare_impl!();
 
 use crate::builder::sqlite::common;
+use crate::transaction::savepoint::sync_transaction;
 
 pub type Drizzle<Schema = ()> = common::Drizzle<SqlStorage, Schema>;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
@@ -193,25 +194,29 @@ impl<Schema> common::Drizzle<SqlStorage, Schema> {
 
         let tx =
             crate::transaction::sqlite::durable::Transaction::new(self.conn.clone(), self.schema);
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&tx)));
-
-        match result {
-            Ok(Ok(value)) => {
-                self.conn
+        sync_transaction(
+            tx,
+            "sqlite.durable",
+            || {
+                drizzle_core::drizzle_trace_tx!("commit", "sqlite.durable");
+            },
+            || {
+                drizzle_core::drizzle_trace_tx!("rollback", "sqlite.durable");
+            },
+            |tx| f(tx),
+            |tx| {
+                tx.inner()
                     .exec("COMMIT", None)
-                    .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-                Ok(value)
-            }
-            Ok(Err(e)) => {
-                // Best effort rollback — propagate the original error.
-                let _ = self.conn.exec("ROLLBACK", None);
-                Err(e)
-            }
-            Err(panic_payload) => {
-                let _ = self.conn.exec("ROLLBACK", None);
-                std::panic::resume_unwind(panic_payload);
-            }
-        }
+                    .map(|_| ())
+                    .map_err(|e| DrizzleError::Other(e.to_string().into()))
+            },
+            |tx| {
+                tx.inner()
+                    .exec("ROLLBACK", None)
+                    .map(|_| ())
+                    .map_err(|e| DrizzleError::Other(e.to_string().into()))
+            },
+        )
     }
 }
 
