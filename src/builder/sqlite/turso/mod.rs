@@ -142,6 +142,24 @@ pub type Drizzle<Schema = ()> = common::Drizzle<Connection, Schema>;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
     common::DrizzleBuilder<'a, common::Drizzle<Connection, Schema>, Schema, Builder, State>;
 
+async fn turso_execute_cached(
+    conn: &Connection,
+    sql: &str,
+    params: Vec<turso::Value>,
+) -> turso::Result<u64> {
+    let mut stmt = conn.prepare_cached(sql).await?;
+    stmt.execute(params).await
+}
+
+async fn turso_query_cached(
+    conn: &Connection,
+    sql: &str,
+    params: Vec<turso::Value>,
+) -> turso::Result<turso::Rows> {
+    let mut stmt = conn.prepare_cached(sql).await?;
+    stmt.query(params).await
+}
+
 impl<Schema> common::Drizzle<Connection, Schema> {
     pub async fn execute<'a, T>(
         &'a self,
@@ -157,15 +175,14 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             .copied()
             .map(|p| {
                 p.into_value()
-                    .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))
+                    .map_err(drizzle_core::error::DrizzleError::from)
             })
             .collect::<Result<Vec<_>, _>>()
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
-        self.conn
-            .execute(&sql_str, driver_params)
+        turso_execute_cached(&self.conn, &sql_str, driver_params)
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))
+            .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
@@ -177,7 +194,30 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         T: ToSQL<'a, SQLiteValue<'a>>,
         C: Default + Extend<R>,
     {
-        self.rows(query).await?.collect().await
+        let sql = query.to_sql();
+        let (sql_str, params) = sql.build();
+        let driver_params: Vec<turso::Value> = params
+            .iter()
+            .copied()
+            .map(|p| p.into_value().map_err(DrizzleError::from))
+            .collect::<Result<Vec<_>, _>>()
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
+
+        let mut rows = turso_query_cached(&self.conn, &sql_str, driver_params)
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
+
+        let mut out = C::default();
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?
+        {
+            out.extend(core::iter::once(R::try_from(&row).map_err(Into::into)?));
+        }
+        Ok(out)
     }
 
     /// Runs the query and returns a row cursor.
@@ -192,10 +232,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         let driver_params: Vec<turso::Value> = params
             .iter()
             .copied()
-            .map(|p| {
-                p.into_value()
-                    .map_err(|e| DrizzleError::Other(e.to_string().into()))
-            })
+            .map(|p| p.into_value().map_err(DrizzleError::from))
             .collect::<Result<Vec<_>, _>>()
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
@@ -203,7 +240,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             .conn
             .query(&sql_str, driver_params)
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))
+            .map_err(DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         Ok(Rows::new(rows))
@@ -221,23 +258,18 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         let driver_params: Vec<turso::Value> = params
             .iter()
             .copied()
-            .map(|p| {
-                p.into_value()
-                    .map_err(|e| DrizzleError::Other(e.to_string().into()))
-            })
+            .map(|p| p.into_value().map_err(DrizzleError::from))
             .collect::<Result<Vec<_>, _>>()
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
-        let mut rows = self
-            .conn
-            .query(&sql_str, driver_params)
+        let mut rows = turso_query_cached(&self.conn, &sql_str, driver_params)
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))
+            .map_err(DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         rows.next()
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))
+            .map_err(DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?
             .map_or_else(
                 || Err(DrizzleError::NotFound),
@@ -328,14 +360,10 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             .conn
             .query(&set.applied_names_sql(), ())
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            .map_err(DrizzleError::from)?;
 
         let mut applied_names: Vec<String> = Vec::new();
-        while let Some(row) = rows
-            .next()
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-        {
+        while let Some(row) = rows.next().await.map_err(DrizzleError::from)? {
             if let Ok(name) = row.get::<String>(0) {
                 applied_names.push(name);
             }
@@ -347,30 +375,22 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
         }
 
-        let tx = self
-            .conn
-            .transaction()
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let tx = self.conn.transaction().await.map_err(DrizzleError::from)?;
 
         let mut applied = Vec::with_capacity(pending.len());
         for migration in &pending {
             for stmt in migration.statements() {
                 if !stmt.trim().is_empty() {
-                    tx.execute(stmt, ())
-                        .await
-                        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+                    tx.execute(stmt, ()).await.map_err(DrizzleError::from)?;
                 }
             }
             tx.execute(&set.record_migration_sql(migration), ())
                 .await
-                .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+                .map_err(DrizzleError::from)?;
             applied.push(migration.tag().to_string());
         }
 
-        tx.commit()
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        tx.commit().await.map_err(DrizzleError::from)?;
 
         Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
     }
@@ -385,12 +405,8 @@ async fn migration_table_has_name_column(
     let mut rows = conn
         .query(&pragma_sql, ())
         .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-    while let Some(row) = rows
-        .next()
-        .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-    {
+        .map_err(DrizzleError::from)?;
+    while let Some(row) = rows.next().await.map_err(DrizzleError::from)? {
         if let Ok(name) = row.get::<String>(0)
             && name == "name"
         {
@@ -413,21 +429,13 @@ async fn load_legacy_applied_migrations(
             (),
         )
         .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        .map_err(DrizzleError::from)?;
     let mut applied = Vec::new();
-    while let Some(row) = rows
-        .next()
-        .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-    {
+    while let Some(row) = rows.next().await.map_err(DrizzleError::from)? {
         applied.push(drizzle_migrations::AppliedMigrationMetadata {
             id: row.get::<Option<i64>>(0).ok().flatten(),
-            hash: row
-                .get::<String>(1)
-                .map_err(|e| DrizzleError::Other(e.to_string().into()))?,
-            created_at: row
-                .get::<i64>(2)
-                .map_err(|e| DrizzleError::Other(e.to_string().into()))?,
+            hash: row.get::<String>(1).map_err(DrizzleError::from)?,
+            created_at: row.get::<i64>(2).map_err(DrizzleError::from)?,
         });
     }
     Ok(applied)
@@ -438,10 +446,7 @@ async fn backfill_migration_name_column(
     set: &drizzle_migrations::Migrations,
     matched: Vec<drizzle_migrations::MatchedMigrationMetadata>,
 ) -> drizzle_core::error::Result<()> {
-    let tx = conn
-        .transaction()
-        .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+    let tx = conn.transaction().await.map_err(DrizzleError::from)?;
     tx.execute(
         &format!(
             "ALTER TABLE {} ADD COLUMN \"name\" text",
@@ -450,7 +455,7 @@ async fn backfill_migration_name_column(
         (),
     )
     .await
-    .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+    .map_err(DrizzleError::from)?;
     tx.execute(
         &format!(
             "ALTER TABLE {} ADD COLUMN \"applied_at\" TEXT",
@@ -459,7 +464,7 @@ async fn backfill_migration_name_column(
         (),
     )
     .await
-    .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+    .map_err(DrizzleError::from)?;
 
     for row in matched {
         let escaped_name = row.name.replace('\'', "''");
@@ -482,12 +487,10 @@ async fn backfill_migration_name_column(
             (),
         )
         .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        .map_err(DrizzleError::from)?;
     }
 
-    tx.commit()
-        .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+    tx.commit().await.map_err(DrizzleError::from)?;
     Ok(())
 }
 
@@ -497,7 +500,7 @@ async fn ensure_sqlite_migration_table(
 ) -> drizzle_core::error::Result<()> {
     conn.execute(&set.create_table_sql(), ())
         .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        .map_err(DrizzleError::from)?;
 
     if migration_table_has_name_column(conn, set).await? {
         return Ok(());
@@ -514,7 +517,7 @@ async fn turso_introspect_query_tables(
     conn: &turso::Connection,
 ) -> drizzle_core::error::Result<Vec<(String, Option<String>)>> {
     use drizzle_migrations::sqlite::introspect::queries;
-    let err = |e: turso::Error| DrizzleError::Other(e.to_string().into());
+    let err = DrizzleError::from;
 
     let mut tables_rows = conn.query(queries::TABLES_QUERY, ()).await.map_err(err)?;
     let mut tables: Vec<(String, Option<String>)> = Vec::new();
@@ -530,7 +533,7 @@ async fn turso_introspect_query_columns(
     conn: &turso::Connection,
 ) -> drizzle_core::error::Result<Vec<drizzle_migrations::sqlite::introspect::RawColumnInfo>> {
     use drizzle_migrations::sqlite::introspect::{RawColumnInfo, queries};
-    let err = |e: turso::Error| DrizzleError::Other(e.to_string().into());
+    let err = DrizzleError::from;
 
     let mut columns_rows = conn.query(queries::COLUMNS_QUERY, ()).await.map_err(err)?;
     let mut raw_columns: Vec<RawColumnInfo> = Vec::new();
@@ -754,7 +757,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                 self.conn
                     .execute(&stmt, ())
                     .await
-                    .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+                    .map_err(DrizzleError::from)?;
             }
         }
         Ok(())
@@ -827,19 +830,16 @@ impl<'a, Schema, T, Rels, Cl>
             .copied()
             .map(std::convert::Into::into)
             .collect();
-        let mut raw_rows = self
-            .runner
-            .conn
-            .query(&sql, params)
+        let mut raw_rows = turso_query_cached(&self.runner.conn, &sql, params)
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))
+            .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::new();
 
         while let Some(row) = raw_rows
             .next()
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))
+            .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql, &bind_params))?
         {
             let base = <T as drizzle_core::query::QueryTable>::Select::try_from(&row)
@@ -849,7 +849,7 @@ impl<'a, Schema, T, Rels, Cl>
             let mut next_rel = || {
                 let json = row
                     .get::<Option<String>>(rel_col)
-                    .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+                    .map_err(drizzle_core::error::DrizzleError::from)?;
                 rel_col += 1;
                 Ok(json)
             };
@@ -958,25 +958,22 @@ impl<'a, Schema, T, Rels, Cl>
             .copied()
             .map(std::convert::Into::into)
             .collect();
-        let mut raw_rows = self
-            .runner
-            .conn
-            .query(&sql, params)
+        let mut raw_rows = turso_query_cached(&self.runner.conn, &sql, params)
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))
+            .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::new();
 
         while let Some(row) = raw_rows
             .next()
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))
+            .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql, &bind_params))?
         {
             // Column 0 is the JSON "__base" object
             let base_json: String = row
                 .get::<String>(0)
-                .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+                .map_err(drizzle_core::error::DrizzleError::from)?;
             let base = <T as drizzle_core::query::QueryTable>::PartialSelect::from_json_str(
                 &base_json, "base",
             )?;
@@ -1081,7 +1078,7 @@ impl<'a, T, Rels>
             let mut next_rel = || {
                 let json = row
                     .get::<Option<String>>(rel_col)
-                    .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+                    .map_err(drizzle_core::error::DrizzleError::from)?;
                 rel_col += 1;
                 Ok(json)
             };
@@ -1161,7 +1158,7 @@ impl<'a, T, Rels>
         while let Some(row) = raw_rows.next().await? {
             let base_json: String = row
                 .get::<String>(0)
-                .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+                .map_err(drizzle_core::error::DrizzleError::from)?;
             let base = <T as drizzle_core::query::QueryTable>::PartialSelect::from_json_str(
                 &base_json, "base",
             )?;
@@ -1170,7 +1167,7 @@ impl<'a, T, Rels>
             let mut next_rel = || {
                 let json = row
                     .get::<Option<String>>(rel_col)
-                    .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+                    .map_err(drizzle_core::error::DrizzleError::from)?;
                 rel_col += 1;
                 Ok(json)
             };
@@ -1221,11 +1218,9 @@ where
             .copied()
             .map(std::convert::Into::into)
             .collect();
-        self.runner
-            .conn
-            .execute(&sql_str, driver_params)
+        turso_execute_cached(&self.runner.conn, &sql_str, driver_params)
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::ExecutionError(e.to_string().into()))
+            .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
@@ -1244,18 +1239,15 @@ where
             .copied()
             .map(std::convert::Into::into)
             .collect();
-        let mut rows = self
-            .runner
-            .conn
-            .query(&sql_str, driver_params)
+        let mut rows = turso_query_cached(&self.runner.conn, &sql_str, driver_params)
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::ExecutionError(e.to_string().into()))
+            .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
         let mut decoded = Vec::new();
         while let Some(row) = rows
             .next()
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::ExecutionError(e.to_string().into()))
+            .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?
         {
             decoded.push(<Mk as drizzle_core::row::DecodeSelectedRef<
@@ -1284,7 +1276,7 @@ where
             .conn
             .query(&sql_str, driver_params)
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::ExecutionError(e.to_string().into()))
+            .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(Rows::with_sql(rows, sql_str))
     }
@@ -1304,16 +1296,13 @@ where
             .copied()
             .map(std::convert::Into::into)
             .collect();
-        let mut rows = self
-            .runner
-            .conn
-            .query(&sql_str, driver_params)
+        let mut rows = turso_query_cached(&self.runner.conn, &sql_str, driver_params)
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::ExecutionError(e.to_string().into()))
+            .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
         rows.next()
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::ExecutionError(e.to_string().into()))
+            .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?
             .map_or_else(
                 || Err(drizzle_core::error::DrizzleError::NotFound),

@@ -1,7 +1,10 @@
 use std::{
     borrow::Cow,
     marker::PhantomData,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use drizzle_core::{
@@ -20,6 +23,59 @@ use postgres::{
 
 use crate::builder::postgres::prepared_common::postgres_prepared_sync_impl;
 
+const STATEMENT_CACHE_CAP: usize = 32;
+
+static NEXT_CLIENT_ID: AtomicU64 = AtomicU64::new(1);
+static REGISTERED_CLIENTS: Mutex<Vec<ClientRegistration>> = Mutex::new(Vec::new());
+
+#[derive(Clone, Copy)]
+struct ClientRegistration {
+    client_key: usize,
+    client_id: u64,
+}
+
+pub(crate) fn next_client_id() -> u64 {
+    NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed)
+}
+
+pub(crate) fn register_client(client: &Client, client_id: u64) {
+    let client_key = client as *const Client as usize;
+    let mut registrations = REGISTERED_CLIENTS
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+
+    registrations.retain(|entry| entry.client_id == client_id || entry.client_key != client_key);
+    if let Some(entry) = registrations
+        .iter_mut()
+        .find(|entry| entry.client_id == client_id)
+    {
+        entry.client_key = client_key;
+    } else {
+        registrations.push(ClientRegistration {
+            client_key,
+            client_id,
+        });
+    }
+}
+
+pub(crate) fn unregister_client(client_id: u64) {
+    let mut registrations = REGISTERED_CLIENTS
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    registrations.retain(|entry| entry.client_id != client_id);
+}
+
+fn registered_client_id(client: &Client) -> Option<u64> {
+    let client_key = client as *const Client as usize;
+    let registrations = REGISTERED_CLIENTS
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    registrations
+        .iter()
+        .find(|entry| entry.client_key == client_key)
+        .map(|entry| entry.client_id)
+}
+
 /// A prepared statement that can be executed multiple times with different parameters.
 ///
 /// This statement can be run against a `postgres` client.
@@ -31,10 +87,10 @@ pub struct PreparedStatement<'a, Marker = (), DecodedRow = ()> {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct StatementCache(Arc<Mutex<Option<CachedStatement>>>);
+pub(crate) struct StatementCache(Arc<Mutex<Vec<CachedStatement>>>);
 
 struct CachedStatement {
-    client_key: usize,
+    client_id: u64,
     sql: Box<str>,
     param_types: Box<[Type]>,
     statement: Statement,
@@ -47,32 +103,52 @@ impl std::fmt::Debug for StatementCache {
 }
 
 impl StatementCache {
-    fn statement(
+    pub(crate) fn statement(
         &self,
         client: &mut Client,
         sql: &str,
         param_types: &[Type],
     ) -> Result<Statement, postgres::Error> {
-        let client_key = client as *mut Client as usize;
+        let Some(client_id) = registered_client_id(client) else {
+            return client.prepare_typed(sql, param_types);
+        };
+
         {
-            let cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
-            if let Some(cached) = cache.as_ref()
-                && cached.client_key == client_key
-                && cached.sql.as_ref() == sql
-                && cached.param_types.as_ref() == param_types
-            {
-                return Ok(cached.statement.clone());
+            let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
+            if let Some(pos) = cache.iter().position(|cached| {
+                cached.client_id == client_id
+                    && cached.sql.as_ref() == sql
+                    && cached.param_types.as_ref() == param_types
+            }) {
+                let cached = cache.remove(pos);
+                let statement = cached.statement.clone();
+                cache.insert(0, cached);
+                return Ok(statement);
             }
         }
 
         let statement = client.prepare_typed(sql, param_types)?;
         let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
-        *cache = Some(CachedStatement {
-            client_key,
-            sql: sql.into(),
-            param_types: param_types.into(),
-            statement: statement.clone(),
-        });
+        if let Some(pos) = cache.iter().position(|cached| {
+            cached.client_id == client_id
+                && cached.sql.as_ref() == sql
+                && cached.param_types.as_ref() == param_types
+        }) {
+            let cached = cache.remove(pos);
+            let statement = cached.statement.clone();
+            cache.insert(0, cached);
+            return Ok(statement);
+        }
+        cache.insert(
+            0,
+            CachedStatement {
+                client_id,
+                sql: sql.into(),
+                param_types: param_types.into(),
+                statement: statement.clone(),
+            },
+        );
+        cache.truncate(STATEMENT_CACHE_CAP);
         Ok(statement)
     }
 }

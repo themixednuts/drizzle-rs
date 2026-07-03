@@ -60,7 +60,7 @@ where
             .rows
             .next()
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?
+            .map_err(drizzle_core::error::DrizzleError::from)?
         {
             Some(row) => Ok(Some(R::try_from(&row).map_err(Into::into)?)),
             None => Ok(None),
@@ -110,14 +110,18 @@ where
 
     pub async fn next(&mut self) -> drizzle_core::error::Result<Option<R>> {
         let row = self.rows.next().await.map_err(|e| {
-            self.sql.as_ref().map_or_else(
-                || drizzle_core::error::DrizzleError::Other(e.to_string().into()),
-                |sql| {
-                    drizzle_core::error::DrizzleError::ExecutionError(
-                        format!("{e}\n\nSQL: {sql}").into(),
-                    )
+            let source = drizzle_core::error::DrizzleError::from(e);
+            match self.sql.as_ref() {
+                Some(sql) => drizzle_core::error::DrizzleError::QueryFailed {
+                    ctx: Box::new(drizzle_core::error::QueryContext {
+                        sql: sql.as_ref().into(),
+                        params: Box::default(),
+                        param_count: 0,
+                    }),
+                    source: Box::new(source),
                 },
-            )
+                None => source,
+            }
         })?;
 
         match row {

@@ -84,11 +84,68 @@ impl<'a, 'b, Runner, Schema, Table> DrizzleOnConflictBuilder<'a, 'b, Runner, Sch
     }
 }
 
+#[cfg(feature = "libsql")]
+pub(crate) struct LibsqlCachedStatement {
+    pub(crate) sql: Box<str>,
+    pub(crate) statement: ::libsql::Statement,
+}
+
+#[cfg(feature = "libsql")]
+pub(crate) struct LibsqlStatementCache(pub(crate) std::sync::Mutex<Option<LibsqlCachedStatement>>);
+
+#[cfg(feature = "libsql")]
+impl LibsqlStatementCache {
+    pub(crate) const fn new() -> Self {
+        Self(std::sync::Mutex::new(None))
+    }
+
+    pub(crate) fn take(&self, sql: &str) -> Option<LibsqlCachedStatement> {
+        let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
+        if cache
+            .as_ref()
+            .is_some_and(|cached| cached.sql.as_ref() == sql)
+        {
+            cache.take()
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn store(&self, cached: LibsqlCachedStatement) {
+        let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
+        *cache = Some(cached);
+    }
+}
+
+#[cfg(feature = "libsql")]
+impl Clone for LibsqlStatementCache {
+    fn clone(&self) -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "libsql")]
+impl Default for LibsqlStatementCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "libsql")]
+impl core::fmt::Debug for LibsqlStatementCache {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("LibsqlStatementCache")
+            .finish_non_exhaustive()
+    }
+}
+
 /// Shared `SQLite` drizzle connection wrapper.
 #[derive(Debug)]
 pub struct Drizzle<Conn, Schema = ()> {
     pub(crate) conn: Conn,
     pub(crate) schema: Schema,
+    #[cfg(feature = "libsql")]
+    pub(crate) libsql_statement_cache: LibsqlStatementCache,
 }
 
 impl<Conn: Clone, S: Clone> Clone for Drizzle<Conn, S> {
@@ -97,6 +154,8 @@ impl<Conn: Clone, S: Clone> Clone for Drizzle<Conn, S> {
         Self {
             conn: self.conn.clone(),
             schema: self.schema.clone(),
+            #[cfg(feature = "libsql")]
+            libsql_statement_cache: self.libsql_statement_cache.clone(),
         }
     }
 }
@@ -107,7 +166,12 @@ impl<Conn> Drizzle<Conn> {
     /// Returns a tuple of (Drizzle, Schema) for destructuring.
     #[inline]
     pub const fn new<S: Copy>(conn: Conn, schema: S) -> (Drizzle<Conn, S>, S) {
-        let drizzle = Drizzle { conn, schema };
+        let drizzle = Drizzle {
+            conn,
+            schema,
+            #[cfg(feature = "libsql")]
+            libsql_statement_cache: LibsqlStatementCache::new(),
+        };
         (drizzle, schema)
     }
 }

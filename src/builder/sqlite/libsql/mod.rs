@@ -106,6 +106,52 @@ pub type Drizzle<Schema = ()> = common::Drizzle<Connection, Schema>;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
     common::DrizzleBuilder<'a, common::Drizzle<Connection, Schema>, Schema, Builder, State>;
 
+impl common::LibsqlStatementCache {
+    async fn statement(
+        &self,
+        conn: &Connection,
+        sql: &str,
+    ) -> libsql::Result<common::LibsqlCachedStatement> {
+        if let Some(cached) = self.take(sql) {
+            cached.statement.reset();
+            return Ok(cached);
+        }
+
+        let statement = conn.prepare(sql).await?;
+        Ok(common::LibsqlCachedStatement {
+            sql: sql.into(),
+            statement,
+        })
+    }
+
+    async fn execute(
+        &self,
+        conn: &Connection,
+        sql: &str,
+        params: Vec<libsql::Value>,
+    ) -> libsql::Result<u64> {
+        let cached = self.statement(conn, sql).await?;
+        match cached.statement.execute(params).await {
+            Ok(rows) => {
+                self.store(cached);
+                Ok(rows as u64)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    async fn query(
+        &self,
+        conn: &Connection,
+        sql: &str,
+        params: Vec<libsql::Value>,
+    ) -> libsql::Result<(::libsql::Rows, common::LibsqlCachedStatement)> {
+        let cached = self.statement(conn, sql).await?;
+        let rows = cached.statement.query(params).await?;
+        Ok((rows, cached))
+    }
+}
+
 impl<Schema> common::Drizzle<Connection, Schema> {
     pub async fn execute<'a, T>(
         &'a self,
@@ -122,10 +168,10 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             .map(std::convert::Into::into)
             .collect();
 
-        self.conn
-            .execute(&sql, driver_params)
+        self.libsql_statement_cache
+            .execute(&self.conn, &sql, driver_params)
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))
+            .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql, &params))
     }
 
@@ -137,7 +183,33 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         T: ToSQL<'a, SQLiteValue<'a>>,
         C: Default + Extend<R>,
     {
-        self.rows(query).await?.collect().await
+        let sql = query.to_sql();
+        let (sql_str, params) = sql.build();
+        let driver_params: Vec<libsql::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
+
+        let (mut rows, cached) = self
+            .libsql_statement_cache
+            .query(&self.conn, &sql_str, driver_params)
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
+
+        let mut out = C::default();
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?
+        {
+            out.extend(core::iter::once(R::try_from(&row).map_err(Into::into)?));
+        }
+        drop(rows);
+        self.libsql_statement_cache.store(cached);
+        Ok(out)
     }
 
     /// Runs the query and returns a row cursor.
@@ -159,7 +231,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             .conn
             .query(&sql_str, driver_params)
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))
+            .map_err(DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         Ok(Rows::new(rows))
@@ -180,21 +252,27 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             .map(std::convert::Into::into)
             .collect();
 
-        let mut rows = self
-            .conn
-            .query(&sql_str, driver_params)
+        let (mut rows, cached) = self
+            .libsql_statement_cache
+            .query(&self.conn, &sql_str, driver_params)
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))
+            .map_err(DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
-        rows.next()
+        let result = rows
+            .next()
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))
+            .map_err(DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?
             .map_or_else(
                 || Err(DrizzleError::NotFound),
                 |row| R::try_from(&row).map_err(Into::into),
-            )
+            );
+        drop(rows);
+        if result.is_ok() {
+            self.libsql_statement_cache.store(cached);
+        }
+        result
     }
 
     /// Executes a transaction with the given callback.
@@ -277,14 +355,10 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             .conn
             .query(&set.applied_names_sql(), ())
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            .map_err(DrizzleError::from)?;
 
         let mut applied_names: Vec<String> = Vec::new();
-        while let Some(row) = rows
-            .next()
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-        {
+        while let Some(row) = rows.next().await.map_err(DrizzleError::from)? {
             if let Ok(name) = row.get::<String>(0) {
                 applied_names.push(name);
             }
@@ -296,30 +370,22 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
         }
 
-        let tx = self
-            .conn
-            .transaction()
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let tx = self.conn.transaction().await.map_err(DrizzleError::from)?;
 
         let mut applied = Vec::with_capacity(pending.len());
         for migration in &pending {
             for stmt in migration.statements() {
                 if !stmt.trim().is_empty() {
-                    tx.execute(stmt, ())
-                        .await
-                        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+                    tx.execute(stmt, ()).await.map_err(DrizzleError::from)?;
                 }
             }
             tx.execute(&set.record_migration_sql(migration), ())
                 .await
-                .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+                .map_err(DrizzleError::from)?;
             applied.push(migration.tag().to_string());
         }
 
-        tx.commit()
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        tx.commit().await.map_err(DrizzleError::from)?;
 
         Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
     }
@@ -335,11 +401,7 @@ async fn ensure_sqlite_migration_table(
     let pragma_sql = format!("SELECT name FROM pragma_table_info('{table_name}')");
     let mut rows = conn.query(&pragma_sql, ()).await?;
     let mut has_name = false;
-    while let Some(row) = rows
-        .next()
-        .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-    {
+    while let Some(row) = rows.next().await.map_err(DrizzleError::from)? {
         if let Ok(name) = row.get::<String>(0)
             && name == "name"
         {
@@ -361,29 +423,18 @@ async fn ensure_sqlite_migration_table(
         )
         .await?;
     let mut applied = Vec::new();
-    while let Some(row) = rows
-        .next()
-        .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-    {
+    while let Some(row) = rows.next().await.map_err(DrizzleError::from)? {
         applied.push(drizzle_migrations::AppliedMigrationMetadata {
             id: row.get::<Option<i64>>(0).ok().flatten(),
-            hash: row
-                .get::<String>(1)
-                .map_err(|e| DrizzleError::Other(e.to_string().into()))?,
-            created_at: row
-                .get::<i64>(2)
-                .map_err(|e| DrizzleError::Other(e.to_string().into()))?,
+            hash: row.get::<String>(1).map_err(DrizzleError::from)?,
+            created_at: row.get::<i64>(2).map_err(DrizzleError::from)?,
         });
     }
 
     let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
         .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
 
-    let tx = conn
-        .transaction()
-        .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+    let tx = conn.transaction().await.map_err(DrizzleError::from)?;
     tx.execute(
         &format!(
             "ALTER TABLE {} ADD COLUMN \"name\" text",
@@ -392,7 +443,7 @@ async fn ensure_sqlite_migration_table(
         (),
     )
     .await
-    .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+    .map_err(DrizzleError::from)?;
     tx.execute(
         &format!(
             "ALTER TABLE {} ADD COLUMN \"applied_at\" TEXT",
@@ -401,7 +452,7 @@ async fn ensure_sqlite_migration_table(
         (),
     )
     .await
-    .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+    .map_err(DrizzleError::from)?;
 
     for row in matched {
         let escaped_name = row.name.replace('\'', "''");
@@ -424,12 +475,10 @@ async fn ensure_sqlite_migration_table(
             (),
         )
         .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        .map_err(DrizzleError::from)?;
     }
 
-    tx.commit()
-        .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+    tx.commit().await.map_err(DrizzleError::from)?;
     Ok(())
 }
 
@@ -441,7 +490,7 @@ async fn libsql_introspect_query_tables(
     let mut tables_rows = conn
         .query(queries::TABLES_QUERY, ())
         .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        .map_err(DrizzleError::from)?;
 
     let mut tables: Vec<(String, Option<String>)> = Vec::new();
     while let Ok(Some(row)) = tables_rows.next().await {
@@ -460,7 +509,7 @@ async fn libsql_introspect_query_columns(
     let mut columns_rows = conn
         .query(queries::COLUMNS_QUERY, ())
         .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        .map_err(DrizzleError::from)?;
 
     let mut raw_columns: Vec<RawColumnInfo> = Vec::new();
     while let Ok(Some(row)) = columns_rows.next().await {
@@ -753,19 +802,19 @@ impl<'a, Schema, T, Rels, Cl>
             .copied()
             .map(std::convert::Into::into)
             .collect();
-        let mut raw_rows = self
+        let (mut raw_rows, cached) = self
             .runner
-            .conn
-            .query(&sql, params)
+            .libsql_statement_cache
+            .query(&self.runner.conn, &sql, params)
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))
+            .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::new();
 
         while let Some(row) = raw_rows
             .next()
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))
+            .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql, &bind_params))?
         {
             let base = <T as drizzle_core::query::QueryTable>::Select::try_from(&row)
@@ -778,7 +827,7 @@ impl<'a, Schema, T, Rels, Cl>
                 })?;
                 let json = row
                     .get::<Option<String>>(idx)
-                    .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+                    .map_err(drizzle_core::error::DrizzleError::from)?;
                 rel_col += 1;
                 Ok(json)
             };
@@ -788,6 +837,8 @@ impl<'a, Schema, T, Rels, Cl>
             results.push(drizzle_core::query::QueryRow::new(base, store));
         }
 
+        drop(raw_rows);
+        self.runner.libsql_statement_cache.store(cached);
         Ok(results)
     }
 }
@@ -887,25 +938,25 @@ impl<'a, Schema, T, Rels, Cl>
             .copied()
             .map(std::convert::Into::into)
             .collect();
-        let mut raw_rows = self
+        let (mut raw_rows, cached) = self
             .runner
-            .conn
-            .query(&sql, params)
+            .libsql_statement_cache
+            .query(&self.runner.conn, &sql, params)
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))
+            .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::new();
 
         while let Some(row) = raw_rows
             .next()
             .await
-            .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))
+            .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql, &bind_params))?
         {
             // Column 0 is the JSON "__base" object
             let base_json: String = row
                 .get::<String>(0)
-                .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+                .map_err(drizzle_core::error::DrizzleError::from)?;
             let base = <T as drizzle_core::query::QueryTable>::PartialSelect::from_json_str(
                 &base_json, "base",
             )?;
@@ -917,7 +968,7 @@ impl<'a, Schema, T, Rels, Cl>
                 })?;
                 let json = row
                     .get::<Option<String>>(idx)
-                    .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+                    .map_err(drizzle_core::error::DrizzleError::from)?;
                 rel_col += 1;
                 Ok(json)
             };
@@ -927,6 +978,8 @@ impl<'a, Schema, T, Rels, Cl>
             results.push(drizzle_core::query::QueryRow::new(base, store));
         }
 
+        drop(raw_rows);
+        self.runner.libsql_statement_cache.store(cached);
         Ok(results)
     }
 }
@@ -1018,7 +1071,7 @@ impl<'a, T, Rels>
                 })?;
                 let json = row
                     .get::<Option<String>>(idx)
-                    .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+                    .map_err(drizzle_core::error::DrizzleError::from)?;
                 rel_col += 1;
                 Ok(json)
             };
@@ -1098,7 +1151,7 @@ impl<'a, T, Rels>
         while let Some(row) = raw_rows.next().await? {
             let base_json: String = row
                 .get::<String>(0)
-                .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+                .map_err(drizzle_core::error::DrizzleError::from)?;
             let base = <T as drizzle_core::query::QueryTable>::PartialSelect::from_json_str(
                 &base_json, "base",
             )?;
@@ -1110,7 +1163,7 @@ impl<'a, T, Rels>
                 })?;
                 let json = row
                     .get::<Option<String>>(idx)
-                    .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
+                    .map_err(drizzle_core::error::DrizzleError::from)?;
                 rel_col += 1;
                 Ok(json)
             };
@@ -1163,8 +1216,8 @@ where
             .map(std::convert::Into::into)
             .collect();
         self.runner
-            .conn
-            .execute(&sql_str, driver_params)
+            .libsql_statement_cache
+            .execute(&self.runner.conn, &sql_str, driver_params)
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))
     }
@@ -1184,10 +1237,10 @@ where
             .copied()
             .map(std::convert::Into::into)
             .collect();
-        let mut rows = self
+        let (mut rows, cached) = self
             .runner
-            .conn
-            .query(&sql_str, driver_params)
+            .libsql_statement_cache
+            .query(&self.runner.conn, &sql_str, driver_params)
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))?;
         let mut decoded = Vec::new();
@@ -1201,6 +1254,8 @@ where
                 R,
             >>::decode(&row)?);
         }
+        drop(rows);
+        self.runner.libsql_statement_cache.store(cached);
         Ok(decoded)
     }
 
@@ -1241,18 +1296,24 @@ where
             .copied()
             .map(std::convert::Into::into)
             .collect();
-        let mut rows = self
+        let (mut rows, cached) = self
             .runner
-            .conn
-            .query(&sql_str, driver_params)
+            .libsql_statement_cache
+            .query(&self.runner.conn, &sql_str, driver_params)
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))?;
-        rows.next()
+        let result = rows
+            .next()
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))?
             .map_or_else(
                 || Err(drizzle_core::error::DrizzleError::NotFound),
                 |row| <Mk as drizzle_core::row::DecodeSelectedRef<&::libsql::Row, R>>::decode(&row),
-            )
+            );
+        drop(rows);
+        if result.is_ok() {
+            self.runner.libsql_statement_cache.store(cached);
+        }
+        result
     }
 }
