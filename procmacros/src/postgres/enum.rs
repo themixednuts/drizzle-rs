@@ -39,7 +39,7 @@ pub fn generate_enum_impl(
     // Build the CREATE TYPE SQL at macro time as a string literal
     let variants_sql = variant_idents
         .iter()
-        .map(|v| format!("'{v}'"))
+        .map(|v| format!("'{}'", v.to_string().replace('\'', "''")))
         .collect::<Vec<_>>()
         .join(", ");
     let create_type_sql = format!("CREATE TYPE {name} AS ENUM ({variants_sql})");

@@ -16,6 +16,8 @@ pub struct MacroContext<'a> {
     pub struct_vis: &'a Visibility,
     /// Table name (can be customized via attributes)
     pub table_name: String,
+    /// SQL table comment extracted from doc comments.
+    pub table_comment: Option<String>,
     /// Parsed field information
     pub field_infos: &'a [FieldInfo],
     /// Generated SELECT model identifier

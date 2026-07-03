@@ -45,11 +45,43 @@ fn schema_prefix(schema: &str) -> String {
     }
 }
 
+fn quote_ident(ident: &str) -> String {
+    format!("\"{}\"", ident.replace('"', "\"\""))
+}
+
+fn table_unique_columns(ctx: &MacroContext, columns: &[Ident]) -> Vec<String> {
+    columns
+        .iter()
+        .map(|src| {
+            ctx.field_infos
+                .iter()
+                .find(|f| &f.ident == src)
+                .map_or_else(|| src.to_string(), |f| f.column_name.clone())
+        })
+        .collect()
+}
+
+fn table_unique_name(ctx: &MacroContext, columns: &[String], explicit: &Option<String>) -> String {
+    explicit
+        .clone()
+        .unwrap_or_else(|| format!("{}_{}_key", ctx.table_name, columns.join("_")))
+}
+
+fn table_check_name(ctx: &MacroContext, idx: usize, explicit: &Option<String>) -> String {
+    explicit.clone().unwrap_or_else(|| {
+        if ctx.attrs.check_constraints.len() == 1 {
+            format!("{}_check", ctx.table_name)
+        } else {
+            format!("{}_check{}", ctx.table_name, idx + 1)
+        }
+    })
+}
+
 /// Generate a compile-time `const SQL: &'static str` value for `SQLSchema`.
 ///
 /// Output mirrors `TableSql::create_table_sql()`: double-quoted identifiers,
 /// schema prefix only when not `public`, named `CONSTRAINT` clauses for every
-/// table-level constraint, `ON UPDATE` before `ON DELETE`, `NO ACTION`
+/// table-level constraint, `ON DELETE` before `ON UPDATE`, `NO ACTION`
 /// skipped, trailing `;`.
 pub fn generate_schema_sql_const(ctx: &MacroContext) -> TokenStream {
     let tokens: Vec<TokenStream> = build_create_table_pieces(ctx)
@@ -71,10 +103,17 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
     let table_name = &ctx.table_name;
     let schema_name = ctx.attrs.schema.as_deref().unwrap_or("public");
     let field_infos = ctx.field_infos;
+    let table_kind = if ctx.attrs.temporary {
+        "TEMPORARY "
+    } else if ctx.attrs.unlogged {
+        "UNLOGGED "
+    } else {
+        ""
+    };
 
     let mut pieces: Vec<DdlPiece> = Vec::new();
     pieces.push(DdlPiece::Literal(format!(
-        "CREATE TABLE {prefix}\"{table_name}\" (\n",
+        "CREATE {table_kind}TABLE {prefix}\"{table_name}\" (\n",
         prefix = schema_prefix(schema_name)
     )));
 
@@ -115,17 +154,22 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
             )));
             line.push(DdlPiece::TableNameOf(fk.table.clone()));
             let mut suffix = format!("\"(\"{ref_column}\")");
-            // Match TableSql ordering: ON UPDATE then ON DELETE, NO ACTION skipped.
+            if let Some(ref on_delete) = fk.on_delete {
+                let action = on_delete.to_uppercase();
+                if action != "NO ACTION" {
+                    let _ = write!(suffix, " ON DELETE {action}");
+                }
+            }
             if let Some(ref on_update) = fk.on_update {
                 let action = on_update.to_uppercase();
                 if action != "NO ACTION" {
                     let _ = write!(suffix, " ON UPDATE {action}");
                 }
             }
-            if let Some(ref on_delete) = fk.on_delete {
-                let action = on_delete.to_uppercase();
-                if action != "NO ACTION" {
-                    let _ = write!(suffix, " ON DELETE {action}");
+            if fk.deferrable || fk.initially_deferred {
+                suffix.push_str(" DEFERRABLE");
+                if fk.initially_deferred {
+                    suffix.push_str(" INITIALLY DEFERRED");
                 }
             }
             line.push(DdlPiece::Literal(suffix));
@@ -151,7 +195,7 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
             .map(std::string::ToString::to_string)
             .collect();
 
-        let fk_name = format!("{}_{}_fkey", table_name, source_cols.join("_"));
+        let fk_name = format!("{}_{}_fkey", table_name, source_cols[0]);
         let src_str = source_cols
             .iter()
             .map(|c| format!("\"{c}\""))
@@ -169,16 +213,22 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
         )));
         line.push(DdlPiece::TableNameOf(fk.target_table.clone()));
         let mut suffix = format!("\"({tgt_str})");
+        if let Some(ref on_delete) = fk.on_delete {
+            let action = on_delete.to_uppercase();
+            if action != "NO ACTION" {
+                let _ = write!(suffix, " ON DELETE {action}");
+            }
+        }
         if let Some(ref on_update) = fk.on_update {
             let action = on_update.to_uppercase();
             if action != "NO ACTION" {
                 let _ = write!(suffix, " ON UPDATE {action}");
             }
         }
-        if let Some(ref on_delete) = fk.on_delete {
-            let action = on_delete.to_uppercase();
-            if action != "NO ACTION" {
-                let _ = write!(suffix, " ON DELETE {action}");
+        if fk.deferrable || fk.initially_deferred {
+            suffix.push_str(" DEFERRABLE");
+            if fk.initially_deferred {
+                suffix.push_str(" INITIALLY DEFERRED");
             }
         }
         line.push(DdlPiece::Literal(suffix));
@@ -187,11 +237,29 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
 
     // Unique constraints (always at table level for Postgres)
     for field in field_infos.iter().filter(|f| f.is_unique()) {
-        let uq_name = format!("{}_{}_unique", table_name, field.column_name);
+        let uq_name = format!("{}_{}_key", table_name, field.column_name);
         lines.push(vec![DdlPiece::Literal(format!(
             "\tCONSTRAINT \"{}\" UNIQUE(\"{}\")",
             uq_name, field.column_name
         ))]);
+    }
+
+    for unique in &ctx.attrs.unique_constraints {
+        let unique_cols = table_unique_columns(ctx, &unique.columns);
+        let unique_name = table_unique_name(ctx, &unique_cols, &unique.name);
+        let cols = unique_cols
+            .iter()
+            .map(|c| quote_ident(c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut sql = format!("\tCONSTRAINT {} UNIQUE({cols})", quote_ident(&unique_name));
+        if unique.deferrable || unique.initially_deferred {
+            sql.push_str(" DEFERRABLE");
+            if unique.initially_deferred {
+                sql.push_str(" INITIALLY DEFERRED");
+            }
+        }
+        lines.push(vec![DdlPiece::Literal(sql)]);
     }
 
     // Check constraints
@@ -202,6 +270,14 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
                 "\tCONSTRAINT \"{chk_name}\" CHECK ({check})"
             ))]);
         }
+    }
+    for (idx, check) in ctx.attrs.check_constraints.iter().enumerate() {
+        let check_name = table_check_name(ctx, idx, &check.name);
+        let check_expr = &check.expr;
+        lines.push(vec![DdlPiece::Literal(format!(
+            "\tCONSTRAINT {} CHECK ({check_expr})",
+            quote_ident(&check_name)
+        ))]);
     }
 
     // Join lines with ",\n" by prepending it to the first piece of each
@@ -220,7 +296,14 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
         pieces.append(&mut line);
     }
 
-    pieces.push(DdlPiece::Literal("\n);".to_string()));
+    let mut table_suffix = String::new();
+    if let Some(inherits) = ctx.attrs.inherits.as_ref() {
+        let _ = write!(table_suffix, " INHERITS ({})", quote_ident(inherits));
+    }
+    if let Some(tablespace) = ctx.attrs.tablespace.as_ref() {
+        let _ = write!(table_suffix, " TABLESPACE {}", quote_ident(tablespace));
+    }
+    pieces.push(DdlPiece::Literal(format!("\n){table_suffix};")));
 
     pieces
 }
@@ -237,7 +320,7 @@ fn column_to_sql(field: &FieldInfo) -> String {
     let mut sql = format!(
         "\"{}\" {}",
         field.column_name,
-        field.column_type.to_sql_type()
+        field.sql_type_with_dimensions()
     );
 
     // COLLATE follows the type in the Postgres grammar. Collation names
@@ -278,7 +361,9 @@ fn column_to_sql(field: &FieldInfo) -> String {
         && let Some(ref default) = field.default
     {
         let default_str = match default {
-            PostgreSQLDefault::Literal(s) | PostgreSQLDefault::Function(s) => s.clone(),
+            PostgreSQLDefault::Literal(s)
+            | PostgreSQLDefault::Function(s)
+            | PostgreSQLDefault::RawSql(s) => s.clone(),
             PostgreSQLDefault::Expression(ts) => ts.to_string(),
         };
         let _ = write!(sql, " DEFAULT {default_str}");
@@ -301,7 +386,7 @@ fn column_to_sql_pieces(field: &FieldInfo) -> Vec<DdlPiece> {
     let placeholder = format!(
         "\"{}\" {}",
         field.column_name,
-        field.column_type.to_sql_type()
+        field.sql_type_with_dimensions()
     );
     let suffix = sql.strip_prefix(&placeholder).unwrap_or_default();
 
@@ -344,6 +429,7 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
     let primary_key_def = ddl_paths::primary_key_def();
     let foreign_key_def = ddl_paths::foreign_key_def();
     let unique_constraint_def = ddl_paths::unique_constraint_def();
+    let check_constraint_def = ddl_paths::check_constraint_def();
     let index_def = ddl_paths::index_def();
     let identity_def = ddl_paths::identity_def();
     let table_sql = ddl_paths::table_sql();
@@ -372,16 +458,29 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
             // The SERIAL type in the column definition is sufficient.
             // Only add default if not a serial column (SERIAL has implicit DEFAULT)
             if !field.is_serial
+                && !field.is_generated_identity
+                && field.generated_column.is_none()
                 && let Some(ref default) = field.default
             {
                 let default_str = match default {
-                    PostgreSQLDefault::Literal(s) | PostgreSQLDefault::Function(s) => s.clone(),
+                    PostgreSQLDefault::Literal(s)
+                    | PostgreSQLDefault::Function(s)
+                    | PostgreSQLDefault::RawSql(s) => s.clone(),
                     PostgreSQLDefault::Expression(ts) => ts.to_string(),
                 };
                 modifiers.push(quote! { .default_value(#default_str) });
             }
+            if field.is_pgenum || field.is_custom_type {
+                modifiers.push(quote! { .type_schema(#schema_name) });
+            }
             if let Some(ref collate_name) = field.collate {
                 modifiers.push(quote! { .collate(#collate_name) });
+            }
+            if let Some(dimensions) = field.dimensions {
+                modifiers.push(quote! { .dimensions(#dimensions) });
+            }
+            if let Some(comment) = &field.comment {
+                modifiers.push(quote! { .comment(#comment) });
             }
             if let Some(ref generated) = field.generated_column {
                 let expression = &generated.expression;
@@ -465,6 +564,12 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
                     let action_token = referential_action_token(on_update.as_str(), &referential_action);
                     modifiers.push(quote! { .on_update(#action_token) });
                 }
+                if fk_ref.deferrable {
+                    modifiers.push(quote! { .deferrable() });
+                }
+                if fk_ref.initially_deferred {
+                    modifiers.push(quote! { .initially_deferred() });
+                }
 
                 quote! {
                     {
@@ -498,7 +603,7 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
             .map(std::string::ToString::to_string)
             .collect();
 
-        let fk_name = format!("{}_{}_fkey", table_name, source_columns.join("_"));
+        let fk_name = format!("{}_{}_fkey", table_name, source_columns[0]);
         let fk_cols: Vec<TokenStream> = source_columns
             .iter()
             .map(|c| quote! { ::std::borrow::Cow::Borrowed(#c) })
@@ -517,6 +622,12 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
             let action_token = referential_action_token(on_update.as_str(), &referential_action);
             modifiers.push(quote! { .on_update(#action_token) });
         }
+        if fk.deferrable {
+            modifiers.push(quote! { .deferrable() });
+        }
+        if fk.initially_deferred {
+            modifiers.push(quote! { .initially_deferred() });
+        }
 
         fk_defs.push(quote! {
             {
@@ -531,12 +642,12 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
     }
 
     // Build unique constraint DDL definitions (for non-primary unique columns)
-    let unique_defs: Vec<TokenStream> = ctx
+    let mut unique_defs: Vec<TokenStream> = ctx
         .field_infos
         .iter()
         .filter(|f| f.is_unique())
         .map(|field| {
-            let unique_name = format!("{}_{}_unique", table_name, field.column_name);
+            let unique_name = format!("{}_{}_key", table_name, field.column_name);
             let column_name = &field.column_name;
 
             quote! {
@@ -548,11 +659,78 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
         })
         .collect();
 
+    for unique in &ctx.attrs.unique_constraints {
+        let unique_columns = table_unique_columns(ctx, &unique.columns);
+        let unique_name = table_unique_name(ctx, &unique_columns, &unique.name);
+        let unique_cols: Vec<TokenStream> = unique_columns
+            .iter()
+            .map(|c| quote! { ::std::borrow::Cow::Borrowed(#c) })
+            .collect();
+        let mut modifiers = Vec::new();
+        if unique.name.is_some() {
+            modifiers.push(quote! { .explicit_name() });
+        }
+        if unique.deferrable {
+            modifiers.push(quote! { .deferrable() });
+        }
+        if unique.initially_deferred {
+            modifiers.push(quote! { .initially_deferred() });
+        }
+
+        unique_defs.push(quote! {
+            {
+                const UQ_COLS: &[::std::borrow::Cow<'static, str>] = &[#(#unique_cols),*];
+                #unique_constraint_def::new(#schema_name, #table_name, #unique_name)
+                    .columns(UQ_COLS)
+                    #(#modifiers)*
+            }
+        });
+    }
+
+    let mut check_defs: Vec<TokenStream> = ctx
+        .field_infos
+        .iter()
+        .filter_map(|field| {
+            let check = field.check_constraint.as_ref()?;
+            let check_name = format!("{}_{}_check", table_name, field.column_name);
+            Some(quote! {
+                #check_constraint_def::new(#schema_name, #table_name, #check_name).value(#check)
+            })
+        })
+        .collect();
+    for (idx, check) in ctx.attrs.check_constraints.iter().enumerate() {
+        let check_name = table_check_name(ctx, idx, &check.name);
+        let expr = &check.expr;
+        check_defs.push(quote! {
+            #check_constraint_def::new(#schema_name, #table_name, #check_name).value(#expr)
+        });
+    }
+
+    let mut table_modifiers = Vec::new();
+    if ctx.attrs.temporary {
+        table_modifiers.push(quote! { .temporary() });
+    } else if ctx.attrs.unlogged {
+        table_modifiers.push(quote! { .unlogged() });
+    }
+    if let Some(inherits) = ctx.attrs.inherits.as_ref() {
+        table_modifiers.push(quote! { .inherits(#inherits) });
+    }
+    if let Some(tablespace) = ctx.attrs.tablespace.as_ref() {
+        table_modifiers.push(quote! { .tablespace(#tablespace) });
+    }
+    if ctx.attrs.rls {
+        table_modifiers.push(quote! { .rls_enabled() });
+    }
+    if let Some(comment) = &ctx.table_comment {
+        table_modifiers.push(quote! { .comment(#comment) });
+    }
+
     quote! {
         impl #struct_ident {
             /// Const DDL table definition for compile-time schema metadata.
             pub const DDL_TABLE: #table_def =
-                #table_def::new(#schema_name, #table_name);
+                #table_def::new(#schema_name, #table_name)
+                #(#table_modifiers)*;
 
             /// Const DDL column definitions for compile-time schema metadata.
             pub const DDL_COLUMNS: &'static [#column_def] = &[
@@ -571,6 +749,11 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
                 #(#unique_defs),*
             ];
 
+            /// Check constraint definitions
+            pub const DDL_CHECK_CONSTRAINTS: &'static [#check_constraint_def] = &[
+                #(#check_defs),*
+            ];
+
             /// Index definitions (defined via separate #[PostgresIndex] structs)
             pub const DDL_INDEXES: &'static [#index_def] = &[];
 
@@ -584,12 +767,14 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
                 let pk = Self::DDL_PRIMARY_KEY.map(|p| p.into_primary_key());
                 let fks: ::std::vec::Vec<_> = Self::DDL_FOREIGN_KEYS.iter().map(|f| f.into_foreign_key()).collect();
                 let uniques: ::std::vec::Vec<_> = Self::DDL_UNIQUE_CONSTRAINTS.iter().map(|u| u.into_unique_constraint()).collect();
+                let checks: ::std::vec::Vec<_> = Self::DDL_CHECK_CONSTRAINTS.iter().map(|c| c.into_check_constraint()).collect();
 
                 #table_sql::new(&table)
                     .columns(&columns)
                     .primary_key(pk.as_ref())
                     .foreign_keys(&fks)
                     .unique_constraints(&uniques)
+                    .check_constraints(&checks)
                     .create_table_sql()
             }
 
@@ -624,6 +809,7 @@ mod tests {
             column_name: name.to_string(),
             sql_definition: format!("\"{name}\" {}", column_type.to_sql_type()),
             column_type,
+            dimensions: None,
             flags: HashSet::new(),
             is_nullable: false,
             is_enum: false,
@@ -643,6 +829,7 @@ mod tests {
             marker_exprs: Vec::new(),
             constraint: crate::common::Constraint::None,
             collate: None,
+            comment: None,
         }
     }
 
@@ -662,6 +849,7 @@ mod tests {
             column_name: "user_id".to_string(),
             sql_definition: "\"user_id\" integer".to_string(),
             column_type: PostgreSQLType::Integer,
+            dimensions: None,
             flags: HashSet::new(),
             is_nullable: false,
             is_enum: false,
@@ -681,11 +869,14 @@ mod tests {
                 column: syn::parse_str("id").expect("valid ref column"),
                 on_delete: None,
                 on_update: None,
+                deferrable: false,
+                initially_deferred: false,
             }),
             has_default: false,
             marker_exprs: Vec::new(),
             constraint: crate::common::Constraint::None,
             collate: None,
+            comment: None,
         };
 
         let fields = vec![field];
@@ -696,7 +887,10 @@ mod tests {
             temporary: false,
             inherits: None,
             tablespace: None,
+            rls: false,
             composite_foreign_keys: Vec::new(),
+            unique_constraints: Vec::new(),
+            check_constraints: Vec::new(),
             marker_exprs: Vec::new(),
         };
 
@@ -704,6 +898,7 @@ mod tests {
             struct_ident: &struct_ident,
             struct_vis: &struct_vis,
             table_name: "posts".to_string(),
+            table_comment: None,
             field_infos: &fields,
             select_model_ident: syn::parse_str("PostsSelect").expect("valid ident"),
             select_model_partial_ident: syn::parse_str("PostsPartial").expect("valid ident"),
@@ -792,7 +987,10 @@ mod tests {
             temporary: false,
             inherits: None,
             tablespace: None,
+            rls: false,
             composite_foreign_keys: Vec::new(),
+            unique_constraints: Vec::new(),
+            check_constraints: Vec::new(),
             marker_exprs: Vec::new(),
         };
 
@@ -800,6 +998,7 @@ mod tests {
             struct_ident: &struct_ident,
             struct_vis: &struct_vis,
             table_name: "users".to_string(),
+            table_comment: None,
             field_infos: &fields,
             select_model_ident: syn::parse_str("UsersSelect").expect("valid ident"),
             select_model_partial_ident: syn::parse_str("UsersPartial").expect("valid ident"),

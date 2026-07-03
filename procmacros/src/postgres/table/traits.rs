@@ -3,6 +3,7 @@ use crate::common::ref_gen::{self, ColumnRefInput, ConstraintRefInput, ForeignKe
 use crate::generators::{DrizzleTableConfig, generate_drizzle_table};
 use crate::paths::core as core_paths;
 use crate::paths::postgres as postgres_paths;
+use crate::postgres::field::PostgreSQLDefault;
 use crate::postgres::generators::{
     SQLTableConfig, generate_postgres_table, generate_sql_schema, generate_sql_table,
     generate_to_sql,
@@ -85,8 +86,10 @@ pub(super) fn generate_table_impls(
             struct_ident,
             ctx.struct_vis,
         );
+    let (table_unique_constraint_impls, table_unique_constraint_idents) =
+        generate_table_unique_constraints(ctx, struct_ident, ctx.struct_vis);
     let (check_constraint_impls, check_constraint_idents) =
-        generate_check_constraints(ctx, struct_ident, ctx.struct_vis, &sql_table_info);
+        generate_check_constraints(ctx, struct_ident, ctx.struct_vis);
 
     let mut constraint_idents = Vec::new();
     if let Some(pk_ident) = pk_constraint_ident {
@@ -94,6 +97,7 @@ pub(super) fn generate_table_impls(
     }
     constraint_idents.extend(fk_constraint_idents);
     constraint_idents.extend(unique_constraint_idents);
+    constraint_idents.extend(table_unique_constraint_idents);
     constraint_idents.extend(check_constraint_idents);
 
     let constraints_type = if constraint_idents.is_empty() {
@@ -178,9 +182,34 @@ pub(super) fn generate_table_impls(
                 .generated_column
                 .as_ref()
                 .is_some_and(|generated| generated.stored);
+            let default =
+                if !f.is_serial && !f.is_generated_identity && f.generated_column.is_none() {
+                    f.default.as_ref().map_or_else(
+                        || quote! { ::core::option::Option::None },
+                        |default| {
+                            let default_str = match default {
+                                PostgreSQLDefault::Literal(s)
+                                | PostgreSQLDefault::Function(s)
+                                | PostgreSQLDefault::RawSql(s) => s.clone(),
+                                PostgreSQLDefault::Expression(ts) => ts.to_string(),
+                            };
+                            quote! { ::core::option::Option::Some(#default_str) }
+                        },
+                    )
+                } else {
+                    quote! { ::core::option::Option::None }
+                };
             let collate = f.collate.as_ref().map_or_else(
                 || quote! { ::core::option::Option::None },
                 |collate| quote! { ::core::option::Option::Some(#collate) },
+            );
+            let dimensions = f.dimensions.map_or_else(
+                || quote! { ::core::option::Option::None },
+                |dimensions| quote! { ::core::option::Option::Some(#dimensions) },
+            );
+            let comment = f.comment.as_ref().map_or_else(
+                || quote! { ::core::option::Option::None },
+                |comment| quote! { ::core::option::Option::Some(#comment) },
             );
             let flags = crate::common::ref_gen::ColumnRefFlags::new()
                 .with(
@@ -206,13 +235,16 @@ pub(super) fn generate_table_impls(
                 dialect: quote! {
                     #column_dialect::PostgreSQL {
                         postgres_type: #pg_type,
+                        dimensions: #dimensions,
                         is_serial: #is_serial,
                         is_bigserial: #is_bigserial,
                         is_generated_identity: #is_generated_identity,
                         is_identity_always: #is_identity_always,
+                        default: #default,
                         generated_expression: #generated_expression,
                         generated_stored: #generated_stored,
                         collate: #collate,
+                        comment: #comment,
                     }
                 },
             }
@@ -230,32 +262,129 @@ pub(super) fn generate_table_impls(
         .filter_map(|f| {
             f.foreign_key.as_ref().map(|fk| {
                 let target_table = &fk.table;
+                let fk_name = format!("{}_{}_fkey", ctx.table_name, f.column_name);
+                let target_schema = quote! {
+                    match <#target_table as drizzle::core::DrizzleTable>::SCHEMA {
+                        ::core::option::Option::Some(schema) => schema,
+                        ::core::option::Option::None => "public",
+                    }
+                };
                 ForeignKeyRefInput {
+                    name: fk_name,
+                    name_explicit: false,
                     source_columns: vec![f.column_name.clone()],
+                    target_schema,
                     target_table: quote! { <#target_table as drizzle::core::DrizzleTable>::NAME },
                     target_columns: vec![fk.column.to_string()],
+                    on_delete: fk.on_delete.clone(),
+                    on_update: fk.on_update.clone(),
+                    deferrable: fk.deferrable,
+                    initially_deferred: fk.initially_deferred,
                 }
             })
         })
         .collect();
     for cfk in &ctx.attrs.composite_foreign_keys {
         let target_table = &cfk.target_table;
+        let source_columns: Vec<String> = cfk
+            .source_columns
+            .iter()
+            .map(|src| {
+                ctx.field_infos
+                    .iter()
+                    .find(|f| &f.ident == src)
+                    .map_or_else(|| src.to_string(), |f| f.column_name.clone())
+            })
+            .collect();
+        let fk_name = format!("{}_{}_fkey", ctx.table_name, source_columns[0]);
+        let target_schema = quote! {
+            match <#target_table as drizzle::core::DrizzleTable>::SCHEMA {
+                ::core::option::Option::Some(schema) => schema,
+                ::core::option::Option::None => "public",
+            }
+        };
         table_ref_fks.push(ForeignKeyRefInput {
-            source_columns: cfk
-                .source_columns
-                .iter()
-                .map(std::string::ToString::to_string)
-                .collect(),
+            name: fk_name,
+            name_explicit: false,
+            source_columns,
+            target_schema,
             target_table: quote! { <#target_table as drizzle::core::DrizzleTable>::NAME },
             target_columns: cfk
                 .target_columns
                 .iter()
                 .map(std::string::ToString::to_string)
                 .collect(),
+            on_delete: cfk.on_delete.clone(),
+            on_update: cfk.on_update.clone(),
+            deferrable: cfk.deferrable,
+            initially_deferred: cfk.initially_deferred,
         });
     }
-    let table_ref_constraints: Vec<ConstraintRefInput> = Vec::new(); // TODO: populate if needed
-    let table_ref_dialect = quote! { #table_dialect::PostgreSQL };
+    let mut table_ref_constraints: Vec<ConstraintRefInput> = ctx
+        .field_infos
+        .iter()
+        .filter_map(|field| {
+            let expr = field.check_constraint.as_ref()?;
+            Some(ConstraintRefInput {
+                name: Some(format!("{}_{}_check", ctx.table_name, field.column_name)),
+                name_explicit: false,
+                kind: quote! { drizzle::core::SQLConstraintKind::Check },
+                columns: vec![field.column_name.clone()],
+                check_expression: Some(expr.clone()),
+                deferrable: false,
+                initially_deferred: false,
+            })
+        })
+        .collect();
+    for unique in &ctx.attrs.unique_constraints {
+        let columns = table_unique_column_names(ctx, &unique.columns);
+        let name = table_unique_name(ctx, &columns, &unique.name);
+        table_ref_constraints.push(ConstraintRefInput {
+            name: Some(name),
+            name_explicit: unique.name.is_some(),
+            kind: quote! { drizzle::core::SQLConstraintKind::Unique },
+            columns,
+            check_expression: None,
+            deferrable: unique.deferrable,
+            initially_deferred: unique.initially_deferred,
+        });
+    }
+    for (idx, check) in ctx.attrs.check_constraints.iter().enumerate() {
+        table_ref_constraints.push(ConstraintRefInput {
+            name: Some(table_check_name(ctx, idx, &check.name)),
+            name_explicit: check.name.is_some(),
+            kind: quote! { drizzle::core::SQLConstraintKind::Check },
+            columns: Vec::new(),
+            check_expression: Some(check.expr.clone()),
+            deferrable: false,
+            initially_deferred: false,
+        });
+    }
+    let is_unlogged = ctx.attrs.unlogged;
+    let is_temporary = ctx.attrs.temporary;
+    let inherits = ctx.attrs.inherits.as_ref().map_or_else(
+        || quote! { ::core::option::Option::None },
+        |inherits| quote! { ::core::option::Option::Some(#inherits) },
+    );
+    let tablespace = ctx.attrs.tablespace.as_ref().map_or_else(
+        || quote! { ::core::option::Option::None },
+        |tablespace| quote! { ::core::option::Option::Some(#tablespace) },
+    );
+    let is_rls_enabled = ctx.attrs.rls;
+    let comment = ctx.table_comment.as_ref().map_or_else(
+        || quote! { ::core::option::Option::None },
+        |comment| quote! { ::core::option::Option::Some(#comment) },
+    );
+    let table_ref_dialect = quote! {
+        #table_dialect::PostgreSQL {
+            is_unlogged: #is_unlogged,
+            is_temporary: #is_temporary,
+            inherits: #inherits,
+            tablespace: #tablespace,
+            is_rls_enabled: #is_rls_enabled,
+            comment: #comment,
+        }
+    };
     let dep_names_expr = quote! { &[#(#dependency_name_exprs),*] };
     let table_ref_const = ref_gen::generate_table_ref_const(
         &table_ref_name_expr,
@@ -293,7 +422,8 @@ pub(super) fn generate_table_impls(
     let has_check = ctx
         .field_infos
         .iter()
-        .any(|f| f.check_constraint.as_ref().is_some());
+        .any(|f| f.check_constraint.as_ref().is_some())
+        || !ctx.attrs.check_constraints.is_empty();
     let capability_impls = crate::common::constraints::generate_constraint_capabilities(
         ctx.field_infos,
         ctx.struct_ident,
@@ -301,6 +431,7 @@ pub(super) fn generate_table_impls(
         has_check,
         &dialect_types,
     );
+    let table_unique_capability_impls = generate_table_unique_capability_impls(ctx);
 
     let has_select_model = core_paths::has_select_model();
     let into_select_target = core_paths::into_select_target();
@@ -310,6 +441,7 @@ pub(super) fn generate_table_impls(
         #foreign_key_impls
         #primary_key_impls
         #unique_constraint_impls
+        #table_unique_constraint_impls
         #check_constraint_impls
 
         #sql_schema_impl
@@ -345,18 +477,168 @@ pub(super) fn generate_table_impls(
         #to_sql_impl
         #relations_impl
         #capability_impls
+        #table_unique_capability_impls
     })
+}
+
+fn table_unique_column_data(
+    ctx: &MacroContext,
+    unique: &crate::postgres::table::attributes::UniqueConstraintAttr,
+) -> (Vec<Ident>, Vec<String>, Vec<TokenStream>) {
+    let col_zsts = unique
+        .columns
+        .iter()
+        .map(|src| {
+            let pascal = src.to_string().to_upper_camel_case();
+            format_ident!("{}{}", ctx.struct_ident, pascal)
+        })
+        .collect::<Vec<_>>();
+    let col_names = table_unique_column_names(ctx, &unique.columns);
+    let source_checks = unique
+        .columns
+        .iter()
+        .map(|src| {
+            let table = ctx.struct_ident;
+            quote! {
+                const _: () = { let _ = &#table::#src; };
+            }
+        })
+        .collect::<Vec<_>>();
+
+    (col_zsts, col_names, source_checks)
+}
+
+fn table_unique_column_names(ctx: &MacroContext, columns: &[Ident]) -> Vec<String> {
+    columns
+        .iter()
+        .map(|src| {
+            ctx.field_infos
+                .iter()
+                .find(|field| &field.ident == src)
+                .map_or_else(|| src.to_string(), |field| field.column_name.clone())
+        })
+        .collect()
+}
+
+fn table_unique_name(ctx: &MacroContext, columns: &[String], explicit: &Option<String>) -> String {
+    explicit
+        .clone()
+        .unwrap_or_else(|| format!("{}_{}_key", ctx.table_name, columns.join("_")))
+}
+
+fn table_check_name(ctx: &MacroContext, idx: usize, explicit: &Option<String>) -> String {
+    explicit.clone().unwrap_or_else(|| {
+        if ctx.attrs.check_constraints.len() == 1 {
+            format!("{}_check", ctx.table_name)
+        } else {
+            format!("{}_check{}", ctx.table_name, idx + 1)
+        }
+    })
+}
+
+fn generate_table_unique_constraints(
+    ctx: &MacroContext,
+    struct_ident: &Ident,
+    struct_vis: &syn::Visibility,
+) -> (TokenStream, Vec<Ident>) {
+    let sql_constraint = core_paths::sql_constraint();
+    let unique_kind = core_paths::unique_kind();
+    let columns_belong_to = core_paths::columns_belong_to();
+    let non_empty_col_set = core_paths::non_empty_col_set();
+    let no_duplicate_col_set = core_paths::no_duplicate_col_set();
+
+    let mut impls = Vec::new();
+    let mut idents = Vec::new();
+
+    for (idx, unique) in ctx.attrs.unique_constraints.iter().enumerate() {
+        let uq_ident = format_ident!("__UniqueComposite_{}_{}", struct_ident, idx);
+        let (col_zsts, _, source_checks) = table_unique_column_data(ctx, unique);
+        let col_tuple = quote! { (#(#col_zsts,)*) };
+
+        impls.push(quote! {
+            #[doc(hidden)]
+            #[allow(non_camel_case_types)]
+            #[derive(Clone, Copy)]
+            #struct_vis struct #uq_ident;
+
+            const _: () = {
+                struct __ValidateUnique;
+                impl #no_duplicate_col_set<#col_tuple> for __ValidateUnique {}
+
+                const fn assert_unique()
+                where
+                    (): #non_empty_col_set<#col_tuple>
+                        + #columns_belong_to<#struct_ident, #col_tuple>,
+                    __ValidateUnique: #no_duplicate_col_set<#col_tuple>,
+                {
+                }
+                assert_unique();
+            };
+
+            #(#source_checks)*
+
+            impl #sql_constraint for #uq_ident {
+                type Table = #struct_ident;
+                type Kind = #unique_kind;
+                type Columns = #col_tuple;
+            }
+        });
+
+        idents.push(uq_ident);
+    }
+
+    (quote! { #(#impls)* }, idents)
+}
+
+fn generate_table_unique_capability_impls(ctx: &MacroContext) -> TokenStream {
+    if ctx.attrs.unique_constraints.is_empty() {
+        return TokenStream::new();
+    }
+
+    let struct_ident = ctx.struct_ident;
+    let has_constraint = core_paths::has_constraint();
+    let unique_kind = core_paths::unique_kind();
+    let conflict_target = core_paths::conflict_target();
+    let named_constraint = core_paths::named_constraint();
+    let has_field_unique = ctx
+        .field_infos
+        .iter()
+        .any(|f| f.is_unique() && !f.is_primary());
+
+    let mut tokens = TokenStream::new();
+    if !has_field_unique {
+        tokens.extend(quote! {
+            impl #has_constraint<#unique_kind> for #struct_ident {}
+        });
+    }
+
+    for (idx, unique) in ctx.attrs.unique_constraints.iter().enumerate() {
+        let uq_ident = format_ident!("__UniqueComposite_{}_{}", struct_ident, idx);
+        let (col_zsts, col_names, _) = table_unique_column_data(ctx, unique);
+        let constraint_name = table_unique_name(ctx, &col_names, &unique.name);
+
+        tokens.extend(quote! {
+            impl #conflict_target<#struct_ident> for #uq_ident {
+                fn conflict_columns(&self) -> &'static [&'static str] { &[#(#col_names),*] }
+            }
+            impl #conflict_target<#struct_ident> for (#(#col_zsts,)*) {
+                fn conflict_columns(&self) -> &'static [&'static str] { &[#(#col_names),*] }
+            }
+            impl #named_constraint<#struct_ident> for #uq_ident {
+                fn constraint_name(&self) -> &'static str { #constraint_name }
+            }
+        });
+    }
+
+    tokens
 }
 
 fn generate_check_constraints(
     ctx: &MacroContext,
     struct_ident: &Ident,
     struct_vis: &syn::Visibility,
-    sql_table_info: &TokenStream,
 ) -> (TokenStream, Vec<Ident>) {
-    let sql_constraint_info = core_paths::sql_constraint_info();
     let sql_constraint = core_paths::sql_constraint();
-    let sql_constraint_kind = core_paths::sql_constraint_kind();
     let check_kind = core_paths::check_kind();
     let columns_belong_to = core_paths::columns_belong_to();
     let non_empty_col_set = core_paths::non_empty_col_set();
@@ -373,13 +655,6 @@ fn generate_check_constraints(
         let field_pascal = field.ident.to_string().to_upper_camel_case();
         let chk_ident = format_ident!("__Check_{}_{}", struct_ident, field_pascal);
         let col_ident = format_ident!("{}{}", struct_ident, field_pascal);
-        let constraint_name = format!("{}_{}_check", ctx.table_name, field.column_name);
-        let col_name = field.column_name.clone();
-        let expr = field
-            .check_constraint
-            .as_ref()
-            .expect("filtered to check constraints")
-            .clone();
 
         impls.push(quote! {
             #[doc(hidden)]
@@ -400,34 +675,28 @@ fn generate_check_constraints(
                 assert_check();
             };
 
-            impl #sql_constraint_info for #chk_ident {
-                fn table(&self) -> &'static dyn #sql_table_info {
-                    #[allow(non_upper_case_globals)]
-                    static TABLE: #struct_ident = #struct_ident::new();
-                    &TABLE
-                }
-
-                fn name(&self) -> Option<&'static str> {
-                    Some(#constraint_name)
-                }
-
-                fn kind(&self) -> #sql_constraint_kind {
-                    #sql_constraint_kind::Check
-                }
-
-                fn columns(&self) -> &'static [&'static str] {
-                    &[#col_name]
-                }
-
-                fn check_expression(&self) -> Option<&'static str> {
-                    Some(#expr)
-                }
-            }
-
             impl #sql_constraint for #chk_ident {
                 type Table = #struct_ident;
                 type Kind = #check_kind;
                 type Columns = (#col_ident,);
+            }
+        });
+
+        idents.push(chk_ident);
+    }
+
+    for (idx, _check) in ctx.attrs.check_constraints.iter().enumerate() {
+        let chk_ident = format_ident!("__CheckComposite_{}_{}", struct_ident, idx);
+
+        impls.push(quote! {
+            #[doc(hidden)]
+            #[allow(non_camel_case_types)]
+            #struct_vis struct #chk_ident;
+
+            impl #sql_constraint for #chk_ident {
+                type Table = #struct_ident;
+                type Kind = #check_kind;
+                type Columns = ();
             }
         });
 

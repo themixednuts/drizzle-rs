@@ -3150,3 +3150,29 @@ pub fn PostgresIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
         Err(err) => err.to_compile_error().into(),
     }
 }
+
+/// Attribute macro for creating `PostgreSQL` row-level security policies.
+///
+/// Apply this to a tuple struct containing exactly one table type:
+///
+/// ```rust,no_run
+/// # extern crate self as drizzle;
+/// # mod drizzle { pub mod core { pub use drizzle_core::*; } pub mod error { pub use drizzle_core::error::*; } pub mod ddl { pub use drizzle_types::*; } pub mod postgres { pub mod common { pub use drizzle_postgres::common::*; } pub mod values { pub use drizzle_postgres::values::*; } pub mod traits { pub use drizzle_postgres::traits::*; } pub mod attrs { pub use drizzle_postgres::attrs::*; } pub mod prelude { pub use drizzle_macros::{PostgresPolicy, PostgresTable}; pub use drizzle_core::*; } } }
+/// # use drizzle::postgres::prelude::*;
+/// # #[PostgresTable]
+/// # struct Users { id: i32 }
+/// #[PostgresPolicy(FOR = "SELECT", TO("public"), USING = "id > 0")]
+/// struct UsersReadPolicy(Users);
+/// ```
+#[cfg(feature = "postgres")]
+#[allow(non_snake_case)]
+#[proc_macro_attribute]
+pub fn PostgresPolicy(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(item as syn::DeriveInput);
+    let attr_input = syn::parse_macro_input!(attr as crate::postgres::policy::PolicyAttributes);
+
+    match crate::postgres::policy::postgres_policy_attr_macro(&attr_input, &input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}

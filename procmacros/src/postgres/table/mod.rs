@@ -25,7 +25,7 @@ use models::generate_model_definitions;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::Ident;
-use syn::{DeriveInput, Result};
+use syn::{DeriveInput, Expr, Lit, Result};
 use traits::generate_table_impls;
 
 // ============================================================================
@@ -41,6 +41,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     let table_name = table_name_from_attrs(struct_ident, attrs.name.clone());
 
     let fields = struct_fields(input, "PostgresTable")?;
+    let table_comment = doc_comment_from_attrs(&input.attrs);
 
     let primary_key_count = count_primary_keys(fields, |field| {
         Ok(FieldInfo::from_field(field, false)?.is_primary())
@@ -53,12 +54,18 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         .collect::<Result<Vec<_>>>()?;
 
     // Generate table metadata JSON for drizzle-kit compatible migrations
-    let table_meta_json = generate_table_meta_json(&table_name, &field_infos, is_composite_pk);
+    let table_meta_json = generate_table_meta_json(
+        &table_name,
+        &field_infos,
+        is_composite_pk,
+        table_comment.as_deref(),
+    );
 
     let ctx = MacroContext {
         struct_ident,
         struct_vis: &input.vis,
         table_name,
+        table_comment,
         field_infos: &field_infos,
         select_model_ident: format_ident!("Select{}", struct_ident),
         select_model_partial_ident: format_ident!("PartialSelect{}", struct_ident),
@@ -155,6 +162,31 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     };
 
     Ok(expanded)
+}
+
+fn doc_comment_from_attrs(attrs: &[syn::Attribute]) -> Option<String> {
+    let lines = attrs.iter().filter_map(|attr| {
+        if !attr.path().is_ident("doc") {
+            return None;
+        }
+        let syn::Meta::NameValue(meta) = &attr.meta else {
+            return None;
+        };
+        let Expr::Lit(expr_lit) = &meta.value else {
+            return None;
+        };
+        let Lit::Str(lit) = &expr_lit.lit else {
+            return None;
+        };
+        let value = lit.value();
+        Some(value.strip_prefix(' ').unwrap_or(&value).to_string())
+    });
+    let comment = lines.collect::<Vec<_>>().join("\n");
+    if comment.is_empty() {
+        None
+    } else {
+        Some(comment)
+    }
 }
 
 /// Generate query API impls (`RelationDef`, accessors, JSON decoders) for `PostgreSQL`.

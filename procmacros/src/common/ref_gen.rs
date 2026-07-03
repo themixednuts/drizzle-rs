@@ -45,20 +45,37 @@ pub struct ColumnRefInput {
 
 /// Foreign key metadata for `TABLE_REF` generation.
 pub struct ForeignKeyRefInput {
+    /// Constraint name.
+    pub name: String,
+    /// Whether the constraint name was explicit.
+    pub name_explicit: bool,
     /// Source columns in this table.
     pub source_columns: Vec<String>,
+    /// Target schema name expression.
+    pub target_schema: TokenStream,
     /// Target table name expression (may use associated const).
     pub target_table: TokenStream,
     /// Target columns in the referenced table.
     pub target_columns: Vec<String>,
+    /// ON DELETE action.
+    pub on_delete: Option<String>,
+    /// ON UPDATE action.
+    pub on_update: Option<String>,
+    /// Whether this FK is DEFERRABLE.
+    pub deferrable: bool,
+    /// Whether this FK is INITIALLY DEFERRED.
+    pub initially_deferred: bool,
 }
 
 /// Constraint metadata for `TABLE_REF` generation.
 pub struct ConstraintRefInput {
     pub name: Option<String>,
+    pub name_explicit: bool,
     pub kind: TokenStream,
     pub columns: Vec<String>,
     pub check_expression: Option<String>,
+    pub deferrable: bool,
+    pub initially_deferred: bool,
 }
 
 /// Generates the `const TABLE_REF: TableRef = ...;` body for a `DrizzleTable` impl.
@@ -118,14 +135,34 @@ pub fn generate_table_ref_const(
     let fk_ref_literals: Vec<TokenStream> = foreign_keys
         .iter()
         .map(|fk| {
+            let name = &fk.name;
+            let name_explicit = fk.name_explicit;
+            let target_schema = &fk.target_schema;
             let target_table = &fk.target_table;
             let source_columns = &fk.source_columns;
             let target_columns = &fk.target_columns;
+            let on_delete = fk.on_delete.as_ref().map_or_else(
+                || quote! { ::core::option::Option::None },
+                |action| quote! { ::core::option::Option::Some(#action) },
+            );
+            let on_update = fk.on_update.as_ref().map_or_else(
+                || quote! { ::core::option::Option::None },
+                |action| quote! { ::core::option::Option::Some(#action) },
+            );
+            let deferrable = fk.deferrable;
+            let initially_deferred = fk.initially_deferred;
             quote! {
                 #foreign_key_ref {
+                    name: #name,
+                    name_explicit: #name_explicit,
                     target_table: #target_table,
+                    target_schema: #target_schema,
                     source_columns: &[#(#source_columns),*],
                     target_columns: &[#(#target_columns),*],
+                    on_delete: #on_delete,
+                    on_update: #on_update,
+                    deferrable: #deferrable,
+                    initially_deferred: #initially_deferred,
                 }
             }
         })
@@ -139,18 +176,24 @@ pub fn generate_table_ref_const(
                 || quote! { ::core::option::Option::None },
                 |n| quote! { ::core::option::Option::Some(#n) },
             );
+            let name_explicit = c.name_explicit;
             let kind = &c.kind;
             let columns = &c.columns;
             let check_expr = c.check_expression.as_ref().map_or_else(
                 || quote! { ::core::option::Option::None },
                 |e| quote! { ::core::option::Option::Some(#e) },
             );
+            let deferrable = c.deferrable;
+            let initially_deferred = c.initially_deferred;
             quote! {
                 #constraint_ref {
                     name: #name_expr,
+                    name_explicit: #name_explicit,
                     kind: #kind,
                     columns: &[#(#columns),*],
                     check_expression: #check_expr,
+                    deferrable: #deferrable,
+                    initially_deferred: #initially_deferred,
                 }
             }
         })

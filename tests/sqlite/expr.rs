@@ -102,6 +102,23 @@ struct CoalesceAvgResult {
 }
 
 #[drizzle::test]
+fn test_cast_sql_generation(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    let stmt = db
+        .select(alias(
+            cast(simple.id, drizzle::sqlite::types::Integer),
+            "id_int",
+        ))
+        .from(simple);
+
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"SELECT CAST ("simple"."id" AS INTEGER) AS "id_int" FROM "simple""#
+    );
+}
+
+#[drizzle::test]
 fn test_aggregate_functions(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 

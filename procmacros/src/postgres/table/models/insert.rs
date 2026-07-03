@@ -220,6 +220,7 @@ mod tests {
             column_name: name.to_string(),
             sql_definition: format!("\"{name}\" INTEGER"),
             column_type: PostgreSQLType::Integer,
+            dimensions: None,
             flags: HashSet::new(),
             is_nullable: false,
             is_enum: false,
@@ -239,6 +240,7 @@ mod tests {
             marker_exprs: Vec::new(),
             constraint: crate::common::Constraint::None,
             collate: None,
+            comment: None,
         }
     }
 
@@ -320,7 +322,10 @@ mod tests {
             temporary: false,
             inherits: None,
             tablespace: None,
+            rls: false,
             composite_foreign_keys: Vec::new(),
+            unique_constraints: Vec::new(),
+            check_constraints: Vec::new(),
             marker_exprs: Vec::new(),
         };
 
@@ -328,6 +333,7 @@ mod tests {
             struct_ident: &struct_ident,
             struct_vis: &struct_vis,
             table_name: "generated_users".to_string(),
+            table_comment: None,
             field_infos: &fields,
             select_model_ident: syn::parse_str("SelectGeneratedUsers").expect("valid ident"),
             select_model_partial_ident: syn::parse_str("SelectGeneratedUsersPartial")

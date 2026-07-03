@@ -13,7 +13,7 @@ use crate::common::{
     type_is_geo_rect, type_is_int, type_is_ip_addr, type_is_ip_cidr, type_is_json_value,
     type_is_mac_addr, type_is_naive_date, type_is_naive_datetime, type_is_naive_time,
     type_is_offset_datetime, type_is_primitive_date_time, type_is_string_like, type_is_time_date,
-    type_is_time_time, type_is_uuid, type_is_vec_u8, unwrap_option,
+    type_is_time_time, type_is_uuid, type_is_vec_u8, unwrap_option, vec_inner_type,
 };
 
 // Note: drizzle_types::postgres::TypeCategory exists but has different feature gates.
@@ -608,6 +608,8 @@ pub enum PostgreSQLDefault {
     Literal(String),
     /// Function call (e.g., `NOW()`)
     Function(String),
+    /// Raw SQL expression emitted directly after DEFAULT.
+    RawSql(String),
     /// Expression using Rust code (evaluated at compile time)
     Expression(TokenStream),
 }
@@ -619,6 +621,8 @@ pub struct PostgreSQLReference {
     pub column: Ident,
     pub on_delete: Option<String>,
     pub on_update: Option<String>,
+    pub deferrable: bool,
+    pub initially_deferred: bool,
 }
 
 /// Identity column mode for GENERATED IDENTITY columns
@@ -659,6 +663,8 @@ pub struct FieldInfo {
     /// SQL column definition string (e.g., "name TEXT NOT NULL")
     pub sql_definition: String,
     pub column_type: PostgreSQLType,
+    /// PostgreSQL array dimensions. Present for `Vec<T>` columns.
+    pub dimensions: Option<i32>,
     pub flags: HashSet<PostgreSQLFlag>,
     pub is_nullable: bool,
     pub is_enum: bool,
@@ -691,6 +697,69 @@ pub struct FieldInfo {
     /// (`"C"`, `"POSIX"`, `"en_US"`) or custom `CREATE COLLATION` value
     /// works.
     pub collate: Option<String>,
+    /// SQL comment extracted from field doc comments.
+    pub comment: Option<String>,
+}
+
+fn doc_comment_from_attrs(attrs: &[Attribute]) -> Option<String> {
+    let lines = attrs.iter().filter_map(|attr| {
+        if !attr.path().is_ident("doc") {
+            return None;
+        }
+        let syn::Meta::NameValue(meta) = &attr.meta else {
+            return None;
+        };
+        let Expr::Lit(expr_lit) = &meta.value else {
+            return None;
+        };
+        let Lit::Str(lit) = &expr_lit.lit else {
+            return None;
+        };
+        let value = lit.value();
+        Some(value.strip_prefix(' ').unwrap_or(&value).to_string())
+    });
+    let comment = lines.collect::<Vec<_>>().join("\n");
+    if comment.is_empty() {
+        None
+    } else {
+        Some(comment)
+    }
+}
+
+fn is_supported_array_category(category: TypeCategory) -> bool {
+    matches!(
+        category,
+        TypeCategory::String
+            | TypeCategory::I16
+            | TypeCategory::I32
+            | TypeCategory::I64
+            | TypeCategory::F32
+            | TypeCategory::F64
+            | TypeCategory::Bool
+            | TypeCategory::Uuid
+            | TypeCategory::NaiveDate
+            | TypeCategory::NaiveTime
+            | TypeCategory::NaiveDateTime
+            | TypeCategory::DateTimeTz
+    )
+}
+
+fn postgres_array_info(ty: &Type) -> Option<PostgreSQLType> {
+    let ty = unwrap_option(ty);
+    if type_is_vec_u8(ty) {
+        return None;
+    }
+
+    let inner = vec_inner_type(ty)?;
+    if vec_inner_type(inner).is_some() {
+        return None;
+    }
+
+    let category = TypeCategory::from_type(inner);
+    if !is_supported_array_category(category) {
+        return None;
+    }
+    category.to_postgres_type()
 }
 
 impl FieldInfo {
@@ -714,6 +783,8 @@ impl FieldInfo {
         // Infer PostgreSQL type from Rust type
         let _type_str = ty.to_token_stream().to_string();
         let type_category = TypeCategory::from_type(&ty);
+        let array_type = postgres_array_info(&ty);
+        let dimensions = array_type.as_ref().map(|_| 1);
 
         // Initialize constraint-related fields
         let mut flags = HashSet::new();
@@ -771,6 +842,8 @@ impl FieldInfo {
             PostgreSQLType::Serial
         } else if is_bigserial {
             PostgreSQLType::Bigserial
+        } else if let Some(array_type) = array_type.clone() {
+            array_type
         } else if is_pgenum {
             // Get the enum type name from the field's base type
             let base_type = option_inner_type(&ty).unwrap_or(&ty);
@@ -799,6 +872,8 @@ impl FieldInfo {
             PostgreSQLType::Serial
         } else if is_bigserial {
             PostgreSQLType::Bigserial
+        } else if let Some(array_type) = array_type.clone() {
+            array_type
         } else if is_pgenum {
             // Get the enum type name from the field's base type
             let base_type = option_inner_type(&ty).unwrap_or(&ty);
@@ -834,6 +909,7 @@ impl FieldInfo {
 
         // Column name defaults to field ident converted to snake_case.
         let column_name = column_name.unwrap_or_else(|| name.to_string().to_snake_case());
+        let comment = doc_comment_from_attrs(&field.attrs);
 
         // Build SQL definition for this column
         let sql_definition = build_sql_definition(&SqlDefinitionContext {
@@ -847,6 +923,7 @@ impl FieldInfo {
             generated_column: generated_column.as_ref(),
             default: default.as_ref(),
             check_constraint: check_constraint.as_deref(),
+            dimensions,
             collate: collate.as_deref(),
         });
 
@@ -858,6 +935,7 @@ impl FieldInfo {
             column_name,
             sql_definition,
             column_type,
+            dimensions,
             flags,
             is_nullable,
             is_enum,
@@ -881,6 +959,7 @@ impl FieldInfo {
                 is_composite_pk,
             ),
             collate,
+            comment,
         })
     }
 
@@ -908,6 +987,7 @@ impl FieldInfo {
 
         let mut flags = HashSet::new();
         let mut default = None;
+        let mut default_kind: Option<&'static str> = None;
         let mut default_fn = None;
         let mut check_constraint = None;
         let mut foreign_key = None;
@@ -1111,6 +1191,12 @@ impl FieldInfo {
                     "DEFAULT" => {
                         if meta.input.peek(Token![=]) {
                             meta.input.parse::<Token![=]>()?;
+                            if let Some(kind) = default_kind {
+                                return Err(syn::Error::new_spanned(
+                                    path_ident,
+                                    format!("default conflicts with existing {kind}"),
+                                ));
+                            }
                             let lit: Lit = meta.input.parse()?;
                             match lit {
                                 Lit::Str(s) => {
@@ -1134,15 +1220,45 @@ impl FieldInfo {
                                     ));
                                 }
                             }
+                            default_kind = Some("default");
                             marker_exprs.push(make_uppercase_path(path_ident, "DEFAULT"));
                         }
                     }
                     "DEFAULT_FN" => {
                         if meta.input.peek(Token![=]) {
                             meta.input.parse::<Token![=]>()?;
+                            if let Some(kind) = default_kind {
+                                return Err(syn::Error::new_spanned(
+                                    path_ident,
+                                    format!("default_fn conflicts with existing {kind}"),
+                                ));
+                            }
                             let expr: Expr = meta.input.parse()?;
                             default_fn = Some(quote! { #expr });
+                            default_kind = Some("default_fn");
                             marker_exprs.push(make_uppercase_path(path_ident, "DEFAULT_FN"));
+                        }
+                    }
+                    "DEFAULT_SQL" => {
+                        if meta.input.peek(Token![=]) {
+                            meta.input.parse::<Token![=]>()?;
+                            if let Some(kind) = default_kind {
+                                return Err(syn::Error::new_spanned(
+                                    path_ident,
+                                    format!("default_sql conflicts with existing {kind}"),
+                                ));
+                            }
+                            let lit: Lit = meta.input.parse()?;
+                            if let Lit::Str(s) = lit {
+                                default = Some(PostgreSQLDefault::RawSql(s.value()));
+                                default_kind = Some("default_sql");
+                                marker_exprs.push(make_uppercase_path(path_ident, "DEFAULT_SQL"));
+                            } else {
+                                return Err(syn::Error::new_spanned(
+                                    lit,
+                                    "DEFAULT_SQL requires a string literal, e.g. default_sql = \"now()\"",
+                                ));
+                            }
                         }
                     }
                     "CHECK" => {
@@ -1201,18 +1317,56 @@ impl FieldInfo {
                             marker_exprs.push(make_uppercase_path(&action_ident, &action_upper));
                         }
                     }
+                    "DEFERRABLE" => {
+                        if let Some(ref mut fk) = foreign_key {
+                            fk.deferrable = true;
+                        } else {
+                            return Err(syn::Error::new_spanned(
+                                path_ident,
+                                references_required_message(false, false),
+                            ));
+                        }
+                        marker_exprs.push(make_uppercase_path(path_ident, "DEFERRABLE"));
+                    }
+                    "INITIALLY_DEFERRED" => {
+                        if let Some(ref mut fk) = foreign_key {
+                            fk.deferrable = true;
+                            fk.initially_deferred = true;
+                        } else {
+                            return Err(syn::Error::new_spanned(
+                                path_ident,
+                                references_required_message(false, false),
+                            ));
+                        }
+                        marker_exprs.push(make_uppercase_path(path_ident, "INITIALLY_DEFERRED"));
+                    }
                     _ => {
                         return Err(syn::Error::new_spanned(
                             &meta.path,
                             format!("unknown #[column] attribute `{path_ident}`.\n\
                                      Supported: primary, unique, serial, bigserial, smallserial, identity, \
-                                     generated, json, jsonb, enum, name, default, default_fn, check, references, \
-                                     on_delete, on_update"),
+                                     generated, json, jsonb, enum, name, default, default_fn, default_sql, check, references, \
+                                     on_delete, on_update, deferrable, initially_deferred"),
                         ));
                     }
                 }
                 Ok(())
             })?;
+        }
+
+        if default_fn.is_some() && default.is_some() {
+            return Err(syn::Error::new(
+                span,
+                "default/default_sql and default_fn are mutually exclusive",
+            ));
+        }
+        if matches!(default, Some(PostgreSQLDefault::RawSql(_)))
+            && (is_generated_identity || generated_column.is_some())
+        {
+            return Err(syn::Error::new(
+                span,
+                "default_sql cannot be combined with identity or generated columns",
+            ));
         }
 
         Ok(Some(ColumnInfo {
@@ -1290,6 +1444,8 @@ impl FieldInfo {
             column,
             on_delete: None, // Set via on_delete = ... attribute
             on_update: None, // Set via on_update = ... attribute
+            deferrable: false,
+            initially_deferred: false,
         })
     }
 }
@@ -1329,12 +1485,18 @@ impl FieldInfo {
 
     /// Drizzle SQL type marker used by expression generation.
     pub(crate) fn sql_type_marker(&self) -> TokenStream {
-        if self.is_custom_type {
+        let base = if self.is_custom_type {
             let base_type = &self.base_type;
             let drizzle_postgres_column = crate::paths::postgres::drizzle_postgres_column();
             quote!(<#base_type as #drizzle_postgres_column>::SQLType)
         } else {
             crate::common::postgres_column_type_to_sql_type(&self.column_type)
+        };
+
+        if self.dimensions.is_some() {
+            quote!(drizzle::core::types::Array<#base>)
+        } else {
+            base
         }
     }
 
@@ -1351,7 +1513,7 @@ impl FieldInfo {
         let placeholder = format!(
             "\"{}\" {}",
             self.column_name,
-            self.column_type.to_sql_type()
+            self.sql_type_with_dimensions()
         );
         let suffix = self
             .sql_definition
@@ -1359,6 +1521,12 @@ impl FieldInfo {
             .unwrap_or_default();
 
         quote!(#const_format::concatcp!(#prefix, #sql_type, #suffix))
+    }
+}
+
+impl FieldInfo {
+    pub(crate) fn sql_type_with_dimensions(&self) -> String {
+        sql_type_with_dimensions(self.column_type.to_sql_type(), self.dimensions)
     }
 }
 
@@ -1370,8 +1538,11 @@ impl FieldInfo {
     /// Convert default value to a string for DDL metadata (when possible).
     fn default_to_string(&self) -> Option<String> {
         match &self.default {
-            Some(PostgreSQLDefault::Literal(lit)) => Some(lit.clone()),
-            Some(PostgreSQLDefault::Function(func)) => Some(func.clone()),
+            Some(
+                PostgreSQLDefault::Literal(lit)
+                | PostgreSQLDefault::Function(lit)
+                | PostgreSQLDefault::RawSql(lit),
+            ) => Some(lit.clone()),
             Some(PostgreSQLDefault::Expression(_)) | None => None,
         }
     }
@@ -1395,6 +1566,17 @@ impl FieldInfo {
         if let Some(default) = self.default_to_string() {
             col = col.default_value(default);
         }
+        if self.is_pgenum || self.is_custom_type {
+            col.type_schema = Some(std::borrow::Cow::Owned(schema.to_string()));
+        }
+        col.dimensions = self.dimensions;
+        col.comment = self
+            .comment
+            .as_ref()
+            .map(|comment| std::borrow::Cow::Owned(comment.clone()));
+        if let Some(collate) = &self.collate {
+            col.collate = Some(std::borrow::Cow::Owned(collate.clone()));
+        }
 
         if let Some(generated) = &self.generated_column {
             col.generated = Some(drizzle_types::postgres::ddl::Generated {
@@ -1404,6 +1586,25 @@ impl FieldInfo {
                 } else {
                     drizzle_types::postgres::ddl::GeneratedType::Virtual
                 },
+            });
+        }
+
+        if !self.is_serial && self.is_generated_identity {
+            let seq_name = format!("{table_name}_{}_seq", self.column_name);
+            col.identity = Some(drizzle_types::postgres::ddl::Identity {
+                name: std::borrow::Cow::Owned(seq_name),
+                schema: Some(std::borrow::Cow::Owned(schema.to_string())),
+                type_: if matches!(self.identity_mode, Some(IdentityMode::ByDefault)) {
+                    drizzle_types::postgres::ddl::IdentityType::ByDefault
+                } else {
+                    drizzle_types::postgres::ddl::IdentityType::Always
+                },
+                increment: None,
+                min_value: None,
+                max_value: None,
+                start_with: None,
+                cache: None,
+                cycle: None,
             });
         }
 
@@ -1419,10 +1620,7 @@ impl FieldInfo {
         let fk_ref = self.foreign_key.as_ref()?;
         let table_to = fk_ref.table.to_string();
         let column_to = fk_ref.column.to_string();
-        let fk_name = format!(
-            "{}_{}_{}_{}_fk",
-            table_name, self.column_name, table_to, column_to
-        );
+        let fk_name = format!("{}_{}_fkey", table_name, self.column_name);
 
         let mut fk = drizzle_types::postgres::ddl::ForeignKey::from_strings(
             schema.to_string(),
@@ -1446,6 +1644,12 @@ impl FieldInfo {
         {
             fk = fk.on_update(action.as_sql());
         }
+        if fk_ref.deferrable {
+            fk = fk.deferrable();
+        }
+        if fk_ref.initially_deferred {
+            fk = fk.initially_deferred();
+        }
 
         Some(fk)
     }
@@ -1456,16 +1660,16 @@ pub fn generate_table_meta_json(
     table_name: &str,
     field_infos: &[FieldInfo],
     is_composite_pk: bool,
+    table_comment: Option<&str>,
 ) -> String {
     use drizzle_types::postgres::ddl::{PostgresEntity, PrimaryKey, Table};
 
     let schema = "public";
     let mut entities: Vec<PostgresEntity> = Vec::new();
 
-    entities.push(PostgresEntity::Table(Table::new(
-        schema.to_string(),
-        table_name.to_string(),
-    )));
+    let mut table = Table::new(schema.to_string(), table_name.to_string());
+    table.comment = table_comment.map(|comment| std::borrow::Cow::Owned(comment.to_string()));
+    entities.push(PostgresEntity::Table(table));
 
     for field in field_infos {
         entities.push(PostgresEntity::Column(
@@ -1487,7 +1691,7 @@ pub fn generate_table_meta_json(
             .collect();
 
         if pk_columns.len() > 1 {
-            let pk_name = format!("{table_name}_pk");
+            let pk_name = format!("{table_name}_pkey");
             let pk = PrimaryKey::from_strings(
                 schema.to_string(),
                 table_name.to_string(),
@@ -1517,12 +1721,17 @@ struct SqlDefinitionContext<'a> {
     generated_column: Option<&'a GeneratedColumn>,
     default: Option<&'a PostgreSQLDefault>,
     check_constraint: Option<&'a str>,
+    dimensions: Option<i32>,
     collate: Option<&'a str>,
 }
 
 /// Build SQL column definition string for `PostgreSQL`
 fn build_sql_definition(ctx: &SqlDefinitionContext<'_>) -> String {
-    let mut sql = format!("\"{}\" {}", ctx.column_name, ctx.column_type.to_sql_type());
+    let mut sql = format!(
+        "\"{}\" {}",
+        ctx.column_name,
+        sql_type_with_dimensions(ctx.column_type.to_sql_type(), ctx.dimensions)
+    );
 
     if let Some(collate) = ctx.collate {
         let _ = write!(sql, " COLLATE \"{collate}\"");
@@ -1571,11 +1780,10 @@ fn build_sql_definition(ctx: &SqlDefinitionContext<'_>) -> String {
         && let Some(default_value) = ctx.default
     {
         match default_value {
-            PostgreSQLDefault::Literal(lit) => {
+            PostgreSQLDefault::Literal(lit)
+            | PostgreSQLDefault::Function(lit)
+            | PostgreSQLDefault::RawSql(lit) => {
                 let _ = write!(sql, " DEFAULT {lit}");
-            }
-            PostgreSQLDefault::Function(func) => {
-                let _ = write!(sql, " DEFAULT {func}");
             }
             PostgreSQLDefault::Expression(_) => {
                 // Expression defaults are handled at runtime
@@ -1589,6 +1797,18 @@ fn build_sql_definition(ctx: &SqlDefinitionContext<'_>) -> String {
     }
 
     sql
+}
+
+fn sql_type_with_dimensions(sql_type: &str, dimensions: Option<i32>) -> String {
+    let mut rendered = sql_type.to_string();
+    if let Some(dimensions) = dimensions
+        && dimensions > 0
+    {
+        for _ in 0..dimensions {
+            rendered.push_str("[]");
+        }
+    }
+    rendered
 }
 
 /// Intermediate structure for parsing column constraint information.
@@ -1687,6 +1907,7 @@ mod tests {
             generated_column: None,
             default: None,
             check_constraint: None,
+            dimensions: None,
             collate: None,
         }
     }

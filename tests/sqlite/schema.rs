@@ -1,6 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
 use drizzle::core::expr::*;
+use drizzle::migrations::Schema as MigrationSchema;
 use drizzle::sqlite::prelude::*;
 
 #[SQLiteTable]
@@ -18,6 +19,63 @@ struct StrictTable {
     content: String,
 }
 
+#[SQLiteTable(NAME = "strict_without_rowid_exec", STRICT, WITHOUT_ROWID)]
+struct StrictWithoutRowidExec {
+    #[column(PRIMARY)]
+    key: String,
+    content: Option<String>,
+}
+
+#[SQLiteTable(
+    NAME = "macro_ddl",
+    UNIQUE(columns(name, score)),
+    UNIQUE(name = "macro_ddl_created_name_uq", columns(created_at, name))
+)]
+struct SQLiteMacroDdl {
+    #[column(PRIMARY)]
+    id: i32,
+    name: String,
+    #[column(CHECK = "score >= 0")]
+    score: i32,
+    #[column(default_sql = "CURRENT_TIMESTAMP")]
+    created_at: String,
+    #[column(generated(stored, "length(name)"))]
+    name_len_stored: i32,
+    #[column(generated(virtual, "length(name)"))]
+    name_len_virtual: i32,
+}
+
+#[derive(SQLiteSchema)]
+struct SQLiteMacroDdlSchema {
+    table: SQLiteMacroDdl,
+}
+
+#[SQLiteTable(NAME = "macro_generated_rebuild")]
+struct SQLiteGeneratedRebuildBase {
+    #[column(PRIMARY)]
+    id: i32,
+    name: String,
+}
+
+#[SQLiteTable(NAME = "macro_generated_rebuild")]
+struct SQLiteGeneratedRebuildStored {
+    #[column(PRIMARY)]
+    id: i32,
+    name: String,
+    #[column(generated(stored, "length(name)"))]
+    name_len: i32,
+}
+
+#[derive(SQLiteSchema)]
+struct SQLiteGeneratedRebuildBaseSchema {
+    table: SQLiteGeneratedRebuildBase,
+}
+
+#[derive(SQLiteSchema)]
+struct SQLiteGeneratedRebuildStoredSchema {
+    table: SQLiteGeneratedRebuildStored,
+}
+
 #[test]
 fn table_sql() {
     assert_eq!(
@@ -32,6 +90,181 @@ fn strict_table() {
         StrictTable::create_table_sql(),
         "CREATE TABLE `strict_table` (\n\t`id` INTEGER PRIMARY KEY,\n\t`content` TEXT NOT NULL\n) STRICT;"
     );
+}
+
+#[test]
+fn strict_without_rowid_uses_comma_between_table_options() {
+    assert_eq!(
+        StrictWithoutRowidExec::create_table_sql(),
+        "CREATE TABLE `strict_without_rowid_exec` (\n\t`key` TEXT PRIMARY KEY NOT NULL,\n\t`content` TEXT\n) WITHOUT ROWID, STRICT;"
+    );
+}
+
+#[test]
+fn sqlite_macro_ddl_features_create_table_sql() {
+    let expected = "CREATE TABLE `macro_ddl` (\n\t`id` INTEGER PRIMARY KEY,\n\t`name` TEXT NOT NULL,\n\t`score` INTEGER NOT NULL,\n\t`created_at` TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,\n\t`name_len_stored` INTEGER GENERATED ALWAYS AS (length(name)) STORED NOT NULL,\n\t`name_len_virtual` INTEGER GENERATED ALWAYS AS (length(name)) VIRTUAL NOT NULL,\n\tCONSTRAINT `macro_ddl_name_score_unique` UNIQUE(`name`, `score`),\n\tCONSTRAINT `macro_ddl_created_name_uq` UNIQUE(`created_at`, `name`),\n\tCONSTRAINT `macro_ddl_score_check` CHECK(score >= 0)\n);";
+    assert_eq!(SQLiteMacroDdl::create_table_sql(), expected);
+
+    let const_sql = <SQLiteMacroDdl as drizzle::core::SQLSchema<
+        '_,
+        drizzle::sqlite::common::SQLiteSchemaType,
+        drizzle::sqlite::values::SQLiteValue<'_>,
+    >>::SQL;
+    assert_eq!(const_sql, expected);
+}
+
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_executes_sqlite_macro_ddl_features() {
+    let conn = rusqlite::Connection::open_in_memory().expect("open in-memory sqlite");
+    conn.execute(&SQLiteMacroDdl::create_table_sql(), [])
+        .expect("create sqlite macro ddl table");
+
+    conn.execute(
+        "INSERT INTO macro_ddl (name, score) VALUES (?1, ?2)",
+        ("alice", 7),
+    )
+    .expect("insert valid row");
+
+    let (stored, virtual_col, created_at_present): (i32, i32, i32) = conn
+        .query_row(
+            "SELECT name_len_stored, name_len_virtual, created_at IS NOT NULL FROM macro_ddl WHERE name = 'alice'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("query generated columns");
+    assert_eq!(stored, 5);
+    assert_eq!(virtual_col, 5);
+    assert_eq!(created_at_present, 1);
+
+    let check_result = conn.execute(
+        "INSERT INTO macro_ddl (name, score) VALUES (?1, ?2)",
+        ("bad", -1),
+    );
+    assert!(
+        check_result.is_err(),
+        "expected CHECK constraint violation for negative score"
+    );
+}
+
+#[test]
+fn sqlite_macro_snapshot_carries_column_ddl_metadata() {
+    let snapshot = SQLiteMacroDdlSchema::new().to_snapshot();
+    let drizzle::migrations::Snapshot::Sqlite(snapshot) = snapshot else {
+        panic!("expected sqlite snapshot");
+    };
+
+    let columns = snapshot
+        .ddl
+        .iter()
+        .filter_map(|entity| match entity {
+            drizzle::migrations::sqlite::SqliteEntity::Column(column) => Some(column),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let created_at = columns
+        .iter()
+        .find(|column| column.name == "created_at")
+        .expect("created_at column");
+    assert_eq!(created_at.default.as_deref(), Some("CURRENT_TIMESTAMP"));
+
+    let stored = columns
+        .iter()
+        .find(|column| column.name == "name_len_stored")
+        .expect("stored generated column");
+    let stored_generated = stored
+        .generated
+        .as_ref()
+        .expect("stored generated metadata");
+    assert_eq!(stored_generated.expression, "(length(name))");
+    assert_eq!(
+        stored_generated.gen_type,
+        drizzle::migrations::sqlite::GeneratedType::Stored
+    );
+
+    let virtual_col = columns
+        .iter()
+        .find(|column| column.name == "name_len_virtual")
+        .expect("virtual generated column");
+    let virtual_generated = virtual_col
+        .generated
+        .as_ref()
+        .expect("virtual generated metadata");
+    assert_eq!(virtual_generated.expression, "(length(name))");
+    assert_eq!(
+        virtual_generated.gen_type,
+        drizzle::migrations::sqlite::GeneratedType::Virtual
+    );
+
+    assert!(
+        snapshot.ddl.iter().any(|entity| matches!(
+            entity,
+            drizzle::migrations::sqlite::SqliteEntity::CheckConstraint(check)
+                if check.name == "macro_ddl_score_check" && check.value == "score >= 0"
+        )),
+        "check constraint metadata missing"
+    );
+
+    assert!(
+        snapshot.ddl.iter().any(|entity| matches!(
+            entity,
+            drizzle::migrations::sqlite::SqliteEntity::UniqueConstraint(unique)
+                if unique.name == "macro_ddl_name_score_unique"
+                    && unique.columns.iter().map(|col| col.as_ref()).collect::<Vec<_>>() == ["name", "score"]
+                    && !unique.name_explicit
+        )),
+        "default-named composite unique metadata missing"
+    );
+    assert!(
+        snapshot.ddl.iter().any(|entity| matches!(
+            entity,
+            drizzle::migrations::sqlite::SqliteEntity::UniqueConstraint(unique)
+                if unique.name == "macro_ddl_created_name_uq"
+                    && unique.name_explicit
+        )),
+        "explicitly named composite unique metadata missing"
+    );
+}
+
+#[test]
+fn sqlite_macro_stored_generated_column_diff_rebuilds_table() {
+    let drizzle::migrations::Snapshot::Sqlite(prev) =
+        SQLiteGeneratedRebuildBaseSchema::new().to_snapshot()
+    else {
+        panic!("expected sqlite snapshot");
+    };
+    let drizzle::migrations::Snapshot::Sqlite(cur) =
+        SQLiteGeneratedRebuildStoredSchema::new().to_snapshot()
+    else {
+        panic!("expected sqlite snapshot");
+    };
+
+    let prev = drizzle::migrations::sqlite::SQLiteDDL::from_entities(prev.ddl);
+    let cur = drizzle::migrations::sqlite::SQLiteDDL::from_entities(cur.ddl);
+    let migration = drizzle::migrations::sqlite::compute_migration(&prev, &cur);
+
+    assert_eq!(
+        migration.sql_statements.len(),
+        6,
+        "expected table rebuild for stored generated column, got: {:?}",
+        migration.sql_statements
+    );
+    assert!(
+        migration.sql_statements[1].contains("CREATE TABLE `__new_macro_generated_rebuild`")
+            && migration.sql_statements[1]
+                .contains("`name_len` INTEGER GENERATED ALWAYS AS (length(name)) STORED NOT NULL"),
+        "expected rebuild CREATE TABLE with stored generated column, got: {}",
+        migration.sql_statements[1]
+    );
+}
+
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_executes_strict_without_rowid_create_table_sql() {
+    let conn = rusqlite::Connection::open_in_memory().expect("open in-memory sqlite");
+    conn.execute(&StrictWithoutRowidExec::create_table_sql(), [])
+        .expect("execute strict without rowid create table");
 }
 
 #[test]

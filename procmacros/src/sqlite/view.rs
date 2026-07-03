@@ -165,6 +165,8 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         without_rowid: false,
         crate_name: None,
         composite_foreign_keys: Vec::new(),
+        unique_constraints: Vec::new(),
+        check_constraints: Vec::new(),
         marker_exprs: Vec::new(),
     };
 
@@ -325,7 +327,13 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
                     name: #col_name,
                     sql_type: #sql_type,
                     flags: #column_flags_path::from_bits(#flag_bits),
-                    dialect: #column_dialect_path::SQLite { autoincrement: #autoincrement },
+                    dialect: #column_dialect_path::SQLite {
+                        autoincrement: #autoincrement,
+                        default: ::core::option::Option::None,
+                        generated_expression: ::core::option::Option::None,
+                        generated_stored: false,
+                        collate: ::core::option::Option::None,
+                    },
                 }
             }
         })

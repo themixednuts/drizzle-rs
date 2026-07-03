@@ -145,6 +145,12 @@ fn sqlite_strict_affinity_ui() {
     must_fail("tests/ui/sqlite_strict_affinity/fail/*.rs");
 }
 
+#[cfg(feature = "rusqlite")]
+#[test]
+fn sqlite_macro_errors_ui() {
+    must_fail("tests/ui/sqlite_macro_errors/fail/*.rs");
+}
+
 #[cfg(feature = "postgres")]
 #[test]
 fn boolean_enforcement_ui() {

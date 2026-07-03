@@ -42,12 +42,20 @@
 //! fn main() {
 //! use drizzle::postgres::prelude::*;
 //!
-//! #[PostgresTable(NAME = "users")]
+//! #[PostgresTable(
+//!     NAME = "users",
+//!     UNLOGGED,
+//!     RLS,
+//!     UNIQUE(columns(email, tenant_id)),
+//!     CHECK(name = "users_score_check", expr = "score >= 0")
+//! )]
 //! struct User {
 //!     #[column(PRIMARY, SERIAL)]
 //!     id: i32,
 //!     #[column(UNIQUE)]
 //!     email: String,
+//!     tenant_id: i32,
+//!     score: i32,
 //!     metadata: String,
 //! }
 //! }
@@ -124,13 +132,22 @@ pub const SMALLSERIAL: ColumnMarker = ColumnMarker;
 // Uniqueness Constraints
 //------------------------------------------------------------------------------
 
-/// Adds a UNIQUE constraint to this column.
+/// Adds a UNIQUE constraint to a column, table, or index.
 ///
-/// ## Example
+/// ## Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(UNIQUE)]
 /// email: String,
+///
+/// #[PostgresTable(UNIQUE(columns(email, tenant_id), deferrable))]
+/// struct Users {
+///     email: String,
+///     tenant_id: i32,
+/// }
+///
+/// #[PostgresIndex(unique)]
+/// struct UsersEmailIdx(Users::email);
 /// # "####;
 /// ```
 ///
@@ -286,6 +303,22 @@ pub const COLLATE: ColumnMarker = ColumnMarker;
 /// - `DEFAULT`: Uses a fixed compile-time value
 pub const DEFAULT_FN: ColumnMarker = ColumnMarker;
 
+/// Specifies a raw SQL default expression emitted directly in DDL.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[column(DEFAULT_SQL = "now()")]
+/// created_at: String,
+/// # "####;
+/// ```
+///
+/// Use [`DEFAULT`] for literal Rust values and `DEFAULT_SQL` when the default
+/// must be a database expression.
+///
+/// See: <https://www.postgresql.org/docs/current/ddl-default.html>
+pub const DEFAULT_SQL: ColumnMarker = ColumnMarker;
+
 /// Specifies a fixed default value for new rows.
 ///
 /// ## Example
@@ -356,6 +389,44 @@ pub const ON_DELETE: ColumnMarker = ColumnMarker;
 ///
 /// See: <https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK>
 pub const ON_UPDATE: ColumnMarker = ColumnMarker;
+
+/// Marks a foreign key or table-level UNIQUE constraint as DEFERRABLE.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[column(REFERENCES = Users::id, DEFERRABLE)]
+/// user_id: i32,
+///
+/// #[PostgresTable(UNIQUE(columns(email, tenant_id), deferrable))]
+/// struct Users {
+///     email: String,
+///     tenant_id: i32,
+/// }
+/// # "####;
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/sql-createtable.html>
+pub const DEFERRABLE: ColumnMarker = ColumnMarker;
+
+/// Marks a foreign key or table-level UNIQUE constraint as DEFERRABLE INITIALLY DEFERRED.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[column(REFERENCES = Users::id, INITIALLY_DEFERRED)]
+/// user_id: i32,
+///
+/// #[PostgresTable(UNIQUE(columns(email, tenant_id), initially_deferred))]
+/// struct Users {
+///     email: String,
+///     tenant_id: i32,
+/// }
+/// # "####;
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/sql-createtable.html>
+pub const INITIALLY_DEFERRED: ColumnMarker = ColumnMarker;
 
 //------------------------------------------------------------------------------
 // Referential Action Values
@@ -429,13 +500,18 @@ pub const RESTRICT: ColumnMarker = ColumnMarker;
 /// See: <https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK>
 pub const NO_ACTION: ColumnMarker = ColumnMarker;
 
-/// Adds a CHECK constraint to this column.
+/// Adds a CHECK constraint to a column or table.
 ///
-/// ## Example
+/// ## Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(CHECK = "age >= 0")]
 /// age: i32,
+///
+/// #[PostgresTable(CHECK(name = "valid_score", expr = "score >= 0 AND score <= 100"))]
+/// struct Scores {
+///     score: i32,
+/// }
 /// # "####;
 /// ```
 ///
@@ -520,13 +596,16 @@ pub struct ViewMarker;
 /// ```
 pub const DEFINITION: ViewMarker = ViewMarker;
 
-/// Specifies a view schema name.
+/// Specifies a table or view schema name.
 ///
-/// ## Example
+/// ## Examples
 /// ```rust
 /// # let _ = r####"
 /// #[PostgresView(SCHEMA = "auth")]
 /// struct AuthUsers { ... }
+///
+/// #[PostgresTable(SCHEMA = "auth")]
+/// struct AuthUsersTable { id: i32 }
 /// # "####;
 /// ```
 pub const SCHEMA: ViewMarker = ViewMarker;
@@ -567,13 +646,16 @@ pub const WITH_OPTIONS: ViewMarker = ViewMarker;
 /// ```
 pub const WITH_NO_DATA: ViewMarker = ViewMarker;
 
-/// Specifies a USING clause for materialized views.
+/// Specifies a USING clause for materialized views or row-level security policies.
 ///
-/// ## Example
+/// ## Examples
 /// ```rust
 /// # let _ = r####"
 /// #[PostgresView(USING = "heap")]
 /// struct ActiveUsers { ... }
+///
+/// #[PostgresPolicy(USING = "tenant_id = current_setting('app.tenant_id')::int")]
+/// struct TenantPolicy(Users);
 /// # "####;
 /// ```
 pub const USING: ViewMarker = ViewMarker;
@@ -596,6 +678,27 @@ pub const EXISTING: ViewMarker = ViewMarker;
 /// Marker struct for table-level attributes.
 #[derive(Debug, Clone, Copy)]
 pub struct TableMarker;
+
+/// Adds a table-level composite foreign key constraint.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[PostgresTable(FOREIGN_KEY(
+///     columns(tenant_id, user_id),
+///     references(Users, tenant_id, id),
+///     on_delete = "CASCADE",
+///     deferrable
+/// ))]
+/// struct Posts {
+///     tenant_id: i32,
+///     user_id: i32,
+/// }
+/// # "####;
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK>
+pub const FOREIGN_KEY: TableMarker = TableMarker;
 
 /// Creates an UNLOGGED table.
 ///
@@ -792,6 +895,134 @@ pub const INHERITS: TableMarker = TableMarker;
 ///
 /// See: <https://www.postgresql.org/docs/current/sql-createtable.html#SQL-CREATETABLE-TABLESPACE>
 pub const TABLESPACE: TableMarker = TableMarker;
+
+/// Enables row-level security for the table.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[PostgresTable(RLS)]
+/// struct Users {
+///     id: i32,
+/// }
+/// # "####;
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/ddl-rowsecurity.html>
+pub const RLS: TableMarker = TableMarker;
+
+//------------------------------------------------------------------------------
+// Index Attribute Markers
+//------------------------------------------------------------------------------
+
+/// Marker struct for index attributes.
+#[derive(Debug, Clone, Copy)]
+pub struct IndexMarker;
+
+/// Creates or drops an index CONCURRENTLY.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[PostgresIndex(concurrent)]
+/// struct UsersEmailIdx(Users::email);
+/// # "####;
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/sql-createindex.html>
+pub const CONCURRENT: IndexMarker = IndexMarker;
+
+/// Specifies the index access method.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[PostgresIndex(method = "gin")]
+/// struct DocumentsSearchIdx(Documents::search_vector);
+/// # "####;
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/indexes-types.html>
+pub const METHOD: IndexMarker = IndexMarker;
+
+/// Specifies a partial-index predicate.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[PostgresIndex(where = "deleted_at IS NULL")]
+/// struct ActiveUsersEmailIdx(Users::email);
+/// # "####;
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/indexes-partial.html>
+pub const WHERE: IndexMarker = IndexMarker;
+
+//------------------------------------------------------------------------------
+// Policy Attribute Markers
+//------------------------------------------------------------------------------
+
+/// Marker struct for row-level security policy attributes.
+#[derive(Debug, Clone, Copy)]
+pub struct PolicyMarker;
+
+/// Specifies whether a policy is PERMISSIVE or RESTRICTIVE.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[PostgresPolicy(AS = "RESTRICTIVE")]
+/// struct TenantPolicy(Users);
+/// # "####;
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/sql-createpolicy.html>
+pub const AS: PolicyMarker = PolicyMarker;
+
+/// Alias for [`AS`].
+pub const AS_CLAUSE: PolicyMarker = PolicyMarker;
+
+/// Specifies the command a policy applies to.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[PostgresPolicy(FOR = "SELECT")]
+/// struct ReadPolicy(Users);
+/// # "####;
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/sql-createpolicy.html>
+pub const FOR: PolicyMarker = PolicyMarker;
+
+/// Alias for [`FOR`].
+pub const FOR_CLAUSE: PolicyMarker = PolicyMarker;
+
+/// Specifies roles the policy applies to.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[PostgresPolicy(TO("app_user", public))]
+/// struct TenantPolicy(Users);
+/// # "####;
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/sql-createpolicy.html>
+pub const TO: PolicyMarker = PolicyMarker;
+
+/// Specifies a WITH CHECK expression for INSERT/UPDATE policies.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[PostgresPolicy(WITH_CHECK = "tenant_id = current_setting('app.tenant_id')::int")]
+/// struct TenantWritePolicy(Users);
+/// # "####;
+/// ```
+///
+/// See: <https://www.postgresql.org/docs/current/sql-createpolicy.html>
+pub const WITH_CHECK: PolicyMarker = PolicyMarker;
 
 //------------------------------------------------------------------------------
 // Column Type Markers
