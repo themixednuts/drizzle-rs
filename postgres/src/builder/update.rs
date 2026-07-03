@@ -1,6 +1,5 @@
 use crate::common::PostgresSchemaType;
 use crate::values::PostgresValue;
-use core::fmt::Debug;
 use core::marker::PhantomData;
 use drizzle_core::{SQLTable, ToSQL};
 
@@ -11,31 +10,16 @@ use super::ExecutableState;
 // Type State Markers
 //------------------------------------------------------------------------------
 
-/// Marker for the initial state of `UpdateBuilder`
-#[derive(Debug, Clone, Copy, Default)]
-pub struct UpdateInitial;
-
-/// Marker for the state after SET clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct UpdateSetClauseSet;
+pub use drizzle_core::builder::{
+    UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet,
+};
 
 /// Marker for the state after FROM clause
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UpdateFromSet;
 
-/// Marker for the state after WHERE clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct UpdateWhereSet;
-
-/// Marker for the state after RETURNING clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct UpdateReturningSet;
-
 // Mark states that can execute update queries
-impl ExecutableState for UpdateSetClauseSet {}
 impl ExecutableState for UpdateFromSet {}
-impl ExecutableState for UpdateWhereSet {}
-impl ExecutableState for UpdateReturningSet {}
 
 //------------------------------------------------------------------------------
 // UpdateBuilder Definition

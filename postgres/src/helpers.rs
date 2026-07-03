@@ -49,9 +49,9 @@ where
     Columns: ToSQL<'a, PostgresValue<'a>>,
 {
     SQL::from_iter([Token::SELECT, Token::DISTINCT, Token::ON, Token::LPAREN])
-        .append(on.to_sql())
+        .append(on.into_sql())
         .push(Token::RPAREN)
-        .append(columns.to_sql())
+        .append(columns.into_sql())
 }
 
 //------------------------------------------------------------------------------
@@ -66,11 +66,11 @@ fn join_using_internal<'a, Table>(
 where
     Table: PostgresTable<'a>,
 {
-    join.to_sql()
-        .append(table.to_sql())
+    join.into_sql()
+        .append(table.into_sql())
         .push(Token::USING)
         .push(Token::LPAREN)
-        .append(columns.to_sql())
+        .append(columns.into_sql())
         .push(Token::RPAREN)
 }
 
@@ -219,7 +219,7 @@ pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQL<'a, PostgresValue<'a>>
 where
     I: ToSQL<'a, PostgresValue<'a>>,
 {
-    let columns = columns.to_sql();
+    let columns = columns.into_sql();
     let columns = if columns.chunks.is_empty() {
         SQL::from(Token::STAR)
     } else {

@@ -1,40 +1,12 @@
 use crate::values::SQLiteValue;
-use core::fmt::Debug;
 use core::marker::PhantomData;
-use drizzle_core::{SQL, ToSQL};
-
-// Import the ExecutableState trait
-use super::ExecutableState;
-
-#[inline]
-fn append_sql<'a>(
-    mut base: SQL<'a, SQLiteValue<'a>>,
-    fragment: SQL<'a, SQLiteValue<'a>>,
-) -> SQL<'a, SQLiteValue<'a>> {
-    base.append_mut(fragment);
-    base
-}
+use drizzle_core::ToSQL;
 
 //------------------------------------------------------------------------------
 // Type State Markers
 //------------------------------------------------------------------------------
 
-/// Marker for the initial state of `DeleteBuilder`
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DeleteInitial;
-
-/// Marker for the state after WHERE clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DeleteWhereSet;
-
-/// Marker for the state after RETURNING clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DeleteReturningSet;
-
-// Mark states that can execute delete queries
-impl ExecutableState for DeleteInitial {}
-impl ExecutableState for DeleteWhereSet {}
-impl ExecutableState for DeleteReturningSet {}
+pub use drizzle_core::builder::{DeleteInitial, DeleteReturningSet, DeleteWhereSet};
 
 //------------------------------------------------------------------------------
 // DeleteBuilder Definition
@@ -276,7 +248,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     {
         let where_sql = crate::helpers::r#where(condition);
         DeleteBuilder {
-            sql: append_sql(self.sql, where_sql),
+            sql: self.sql.append(where_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -295,7 +267,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     {
         let returning_sql = crate::helpers::returning(columns);
         DeleteBuilder {
-            sql: append_sql(self.sql, returning_sql),
+            sql: self.sql.append(returning_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -320,7 +292,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteWhereSet, T> {
     {
         let returning_sql = crate::helpers::returning(columns);
         DeleteBuilder {
-            sql: append_sql(self.sql, returning_sql),
+            sql: self.sql.append(returning_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

@@ -1,61 +1,23 @@
 use crate::helpers::{self, JoinArg};
 use crate::values::SQLiteValue;
-use core::fmt::Debug;
 use core::marker::PhantomData;
-use drizzle_core::{SQL, SQLTable, ToSQL};
+use drizzle_core::{SQLTable, ToSQL};
 use paste::paste;
-
-// Import the ExecutableState trait
-use super::ExecutableState;
-
-#[inline]
-fn append_sql<'a>(
-    mut base: SQL<'a, SQLiteValue<'a>>,
-    fragment: SQL<'a, SQLiteValue<'a>>,
-) -> SQL<'a, SQLiteValue<'a>> {
-    base.append_mut(fragment);
-    base
-}
 
 //------------------------------------------------------------------------------
 // Type State Markers
 //------------------------------------------------------------------------------
 
-/// Marker for the initial state of `SelectBuilder`.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectInitial;
+pub use drizzle_core::builder::{
+    AsCteState, SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet,
+    SelectOffsetSet, SelectOrderSet, SelectSetOpSet, SelectWhereSet,
+};
 
-/// Marker for the state after FROM clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectFromSet;
+#[doc(hidden)]
+pub trait SelectWhereAllowed: drizzle_core::WhereAllowed {}
 
-/// Marker for the state after JOIN clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectJoinSet;
-
-/// Marker for the state after WHERE clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectWhereSet;
-
-/// Marker for the state after GROUP BY clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectGroupSet;
-
-/// Marker for the state after ORDER BY clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectOrderSet;
-
-/// Marker for the state after LIMIT clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectLimitSet;
-
-/// Marker for the state after OFFSET clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectOffsetSet;
-
-/// Marker for the state after set operations (UNION/INTERSECT/EXCEPT)
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectSetOpSet;
+impl SelectWhereAllowed for SelectFromSet {}
+impl SelectWhereAllowed for SelectJoinSet {}
 
 //------------------------------------------------------------------------------
 // Join macro (generates all join variants)
@@ -92,7 +54,7 @@ macro_rules! join_impl {
             {
                 use drizzle_core::Join;
                 SelectBuilder {
-                    sql: append_sql(self.sql, arg.into_join_sql($join_expr)),
+                    sql: self.sql.append(arg.into_join_sql($join_expr)),
                     schema: PhantomData,
                     state: PhantomData,
                     table: PhantomData,
@@ -104,74 +66,6 @@ macro_rules! join_impl {
         }
     };
 }
-
-//------------------------------------------------------------------------------
-// Capability trait impls for each state
-//------------------------------------------------------------------------------
-
-// ExecutableState
-impl ExecutableState for SelectFromSet {}
-impl ExecutableState for SelectWhereSet {}
-impl ExecutableState for SelectLimitSet {}
-impl ExecutableState for SelectOffsetSet {}
-impl ExecutableState for SelectOrderSet {}
-impl ExecutableState for SelectGroupSet {}
-impl ExecutableState for SelectJoinSet {}
-impl ExecutableState for SelectSetOpSet {}
-
-// WhereAllowed
-impl drizzle_core::WhereAllowed for SelectFromSet {}
-impl drizzle_core::WhereAllowed for SelectJoinSet {}
-
-// GroupByAllowed
-impl drizzle_core::GroupByAllowed for SelectFromSet {}
-impl drizzle_core::GroupByAllowed for SelectJoinSet {}
-impl drizzle_core::GroupByAllowed for SelectWhereSet {}
-
-// OrderByAllowed
-impl drizzle_core::OrderByAllowed for SelectFromSet {}
-impl drizzle_core::OrderByAllowed for SelectJoinSet {}
-impl drizzle_core::OrderByAllowed for SelectWhereSet {}
-impl drizzle_core::OrderByAllowed for SelectGroupSet {}
-impl drizzle_core::OrderByAllowed for SelectSetOpSet {}
-
-// LimitAllowed
-impl drizzle_core::LimitAllowed for SelectFromSet {}
-impl drizzle_core::LimitAllowed for SelectJoinSet {}
-impl drizzle_core::LimitAllowed for SelectWhereSet {}
-impl drizzle_core::LimitAllowed for SelectGroupSet {}
-impl drizzle_core::LimitAllowed for SelectOrderSet {}
-impl drizzle_core::LimitAllowed for SelectSetOpSet {}
-
-// OffsetAllowed
-impl drizzle_core::OffsetAllowed for SelectFromSet {}
-impl drizzle_core::OffsetAllowed for SelectLimitSet {}
-impl drizzle_core::OffsetAllowed for SelectSetOpSet {}
-
-// JoinAllowed
-impl drizzle_core::JoinAllowed for SelectFromSet {}
-impl drizzle_core::JoinAllowed for SelectJoinSet {}
-
-// HavingAllowed
-impl drizzle_core::HavingAllowed for SelectGroupSet {}
-
-// GroupByApplied (for aggregate/scalar mixing enforcement)
-impl drizzle_core::GroupByApplied for SelectGroupSet {}
-impl drizzle_core::GroupByApplied for SelectOrderSet {}
-impl drizzle_core::GroupByApplied for SelectLimitSet {}
-impl drizzle_core::GroupByApplied for SelectOffsetSet {}
-impl drizzle_core::GroupByApplied for SelectSetOpSet {}
-
-#[doc(hidden)]
-pub trait AsCteState {}
-
-impl AsCteState for SelectFromSet {}
-impl AsCteState for SelectJoinSet {}
-impl AsCteState for SelectWhereSet {}
-impl AsCteState for SelectGroupSet {}
-impl AsCteState for SelectOrderSet {}
-impl AsCteState for SelectLimitSet {}
-impl AsCteState for SelectOffsetSet {}
 
 //------------------------------------------------------------------------------
 // SelectBuilder Definition
@@ -396,7 +290,7 @@ impl<'a, S, M> SelectBuilder<'a, S, SelectInitial, (), M> {
         T: ToSQL<'a, SQLiteValue<'a>>,
         M: drizzle_core::ResolveRow<T>,
     {
-        let sql = append_sql(self.sql, helpers::from(query));
+        let sql = self.sql.append(helpers::from(query));
         SelectBuilder {
             sql,
             schema: PhantomData,
@@ -482,7 +376,9 @@ where
         M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
     {
         SelectBuilder {
-            sql: append_sql(self.sql, arg.into_join_sql(drizzle_core::Join::new())),
+            sql: self
+                .sql
+                .append(arg.into_join_sql(drizzle_core::Join::new())),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -498,7 +394,7 @@ where
 // WHERE (available from SelectFromSet and SelectJoinSet)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::WhereAllowed,
+    State: SelectWhereAllowed,
 {
     /// Adds a WHERE clause to filter query results.
     ///
@@ -555,7 +451,7 @@ where
         E::SQLType: drizzle_core::types::BooleanLike,
     {
         SelectBuilder {
-            sql: append_sql(self.sql, helpers::r#where(condition)),
+            sql: self.sql.append(helpers::r#where(condition)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -580,7 +476,7 @@ where
         Gr: drizzle_core::IntoGroupBy<'a, SQLiteValue<'a>>,
     {
         SelectBuilder {
-            sql: append_sql(self.sql, helpers::group_by_expr(columns)),
+            sql: self.sql.append(helpers::group_by_expr(columns)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -603,7 +499,7 @@ where
         E::SQLType: drizzle_core::types::BooleanLike,
     {
         SelectBuilder {
-            sql: append_sql(self.sql, helpers::having(condition)),
+            sql: self.sql.append(helpers::having(condition)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -629,7 +525,7 @@ where
         TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
     {
         SelectBuilder {
-            sql: append_sql(self.sql, helpers::order_by(expressions)),
+            sql: self.sql.append(helpers::order_by(expressions)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -659,7 +555,7 @@ where
         P: drizzle_core::PaginationArg<'a, SQLiteValue<'a>>,
     {
         SelectBuilder {
-            sql: append_sql(self.sql, helpers::limit(limit)),
+            sql: self.sql.append(helpers::limit(limit)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -689,7 +585,7 @@ where
         P: drizzle_core::PaginationArg<'a, SQLiteValue<'a>>,
     {
         SelectBuilder {
-            sql: append_sql(self.sql, helpers::offset(offset)),
+            sql: self.sql.append(helpers::offset(offset)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -734,7 +630,7 @@ where
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: ExecutableState,
+    State: drizzle_core::ExecutableState,
 {
     /// Combines this query with another using UNION.
     pub fn union(
@@ -840,7 +736,7 @@ where
 impl<'a, S, State, T, M, R, G> drizzle_core::expr::Expr<'a, SQLiteValue<'a>>
     for SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: ExecutableState,
+    State: drizzle_core::ExecutableState,
     M: drizzle_core::expr::SubqueryType<'a, SQLiteValue<'a>>,
 {
     type SQLType = <M as drizzle_core::expr::SubqueryType<'a, SQLiteValue<'a>>>::SQLType;
@@ -855,12 +751,12 @@ where
 /// Conversion trait for types that can become a `SelectBuilder`.
 /// Used by set operations to accept both raw `SelectBuilder` and `DrizzleBuilder`.
 pub trait IntoSelect<'a, S, M, R> {
-    type State: ExecutableState;
+    type State: drizzle_core::ExecutableState;
     type Table;
     fn into_select(self) -> SelectBuilder<'a, S, Self::State, Self::Table, M, R>;
 }
 
-impl<'a, S, State: ExecutableState, T, M, R, G> IntoSelect<'a, S, M, R>
+impl<'a, S, State: drizzle_core::ExecutableState, T, M, R, G> IntoSelect<'a, S, M, R>
     for SelectBuilder<'a, S, State, T, M, R, G>
 {
     type State = State;

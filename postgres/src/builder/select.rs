@@ -2,7 +2,6 @@ use crate::common::PostgresSchemaType;
 use crate::helpers;
 use crate::traits::PostgresTable;
 use crate::values::PostgresValue;
-use core::fmt::Debug;
 use core::marker::PhantomData;
 use drizzle_core::ToSQL;
 use drizzle_core::traits::SQLTable;
@@ -15,41 +14,16 @@ use super::ExecutableState;
 // Type State Markers
 //------------------------------------------------------------------------------
 
-/// Marker for the initial state of `SelectBuilder`.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectInitial;
+pub use drizzle_core::builder::{
+    AsCteState, SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet,
+    SelectOffsetSet, SelectOrderSet, SelectSetOpSet, SelectWhereSet,
+};
 
-/// Marker for the state after FROM clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectFromSet;
+#[doc(hidden)]
+pub trait SelectWhereAllowed: drizzle_core::WhereAllowed {}
 
-/// Marker for the state after JOIN clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectJoinSet;
-
-/// Marker for the state after WHERE clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectWhereSet;
-
-/// Marker for the state after GROUP BY clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectGroupSet;
-
-/// Marker for the state after ORDER BY clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectOrderSet;
-
-/// Marker for the state after LIMIT clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectLimitSet;
-
-/// Marker for the state after OFFSET clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectOffsetSet;
-
-/// Marker for the state after set operations (UNION/INTERSECT/EXCEPT)
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SelectSetOpSet;
+impl SelectWhereAllowed for SelectFromSet {}
+impl SelectWhereAllowed for SelectJoinSet {}
 
 /// Marker for the state after FOR UPDATE/SHARE clause
 #[derive(Debug, Clone, Copy, Default)]
@@ -180,70 +154,7 @@ macro_rules! join_using_impl {
 // Capability trait impls for each state
 //------------------------------------------------------------------------------
 
-// ExecutableState
-impl ExecutableState for SelectFromSet {}
-impl ExecutableState for SelectWhereSet {}
-impl ExecutableState for SelectLimitSet {}
-impl ExecutableState for SelectOffsetSet {}
-impl ExecutableState for SelectOrderSet {}
-impl ExecutableState for SelectGroupSet {}
-impl ExecutableState for SelectJoinSet {}
-impl ExecutableState for SelectSetOpSet {}
 impl ExecutableState for SelectForSet {}
-
-// WhereAllowed
-impl drizzle_core::WhereAllowed for SelectFromSet {}
-impl drizzle_core::WhereAllowed for SelectJoinSet {}
-
-// GroupByAllowed
-impl drizzle_core::GroupByAllowed for SelectFromSet {}
-impl drizzle_core::GroupByAllowed for SelectJoinSet {}
-impl drizzle_core::GroupByAllowed for SelectWhereSet {}
-
-// OrderByAllowed
-impl drizzle_core::OrderByAllowed for SelectFromSet {}
-impl drizzle_core::OrderByAllowed for SelectJoinSet {}
-impl drizzle_core::OrderByAllowed for SelectWhereSet {}
-impl drizzle_core::OrderByAllowed for SelectGroupSet {}
-impl drizzle_core::OrderByAllowed for SelectSetOpSet {}
-
-// LimitAllowed
-impl drizzle_core::LimitAllowed for SelectFromSet {}
-impl drizzle_core::LimitAllowed for SelectJoinSet {}
-impl drizzle_core::LimitAllowed for SelectWhereSet {}
-impl drizzle_core::LimitAllowed for SelectGroupSet {}
-impl drizzle_core::LimitAllowed for SelectOrderSet {}
-impl drizzle_core::LimitAllowed for SelectSetOpSet {}
-
-// OffsetAllowed
-impl drizzle_core::OffsetAllowed for SelectFromSet {}
-impl drizzle_core::OffsetAllowed for SelectLimitSet {}
-impl drizzle_core::OffsetAllowed for SelectSetOpSet {}
-
-// JoinAllowed
-impl drizzle_core::JoinAllowed for SelectFromSet {}
-impl drizzle_core::JoinAllowed for SelectJoinSet {}
-
-// HavingAllowed
-impl drizzle_core::HavingAllowed for SelectGroupSet {}
-
-// GroupByApplied (for aggregate/scalar mixing enforcement)
-impl drizzle_core::GroupByApplied for SelectGroupSet {}
-impl drizzle_core::GroupByApplied for SelectOrderSet {}
-impl drizzle_core::GroupByApplied for SelectLimitSet {}
-impl drizzle_core::GroupByApplied for SelectOffsetSet {}
-impl drizzle_core::GroupByApplied for SelectSetOpSet {}
-
-#[doc(hidden)]
-pub trait AsCteState {}
-
-impl AsCteState for SelectFromSet {}
-impl AsCteState for SelectJoinSet {}
-impl AsCteState for SelectWhereSet {}
-impl AsCteState for SelectGroupSet {}
-impl AsCteState for SelectOrderSet {}
-impl AsCteState for SelectLimitSet {}
-impl AsCteState for SelectOffsetSet {}
 
 //------------------------------------------------------------------------------
 // SelectBuilder Definition
@@ -333,7 +244,7 @@ where
 // WHERE (available from SelectFromSet and SelectJoinSet)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::WhereAllowed,
+    State: SelectWhereAllowed,
 {
     /// Adds a WHERE clause to filter query results.
     #[inline]

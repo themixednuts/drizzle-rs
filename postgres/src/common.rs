@@ -1,6 +1,6 @@
 use drizzle_core::schema::SQLEnumInfo;
 use drizzle_core::traits::SQLViewInfo;
-use drizzle_core::{SQLIndexInfo, SQLSchemaType};
+use drizzle_core::{SQLIndexInfo, SQLPolicyInfo, SQLSchemaType};
 
 /// The type of database object
 #[derive(Debug, Clone)]
@@ -11,6 +11,8 @@ pub enum PostgresSchemaType {
     View(&'static dyn SQLViewInfo),
     /// An index
     Index(&'static dyn SQLIndexInfo),
+    /// A row-level security policy
+    Policy(&'static dyn SQLPolicyInfo),
     /// A trigger
     Trigger,
     /// A database enum type (`PostgreSQL`)

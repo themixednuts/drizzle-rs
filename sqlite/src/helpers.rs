@@ -85,7 +85,7 @@ pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQL<'a, SQLiteValue<'a>>
 where
     I: ToSQL<'a, SQLiteValue<'a>>,
 {
-    let columns = columns.to_sql();
+    let columns = columns.into_sql();
     let columns = if columns.chunks.is_empty() {
         SQL::from(Token::STAR)
     } else {

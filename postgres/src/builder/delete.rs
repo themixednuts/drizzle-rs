@@ -1,31 +1,12 @@
 use crate::values::PostgresValue;
-use core::fmt::Debug;
 use core::marker::PhantomData;
 use drizzle_core::ToSQL;
-
-// Import the ExecutableState trait
-use super::ExecutableState;
 
 //------------------------------------------------------------------------------
 // Type State Markers
 //------------------------------------------------------------------------------
 
-/// Marker for the initial state of `DeleteBuilder`
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DeleteInitial;
-
-/// Marker for the state after WHERE clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DeleteWhereSet;
-
-/// Marker for the state after RETURNING clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DeleteReturningSet;
-
-// Mark states that can execute delete queries
-impl ExecutableState for DeleteInitial {}
-impl ExecutableState for DeleteWhereSet {}
-impl ExecutableState for DeleteReturningSet {}
+pub use drizzle_core::builder::{DeleteInitial, DeleteReturningSet, DeleteWhereSet};
 
 //------------------------------------------------------------------------------
 // DeleteBuilder Definition
