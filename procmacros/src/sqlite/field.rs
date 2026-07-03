@@ -4,8 +4,8 @@ use quote::quote;
 use std::borrow::Cow;
 use std::{collections::HashSet, fmt::Display};
 use syn::{
-    Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Meta, Result, Token, Type,
-    parse::ParseStream,
+    Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Meta, Result, Token, Type, ext::IdentExt,
+    parse::ParseStream, punctuated::Punctuated,
 };
 
 use crate::common::make_uppercase_path;
@@ -188,6 +188,33 @@ pub struct ForeignKeyReference {
     pub(crate) on_update: Option<String>,
 }
 
+/// SQLite generated column metadata parsed from `#[column(generated(...))]`.
+#[derive(Debug, Clone)]
+pub struct GeneratedColumn {
+    /// The raw SQL expression supplied by the user, without the generated-column
+    /// wrapper.
+    pub(crate) expression: String,
+    /// `true` for STORED, `false` for VIRTUAL.
+    pub(crate) stored: bool,
+}
+
+fn parenthesized_sql_expression(expression: &str) -> String {
+    let trimmed = expression.trim();
+    if trimmed.starts_with('(') && trimmed.ends_with(')') {
+        trimmed.to_string()
+    } else {
+        format!("({trimmed})")
+    }
+}
+
+fn normalize_default_sql(expression: &str) -> String {
+    let trimmed = expression.trim();
+    match trimmed.to_ascii_uppercase().as_str() {
+        "CURRENT_TIME" | "CURRENT_DATE" | "CURRENT_TIMESTAMP" => trimmed.to_string(),
+        _ => parenthesized_sql_expression(trimmed),
+    }
+}
+
 /// Comprehensive field information for code generation.
 ///
 /// The many `bool` fields here each represent an independent SQL column
@@ -239,7 +266,10 @@ pub struct FieldInfo<'a> {
 
     // Attribute values
     pub(crate) default_value: Option<Expr>,
+    pub(crate) default_sql: Option<String>,
     pub(crate) default_fn: Option<Expr>,
+    pub(crate) generated_column: Option<GeneratedColumn>,
+    pub(crate) check_constraint: Option<String>,
 
     // Original marker expressions for IDE hover documentation
     // These preserve the original tokens so rust-analyzer can resolve them
@@ -253,6 +283,48 @@ pub struct FieldInfo<'a> {
 
 /// Parse attribute items, handling reserved keywords like 'enum'
 fn parse_item(input: ParseStream) -> Result<Expr> {
+    if input.peek(Ident) {
+        let fork = input.fork();
+        let ident = Ident::parse_any(&fork)?;
+        if ident.to_string().eq_ignore_ascii_case("generated") && fork.peek(syn::token::Paren) {
+            let generated_ident = Ident::parse_any(input)?;
+            let content;
+            let paren_token = syn::parenthesized!(content in input);
+            let kind_ident = Ident::parse_any(&content)?;
+            content.parse::<Token![,]>()?;
+            let expr_lit: syn::LitStr = content.parse()?;
+            if !content.is_empty() {
+                return Err(Error::new(
+                    content.span(),
+                    "#[column(generated(...))] accepts exactly two arguments",
+                ));
+            }
+
+            let mut args = Punctuated::new();
+            args.push_value(Expr::Path(syn::ExprPath {
+                attrs: Vec::new(),
+                qself: None,
+                path: syn::Path::from(kind_ident),
+            }));
+            args.push_punct(Default::default());
+            args.push_value(Expr::Lit(syn::ExprLit {
+                attrs: Vec::new(),
+                lit: Lit::Str(expr_lit),
+            }));
+
+            return Ok(Expr::Call(syn::ExprCall {
+                attrs: Vec::new(),
+                func: Box::new(Expr::Path(syn::ExprPath {
+                    attrs: Vec::new(),
+                    qself: None,
+                    path: syn::Path::from(generated_ident),
+                })),
+                paren_token,
+                args,
+            }));
+        }
+    }
+
     let lookahead = input.lookahead1();
 
     if lookahead.peek(Token![enum]) {
@@ -271,7 +343,10 @@ fn parse_item(input: ParseStream) -> Result<Expr> {
 #[derive(Default)]
 struct ParsedArgs {
     default_value: Option<Expr>,
+    default_sql: Option<String>,
     default_fn: Option<Expr>,
+    generated_column: Option<GeneratedColumn>,
+    check_constraint: Option<String>,
     references: Option<Expr>,
     on_delete: Option<String>,
     on_update: Option<String>,
@@ -295,7 +370,10 @@ struct AttributeData {
     has_explicit_type: bool,
     flags: HashSet<String>,
     default_value: Option<Expr>,
+    default_sql: Option<String>,
     default_fn: Option<Expr>,
+    generated_column: Option<GeneratedColumn>,
+    check_constraint: Option<String>,
     references_path: Option<ExprPath>,
     on_delete: Option<String>,
     on_update: Option<String>,
@@ -339,143 +417,252 @@ impl<'a> FieldInfo<'a> {
         let items = input.parse_terminated(parse_item, Token![,])?;
         let mut args = ParsedArgs::default();
 
-        items.into_iter().for_each(|expr| match expr {
-            Expr::Path(path) => {
-                if let Some(ident) = path.path.get_ident() {
-                    let ident_str = ident.to_string();
-                    // Match case-insensitively - create UPPERCASE ident with original span for IDE hover
-                    // This allows users to write lowercase but resolves to UPPERCASE prelude exports
-                    let upper = ident_str.to_ascii_uppercase();
-                    match upper.as_str() {
-                        "JSON" => {
-                            // JSON = TEXT storage with JSON serialization
-                            args.explicit_type = Some(SQLiteType::Text);
-                            args.flags.insert("json".to_string());
-                            args.marker_exprs.push(make_uppercase_path(ident, "JSON"));
-                        }
-                        "JSONB" => {
-                            // JSONB = BLOB storage with JSON serialization
-                            args.explicit_type = Some(SQLiteType::Blob);
-                            args.flags.insert("json".to_string());
-                            args.marker_exprs.push(make_uppercase_path(ident, "JSONB"));
-                        }
-                        "DEFAULT" => {
-                            args.default_fn = Some(syn::parse_quote!(Default::default));
-                        }
-                        "ENUM" => {
-                            args.flags.insert("enum".to_string());
-                            args.marker_exprs.push(make_uppercase_path(ident, "ENUM"));
-                        }
-                        "PRIMARY" | "PRIMARY_KEY" => {
-                            args.flags.insert("primary".to_string());
-                            args.marker_exprs
-                                .push(make_uppercase_path(ident, "PRIMARY"));
-                        }
-                        "AUTOINCREMENT" => {
-                            args.flags.insert("autoincrement".to_string());
-                            args.marker_exprs
-                                .push(make_uppercase_path(ident, "AUTOINCREMENT"));
-                        }
-                        "UNIQUE" => {
-                            args.flags.insert("unique".to_string());
-                            args.marker_exprs.push(make_uppercase_path(ident, "UNIQUE"));
-                        }
-                        _ => {
-                            // Check if this is a SQLite type override (case-insensitive for types)
-                            if let Some(sqlite_type) = SQLiteType::from_attribute_name(&ident_str) {
-                                args.explicit_type = Some(sqlite_type);
-                            } else {
-                                args.flags.insert(ident_str);
+        for expr in items {
+            match expr {
+                Expr::Path(path) => {
+                    if let Some(ident) = path.path.get_ident() {
+                        let ident_str = ident.to_string();
+                        // Match case-insensitively - create UPPERCASE ident with original span for IDE hover
+                        // This allows users to write lowercase but resolves to UPPERCASE prelude exports
+                        let upper = ident_str.to_ascii_uppercase();
+                        match upper.as_str() {
+                            "JSON" => {
+                                // JSON = TEXT storage with JSON serialization
+                                args.explicit_type = Some(SQLiteType::Text);
+                                args.flags.insert("json".to_string());
+                                args.marker_exprs.push(make_uppercase_path(ident, "JSON"));
+                            }
+                            "JSONB" => {
+                                // JSONB = BLOB storage with JSON serialization
+                                args.explicit_type = Some(SQLiteType::Blob);
+                                args.flags.insert("json".to_string());
+                                args.marker_exprs.push(make_uppercase_path(ident, "JSONB"));
+                            }
+                            "DEFAULT" => {
+                                args.default_fn = Some(syn::parse_quote!(Default::default));
+                            }
+                            "ENUM" => {
+                                args.flags.insert("enum".to_string());
+                                args.marker_exprs.push(make_uppercase_path(ident, "ENUM"));
+                            }
+                            "PRIMARY" | "PRIMARY_KEY" => {
+                                args.flags.insert("primary".to_string());
+                                args.marker_exprs
+                                    .push(make_uppercase_path(ident, "PRIMARY"));
+                            }
+                            "AUTOINCREMENT" => {
+                                args.flags.insert("autoincrement".to_string());
+                                args.marker_exprs
+                                    .push(make_uppercase_path(ident, "AUTOINCREMENT"));
+                            }
+                            "UNIQUE" => {
+                                args.flags.insert("unique".to_string());
+                                args.marker_exprs.push(make_uppercase_path(ident, "UNIQUE"));
+                            }
+                            _ => {
+                                // Check if this is a SQLite type override (case-insensitive for types)
+                                if let Some(sqlite_type) =
+                                    SQLiteType::from_attribute_name(&ident_str)
+                                {
+                                    args.explicit_type = Some(sqlite_type);
+                                } else {
+                                    args.flags.insert(ident_str);
+                                }
                             }
                         }
                     }
                 }
-            }
-            Expr::Assign(assign) => {
-                if let Expr::Path(path) = &*assign.left
-                    && let Some(param) = path.path.get_ident()
-                {
-                    let param_str = param.to_string();
-                    // Match case-insensitively - create UPPERCASE ident with original span for IDE hover
-                    let upper = param_str.to_ascii_uppercase();
-                    match upper.as_str() {
-                        "DEFAULT" => {
-                            args.default_value = Some(*assign.right);
-                            args.marker_exprs
-                                .push(make_uppercase_path(param, "DEFAULT"));
-                        }
-                        "DEFAULT_FN" => {
-                            args.default_fn = Some(*assign.right);
-                            args.marker_exprs
-                                .push(make_uppercase_path(param, "DEFAULT_FN"));
-                        }
-                        "REFERENCES" => {
-                            args.references = Some(*assign.right.clone());
-                            args.marker_exprs
-                                .push(make_uppercase_path(param, "REFERENCES"));
-                        }
-                        "ON_DELETE" => {
-                            if let Expr::Path(action_path) = &*assign.right
-                                && let Some(action_ident) = action_path.path.get_ident()
-                            {
-                                let action_upper = action_ident.to_string().to_ascii_uppercase();
-                                args.on_delete =
-                                    Self::validate_referential_action(action_ident).ok();
+                Expr::Assign(assign) => {
+                    if let Expr::Path(path) = &*assign.left
+                        && let Some(param) = path.path.get_ident()
+                    {
+                        let param_str = param.to_string();
+                        // Match case-insensitively - create UPPERCASE ident with original span for IDE hover
+                        let upper = param_str.to_ascii_uppercase();
+                        match upper.as_str() {
+                            "DEFAULT" => {
+                                args.default_value = Some(*assign.right);
                                 args.marker_exprs
-                                    .push(make_uppercase_path(param, "ON_DELETE"));
-                                // Add marker for the action value (CASCADE, SET_NULL, etc.)
-                                args.marker_exprs
-                                    .push(make_uppercase_path(action_ident, &action_upper));
+                                    .push(make_uppercase_path(param, "DEFAULT"));
                             }
-                        }
-                        "ON_UPDATE" => {
-                            if let Expr::Path(action_path) = &*assign.right
-                                && let Some(action_ident) = action_path.path.get_ident()
-                            {
-                                let action_upper = action_ident.to_string().to_ascii_uppercase();
-                                args.on_update =
-                                    Self::validate_referential_action(action_ident).ok();
-                                args.marker_exprs
-                                    .push(make_uppercase_path(param, "ON_UPDATE"));
-                                // Add marker for the action value (CASCADE, SET_NULL, etc.)
-                                args.marker_exprs
-                                    .push(make_uppercase_path(action_ident, &action_upper));
-                            }
-                        }
-                        "NAME" => {
-                            args.name = Some(*assign.right.clone());
-                            args.marker_exprs.push(make_uppercase_path(param, "NAME"));
-                        }
-                        "COLLATE" => {
-                            // Accept either a string literal (`collate = "NOCASE"`) or
-                            // a bare ident (`collate = NOCASE`). The ident form keeps
-                            // attribute syntax consistent with the rest of `#[column(...)]`
-                            // and gets an IDE marker for hover.
-                            match &*assign.right {
-                                Expr::Lit(syn::ExprLit {
+                            "DEFAULT_SQL" => {
+                                if let Expr::Lit(syn::ExprLit {
                                     lit: Lit::Str(lit_str),
                                     ..
-                                }) => {
-                                    args.collate = Some(lit_str.value());
+                                }) = &*assign.right
+                                {
+                                    args.default_sql =
+                                        Some(normalize_default_sql(&lit_str.value()));
+                                    args.marker_exprs
+                                        .push(make_uppercase_path(param, "DEFAULT_SQL"));
+                                } else {
+                                    return Err(Error::new_spanned(
+                                        &assign.right,
+                                        "default_sql requires a string literal, e.g. default_sql = \"CURRENT_TIMESTAMP\"",
+                                    ));
                                 }
-                                Expr::Path(path) => {
-                                    if let Some(ident) = path.path.get_ident() {
-                                        let upper = ident.to_string().to_ascii_uppercase();
-                                        args.collate = Some(upper.clone());
-                                        args.marker_exprs.push(make_uppercase_path(ident, &upper));
-                                    }
-                                }
-                                _ => {}
                             }
-                            args.marker_exprs
-                                .push(make_uppercase_path(param, "COLLATE"));
+                            "DEFAULT_FN" => {
+                                args.default_fn = Some(*assign.right);
+                                args.marker_exprs
+                                    .push(make_uppercase_path(param, "DEFAULT_FN"));
+                            }
+                            "REFERENCES" => {
+                                args.references = Some(*assign.right.clone());
+                                args.marker_exprs
+                                    .push(make_uppercase_path(param, "REFERENCES"));
+                            }
+                            "ON_DELETE" => {
+                                if let Expr::Path(action_path) = &*assign.right
+                                    && let Some(action_ident) = action_path.path.get_ident()
+                                {
+                                    let action_upper =
+                                        action_ident.to_string().to_ascii_uppercase();
+                                    args.on_delete =
+                                        Self::validate_referential_action(action_ident).ok();
+                                    args.marker_exprs
+                                        .push(make_uppercase_path(param, "ON_DELETE"));
+                                    // Add marker for the action value (CASCADE, SET_NULL, etc.)
+                                    args.marker_exprs
+                                        .push(make_uppercase_path(action_ident, &action_upper));
+                                }
+                            }
+                            "ON_UPDATE" => {
+                                if let Expr::Path(action_path) = &*assign.right
+                                    && let Some(action_ident) = action_path.path.get_ident()
+                                {
+                                    let action_upper =
+                                        action_ident.to_string().to_ascii_uppercase();
+                                    args.on_update =
+                                        Self::validate_referential_action(action_ident).ok();
+                                    args.marker_exprs
+                                        .push(make_uppercase_path(param, "ON_UPDATE"));
+                                    // Add marker for the action value (CASCADE, SET_NULL, etc.)
+                                    args.marker_exprs
+                                        .push(make_uppercase_path(action_ident, &action_upper));
+                                }
+                            }
+                            "NAME" => {
+                                args.name = Some(*assign.right.clone());
+                                args.marker_exprs.push(make_uppercase_path(param, "NAME"));
+                            }
+                            "COLLATE" => {
+                                // Accept either a string literal (`collate = "NOCASE"`) or
+                                // a bare ident (`collate = NOCASE`). The ident form keeps
+                                // attribute syntax consistent with the rest of `#[column(...)]`
+                                // and gets an IDE marker for hover.
+                                match &*assign.right {
+                                    Expr::Lit(syn::ExprLit {
+                                        lit: Lit::Str(lit_str),
+                                        ..
+                                    }) => {
+                                        args.collate = Some(lit_str.value());
+                                    }
+                                    Expr::Path(path) => {
+                                        if let Some(ident) = path.path.get_ident() {
+                                            let upper = ident.to_string().to_ascii_uppercase();
+                                            args.collate = Some(upper.clone());
+                                            args.marker_exprs
+                                                .push(make_uppercase_path(ident, &upper));
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                                args.marker_exprs
+                                    .push(make_uppercase_path(param, "COLLATE"));
+                            }
+                            "CHECK" => {
+                                if let Expr::Lit(syn::ExprLit {
+                                    lit: Lit::Str(lit_str),
+                                    ..
+                                }) = &*assign.right
+                                {
+                                    args.check_constraint = Some(lit_str.value());
+                                    args.marker_exprs.push(make_uppercase_path(param, "CHECK"));
+                                } else {
+                                    return Err(Error::new_spanned(
+                                        &assign.right,
+                                        "CHECK requires a string literal, e.g. CHECK = \"score >= 0\"",
+                                    ));
+                                }
+                            }
+                            _ => {}
                         }
-                        _ => {}
                     }
                 }
+                Expr::Call(call) => {
+                    if let Expr::Path(path) = &*call.func
+                        && let Some(ident) = path.path.get_ident()
+                        && ident.to_string().eq_ignore_ascii_case("generated")
+                    {
+                        let mut args_iter = call.args.iter();
+                        let Some(kind_expr) = args_iter.next() else {
+                            return Err(Error::new_spanned(
+                                call,
+                                "#[column(generated(...))] requires arguments: generated(stored, \"expression\") or generated(virtual, \"expression\")",
+                            ));
+                        };
+                        let stored = match kind_expr {
+                            Expr::Path(kind_path) => {
+                                let Some(kind_ident) = kind_path.path.get_ident() else {
+                                    return Err(Error::new_spanned(
+                                        kind_expr,
+                                        "expected `stored` or `virtual` for #[column(generated(...))]",
+                                    ));
+                                };
+                                match kind_ident.to_string().to_ascii_lowercase().as_str() {
+                                    "stored" => true,
+                                    "virtual" => false,
+                                    _ => {
+                                        return Err(Error::new_spanned(
+                                            kind_ident,
+                                            "expected `stored` or `virtual` for #[column(generated(...))]",
+                                        ));
+                                    }
+                                }
+                            }
+                            _ => {
+                                return Err(Error::new_spanned(
+                                    kind_expr,
+                                    "expected `stored` or `virtual` for #[column(generated(...))]",
+                                ));
+                            }
+                        };
+
+                        let Some(expr_arg) = args_iter.next() else {
+                            return Err(Error::new_spanned(
+                                call,
+                                "expected a string literal for the SQL expression, e.g. generated(stored, \"col_a + col_b\")",
+                            ));
+                        };
+                        let Expr::Lit(syn::ExprLit {
+                            lit: Lit::Str(expr_lit),
+                            ..
+                        }) = expr_arg
+                        else {
+                            return Err(Error::new_spanned(
+                                expr_arg,
+                                "expected a string literal for the SQL expression, e.g. generated(stored, \"col_a + col_b\")",
+                            ));
+                        };
+                        if let Some(extra) = args_iter.next() {
+                            return Err(Error::new_spanned(
+                                extra,
+                                "#[column(generated(...))] accepts exactly two arguments",
+                            ));
+                        }
+
+                        args.generated_column = Some(GeneratedColumn {
+                            expression: expr_lit.value(),
+                            stored,
+                        });
+                        args.marker_exprs
+                            .push(make_uppercase_path(ident, "GENERATED"));
+                    }
+                }
+                _ => {}
             }
-            _ => {}
-        });
+        }
 
         Ok(args)
     }
@@ -522,29 +709,31 @@ impl<'a> FieldInfo<'a> {
                 }
 
                 // Parse arguments for legacy syntax
-                if let Ok(args) = attr.parse_args_with(Self::parse_args) {
-                    // Validate flags against the explicit column type
-                    args.flags
-                        .iter()
-                        .try_for_each(|flag| column_type.validate_flag(flag, attr))?;
+                let args = attr.parse_args_with(Self::parse_args)?;
+                // Validate flags against the explicit column type
+                args.flags
+                    .iter()
+                    .try_for_each(|flag| column_type.validate_flag(flag, attr))?;
 
-                    data.flags.extend(args.flags);
-                    data.default_value = data.default_value.or(args.default_value);
-                    data.default_fn = data.default_fn.or(args.default_fn);
-                    data.marker_exprs.extend(args.marker_exprs);
-                    data.on_delete = data.on_delete.or(args.on_delete);
-                    data.on_update = data.on_update.or(args.on_update);
-                    data.collate = data.collate.or(args.collate);
+                data.flags.extend(args.flags);
+                data.default_value = data.default_value.or(args.default_value);
+                data.default_sql = data.default_sql.or(args.default_sql);
+                data.default_fn = data.default_fn.or(args.default_fn);
+                data.generated_column = data.generated_column.or(args.generated_column);
+                data.check_constraint = data.check_constraint.or(args.check_constraint);
+                data.marker_exprs.extend(args.marker_exprs);
+                data.on_delete = data.on_delete.or(args.on_delete);
+                data.on_update = data.on_update.or(args.on_update);
+                data.collate = data.collate.or(args.collate);
 
-                    if let Some(Expr::Path(path)) = args.references {
-                        data.references_path = Some(path);
-                    }
+                if let Some(Expr::Path(path)) = args.references {
+                    data.references_path = Some(path);
+                }
 
-                    if let Some(Expr::Lit(expr_lit)) = args.name
-                        && let Lit::Str(lit_str) = expr_lit.lit
-                    {
-                        data.attr_name = Some(lit_str.value());
-                    }
+                if let Some(Expr::Lit(expr_lit)) = args.name
+                    && let Lit::Str(lit_str) = expr_lit.lit
+                {
+                    data.attr_name = Some(lit_str.value());
                 }
                 continue;
             }
@@ -557,36 +746,38 @@ impl<'a> FieldInfo<'a> {
                 }
 
                 // Parse arguments for new syntax
-                if let Ok(args) = attr.parse_args_with(Self::parse_args) {
-                    // If explicit type was provided in args, use it
-                    if let Some(explicit_type) = args.explicit_type {
-                        data.column_type = explicit_type.clone();
-                        data.has_explicit_type = true;
+                let args = attr.parse_args_with(Self::parse_args)?;
+                // If explicit type was provided in args, use it
+                if let Some(explicit_type) = args.explicit_type {
+                    data.column_type = explicit_type.clone();
+                    data.has_explicit_type = true;
 
-                        // Validate flags against the explicit type
-                        args.flags
-                            .iter()
-                            .try_for_each(|flag| explicit_type.validate_flag(flag, attr))?;
-                    }
-                    // Otherwise, type will be inferred in build()
+                    // Validate flags against the explicit type
+                    args.flags
+                        .iter()
+                        .try_for_each(|flag| explicit_type.validate_flag(flag, attr))?;
+                }
+                // Otherwise, type will be inferred in build()
 
-                    data.flags.extend(args.flags);
-                    data.default_value = data.default_value.or(args.default_value);
-                    data.default_fn = data.default_fn.or(args.default_fn);
-                    data.marker_exprs.extend(args.marker_exprs);
-                    data.on_delete = data.on_delete.or(args.on_delete);
-                    data.on_update = data.on_update.or(args.on_update);
-                    data.collate = data.collate.or(args.collate);
+                data.flags.extend(args.flags);
+                data.default_value = data.default_value.or(args.default_value);
+                data.default_sql = data.default_sql.or(args.default_sql);
+                data.default_fn = data.default_fn.or(args.default_fn);
+                data.generated_column = data.generated_column.or(args.generated_column);
+                data.check_constraint = data.check_constraint.or(args.check_constraint);
+                data.marker_exprs.extend(args.marker_exprs);
+                data.on_delete = data.on_delete.or(args.on_delete);
+                data.on_update = data.on_update.or(args.on_update);
+                data.collate = data.collate.or(args.collate);
 
-                    if let Some(Expr::Path(path)) = args.references {
-                        data.references_path = Some(path);
-                    }
+                if let Some(Expr::Path(path)) = args.references {
+                    data.references_path = Some(path);
+                }
 
-                    if let Some(Expr::Lit(expr_lit)) = args.name
-                        && let Lit::Str(lit_str) = expr_lit.lit
-                    {
-                        data.attr_name = Some(lit_str.value());
-                    }
+                if let Some(Expr::Lit(expr_lit)) = args.name
+                    && let Lit::Str(lit_str) = expr_lit.lit
+                {
+                    data.attr_name = Some(lit_str.value());
                 }
             }
         }
@@ -627,7 +818,9 @@ impl<'a> FieldInfo<'a> {
         let is_json = attrs.flags.contains("json");
         let is_enum = attrs.flags.contains("enum");
         let is_uuid = type_is_uuid(base_type);
-        let has_default = attrs.default_value.is_some() || attrs.default_fn.is_some();
+        let has_default = attrs.default_value.is_some()
+            || attrs.default_sql.is_some()
+            || attrs.default_fn.is_some();
 
         // Determine the SQLite type:
         // 1. Use explicit type from attribute if provided
@@ -666,7 +859,9 @@ impl<'a> FieldInfo<'a> {
                 is_uuid,
             },
             attrs.default_value.as_ref(),
+            attrs.default_sql.as_deref(),
             attrs.default_fn.as_ref(),
+            attrs.generated_column.as_ref(),
             field_name,
         )?;
 
@@ -680,6 +875,8 @@ impl<'a> FieldInfo<'a> {
                 is_autoincrement,
             },
             attrs.default_value.as_ref(),
+            attrs.default_sql.as_deref(),
+            attrs.generated_column.as_ref(),
         );
 
         // Detect foreign key reference from the attributes (references = Table::column)
@@ -715,7 +912,10 @@ impl<'a> FieldInfo<'a> {
             ),
             collate: attrs.collate,
             default_value: attrs.default_value,
+            default_sql: attrs.default_sql,
             default_fn: attrs.default_fn,
+            generated_column: attrs.generated_column,
+            check_constraint: attrs.check_constraint,
             marker_exprs: attrs.marker_exprs,
             select_type: Some(select_type(base_type, is_nullable, has_default)),
             update_type: Some(update_type(base_type)),
@@ -727,7 +927,9 @@ impl<'a> FieldInfo<'a> {
         column_type: &SQLiteType,
         props: ConstraintFlags,
         default_value: Option<&Expr>,
+        default_sql: Option<&str>,
         default_fn: Option<&Expr>,
+        generated_column: Option<&GeneratedColumn>,
         field_name: &Ident,
     ) -> Result<()> {
         let validations = [
@@ -748,6 +950,16 @@ impl<'a> FieldInfo<'a> {
                 "Cannot specify both 'default' (compile-time literal) and 'default_fn' (runtime function).\n\
               Choose one: either 'default = literal' or 'default_fn = function'\n\
               Examples:\n  #[column(default = \"hello\")] for compile-time defaults\n  #[column(default_fn = String::new)] for runtime defaults",
+            ),
+            (
+                default_value.is_some() && default_sql.is_some(),
+                "Cannot specify both 'default' (literal default) and 'default_sql' (raw SQL default).\n\
+              Choose one: either 'default = literal' or 'default_sql = \"CURRENT_TIMESTAMP\"'",
+            ),
+            (
+                default_sql.is_some() && generated_column.is_some(),
+                "Cannot specify both 'default_sql' and 'generated' on the same column.\n\
+              SQLite generated columns cannot also declare a DEFAULT expression.",
             ),
             (
                 props.is_uuid && !matches!(column_type, SQLiteType::Blob | SQLiteType::Text),
@@ -794,6 +1006,8 @@ fn build_sql_definition(
     column_type: &SQLiteType,
     flags: SqlDefinitionFlags,
     default_value: Option<&Expr>,
+    default_sql: Option<&str>,
+    generated_column: Option<&GeneratedColumn>,
 ) -> String {
     let mut sql = format!("\"{}\" {}", column_name, column_type.to_sql_type());
 
@@ -815,7 +1029,21 @@ fn build_sql_definition(
         sql.push_str(" UNIQUE");
     }
 
-    if let Some(Expr::Lit(expr_lit)) = default_value {
+    if let Some(generated) = generated_column {
+        let generated_type = if generated.stored {
+            "STORED"
+        } else {
+            "VIRTUAL"
+        };
+        let generated_expr = parenthesized_sql_expression(&generated.expression);
+        sql.push_str(&format!(
+            " GENERATED ALWAYS AS {generated_expr} {generated_type}"
+        ));
+    }
+
+    if generated_column.is_none()
+        && let Some(Expr::Lit(expr_lit)) = default_value
+    {
         let default_val = match &expr_lit.lit {
             Lit::Int(i) => format!(" DEFAULT {i}"),
             Lit::Float(f) => format!(" DEFAULT {f}"),
@@ -827,6 +1055,11 @@ fn build_sql_definition(
             _ => String::new(),
         };
         sql.push_str(&default_val);
+    }
+    if generated_column.is_none()
+        && let Some(default_sql) = default_sql
+    {
+        sql.push_str(&format!(" DEFAULT {default_sql}"));
     }
 
     sql
@@ -1017,13 +1250,28 @@ impl FieldInfo<'_> {
         if self.is_autoincrement {
             col = col.autoincrement();
         }
-        if let Some(default) = self.default_to_json_value() {
+        if let Some(default_sql) = &self.default_sql {
+            col = col.default_value(default_sql.clone());
+        } else if let Some(default) = self.default_to_json_value() {
             // Convert serde_json::Value to String for DDL storage
             let default_str = match &default {
                 serde_json::Value::String(s) => s.clone(),
                 other => serde_json::to_string(other).unwrap_or_default(),
             };
             col = col.default_value(default_str);
+        }
+        if let Some(generated) = &self.generated_column {
+            col.generated = Some(drizzle_types::sqlite::ddl::Generated {
+                expression: Cow::Owned(parenthesized_sql_expression(&generated.expression)),
+                gen_type: if generated.stored {
+                    drizzle_types::sqlite::ddl::GeneratedType::Stored
+                } else {
+                    drizzle_types::sqlite::ddl::GeneratedType::Virtual
+                },
+            });
+        }
+        if let Some(collate) = &self.collate {
+            col.collate = Some(Cow::Owned(collate.clone()));
         }
 
         col
@@ -1036,10 +1284,10 @@ impl FieldInfo<'_> {
     ) -> Option<drizzle_types::sqlite::ddl::ForeignKey> {
         let fk_ref = self.foreign_key.as_ref()?;
 
-        let table_to = fk_ref.table_ident.to_string();
-        let target_column = fk_ref.column_ident.to_string();
+        let table_to = fk_ref.table_ident.to_string().to_snake_case();
+        let target_column = fk_ref.column_ident.to_string().to_snake_case();
         let fk_name = format!(
-            "{}_{}_{}_{}_fk",
+            "fk_{}_{}_{}_{}_fk",
             table_name, self.column_name, table_to, target_column
         );
 

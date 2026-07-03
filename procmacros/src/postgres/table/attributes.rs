@@ -13,7 +13,10 @@ pub struct TableAttributes {
     pub(crate) temporary: bool,
     pub(crate) inherits: Option<String>,
     pub(crate) tablespace: Option<String>,
+    pub(crate) rls: bool,
     pub(crate) composite_foreign_keys: Vec<CompositeForeignKeyAttr>,
+    pub(crate) unique_constraints: Vec<UniqueConstraintAttr>,
+    pub(crate) check_constraints: Vec<CheckConstraintAttr>,
     /// Original marker paths for IDE hover documentation
     pub(crate) marker_exprs: Vec<ExprPath>,
 }
@@ -25,6 +28,22 @@ pub struct CompositeForeignKeyAttr {
     pub(crate) target_columns: Vec<Ident>,
     pub(crate) on_delete: Option<String>,
     pub(crate) on_update: Option<String>,
+    pub(crate) deferrable: bool,
+    pub(crate) initially_deferred: bool,
+}
+
+#[derive(Clone)]
+pub struct UniqueConstraintAttr {
+    pub(crate) columns: Vec<Ident>,
+    pub(crate) name: Option<String>,
+    pub(crate) deferrable: bool,
+    pub(crate) initially_deferred: bool,
+}
+
+#[derive(Clone)]
+pub struct CheckConstraintAttr {
+    pub(crate) name: Option<String>,
+    pub(crate) expr: String,
 }
 
 struct ReferencesArg {
@@ -60,6 +79,8 @@ impl Parse for CompositeForeignKeyAttr {
         let mut target_columns: Option<Vec<Ident>> = None;
         let mut on_delete: Option<String> = None;
         let mut on_update: Option<String> = None;
+        let mut deferrable = false;
+        let mut initially_deferred = false;
 
         for meta in metas {
             match meta {
@@ -104,10 +125,17 @@ impl Parse for CompositeForeignKeyAttr {
                         ));
                     }
                 }
+                Meta::Path(path) if path.is_ident("deferrable") => {
+                    deferrable = true;
+                }
+                Meta::Path(path) if path.is_ident("initially_deferred") => {
+                    deferrable = true;
+                    initially_deferred = true;
+                }
                 _ => {
                     return Err(syn::Error::new(
                         meta.span(),
-                        "unrecognized FOREIGN_KEY argument; expected columns(...), references(...), on_delete, or on_update",
+                        "unrecognized FOREIGN_KEY argument; expected columns(...), references(...), on_delete, on_update, deferrable, or initially_deferred",
                     ));
                 }
             }
@@ -142,7 +170,140 @@ impl Parse for CompositeForeignKeyAttr {
             target_columns,
             on_delete,
             on_update,
+            deferrable,
+            initially_deferred,
         })
+    }
+}
+
+impl Parse for UniqueConstraintAttr {
+    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+        let metas = input.parse_terminated(Meta::parse, Token![,])?;
+        let mut columns_from_list: Option<Vec<Ident>> = None;
+        let mut direct_columns = Vec::new();
+        let mut name = None;
+        let mut deferrable = false;
+        let mut initially_deferred = false;
+
+        for meta in metas {
+            match meta {
+                Meta::List(list)
+                    if list
+                        .path
+                        .get_ident()
+                        .is_some_and(|ident| ident.to_string().eq_ignore_ascii_case("columns")) =>
+                {
+                    let cols: Punctuated<Ident, Token![,]> =
+                        Punctuated::<Ident, Token![,]>::parse_terminated
+                            .parse2(list.tokens.clone())?;
+                    if cols.is_empty() {
+                        return Err(syn::Error::new(
+                            list.span(),
+                            "columns(...) must include at least one column",
+                        ));
+                    }
+                    columns_from_list = Some(cols.into_iter().collect());
+                }
+                Meta::NameValue(nv) if nv.path.is_ident("name") || nv.path.is_ident("NAME") => {
+                    if let syn::Expr::Lit(lit) = &nv.value
+                        && let syn::Lit::Str(s) = &lit.lit
+                    {
+                        name = Some(s.value());
+                    } else {
+                        return Err(syn::Error::new(nv.span(), "name must be a string literal"));
+                    }
+                }
+                Meta::Path(path) if path.is_ident("deferrable") => {
+                    deferrable = true;
+                }
+                Meta::Path(path) if path.is_ident("initially_deferred") => {
+                    deferrable = true;
+                    initially_deferred = true;
+                }
+                Meta::Path(path) => {
+                    if let Some(ident) = path.get_ident() {
+                        direct_columns.push(ident.clone());
+                    } else {
+                        return Err(syn::Error::new(
+                            path.span(),
+                            "UNIQUE(...) columns must be identifiers",
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(syn::Error::new(
+                        meta.span(),
+                        "unrecognized UNIQUE argument; expected columns(...), name = \"...\", direct column identifiers, deferrable, or initially_deferred",
+                    ));
+                }
+            }
+        }
+
+        let columns = columns_from_list.unwrap_or(direct_columns);
+        if columns.is_empty() {
+            return Err(syn::Error::new(
+                input.span(),
+                "UNIQUE requires at least one column",
+            ));
+        }
+
+        Ok(Self {
+            columns,
+            name,
+            deferrable,
+            initially_deferred,
+        })
+    }
+}
+
+impl Parse for CheckConstraintAttr {
+    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+        let metas = input.parse_terminated(Meta::parse, Token![,])?;
+        let mut name = None;
+        let mut expr = None;
+
+        for meta in metas {
+            match meta {
+                Meta::NameValue(nv) if nv.path.is_ident("name") || nv.path.is_ident("NAME") => {
+                    if let syn::Expr::Lit(lit) = &nv.value
+                        && let syn::Lit::Str(s) = &lit.lit
+                    {
+                        name = Some(s.value());
+                    } else {
+                        return Err(syn::Error::new(nv.span(), "name must be a string literal"));
+                    }
+                }
+                Meta::NameValue(nv)
+                    if nv.path.is_ident("expr")
+                        || nv.path.is_ident("EXPR")
+                        || nv.path.is_ident("value")
+                        || nv.path.is_ident("VALUE") =>
+                {
+                    if let syn::Expr::Lit(lit) = &nv.value
+                        && let syn::Lit::Str(s) = &lit.lit
+                    {
+                        expr = Some(s.value());
+                    } else {
+                        return Err(syn::Error::new(nv.span(), "expr must be a string literal"));
+                    }
+                }
+                _ => {
+                    return Err(syn::Error::new(
+                        meta.span(),
+                        "unrecognized CHECK argument; expected name = \"...\" or expr = \"...\"",
+                    ));
+                }
+            }
+        }
+
+        let expr = expr.ok_or_else(|| {
+            syn::Error::new(
+                input.span(),
+                "CHECK requires expr = \"...\", e.g. CHECK(expr = \"score >= 0\")",
+            )
+        })?;
+
+        Ok(Self { name, expr })
     }
 }
 
@@ -239,6 +400,11 @@ impl Parse for TableAttributes {
                                     .push(make_uppercase_path(ident, "TEMPORARY"));
                                 continue;
                             }
+                            "RLS" => {
+                                attrs.rls = true;
+                                attrs.marker_exprs.push(make_uppercase_path(ident, "RLS"));
+                                continue;
+                            }
                             _ => {}
                         }
                     }
@@ -249,6 +415,23 @@ impl Parse for TableAttributes {
                         if ident_upper == "FOREIGN_KEY" {
                             let fk: CompositeForeignKeyAttr = syn::parse2(list.tokens.clone())?;
                             attrs.composite_foreign_keys.push(fk);
+                            attrs
+                                .marker_exprs
+                                .push(make_uppercase_path(ident, "FOREIGN_KEY"));
+                            continue;
+                        }
+                        if ident_upper == "UNIQUE" {
+                            let unique: UniqueConstraintAttr = syn::parse2(list.tokens.clone())?;
+                            attrs.unique_constraints.push(unique);
+                            attrs
+                                .marker_exprs
+                                .push(make_uppercase_path(ident, "UNIQUE"));
+                            continue;
+                        }
+                        if ident_upper == "CHECK" {
+                            let check: CheckConstraintAttr = syn::parse2(list.tokens.clone())?;
+                            attrs.check_constraints.push(check);
+                            attrs.marker_exprs.push(make_uppercase_path(ident, "CHECK"));
                             continue;
                         }
                     }
@@ -264,7 +447,10 @@ impl Parse for TableAttributes {
                  - TEMPORARY: Create TEMPORARY table (e.g., #[PostgresTable(TEMPORARY)])\n\
                  - INHERITS: Inherit from parent table (e.g., #[PostgresTable(INHERITS = \"parent_table\")])\n\
                  - TABLESPACE: Specify tablespace (e.g., #[PostgresTable(TABLESPACE = \"my_tablespace\")])\n\
+                 - RLS: Enable row-level security (e.g., #[PostgresTable(RLS)])\n\
                  - FOREIGN_KEY(...): Composite FK (e.g., #[PostgresTable(FOREIGN_KEY(columns(a,b), references(Parent,id_a,id_b)))])\n\
+                 - UNIQUE(...): Table-level unique constraint (e.g., #[PostgresTable(UNIQUE(columns(a,b)))])\n\
+                 - CHECK(...): Table-level check constraint (e.g., #[PostgresTable(CHECK(expr = \"score >= 0\"))])\n\
                  See: https://www.postgresql.org/docs/current/sql-createtable.html",
             ));
         }

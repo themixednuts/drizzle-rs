@@ -53,6 +53,11 @@ impl MacroContext<'_> {
             return true;
         }
 
+        // Generated columns are computed by SQLite and are not insertable.
+        if field.generated_column.is_some() {
+            return true;
+        }
+
         // Fields with explicit defaults (SQL or runtime) are optional
         if field.has_default || field.default_fn.is_some() {
             return true;
@@ -103,13 +108,19 @@ impl MacroContext<'_> {
         let name = field.ident;
         let sqlite_insert_value = sqlite_paths::sqlite_insert_value();
 
+        if field.generated_column.is_some() {
+            return quote! { #name: #sqlite_insert_value::Omit };
+        }
+
         // Handle runtime function defaults (default_fn)
         if let Some(f) = &field.default_fn {
             return quote! { #name: ((#f)()).into() };
         }
 
         // Handle compile-time literal defaults (default = "value")
-        if let Some(default_lit) = &field.default_value {
+        if field.default_sql.is_none()
+            && let Some(default_lit) = &field.default_value
+        {
             return quote! { #name: (#default_lit).into() };
         }
 

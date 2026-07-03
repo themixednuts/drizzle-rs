@@ -46,7 +46,7 @@ pub use type_utils::{
 #[cfg(feature = "postgres")]
 pub use type_utils::{
     type_is_array_char, type_is_bit_vec, type_is_geo_linestring, type_is_geo_point,
-    type_is_geo_rect, type_is_ip_addr, type_is_ip_cidr, type_is_mac_addr,
+    type_is_geo_rect, type_is_ip_addr, type_is_ip_cidr, type_is_mac_addr, vec_inner_type,
 };
 
 // Re-export dialect traits (always available)

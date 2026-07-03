@@ -8,12 +8,19 @@
 //! # let _ = r####"
 //! # use drizzle::sqlite::prelude::*;
 //!
-//! #[SQLiteTable(name = "users", strict)]
+//! #[SQLiteTable(
+//!     name = "users",
+//!     strict,
+//!     unique(columns(email, tenant_id)),
+//!     check(name = "users_score_check", expr = "score >= 0")
+//! )]
 //! struct User {
 //!     #[column(primary, autoincrement)]
 //!     id: i32,
 //!     #[column(unique)]
 //!     email: String,
+//!     tenant_id: i32,
+//!     score: i32,
 //!     metadata: String,
 //! }
 //! # "####;
@@ -60,13 +67,22 @@ pub const AUTOINCREMENT: ColumnMarker = ColumnMarker;
 // Uniqueness Constraints
 //------------------------------------------------------------------------------
 
-/// Adds a UNIQUE constraint to this column.
+/// Adds a UNIQUE constraint to a column, table, or index.
 ///
-/// ## Example
+/// ## Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(unique)]
 /// email: String,
+///
+/// #[SQLiteTable(unique(columns(email, tenant_id)))]
+/// struct Users {
+///     email: String,
+///     tenant_id: i32,
+/// }
+///
+/// #[SQLiteIndex(unique)]
+/// struct UsersEmailIdx(Users::email);
 /// # "####;
 /// ```
 ///
@@ -155,6 +171,53 @@ pub const DEFAULT_FN: ColumnMarker = ColumnMarker;
 ///
 /// For runtime-generated values (UUIDs, timestamps), use [`DEFAULT_FN`] instead.
 pub const DEFAULT: ColumnMarker = ColumnMarker;
+
+/// Specifies a raw SQL default expression for new rows.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[column(default_sql = "CURRENT_TIMESTAMP")]
+/// created_at: String,
+/// # "####;
+/// ```
+///
+/// See: <https://sqlite.org/lang_createtable.html#the_default_clause>
+pub const DEFAULT_SQL: ColumnMarker = ColumnMarker;
+
+/// Marks this column as a generated column.
+///
+/// ## Examples
+/// ```rust
+/// # let _ = r####"
+/// #[column(generated(stored, "length(name)"))]
+/// stored_name_len: i32,
+///
+/// #[column(generated(virtual, "length(name)"))]
+/// virtual_name_len: i32,
+/// # "####;
+/// ```
+///
+/// See: <https://sqlite.org/gencol.html>
+pub const GENERATED: ColumnMarker = ColumnMarker;
+
+/// Adds a CHECK constraint for a column or table.
+///
+/// ## Examples
+/// ```rust
+/// # let _ = r####"
+/// #[column(check = "score >= 0")]
+/// score: i32,
+///
+/// #[SQLiteTable(check(name = "score_range", expr = "score >= 0 AND score <= 100"))]
+/// struct Scores {
+///     score: i32,
+/// }
+/// # "####;
+/// ```
+///
+/// See: <https://sqlite.org/lang_createtable.html#check_constraints>
+pub const CHECK: ColumnMarker = ColumnMarker;
 
 /// Establishes a foreign key reference to another table's column.
 ///
@@ -410,6 +473,26 @@ pub const EXISTING: ViewMarker = ViewMarker;
 /// Marker struct for table-level attributes.
 #[derive(Debug, Clone, Copy)]
 pub struct TableMarker;
+
+/// Adds a table-level composite foreign key constraint.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[SQLiteTable(foreign_key(
+///     columns(tenant_id, user_id),
+///     references(Users, tenant_id, id),
+///     on_delete = "CASCADE"
+/// ))]
+/// struct Posts {
+///     tenant_id: i32,
+///     user_id: i32,
+/// }
+/// # "####;
+/// ```
+///
+/// See: <https://sqlite.org/foreignkeys.html#fk_composite>
+pub const FOREIGN_KEY: TableMarker = TableMarker;
 
 /// Enables STRICT mode for the table.
 ///

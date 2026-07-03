@@ -56,7 +56,13 @@ pub fn generate_insert_model(ctx: &MacroContext, required_fields_pattern: &[bool
         insert_default_fields.push(MacroContext::get_insert_default_value(info));
         insert_field_names.push(name);
         insert_field_indices.push(quote! { #field_index });
-        insert_convenience_methods.push(generate_convenience_method(info, ModelType::Insert, ctx));
+        if should_generate_insert_setter(info) {
+            insert_convenience_methods.push(generate_convenience_method(
+                info,
+                ModelType::Insert,
+                ctx,
+            ));
+        }
 
         // Generate constructor parameters only for required fields
         if !is_optional {
@@ -237,4 +243,8 @@ fn generate_constructor_param(
             quote! { #field_name: #field_name.into() },
         ),
     }
+}
+
+fn should_generate_insert_setter(info: &crate::sqlite::field::FieldInfo) -> bool {
+    info.generated_column.is_none()
 }

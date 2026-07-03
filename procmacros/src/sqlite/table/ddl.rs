@@ -31,6 +31,16 @@ enum DdlPiece {
     TableNameOf(syn::Ident),
 }
 
+fn table_check_name(ctx: &MacroContext, idx: usize, explicit: &Option<String>) -> String {
+    explicit.clone().unwrap_or_else(|| {
+        if ctx.attrs.check_constraints.len() == 1 {
+            format!("{}_check", ctx.table_name)
+        } else {
+            format!("{}_check{}", ctx.table_name, idx + 1)
+        }
+    })
+}
+
 impl DdlPiece {
     fn to_token(&self) -> TokenStream {
         match self {
@@ -111,7 +121,7 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
             .map(|f| format!("`{}`", f.column_name))
             .collect();
         if !pk_cols.is_empty() {
-            let pk_name = format!("{table_name}_pkey");
+            let pk_name = format!("{table_name}_pk");
             lines.push(vec![DdlPiece::Literal(format!(
                 "\tCONSTRAINT `{}` PRIMARY KEY({})",
                 pk_name,
@@ -123,8 +133,12 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
     // Single-column foreign keys (CONSTRAINT name + FOREIGN KEY ... REFERENCES)
     for field in field_infos {
         if let Some(ref fk) = field.foreign_key {
-            let fk_name = format!("{}_{}_fkey", table_name, field.column_name);
             let ref_column = fk.column_ident.to_string().to_snake_case();
+            let ref_table = fk.table_ident.to_string().to_snake_case();
+            let fk_name = format!(
+                "fk_{}_{}_{}_{}_fk",
+                table_name, field.column_name, ref_table, ref_column
+            );
             let mut line = Vec::new();
             line.push(DdlPiece::Literal(format!(
                 "\tCONSTRAINT `{}` FOREIGN KEY (`{}`) REFERENCES `",
@@ -169,7 +183,14 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
             .map(std::string::ToString::to_string)
             .collect();
 
-        let fk_name = format!("{}_{}_fkey", table_name, source_cols.join("_"));
+        let target_table = fk.target_table.to_string().to_snake_case();
+        let fk_name = format!(
+            "fk_{}_{}_{}_{}_fk",
+            table_name,
+            source_cols.join("_"),
+            target_table,
+            target_cols.join("_")
+        );
         let src_str = source_cols
             .iter()
             .map(|c| format!("`{c}`"))
@@ -203,9 +224,47 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
         lines.push(line);
     }
 
-    // Multi-column unique constraints would go here. Currently the field
-    // model only carries single-column UNIQUE which is rendered inline via
-    // `column_to_sql`, so there's nothing to emit at the table level.
+    for unique in &ctx.attrs.unique_constraints {
+        let unique_cols: Vec<String> = unique
+            .columns
+            .iter()
+            .map(|src| {
+                ctx.field_infos
+                    .iter()
+                    .find(|f| f.ident == src)
+                    .map_or_else(|| src.to_string(), |f| f.column_name.clone())
+            })
+            .collect();
+        let unique_name = unique
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("{}_{}_unique", table_name, unique_cols.join("_")));
+        let cols = unique_cols
+            .iter()
+            .map(|c| format!("`{c}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        lines.push(vec![DdlPiece::Literal(format!(
+            "\tCONSTRAINT `{unique_name}` UNIQUE({cols})"
+        ))]);
+    }
+
+    for field in field_infos {
+        if let Some(ref check) = field.check_constraint {
+            let check_name = format!("{}_{}_check", table_name, field.column_name);
+            lines.push(vec![DdlPiece::Literal(format!(
+                "\tCONSTRAINT `{check_name}` CHECK({check})"
+            ))]);
+        }
+    }
+
+    for (idx, check) in ctx.attrs.check_constraints.iter().enumerate() {
+        let check_name = table_check_name(ctx, idx, &check.name);
+        let expr = check.expr.trim();
+        lines.push(vec![DdlPiece::Literal(format!(
+            "\tCONSTRAINT `{check_name}` CHECK({expr})"
+        ))]);
+    }
 
     // Join lines with ",\n" — prepend it to the first piece of every non-first line.
     for (i, mut line) in lines.into_iter().enumerate() {
@@ -222,11 +281,16 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
 
     // Closing: \n) + options + ;
     let mut closing = "\n)".to_string();
+    let mut options = Vec::new();
     if without_rowid {
-        closing.push_str(" WITHOUT ROWID");
+        options.push("WITHOUT ROWID");
     }
     if strict {
-        closing.push_str(" STRICT");
+        options.push("STRICT");
+    }
+    if !options.is_empty() {
+        closing.push(' ');
+        closing.push_str(&options.join(", "));
     }
     closing.push(';');
     pieces.push(DdlPiece::Literal(closing));
@@ -259,7 +323,8 @@ fn column_to_sql(field: &FieldInfo, inline_pk: bool, inline_unique: bool) -> Str
         }
     }
 
-    if let Some(ref default_expr) = field.default_value
+    if field.generated_column.is_none()
+        && let Some(ref default_expr) = field.default_value
         && let syn::Expr::Lit(expr_lit) = default_expr
     {
         let default_str = match &expr_lit.lit {
@@ -272,6 +337,26 @@ fn column_to_sql(field: &FieldInfo, inline_pk: bool, inline_unique: bool) -> Str
         if !default_str.is_empty() {
             sql.push_str(&default_str);
         }
+    }
+    if field.generated_column.is_none()
+        && let Some(ref default_sql) = field.default_sql
+    {
+        let _ = write!(sql, " DEFAULT {default_sql}");
+    }
+
+    if let Some(ref generated) = field.generated_column {
+        let generated_type = if generated.stored {
+            "STORED"
+        } else {
+            "VIRTUAL"
+        };
+        let expression = generated.expression.trim();
+        let expression = if expression.starts_with('(') && expression.ends_with(')') {
+            expression.to_string()
+        } else {
+            format!("({expression})")
+        };
+        let _ = write!(sql, " GENERATED ALWAYS AS {expression} {generated_type}");
     }
 
     let sql_type = field.column_type.to_sql_type();
@@ -343,6 +428,7 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
     let primary_key_def = ddl_paths::primary_key_def();
     let foreign_key_def = ddl_paths::foreign_key_def();
     let unique_constraint_def = ddl_paths::unique_constraint_def();
+    let check_constraint_def = ddl_paths::check_constraint_def();
     let index_def = ddl_paths::index_def();
     let table_sql = ddl_paths::table_sql();
     let referential_action = ddl_paths::referential_action();
@@ -378,7 +464,27 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
             if field.is_unique() {
                 modifiers.push(quote! { .unique() });
             }
-            if let Some(syn::Expr::Lit(expr_lit)) = field.default_value.as_ref() {
+            if let Some(ref generated) = field.generated_column {
+                let expression = generated.expression.trim();
+                let expression = if expression.starts_with('(') && expression.ends_with(')') {
+                    expression.to_string()
+                } else {
+                    format!("({expression})")
+                };
+                if generated.stored {
+                    modifiers.push(quote! { .generated_stored(#expression) });
+                } else {
+                    modifiers.push(quote! { .generated_virtual(#expression) });
+                }
+            }
+            if field.generated_column.is_none()
+                && let Some(ref default_sql) = field.default_sql
+            {
+                modifiers.push(quote! { .default_value(#default_sql) });
+            }
+            if field.generated_column.is_none()
+                && let Some(syn::Expr::Lit(expr_lit)) = field.default_value.as_ref()
+            {
                 // Convert the expression to a string for DDL
                 let default_str = match &expr_lit.lit {
                     syn::Lit::Int(i) => i.to_string(),
@@ -410,7 +516,7 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
         .map(|f| &f.column_name)
         .collect();
 
-    let pk_name = format!("{table_name}_pkey");
+    let pk_name = format!("{table_name}_pk");
     let pk_def = if pk_columns.is_empty() {
         quote! {
             /// Primary key definition (none)
@@ -439,8 +545,12 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
             field.foreign_key.as_ref().map(|fk_ref| {
                 let ref_table_ident = &fk_ref.table_ident;
                 let ref_column = fk_ref.column_ident.to_string().to_snake_case();
-                let fk_name = format!("{}_{}_fkey", table_name, field.column_name);
                 let column_name = &field.column_name;
+                let ref_table = fk_ref.table_ident.to_string().to_snake_case();
+                let fk_name = format!(
+                    "fk_{}_{}_{}_{}_fk",
+                    table_name, field.column_name, ref_table, ref_column
+                );
 
                 let mut modifiers = Vec::new();
                 if let Some(ref on_delete) = fk_ref.on_delete {
@@ -488,7 +598,14 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
             .map(std::string::ToString::to_string)
             .collect();
 
-        let fk_name = format!("{}_{}_fkey", table_name, source_columns.join("_"));
+        let target_table = fk.target_table.to_string().to_snake_case();
+        let fk_name = format!(
+            "fk_{}_{}_{}_{}_fk",
+            table_name,
+            source_columns.join("_"),
+            target_table,
+            target_columns.join("_")
+        );
         let fk_cols: Vec<TokenStream> = source_columns
             .iter()
             .map(|c| quote! { ::std::borrow::Cow::Borrowed(#c) })
@@ -521,7 +638,7 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
     }
 
     // Build unique constraint DDL definitions (for non-primary unique columns)
-    let unique_defs: Vec<TokenStream> = ctx
+    let mut unique_defs: Vec<TokenStream> = ctx
         .field_infos
         .iter()
         .filter(|f| f.is_unique())
@@ -537,6 +654,62 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
             }
         })
         .collect();
+
+    for unique in &ctx.attrs.unique_constraints {
+        let unique_columns: Vec<String> = unique
+            .columns
+            .iter()
+            .map(|src| {
+                ctx.field_infos
+                    .iter()
+                    .find(|f| f.ident == src)
+                    .map_or_else(|| src.to_string(), |f| f.column_name.clone())
+            })
+            .collect();
+        let unique_name = unique
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("{}_{}_unique", table_name, unique_columns.join("_")));
+        let unique_cols: Vec<TokenStream> = unique_columns
+            .iter()
+            .map(|c| quote! { ::std::borrow::Cow::Borrowed(#c) })
+            .collect();
+        let explicit_name = unique.name.is_some();
+        let explicit_modifier = if explicit_name {
+            quote! { .explicit_name() }
+        } else {
+            quote! {}
+        };
+
+        unique_defs.push(quote! {
+            {
+                const UQ_COLS: &[::std::borrow::Cow<'static, str>] = &[#(#unique_cols),*];
+                #unique_constraint_def::new(#table_name, #unique_name)
+                    .columns(UQ_COLS)
+                    #explicit_modifier
+            }
+        });
+    }
+
+    let mut check_defs: Vec<TokenStream> = ctx
+        .field_infos
+        .iter()
+        .filter_map(|field| {
+            let check = field.check_constraint.as_ref()?;
+            let check_name = format!("{}_{}_check", table_name, field.column_name);
+            Some(quote! {
+                #check_constraint_def::new(#table_name, #check_name).value(#check)
+            })
+        })
+        .collect();
+    for (idx, check) in ctx.attrs.check_constraints.iter().enumerate() {
+        let check_name = table_check_name(ctx, idx, &check.name);
+        let expr = check.expr.as_str();
+        check_defs.push(quote! {
+            #check_constraint_def::new(#table_name, #check_name)
+                .value(#expr)
+        });
+    }
 
     quote! {
         /// Const DDL table definition for compile-time schema metadata.
@@ -561,6 +734,11 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
             #(#unique_defs),*
         ];
 
+        /// Check constraint definitions
+        pub const DDL_CHECK_CONSTRAINTS: &'static [#check_constraint_def] = &[
+            #(#check_defs),*
+        ];
+
         /// Index definitions (defined via separate #[SQLiteIndex] structs)
         pub const DDL_INDEXES: &'static [#index_def] = &[];
 
@@ -574,12 +752,14 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
             let pk = Self::DDL_PRIMARY_KEY.map(|p| p.into_primary_key());
             let fks: ::std::vec::Vec<_> = Self::DDL_FOREIGN_KEYS.iter().map(|f| f.into_foreign_key()).collect();
             let uniques: ::std::vec::Vec<_> = Self::DDL_UNIQUE_CONSTRAINTS.iter().map(|u| u.into_unique_constraint()).collect();
+            let checks: ::std::vec::Vec<_> = Self::DDL_CHECK_CONSTRAINTS.iter().map(|c| c.into_check_constraint()).collect();
 
             #table_sql::new(&table)
                 .columns(&columns)
                 .primary_key(pk.as_ref())
                 .foreign_keys(&fks)
                 .unique_constraints(&uniques)
+                .check_constraints(&checks)
                 .create_table_sql()
         }
 
@@ -621,7 +801,10 @@ mod tests {
             constraint: Constraint::None,
             collate: None,
             default_value: default,
+            default_sql: None,
             default_fn: None,
+            generated_column: None,
+            check_constraint: None,
             marker_exprs: Vec::new(),
             select_type: None,
             update_type: None,

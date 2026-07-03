@@ -50,6 +50,23 @@ struct PgComplexResult {
 }
 
 #[drizzle::test]
+fn select_with_cast_sql_generation(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    let stmt = db
+        .select(alias(
+            cast(simple.id, drizzle::postgres::types::Int4),
+            "id_int",
+        ))
+        .from(simple);
+
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"SELECT CAST ("simple"."id" AS INTEGER) AS "id_int" FROM "simple""#
+    );
+}
+
+#[drizzle::test]
 fn simple_select_with_conditions(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 

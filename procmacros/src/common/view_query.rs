@@ -110,7 +110,9 @@ pub enum AggFunc {
 /// SQL dialect for code generation.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Dialect {
+    #[cfg_attr(not(feature = "sqlite"), allow(dead_code))]
     SQLite,
+    #[cfg_attr(not(feature = "postgres"), allow(dead_code))]
     Postgres,
 }
 

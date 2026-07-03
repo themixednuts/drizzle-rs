@@ -13,6 +13,12 @@ pub struct IndexAttributes {
     pub where_clause: Option<String>,
 }
 
+fn create_index_prefix(unique: bool, concurrent: bool, index_name: &str) -> String {
+    let unique_kw = if unique { "UNIQUE " } else { "" };
+    let concurrent_kw = if concurrent { "CONCURRENTLY " } else { "" };
+    format!("CREATE {unique_kw}INDEX {concurrent_kw}\"{index_name}\" ON \"")
+}
+
 impl Default for IndexAttributes {
     fn default() -> Self {
         Self {
@@ -248,9 +254,7 @@ pub fn postgres_index_attr_macro(
     let is_unique = attr.unique;
 
     // Build compile-time SQL using concatcp! to reference the table's schema and name
-    let unique_kw = if attr.unique { "UNIQUE " } else { "" };
-    let concurrent_kw = if attr.concurrent { "CONCURRENTLY " } else { "" };
-    let create_prefix = format!("CREATE {unique_kw}{concurrent_kw}INDEX \"{index_name}\" ON \"");
+    let create_prefix = create_index_prefix(attr.unique, attr.concurrent, &index_name);
     let dot_quote = "\".\"";
     let method_and_open = attr
         .method
@@ -387,6 +391,19 @@ pub fn postgres_index_attr_macro(
     }
 
     Ok(expanded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::create_index_prefix;
+
+    #[test]
+    fn create_index_prefix_places_concurrently_after_index() {
+        assert_eq!(
+            create_index_prefix(true, true, "users_email_idx"),
+            "CREATE UNIQUE INDEX CONCURRENTLY \"users_email_idx\" ON \""
+        );
+    }
 }
 
 /// Information about a column reference in an index

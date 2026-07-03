@@ -14,6 +14,7 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
     let validate_schema_item_foreign_keys = core_paths::validate_schema_item_foreign_keys();
     let sql_table_info = core_paths::sql_table_info();
     let sql_index_info = core_paths::sql_index_info();
+    let sql_policy_info = core_paths::sql_policy_info();
     let postgres_value = postgres_paths::postgres_value();
     let postgres_schema_type = postgres_paths::postgres_schema_type();
 
@@ -93,7 +94,10 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
     let mig_pg_index = mig_paths::postgres::index();
     let mig_pg_index_column = mig_paths::postgres::index_column();
     let mig_pg_primary_key = mig_paths::postgres::primary_key();
+    let mig_pg_foreign_key = mig_paths::postgres::foreign_key();
     let mig_pg_unique_constraint = mig_paths::postgres::unique_constraint();
+    let mig_pg_check_constraint = mig_paths::postgres::check_constraint();
+    let mig_pg_policy = mig_paths::postgres::policy();
     let mig_pg_enum = mig_paths::postgres::enum_type();
     let mig_pg_view = mig_paths::postgres::view();
 
@@ -177,7 +181,10 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                 type MigIndex = #mig_pg_index;
                 type MigIndexColumn = #mig_pg_index_column;
                 type MigPrimaryKey = #mig_pg_primary_key;
+                type MigForeignKey = #mig_pg_foreign_key;
                 type MigUniqueConstraint = #mig_pg_unique_constraint;
+                type MigCheckConstraint = #mig_pg_check_constraint;
+                type MigPolicy = #mig_pg_policy;
                 type MigEnum = #mig_pg_enum;
                 type MigView = #mig_pg_view;
                 type MigSequence = #mig_pg_sequence;
@@ -198,7 +205,35 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                             if seen_schemas.insert(table_schema) {
                                 snapshot.add_entity(MigEntity::Schema(MigSchema::new(table_schema)));
                             }
-                            snapshot.add_entity(MigEntity::Table(MigTable::new(table_schema, table_name)));
+                            let mut table = MigTable::new(table_schema, table_name);
+                            if let drizzle::core::TableDialect::PostgreSQL {
+                                is_unlogged,
+                                is_temporary,
+                                inherits,
+                                tablespace,
+                                is_rls_enabled,
+                                comment,
+                            } = table_ref.dialect {
+                                if is_unlogged {
+                                    table = table.unlogged();
+                                }
+                                if is_temporary {
+                                    table = table.temporary();
+                                }
+                                if let ::core::option::Option::Some(inherits) = inherits {
+                                    table = table.inherits(inherits);
+                                }
+                                if let ::core::option::Option::Some(tablespace) = tablespace {
+                                    table = table.tablespace(tablespace);
+                                }
+                                if is_rls_enabled {
+                                    table = table.rls_enabled();
+                                }
+                                if let ::core::option::Option::Some(comment) = comment {
+                                    table = table.comment(comment);
+                                }
+                            }
+                            snapshot.add_entity(MigEntity::Table(table));
 
                             // Add column entities from TABLE_REF
                             for col in table_ref.columns {
@@ -206,27 +241,36 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                                     pg_type,
                                     is_generated_identity,
                                     is_identity_always,
+                                    default,
                                     generated_expression,
                                     generated_stored,
                                     collate,
+                                    dimensions,
+                                    comment,
                                 ) = match col.dialect {
                                     drizzle::core::ColumnDialect::PostgreSQL {
                                         postgres_type,
                                         is_generated_identity,
                                         is_identity_always,
+                                        default,
                                         generated_expression,
                                         generated_stored,
                                         collate,
+                                        dimensions,
+                                        comment,
                                         ..
                                     } => (
                                         postgres_type,
                                         is_generated_identity,
                                         is_identity_always,
+                                        default,
                                         generated_expression,
                                         generated_stored,
                                         collate,
+                                        dimensions,
+                                        comment,
                                     ),
-                                    _ => (col.sql_type, false, false, ::core::option::Option::None, false, ::core::option::Option::None),
+                                    _ => (col.sql_type, false, false, ::core::option::Option::None, ::core::option::Option::None, false, ::core::option::Option::None, ::core::option::Option::None, ::core::option::Option::None),
                                 };
 
                                 let mut column = MigColumn::new(
@@ -236,8 +280,18 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                                     pg_type,
                                 );
 
+                                if matches!(
+                                    drizzle::migrations::postgres::PgTypeCategory::from_sql_type(pg_type),
+                                    drizzle::migrations::postgres::PgTypeCategory::Custom
+                                ) {
+                                    column.type_schema = ::core::option::Option::Some(::std::borrow::Cow::Borrowed(table_schema));
+                                }
+
                                 if col.not_null() {
                                     column = column.not_null();
+                                }
+                                if let ::core::option::Option::Some(default) = default {
+                                    column = column.default_value(default);
                                 }
 
                                 // Handle identity columns (NOT serial — serial uses
@@ -268,6 +322,10 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                                 if let ::core::option::Option::Some(collate) = collate {
                                     column.collate = ::core::option::Option::Some(::std::borrow::Cow::Borrowed(collate));
                                 }
+                                column.dimensions = dimensions;
+                                if let ::core::option::Option::Some(comment) = comment {
+                                    column.comment = ::core::option::Option::Some(::std::borrow::Cow::Borrowed(comment));
+                                }
 
                                 snapshot.add_entity(MigEntity::Column(column));
 
@@ -289,6 +347,66 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                                         ::std::format!("{}_{}_key", table_name, col.name),
                                         ::std::vec![col.name.to_string()],
                                     )));
+                                }
+                            }
+
+                            for fk in table_ref.foreign_keys {
+                                let mut foreign_key = MigForeignKey::from_strings(
+                                    table_schema.to_string(),
+                                    table_name.to_string(),
+                                    fk.name.to_string(),
+                                    fk.source_columns.iter().map(|col| col.to_string()).collect(),
+                                    fk.target_schema.to_string(),
+                                    fk.target_table.to_string(),
+                                    fk.target_columns.iter().map(|col| col.to_string()).collect(),
+                                );
+                                foreign_key.name_explicit = fk.name_explicit;
+                                if let ::core::option::Option::Some(on_delete) = fk.on_delete {
+                                    foreign_key = foreign_key.on_delete(on_delete);
+                                }
+                                if let ::core::option::Option::Some(on_update) = fk.on_update {
+                                    foreign_key = foreign_key.on_update(on_update);
+                                }
+                                if fk.deferrable {
+                                    foreign_key = foreign_key.deferrable();
+                                }
+                                if fk.initially_deferred {
+                                    foreign_key = foreign_key.initially_deferred();
+                                }
+                                snapshot.add_entity(MigEntity::ForeignKey(foreign_key));
+                            }
+
+                            for constraint in table_ref.constraints {
+                                match constraint.kind {
+                                    drizzle::core::SQLConstraintKind::Unique => {
+                                        let unique_name = constraint.name.unwrap_or("unique");
+                                        let mut unique = MigUniqueConstraint::from_strings(
+                                            table_schema.to_string(),
+                                            table_name.to_string(),
+                                            unique_name.to_string(),
+                                            constraint.columns.iter().map(|col| col.to_string()).collect(),
+                                        );
+                                        unique.name_explicit = constraint.name_explicit;
+                                        if constraint.deferrable {
+                                            unique = unique.deferrable();
+                                        }
+                                        if constraint.initially_deferred {
+                                            unique = unique.initially_deferred();
+                                        }
+                                        snapshot.add_entity(MigEntity::UniqueConstraint(unique));
+                                    }
+                                    drizzle::core::SQLConstraintKind::Check => {
+                                        if let ::core::option::Option::Some(check_expression) = constraint.check_expression {
+                                            let check_name = constraint.name.unwrap_or("check");
+                                            snapshot.add_entity(MigEntity::CheckConstraint(MigCheckConstraint::new(
+                                                table_schema,
+                                                table_name,
+                                                check_name,
+                                                check_expression,
+                                            )));
+                                        }
+                                    }
+                                    _ => {}
                                 }
                             }
                         }
@@ -334,6 +452,34 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                             view.tablespace = view_info.tablespace().map(::std::borrow::Cow::Borrowed);
                             snapshot.add_entity(MigEntity::View(view));
                         }
+                        #postgres_schema_type::Policy(policy_info) => {
+                            let table_ref = #sql_policy_info::table(policy_info);
+                            let table_schema = table_ref.schema.unwrap_or("public");
+                            if seen_schemas.insert(table_schema) {
+                                snapshot.add_entity(MigEntity::Schema(MigSchema::new(table_schema)));
+                            }
+
+                            let mut policy = MigPolicy::new(
+                                table_schema,
+                                table_ref.name,
+                                #sql_policy_info::name(policy_info),
+                            );
+                            policy.as_clause = #sql_policy_info::as_clause(policy_info)
+                                .map(::std::borrow::Cow::Borrowed);
+                            policy.for_clause = #sql_policy_info::for_clause(policy_info)
+                                .map(::std::borrow::Cow::Borrowed);
+                            let roles = #sql_policy_info::to(policy_info);
+                            if !roles.is_empty() {
+                                policy.to = ::core::option::Option::Some(
+                                    roles.iter().copied().map(::std::borrow::Cow::Borrowed).collect(),
+                                );
+                            }
+                            policy.using = #sql_policy_info::using(policy_info)
+                                .map(::std::borrow::Cow::Borrowed);
+                            policy.with_check = #sql_policy_info::with_check(policy_info)
+                                .map(::std::borrow::Cow::Borrowed);
+                            snapshot.add_entity(MigEntity::Policy(policy));
+                        }
                         #postgres_schema_type::Trigger => {
                             // Triggers not implemented yet
                         }
@@ -373,10 +519,12 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
     // Get paths for fully-qualified types
     let sql_schema = core_paths::sql_schema();
     let sql_index_info = core_paths::sql_index_info();
+    let sql_policy_info = core_paths::sql_policy_info();
     let sql_table_info = core_paths::sql_table_info();
     let postgres_value = postgres_paths::postgres_value();
     let postgres_schema_type = postgres_paths::postgres_schema_type();
     let schema_item_tables = core_paths::schema_item_tables();
+    let policy_ddl = mig_paths::postgres::policy();
 
     // Extract field names and types for easier iteration
     #[allow(unused_variables)]
@@ -384,9 +532,17 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
     let field_types: Vec<_> = fields.iter().map(|(_, ty)| *ty).collect();
 
     quote! {
-        let mut tables: ::std::vec::Vec<(::std::string::String, ::std::string::String, &'static drizzle::core::TableRef)> = ::std::vec::Vec::new();
+        let mut tables: ::std::vec::Vec<(
+            ::std::string::String,
+            ::std::string::String,
+            &'static drizzle::core::TableRef,
+            ::std::vec::Vec<::std::string::String>,
+            ::core::option::Option<::std::string::String>,
+        )> = ::std::vec::Vec::new();
         let mut indexes: ::std::collections::HashMap<::std::string::String, ::std::vec::Vec<::std::string::String>> = ::std::collections::HashMap::new();
         let mut index_keys: ::std::collections::HashSet<::std::string::String> = ::std::collections::HashSet::new();
+        let mut policies: ::std::collections::HashMap<::std::string::String, ::std::vec::Vec<::std::string::String>> = ::std::collections::HashMap::new();
+        let mut policy_keys: ::std::collections::HashSet<::std::string::String> = ::std::collections::HashSet::new();
         let mut enums: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
         let mut views: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
 
@@ -398,7 +554,45 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
                         .expect("table must have TABLE_REF_CONST");
                     let table_name = table_ref.qualified_name.to_string();
                     let table_sql = <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL.to_string();
-                    tables.push((table_name, table_sql, table_ref));
+                    let schema = table_ref.schema.unwrap_or("public");
+                    let quote_ident = |ident: &str| -> ::std::string::String {
+                        ::std::format!("\"{}\"", ident.replace('"', "\"\""))
+                    };
+                    let quote_literal = |value: &str| -> ::std::string::String {
+                        ::std::format!("'{}'", value.replace('\'', "''"))
+                    };
+                    let qualified = if schema == "public" {
+                        quote_ident(table_ref.name)
+                    } else {
+                        ::std::format!("{}.{}", quote_ident(schema), quote_ident(table_ref.name))
+                    };
+                    let mut comment_sqls = ::std::vec::Vec::new();
+                    if let drizzle::core::TableDialect::PostgreSQL { comment: ::core::option::Option::Some(comment), .. } = table_ref.dialect {
+                        comment_sqls.push(::std::format!(
+                            "COMMENT ON TABLE {} IS {};",
+                            qualified,
+                            quote_literal(comment)
+                        ));
+                    }
+                    for column in table_ref.columns {
+                        if let drizzle::core::ColumnDialect::PostgreSQL { comment: ::core::option::Option::Some(comment), .. } = column.dialect {
+                            comment_sqls.push(::std::format!(
+                                "COMMENT ON COLUMN {}.{} IS {};",
+                                qualified,
+                                quote_ident(column.name),
+                                quote_literal(comment)
+                            ));
+                        }
+                    }
+                    let rls_sql = match table_ref.dialect {
+                        drizzle::core::TableDialect::PostgreSQL { is_rls_enabled: true, .. } => {
+                            ::core::option::Option::Some(
+                                ::std::format!("ALTER TABLE {} ENABLE ROW LEVEL SECURITY;", qualified)
+                            )
+                        }
+                        _ => ::core::option::Option::None,
+                    };
+                    tables.push((table_name, table_sql, table_ref, comment_sqls, rls_sql));
                 }
                 #postgres_schema_type::Index(index_info) => {
                     let index_sql = <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL.to_string();
@@ -458,6 +652,41 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
                         views.push(view_sql);
                     }
                 }
+                #postgres_schema_type::Policy(policy_info) => {
+                    let table_ref = #sql_policy_info::table(policy_info);
+                    let table_name = table_ref.qualified_name.to_string();
+                    let policy_name = #sql_policy_info::name(policy_info);
+                    let policy_key = ::std::format!("{}::{}", table_name, policy_name);
+                    if !policy_keys.insert(policy_key) {
+                        return ::std::result::Result::Err(drizzle::error::DrizzleError::Statement(
+                            ::std::format!("Duplicate policy '{}' on table '{}' in PostgresSchema", policy_name, table_name).into(),
+                        ));
+                    }
+                    let mut policy = #policy_ddl::new(
+                        table_ref.schema.unwrap_or("public"),
+                        table_ref.name,
+                        policy_name,
+                    );
+                    policy.as_clause = #sql_policy_info::as_clause(policy_info)
+                        .map(::std::borrow::Cow::Borrowed);
+                    policy.for_clause = #sql_policy_info::for_clause(policy_info)
+                        .map(::std::borrow::Cow::Borrowed);
+                    let roles = #sql_policy_info::to(policy_info);
+                    if !roles.is_empty() {
+                        policy.to = ::std::option::Option::Some(
+                            roles.iter().copied().map(::std::borrow::Cow::Borrowed).collect()
+                        );
+                    }
+                    policy.using = #sql_policy_info::using(policy_info)
+                        .map(::std::borrow::Cow::Borrowed);
+                    policy.with_check = #sql_policy_info::with_check(policy_info)
+                        .map(::std::borrow::Cow::Borrowed);
+                    let policy_sql = policy.create_policy_sql();
+                    policies
+                        .entry(table_name)
+                        .or_insert_with(::std::vec::Vec::new)
+                        .push(policy_sql);
+                }
                 #postgres_schema_type::Trigger => {
                     // Triggers not implemented yet
                 }
@@ -469,7 +698,7 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         // lexical tie-breaking for stable output.
         tables.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
         let table_names: ::std::collections::HashSet<::std::string::String> =
-            tables.iter().map(|(name, _, _)| name.clone()).collect();
+            tables.iter().map(|(name, _, _, _, _)| name.clone()).collect();
 
         if table_names.len() != tables.len() {
             return ::std::result::Result::Err(drizzle::error::DrizzleError::Statement(
@@ -484,9 +713,9 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
 
         // Map unqualified name → qualified name for dependency resolution
         let name_to_qualified: ::std::collections::HashMap<::std::string::String, ::std::string::String> =
-            tables.iter().map(|(qname, _, tref)| (tref.name.to_string(), qname.clone())).collect();
+            tables.iter().map(|(qname, _, tref, _, _)| (tref.name.to_string(), qname.clone())).collect();
 
-        for (table_name, _, table_ref) in &tables {
+        for (table_name, _, table_ref, _, _) in &tables {
             indegree.entry(table_name.clone()).or_insert(0);
 
             for dep_name in table_ref.dependency_names
@@ -547,10 +776,10 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
 
         let mut table_by_name: ::std::collections::HashMap<
             ::std::string::String,
-            ::std::string::String,
+            (::std::string::String, ::std::vec::Vec<::std::string::String>, ::core::option::Option<::std::string::String>),
         > = ::std::collections::HashMap::with_capacity(tables.len());
-        for (table_name, table_sql, _table_ref) in tables {
-            table_by_name.insert(table_name, table_sql);
+        for (table_name, table_sql, _table_ref, comment_sqls, rls_sql) in tables {
+            table_by_name.insert(table_name, (table_sql, comment_sqls, rls_sql));
         }
 
         // Build final SQL statements: enums first, then tables in dependency order, then their indexes
@@ -561,15 +790,26 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
 
         // Add tables and their indexes
         for table_name in ordered_names {
-            let table_sql = table_by_name
+            let (table_sql, comment_sqls, rls_sql) = table_by_name
                 .remove(&table_name)
                 .expect("table exists after topological ordering");
             sql_statements.push(table_sql);
+            sql_statements.extend(comment_sqls);
 
             // Add indexes for this table
             if let ::std::option::Option::Some(table_indexes) = indexes.get(&table_name) {
                 for index_sql in table_indexes {
                     sql_statements.push(index_sql.clone());
+                }
+            }
+
+            if let ::core::option::Option::Some(rls_sql) = rls_sql {
+                sql_statements.push(rls_sql);
+            }
+
+            if let ::std::option::Option::Some(table_policies) = policies.get(&table_name) {
+                for policy_sql in table_policies {
+                    sql_statements.push(policy_sql.clone());
                 }
             }
         }

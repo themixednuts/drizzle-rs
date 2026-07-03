@@ -245,7 +245,10 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         temporary: false,
         inherits: None,
         tablespace: None,
+        rls: false,
         composite_foreign_keys: Vec::new(),
+        unique_constraints: Vec::new(),
+        check_constraints: Vec::new(),
         marker_exprs: Vec::new(),
     };
 
@@ -257,6 +260,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         struct_ident,
         struct_vis: &input.vis,
         table_name: view_name.clone(),
+        table_comment: None,
         field_infos: &field_infos,
         select_model_ident: format_ident!("Select{}", struct_ident),
         select_model_partial_ident: format_ident!("PartialSelect{}", struct_ident),
@@ -420,6 +424,14 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
                 .identity_mode
                 .as_ref()
                 .is_some_and(|m| matches!(m, crate::postgres::field::IdentityMode::Always));
+            let dimensions = f.dimensions.map_or_else(
+                || quote! { ::core::option::Option::None },
+                |dimensions| quote! { ::core::option::Option::Some(#dimensions) },
+            );
+            let comment = f.comment.as_ref().map_or_else(
+                || quote! { ::core::option::Option::None },
+                |comment| quote! { ::core::option::Option::Some(#comment) },
+            );
             quote! {
                 #column_ref_path {
                     table: Self::VIEW_NAME,
@@ -428,13 +440,16 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
                     flags: #column_flags_path::from_bits(#flag_bits),
                     dialect: #column_dialect_path::PostgreSQL {
                         postgres_type: #pg_type,
+                        dimensions: #dimensions,
                         is_serial: #is_serial,
                         is_bigserial: #is_bigserial,
                         is_generated_identity: #is_generated_identity,
                         is_identity_always: #is_identity_always,
+                        default: ::core::option::Option::None,
                         generated_expression: ::core::option::Option::None,
                         generated_stored: false,
                         collate: ::core::option::Option::None,
+                        comment: #comment,
                     },
                 }
             }
@@ -452,7 +467,14 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
             foreign_keys: &[],
             constraints: &[],
             dependency_names: &[],
-            dialect: #table_dialect_path::PostgreSQL,
+            dialect: #table_dialect_path::PostgreSQL {
+                is_unlogged: false,
+                is_temporary: false,
+                inherits: ::core::option::Option::None,
+                tablespace: ::core::option::Option::None,
+                is_rls_enabled: false,
+                comment: ::core::option::Option::None,
+            },
         };
     };
 

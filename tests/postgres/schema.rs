@@ -8,6 +8,7 @@
 use crate::common::schema::postgres::*;
 use drizzle::core::expr::eq;
 use drizzle::ddl::postgres::ddl::ViewWithOptionDef;
+use drizzle::migrations::Schema as MigrationSchema;
 use drizzle::postgres::prelude::*;
 
 #[derive(Debug, PostgresFromRow)]
@@ -69,6 +70,401 @@ struct PgCasingExplicit {
     id: i32,
     #[column(name = "displayName")]
     display_name: String,
+}
+
+#[PostgresTable(NAME = "macro_snapshot_ddl")]
+struct PgMacroSnapshotDdl {
+    #[column(PRIMARY, identity(by_default))]
+    id: i32,
+    #[column(COLLATE = C)]
+    name: String,
+    #[column(generated(stored, "length(name)"))]
+    name_len: i32,
+    #[column(CHECK = "score >= 0")]
+    score: i32,
+    #[column(enum)]
+    role: Role,
+}
+
+#[derive(PostgresSchema)]
+struct PgMacroSnapshotSchema {
+    table: PgMacroSnapshotDdl,
+}
+
+/// Macro-generated table comment.
+#[PostgresTable(NAME = "macro_array_comments")]
+struct PgMacroArrayComments {
+    #[column(PRIMARY)]
+    id: i32,
+    /// Integer array comment.
+    numbers: Vec<i32>,
+    /// Text array comment.
+    tags: Vec<String>,
+}
+
+#[derive(PostgresSchema)]
+struct PgMacroArrayCommentSchema {
+    table: PgMacroArrayComments,
+}
+
+#[derive(Debug, PostgresFromRow)]
+struct PgMacroArrayCommentResult {
+    id: i32,
+    numbers: Vec<i32>,
+    tags: Vec<String>,
+}
+
+#[PostgresTable(
+    NAME = "macro_storage_attrs",
+    UNLOGGED,
+    INHERITS = "macro_parent",
+    TABLESPACE = "fast_storage"
+)]
+struct PgMacroStorageAttrs {
+    #[column(PRIMARY)]
+    id: i32,
+}
+
+#[PostgresTable(NAME = "macro_constraints_parent")]
+struct PgMacroConstraintParent {
+    #[column(PRIMARY)]
+    id: i32,
+    tenant_id: i32,
+}
+
+#[PostgresTable(
+    NAME = "macro_constraints_child",
+    RLS,
+    UNIQUE(
+        columns(tenant_id, slug),
+        name = "macro_child_tenant_slug_key",
+        deferrable,
+        initially_deferred
+    ),
+    CHECK(name = "macro_child_score_check", expr = "score >= 0"),
+    FOREIGN_KEY(
+        columns(tenant_id, parent_id),
+        references(PgMacroConstraintParent, tenant_id, id),
+        deferrable,
+        initially_deferred
+    )
+)]
+struct PgMacroConstraintChild {
+    #[column(PRIMARY)]
+    id: i32,
+    tenant_id: i32,
+    parent_id: i32,
+    #[column(REFERENCES = PgMacroConstraintParent::id, DEFERRABLE, INITIALLY_DEFERRED)]
+    parent_ref: i32,
+    slug: String,
+    #[column(default_sql = "'draft'")]
+    status: String,
+    score: i32,
+}
+
+#[PostgresPolicy(
+    NAME = "macro_child_select_policy",
+    AS = "RESTRICTIVE",
+    FOR = "SELECT",
+    TO("public", "app_user"),
+    USING = "tenant_id > 0",
+    WITH_CHECK = "score >= 0"
+)]
+struct PgMacroChildSelectPolicy(PgMacroConstraintChild);
+
+#[derive(PostgresSchema)]
+struct PgMacroFeatureSchema {
+    parent: PgMacroConstraintParent,
+    child: PgMacroConstraintChild,
+    storage: PgMacroStorageAttrs,
+    policy: PgMacroChildSelectPolicy,
+}
+
+#[PostgresTable(
+    NAME = "macro_exec_parent",
+    UNIQUE(columns(tenant_id, code), name = "macro_exec_parent_tenant_code_key")
+)]
+struct PgMacroExecParent {
+    #[column(PRIMARY)]
+    id: i32,
+    tenant_id: i32,
+    code: String,
+}
+
+#[PostgresTable(
+    NAME = "macro_exec_child",
+    RLS,
+    UNIQUE(
+        columns(tenant_id, slug),
+        name = "macro_exec_child_tenant_slug_key",
+        deferrable
+    ),
+    CHECK(name = "macro_exec_child_score_check", expr = "score >= 0"),
+    FOREIGN_KEY(
+        columns(tenant_id, parent_code),
+        references(PgMacroExecParent, tenant_id, code),
+        deferrable,
+        initially_deferred
+    )
+)]
+struct PgMacroExecChild {
+    #[column(PRIMARY)]
+    id: i32,
+    tenant_id: i32,
+    parent_code: String,
+    #[column(REFERENCES = PgMacroExecParent::id, DEFERRABLE)]
+    parent_id: i32,
+    slug: String,
+    #[column(default_sql = "'draft'")]
+    status: String,
+    score: i32,
+}
+
+#[PostgresPolicy(
+    NAME = "macro_exec_select_policy",
+    FOR = "SELECT",
+    TO("public"),
+    USING = "tenant_id > 0"
+)]
+struct PgMacroExecSelectPolicy(PgMacroExecChild);
+
+#[derive(PostgresSchema)]
+struct PgMacroExecutableFeatureSchema {
+    parent: PgMacroExecParent,
+    child: PgMacroExecChild,
+    policy: PgMacroExecSelectPolicy,
+}
+
+#[test]
+fn postgres_macro_snapshot_carries_column_ddl_metadata() {
+    let snapshot = PgMacroSnapshotSchema::new().to_snapshot();
+    let drizzle::migrations::Snapshot::Postgres(snapshot) = snapshot else {
+        panic!("expected postgres snapshot");
+    };
+
+    let columns = snapshot
+        .ddl
+        .iter()
+        .filter_map(|entity| match entity {
+            drizzle::migrations::postgres::PostgresEntity::Column(column) => Some(column),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let id = columns
+        .iter()
+        .find(|column| column.name == "id")
+        .expect("id column");
+    assert!(id.identity.is_some(), "identity metadata missing");
+
+    let name = columns
+        .iter()
+        .find(|column| column.name == "name")
+        .expect("name column");
+    assert_eq!(name.collate.as_deref(), Some("C"));
+
+    let name_len = columns
+        .iter()
+        .find(|column| column.name == "name_len")
+        .expect("name_len column");
+    assert!(name_len.generated.is_some(), "generated metadata missing");
+
+    let role = columns
+        .iter()
+        .find(|column| column.name == "role")
+        .expect("role column");
+    assert_eq!(role.type_schema.as_deref(), Some("public"));
+
+    assert!(
+        snapshot.ddl.iter().any(|entity| matches!(
+            entity,
+            drizzle::migrations::postgres::PostgresEntity::CheckConstraint(check)
+                if check.name == "macro_snapshot_ddl_score_check" && check.value == "score >= 0"
+        )),
+        "check constraint metadata missing"
+    );
+}
+
+#[test]
+fn postgres_macro_arrays_and_comments_reach_ddl_and_snapshot() {
+    let table_sql = PgMacroArrayComments::create_table_sql();
+    assert!(table_sql.contains("\"numbers\" INTEGER[] NOT NULL"));
+    assert!(table_sql.contains("\"tags\" TEXT[] NOT NULL"));
+
+    let statements = PgMacroArrayCommentSchema::new()
+        .create_statements()
+        .expect("create statements")
+        .collect::<Vec<_>>();
+    assert!(statements.iter().any(|sql| {
+        sql == "COMMENT ON TABLE \"macro_array_comments\" IS 'Macro-generated table comment.';"
+    }));
+    assert!(statements.iter().any(|sql| {
+        sql == "COMMENT ON COLUMN \"macro_array_comments\".\"numbers\" IS 'Integer array comment.';"
+    }));
+    assert!(statements.iter().any(|sql| {
+        sql == "COMMENT ON COLUMN \"macro_array_comments\".\"tags\" IS 'Text array comment.';"
+    }));
+
+    let drizzle::migrations::Snapshot::Postgres(snapshot) =
+        PgMacroArrayCommentSchema::new().to_snapshot()
+    else {
+        panic!("expected postgres snapshot");
+    };
+
+    assert!(snapshot.ddl.iter().any(|entity| matches!(
+        entity,
+        drizzle::migrations::postgres::PostgresEntity::Table(table)
+            if table.name == "macro_array_comments"
+                && table.comment.as_deref() == Some("Macro-generated table comment.")
+    )));
+    assert!(snapshot.ddl.iter().any(|entity| matches!(
+        entity,
+        drizzle::migrations::postgres::PostgresEntity::Column(column)
+            if column.table == "macro_array_comments"
+                && column.name == "numbers"
+                && column.sql_type == "INTEGER"
+                && column.dimensions == Some(1)
+                && column.comment.as_deref() == Some("Integer array comment.")
+    )));
+}
+
+#[drizzle::test]
+fn postgres_macro_array_columns_roundtrip(db: &mut TestDb<PgMacroArrayCommentSchema>) {
+    let PgMacroArrayCommentSchema { table } = schema;
+
+    db.insert(table)
+        .values([InsertPgMacroArrayComments::new(
+            1,
+            vec![1, 2, 3],
+            vec!["alpha".to_string(), "beta".to_string()],
+        )])
+        .execute();
+
+    let rows: Vec<PgMacroArrayCommentResult> = db.select(()).from(table).all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, 1);
+    assert_eq!(rows[0].numbers, vec![1, 2, 3]);
+    assert_eq!(rows[0].tags, vec!["alpha".to_string(), "beta".to_string()]);
+}
+
+#[test]
+fn postgres_macro_create_table_sql_carries_table_storage_and_constraints() {
+    let storage_sql = PgMacroStorageAttrs::create_table_sql();
+    assert!(storage_sql.starts_with("CREATE UNLOGGED TABLE \"macro_storage_attrs\""));
+    assert!(storage_sql.contains("INHERITS (\"macro_parent\")"));
+    assert!(storage_sql.contains("TABLESPACE \"fast_storage\""));
+
+    let child_sql = PgMacroConstraintChild::create_table_sql();
+    assert!(child_sql.contains(
+        "CONSTRAINT \"macro_child_tenant_slug_key\" UNIQUE(\"tenant_id\", \"slug\") DEFERRABLE INITIALLY DEFERRED"
+    ));
+    assert!(child_sql.contains("CONSTRAINT \"macro_child_score_check\" CHECK (score >= 0)"));
+    assert!(child_sql.contains("DEFAULT 'draft'"));
+    assert!(child_sql.contains("FOREIGN KEY (\"parent_ref\") REFERENCES \"macro_constraints_parent\"(\"id\") DEFERRABLE INITIALLY DEFERRED"));
+    assert!(child_sql.contains("FOREIGN KEY (\"tenant_id\", \"parent_id\") REFERENCES \"macro_constraints_parent\"(\"tenant_id\", \"id\") DEFERRABLE INITIALLY DEFERRED"));
+}
+
+#[test]
+fn postgres_macro_snapshot_carries_table_constraints_rls_policy_and_defaults() {
+    let snapshot = PgMacroFeatureSchema::new().to_snapshot();
+    let drizzle::migrations::Snapshot::Postgres(snapshot) = snapshot else {
+        panic!("expected postgres snapshot");
+    };
+
+    let storage = snapshot
+        .ddl
+        .iter()
+        .find_map(|entity| match entity {
+            drizzle::migrations::postgres::PostgresEntity::Table(table)
+                if table.name == "macro_storage_attrs" =>
+            {
+                Some(table)
+            }
+            _ => None,
+        })
+        .expect("storage table");
+    assert_eq!(storage.is_unlogged, Some(true));
+    assert_eq!(storage.inherits.as_deref(), Some("macro_parent"));
+    assert_eq!(storage.tablespace.as_deref(), Some("fast_storage"));
+
+    let child = snapshot
+        .ddl
+        .iter()
+        .find_map(|entity| match entity {
+            drizzle::migrations::postgres::PostgresEntity::Table(table)
+                if table.name == "macro_constraints_child" =>
+            {
+                Some(table)
+            }
+            _ => None,
+        })
+        .expect("child table");
+    assert_eq!(child.is_rls_enabled, Some(true));
+
+    assert!(snapshot.ddl.iter().any(|entity| matches!(
+        entity,
+        drizzle::migrations::postgres::PostgresEntity::Column(column)
+            if column.table == "macro_constraints_child"
+                && column.name == "status"
+                && column.default.as_deref() == Some("'draft'")
+    )));
+    assert!(snapshot.ddl.iter().any(|entity| matches!(
+        entity,
+        drizzle::migrations::postgres::PostgresEntity::UniqueConstraint(unique)
+            if unique.name == "macro_child_tenant_slug_key"
+                && unique.deferrable
+                && unique.initially_deferred
+    )));
+    assert!(snapshot.ddl.iter().any(|entity| matches!(
+        entity,
+        drizzle::migrations::postgres::PostgresEntity::CheckConstraint(check)
+            if check.name == "macro_child_score_check" && check.value == "score >= 0"
+    )));
+    assert!(snapshot.ddl.iter().any(|entity| matches!(
+        entity,
+        drizzle::migrations::postgres::PostgresEntity::ForeignKey(fk)
+            if fk.name == "macro_constraints_child_parent_ref_fkey"
+                && fk.deferrable
+                && fk.initially_deferred
+    )));
+    assert!(snapshot.ddl.iter().any(|entity| matches!(
+        entity,
+        drizzle::migrations::postgres::PostgresEntity::Policy(policy)
+            if policy.name == "macro_child_select_policy"
+                && policy.as_clause.as_deref() == Some("RESTRICTIVE")
+                && policy.for_clause.as_deref() == Some("SELECT")
+                && policy.using.as_deref() == Some("tenant_id > 0")
+                && policy.with_check.as_deref() == Some("score >= 0")
+    )));
+}
+
+#[test]
+fn postgres_macro_create_statements_emit_rls_and_policy() {
+    let statements = PgMacroFeatureSchema::new()
+        .create_statements()
+        .expect("create statements")
+        .collect::<Vec<_>>();
+
+    assert!(statements.iter().any(|sql| {
+        sql == "ALTER TABLE \"macro_constraints_child\" ENABLE ROW LEVEL SECURITY;"
+    }));
+    assert!(statements.iter().any(|sql| {
+        sql.contains("CREATE POLICY \"macro_child_select_policy\"")
+            && sql.contains(" AS RESTRICTIVE FOR SELECT TO PUBLIC, \"app_user\"")
+            && sql.contains("USING (tenant_id > 0)")
+            && sql.contains("WITH CHECK (score >= 0)")
+    }));
+}
+
+#[drizzle::test]
+fn postgres_macro_feature_ddl_executes(db: &mut TestDb<PgMacroExecutableFeatureSchema>) {
+    let _ = db;
+    assert!(
+        schema
+            .create_statements()
+            .expect("create statements")
+            .any(|sql| sql.contains("CREATE POLICY \"macro_exec_select_policy\""))
+    );
 }
 
 #[PostgresView(EXISTING, NAME = "existing_simple_view")]

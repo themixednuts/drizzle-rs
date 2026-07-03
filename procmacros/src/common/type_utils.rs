@@ -80,27 +80,28 @@ pub fn type_is_string_like(ty: &Type) -> bool {
 }
 
 pub fn type_is_vec_u8(ty: &Type) -> bool {
-    let Some(path) = type_path(ty) else {
-        return false;
-    };
-    let Some(segment) = path.segments.last() else {
-        return false;
-    };
+    vec_inner_type(ty).is_some_and(|inner| {
+        matches!(
+            inner,
+            Type::Path(path) if path.path.segments.last().is_some_and(|seg| seg.ident == "u8")
+        )
+    })
+}
+
+pub fn vec_inner_type(ty: &Type) -> Option<&Type> {
+    let path = type_path(ty)?;
+    let segment = path.segments.last()?;
     if segment.ident != "Vec" {
-        return false;
+        return None;
     }
     let PathArguments::AngleBracketed(args) = &segment.arguments else {
-        return false;
+        return None;
     };
-    args.args.iter().any(|arg| {
-        if let GenericArgument::Type(Type::Path(inner)) = arg {
-            inner
-                .path
-                .segments
-                .last()
-                .is_some_and(|seg| seg.ident == "u8")
+    args.args.iter().find_map(|arg| {
+        if let GenericArgument::Type(inner) = arg {
+            Some(inner)
         } else {
-            false
+            None
         }
     })
 }

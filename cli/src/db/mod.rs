@@ -3725,6 +3725,10 @@ fn query_pg_sync_core(
             schema: row.get::<_, String>(0),
             name: row.get::<_, String>(1),
             is_rls_enabled: row.get::<_, bool>(2),
+            is_unlogged: row.get::<_, bool>(3),
+            is_temporary: row.get::<_, bool>(4),
+            tablespace: row.get::<_, Option<String>>(5),
+            comment: row.get::<_, Option<String>>(6),
         })
         .collect();
 
@@ -3745,7 +3749,9 @@ fn query_pg_sync_core(
             is_generated: row.get::<_, bool>(9),
             generated_expression: row.get::<_, Option<String>>(10),
             generated_stored: row.get::<_, bool>(11),
-            ordinal_position: row.get::<_, i32>(12),
+            dimensions: row.get::<_, Option<i32>>(12),
+            comment: row.get::<_, Option<String>>(13),
+            ordinal_position: row.get::<_, i32>(14),
         })
         .collect();
 
@@ -3849,6 +3855,8 @@ fn query_pg_sync_constraints(
             columns_to: row.get::<_, Vec<String>>(6),
             on_update: pg_action_code_to_string(&row.get::<_, String>(7)),
             on_delete: pg_action_code_to_string(&row.get::<_, String>(8)),
+            deferrable: row.get::<_, bool>(9),
+            initially_deferred: row.get::<_, bool>(10),
         })
         .collect();
 
@@ -3874,6 +3882,8 @@ fn query_pg_sync_constraints(
             name: row.get::<_, String>(2),
             columns: row.get::<_, Vec<String>>(3),
             nulls_not_distinct: row.get::<_, bool>(4),
+            deferrable: row.get::<_, bool>(5),
+            initially_deferred: row.get::<_, bool>(6),
         })
         .collect();
 
@@ -4002,6 +4012,10 @@ async fn query_pg_async_core(
             schema: row.get::<_, String>(0),
             name: row.get::<_, String>(1),
             is_rls_enabled: row.get::<_, bool>(2),
+            is_unlogged: row.get::<_, bool>(3),
+            is_temporary: row.get::<_, bool>(4),
+            tablespace: row.get::<_, Option<String>>(5),
+            comment: row.get::<_, Option<String>>(6),
         })
         .collect();
 
@@ -4023,7 +4037,9 @@ async fn query_pg_async_core(
             is_generated: row.get::<_, bool>(9),
             generated_expression: row.get::<_, Option<String>>(10),
             generated_stored: row.get::<_, bool>(11),
-            ordinal_position: row.get::<_, i32>(12),
+            dimensions: row.get::<_, Option<i32>>(12),
+            comment: row.get::<_, Option<String>>(13),
+            ordinal_position: row.get::<_, i32>(14),
         })
         .collect();
 
@@ -4132,6 +4148,8 @@ async fn query_pg_async_constraints(
             columns_to: row.get::<_, Vec<String>>(6),
             on_update: pg_action_code_to_string(&row.get::<_, String>(7)),
             on_delete: pg_action_code_to_string(&row.get::<_, String>(8)),
+            deferrable: row.get::<_, bool>(9),
+            initially_deferred: row.get::<_, bool>(10),
         })
         .collect();
 
@@ -4159,6 +4177,8 @@ async fn query_pg_async_constraints(
             name: row.get::<_, String>(2),
             columns: row.get::<_, Vec<String>>(3),
             nulls_not_distinct: row.get::<_, bool>(4),
+            deferrable: row.get::<_, bool>(5),
+            initially_deferred: row.get::<_, bool>(6),
         })
         .collect();
 

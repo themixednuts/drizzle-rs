@@ -77,6 +77,10 @@ pub mod core {
         quote!(drizzle::core::DrizzleIndex)
     }
 
+    pub fn drizzle_policy() -> TokenStream {
+        quote!(drizzle::core::DrizzlePolicy)
+    }
+
     pub fn table_ref() -> TokenStream {
         quote!(drizzle::core::TableRef)
     }
@@ -123,10 +127,6 @@ pub mod core {
 
     pub fn no_primary_key() -> TokenStream {
         quote!(drizzle::core::NoPrimaryKey)
-    }
-
-    pub fn sql_constraint_info() -> TokenStream {
-        quote!(drizzle::core::SQLConstraintInfo)
     }
 
     pub fn sql_constraint() -> TokenStream {
@@ -251,6 +251,14 @@ pub mod core {
 
     pub fn sql_index_info() -> TokenStream {
         quote!(drizzle::core::SQLIndexInfo)
+    }
+
+    pub fn sql_policy() -> TokenStream {
+        quote!(drizzle::core::SQLPolicy)
+    }
+
+    pub fn sql_policy_info() -> TokenStream {
+        quote!(drizzle::core::SQLPolicyInfo)
     }
 
     pub fn to_sql() -> TokenStream {
@@ -506,6 +514,10 @@ pub mod ddl {
             quote!(drizzle::ddl::sqlite::ddl::UniqueConstraintDef)
         }
 
+        pub fn check_constraint_def() -> TokenStream {
+            quote!(drizzle::ddl::sqlite::ddl::CheckConstraintDef)
+        }
+
         pub fn view() -> TokenStream {
             quote!(drizzle::ddl::sqlite::ddl::View)
         }
@@ -553,6 +565,14 @@ pub mod ddl {
 
         pub fn unique_constraint_def() -> TokenStream {
             quote!(drizzle::ddl::postgres::ddl::UniqueConstraintDef)
+        }
+
+        pub fn check_constraint_def() -> TokenStream {
+            quote!(drizzle::ddl::postgres::ddl::CheckConstraintDef)
+        }
+
+        pub fn policy_def() -> TokenStream {
+            quote!(drizzle::ddl::postgres::ddl::PolicyDef)
         }
 
         pub fn view() -> TokenStream {
@@ -680,6 +700,14 @@ pub mod migrations {
             quote!(drizzle::ddl::sqlite::ddl::UniqueConstraintDef)
         }
 
+        pub fn check_constraint() -> TokenStream {
+            quote!(drizzle::ddl::sqlite::ddl::CheckConstraint)
+        }
+
+        pub fn check_constraint_def() -> TokenStream {
+            quote!(drizzle::ddl::sqlite::ddl::CheckConstraintDef)
+        }
+
         pub fn view() -> TokenStream {
             quote!(drizzle::ddl::sqlite::ddl::View)
         }
@@ -775,6 +803,14 @@ pub mod migrations {
 
         pub fn unique_constraint_def() -> TokenStream {
             quote!(drizzle::ddl::postgres::ddl::UniqueConstraintDef)
+        }
+
+        pub fn check_constraint() -> TokenStream {
+            quote!(drizzle::ddl::postgres::ddl::CheckConstraint)
+        }
+
+        pub fn policy() -> TokenStream {
+            quote!(drizzle::ddl::postgres::ddl::Policy)
         }
 
         pub fn view() -> TokenStream {

@@ -104,9 +104,16 @@ mod tests {
 
     const fn test_fk(target: &'static str) -> ForeignKeyRef {
         ForeignKeyRef {
+            name: "fk",
+            name_explicit: false,
             target_table: target,
+            target_schema: "",
             source_columns: &[],
             target_columns: &[],
+            on_delete: None,
+            on_update: None,
+            deferrable: false,
+            initially_deferred: false,
         }
     }
 

@@ -45,6 +45,7 @@ pub fn parse_discriminant(expr: &Expr) -> syn::Result<i64> {
 }
 
 /// Check if the enum has any variant with an explicit discriminant (`= N`).
+#[cfg(feature = "sqlite")]
 pub fn has_explicit_discriminants(data: &DataEnum) -> bool {
     data.variants.iter().any(|v| v.discriminant.is_some())
 }

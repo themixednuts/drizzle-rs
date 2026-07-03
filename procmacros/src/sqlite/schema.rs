@@ -86,6 +86,9 @@ pub fn generate_sqlite_schema_derive_impl(input: &DeriveInput) -> Result<TokenSt
     let mig_sqlite_index_column = mig_paths::sqlite::index_column();
     let mig_sqlite_primary_key = mig_paths::sqlite::primary_key();
     let mig_sqlite_unique_constraint = mig_paths::sqlite::unique_constraint();
+    let mig_sqlite_check_constraint = mig_paths::sqlite::check_constraint();
+    let mig_sqlite_generated = quote! { drizzle::migrations::sqlite::Generated };
+    let mig_sqlite_generated_type = quote! { drizzle::migrations::sqlite::GeneratedType };
     let mig_sqlite_view = mig_paths::sqlite::view();
 
     let schema_table_refs_method = generate_schema_table_refs_method(&all_fields);
@@ -167,6 +170,7 @@ pub fn generate_sqlite_schema_derive_impl(input: &DeriveInput) -> Result<TokenSt
                 type MigIndexColumn = #mig_sqlite_index_column;
                 type MigPrimaryKey = #mig_sqlite_primary_key;
                 type MigUniqueConstraint = #mig_sqlite_unique_constraint;
+                type MigCheckConstraint = #mig_sqlite_check_constraint;
                 type MigView = #mig_sqlite_view;
 
                 let mut snapshot = MigSnapshot::new();
@@ -183,6 +187,29 @@ pub fn generate_sqlite_schema_derive_impl(input: &DeriveInput) -> Result<TokenSt
 
                             // Add column entities from TABLE_REF
                             for col in table_ref.columns {
+                                let (
+                                    autoincrement,
+                                    default,
+                                    generated_expression,
+                                    generated_stored,
+                                    collate,
+                                ) = match col.dialect {
+                                    drizzle::core::ColumnDialect::SQLite {
+                                        autoincrement,
+                                        default,
+                                        generated_expression,
+                                        generated_stored,
+                                        collate,
+                                    } => (
+                                        autoincrement,
+                                        default,
+                                        generated_expression,
+                                        generated_stored,
+                                        collate,
+                                    ),
+                                    _ => (false, ::core::option::Option::None, ::core::option::Option::None, false, ::core::option::Option::None),
+                                };
+
                                 let mut column = MigColumn::new(
                                     table_name,
                                     col.name,
@@ -191,8 +218,24 @@ pub fn generate_sqlite_schema_derive_impl(input: &DeriveInput) -> Result<TokenSt
                                 if col.not_null() {
                                     column = column.not_null();
                                 }
-                                if let drizzle::core::ColumnDialect::SQLite { autoincrement: true } = col.dialect {
+                                if autoincrement {
                                     column = column.autoincrement();
+                                }
+                                if let ::core::option::Option::Some(default) = default {
+                                    column = column.default_value(default);
+                                }
+                                if let ::core::option::Option::Some(expression) = generated_expression {
+                                    column.generated = ::core::option::Option::Some(#mig_sqlite_generated {
+                                        expression: ::std::borrow::Cow::Borrowed(expression),
+                                        gen_type: if generated_stored {
+                                            #mig_sqlite_generated_type::Stored
+                                        } else {
+                                            #mig_sqlite_generated_type::Virtual
+                                        },
+                                    });
+                                }
+                                if let ::core::option::Option::Some(collate) = collate {
+                                    column.collate = ::core::option::Option::Some(::std::borrow::Cow::Borrowed(collate));
                                 }
                                 snapshot.add_entity(MigEntity::Column(column));
 
@@ -212,6 +255,32 @@ pub fn generate_sqlite_schema_derive_impl(input: &DeriveInput) -> Result<TokenSt
                                         ::std::format!("{}_{}_unique", table_name, col.name),
                                         ::std::vec![col.name.to_string()],
                                     )));
+                                }
+                            }
+
+                            for constraint in table_ref.constraints {
+                                match constraint.kind {
+                                    drizzle::core::SQLConstraintKind::Unique => {
+                                        let unique_name = constraint.name.unwrap_or("unique");
+                                        let mut unique = MigUniqueConstraint::from_strings(
+                                            table_name.to_string(),
+                                            unique_name.to_string(),
+                                            constraint.columns.iter().map(|col| col.to_string()).collect(),
+                                        );
+                                        unique.name_explicit = constraint.name_explicit;
+                                        snapshot.add_entity(MigEntity::UniqueConstraint(unique));
+                                    }
+                                    drizzle::core::SQLConstraintKind::Check => {
+                                        if let ::core::option::Option::Some(check_expression) = constraint.check_expression {
+                                            let check_name = constraint.name.unwrap_or("check");
+                                            snapshot.add_entity(MigEntity::CheckConstraint(MigCheckConstraint::new(
+                                                table_name,
+                                                check_name,
+                                                check_expression,
+                                            )));
+                                        }
+                                    }
+                                    _ => {}
                                 }
                             }
                         }

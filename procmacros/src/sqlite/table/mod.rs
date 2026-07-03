@@ -72,6 +72,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         info.is_nullable
             || info.has_default
             || info.default_fn.is_some()
+            || info.generated_column.is_some()
             || (info.is_primary()
                 && !attrs.without_rowid
                 && !info.is_enum
