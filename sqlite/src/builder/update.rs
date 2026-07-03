@@ -1,46 +1,16 @@
 use crate::common::SQLiteSchemaType;
 use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
-use core::fmt::Debug;
 use core::marker::PhantomData;
-use drizzle_core::{SQL, ToSQL};
-
-// Import the ExecutableState trait
-use super::ExecutableState;
-
-#[inline]
-fn append_sql<'a>(
-    mut base: SQL<'a, SQLiteValue<'a>>,
-    fragment: SQL<'a, SQLiteValue<'a>>,
-) -> SQL<'a, SQLiteValue<'a>> {
-    base.append_mut(fragment);
-    base
-}
+use drizzle_core::ToSQL;
 
 //------------------------------------------------------------------------------
 // Type State Markers
 //------------------------------------------------------------------------------
 
-/// Marker for the initial state of `UpdateBuilder`
-#[derive(Debug, Clone, Copy, Default)]
-pub struct UpdateInitial;
-
-/// Marker for the state after SET clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct UpdateSetClauseSet;
-
-/// Marker for the state after WHERE clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct UpdateWhereSet;
-
-/// Marker for the state after RETURNING clause
-#[derive(Debug, Clone, Copy, Default)]
-pub struct UpdateReturningSet;
-
-// Mark states that can execute update queries
-impl ExecutableState for UpdateSetClauseSet {}
-impl ExecutableState for UpdateWhereSet {}
-impl ExecutableState for UpdateReturningSet {}
+pub use drizzle_core::builder::{
+    UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet,
+};
 
 //------------------------------------------------------------------------------
 // UpdateBuilder Definition
@@ -283,7 +253,7 @@ where
         let sql = crate::helpers::set::<Table, SQLiteSchemaType, SQLiteValue<'a>>(&values);
         drop(values);
         UpdateBuilder {
-            sql: append_sql(self.sql, sql),
+            sql: self.sql.append(sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -360,7 +330,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     {
         let where_sql = crate::helpers::r#where(condition);
         UpdateBuilder {
-            sql: append_sql(self.sql, where_sql),
+            sql: self.sql.append(where_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -379,7 +349,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     {
         let returning_sql = crate::helpers::returning(columns);
         UpdateBuilder {
-            sql: append_sql(self.sql, returning_sql),
+            sql: self.sql.append(returning_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -404,7 +374,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateWhereSet, T> {
     {
         let returning_sql = crate::helpers::returning(columns);
         UpdateBuilder {
-            sql: append_sql(self.sql, returning_sql),
+            sql: self.sql.append(returning_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

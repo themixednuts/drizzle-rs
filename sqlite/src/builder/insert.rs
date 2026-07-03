@@ -1,50 +1,18 @@
 use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
-use core::fmt::Debug;
 use core::marker::PhantomData;
+use drizzle_core::builder::{
+    ConflictColumnsTarget, OnConflictBuilder as CoreOnConflictBuilder, OnConflictOutput,
+};
 use drizzle_core::{ConflictTarget, SQL, SQLModel, ToSQL, Token};
-
-// Import the ExecutableState trait
-use super::ExecutableState;
-
-#[inline]
-fn append_sql<'a>(
-    mut base: SQL<'a, SQLiteValue<'a>>,
-    fragment: SQL<'a, SQLiteValue<'a>>,
-) -> SQL<'a, SQLiteValue<'a>> {
-    base.append_mut(fragment);
-    base
-}
 
 //------------------------------------------------------------------------------
 // Type State Markers
 //------------------------------------------------------------------------------
 
-/// Marker for the initial state of `InsertBuilder`.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct InsertInitial;
-
-/// Marker for the state after VALUES are set.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct InsertValuesSet;
-
-/// Marker for the state after RETURNING clause is added.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct InsertReturningSet;
-
-/// Marker for the state after ON CONFLICT is set.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct InsertOnConflictSet;
-
-/// Marker for the state after DO UPDATE SET (before optional WHERE).
-#[derive(Debug, Clone, Copy, Default)]
-pub struct InsertDoUpdateSet;
-
-// Mark states that can execute insert queries
-impl ExecutableState for InsertValuesSet {}
-impl ExecutableState for InsertReturningSet {}
-impl ExecutableState for InsertOnConflictSet {}
-impl ExecutableState for InsertDoUpdateSet {}
+pub use drizzle_core::builder::{
+    InsertDoUpdateSet, InsertInitial, InsertOnConflictSet, InsertReturningSet, InsertValuesSet,
+};
 
 //------------------------------------------------------------------------------
 // OnConflictBuilder
@@ -54,48 +22,26 @@ impl ExecutableState for InsertDoUpdateSet {}
 ///
 /// Created by [`InsertBuilder::on_conflict()`]. Call [`do_nothing()`](Self::do_nothing)
 /// or [`do_update()`](Self::do_update) to complete the clause.
-#[derive(Debug, Clone)]
-pub struct OnConflictBuilder<'a, S, T> {
-    sql: SQL<'a, SQLiteValue<'a>>,
-    target_sql: SQL<'a, SQLiteValue<'a>>,
-    target_where: Option<SQL<'a, SQLiteValue<'a>>>,
-    schema: PhantomData<S>,
-    table: PhantomData<T>,
-}
+pub type OnConflictBuilder<'a, S, T> = CoreOnConflictBuilder<
+    'a,
+    SQLiteValue<'a>,
+    S,
+    T,
+    ConflictColumnsTarget<'a, SQLiteValue<'a>>,
+    SQLiteOnConflictOutput,
+>;
 
-impl<'a, S, T> OnConflictBuilder<'a, S, T> {
-    /// Adds a WHERE clause to the conflict target for partial index matching.
-    ///
-    /// Generates: `ON CONFLICT (col) WHERE condition DO ...`
-    #[must_use]
-    pub fn r#where<E>(mut self, condition: E) -> Self
-    where
-        E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
-        E::SQLType: drizzle_core::types::BooleanLike,
-    {
-        self.target_where = Some(condition.to_sql());
-        self
-    }
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SQLiteOnConflictOutput;
 
-    /// Splits into (base insert SQL, conflict target SQL prefix).
-    fn into_parts(self) -> (SQL<'a, SQLiteValue<'a>>, SQL<'a, SQLiteValue<'a>>) {
-        let mut target = SQL::from_iter([Token::ON, Token::CONFLICT, Token::LPAREN])
-            .append(self.target_sql)
-            .push(Token::RPAREN);
-        if let Some(tw) = self.target_where {
-            target = target.push(Token::WHERE).append(tw);
-        }
-        (self.sql, target)
-    }
+impl<'a, S, T> OnConflictOutput<'a, SQLiteValue<'a>, S, T> for SQLiteOnConflictOutput {
+    type OnConflictSet = InsertBuilder<'a, S, InsertOnConflictSet, T>;
+    type DoUpdateSet = InsertBuilder<'a, S, InsertDoUpdateSet, T>;
 
-    /// Resolves the conflict by doing nothing (ignoring the conflicting row).
-    ///
-    /// Generates: `ON CONFLICT (col1, col2) DO NOTHING`
-    #[must_use]
-    pub fn do_nothing(self) -> InsertBuilder<'a, S, InsertOnConflictSet, T> {
-        let (sql, target) = self.into_parts();
+    fn on_conflict(sql: SQL<'a, SQLiteValue<'a>>) -> Self::OnConflictSet {
         InsertBuilder {
-            sql: append_sql(sql, target.push(Token::DO).push(Token::NOTHING)),
+            sql,
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -105,26 +51,9 @@ impl<'a, S, T> OnConflictBuilder<'a, S, T> {
         }
     }
 
-    /// Resolves the conflict by updating the existing row.
-    ///
-    /// The `set` parameter accepts any `ToSQL` value, typically an `UpdateModel`
-    /// which generates the SET clause assignments.
-    ///
-    /// Generates: `ON CONFLICT (col1, col2) DO UPDATE SET ...`
-    ///
-    /// Chain `.r#where(condition)` to add a conditional update filter.
-    pub fn do_update(
-        self,
-        set: impl ToSQL<'a, SQLiteValue<'a>>,
-    ) -> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
-        let (sql, target) = self.into_parts();
-        let conflict = target
-            .push(Token::DO)
-            .push(Token::UPDATE)
-            .push(Token::SET)
-            .append(set.to_sql());
+    fn do_update(sql: SQL<'a, SQLiteValue<'a>>) -> Self::DoUpdateSet {
         InsertBuilder {
-            sql: append_sql(sql, conflict),
+            sql,
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -211,7 +140,7 @@ where
     {
         let sql = crate::helpers::values::<'a, Table, T>(values);
         InsertBuilder {
-            sql: append_sql(self.sql, sql),
+            sql: self.sql.append(sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -230,7 +159,7 @@ where
         Q: ToSQL<'a, SQLiteValue<'a>>,
     {
         InsertBuilder {
-            sql: append_sql(self.sql, query.to_sql()),
+            sql: self.sql.append(query.into_sql()),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -315,13 +244,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     pub fn on_conflict<C: ConflictTarget<T>>(self, target: C) -> OnConflictBuilder<'a, S, T> {
         let columns = target.conflict_columns();
         let target_sql = SQL::join(columns.iter().map(|c| SQL::ident(*c)), Token::COMMA);
-        OnConflictBuilder {
-            sql: self.sql,
-            target_sql,
-            target_where: None,
-            schema: PhantomData,
-            table: PhantomData,
-        }
+        OnConflictBuilder::new(self.sql, ConflictColumnsTarget::new(target_sql))
     }
 
     /// Shorthand for `ON CONFLICT DO NOTHING` without specifying a target.
@@ -331,7 +254,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     pub fn on_conflict_do_nothing(self) -> InsertBuilder<'a, S, InsertOnConflictSet, T> {
         let conflict_sql = SQL::from_iter([Token::ON, Token::CONFLICT, Token::DO, Token::NOTHING]);
         InsertBuilder {
-            sql: append_sql(self.sql, conflict_sql),
+            sql: self.sql.append(conflict_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -350,7 +273,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     {
         let returning_sql = crate::helpers::returning(columns);
         InsertBuilder {
-            sql: append_sql(self.sql, returning_sql),
+            sql: self.sql.append(returning_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -375,7 +298,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertOnConflictSet, T> {
     {
         let returning_sql = crate::helpers::returning(columns);
         InsertBuilder {
-            sql: append_sql(self.sql, returning_sql),
+            sql: self.sql.append(returning_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -399,7 +322,10 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
         E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
-        let sql = self.sql.push(Token::WHERE).append(condition.to_sql());
+        let sql = self
+            .sql
+            .push(Token::WHERE)
+            .append(condition.into_expr_sql());
         InsertBuilder {
             sql,
             schema: PhantomData,
@@ -420,7 +346,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
     {
         let returning_sql = crate::helpers::returning(columns);
         InsertBuilder {
-            sql: append_sql(self.sql, returning_sql),
+            sql: self.sql.append(returning_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
