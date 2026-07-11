@@ -48,6 +48,7 @@ A type-safe SQL query builder and ORM for Rust, inspired by Drizzle ORM.
 ```toml
 [dependencies]
 drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["rusqlite"] }
+rusqlite = { version = "0.39", features = ["bundled"] }
 # drivers: rusqlite | libsql | turso | postgres-sync | tokio-postgres
 ```
 
@@ -134,7 +135,7 @@ You have two workflows for keeping migration files in sync with your schema. Pic
 | Workflow | Generate migrations | Best for |
 |---|---|---|
 | **Manual** | Run `drizzle generate` yourself | Teams that want explicit control over when migrations are produced |
-| **Automatic** | Regenerated on every `cargo build` | Solo dev or small teams who want schema and migrations to stay in lockstep |
+| **Automatic** | Regenerated when watched schema/config inputs change during `cargo build` | Solo dev or small teams who want schema and migrations to stay in lockstep |
 
 Both workflows apply migrations the same way — either with the CLI at deploy time, or from your app at startup. For local iteration without committed files at all, see [Push (Dev Only)](#push-dev-only).
 
@@ -153,7 +154,9 @@ Add `drizzle-migrations` as a build dependency, then point it at your existing `
 
 ```toml
 [build-dependencies]
+drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["rusqlite"] }
 drizzle-migrations = { git = "https://github.com/themixednuts/drizzle-rs" }
+rusqlite = { version = "0.39", features = ["bundled"] }
 ```
 
 ```rust
@@ -614,7 +617,7 @@ let count = db.transaction(SQLiteTransactionType::Deferred, |tx| {
         stx.insert(users)
             .value(InsertUsers::new("Bad Data", -1i64))
             .execute()?;
-        Err(DrizzleError::Other("rollback this part".into()))
+        Err::<(), _>(DrizzleError::Other("rollback this part".into()))
     });
 
     // Alice is still inserted

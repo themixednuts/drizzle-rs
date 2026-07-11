@@ -637,7 +637,7 @@ fn ensure_sqlite_tracking_table(
     }
 }
 
-#[cfg(feature = "libsql")]
+#[cfg(any(feature = "libsql", feature = "turso"))]
 async fn ensure_sqlite_tracking_table_libsql(
     conn: &libsql::Connection,
     set: &Migrations,
