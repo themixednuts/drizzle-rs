@@ -4,10 +4,9 @@ use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, Upd
 use drizzle_postgres::traits::PostgresTable;
 use std::cell::RefCell;
 use std::marker::PhantomData;
-use std::sync::atomic::AtomicU32;
 use tokio_postgres::{Row, Transaction as TokioPgTransaction};
 
-use crate::transaction::savepoint::async_savepoint;
+use crate::transaction::savepoint::{AsyncSavepointState, async_savepoint};
 
 /// Returns an error indicating the transaction has already been consumed.
 fn tx_consumed_error() -> DrizzleError {
@@ -38,7 +37,7 @@ pub type TransactionBuilder<'tx, 'conn, Schema, Builder, State> =
 pub struct Transaction<'conn, Schema = ()> {
     tx: RefCell<Option<TokioPgTransaction<'conn>>>,
     tx_type: PostgresTransactionType,
-    savepoint_depth: AtomicU32,
+    savepoints: AsyncSavepointState,
     schema: Schema,
 }
 
@@ -53,7 +52,7 @@ impl<Schema> std::fmt::Debug for Transaction<'_, Schema> {
 
 impl<'conn, Schema> Transaction<'conn, Schema> {
     /// Creates a new transaction wrapper
-    pub(crate) const fn new(
+    pub(crate) fn new(
         tx: TokioPgTransaction<'conn>,
         tx_type: PostgresTransactionType,
         schema: Schema,
@@ -61,7 +60,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         Self {
             tx: RefCell::new(Some(tx)),
             tx_type,
-            savepoint_depth: AtomicU32::new(0),
+            savepoints: AsyncSavepointState::new(),
             schema,
         }
     }
@@ -80,6 +79,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
     /// Executes a raw SQL string with no parameters.
     async fn execute_raw(&self, sql: &str) -> drizzle_core::error::Result<()> {
+        self.savepoints.ensure_usable()?;
         let tx_ref = self.tx.borrow();
         let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
         tx.execute(sql, &[]).await.map_err(DrizzleError::from)?;
@@ -129,7 +129,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         F: AsyncFnOnce(&Self) -> drizzle_core::error::Result<R>,
     {
         async_savepoint(
-            &self.savepoint_depth,
+            &self.savepoints,
             |sql| async move { self.execute_raw(&sql).await },
             f(self),
         )
@@ -147,6 +147,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     where
         T: ToSQL<'q, PostgresValue<'q>>,
     {
+        self.savepoints.ensure_usable()?;
         let query_sql = query.to_sql();
         let (sql, param_refs) = {
             #[cfg(feature = "profiling")]
@@ -181,6 +182,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         T: ToSQL<'q, PostgresValue<'q>>,
         C: std::iter::FromIterator<R>,
     {
+        self.savepoints.ensure_usable()?;
         let sql = query.to_sql();
         let (sql_str, param_refs) = {
             #[cfg(feature = "profiling")]
@@ -222,6 +224,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
         T: ToSQL<'q, PostgresValue<'q>>,
     {
+        self.savepoints.ensure_usable()?;
         let sql = query.to_sql();
         let (sql_str, param_refs) = {
             #[cfg(feature = "profiling")]
@@ -249,6 +252,11 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
     /// Commits the transaction
     pub(crate) async fn commit(&self) -> drizzle_core::error::Result<()> {
+        if let Err(error) = self.savepoints.ensure_usable() {
+            let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
+            tx.rollback().await.map_err(DrizzleError::from)?;
+            return Err(error);
+        }
         let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
         tx.commit().await.map_err(DrizzleError::from)
     }
@@ -271,6 +279,7 @@ where
 {
     /// Runs the query and returns the number of affected rows
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
+        self.runner.savepoints.ensure_usable()?;
         let (sql_str, param_refs) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.execute");
@@ -302,6 +311,7 @@ where
             + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, R>,
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
+        self.runner.savepoints.ensure_usable()?;
         let (sql_str, param_refs) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.all");
@@ -341,6 +351,7 @@ where
             + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, R>,
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
+        self.runner.savepoints.ensure_usable()?;
         let (sql_str, param_refs) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.get");

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::config::{
-    Credentials, DatabaseConfig, Dialect, Driver, Extension, Filter, PostgresCreds,
+    Credentials, DatabaseConfig, Dialect, Driver, Extension, Filter, PostgresCreds, PostgresSslMode,
 };
 use crate::error::CliError;
 
@@ -10,7 +10,7 @@ use crate::error::CliError;
 /// Each field maps to a top-level `--{name}` flag. Embedded into commands
 /// that talk to a live database via `#[command(flatten)]` so the connection
 /// surface is defined once and reused across `push`, `introspect`/`pull`.
-#[derive(clap::Args, Debug, Clone, Default)]
+#[derive(clap::Args, Clone, Default)]
 pub struct ConnectionOverrides {
     /// Database connection URL
     #[arg(long)]
@@ -43,6 +43,24 @@ pub struct ConnectionOverrides {
     /// Turso auth token
     #[arg(long = "authToken", alias = "auth-token")]
     pub auth_token: Option<String>,
+}
+
+impl std::fmt::Debug for ConnectionOverrides {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConnectionOverrides")
+            .field("url", &self.url.as_ref().map(|_| "[REDACTED]"))
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("user", &self.user)
+            .field("password", &self.password.as_ref().map(|_| "[REDACTED]"))
+            .field("database", &self.database)
+            .field("ssl", &self.ssl)
+            .field(
+                "auth_token",
+                &self.auth_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 /// CLI overrides for snapshot filters (tables/schemas/extensions).
@@ -216,7 +234,8 @@ pub fn resolve_credentials(
                     user: overrides.user.clone().map(String::into_boxed_str),
                     password: overrides.password.clone().map(String::into_boxed_str),
                     database: database.into_boxed_str(),
-                    ssl: parse_ssl_override(overrides.ssl.as_deref())?.unwrap_or(false),
+                    ssl: parse_ssl_override(overrides.ssl.as_deref())?
+                        .unwrap_or(PostgresSslMode::Disable),
                 })
             }
         }
@@ -225,24 +244,16 @@ pub fn resolve_credentials(
     Ok(Some(creds))
 }
 
-fn parse_ssl_override(ssl: Option<&str>) -> Result<Option<bool>, CliError> {
+fn parse_ssl_override(ssl: Option<&str>) -> Result<Option<PostgresSslMode>, CliError> {
     let Some(raw) = ssl else {
         return Ok(None);
     };
 
-    let value = raw.trim().to_ascii_lowercase();
-    let enabled = match value.as_str() {
-        "true" | "1" | "yes" | "on" | "require" | "allow" | "prefer" | "verify-full"
-        | "verify-ca" => true,
-        "false" | "0" | "no" | "off" | "disable" => false,
-        _ => {
-            return Err(CliError::Other(format!(
-                "invalid --ssl value '{raw}'; expected one of: true,false,require,allow,prefer,verify-full,verify-ca,disable"
-            )));
-        }
-    };
-
-    Ok(Some(enabled))
+    PostgresSslMode::parse(raw).map(Some).map_err(|_| {
+        CliError::Other(format!(
+            "invalid --ssl value '{raw}'; expected one of: true,false,require,allow,prefer,verify-full,verify-ca,disable"
+        ))
+    })
 }
 
 #[must_use]
@@ -565,7 +576,9 @@ dialect = "postgresql"
             .expect("resolve")
             .expect("creds");
         match creds {
-            Credentials::Postgres(PostgresCreds::Host { ssl, .. }) => assert!(ssl),
+            Credentials::Postgres(PostgresCreds::Host { ssl, .. }) => {
+                assert_eq!(ssl, PostgresSslMode::Require)
+            }
             _ => panic!("expected postgres host creds"),
         }
 
@@ -579,7 +592,9 @@ dialect = "postgresql"
             .expect("resolve")
             .expect("creds");
         match creds {
-            Credentials::Postgres(PostgresCreds::Host { ssl, .. }) => assert!(!ssl),
+            Credentials::Postgres(PostgresCreds::Host { ssl, .. }) => {
+                assert_eq!(ssl, PostgresSslMode::Disable)
+            }
             _ => panic!("expected postgres host creds"),
         }
     }
@@ -658,5 +673,21 @@ schema = "src/schema.rs"
         assert_eq!(paths.len(), 2);
         assert!(paths.iter().any(|p| p.ends_with("a.schema.rs")));
         assert!(paths.iter().any(|p| p.ends_with("b.schema.rs")));
+    }
+
+    #[test]
+    fn connection_overrides_debug_redacts_secrets() {
+        let overrides = ConnectionOverrides {
+            url: Some("postgres://alice:url-secret@localhost/app".into()),
+            password: Some("password-secret".into()),
+            auth_token: Some("token-secret".into()),
+            ..ConnectionOverrides::default()
+        };
+
+        let rendered = format!("{overrides:?}");
+        assert!(rendered.contains("[REDACTED]"));
+        assert!(!rendered.contains("url-secret"));
+        assert!(!rendered.contains("password-secret"));
+        assert!(!rendered.contains("token-secret"));
     }
 }

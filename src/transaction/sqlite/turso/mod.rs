@@ -5,11 +5,10 @@ use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, Updat
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::traits::SQLiteTable;
 use std::marker::PhantomData;
-use std::sync::atomic::AtomicU32;
 use turso::Row;
 
 use crate::builder::sqlite::rows::TursoRows as Rows;
-use crate::transaction::savepoint::async_savepoint;
+use crate::transaction::savepoint::{AsyncSavepointState, async_savepoint};
 
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
@@ -38,13 +37,13 @@ pub type TransactionBuilder<'tx, 'conn, Schema, Builder, State> =
 pub struct Transaction<'conn, Schema = ()> {
     tx: turso::transaction::Transaction<'conn>,
     tx_type: SQLiteTransactionType,
-    savepoint_depth: AtomicU32,
+    savepoints: AsyncSavepointState,
     schema: Schema,
 }
 
 impl<'conn, Schema> Transaction<'conn, Schema> {
     /// Creates a new transaction wrapper
-    pub(crate) const fn new(
+    pub(crate) fn new(
         tx: turso::transaction::Transaction<'conn>,
         tx_type: SQLiteTransactionType,
         schema: Schema,
@@ -52,7 +51,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         Self {
             tx,
             tx_type,
-            savepoint_depth: AtomicU32::new(0),
+            savepoints: AsyncSavepointState::new(),
             schema,
         }
     }
@@ -77,6 +76,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
     /// Executes a raw SQL string with no parameters.
     async fn execute_raw(&self, sql: &str) -> Result<(), DrizzleError> {
+        self.savepoints.ensure_usable()?;
         self.tx.execute(sql, ()).await?;
         Ok(())
     }
@@ -125,7 +125,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         F: AsyncFnOnce(&Self) -> drizzle_core::error::Result<R>,
     {
         async_savepoint(
-            &self.savepoint_depth,
+            &self.savepoints,
             |sql| async move { self.execute_raw(&sql).await },
             f(self),
         )
@@ -143,6 +143,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     where
         T: ToSQL<'q, SQLiteValue<'q>>,
     {
+        self.savepoints.ensure_usable()?;
         let query = query.to_sql();
         let (sql_str, params) = query.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
@@ -175,6 +176,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
         T: ToSQL<'q, SQLiteValue<'q>>,
     {
+        self.savepoints.ensure_usable()?;
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
@@ -194,6 +196,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
         T: ToSQL<'q, SQLiteValue<'q>>,
     {
+        self.savepoints.ensure_usable()?;
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
@@ -212,6 +215,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     ///
     /// Returns [`DrizzleError`] if the commit call to the database fails.
     pub async fn commit(self) -> Result<(), DrizzleError> {
+        if let Err(error) = self.savepoints.ensure_usable() {
+            self.tx.rollback().await?;
+            return Err(error);
+        }
         Ok(self.tx.commit().await?)
     }
 
@@ -233,6 +240,7 @@ where
 {
     /// Runs the query and returns the number of affected rows
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
+        self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
@@ -248,6 +256,7 @@ where
             + drizzle_core::row::MarkerColumnCountValid<::turso::Row, Rw, R>,
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
+        self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
         let mut rows = self.runner.tx.query(&sql_str, params).await?;
@@ -267,6 +276,7 @@ where
         Rw: for<'r> TryFrom<&'r Row>,
         for<'r> <Rw as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
     {
+        self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
@@ -283,6 +293,7 @@ where
             + drizzle_core::row::MarkerColumnCountValid<::turso::Row, Rw, R>,
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
+        self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
         let mut rows = self.runner.tx.query(&sql_str, params).await?;

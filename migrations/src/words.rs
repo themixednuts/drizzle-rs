@@ -5,8 +5,47 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::path::{Component, Path};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Error returned when a migration name cannot safely be used as one folder component.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("invalid migration name `{name}`: {reason}")]
+pub struct InvalidMigrationName {
+    name: String,
+    reason: &'static str,
+}
+
+/// Validate that a migration name is exactly one safe filesystem component.
+///
+/// # Errors
+///
+/// Returns [`InvalidMigrationName`] for empty names, path traversal, path
+/// separators, control characters, or rooted/prefixed paths.
+pub fn validate_migration_name(name: &str) -> Result<(), InvalidMigrationName> {
+    let invalid = |reason| InvalidMigrationName {
+        name: name.to_string(),
+        reason,
+    };
+
+    if name.trim().is_empty() {
+        return Err(invalid("name cannot be empty"));
+    }
+    if name.contains('/') || name.contains('\\') {
+        return Err(invalid("path separators are not allowed"));
+    }
+    if name.chars().any(char::is_control) {
+        return Err(invalid("control characters are not allowed"));
+    }
+
+    let mut components = Path::new(name).components();
+    if !matches!(components.next(), Some(Component::Normal(_))) || components.next().is_some() {
+        return Err(invalid("name must be one normal path component"));
+    }
+
+    Ok(())
+}
 
 /// Adjectives for migration names (matches drizzle-kit)
 pub const ADJECTIVES: &[&str] = &[
@@ -1566,5 +1605,28 @@ mod tests {
         assert!(tag.ends_with("_custom"));
         let parts: Vec<_> = tag.split('_').collect();
         assert_eq!(parts[0].len(), 14);
+    }
+
+    #[test]
+    fn migration_name_validation_accepts_single_components() {
+        for name in ["initial_setup", "add-users", "release 1", "café"] {
+            assert_eq!(validate_migration_name(name), Ok(()), "{name}");
+        }
+    }
+
+    #[test]
+    fn migration_name_validation_rejects_paths_and_controls() {
+        for name in [
+            "",
+            "   ",
+            ".",
+            "..",
+            "../escape",
+            "a/b",
+            "a\\b",
+            "bad\0name",
+        ] {
+            assert!(validate_migration_name(name).is_err(), "{name:?}");
+        }
     }
 }

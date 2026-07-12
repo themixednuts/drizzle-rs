@@ -1,0 +1,16 @@
+error[E0308]: mismatched types
+  --> tests/ui/strict_decode/joined_tuple_requires_matching_selector.rs:46:42
+   |
+46 |       let _rows: Vec<(UserRow, PostRow)> = db
+   |  ________________-----------------------___^
+   | |                |
+   | |                expected due to this
+47 | |         .select(UserRow::Select)
+48 | |         .from(user)
+49 | |         .left_join(post)
+50 | |         .all()
+51 | |         .unwrap();
+   | |_________________^ expected `Vec<(UserRow, PostRow)>`, found `Vec<UserRow>`
+   |
+   = note: expected struct `Vec<(UserRow, PostRow)>`
+              found struct `Vec<UserRow>`

@@ -1,0 +1,5 @@
+error[E0599]: no method named `over` found for struct `ColumnBinOp<Lhs, Rhs, Op>` in the current scope
+  --> tests/ui/aggregate_propagation_postgres/fail/literal_arithmetic_is_scalar.rs:14:30
+   |
+14 |     let _ = (item.price + 5).over(window());
+   |                              ^^^^ method not found in `ColumnBinOp<ItemPrice, {integer}, OpAdd>`

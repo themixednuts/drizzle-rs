@@ -1,0 +1,5 @@
+error: column `amount` uses `NUMERIC` affinity, which is not allowed in STRICT tables
+ --> tests/ui/sqlite_strict_affinity/fail/strict_rejects_numeric.rs:8:5
+  |
+8 |     amount: i64,
+  |     ^^^^^^

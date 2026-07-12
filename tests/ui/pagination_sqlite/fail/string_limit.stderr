@@ -1,0 +1,37 @@
+error[E0277]: `&str` cannot be used as a LIMIT/OFFSET argument
+  --> tests/ui/pagination_sqlite/fail/string_limit.rs:20:44
+   |
+20 |     let _ = db.select(()).from(user).limit("not a limit");
+   |                                      ----- ^^^^^^^^^^^^^ expected a non-negative integer value or an integer placeholder
+   |                                      |
+   |                                      required by a bound introduced by this call
+   |
+   = help: the trait `drizzle_core::pagination::PaginationArg<'_, SQLiteValue<'_>>` is not implemented for `&str`
+   = help: the following other types implement trait `drizzle_core::pagination::PaginationArg<'a, V>`:
+             TypedPlaceholder<T, N>
+             drizzle::core::Placeholder
+             i16
+             i32
+             i64
+             i8
+             isize
+             u16
+           and $N others
+note: required by a bound in `drizzle::builder::sqlite::common::DrizzleBuilder::<'d, Runner, Schema, drizzle::sqlite::builder::QueryBuilder<'a, Schema, SelectFromSet, T, M, R, G>, SelectFromSet>::limit`
+  --> src/builder/sqlite/common.rs
+   |
+   |           pub fn limit<P>(
+   |                  ----- required by a bound in this associated function
+...
+   |               P: drizzle_core::PaginationArg<'a, SQLiteValue<'a>>,
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `DrizzleBuilder::<'d, Runner, Schema, QueryBuilder<'a, Schema, SelectFromSet, T, M, R, G>, SelectFromSet>::limit`
+...
+   | / impl_select_methods! {
+   | |     SelectFromSet  => [r#where, group_by, order_by, limit, offset, join],
+   | |     SelectJoinSet  => [r#where, group_by, order_by, join],
+   | |     SelectWhereSet => [group_by, order_by, limit],
+...  |
+   | |     SelectSetOpSet => [order_by, limit, offset],
+   | | }
+   | |_- in this macro invocation
+   = note: this error originates in the macro `impl_select_methods` (in Nightly builds, run with -Z macro-backtrace for more info)

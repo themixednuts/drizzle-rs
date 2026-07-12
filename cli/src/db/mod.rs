@@ -24,6 +24,11 @@ use drizzle_migrations::schema::Snapshot;
 
 #[cfg(feature = "d1-http")]
 mod d1_http;
+mod filters;
+
+pub use filters::apply_snapshot_filters;
+#[cfg(test)]
+use filters::{compile_patterns, matches_patterns};
 
 /// Result of a migration run
 #[derive(Debug)]
@@ -655,10 +660,15 @@ async fn ensure_sqlite_tracking_table_libsql(
         .await
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
     let mut has_name = false;
-    while let Ok(Some(row)) = rows.next().await {
-        if let Ok(name) = row.get::<String>(0)
-            && name == "name"
-        {
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?
+    {
+        let name = row
+            .get::<String>(0)
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+        if name == "name" {
             has_name = true;
             break;
         }
@@ -678,7 +688,11 @@ async fn ensure_sqlite_tracking_table_libsql(
         .await
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
     let mut applied = Vec::new();
-    while let Ok(Some(row)) = rows.next().await {
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?
+    {
         let hash = row
             .get::<String>(1)
             .map_err(|e| CliError::MigrationError(e.to_string()))?;
@@ -686,7 +700,9 @@ async fn ensure_sqlite_tracking_table_libsql(
             .get::<i64>(2)
             .map_err(|e| CliError::MigrationError(e.to_string()))?;
         applied.push(drizzle_migrations::AppliedMigrationMetadata {
-            id: row.get::<Option<i64>>(0).ok().flatten(),
+            id: row
+                .get::<Option<i64>>(0)
+                .map_err(|e| CliError::MigrationError(e.to_string()))?,
             hash,
             created_at,
         });
@@ -763,11 +779,12 @@ fn ensure_postgres_tracking_table_sync(
             &[&schema, &set.table_name()],
         )
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
-    if rows
+    let columns = rows
         .iter()
-        .filter_map(|row| row.try_get::<_, String>(0).ok())
-        .any(|column| column == "name")
-    {
+        .map(|row| row.try_get::<_, String>(0))
+        .collect::<Result<Vec<_>, postgres::Error>>()
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    if columns.iter().any(|column| column == "name") {
         return Ok(());
     }
 
@@ -784,7 +801,7 @@ fn ensure_postgres_tracking_table_sync(
         .iter()
         .map(|row| {
             Ok(drizzle_migrations::AppliedMigrationMetadata {
-                id: row.try_get::<_, Option<i64>>(0).ok().flatten(),
+                id: row.try_get::<_, Option<i64>>(0)?,
                 hash: row.try_get::<_, String>(1)?,
                 created_at: row.try_get::<_, i64>(2)?,
             })
@@ -858,11 +875,12 @@ async fn ensure_postgres_tracking_table_async(
         )
         .await
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
-    if rows
+    let columns = rows
         .iter()
-        .filter_map(|row| row.try_get::<_, String>(0).ok())
-        .any(|column| column == "name")
-    {
+        .map(|row| row.try_get::<_, String>(0))
+        .collect::<Result<Vec<_>, tokio_postgres::Error>>()
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    if columns.iter().any(|column| column == "name") {
         return Ok(());
     }
 
@@ -880,7 +898,7 @@ async fn ensure_postgres_tracking_table_async(
         .iter()
         .map(|row| {
             Ok(drizzle_migrations::AppliedMigrationMetadata {
-                id: row.try_get::<_, Option<i64>>(0).ok().flatten(),
+                id: row.try_get::<_, Option<i64>>(0)?,
                 hash: row.try_get::<_, String>(1)?,
                 created_at: row.try_get::<_, i64>(2)?,
             })
@@ -957,8 +975,7 @@ fn is_destructive_statement(sql: &str) -> bool {
 
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 fn is_postgres_concurrent_index_statement(sql: &str) -> bool {
-    let s = sql.trim().to_ascii_uppercase();
-    (s.starts_with("CREATE") || s.starts_with("DROP")) && s.contains("INDEX CONCURRENTLY")
+    drizzle_migrations::is_postgres_concurrent_index_statement(sql)
 }
 
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
@@ -1122,44 +1139,6 @@ fn is_local_libsql(url: &str) -> bool {
         || !url.contains("://")
 }
 
-#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
-fn process_sqlite_uniques_from_indexes(
-    raw_indexes: &[drizzle_migrations::sqlite::introspect::RawIndexInfo],
-    index_columns: &[drizzle_migrations::sqlite::introspect::RawIndexColumn],
-) -> Vec<drizzle_migrations::sqlite::UniqueConstraint> {
-    use drizzle_migrations::sqlite::UniqueConstraint;
-
-    let mut uniques = Vec::new();
-
-    for idx in raw_indexes.iter().filter(|i| i.origin == "u") {
-        let mut cols: Vec<(i32, String)> = index_columns
-            .iter()
-            .filter(|c| c.index_name == idx.name && c.key)
-            .filter_map(|c| c.name.clone().map(|n| (c.seqno, n)))
-            .collect();
-        cols.sort_by_key(|(seq, _)| *seq);
-        let col_names: Vec<String> = cols.into_iter().map(|(_, n)| n).collect();
-        if col_names.is_empty() {
-            continue;
-        }
-
-        let name_explicit = !idx.name.starts_with("sqlite_autoindex_");
-        let constraint_name = if name_explicit {
-            idx.name.clone()
-        } else {
-            let refs: Vec<&str> = col_names.iter().map(String::as_str).collect();
-            drizzle_migrations::sqlite::ddl::name_for_unique(&idx.table, &refs)
-        };
-
-        let mut uniq =
-            UniqueConstraint::from_strings(idx.table.clone(), constraint_name, col_names);
-        uniq.name_explicit = name_explicit;
-        uniques.push(uniq);
-    }
-
-    uniques
-}
-
 // ============================================================================
 // SQLite (rusqlite)
 // ============================================================================
@@ -1199,22 +1178,22 @@ fn run_sqlite_migrations(set: &Migrations, path: &str) -> Result<MigrationResult
     })?;
 
     ensure_sqlite_tracking_table(&conn, set)?;
-
-    // Query applied migration names
+    conn.busy_timeout(std::time::Duration::from_secs(30))
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    conn.execute("BEGIN IMMEDIATE", [])
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
     let applied_names = query_applied_names_sqlite(&conn, set)?;
 
     // Get pending migrations
     let pending: Vec<_> = set.pending(&applied_names).collect();
     if pending.is_empty() {
+        conn.execute("COMMIT", [])
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
         return Ok(MigrationResult {
             applied_count: 0,
             applied_migrations: vec![],
         });
     }
-
-    // Execute in transaction
-    conn.execute("BEGIN", [])
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     let mut applied = Vec::new();
     for migration in &pending {
@@ -1258,6 +1237,14 @@ fn inspect_sqlite_migrations(set: &Migrations, path: &str) -> Result<MigrationPl
 }
 
 #[cfg(feature = "rusqlite")]
+fn is_sqlite_missing_table(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(_, Some(message)) if message.contains("no such table")
+    )
+}
+
+#[cfg(feature = "rusqlite")]
 fn query_applied_records_sqlite(
     conn: &rusqlite::Connection,
     set: &Migrations,
@@ -1266,8 +1253,10 @@ fn query_applied_records_sqlite(
         r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
         set.table_ident_sql()
     );
-    let Ok(mut stmt) = conn.prepare(&sql) else {
-        return Ok(vec![]); // Table might not exist yet
+    let mut stmt = match conn.prepare(&sql) {
+        Ok(stmt) => stmt,
+        Err(error) if is_sqlite_missing_table(&error) => return Ok(vec![]),
+        Err(error) => return Err(CliError::MigrationError(error.to_string())),
     };
 
     let mut applied = Vec::new();
@@ -1290,15 +1279,17 @@ fn query_applied_names_sqlite(
     conn: &rusqlite::Connection,
     set: &Migrations,
 ) -> Result<Vec<String>, CliError> {
-    let Ok(mut stmt) = conn.prepare(&set.applied_names_sql()) else {
-        return Ok(vec![]); // Table might not exist yet
+    let mut stmt = match conn.prepare(&set.applied_names_sql()) {
+        Ok(stmt) => stmt,
+        Err(error) if is_sqlite_missing_table(&error) => return Ok(vec![]),
+        Err(error) => return Err(CliError::MigrationError(error.to_string())),
     };
 
     let names = stmt
         .query_map([], |row| row.get::<_, String>(0))
         .map_err(|e| CliError::MigrationError(e.to_string()))?
-        .filter_map(Result::ok)
-        .collect();
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
 
     Ok(names)
 }
@@ -1307,14 +1298,103 @@ fn query_applied_names_sqlite(
 // PostgreSQL (postgres - sync)
 // ============================================================================
 
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+fn postgres_tls_connector(
+    mode: crate::config::PostgresSslMode,
+) -> Result<postgres_native_tls::MakeTlsConnector, CliError> {
+    let mut builder = native_tls::TlsConnector::builder();
+    if mode == crate::config::PostgresSslMode::VerifyCa {
+        builder.danger_accept_invalid_hostnames(true);
+    }
+    let connector = builder
+        .build()
+        .map_err(|error| CliError::ConnectionError(error.to_string()))?;
+    Ok(postgres_native_tls::MakeTlsConnector::new(connector))
+}
+
+#[cfg(feature = "postgres-sync")]
+fn connect_postgres_sync(creds: &PostgresCreds) -> Result<postgres::Client, CliError> {
+    let connection = creds
+        .connection_config()
+        .map_err(CliError::ConnectionError)?;
+    let config = match creds {
+        PostgresCreds::Url(url) => url
+            .parse::<postgres::Config>()
+            .map_err(|error| CliError::ConnectionError(error.to_string()))?,
+        PostgresCreds::Host {
+            host,
+            port,
+            user,
+            password,
+            database,
+            ..
+        } => {
+            let mut config = postgres::Config::new();
+            config
+                .host(host.as_ref())
+                .port(*port)
+                .dbname(database.as_ref());
+            if let Some(user) = user {
+                config.user(user.as_ref());
+            }
+            if let Some(password) = password {
+                config.password(password.as_bytes());
+            }
+            config.ssl_mode(connection.config.get_ssl_mode());
+            config
+        }
+    };
+    if connection.ssl == crate::config::PostgresSslMode::Disable {
+        config
+            .connect(postgres::NoTls)
+            .map_err(|error| CliError::ConnectionError(error.to_string()))
+    } else {
+        let connector = postgres_tls_connector(connection.ssl)?;
+        config
+            .connect(connector)
+            .map_err(|error| CliError::ConnectionError(error.to_string()))
+    }
+}
+
+#[cfg(feature = "tokio-postgres")]
+async fn connect_postgres_async(creds: &PostgresCreds) -> Result<tokio_postgres::Client, CliError> {
+    let connection = creds
+        .connection_config()
+        .map_err(CliError::ConnectionError)?;
+    if connection.ssl == crate::config::PostgresSslMode::Disable {
+        let (client, driver) = connection
+            .config
+            .connect(tokio_postgres::NoTls)
+            .await
+            .map_err(|error| CliError::ConnectionError(error.to_string()))?;
+        tokio::spawn(async move {
+            if let Err(error) = driver.await {
+                eprintln!("PostgreSQL connection error: {error}");
+            }
+        });
+        Ok(client)
+    } else {
+        let connector = postgres_tls_connector(connection.ssl)?;
+        let (client, driver) = connection
+            .config
+            .connect(connector)
+            .await
+            .map_err(|error| CliError::ConnectionError(error.to_string()))?;
+        tokio::spawn(async move {
+            if let Err(error) = driver.await {
+                eprintln!("PostgreSQL connection error: {error}");
+            }
+        });
+        Ok(client)
+    }
+}
+
 #[cfg(feature = "postgres-sync")]
 fn execute_postgres_sync_statements(
     creds: &PostgresCreds,
     statements: &[String],
 ) -> Result<(), CliError> {
-    let url = creds.connection_url();
-    let mut client = postgres::Client::connect(&url, postgres::NoTls)
-        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {e}")))?;
+    let mut client = connect_postgres_sync(creds)?;
 
     if has_postgres_concurrent_index(statements) {
         // CREATE/DROP INDEX CONCURRENTLY cannot run inside a transaction block.
@@ -1353,9 +1433,7 @@ fn run_postgres_sync_migrations(
     set: &Migrations,
     creds: &PostgresCreds,
 ) -> Result<MigrationResult, CliError> {
-    let url = creds.connection_url();
-    let mut client = postgres::Client::connect(&url, postgres::NoTls)
-        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {e}")))?;
+    let mut client = connect_postgres_sync(creds)?;
 
     // Create schema if needed
     if let Some(schema_sql) = set.create_schema_sql() {
@@ -1364,15 +1442,35 @@ fn run_postgres_sync_migrations(
             .map_err(|e| CliError::MigrationError(e.to_string()))?;
     }
 
-    ensure_postgres_tracking_table_sync(&mut client, set)?;
+    let lock_key = set.postgres_advisory_lock_key();
+    client
+        .query_one("SELECT pg_advisory_lock($1)", &[&lock_key])
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
+    let result = run_postgres_sync_migrations_locked(&mut client, set);
+    let unlock = client
+        .query_one("SELECT pg_advisory_unlock($1)", &[&lock_key])
+        .map_err(|error| CliError::MigrationError(error.to_string()));
+    match (result, unlock) {
+        (Ok(result), Ok(_)) => Ok(result),
+        (Err(error), _) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
+    }
+}
 
-    // Query applied migration names
+#[cfg(feature = "postgres-sync")]
+fn run_postgres_sync_migrations_locked(
+    client: &mut postgres::Client,
+    set: &Migrations,
+) -> Result<MigrationResult, CliError> {
+    ensure_postgres_tracking_table_sync(client, set)?;
     let rows = client
         .query(&set.applied_names_sql(), &[])
-        .unwrap_or_default();
-    let applied_names: Vec<String> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
-
-    // Get pending migrations
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
+    let applied_names = rows
+        .iter()
+        .map(|row| row.try_get(0))
+        .collect::<Result<Vec<String>, _>>()
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
     let pending: Vec<_> = set.pending(&applied_names).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
@@ -1381,62 +1479,48 @@ fn run_postgres_sync_migrations(
         });
     }
 
-    let has_concurrent = pending
-        .iter()
-        .any(|m| has_postgres_concurrent_index(m.statements()));
-
-    if has_concurrent {
-        // CREATE/DROP INDEX CONCURRENTLY cannot run inside a transaction block.
-        let mut applied = Vec::new();
+    let mut applied = Vec::new();
+    if set.has_postgres_concurrent_index() {
         for migration in &pending {
-            for stmt in migration.statements() {
-                if !stmt.trim().is_empty() {
-                    client.execute(stmt, &[]).map_err(|e| {
+            for statement in migration.statements() {
+                if !statement.trim().is_empty() {
+                    client.execute(statement, &[]).map_err(|error| {
                         CliError::MigrationError(format!(
-                            "Migration '{}' failed: {}",
-                            migration.hash(),
-                            e
+                            "Migration '{}' failed: {error}",
+                            migration.hash()
                         ))
                     })?;
                 }
             }
             client
                 .execute(&set.record_migration_sql(migration), &[])
-                .map_err(|e| CliError::MigrationError(e.to_string()))?;
+                .map_err(|error| CliError::MigrationError(error.to_string()))?;
             applied.push(migration.hash().to_string());
         }
-
-        return Ok(MigrationResult {
-            applied_count: applied.len(),
-            applied_migrations: applied,
-        });
-    }
-
-    // Execute in transaction
-    let mut tx = client
-        .transaction()
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-
-    let mut applied = Vec::new();
-    for migration in &pending {
-        for stmt in migration.statements() {
-            if !stmt.trim().is_empty() {
-                tx.execute(stmt, &[]).map_err(|e| {
-                    CliError::MigrationError(format!(
-                        "Migration '{}' failed: {}",
-                        migration.hash(),
-                        e
-                    ))
-                })?;
+    } else {
+        let mut transaction = client
+            .transaction()
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
+        for migration in &pending {
+            for statement in migration.statements() {
+                if !statement.trim().is_empty() {
+                    transaction.execute(statement, &[]).map_err(|error| {
+                        CliError::MigrationError(format!(
+                            "Migration '{}' failed: {error}",
+                            migration.hash()
+                        ))
+                    })?;
+                }
             }
+            transaction
+                .execute(&set.record_migration_sql(migration), &[])
+                .map_err(|error| CliError::MigrationError(error.to_string()))?;
+            applied.push(migration.hash().to_string());
         }
-        tx.execute(&set.record_migration_sql(migration), &[])
-            .map_err(|e| CliError::MigrationError(e.to_string()))?;
-        applied.push(migration.hash().to_string());
+        transaction
+            .commit()
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
     }
-
-    tx.commit()
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     Ok(MigrationResult {
         applied_count: applied.len(),
@@ -1449,9 +1533,7 @@ fn inspect_postgres_sync_migrations(
     set: &Migrations,
     creds: &PostgresCreds,
 ) -> Result<MigrationPlan, CliError> {
-    let url = creds.connection_url();
-    let mut client = postgres::Client::connect(&url, postgres::NoTls)
-        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {e}")))?;
+    let mut client = connect_postgres_sync(creds)?;
 
     if let Some(schema_sql) = set.create_schema_sql() {
         client
@@ -1460,7 +1542,7 @@ fn inspect_postgres_sync_migrations(
     }
 
     ensure_postgres_tracking_table_sync(&mut client, set)?;
-    let applied = query_applied_records_postgres_sync(&mut client, set);
+    let applied = query_applied_records_postgres_sync(&mut client, set)?;
     build_migration_plan(set, &applied)
 }
 
@@ -1468,23 +1550,29 @@ fn inspect_postgres_sync_migrations(
 fn query_applied_records_postgres_sync(
     client: &mut postgres::Client,
     set: &Migrations,
-) -> Vec<AppliedMigrationRecord> {
+) -> Result<Vec<AppliedMigrationRecord>, CliError> {
     let sql = format!(
         r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
         set.table_ident_sql()
     );
-    let rows = client.query(&sql, &[]).unwrap_or_default();
+    let rows = client
+        .query(&sql, &[])
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
 
     let mut applied = Vec::new();
     for row in rows {
-        let hash = row.try_get::<_, Option<String>>(0).ok().flatten();
-        let name = row.try_get::<_, Option<String>>(1).ok().flatten();
+        let hash = row
+            .try_get::<_, Option<String>>(0)
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
+        let name = row
+            .try_get::<_, Option<String>>(1)
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
         if let (Some(hash), Some(name)) = (hash, name) {
             applied.push(AppliedMigrationRecord { hash, name });
         }
     }
 
-    applied
+    Ok(applied)
 }
 
 // ============================================================================
@@ -1509,21 +1597,7 @@ async fn execute_postgres_async_inner(
     creds: &PostgresCreds,
     statements: &[String],
 ) -> Result<(), CliError> {
-    let url = creds.connection_url();
-    let (mut client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
-        .await
-        .map_err(|e| {
-            CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
-        })?;
-
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!(
-                "{}",
-                output::err_line(&format!("PostgreSQL connection error: {e}"))
-            );
-        }
-    });
+    let mut client = connect_postgres_async(creds).await?;
 
     if has_postgres_concurrent_index(statements) {
         // CREATE/DROP INDEX CONCURRENTLY cannot run inside a transaction block.
@@ -1595,19 +1669,7 @@ async fn inspect_postgres_async_inner(
     set: &Migrations,
     creds: &PostgresCreds,
 ) -> Result<MigrationPlan, CliError> {
-    let url = creds.connection_url();
-    let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
-        .await
-        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {e}")))?;
-
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!(
-                "{}",
-                output::err_line(&format!("PostgreSQL connection error: {e}"))
-            );
-        }
-    });
+    let client = connect_postgres_async(creds).await?;
 
     if let Some(schema_sql) = set.create_schema_sql() {
         client
@@ -1617,7 +1679,7 @@ async fn inspect_postgres_async_inner(
     }
 
     ensure_postgres_tracking_table_async(&client, set).await?;
-    let applied = query_applied_records_postgres_async(&client, set).await;
+    let applied = query_applied_records_postgres_async(&client, set).await?;
     build_migration_plan(set, &applied)
 }
 
@@ -1625,23 +1687,30 @@ async fn inspect_postgres_async_inner(
 async fn query_applied_records_postgres_async(
     client: &tokio_postgres::Client,
     set: &Migrations,
-) -> Vec<AppliedMigrationRecord> {
+) -> Result<Vec<AppliedMigrationRecord>, CliError> {
     let sql = format!(
         r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
         set.table_ident_sql()
     );
-    let rows = client.query(&sql, &[]).await.unwrap_or_default();
+    let rows = client
+        .query(&sql, &[])
+        .await
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
 
     let mut applied = Vec::new();
     for row in rows {
-        let hash = row.try_get::<_, Option<String>>(0).ok().flatten();
-        let name = row.try_get::<_, Option<String>>(1).ok().flatten();
+        let hash = row
+            .try_get::<_, Option<String>>(0)
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
+        let name = row
+            .try_get::<_, Option<String>>(1)
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
         if let (Some(hash), Some(name)) = (hash, name) {
             applied.push(AppliedMigrationRecord { hash, name });
         }
     }
 
-    applied
+    Ok(applied)
 }
 
 #[cfg(feature = "tokio-postgres")]
@@ -1650,20 +1719,7 @@ async fn run_postgres_async_inner(
     set: &Migrations,
     creds: &PostgresCreds,
 ) -> Result<MigrationResult, CliError> {
-    let url = creds.connection_url();
-    let (mut client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
-        .await
-        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {e}")))?;
-
-    // Spawn connection handler
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!(
-                "{}",
-                output::err_line(&format!("PostgreSQL connection error: {e}"))
-            );
-        }
-    });
+    let mut client = connect_postgres_async(creds).await?;
 
     // Create schema if needed
     if let Some(schema_sql) = set.create_schema_sql() {
@@ -1673,16 +1729,38 @@ async fn run_postgres_async_inner(
             .map_err(|e| CliError::MigrationError(e.to_string()))?;
     }
 
-    ensure_postgres_tracking_table_async(&client, set).await?;
+    let lock_key = set.postgres_advisory_lock_key();
+    client
+        .query_one("SELECT pg_advisory_lock($1)", &[&lock_key])
+        .await
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
+    let result = run_postgres_async_migrations_locked(&mut client, set).await;
+    let unlock = client
+        .query_one("SELECT pg_advisory_unlock($1)", &[&lock_key])
+        .await
+        .map_err(|error| CliError::MigrationError(error.to_string()));
+    match (result, unlock) {
+        (Ok(result), Ok(_)) => Ok(result),
+        (Err(error), _) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
+    }
+}
 
-    // Query applied migration names
+#[cfg(feature = "tokio-postgres")]
+async fn run_postgres_async_migrations_locked(
+    client: &mut tokio_postgres::Client,
+    set: &Migrations,
+) -> Result<MigrationResult, CliError> {
+    ensure_postgres_tracking_table_async(client, set).await?;
     let rows = client
         .query(&set.applied_names_sql(), &[])
         .await
-        .unwrap_or_default();
-    let applied_names: Vec<String> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
-
-    // Get pending migrations
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
+    let applied_names = rows
+        .iter()
+        .map(|row| row.try_get(0))
+        .collect::<Result<Vec<String>, _>>()
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
     let pending: Vec<_> = set.pending(&applied_names).collect();
     if pending.is_empty() {
         return Ok(MigrationResult {
@@ -1691,21 +1769,15 @@ async fn run_postgres_async_inner(
         });
     }
 
-    let has_concurrent = pending
-        .iter()
-        .any(|m| has_postgres_concurrent_index(m.statements()));
-
-    if has_concurrent {
-        // CREATE/DROP INDEX CONCURRENTLY cannot run inside a transaction block.
-        let mut applied = Vec::new();
+    let mut applied = Vec::new();
+    if set.has_postgres_concurrent_index() {
         for migration in &pending {
-            for stmt in migration.statements() {
-                if !stmt.trim().is_empty() {
-                    client.execute(stmt, &[]).await.map_err(|e| {
+            for statement in migration.statements() {
+                if !statement.trim().is_empty() {
+                    client.execute(statement, &[]).await.map_err(|error| {
                         CliError::MigrationError(format!(
-                            "Migration '{}' failed: {}",
-                            migration.hash(),
-                            e
+                            "Migration '{}' failed: {error}",
+                            migration.hash()
                         ))
                     })?;
                 }
@@ -1713,44 +1785,36 @@ async fn run_postgres_async_inner(
             client
                 .execute(&set.record_migration_sql(migration), &[])
                 .await
-                .map_err(|e| CliError::MigrationError(e.to_string()))?;
+                .map_err(|error| CliError::MigrationError(error.to_string()))?;
             applied.push(migration.hash().to_string());
         }
-
-        return Ok(MigrationResult {
-            applied_count: applied.len(),
-            applied_migrations: applied,
-        });
-    }
-
-    // Execute in transaction
-    let tx = client
-        .transaction()
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-
-    let mut applied = Vec::new();
-    for migration in &pending {
-        for stmt in migration.statements() {
-            if !stmt.trim().is_empty() {
-                tx.execute(stmt, &[]).await.map_err(|e| {
-                    CliError::MigrationError(format!(
-                        "Migration '{}' failed: {}",
-                        migration.hash(),
-                        e
-                    ))
-                })?;
-            }
-        }
-        tx.execute(&set.record_migration_sql(migration), &[])
+    } else {
+        let transaction = client
+            .transaction()
             .await
-            .map_err(|e| CliError::MigrationError(e.to_string()))?;
-        applied.push(migration.hash().to_string());
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
+        for migration in &pending {
+            for statement in migration.statements() {
+                if !statement.trim().is_empty() {
+                    transaction.execute(statement, &[]).await.map_err(|error| {
+                        CliError::MigrationError(format!(
+                            "Migration '{}' failed: {error}",
+                            migration.hash()
+                        ))
+                    })?;
+                }
+            }
+            transaction
+                .execute(&set.record_migration_sql(migration), &[])
+                .await
+                .map_err(|error| CliError::MigrationError(error.to_string()))?;
+            applied.push(migration.hash().to_string());
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
     }
-
-    tx.commit()
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     Ok(MigrationResult {
         applied_count: applied.len(),
@@ -1868,24 +1932,23 @@ async fn run_libsql_local_inner(set: &Migrations, path: &str) -> Result<Migratio
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
     ensure_sqlite_tracking_table_libsql(&conn, set).await?;
-
-    // Query applied migration names
-    let applied_names = query_applied_names_libsql(&conn, set).await?;
+    let tx = conn
+        .transaction_with_behavior(libsql::TransactionBehavior::Immediate)
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    let applied_names = query_applied_names_libsql(&tx, set).await?;
 
     // Get pending migrations
     let pending: Vec<_> = set.pending(&applied_names).collect();
     if pending.is_empty() {
+        tx.commit()
+            .await
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
         return Ok(MigrationResult {
             applied_count: 0,
             applied_migrations: vec![],
         });
     }
-
-    // Execute in transaction
-    let tx = conn
-        .transaction()
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     let mut applied = Vec::new();
     for migration in &pending {
@@ -1923,15 +1986,21 @@ async fn query_applied_names_libsql(
     conn: &libsql::Connection,
     set: &Migrations,
 ) -> Result<Vec<String>, CliError> {
-    let Ok(mut rows) = conn.query(&set.applied_names_sql(), ()).await else {
-        return Ok(vec![]); // Table might not exist yet
-    };
+    let mut rows = conn
+        .query(&set.applied_names_sql(), ())
+        .await
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
 
     let mut names = Vec::new();
-    while let Ok(Some(row)) = rows.next().await {
-        if let Ok(name) = row.get::<String>(0) {
-            names.push(name);
-        }
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|error| CliError::MigrationError(error.to_string()))?
+    {
+        names.push(
+            row.get::<String>(0)
+                .map_err(|error| CliError::MigrationError(error.to_string()))?,
+        );
     }
 
     Ok(names)
@@ -1946,15 +2015,24 @@ async fn query_applied_records_libsql(
         r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
         set.table_ident_sql()
     );
-    let Ok(mut rows) = conn.query(&sql, ()).await else {
-        return Ok(vec![]); // Table might not exist yet
-    };
+    let mut rows = conn
+        .query(&sql, ())
+        .await
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
 
     let mut applied = Vec::new();
-    while let Ok(Some(row)) = rows.next().await {
-        if let (Ok(hash), Ok(name)) = (row.get::<String>(0), row.get::<String>(1)) {
-            applied.push(AppliedMigrationRecord { hash, name });
-        }
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|error| CliError::MigrationError(error.to_string()))?
+    {
+        let hash = row
+            .get::<String>(0)
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
+        let name = row
+            .get::<String>(1)
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
+        applied.push(AppliedMigrationRecord { hash, name });
     }
 
     Ok(applied)
@@ -2088,24 +2166,23 @@ async fn run_turso_inner(
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
     ensure_sqlite_tracking_table_libsql(&conn, set).await?;
-
-    // Query applied migration names
-    let applied_names = query_applied_names_turso(&conn, set).await?;
+    let tx = conn
+        .transaction_with_behavior(libsql::TransactionBehavior::Immediate)
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    let applied_names = query_applied_names_turso(&tx, set).await?;
 
     // Get pending migrations
     let pending: Vec<_> = set.pending(&applied_names).collect();
     if pending.is_empty() {
+        tx.commit()
+            .await
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
         return Ok(MigrationResult {
             applied_count: 0,
             applied_migrations: vec![],
         });
     }
-
-    // Execute in transaction
-    let tx = conn
-        .transaction()
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     let mut applied = Vec::new();
     for migration in &pending {
@@ -2143,15 +2220,21 @@ async fn query_applied_names_turso(
     conn: &libsql::Connection,
     set: &Migrations,
 ) -> Result<Vec<String>, CliError> {
-    let Ok(mut rows) = conn.query(&set.applied_names_sql(), ()).await else {
-        return Ok(vec![]); // Table might not exist yet
-    };
+    let mut rows = conn
+        .query(&set.applied_names_sql(), ())
+        .await
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
 
     let mut names = Vec::new();
-    while let Ok(Some(row)) = rows.next().await {
-        if let Ok(name) = row.get::<String>(0) {
-            names.push(name);
-        }
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|error| CliError::MigrationError(error.to_string()))?
+    {
+        names.push(
+            row.get::<String>(0)
+                .map_err(|error| CliError::MigrationError(error.to_string()))?,
+        );
     }
 
     Ok(names)
@@ -2166,15 +2249,24 @@ async fn query_applied_records_turso(
         r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
         set.table_ident_sql()
     );
-    let Ok(mut rows) = conn.query(&sql, ()).await else {
-        return Ok(vec![]); // Table might not exist yet
-    };
+    let mut rows = conn
+        .query(&sql, ())
+        .await
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
 
     let mut applied = Vec::new();
-    while let Ok(Some(row)) = rows.next().await {
-        if let (Ok(hash), Ok(name)) = (row.get::<String>(0), row.get::<String>(1)) {
-            applied.push(AppliedMigrationRecord { hash, name });
-        }
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|error| CliError::MigrationError(error.to_string()))?
+    {
+        let hash = row
+            .get::<String>(0)
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
+        let name = row
+            .get::<String>(1)
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
+        applied.push(AppliedMigrationRecord { hash, name });
     }
 
     Ok(applied)
@@ -2559,9 +2651,7 @@ async fn init_turso_metadata_inner(
 
 #[cfg(feature = "postgres-sync")]
 fn init_postgres_sync_metadata(creds: &PostgresCreds, set: &Migrations) -> Result<(), CliError> {
-    let url = creds.connection_url();
-    let mut client = postgres::Client::connect(&url, postgres::NoTls)
-        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {e}")))?;
+    let mut client = connect_postgres_sync(creds)?;
 
     if let Some(schema_sql) = set.create_schema_sql() {
         client
@@ -2573,8 +2663,12 @@ fn init_postgres_sync_metadata(creds: &PostgresCreds, set: &Migrations) -> Resul
 
     let rows = client
         .query(&set.applied_names_sql(), &[])
-        .unwrap_or_default();
-    let applied_names: Vec<String> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
+    let applied_names = rows
+        .iter()
+        .map(|row| row.try_get(0))
+        .collect::<Result<Vec<String>, _>>()
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
 
     validate_init_metadata(&applied_names, set)?;
 
@@ -2604,21 +2698,7 @@ async fn init_postgres_async_inner(
     creds: &PostgresCreds,
     set: &Migrations,
 ) -> Result<(), CliError> {
-    let url = creds.connection_url();
-    let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
-        .await
-        .map_err(|e| {
-            CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {}", e))
-        })?;
-
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!(
-                "{}",
-                output::err_line(&format!("PostgreSQL connection error: {e}"))
-            );
-        }
-    });
+    let client = connect_postgres_async(creds).await?;
 
     if let Some(schema_sql) = set.create_schema_sql() {
         client
@@ -2632,8 +2712,12 @@ async fn init_postgres_async_inner(
     let rows = client
         .query(&set.applied_names_sql(), &[])
         .await
-        .unwrap_or_default();
-    let applied_names: Vec<String> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
+    let applied_names = rows
+        .iter()
+        .map(|row| row.try_get(0))
+        .collect::<Result<Vec<String>, _>>()
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
 
     validate_init_metadata(&applied_names, set)?;
 
@@ -2683,227 +2767,6 @@ fn format_migration_sql(sql_statements: &[String], breakpoints: bool) -> String 
         sql_statements.join("\n--> statement-breakpoint\n")
     } else {
         sql_statements.join("\n\n")
-    }
-}
-
-/// Apply the configured filters (tables, schemas, extensions) in-place on a
-/// snapshot, removing entities that do not match.
-///
-/// # Errors
-///
-/// Returns [`CliError::DialectMismatch`] if `dialect` does not agree with the
-/// variant of `snapshot`, or [`CliError`] if compiling a filter pattern fails.
-pub fn apply_snapshot_filters(
-    snapshot: &mut Snapshot,
-    dialect: Dialect,
-    filters: &SnapshotFilters,
-) -> Result<(), CliError> {
-    if filters.is_empty() {
-        return Ok(());
-    }
-
-    match (dialect, snapshot) {
-        (Dialect::Sqlite | Dialect::Turso, Snapshot::Sqlite(sqlite)) => {
-            apply_sqlite_snapshot_filters(sqlite, filters)
-        }
-        (Dialect::Postgresql, Snapshot::Postgres(postgres)) => {
-            apply_postgres_snapshot_filters(postgres, filters)
-        }
-        _ => Err(CliError::DialectMismatch),
-    }
-}
-
-fn apply_sqlite_snapshot_filters(
-    snapshot: &mut drizzle_migrations::sqlite::SQLiteSnapshot,
-    filters: &SnapshotFilters,
-) -> Result<(), CliError> {
-    use drizzle_types::sqlite::ddl::SqliteEntity;
-    use std::collections::HashSet;
-
-    let table_patterns = compile_patterns(filters.tables.as_deref())?;
-    if table_patterns.is_none() {
-        return Ok(());
-    }
-
-    let mut keep_tables: HashSet<String> = HashSet::new();
-    for entity in &snapshot.ddl {
-        if let SqliteEntity::Table(table) = entity
-            && matches_patterns(table.name.as_ref(), table_patterns.as_deref())
-        {
-            keep_tables.insert(table.name.to_string());
-        }
-    }
-
-    snapshot.ddl.retain(|entity| match entity {
-        SqliteEntity::Table(t) => keep_tables.contains(t.name.as_ref()),
-        SqliteEntity::Column(c) => keep_tables.contains(c.table.as_ref()),
-        SqliteEntity::Index(i) => keep_tables.contains(i.table.as_ref()),
-        SqliteEntity::ForeignKey(fk) => {
-            keep_tables.contains(fk.table.as_ref()) && keep_tables.contains(fk.table_to.as_ref())
-        }
-        SqliteEntity::PrimaryKey(pk) => keep_tables.contains(pk.table.as_ref()),
-        SqliteEntity::UniqueConstraint(u) => keep_tables.contains(u.table.as_ref()),
-        SqliteEntity::CheckConstraint(c) => keep_tables.contains(c.table.as_ref()),
-        SqliteEntity::View(v) => matches_patterns(v.name.as_ref(), table_patterns.as_deref()),
-    });
-
-    Ok(())
-}
-
-fn apply_postgres_snapshot_filters(
-    snapshot: &mut drizzle_migrations::postgres::PostgresSnapshot,
-    filters: &SnapshotFilters,
-) -> Result<(), CliError> {
-    use drizzle_types::postgres::ddl::PostgresEntity;
-    use std::collections::HashSet;
-
-    let schema_patterns = compile_patterns(filters.schemas.as_deref())?;
-    let table_patterns = compile_patterns(filters.tables.as_deref())?;
-    let exclude_postgis = filters
-        .extensions
-        .as_ref()
-        .is_some_and(|v| v.contains(&Extension::Postgis));
-
-    let is_schema_allowed = |schema: &str| -> bool {
-        if exclude_postgis && matches!(schema, "topology" | "tiger" | "tiger_data") {
-            return false;
-        }
-        matches_patterns(schema, schema_patterns.as_deref())
-    };
-
-    let mut keep_tables: HashSet<(String, String)> = HashSet::new();
-    for entity in &snapshot.ddl {
-        if let PostgresEntity::Table(table) = entity {
-            let schema = table.schema.as_ref();
-            let name = table.name.as_ref();
-            if !is_schema_allowed(schema) {
-                continue;
-            }
-            if exclude_postgis
-                && matches!(
-                    name,
-                    "spatial_ref_sys"
-                        | "geometry_columns"
-                        | "geography_columns"
-                        | "raster_columns"
-                        | "raster_overviews"
-                )
-            {
-                continue;
-            }
-
-            if matches_patterns(name, table_patterns.as_deref()) {
-                keep_tables.insert((schema.to_string(), name.to_string()));
-            }
-        }
-    }
-
-    let mut keep_schemas: HashSet<String> = keep_tables.iter().map(|(s, _)| s.clone()).collect();
-    if table_patterns.is_none() {
-        for entity in &snapshot.ddl {
-            if let PostgresEntity::Schema(s) = entity
-                && is_schema_allowed(s.name.as_ref())
-            {
-                keep_schemas.insert(s.name.to_string());
-            }
-        }
-    }
-
-    snapshot.ddl.retain(|entity| match entity {
-        PostgresEntity::Schema(s) => keep_schemas.contains(s.name.as_ref()),
-        PostgresEntity::Enum(e) => keep_schemas.contains(e.schema.as_ref()),
-        PostgresEntity::Sequence(s) => keep_schemas.contains(s.schema.as_ref()),
-        PostgresEntity::Role(_) | PostgresEntity::Privilege(_) => true,
-        PostgresEntity::Policy(p) => {
-            keep_tables.contains(&(p.schema.to_string(), p.table.to_string()))
-        }
-        PostgresEntity::Table(t) => {
-            keep_tables.contains(&(t.schema.to_string(), t.name.to_string()))
-        }
-        PostgresEntity::Column(c) => {
-            keep_tables.contains(&(c.schema.to_string(), c.table.to_string()))
-        }
-        PostgresEntity::Index(i) => {
-            keep_tables.contains(&(i.schema.to_string(), i.table.to_string()))
-        }
-        PostgresEntity::ForeignKey(fk) => {
-            keep_tables.contains(&(fk.schema.to_string(), fk.table.to_string()))
-                && keep_tables.contains(&(fk.schema_to.to_string(), fk.table_to.to_string()))
-        }
-        PostgresEntity::PrimaryKey(pk) => {
-            keep_tables.contains(&(pk.schema.to_string(), pk.table.to_string()))
-        }
-        PostgresEntity::UniqueConstraint(u) => {
-            keep_tables.contains(&(u.schema.to_string(), u.table.to_string()))
-        }
-        PostgresEntity::CheckConstraint(c) => {
-            keep_tables.contains(&(c.schema.to_string(), c.table.to_string()))
-        }
-        PostgresEntity::View(v) => {
-            if !keep_schemas.contains(v.schema.as_ref()) {
-                return false;
-            }
-            matches_patterns(v.name.as_ref(), table_patterns.as_deref())
-        }
-    });
-
-    Ok(())
-}
-
-#[derive(Debug, Clone)]
-struct FilterPattern {
-    pattern: glob::Pattern,
-    negated: bool,
-}
-
-fn compile_patterns(patterns: Option<&[String]>) -> Result<Option<Vec<FilterPattern>>, CliError> {
-    let Some(patterns) = patterns else {
-        return Ok(None);
-    };
-    if patterns.is_empty() {
-        return Ok(None);
-    }
-
-    let mut compiled = Vec::with_capacity(patterns.len());
-    for p in patterns {
-        let raw = p.trim();
-        let (negated, source) = raw
-            .strip_prefix('!')
-            .map_or((false, raw), |stripped| (true, stripped));
-        if source.is_empty() {
-            return Err(CliError::Other(format!(
-                "invalid filter pattern '{p}': empty pattern"
-            )));
-        }
-
-        compiled.push(FilterPattern {
-            pattern: glob::Pattern::new(source)
-                .map_err(|e| CliError::Other(format!("invalid filter pattern '{p}': {e}")))?,
-            negated,
-        });
-    }
-    Ok(Some(compiled))
-}
-
-fn matches_patterns(value: &str, patterns: Option<&[FilterPattern]>) -> bool {
-    match patterns {
-        None => true,
-        Some(v) => {
-            let has_positive = v.iter().any(|m| !m.negated);
-            let mut matched_positive = false;
-
-            for matcher in v {
-                if matcher.negated {
-                    if matcher.pattern.matches(value) {
-                        return false;
-                    }
-                } else if matcher.pattern.matches(value) {
-                    matched_positive = true;
-                }
-            }
-
-            if has_positive { matched_positive } else { true }
-        }
     }
 }
 
@@ -3105,8 +2968,8 @@ fn query_rusqlite_tables_and_columns(
     raw.tables = tables_stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
         .map_err(|e| CliError::Other(e.to_string()))?
-        .filter_map(Result::ok)
-        .collect();
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| CliError::Other(e.to_string()))?;
 
     let mut columns_stmt = conn
         .prepare(queries::COLUMNS_QUERY)
@@ -3127,14 +2990,14 @@ fn query_rusqlite_tables_and_columns(
             })
         })
         .map_err(|e| CliError::Other(e.to_string()))?
-        .filter_map(Result::ok)
-        .collect();
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| CliError::Other(e.to_string()))?;
 
     Ok(())
 }
 
 #[cfg(feature = "rusqlite")]
-fn query_rusqlite_per_table(
+fn query_rusqlite_indexes_and_foreign_keys(
     conn: &rusqlite::Connection,
     raw: &mut SqliteRawData,
 ) -> Result<(), CliError> {
@@ -3142,85 +3005,95 @@ fn query_rusqlite_per_table(
         RawForeignKey, RawIndexColumn, RawIndexInfo, queries,
     };
 
-    // Collect table names up-front so we can mutate other fields on `raw` while iterating.
-    let table_names: Vec<String> = raw.tables.iter().map(|(n, _)| n.clone()).collect();
-
-    for table_name in &table_names {
-        if let Ok(mut idx_stmt) = conn.prepare(&queries::indexes_query(table_name)) {
-            let indexes: Vec<RawIndexInfo> = idx_stmt
-                .query_map([], |row| {
-                    Ok(RawIndexInfo {
-                        table: table_name.clone(),
-                        name: row.get(1)?,
-                        unique: row.get::<_, i32>(2)? != 0,
-                        origin: row.get(3)?,
-                        partial: row.get::<_, i32>(4)? != 0,
-                    })
-                })
-                .map_err(|e| CliError::Other(e.to_string()))?
-                .filter_map(Result::ok)
-                .collect();
-
-            for idx in &indexes {
-                if let Ok(mut col_stmt) = conn.prepare(&queries::index_info_query(&idx.name))
-                    && let Ok(col_iter) = col_stmt.query_map([], |row| {
-                        Ok(RawIndexColumn {
-                            index_name: idx.name.clone(),
-                            seqno: row.get(0)?,
-                            cid: row.get(1)?,
-                            name: row.get(2)?,
-                            desc: row.get::<_, i32>(3)? != 0,
-                            coll: row.get(4)?,
-                            key: row.get::<_, i32>(5)? != 0,
-                        })
-                    })
-                {
-                    raw.all_index_columns
-                        .extend(col_iter.filter_map(Result::ok));
-                }
-            }
-            raw.all_indexes.extend(indexes);
-        }
-
-        if let Ok(mut fk_stmt) = conn.prepare(&queries::foreign_keys_query(table_name))
-            && let Ok(fk_iter) = fk_stmt.query_map([], |row| {
-                Ok(RawForeignKey {
-                    table: table_name.clone(),
-                    id: row.get(0)?,
-                    seq: row.get(1)?,
-                    to_table: row.get(2)?,
-                    from_column: row.get(3)?,
-                    to_column: row.get(4)?,
-                    on_update: row.get(5)?,
-                    on_delete: row.get(6)?,
-                    r#match: row.get(7)?,
-                })
+    let mut indexes_stmt = conn
+        .prepare(queries::INDEXES_QUERY)
+        .map_err(|e| CliError::Other(e.to_string()))?;
+    raw.all_indexes = indexes_stmt
+        .query_map([], |row| {
+            Ok(RawIndexInfo {
+                table: row.get(0)?,
+                name: row.get(1)?,
+                unique: row.get::<_, i32>(2)? != 0,
+                origin: row.get(3)?,
+                partial: row.get::<_, i32>(4)? != 0,
             })
-        {
-            raw.all_fks.extend(fk_iter.filter_map(Result::ok));
-        }
-    }
+        })
+        .map_err(|e| CliError::Other(e.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| CliError::Other(e.to_string()))?;
+
+    let mut columns_stmt = conn
+        .prepare(queries::INDEX_COLUMNS_QUERY)
+        .map_err(|e| CliError::Other(e.to_string()))?;
+    raw.all_index_columns = columns_stmt
+        .query_map([], |row| {
+            Ok(RawIndexColumn {
+                index_name: row.get(0)?,
+                seqno: row.get(1)?,
+                cid: row.get(2)?,
+                name: row.get(3)?,
+                desc: row.get::<_, i32>(4)? != 0,
+                coll: row.get(5)?,
+                key: row.get::<_, i32>(6)? != 0,
+            })
+        })
+        .map_err(|e| CliError::Other(e.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| CliError::Other(e.to_string()))?;
+
+    let mut foreign_keys_stmt = conn
+        .prepare(queries::FOREIGN_KEYS_QUERY)
+        .map_err(|e| CliError::Other(e.to_string()))?;
+    raw.all_fks = foreign_keys_stmt
+        .query_map([], |row| {
+            Ok(RawForeignKey {
+                table: row.get(0)?,
+                id: row.get(1)?,
+                seq: row.get(2)?,
+                to_table: row.get(3)?,
+                from_column: row.get(4)?,
+                to_column: row.get(5)?,
+                on_update: row.get(6)?,
+                on_delete: row.get(7)?,
+                r#match: row.get(8)?,
+            })
+        })
+        .map_err(|e| CliError::Other(e.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| CliError::Other(e.to_string()))?;
 
     Ok(())
 }
 
 #[cfg(feature = "rusqlite")]
-fn query_rusqlite_views_and_view_columns(conn: &rusqlite::Connection, raw: &mut SqliteRawData) {
+fn query_rusqlite_views_and_view_columns(
+    conn: &rusqlite::Connection,
+    raw: &mut SqliteRawData,
+) -> Result<(), CliError> {
     use drizzle_migrations::sqlite::introspect::{RawColumnInfo, RawViewInfo, queries};
 
-    if let Ok(mut views_stmt) = conn.prepare(queries::VIEWS_QUERY)
-        && let Ok(view_iter) = views_stmt.query_map([], |row| {
+    let mut views_stmt = conn
+        .prepare(queries::VIEWS_QUERY)
+        .map_err(|e| CliError::Other(e.to_string()))?;
+    let view_iter = views_stmt
+        .query_map([], |row| {
             Ok(RawViewInfo {
                 name: row.get(0)?,
                 sql: row.get(1)?,
             })
         })
-    {
-        raw.all_views.extend(view_iter.filter_map(Result::ok));
-    }
+        .map_err(|e| CliError::Other(e.to_string()))?;
+    raw.all_views.extend(
+        view_iter
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| CliError::Other(e.to_string()))?,
+    );
 
-    if let Ok(mut view_cols_stmt) = conn.prepare(queries::VIEW_COLUMNS_QUERY)
-        && let Ok(col_iter) = view_cols_stmt.query_map([], |row| {
+    let mut view_cols_stmt = conn
+        .prepare(queries::VIEW_COLUMNS_QUERY)
+        .map_err(|e| CliError::Other(e.to_string()))?;
+    let col_iter = view_cols_stmt
+        .query_map([], |row| {
             Ok(RawColumnInfo {
                 table: row.get(0)?,
                 cid: row.get(1)?,
@@ -3233,94 +3106,36 @@ fn query_rusqlite_views_and_view_columns(conn: &rusqlite::Connection, raw: &mut 
                 sql: row.get(8)?,
             })
         })
-    {
-        raw.raw_columns.extend(col_iter.filter_map(Result::ok));
-    }
+        .map_err(|e| CliError::Other(e.to_string()))?;
+    raw.raw_columns.extend(
+        col_iter
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| CliError::Other(e.to_string()))?,
+    );
+    Ok(())
 }
 
 #[cfg(feature = "rusqlite")]
 fn query_rusqlite_raw(conn: &rusqlite::Connection) -> Result<SqliteRawData, CliError> {
     let mut raw = SqliteRawData::empty();
     query_rusqlite_tables_and_columns(conn, &mut raw)?;
-    query_rusqlite_per_table(conn, &mut raw)?;
-    query_rusqlite_views_and_view_columns(conn, &mut raw);
+    query_rusqlite_indexes_and_foreign_keys(conn, &mut raw)?;
+    query_rusqlite_views_and_view_columns(conn, &mut raw)?;
     Ok(raw)
 }
 
 #[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
 fn build_sqlite_ddl(raw: SqliteRawData) -> drizzle_migrations::sqlite::SQLiteDDL {
-    use drizzle_migrations::sqlite::{
-        SQLiteDDL, Table, View,
-        introspect::{
-            parse_generated_columns_from_table_sql, parse_view_sql, process_columns,
-            process_foreign_keys, process_indexes,
+    drizzle_migrations::sqlite::introspect::assemble_ddl(
+        drizzle_migrations::sqlite::introspect::RawIntrospection {
+            tables: raw.tables,
+            columns: raw.raw_columns,
+            indexes: raw.all_indexes,
+            index_columns: raw.all_index_columns,
+            foreign_keys: raw.all_fks,
+            views: raw.all_views,
         },
-    };
-    use std::collections::{HashMap, HashSet};
-
-    let table_sql_map: HashMap<String, String> = raw
-        .tables
-        .iter()
-        .filter_map(|(name, sql)| sql.as_ref().map(|s| (name.clone(), s.clone())))
-        .collect();
-
-    let mut generated_columns: HashMap<String, drizzle_migrations::sqlite::ddl::ParsedGenerated> =
-        HashMap::new();
-    for (table, sql) in &table_sql_map {
-        generated_columns.extend(parse_generated_columns_from_table_sql(table, sql));
-    }
-    let pk_columns: HashSet<(String, String)> = raw
-        .raw_columns
-        .iter()
-        .filter(|c| c.pk > 0)
-        .map(|c| (c.table.clone(), c.name.clone()))
-        .collect();
-
-    let (columns, primary_keys) =
-        process_columns(&raw.raw_columns, &generated_columns, &pk_columns);
-    let indexes = process_indexes(&raw.all_indexes, &raw.all_index_columns, &table_sql_map);
-    let foreign_keys = process_foreign_keys(&raw.all_fks);
-    let uniques = process_sqlite_uniques_from_indexes(&raw.all_indexes, &raw.all_index_columns);
-
-    let mut ddl = SQLiteDDL::new();
-
-    for (table_name, table_sql) in &raw.tables {
-        let mut table = Table::new(table_name.clone());
-        if let Some(sql) = table_sql {
-            let sql_upper = sql.to_uppercase();
-            table.strict = sql_upper.contains(" STRICT");
-            table.without_rowid = sql_upper.contains("WITHOUT ROWID");
-        }
-        ddl.tables.push(table);
-    }
-
-    for col in columns {
-        ddl.columns.push(col);
-    }
-    for idx in indexes {
-        ddl.indexes.push(idx);
-    }
-    for fk in foreign_keys {
-        ddl.fks.push(fk);
-    }
-    for pk in primary_keys {
-        ddl.pks.push(pk);
-    }
-    for u in uniques {
-        ddl.uniques.push(u);
-    }
-
-    for v in raw.all_views {
-        let mut view = View::new(v.name);
-        if let Some(def) = parse_view_sql(&v.sql) {
-            view.definition = Some(def.into());
-        } else {
-            view.error = Some("Failed to parse view SQL".into());
-        }
-        ddl.views.push(view);
-    }
-
-    ddl
+    )
 }
 
 #[cfg(feature = "rusqlite")]
@@ -3393,8 +3208,12 @@ async fn query_libsql_tables_and_columns(
         .map_err(|e| CliError::Other(format!("Failed to query tables: {e}")))?;
 
     let mut tables: Vec<(String, Option<String>)> = Vec::new();
-    while let Ok(Some(row)) = tables_rows.next().await {
-        let name: String = row.get(0).unwrap_or_default();
+    while let Some(row) = tables_rows
+        .next()
+        .await
+        .map_err(|e| CliError::Other(e.to_string()))?
+    {
+        let name: String = row.get(0).map_err(|e| CliError::Other(e.to_string()))?;
         let sql: Option<String> = row.get(1).ok();
         tables.push((name, sql));
     }
@@ -3405,16 +3224,23 @@ async fn query_libsql_tables_and_columns(
         .map_err(|e| CliError::Other(format!("Failed to query columns: {e}")))?;
 
     let mut raw_columns: Vec<RawColumnInfo> = Vec::new();
-    while let Ok(Some(row)) = columns_rows.next().await {
+    while let Some(row) = columns_rows
+        .next()
+        .await
+        .map_err(|e| CliError::Other(e.to_string()))?
+    {
         raw_columns.push(RawColumnInfo {
-            table: row.get(0).unwrap_or_default(),
-            cid: row.get(1).unwrap_or(0),
-            name: row.get(2).unwrap_or_default(),
-            column_type: row.get(3).unwrap_or_default(),
-            not_null: row.get::<i32>(4).unwrap_or(0) != 0,
+            table: row.get(0).map_err(|e| CliError::Other(e.to_string()))?,
+            cid: row.get(1).map_err(|e| CliError::Other(e.to_string()))?,
+            name: row.get(2).map_err(|e| CliError::Other(e.to_string()))?,
+            column_type: row.get(3).map_err(|e| CliError::Other(e.to_string()))?,
+            not_null: row
+                .get::<i32>(4)
+                .map_err(|e| CliError::Other(e.to_string()))?
+                != 0,
             default_value: row.get(5).ok(),
-            pk: row.get(6).unwrap_or(0),
-            hidden: row.get(7).unwrap_or(0),
+            pk: row.get(6).map_err(|e| CliError::Other(e.to_string()))?,
+            hidden: row.get(7).map_err(|e| CliError::Other(e.to_string()))?,
             sql: row.get(8).ok(),
         });
     }
@@ -3423,116 +3249,153 @@ async fn query_libsql_tables_and_columns(
 }
 
 #[cfg(any(feature = "libsql", feature = "turso"))]
-async fn query_libsql_per_table(
+async fn query_libsql_indexes_and_foreign_keys(
     conn: &libsql::Connection,
-    tables: &[(String, Option<String>)],
-) -> (
-    Vec<drizzle_migrations::sqlite::introspect::RawIndexInfo>,
-    Vec<drizzle_migrations::sqlite::introspect::RawIndexColumn>,
-    Vec<drizzle_migrations::sqlite::introspect::RawForeignKey>,
-) {
+) -> Result<
+    (
+        Vec<drizzle_migrations::sqlite::introspect::RawIndexInfo>,
+        Vec<drizzle_migrations::sqlite::introspect::RawIndexColumn>,
+        Vec<drizzle_migrations::sqlite::introspect::RawForeignKey>,
+    ),
+    CliError,
+> {
     use drizzle_migrations::sqlite::introspect::{
         RawForeignKey, RawIndexColumn, RawIndexInfo, queries,
     };
 
-    let mut all_indexes: Vec<RawIndexInfo> = Vec::new();
-    let mut all_index_columns: Vec<RawIndexColumn> = Vec::new();
-    let mut all_fks: Vec<RawForeignKey> = Vec::new();
-
-    for (table_name, _) in tables {
-        if let Ok(mut idx_rows) = conn.query(&queries::indexes_query(table_name), ()).await {
-            while let Ok(Some(row)) = idx_rows.next().await {
-                let idx = RawIndexInfo {
-                    table: table_name.clone(),
-                    name: row.get(1).unwrap_or_default(),
-                    unique: row.get::<i32>(2).unwrap_or(0) != 0,
-                    origin: row.get(3).unwrap_or_default(),
-                    partial: row.get::<i32>(4).unwrap_or(0) != 0,
-                };
-
-                if let Ok(mut col_rows) =
-                    conn.query(&queries::index_info_query(&idx.name), ()).await
-                {
-                    while let Ok(Some(col_row)) = col_rows.next().await {
-                        all_index_columns.push(RawIndexColumn {
-                            index_name: idx.name.clone(),
-                            seqno: col_row.get(0).unwrap_or(0),
-                            cid: col_row.get(1).unwrap_or(0),
-                            name: col_row.get(2).ok(),
-                            desc: col_row.get::<i32>(3).unwrap_or(0) != 0,
-                            coll: col_row.get(4).unwrap_or_default(),
-                            key: col_row.get::<i32>(5).unwrap_or(0) != 0,
-                        });
-                    }
-                }
-
-                all_indexes.push(idx);
-            }
-        }
-
-        if let Ok(mut fk_rows) = conn
-            .query(&queries::foreign_keys_query(table_name), ())
-            .await
-        {
-            while let Ok(Some(row)) = fk_rows.next().await {
-                all_fks.push(RawForeignKey {
-                    table: table_name.clone(),
-                    id: row.get(0).unwrap_or(0),
-                    seq: row.get(1).unwrap_or(0),
-                    to_table: row.get(2).unwrap_or_default(),
-                    from_column: row.get(3).unwrap_or_default(),
-                    to_column: row.get(4).unwrap_or_default(),
-                    on_update: row.get(5).unwrap_or_default(),
-                    on_delete: row.get(6).unwrap_or_default(),
-                    r#match: row.get(7).unwrap_or_default(),
-                });
-            }
-        }
+    let mut all_indexes = Vec::<RawIndexInfo>::new();
+    let mut index_rows = conn
+        .query(queries::INDEXES_QUERY, ())
+        .await
+        .map_err(|e| CliError::Other(e.to_string()))?;
+    while let Some(row) = index_rows
+        .next()
+        .await
+        .map_err(|e| CliError::Other(e.to_string()))?
+    {
+        all_indexes.push(RawIndexInfo {
+            table: row.get(0).map_err(|e| CliError::Other(e.to_string()))?,
+            name: row.get(1).map_err(|e| CliError::Other(e.to_string()))?,
+            unique: row
+                .get::<i32>(2)
+                .map_err(|e| CliError::Other(e.to_string()))?
+                != 0,
+            origin: row.get(3).map_err(|e| CliError::Other(e.to_string()))?,
+            partial: row
+                .get::<i32>(4)
+                .map_err(|e| CliError::Other(e.to_string()))?
+                != 0,
+        });
     }
 
-    (all_indexes, all_index_columns, all_fks)
+    let mut all_index_columns = Vec::<RawIndexColumn>::new();
+    let mut column_rows = conn
+        .query(queries::INDEX_COLUMNS_QUERY, ())
+        .await
+        .map_err(|e| CliError::Other(e.to_string()))?;
+    while let Some(row) = column_rows
+        .next()
+        .await
+        .map_err(|e| CliError::Other(e.to_string()))?
+    {
+        all_index_columns.push(RawIndexColumn {
+            index_name: row.get(0).map_err(|e| CliError::Other(e.to_string()))?,
+            seqno: row.get(1).map_err(|e| CliError::Other(e.to_string()))?,
+            cid: row.get(2).map_err(|e| CliError::Other(e.to_string()))?,
+            name: row.get(3).ok(),
+            desc: row
+                .get::<i32>(4)
+                .map_err(|e| CliError::Other(e.to_string()))?
+                != 0,
+            coll: row.get(5).map_err(|e| CliError::Other(e.to_string()))?,
+            key: row
+                .get::<i32>(6)
+                .map_err(|e| CliError::Other(e.to_string()))?
+                != 0,
+        });
+    }
+
+    let mut all_fks = Vec::<RawForeignKey>::new();
+    let mut foreign_key_rows = conn
+        .query(queries::FOREIGN_KEYS_QUERY, ())
+        .await
+        .map_err(|e| CliError::Other(e.to_string()))?;
+    while let Some(row) = foreign_key_rows
+        .next()
+        .await
+        .map_err(|e| CliError::Other(e.to_string()))?
+    {
+        all_fks.push(RawForeignKey {
+            table: row.get(0).map_err(|e| CliError::Other(e.to_string()))?,
+            id: row.get(1).map_err(|e| CliError::Other(e.to_string()))?,
+            seq: row.get(2).map_err(|e| CliError::Other(e.to_string()))?,
+            to_table: row.get(3).map_err(|e| CliError::Other(e.to_string()))?,
+            from_column: row.get(4).map_err(|e| CliError::Other(e.to_string()))?,
+            to_column: row.get(5).map_err(|e| CliError::Other(e.to_string()))?,
+            on_update: row.get(6).map_err(|e| CliError::Other(e.to_string()))?,
+            on_delete: row.get(7).map_err(|e| CliError::Other(e.to_string()))?,
+            r#match: row.get(8).map_err(|e| CliError::Other(e.to_string()))?,
+        });
+    }
+
+    Ok((all_indexes, all_index_columns, all_fks))
 }
 
 #[cfg(any(feature = "libsql", feature = "turso"))]
 async fn query_libsql_views_and_view_columns(
     conn: &libsql::Connection,
     raw_columns: &mut Vec<drizzle_migrations::sqlite::introspect::RawColumnInfo>,
-) -> Vec<drizzle_migrations::sqlite::introspect::RawViewInfo> {
+) -> Result<Vec<drizzle_migrations::sqlite::introspect::RawViewInfo>, CliError> {
     use drizzle_migrations::sqlite::introspect::{RawColumnInfo, RawViewInfo, queries};
 
     let mut all_views: Vec<RawViewInfo> = Vec::new();
-    if let Ok(mut views_rows) = conn.query(queries::VIEWS_QUERY, ()).await {
-        while let Ok(Some(row)) = views_rows.next().await {
-            let name: String = row.get(0).unwrap_or_default();
-            let sql: String = row.get(1).unwrap_or_default();
-            all_views.push(RawViewInfo { name, sql });
-        }
+    let mut views_rows = conn
+        .query(queries::VIEWS_QUERY, ())
+        .await
+        .map_err(|e| CliError::Other(e.to_string()))?;
+    while let Some(row) = views_rows
+        .next()
+        .await
+        .map_err(|e| CliError::Other(e.to_string()))?
+    {
+        let name: String = row.get(0).map_err(|e| CliError::Other(e.to_string()))?;
+        let sql: String = row.get(1).map_err(|e| CliError::Other(e.to_string()))?;
+        all_views.push(RawViewInfo { name, sql });
     }
 
-    if let Ok(mut view_cols_rows) = conn.query(queries::VIEW_COLUMNS_QUERY, ()).await {
-        while let Ok(Some(row)) = view_cols_rows.next().await {
-            raw_columns.push(RawColumnInfo {
-                table: row.get(0).unwrap_or_default(),
-                cid: row.get(1).unwrap_or(0),
-                name: row.get(2).unwrap_or_default(),
-                column_type: row.get(3).unwrap_or_default(),
-                not_null: row.get::<i32>(4).unwrap_or(0) != 0,
-                default_value: row.get(5).ok(),
-                pk: row.get(6).unwrap_or(0),
-                hidden: row.get(7).unwrap_or(0),
-                sql: row.get(8).ok(),
-            });
-        }
+    let mut view_cols_rows = conn
+        .query(queries::VIEW_COLUMNS_QUERY, ())
+        .await
+        .map_err(|e| CliError::Other(e.to_string()))?;
+    while let Some(row) = view_cols_rows
+        .next()
+        .await
+        .map_err(|e| CliError::Other(e.to_string()))?
+    {
+        raw_columns.push(RawColumnInfo {
+            table: row.get(0).map_err(|e| CliError::Other(e.to_string()))?,
+            cid: row.get(1).map_err(|e| CliError::Other(e.to_string()))?,
+            name: row.get(2).map_err(|e| CliError::Other(e.to_string()))?,
+            column_type: row.get(3).map_err(|e| CliError::Other(e.to_string()))?,
+            not_null: row
+                .get::<i32>(4)
+                .map_err(|e| CliError::Other(e.to_string()))?
+                != 0,
+            default_value: row.get(5).ok(),
+            pk: row.get(6).map_err(|e| CliError::Other(e.to_string()))?,
+            hidden: row.get(7).map_err(|e| CliError::Other(e.to_string()))?,
+            sql: row.get(8).ok(),
+        });
     }
-
-    all_views
+    Ok(all_views)
 }
 
 #[cfg(any(feature = "libsql", feature = "turso"))]
 async fn query_libsql_raw(conn: &libsql::Connection) -> Result<SqliteRawData, CliError> {
     let (tables, mut raw_columns) = query_libsql_tables_and_columns(conn).await?;
-    let (all_indexes, all_index_columns, all_fks) = query_libsql_per_table(conn, &tables).await;
-    let all_views = query_libsql_views_and_view_columns(conn, &mut raw_columns).await;
+    let (all_indexes, all_index_columns, all_fks) =
+        query_libsql_indexes_and_foreign_keys(conn).await?;
+    let all_views = query_libsql_views_and_view_columns(conn, &mut raw_columns).await?;
 
     Ok(SqliteRawData {
         tables,
@@ -3660,14 +3523,15 @@ async fn introspect_turso_inner(
 
 #[cfg(feature = "postgres-sync")]
 fn introspect_postgres_sync(creds: &PostgresCreds) -> Result<IntrospectResult, CliError> {
-    let url = creds.connection_url();
-    let mut client = postgres::Client::connect(&url, postgres::NoTls)
-        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {e}")))?;
+    let mut client = connect_postgres_sync(creds)?;
 
     let raw = query_postgres_sync_raw(&mut client)?;
     let ddl = build_postgres_ddl(raw);
 
-    Ok(finalize_postgres_introspection(&ddl, &url))
+    Ok(finalize_postgres_introspection(
+        &ddl,
+        "configured PostgreSQL database",
+    ))
 }
 
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
@@ -3954,24 +3818,15 @@ fn introspect_postgres_async(creds: &PostgresCreds) -> Result<IntrospectResult, 
 async fn introspect_postgres_async_inner(
     creds: &PostgresCreds,
 ) -> Result<IntrospectResult, CliError> {
-    let url = creds.connection_url();
-    let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
-        .await
-        .map_err(|e| CliError::ConnectionError(format!("Failed to connect to PostgreSQL: {e}")))?;
-
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!(
-                "{}",
-                output::err_line(&format!("PostgreSQL connection error: {e}"))
-            );
-        }
-    });
+    let client = connect_postgres_async(creds).await?;
 
     let raw = query_postgres_async_raw(&client).await?;
     let ddl = build_postgres_ddl(raw);
 
-    Ok(finalize_postgres_introspection(&ddl, &url))
+    Ok(finalize_postgres_introspection(
+        &ddl,
+        "configured PostgreSQL database",
+    ))
 }
 
 #[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
@@ -4274,57 +4129,28 @@ struct PostgresRawData {
 fn build_postgres_ddl(
     raw: PostgresRawData,
 ) -> drizzle_migrations::postgres::collection::PostgresDDL {
-    use drizzle_migrations::postgres::{
-        PostgresDDL,
-        ddl::Schema,
-        introspect::{
-            process_check_constraints, process_columns, process_enums, process_foreign_keys,
-            process_indexes, process_policies, process_primary_keys, process_roles,
-            process_sequences, process_tables, process_unique_constraints, process_views,
-        },
-    };
+    use drizzle_migrations::postgres::ddl::Schema;
+    use drizzle_migrations::postgres::introspect::{RawIntrospection, assemble_ddl};
 
-    let mut ddl = PostgresDDL::new();
-    for s in raw.schemas.into_iter().map(|s| Schema::new(s.name)) {
-        ddl.schemas.push(s);
-    }
-    for e in process_enums(&raw.enums) {
-        ddl.enums.push(e);
-    }
-    for s in process_sequences(&raw.sequences) {
-        ddl.sequences.push(s);
-    }
-    for r in process_roles(&raw.roles) {
-        ddl.roles.push(r);
-    }
-    for p in process_policies(&raw.policies) {
-        ddl.policies.push(p);
-    }
-    for t in process_tables(&raw.tables) {
-        ddl.tables.push(t);
-    }
-    for c in process_columns(&raw.columns) {
-        ddl.columns.push(c);
-    }
-    for i in process_indexes(&raw.indexes) {
-        ddl.indexes.push(i);
-    }
-    for fk in process_foreign_keys(&raw.foreign_keys) {
-        ddl.fks.push(fk);
-    }
-    for pk in process_primary_keys(&raw.primary_keys) {
-        ddl.pks.push(pk);
-    }
-    for u in process_unique_constraints(&raw.uniques) {
-        ddl.uniques.push(u);
-    }
-    for c in process_check_constraints(&raw.checks) {
-        ddl.checks.push(c);
-    }
-    for v in process_views(&raw.views) {
-        ddl.views.push(v);
-    }
-    ddl
+    assemble_ddl(RawIntrospection {
+        schemas: raw
+            .schemas
+            .into_iter()
+            .map(|schema| Schema::new(schema.name))
+            .collect(),
+        tables: raw.tables,
+        columns: raw.columns,
+        enums: raw.enums,
+        sequences: raw.sequences,
+        views: raw.views,
+        indexes: raw.indexes,
+        foreign_keys: raw.foreign_keys,
+        primary_keys: raw.primary_keys,
+        unique_constraints: raw.uniques,
+        check_constraints: raw.checks,
+        roles: raw.roles,
+        policies: raw.policies,
+    })
 }
 
 /// Package a generated DDL + generated code into an [`IntrospectResult`].
@@ -5124,9 +4950,7 @@ pub struct Schema {
         use drizzle_types::Dialect;
 
         let creds = test_postgres_creds();
-        let url = creds.connection_url();
-
-        let mut setup_client = match postgres::Client::connect(&url, postgres::NoTls) {
+        let mut setup_client = match connect_postgres_sync(&creds) {
             Ok(c) => c,
             Err(e) => {
                 eprintln!(
@@ -5163,8 +4987,7 @@ pub struct Schema {
             .expect("sync migration with concurrent index should succeed");
         assert_eq!(result.applied_count, 1);
 
-        let mut verify_client =
-            postgres::Client::connect(&url, postgres::NoTls).expect("reconnect for verification");
+        let mut verify_client = connect_postgres_sync(&creds).expect("reconnect for verification");
         let exists: i64 = verify_client
             .query_one(
                 "SELECT COUNT(*)::bigint FROM pg_indexes \
@@ -5188,8 +5011,7 @@ pub struct Schema {
         use drizzle_types::Dialect;
 
         let creds = test_postgres_creds();
-        let url = creds.connection_url();
-        let mut client = postgres::Client::connect(&url, postgres::NoTls)
+        let mut client = connect_postgres_sync(&creds)
             .expect("connect postgres for legacy tracking upgrade test");
 
         let applied_table = unique_pg_name("cli_sync_applied");
@@ -5236,8 +5058,7 @@ pub struct Schema {
         assert_eq!(result.applied_count, 1);
         assert_eq!(result.applied_migrations, vec![second.hash().to_string()]);
 
-        let mut verify_client =
-            postgres::Client::connect(&url, postgres::NoTls).expect("reconnect for verification");
+        let mut verify_client = connect_postgres_sync(&creds).expect("reconnect for verification");
         let columns: Vec<String> = verify_client
             .query(
                 "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = '__drizzle_migrations' ORDER BY ordinal_position",
@@ -5296,9 +5117,8 @@ pub struct Schema {
         use drizzle_types::Dialect;
 
         let creds = test_postgres_creds();
-        let url = creds.connection_url();
-        let mut client = postgres::Client::connect(&url, postgres::NoTls)
-            .expect("connect postgres for unmatched legacy row test");
+        let mut client =
+            connect_postgres_sync(&creds).expect("connect postgres for unmatched legacy row test");
 
         let migration_schema = unique_pg_name("cli_sync_tracking_unmatched");
         client
@@ -5333,8 +5153,7 @@ pub struct Schema {
             .expect_err("unmatched legacy metadata should fail");
         assert!(err.to_string().contains("do not match local migrations"));
 
-        let mut verify_client =
-            postgres::Client::connect(&url, postgres::NoTls).expect("reconnect for verification");
+        let mut verify_client = connect_postgres_sync(&creds).expect("reconnect for verification");
         let columns: Vec<String> = verify_client
             .query(
                 "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = '__drizzle_migrations' ORDER BY ordinal_position",
@@ -5359,16 +5178,14 @@ pub struct Schema {
         use drizzle_types::Dialect;
 
         let creds = test_postgres_creds();
-        let url = creds.connection_url();
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("create tokio runtime");
 
         rt.block_on(async {
-            let (client, connection) = match tokio_postgres::connect(&url, tokio_postgres::NoTls).await
-            {
-                Ok(v) => v,
+            let client = match connect_postgres_async(&creds).await {
+                Ok(client) => client,
                 Err(e) => {
                     eprintln!(
                         "Skipping tokio_postgres_migrate_applies_concurrent_index_without_transaction: {}",
@@ -5377,10 +5194,6 @@ pub struct Schema {
                     return;
                 }
             };
-
-            tokio::spawn(async move {
-                let _ = connection.await;
-            });
 
             let table = unique_pg_name("cli_async_users");
             let index = format!("{}_email_idx", table);
@@ -5437,20 +5250,15 @@ pub struct Schema {
         use drizzle_types::Dialect;
 
         let creds = test_postgres_creds();
-        let url = creds.connection_url();
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("create tokio runtime");
 
         rt.block_on(async {
-            let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
+            let client = connect_postgres_async(&creds)
                 .await
                 .expect("connect tokio-postgres for legacy tracking upgrade test");
-
-            tokio::spawn(async move {
-                let _ = connection.await;
-            });
 
             let applied_table = unique_pg_name("cli_async_applied");
             let pending_table = unique_pg_name("cli_async_pending");

@@ -1,0 +1,39 @@
+error[E0277]: the trait bound `UserName: drizzle_core::row::SingleColGroupCheck<Cons<UserId, Nil>, _>` is not satisfied
+  --> tests/ui/aggregate_mixing_sqlite/fail/mixed_without_group_by.rs:32:10
+   |
+32 |         .all();
+   |          ^^^ unsatisfied trait bound
+   |
+help: the trait `drizzle_core::row::SingleColGroupCheck<Cons<UserId, Nil>, _>` is not implemented for `UserName`
+  --> tests/ui/aggregate_mixing_sqlite/fail/mixed_without_group_by.rs:5:1
+   |
+ 5 | #[SQLiteTable]
+   | ^^^^^^^^^^^^^^
+help: the following other types implement trait `drizzle_core::row::MarkerAggValidFor<Grouped, Proof>`
+  --> core/src/row/mod.rs
+   |
+   |   impl<Scope, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>> for Scoped<SelectStar, Scope> {}
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Scoped<SelectStar, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
+...
+   |   impl<Scope, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>> for Scoped<SelectExpr, Scope> {}
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Scoped<SelectExpr, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
+...
+   |   impl<Scope, R, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>> for Scoped<SelectAs<R>, Scope> {}
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Scoped<SelectAs<R>, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
+...
+   | / impl<Scope, Cols, Head, Tail, Proof> MarkerAggValidFor<Cons<Head, Tail>, Proof>
+   | |     for Scoped<SelectCols<Cols>, Scope>
+   | | where
+   | |     Cols: ScalarColumnsIn<Cons<Head, Tail>, Proof>,
+   | |___________________________________________________^ `Scoped<SelectCols<Cols>, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>, Proof>`
+   = note: required for `(UserName, AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull, Agg>>)` to implement `drizzle_core::row::ScalarColumnsIn<Cons<UserId, Nil>, (_, drizzle_core::row::AggSkip)>`
+   = note: required for `Scoped<SelectCols<(UserName, AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull, Agg>>)>, Cons<User, Nil>>` to implement `drizzle_core::row::MarkerAggValidFor<Cons<UserId, Nil>, (_, drizzle_core::row::AggSkip)>`
+note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'_, drizzle::builder::sqlite::common::Drizzle<Connection, S>, S, drizzle::sqlite::builder::QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
+  --> src/builder/sqlite/rusqlite/mod.rs
+   |
+   |     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
+   |            --- required by a bound in this associated function
+...
+   |         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::sqlite::rusqlite::<impl DrizzleBuilder<'_, Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
+   = note: this error originates in the attribute macro `SQLiteTable` (in Nightly builds, run with -Z macro-backtrace for more info)

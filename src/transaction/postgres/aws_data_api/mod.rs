@@ -11,10 +11,9 @@
 //!   `ROLLBACK TO SAVEPOINT` SQL that runs inside the transaction context.
 
 use std::marker::PhantomData;
-use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 
-use crate::transaction::savepoint::async_savepoint;
+use crate::transaction::savepoint::{AsyncSavepointState, async_savepoint};
 
 use aws_sdk_rdsdata::Client;
 use drizzle_core::dialect::ParamStyle;
@@ -64,7 +63,7 @@ pub struct Transaction<Schema = ()> {
     database: Option<Arc<str>>,
     tx_id: Mutex<Option<String>>,
     tx_type: PostgresTransactionType,
-    savepoint_depth: AtomicU32,
+    savepoints: AsyncSavepointState,
     schema: Schema,
 }
 
@@ -74,7 +73,7 @@ impl<Schema> std::fmt::Debug for Transaction<Schema> {
         f.debug_struct("Transaction")
             .field("tx_type", &self.tx_type)
             .field("is_active", &is_active)
-            .field("savepoint_depth", &self.savepoint_depth)
+            .field("savepoints", &self.savepoints)
             .field("resource_arn", &self.resource_arn)
             .field("database", &self.database)
             .finish_non_exhaustive()
@@ -83,7 +82,7 @@ impl<Schema> std::fmt::Debug for Transaction<Schema> {
 
 impl<Schema> Transaction<Schema> {
     /// Construct a new transaction handle.
-    pub(crate) const fn new(
+    pub(crate) fn new(
         client: Client,
         resource_arn: Arc<str>,
         secret_arn: Arc<str>,
@@ -99,7 +98,7 @@ impl<Schema> Transaction<Schema> {
             database,
             tx_id: Mutex::new(Some(transaction_id)),
             tx_type,
-            savepoint_depth: AtomicU32::new(0),
+            savepoints: AsyncSavepointState::new(),
             schema,
         }
     }
@@ -135,7 +134,7 @@ impl<Schema> Transaction<Schema> {
         F: AsyncFnOnce(&Self) -> drizzle_core::error::Result<R>,
     {
         async_savepoint(
-            &self.savepoint_depth,
+            &self.savepoints,
             |sql| async move { self.execute(sql.as_str()).await.map(|_| ()) },
             f(self),
         )
@@ -229,6 +228,10 @@ impl<Schema> Transaction<Schema> {
 
     /// Commit via the service-level `CommitTransaction` call.
     pub(crate) async fn commit(&self) -> drizzle_core::error::Result<()> {
+        if let Err(error) = self.savepoints.ensure_usable() {
+            self.rollback().await?;
+            return Err(error);
+        }
         let tx_id = self
             .tx_id
             .lock()
@@ -275,6 +278,7 @@ impl<Schema> Transaction<Schema> {
     ) -> drizzle_core::error::Result<
         aws_sdk_rdsdata::operation::execute_statement::ExecuteStatementOutput,
     > {
+        self.savepoints.ensure_usable()?;
         // Clone the id out of the `Mutex` so no guard is held across the `.await` below.
         // Holding a `MutexGuard` over an await would make this future `!Send` (on older
         // compilers) and risks lock contention stalls.

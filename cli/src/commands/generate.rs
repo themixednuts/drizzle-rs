@@ -212,25 +212,21 @@ fn write_migration_files(
     generated: &drizzle_migrations::Plan,
     breakpoints: bool,
 ) -> Result<std::path::PathBuf, CliError> {
-    let migration_dir = out_dir.join(migration_tag);
-    std::fs::create_dir_all(&migration_dir).map_err(|e| CliError::IoError(e.to_string()))?;
-
-    let migration_sql_path = migration_dir.join("migration.sql");
     let sql_content = if breakpoints {
         generated.statements.join("\n--> statement-breakpoint\n")
     } else {
         generated.statements.join("\n\n")
     };
-    std::fs::write(&migration_sql_path, &sql_content)
-        .map_err(|e| CliError::IoError(e.to_string()))?;
 
-    let snapshot_path = migration_dir.join("snapshot.json");
-    generated
-        .snapshot
-        .save(&snapshot_path)
-        .map_err(|e| CliError::IoError(e.to_string()))?;
-
-    Ok(migration_dir)
+    drizzle_migrations::writer::publish_migration_directory(out_dir, migration_tag, |folder| {
+        std::fs::write(folder.join("migration.sql"), &sql_content)
+            .map_err(|error| drizzle_migrations::MigrationError::IoError(error.to_string()))?;
+        generated
+            .snapshot
+            .save(&folder.join("snapshot.json"))
+            .map_err(|error| drizzle_migrations::MigrationError::SnapshotError(error.to_string()))
+    })
+    .map_err(map_migration_error)
 }
 
 /// Generate an empty custom migration for manual SQL
@@ -253,15 +249,16 @@ fn generate_custom_migration(
         Some(&custom_name),
     );
 
-    // Create migration subdirectory: {out}/{tag}/
-    let migration_dir = out_dir.join(&migration_tag);
-    std::fs::create_dir_all(&migration_dir).map_err(|e| CliError::IoError(e.to_string()))?;
-
-    // Write {tag}/migration.sql with comment
-    let migration_sql_path = migration_dir.join("migration.sql");
     let sql_content = "-- Custom SQL migration file, put your code below! --\n\n";
-    std::fs::write(&migration_sql_path, sql_content)
-        .map_err(|e| CliError::IoError(e.to_string()))?;
+    let migration_dir = drizzle_migrations::writer::publish_migration_directory(
+        out_dir,
+        &migration_tag,
+        |folder| {
+            std::fs::write(folder.join("migration.sql"), sql_content)
+                .map_err(|error| drizzle_migrations::MigrationError::IoError(error.to_string()))
+        },
+    )
+    .map_err(map_migration_error)?;
 
     // Regenerate {out_dir}/migrations.js bundle index when enabled.
     if bundle {
@@ -433,12 +430,9 @@ pub fn write_migrations_js(out_dir: &Path) -> Result<(), CliError> {
     Ok(())
 }
 
-/// Generate diff between two snapshots
-fn generate_diff(
-    prev: &drizzle_migrations::schema::Snapshot,
-    current: &drizzle_migrations::schema::Snapshot,
-) -> Result<drizzle_migrations::Plan, CliError> {
-    drizzle_migrations::diff(prev, current).map_err(|error| match error {
+/// Map migration infrastructure errors to CLI errors.
+fn map_migration_error(error: drizzle_migrations::MigrationError) -> CliError {
+    match error {
         drizzle_migrations::MigrationError::DialectMismatch => CliError::DialectMismatch,
         drizzle_migrations::MigrationError::NoChanges => {
             CliError::Other("No schema changes detected".to_string())
@@ -448,7 +442,15 @@ fn generate_diff(
         | drizzle_migrations::MigrationError::SnapshotError(_) => {
             CliError::MigrationError(error.to_string())
         }
-    })
+    }
+}
+
+/// Generate diff between two snapshots
+fn generate_diff(
+    prev: &drizzle_migrations::schema::Snapshot,
+    current: &drizzle_migrations::schema::Snapshot,
+) -> Result<drizzle_migrations::Plan, CliError> {
+    drizzle_migrations::diff(prev, current).map_err(map_migration_error)
 }
 
 #[cfg(test)]
@@ -460,6 +462,45 @@ mod tests {
         let dir = out_dir.join(tag);
         std::fs::create_dir_all(&dir).expect("mkdir migration folder");
         std::fs::write(dir.join("migration.sql"), "-- stub\n").expect("write migration.sql");
+    }
+
+    #[test]
+    fn custom_migration_rejects_unsafe_name_before_writing() {
+        let tmp = tempdir().expect("tempdir");
+        let error = generate_custom_migration(
+            tmp.path(),
+            false,
+            Some(MigrationPrefix::None),
+            Some("../escape".to_string()),
+            false,
+        )
+        .expect_err("unsafe name must fail");
+
+        assert!(matches!(error, CliError::MigrationError(_)));
+        assert_eq!(
+            std::fs::read_dir(tmp.path()).expect("read output").count(),
+            0
+        );
+    }
+
+    #[test]
+    fn custom_migration_is_published_as_complete_directory() {
+        let tmp = tempdir().expect("tempdir");
+        generate_custom_migration(
+            tmp.path(),
+            false,
+            Some(MigrationPrefix::None),
+            Some("manual_change".to_string()),
+            false,
+        )
+        .expect("generate custom migration");
+
+        let migration = tmp.path().join("manual_change");
+        assert!(migration.join("migration.sql").is_file());
+        assert_eq!(
+            std::fs::read_dir(tmp.path()).expect("read output").count(),
+            1
+        );
     }
 
     #[test]

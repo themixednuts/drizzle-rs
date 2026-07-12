@@ -14,12 +14,61 @@
 use crate::sqlite::statements::SqliteGenerator;
 use crate::sqlite::{SQLiteSnapshot, SchemaDiff as SqliteSchemaDiff};
 use crate::version::ORIGIN_UUID;
-use crate::words::{PrefixMode, generate_migration_tag};
+use crate::words::{PrefixMode, generate_migration_tag, validate_migration_name};
 use drizzle_types::Dialect;
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+
+/// Publish a complete migration directory without exposing partially written files.
+///
+/// The callback writes into a unique sibling staging directory. The staging
+/// directory is renamed to `tag` only after the callback succeeds.
+///
+/// # Errors
+///
+/// Returns a configuration error for an invalid or existing tag, and an I/O
+/// error when staging, writing, or publishing fails.
+#[doc(hidden)]
+pub fn publish_migration_directory(
+    out: &Path,
+    tag: &str,
+    write: impl FnOnce(&Path) -> Result<(), MigrationError>,
+) -> Result<PathBuf, MigrationError> {
+    validate_migration_name(tag).map_err(|error| MigrationError::ConfigError(error.to_string()))?;
+    fs::create_dir_all(out).map_err(|error| MigrationError::IoError(error.to_string()))?;
+
+    let destination = out.join(tag);
+    if destination.exists() {
+        return Err(MigrationError::ConfigError(format!(
+            "migration `{tag}` already exists"
+        )));
+    }
+
+    let staging = out.join(format!(".{tag}.{}.tmp", uuid::Uuid::new_v4()));
+    fs::create_dir(&staging).map_err(|error| MigrationError::IoError(error.to_string()))?;
+
+    if let Err(error) = write(&staging) {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+
+    if destination.exists() {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(MigrationError::ConfigError(format!(
+            "migration `{tag}` already exists"
+        )));
+    }
+
+    match fs::rename(&staging, &destination) {
+        Ok(()) => Ok(destination),
+        Err(error) => {
+            let _ = fs::remove_dir_all(&staging);
+            Err(MigrationError::IoError(error.to_string()))
+        }
+    }
+}
 
 // =============================================================================
 // Migration Writer V3 (folder-based, matches drizzle-kit)
@@ -217,14 +266,6 @@ impl Writer {
 
         let sql = generator.statements_to_sql(&statements);
 
-        // Create migration folder
-        let folder_path = self.migration_folder_path(&tag);
-        fs::create_dir_all(&folder_path).map_err(|e| MigrationError::IoError(e.to_string()))?;
-
-        // Write SQL file
-        let sql_path = self.migration_sql_path(&tag);
-        fs::write(&sql_path, &sql).map_err(|e| MigrationError::IoError(e.to_string()))?;
-
         // Create snapshot with proper chain
         let mut snapshot = current_snapshot.clone();
         let prev_ids = if existing.is_empty() {
@@ -239,11 +280,13 @@ impl Writer {
         snapshot.prev_ids = prev_ids;
         snapshot.id = uuid::Uuid::new_v4().to_string();
 
-        // Write snapshot
-        let snapshot_path = self.snapshot_path(&tag);
-        snapshot
-            .save(&snapshot_path)
-            .map_err(|e| MigrationError::IoError(e.to_string()))?;
+        publish_migration_directory(&self.out, &tag, |folder| {
+            fs::write(folder.join("migration.sql"), &sql)
+                .map_err(|error| MigrationError::IoError(error.to_string()))?;
+            snapshot
+                .save(&folder.join("snapshot.json"))
+                .map_err(|error| MigrationError::SnapshotError(error.to_string()))
+        })?;
 
         Ok(tag)
     }
@@ -295,15 +338,6 @@ impl Writer {
             ),
         };
 
-        // Create migration folder
-        let folder_path = self.migration_folder_path(&tag);
-        fs::create_dir_all(&folder_path).map_err(|e| MigrationError::IoError(e.to_string()))?;
-
-        // Write empty SQL file with placeholder
-        let sql_path = self.migration_sql_path(&tag);
-        let sql = "-- Custom SQL migration file, put your code below! --\n";
-        fs::write(&sql_path, sql).map_err(|e| MigrationError::IoError(e.to_string()))?;
-
         // Create a minimal snapshot
         let prev_snapshot = self
             .load_previous_snapshot()
@@ -317,10 +351,14 @@ impl Writer {
         };
         snapshot.id = uuid::Uuid::new_v4().to_string();
 
-        let snapshot_path = self.snapshot_path(&tag);
-        snapshot
-            .save(&snapshot_path)
-            .map_err(|e| MigrationError::IoError(e.to_string()))?;
+        publish_migration_directory(&self.out, &tag, |folder| {
+            let sql = "-- Custom SQL migration file, put your code below! --\n";
+            fs::write(folder.join("migration.sql"), sql)
+                .map_err(|error| MigrationError::IoError(error.to_string()))?;
+            snapshot
+                .save(&folder.join("snapshot.json"))
+                .map_err(|error| MigrationError::SnapshotError(error.to_string()))
+        })?;
 
         Ok(tag)
     }
@@ -347,4 +385,69 @@ pub enum MigrationError {
 
     #[error("Dialect mismatch: cannot diff snapshots from different dialects")]
     DialectMismatch,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn publish_directory_is_complete_and_refuses_collisions() {
+        let temp = tempfile::tempdir().expect("create temp directory");
+        let destination = publish_migration_directory(temp.path(), "0001_initial", |folder| {
+            fs::write(folder.join("migration.sql"), "SELECT 1;")
+                .map_err(|error| MigrationError::IoError(error.to_string()))?;
+            fs::write(folder.join("snapshot.json"), "{}")
+                .map_err(|error| MigrationError::IoError(error.to_string()))
+        })
+        .expect("publish migration");
+
+        assert!(destination.join("migration.sql").is_file());
+        assert!(destination.join("snapshot.json").is_file());
+
+        let error = publish_migration_directory(temp.path(), "0001_initial", |_| Ok(()))
+            .expect_err("collision must fail");
+        assert!(matches!(error, MigrationError::ConfigError(_)));
+        assert_eq!(
+            fs::read_to_string(destination.join("migration.sql")).expect("read original"),
+            "SELECT 1;"
+        );
+    }
+
+    #[test]
+    fn publish_directory_cleans_staging_after_write_failure() {
+        let temp = tempfile::tempdir().expect("create temp directory");
+        let error = publish_migration_directory(temp.path(), "0002_broken", |folder| {
+            fs::write(folder.join("migration.sql"), "SELECT 1;")
+                .map_err(|error| MigrationError::IoError(error.to_string()))?;
+            Err(MigrationError::SnapshotError("injected failure".into()))
+        })
+        .expect_err("write failure must propagate");
+
+        assert!(matches!(error, MigrationError::SnapshotError(_)));
+        assert!(!temp.path().join("0002_broken").exists());
+        assert_eq!(fs::read_dir(temp.path()).expect("read output").count(), 0);
+    }
+
+    #[test]
+    fn publish_directory_rejects_unsafe_tag_before_writing() {
+        let temp = tempfile::tempdir().expect("create temp directory");
+        let mut called = false;
+        let error = publish_migration_directory(temp.path(), "../escape", |_| {
+            called = true;
+            Ok(())
+        })
+        .expect_err("unsafe tag must fail");
+
+        assert!(!called);
+        assert!(matches!(error, MigrationError::ConfigError(_)));
+        assert!(
+            !temp
+                .path()
+                .parent()
+                .expect("parent")
+                .join("escape")
+                .exists()
+        );
+    }
 }

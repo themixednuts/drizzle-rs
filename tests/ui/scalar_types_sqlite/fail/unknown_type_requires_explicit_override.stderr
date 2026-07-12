@@ -1,0 +1,251 @@
+error[E0277]: `Opaque` cannot be used as a SQLite column type
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:8:14
+  |
+8 |     payload: Opaque,
+  |              ^^^^^^ unsatisfied trait bound
+  |
+help: the trait `DrizzleSQLiteColumn` is not implemented for `Opaque`
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:3:1
+  |
+3 | struct Opaque;
+  | ^^^^^^^^^^^^^
+  = note: add #[derive(SQLiteEnum)] for enum types, or use a supported primitive type
+
+error[E0277]: the trait bound `Opaque: TryInto<SQLiteValue<'a>>` is not satisfied
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:8:14
+  |
+8 |     payload: Opaque,
+  |              ^^^^^^ unsatisfied trait bound
+  |
+help: the trait `DrizzleSQLiteColumn` is not implemented for `Opaque`
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:3:1
+  |
+3 | struct Opaque;
+  | ^^^^^^^^^^^^^
+  = note: required for `SQLiteValue<'a>` to implement `From<Opaque>`
+  = note: required for `Opaque` to implement `Into<SQLiteValue<'a>>`
+  = note: required for `SQLiteValue<'a>` to implement `TryFrom<Opaque>`
+  = note: required for `Opaque` to implement `TryInto<SQLiteValue<'a>>`
+note: required by a bound in `drizzle::core::SQLColumn::Type`
+ --> core/src/traits/column.rs
+  |
+  |     type Type: TryInto<Value>;
+  |                ^^^^^^^^^^^^^^ required by this bound in `SQLColumn::Type`
+
+error[E0277]: `Opaque` cannot be used as a SQLite column type
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:5:1
+  |
+5 | #[SQLiteTable]
+  | ^^^^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `DrizzleSQLiteColumn` is not implemented for `Opaque`
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:3:1
+  |
+3 | struct Opaque;
+  | ^^^^^^^^^^^^^
+  = note: add #[derive(SQLiteEnum)] for enum types, or use a supported primitive type
+  = note: this error originates in the attribute macro `SQLiteTable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Opaque: TryInto<SQLiteValue<'a>>` is not satisfied
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:5:1
+  |
+5 | #[SQLiteTable]
+  | ^^^^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `DrizzleSQLiteColumn` is not implemented for `Opaque`
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:3:1
+  |
+3 | struct Opaque;
+  | ^^^^^^^^^^^^^
+  = note: required for `SQLiteValue<'a>` to implement `From<Opaque>`
+  = note: required for `Opaque` to implement `Into<SQLiteValue<'a>>`
+  = note: required for `SQLiteValue<'a>` to implement `TryFrom<Opaque>`
+  = note: required for `Opaque` to implement `TryInto<SQLiteValue<'a>>`
+note: required by a bound in `drizzle::core::SQLColumn::Type`
+ --> core/src/traits/column.rs
+  |
+  |     type Type: TryInto<Value>;
+  |                ^^^^^^^^^^^^^^ required by this bound in `SQLColumn::Type`
+  = note: this error originates in the attribute macro `SQLiteTable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `Opaque` doesn't implement `Debug`
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:5:1
+  |
+5 | #[SQLiteTable]
+  | ^^^^^^^^^^^^^^ the trait `Debug` is not implemented for `Opaque`
+  |
+  = note: add `#[derive(Debug)]` to `Opaque` or manually `impl Debug for Opaque`
+help: the trait `Debug` is implemented for `SQLiteInsertValue<'_, V, T>`
+ --> sqlite/src/values/insert.rs
+  |
+  | #[derive(Debug, Clone, Default)]
+  |          ^^^^^
+help: consider annotating `Opaque` with `#[derive(Debug)]`
+  |
+3 + #[derive(Debug)]
+4 | struct Opaque;
+  |
+
+error[E0277]: the trait bound `Opaque: Clone` is not satisfied
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:5:1
+  |
+5 | #[SQLiteTable]
+  | ^^^^^^^^^^^^^^ the trait `Clone` is not implemented for `Opaque`
+  |
+  = note: required for `SQLiteInsertValue<'_, SQLiteValue<'_>, Opaque>` to implement `Clone`
+help: consider annotating `Opaque` with `#[derive(Clone)]`
+  |
+3 + #[derive(Clone)]
+4 | struct Opaque;
+  |
+
+error[E0277]: `Opaque` doesn't implement `Debug`
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:5:1
+  |
+5 | #[SQLiteTable]
+  | ^^^^^^^^^^^^^^ the trait `Debug` is not implemented for `Opaque`
+  |
+  = note: add `#[derive(Debug)]` to `Opaque` or manually `impl Debug for Opaque`
+help: the trait `Debug` is implemented for `SQLiteUpdateValue<'_, V, T>`
+ --> sqlite/src/values/update.rs
+  |
+  | #[derive(Debug, Clone, Default)]
+  |          ^^^^^
+help: consider annotating `Opaque` with `#[derive(Debug)]`
+  |
+3 + #[derive(Debug)]
+4 | struct Opaque;
+  |
+
+error[E0277]: the trait bound `Opaque: Clone` is not satisfied
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:5:1
+  |
+5 | #[SQLiteTable]
+  | ^^^^^^^^^^^^^^ the trait `Clone` is not implemented for `Opaque`
+  |
+  = note: required for `SQLiteUpdateValue<'_, SQLiteValue<'_>, Opaque>` to implement `Clone`
+help: consider annotating `Opaque` with `#[derive(Clone)]`
+  |
+3 + #[derive(Clone)]
+4 | struct Opaque;
+  |
+
+error[E0277]: the trait bound `Opaque: FromSQLiteValue` is not satisfied
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:8:14
+  |
+8 |     payload: Opaque,
+  |              ^^^^^^ unsatisfied trait bound
+  |
+help: the trait `DrizzleSQLiteColumn` is not implemented for `Opaque`
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:3:1
+  |
+3 | struct Opaque;
+  | ^^^^^^^^^^^^^
+  = help: the following other types implement trait `FromSQLiteValue`:
+            Arc<Vec<u8>>
+            Arc<std::string::String>
+            Arc<str>
+            Box<Vec<u8>>
+            Box<std::string::String>
+            Box<str>
+            Rc<Vec<u8>>
+            Rc<std::string::String>
+          and $N others
+  = note: required for `Opaque` to implement `FromSQLiteValue`
+
+error[E0277]: the trait bound `Opaque: FromSQLiteValue` is not satisfied
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:8:14
+  |
+8 |     payload: Opaque,
+  |              ^^^^^^ unsatisfied trait bound
+  |
+help: the trait `DrizzleSQLiteColumn` is not implemented for `Opaque`
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:3:1
+  |
+3 | struct Opaque;
+  | ^^^^^^^^^^^^^
+  = help: the following other types implement trait `FromSQLiteValue`:
+            Arc<Vec<u8>>
+            Arc<std::string::String>
+            Arc<str>
+            Box<Vec<u8>>
+            Box<std::string::String>
+            Box<str>
+            Rc<Vec<u8>>
+            Rc<std::string::String>
+          and $N others
+  = note: required for `Opaque` to implement `FromSQLiteValue`
+note: required by a bound in `get_column`
+ --> sqlite/src/traits/value.rs
+  |
+  |     fn get_column<T: FromSQLiteValue>(&self, idx: usize) -> Result<T, DrizzleError>;
+  |                      ^^^^^^^^^^^^^^^ required by this bound in `DrizzleRowByIndex::get_column`
+
+error[E0277]: the trait bound `Opaque: serde::Deserialize<'de>` is not satisfied
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:8:14
+  |
+5 | #[SQLiteTable]
+  | -------------- required by a bound introduced by this call
+...
+8 |     payload: Opaque,
+  |              ^^^^^^ unsatisfied trait bound
+  |
+help: the trait `Deserialize<'de>` is not implemented for `Opaque`
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:3:1
+  |
+3 | struct Opaque;
+  | ^^^^^^^^^^^^^
+  = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `Opaque` type
+  = note: for types from other crates check whether the crate offers a `serde` feature flag
+  = help: the following other types implement trait `Deserialize<'de>`:
+            &'a Path
+            &'a [u8]
+            &'a str
+            ()
+            (T,)
+            (T0, T1)
+            (T0, T1, T2)
+            (T0, T1, T2, T3)
+          and $N others
+note: required by a bound in `next_value`
+ --> $CARGO/serde_core-$VERSION/src/de/mod.rs
+  |
+  |     fn next_value<V>(&mut self) -> Result<V, Self::Error>
+  |        ---------- required by a bound in this associated function
+  |     where
+  |         V: Deserialize<'de>,
+  |            ^^^^^^^^^^^^^^^^ required by this bound in `MapAccess::next_value`
+
+error[E0277]: the trait bound `Opaque: serde::Deserialize<'de>` is not satisfied
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:5:1
+  |
+5 | #[SQLiteTable]
+  | ^^^^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `Deserialize<'_>` is not implemented for `Opaque`
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:3:1
+  |
+3 | struct Opaque;
+  | ^^^^^^^^^^^^^
+  = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `Opaque` type
+  = note: for types from other crates check whether the crate offers a `serde` feature flag
+  = help: the following other types implement trait `Deserialize<'de>`:
+            `&'a Path` implements `Deserialize<'de>`
+            `&'a [u8]` implements `Deserialize<'de>`
+            `&'a str` implements `Deserialize<'de>`
+            `()` implements `Deserialize<'de>`
+            `(T,)` implements `Deserialize<'de>`
+            `(T0, T1)` implements `Deserialize<'de>`
+            `(T0, T1, T2)` implements `Deserialize<'de>`
+            `(T0, T1, T2, T3)` implements `Deserialize<'de>`
+          and $N others
+  = note: required for `std::option::Option<Opaque>` to implement `Deserialize<'de>`
+note: required by a bound in `next_value`
+ --> $CARGO/serde_core-$VERSION/src/de/mod.rs
+  |
+  |     fn next_value<V>(&mut self) -> Result<V, Self::Error>
+  |        ---------- required by a bound in this associated function
+  |     where
+  |         V: Deserialize<'de>,
+  |            ^^^^^^^^^^^^^^^^ required by this bound in `MapAccess::next_value`
+  = note: this error originates in the attribute macro `SQLiteTable` (in Nightly builds, run with -Z macro-backtrace for more info)

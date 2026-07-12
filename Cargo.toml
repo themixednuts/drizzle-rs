@@ -9,6 +9,11 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[[test]]
+name = "compile_fail"
+path = "tests/compile_fail.rs"
+required-features = ["serde"]
+
 [workspace]
 resolver = "3"
 members = [
@@ -87,6 +92,8 @@ puffin = { version = "0.19" }
 tracing = { version = "0.1" }
 arrayvec = { version = "0.7", default-features = false, features = ["serde"] }
 postgres = { version = ">=0.19.11, <0.20" }
+postgres-native-tls = "0.5.3"
+native-tls = { version = "0.2.18", features = ["vendored"] }
 tokio-postgres = { version = ">=0.7.15, <0.8", default-features = false, features = [
   "runtime",
 ] }

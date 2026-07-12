@@ -503,31 +503,62 @@ impl<Schema> Drizzle<Schema> {
         if let Some(schema_sql) = set.create_schema_sql() {
             self.client.execute(&schema_sql, &[])?;
         }
-        ensure_postgres_migration_table(&mut self.client, &set)?;
-        let rows = self.client.query(&set.applied_names_sql(), &[])?;
-        let applied_names: Vec<String> = rows.iter().filter_map(|r| r.try_get(0).ok()).collect();
-        let pending: Vec<_> = set.pending(&applied_names).collect();
+        let lock_key = set.postgres_advisory_lock_key();
+        self.client
+            .query_one("SELECT pg_advisory_lock($1)", &[&lock_key])?;
 
-        if pending.is_empty() {
-            return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
-        }
+        let result = (|| {
+            ensure_postgres_migration_table(&mut self.client, &set)?;
+            let rows = self.client.query(&set.applied_names_sql(), &[])?;
+            let applied_names = rows
+                .iter()
+                .map(|row| row.try_get::<_, String>(0))
+                .collect::<Result<Vec<_>, postgres::Error>>()?;
+            let pending: Vec<_> = set.pending(&applied_names).collect();
 
-        let mut tx = self.client.transaction()?;
-        let mut applied = Vec::with_capacity(pending.len());
-
-        for migration in &pending {
-            for stmt in migration.statements() {
-                if !stmt.trim().is_empty() {
-                    tx.execute(stmt, &[])?;
-                }
+            if pending.is_empty() {
+                return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
             }
-            tx.execute(&set.record_migration_sql(migration), &[])?;
-            applied.push(migration.tag().to_string());
+
+            let mut applied = Vec::with_capacity(pending.len());
+            if set.has_postgres_concurrent_index() {
+                for migration in &pending {
+                    for statement in migration.statements() {
+                        if !statement.trim().is_empty() {
+                            self.client.execute(statement, &[])?;
+                        }
+                    }
+                    self.client
+                        .execute(&set.record_migration_sql(migration), &[])?;
+                    applied.push(migration.tag().to_string());
+                }
+            } else {
+                let mut tx = self.client.transaction()?;
+                for migration in &pending {
+                    for statement in migration.statements() {
+                        if !statement.trim().is_empty() {
+                            tx.execute(statement, &[])?;
+                        }
+                    }
+                    tx.execute(&set.record_migration_sql(migration), &[])?;
+                    applied.push(migration.tag().to_string());
+                }
+                tx.commit()?;
+            }
+
+            Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
+        })();
+
+        let unlock_result = self
+            .client
+            .query_one("SELECT pg_advisory_unlock($1)", &[&lock_key])
+            .map(|_| ());
+
+        match (result, unlock_result) {
+            (Ok(outcome), Ok(())) => Ok(outcome),
+            (Err(error), _) => Err(error),
+            (Ok(_), Err(error)) => Err(error.into()),
         }
-
-        tx.commit()?;
-
-        Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
     }
 }
 
@@ -542,11 +573,11 @@ fn ensure_postgres_migration_table(
         "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
         &[&schema, &set.table_name()],
     )?;
-    if rows
+    let column_names = rows
         .iter()
-        .filter_map(|row| row.try_get::<_, String>(0).ok())
-        .any(|column| column == "name")
-    {
+        .map(|row| row.try_get::<_, String>(0))
+        .collect::<Result<Vec<_>, postgres::Error>>()?;
+    if column_names.iter().any(|column| column == "name") {
         return Ok(());
     }
 
@@ -929,12 +960,8 @@ impl<Schema> Drizzle<Schema> {
         &mut self,
         schema_filter: Option<&[String]>,
     ) -> drizzle_core::error::Result<drizzle_migrations::schema::Snapshot> {
-        use drizzle_migrations::postgres::introspect::{
-            process_check_constraints, process_columns, process_enums, process_foreign_keys,
-            process_indexes, process_policies, process_primary_keys, process_roles,
-            process_sequences, process_tables, process_unique_constraints, process_views,
-        };
-        use drizzle_migrations::postgres::{PostgresDDL, ddl::Schema as PgSchema};
+        use drizzle_migrations::postgres::ddl::Schema as PgSchema;
+        use drizzle_migrations::postgres::introspect::{RawIntrospection, assemble_ddl};
 
         let schemas: Vec<PgSchema> = pg_sync_query_schemas(&mut self.client)?;
         let accessible_schema_names = schemas
@@ -955,47 +982,21 @@ impl<Schema> Drizzle<Schema> {
         let raw_roles = pg_sync_query_roles(&mut self.client)?;
         let raw_policies = pg_sync_query_policies(&mut self.client)?;
 
-        // Process raw → DDL entities
-        let mut ddl = PostgresDDL::new();
-        for s in schemas {
-            ddl.schemas.push(s);
-        }
-        for e in process_enums(&raw_enums) {
-            ddl.enums.push(e);
-        }
-        for s in process_sequences(&raw_sequences) {
-            ddl.sequences.push(s);
-        }
-        for r in process_roles(&raw_roles) {
-            ddl.roles.push(r);
-        }
-        for p in process_policies(&raw_policies) {
-            ddl.policies.push(p);
-        }
-        for t in process_tables(&raw_tables) {
-            ddl.tables.push(t);
-        }
-        for c in process_columns(&raw_columns) {
-            ddl.columns.push(c);
-        }
-        for i in process_indexes(&raw_indexes) {
-            ddl.indexes.push(i);
-        }
-        for fk in process_foreign_keys(&raw_fks) {
-            ddl.fks.push(fk);
-        }
-        for pk in process_primary_keys(&raw_primary_keys) {
-            ddl.pks.push(pk);
-        }
-        for u in process_unique_constraints(&raw_uniques) {
-            ddl.uniques.push(u);
-        }
-        for c in process_check_constraints(&raw_checks) {
-            ddl.checks.push(c);
-        }
-        for v in process_views(&raw_views) {
-            ddl.views.push(v);
-        }
+        let ddl = assemble_ddl(RawIntrospection {
+            schemas,
+            tables: raw_tables,
+            columns: raw_columns,
+            enums: raw_enums,
+            sequences: raw_sequences,
+            views: raw_views,
+            indexes: raw_indexes,
+            foreign_keys: raw_fks,
+            primary_keys: raw_primary_keys,
+            unique_constraints: raw_uniques,
+            check_constraints: raw_checks,
+            roles: raw_roles,
+            policies: raw_policies,
+        });
 
         // Build snapshot
         let mut snap = drizzle_migrations::postgres::PostgresSnapshot::new();

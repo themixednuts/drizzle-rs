@@ -20,6 +20,63 @@ struct PushSchema {
 
 #[cfg(feature = "rusqlite")]
 #[test]
+fn rusqlite_runtime_migrate_serializes_concurrent_runners() {
+    use std::sync::{Arc, Barrier};
+
+    let path = crate::common::helpers::temp_db_path();
+    let barrier = Arc::new(Barrier::new(2));
+    let migration = Migration::new(
+        "20260712000000_concurrent",
+        "CREATE TABLE IF NOT EXISTS migration_effects(value INTEGER NOT NULL);
+         INSERT INTO migration_effects(value) VALUES (1);",
+    );
+
+    let handles = (0..2)
+        .map(|_| {
+            let path = path.clone();
+            let barrier = Arc::clone(&barrier);
+            let migration = migration.clone();
+            std::thread::spawn(move || {
+                let connection = rusqlite::Connection::open(path).expect("open concurrent DB");
+                let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::new(connection, ());
+                barrier.wait();
+                database.migrate(&[migration], Tracking::SQLITE)
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let outcomes = handles
+        .into_iter()
+        .map(|handle| handle.join().expect("migration thread").expect("migrate"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|outcome| matches!(outcome, drizzle_migrations::MigrateOutcome::Applied { .. }))
+            .count(),
+        1
+    );
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|outcome| outcome.is_up_to_date())
+            .count(),
+        1
+    );
+
+    let connection = rusqlite::Connection::open(&path).expect("reopen concurrent DB");
+    let effect_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM migration_effects", [], |row| {
+            row.get(0)
+        })
+        .expect("count migration effects");
+    assert_eq!(effect_count, 1, "migration body must execute exactly once");
+    drop(connection);
+    let _ = std::fs::remove_file(path);
+}
+
+#[cfg(feature = "rusqlite")]
+#[test]
 fn rusqlite_runtime_migrate_runs_both_when_created_at_collides() {
     let db = crate::common::helpers::rusqlite_setup::setup_empty();
 
