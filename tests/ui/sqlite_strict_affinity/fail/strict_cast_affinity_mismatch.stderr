@@ -1,21 +1,56 @@
-error[E0277]: cannot cast `drizzle::sqlite::types::Text` to `drizzle::sqlite::types::Integer` for this dialect
+error[E0277]: SQL type `drizzle::sqlite::types::Text` is not compatible with `drizzle::sqlite::types::Integer`
   --> tests/ui/sqlite_strict_affinity/fail/strict_cast_affinity_mismatch.rs:13:20
    |
 13 |     let _ = cast::<_, _, drizzle::sqlite::types::Integer>(user.name, drizzle::sqlite::types::Integer);
-   |                    ^ cast target is incompatible with source type
+   |                    ^ these SQL types cannot be compared or coerced
    |
-   = help: the trait `CastTypePolicy<SQLiteDialect, drizzle::sqlite::types::Text, drizzle::sqlite::types::Integer>` is not implemented for `()`
-   = note: for SQLite strict typing, use a compatible cast target or cast through ANY/raw sql intentionally
-help: `()` implements trait `CastTypePolicy<D, Source, Target>`
-  --> core/src/expr/util.rs
+   = help: the trait `Compatible<drizzle::sqlite::types::Integer>` is not implemented for `drizzle::sqlite::types::Text`
+   = note: compatible types include: integers with integers/floats, text with text/varchar, and any type with itself
+help: `drizzle::sqlite::types::Text` implements trait `Compatible<Rhs>`
+  --> types/src/sql/coerce.rs
    |
-   | / impl<Source: DataType + Compatible<Target>, Target: DataType>
-   | |     CastTypePolicy<PostgresDialect, Source, Target> for ()
-   | |__________________________________________________________^ `CastTypePolicy<PostgresDialect, Source, Target>`
+   |           $(impl Compatible<$ty> for $ty {})+
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Compatible`
 ...
-   | / impl<Source: DataType + Compatible<Target>, Target: DataType>
-   | |     CastTypePolicy<SQLiteDialect, Source, Target> for ()
-   | |________________________________________________________^ `CastTypePolicy<SQLiteDialect, Source, Target>`
+   |               impl Compatible<$rest> for $first {}
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Compatible<drizzle::sqlite::types::Blob>`
+...
+   |               impl Compatible<$any> for $ty {}
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Compatible<drizzle::sqlite::types::Any>`
+...
+   |               impl Compatible<crate::Placeholder> for $ty {}
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Compatible<drizzle::core::types::Placeholder>`
+...
+   | / impl_reflexive_compat!(
+   | |     crate::sqlite::types::Integer,
+   | |     crate::sqlite::types::Text,
+   | |     crate::sqlite::types::Real,
+...  |
+   | |     crate::postgres::types::Enum,
+   | | );
+   | |_- in this macro invocation
+...
+   |   mutual_compat!(crate::sqlite::types::Text, crate::sqlite::types::Blob);
+   |   ---------------------------------------------------------------------- in this macro invocation
+...
+   | / any_compat!(crate::sqlite::types::Any;
+   | |     crate::sqlite::types::Integer,
+   | |     crate::sqlite::types::Text,
+   | |     crate::sqlite::types::Real,
+   | |     crate::sqlite::types::Blob,
+   | |     crate::sqlite::types::Numeric
+   | | );
+   | |_- in this macro invocation
+   |
+   | / impl_placeholder_compat!(
+   | |     crate::sqlite::types::Integer,
+   | |     crate::sqlite::types::Text,
+   | |     crate::sqlite::types::Real,
+...  |
+   | |     crate::sqlite::types::Any
+   | | );
+   | |_- in this macro invocation
+   = note: required for `()` to implement `CastTypePolicy<SQLiteDialect, drizzle::sqlite::types::Text, drizzle::sqlite::types::Integer>`
 note: required by a bound in `drizzle::core::expr::cast`
   --> core/src/expr/util.rs
    |
@@ -24,3 +59,4 @@ note: required by a bound in `drizzle::core::expr::cast`
 ...
    |     (): CastTypePolicy<V::DialectMarker, E::SQLType, Target>,
    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `cast`
+   = note: this error originates in the macro `impl_reflexive_compat` which comes from the expansion of the macro `impl_placeholder_compat` (in Nightly builds, run with -Z macro-backtrace for more info)

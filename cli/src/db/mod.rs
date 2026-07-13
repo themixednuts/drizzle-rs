@@ -791,7 +791,7 @@ fn ensure_postgres_tracking_table_sync(
     let rows = client
         .query(
             &format!(
-                "SELECT id, hash, created_at FROM {} ORDER BY id ASC",
+                "SELECT id::bigint, hash, created_at FROM {} ORDER BY id ASC",
                 set.table_ident_sql()
             ),
             &[],
@@ -887,7 +887,7 @@ async fn ensure_postgres_tracking_table_async(
     let rows = client
         .query(
             &format!(
-                "SELECT id, hash, created_at FROM {} ORDER BY id ASC",
+                "SELECT id::bigint, hash, created_at FROM {} ORDER BY id ASC",
                 set.table_ident_sql()
             ),
             &[],

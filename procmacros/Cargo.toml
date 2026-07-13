@@ -94,5 +94,8 @@ aws-data-api = [
     "drizzle-postgres/aws-data-api",
 ]
 # Relational query API code generation
-query = []
-
+query = [
+    "drizzle-core?/query",
+    "drizzle-sqlite?/query",
+    "drizzle-postgres?/query",
+]
