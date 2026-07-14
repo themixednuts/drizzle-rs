@@ -199,6 +199,67 @@ pub struct RichTable {
     pub tablespace: Option<String>,
 }
 
+#[derive(Default)]
+struct CreatedTableEntities<'a> {
+    columns: Vec<&'a Column>,
+    indexes: Vec<&'a Index>,
+    foreign_keys: Vec<&'a ForeignKey>,
+    primary_keys: Vec<&'a PrimaryKey>,
+    unique_constraints: Vec<&'a UniqueConstraint>,
+    check_constraints: Vec<&'a CheckConstraint>,
+    policies: Vec<&'a Policy>,
+}
+
+struct DiffIndex<'a> {
+    table_diffs: HashMap<&'a str, &'a EntityDiff>,
+    created_by_table: HashMap<String, CreatedTableEntities<'a>>,
+}
+
+impl<'a> DiffIndex<'a> {
+    fn new(diffs: &'a [EntityDiff]) -> Self {
+        let mut table_diffs = HashMap::new();
+        let mut created_by_table = HashMap::<String, CreatedTableEntities<'a>>::new();
+
+        for diff in diffs {
+            if diff.kind == EntityKind::Table {
+                table_diffs.insert(diff.name.as_str(), diff);
+            }
+            if diff.diff_type != DiffType::Create {
+                continue;
+            }
+
+            let Some(entity) = diff.right.as_ref() else {
+                continue;
+            };
+            let Some(table_key) = PostgresGenerator::get_parent_table_key(diff) else {
+                continue;
+            };
+            let entries = created_by_table.entry(table_key).or_default();
+            match entity {
+                PostgresEntity::Column(value) => entries.columns.push(value),
+                PostgresEntity::Index(value) => entries.indexes.push(value),
+                PostgresEntity::ForeignKey(value) => entries.foreign_keys.push(value),
+                PostgresEntity::PrimaryKey(value) => entries.primary_keys.push(value),
+                PostgresEntity::UniqueConstraint(value) => {
+                    entries.unique_constraints.push(value);
+                }
+                PostgresEntity::CheckConstraint(value) => entries.check_constraints.push(value),
+                PostgresEntity::Policy(value) => entries.policies.push(value),
+                _ => {}
+            }
+        }
+
+        Self {
+            table_diffs,
+            created_by_table,
+        }
+    }
+
+    fn table_diff(&self, table_key: &str) -> Option<&'a EntityDiff> {
+        self.table_diffs.get(table_key).copied()
+    }
+}
+
 fn rich_table_to_table(table: &RichTable) -> Table {
     Table {
         schema: table.schema.clone().into(),
@@ -248,6 +309,7 @@ impl PostgresGenerator {
     #[must_use]
     pub fn generate(&self, diff: &[EntityDiff]) -> Vec<String> {
         let mut sqls = Vec::new();
+        let diff_index = DiffIndex::new(diff);
 
         // 1. Identify created tables to group their components
         let created_tables: Vec<String> = diff
@@ -265,21 +327,21 @@ impl PostgresGenerator {
 
         // 3. Process Schema creations first
         for d in diff.iter().filter(|d| d.kind == EntityKind::Schema) {
-            if let Some(stmt) = Self::diff_to_statement_with_context(d, diff) {
+            if let Some(stmt) = Self::diff_to_statement_with_context(d, &diff_index) {
                 sqls.push(Self::statement_to_sql(stmt));
             }
         }
 
         // 4. Process Enum creations
         for d in diff.iter().filter(|d| d.kind == EntityKind::Enum) {
-            if let Some(stmt) = Self::diff_to_statement_with_context(d, diff) {
+            if let Some(stmt) = Self::diff_to_statement_with_context(d, &diff_index) {
                 sqls.push(Self::statement_to_sql(stmt));
             }
         }
 
         // 5. Process Sequence creations
         for d in diff.iter().filter(|d| d.kind == EntityKind::Sequence) {
-            if let Some(stmt) = Self::diff_to_statement_with_context(d, diff) {
+            if let Some(stmt) = Self::diff_to_statement_with_context(d, &diff_index) {
                 sqls.push(Self::statement_to_sql(stmt));
             }
         }
@@ -287,10 +349,8 @@ impl PostgresGenerator {
         // 6. Process Table drops first (in reverse dependency order - tables with FKs first)
         let sorted_drops = topological_sort_tables_for_drop(&dropped_tables, diff);
         for table_key in &sorted_drops {
-            if let Some(table_diff) = diff
-                .iter()
-                .find(|d| &d.name == table_key && d.kind == EntityKind::Table)
-                && let Some(stmt) = Self::diff_to_statement_with_context(table_diff, diff)
+            if let Some(table_diff) = diff_index.table_diff(table_key)
+                && let Some(stmt) = Self::diff_to_statement_with_context(table_diff, &diff_index)
             {
                 sqls.push(Self::statement_to_sql(stmt));
             }
@@ -300,12 +360,11 @@ impl PostgresGenerator {
         let sorted_creates = topological_sort_tables_for_create(&created_tables, diff);
         if sorted_creates.cycle_tables.is_empty() {
             for table_key in &sorted_creates.ordered {
-                let table_diff = diff
-                    .iter()
-                    .find(|d| &d.name == table_key && d.kind == EntityKind::Table)
-                    .unwrap();
+                let table_diff = diff_index
+                    .table_diff(table_key)
+                    .expect("created table must have an indexed table diff");
                 if let Some(PostgresEntity::Table(table)) = &table_diff.right {
-                    let rich_table = Self::build_rich_table(table, diff);
+                    let rich_table = Self::build_rich_table(table, &diff_index);
                     sqls.push(Self::create_table_sql(&rich_table));
                     Self::push_created_table_extras(&mut sqls, &rich_table);
                 }
@@ -315,12 +374,11 @@ impl PostgresGenerator {
             let mut rich_tables = Vec::new();
 
             for table_key in &sorted_creates.ordered {
-                let table_diff = diff
-                    .iter()
-                    .find(|d| &d.name == table_key && d.kind == EntityKind::Table)
-                    .unwrap();
+                let table_diff = diff_index
+                    .table_diff(table_key)
+                    .expect("created table must have an indexed table diff");
                 if let Some(PostgresEntity::Table(table)) = &table_diff.right {
-                    let mut rich_table = Self::build_rich_table(table, diff);
+                    let mut rich_table = Self::build_rich_table(table, &diff_index);
                     let (inline_fks, cycle_fks): (Vec<_>, Vec<_>) = rich_table
                         .foreign_keys
                         .into_iter()
@@ -375,7 +433,7 @@ impl PostgresGenerator {
             }
 
             // Process individual statements with full diff context for PK lookups
-            if let Some(stmt) = Self::diff_to_statement_with_context(d, diff) {
+            if let Some(stmt) = Self::diff_to_statement_with_context(d, &diff_index) {
                 sqls.push(Self::statement_to_sql(stmt));
             }
         }
@@ -447,69 +505,66 @@ impl PostgresGenerator {
         }
     }
 
-    fn build_rich_table(table: &Table, diff: &[EntityDiff]) -> RichTable {
+    fn build_rich_table(table: &Table, diff_index: &DiffIndex<'_>) -> RichTable {
         let table_key = format!("{}.{}", table.schema, table.name);
-
-        let columns = Self::extract_created_entities(diff, EntityKind::Column, &table_key, |e| {
-            if let PostgresEntity::Column(c) = e {
-                Some(c.clone())
-            } else {
-                None
-            }
-        });
-
-        let indexes = Self::extract_created_entities(diff, EntityKind::Index, &table_key, |e| {
-            if let PostgresEntity::Index(i) = e {
-                Some(i.clone())
-            } else {
-                None
-            }
-        });
-
-        let foreign_keys =
-            Self::extract_created_entities(diff, EntityKind::ForeignKey, &table_key, |e| {
-                if let PostgresEntity::ForeignKey(f) = e {
-                    Some(f.clone())
-                } else {
-                    None
-                }
-            });
-
-        let uniques =
-            Self::extract_created_entities(diff, EntityKind::UniqueConstraint, &table_key, |e| {
-                if let PostgresEntity::UniqueConstraint(u) = e {
-                    Some(u.clone())
-                } else {
-                    None
-                }
-            });
-
-        let checks =
-            Self::extract_created_entities(diff, EntityKind::CheckConstraint, &table_key, |e| {
-                if let PostgresEntity::CheckConstraint(c) = e {
-                    Some(c.clone())
-                } else {
-                    None
-                }
-            });
-
-        let policies = Self::extract_created_entities(diff, EntityKind::Policy, &table_key, |e| {
-            if let PostgresEntity::Policy(p) = e {
-                Some(p.clone())
-            } else {
-                None
-            }
-        });
-
-        let pk_list =
-            Self::extract_created_entities(diff, EntityKind::PrimaryKey, &table_key, |e| {
-                if let PostgresEntity::PrimaryKey(p) = e {
-                    Some(p.clone())
-                } else {
-                    None
-                }
-            });
-        let pk = pk_list.into_iter().next();
+        let entities = diff_index.created_by_table.get(&table_key);
+        let columns = entities
+            .map(|entries| {
+                entries
+                    .columns
+                    .iter()
+                    .map(|value| (*value).clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let indexes = entities
+            .map(|entries| {
+                entries
+                    .indexes
+                    .iter()
+                    .map(|value| (*value).clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let foreign_keys = entities
+            .map(|entries| {
+                entries
+                    .foreign_keys
+                    .iter()
+                    .map(|value| (*value).clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let uniques = entities
+            .map(|entries| {
+                entries
+                    .unique_constraints
+                    .iter()
+                    .map(|value| (*value).clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let checks = entities
+            .map(|entries| {
+                entries
+                    .check_constraints
+                    .iter()
+                    .map(|value| (*value).clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let policies = entities
+            .map(|entries| {
+                entries
+                    .policies
+                    .iter()
+                    .map(|value| (*value).clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let pk = entities
+            .and_then(|entries| entries.primary_keys.first())
+            .map(|value| (*value).clone());
 
         RichTable {
             name: table.name.to_string(),
@@ -530,36 +585,14 @@ impl PostgresGenerator {
         }
     }
 
-    fn extract_created_entities<T, F>(
-        diff: &[EntityDiff],
-        kind: EntityKind,
-        table_key: &str,
-        extractor: F,
-    ) -> Vec<T>
-    where
-        F: Fn(&PostgresEntity) -> Option<T>,
-    {
-        diff.iter()
-            .filter(|d| d.diff_type == DiffType::Create && d.kind == kind)
-            .filter_map(|d| {
-                if let Some(parent) = Self::get_parent_table_key(d)
-                    && parent == table_key
-                {
-                    return d.right.as_ref().and_then(&extractor);
-                }
-                None
-            })
-            .collect()
-    }
-
     /// Convert a single diff entry to a JSON statement, with access to the full diff
     /// for cross-entity lookups (e.g., determining if a column is part of a PK).
     fn diff_to_statement_with_context(
         d: &EntityDiff,
-        all_diffs: &[EntityDiff],
+        diff_index: &DiffIndex<'_>,
     ) -> Option<JsonStatement> {
         match d.diff_type {
-            DiffType::Create => Self::create_diff_to_statement(d.right.as_ref()?, all_diffs),
+            DiffType::Create => Self::create_diff_to_statement(d.right.as_ref()?, diff_index),
             DiffType::Drop => Self::drop_diff_to_statement(d.left.as_ref()?),
             DiffType::Alter => Self::alter_diff_to_statement(d.left.as_ref(), d.right.as_ref()),
         }
@@ -567,7 +600,7 @@ impl PostgresGenerator {
 
     fn create_diff_to_statement(
         right: &PostgresEntity,
-        all_diffs: &[EntityDiff],
+        diff_index: &DiffIndex<'_>,
     ) -> Option<JsonStatement> {
         match right {
             PostgresEntity::Schema(s) => Some(JsonStatement::CreateSchema {
@@ -580,7 +613,7 @@ impl PostgresGenerator {
             PostgresEntity::Role(r) => Some(JsonStatement::CreateRole { role: r.clone() }),
             PostgresEntity::View(v) => Some(JsonStatement::CreateView { view: v.clone() }),
             PostgresEntity::Column(c) => {
-                let (is_pk, is_composite_pk) = Self::check_column_pk_status(c, all_diffs);
+                let (is_pk, is_composite_pk) = Self::check_column_pk_status(c, diff_index);
                 Some(JsonStatement::AddColumn {
                     column: Box::new(c.clone()),
                     is_pk,
@@ -731,19 +764,13 @@ impl PostgresGenerator {
     /// Returns (`is_pk`, `is_composite_pk)`:
     /// - `is_pk`: true if this is a single-column PK with default naming
     /// - `is_composite_pk`: true if this column is part of a multi-column PK
-    fn check_column_pk_status(col: &Column, all_diffs: &[EntityDiff]) -> (bool, bool) {
-        // Look for created PKs for the same table
+    fn check_column_pk_status(col: &Column, diff_index: &DiffIndex<'_>) -> (bool, bool) {
         let table_key = format!("{}.{}", col.schema, col.table);
 
-        for d in all_diffs {
-            if d.diff_type == DiffType::Create
-                && d.kind == EntityKind::PrimaryKey
-                && let Some(PostgresEntity::PrimaryKey(pk)) = &d.right
-            {
-                let pk_table_key = format!("{}.{}", pk.schema, pk.table);
-                if pk_table_key == table_key && pk.columns.contains(&col.name) {
+        if let Some(entries) = diff_index.created_by_table.get(&table_key) {
+            for pk in &entries.primary_keys {
+                if pk.columns.contains(&col.name) {
                     let is_composite = pk.columns.len() > 1;
-                    // is_pk is true only for single-column PKs with default naming
                     let default_pk_name = format!("{}_pkey", col.table);
                     let is_single_pk = pk.columns.len() == 1 && pk.name == default_pk_name;
                     return (is_single_pk, is_composite);

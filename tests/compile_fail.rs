@@ -1,6 +1,3 @@
-use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::PathBuf;
-
 #[allow(dead_code)]
 fn must_pass(glob: &str) {
     let t = trybuild::TestCases::new();
@@ -8,37 +5,9 @@ fn must_pass(glob: &str) {
 }
 
 #[allow(dead_code)]
-fn collect_files(glob_pattern: &str) -> Vec<PathBuf> {
-    let mut files = glob::glob(glob_pattern)
-        .unwrap_or_else(|err| panic!("invalid glob pattern `{glob_pattern}`: {err}"))
-        .map(|entry| {
-            entry.unwrap_or_else(|err| {
-                panic!("failed to read glob entry for `{glob_pattern}`: {err}")
-            })
-        })
-        .collect::<Vec<_>>();
-    files.sort();
-    assert!(
-        !files.is_empty(),
-        "no files matched compile-fail pattern `{glob_pattern}`"
-    );
-    files
-}
-
-#[allow(dead_code)]
-fn must_fail(glob_pattern: &str) {
-    for file in collect_files(glob_pattern) {
-        let file = file.to_string_lossy().replace('\\', "/");
-        let outcome = catch_unwind(AssertUnwindSafe(|| {
-            let t = trybuild::TestCases::new();
-            t.pass(&file);
-        }));
-
-        assert!(
-            outcome.is_err(),
-            "expected `{file}` to fail compilation, but it compiled successfully"
-        );
-    }
+fn must_fail(glob: &str) {
+    let t = trybuild::TestCases::new();
+    t.compile_fail(glob);
 }
 
 #[cfg(all(feature = "rusqlite", feature = "uuid"))]

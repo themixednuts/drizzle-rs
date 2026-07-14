@@ -1,0 +1,21 @@
+error[E0277]: the trait bound `drizzle::postgres::types::Enum: IsAnyMarker` is not satisfied
+  --> tests/ui/no_widening_postgres/fail/enum_column_is_not_any.rs:36:24
+   |
+36 |     require_any_marker(users.role);
+   |     ------------------ ^^^^^^^^^^ the trait `IsAnyMarker` is not implemented for `drizzle::postgres::types::Enum`
+   |     |
+   |     required by a bound introduced by this call
+   |
+help: the trait `IsAnyMarker` is implemented for `drizzle::postgres::types::Any`
+  --> tests/ui/no_widening_postgres/fail/enum_column_is_not_any.rs:25:1
+   |
+25 | impl IsAnyMarker for drizzle::postgres::types::Any {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `require_any_marker`
+  --> tests/ui/no_widening_postgres/fail/enum_column_is_not_any.rs:30:17
+   |
+27 | fn require_any_marker<'a, E>(_expr: E)
+   |    ------------------ required by a bound in this function
+...
+30 |     E::SQLType: IsAnyMarker,
+   |                 ^^^^^^^^^^^ required by this bound in `require_any_marker`

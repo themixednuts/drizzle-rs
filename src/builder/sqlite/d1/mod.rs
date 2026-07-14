@@ -335,13 +335,20 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
             applied_tags.push(migration.tag().to_string());
         }
 
-        let results = self
-            .conn
-            .batch(batch)
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let results = match self.conn.batch(batch).await {
+            Ok(results) => results,
+            Err(error) => {
+                if d1_migrations_are_applied(&self.conn, &set, &pending).await? {
+                    return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
+                }
+                return Err(DrizzleError::Other(error.to_string().into()));
+            }
+        };
         for r in &results {
             if !r.success() {
+                if d1_migrations_are_applied(&self.conn, &set, &pending).await? {
+                    return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
+                }
                 return Err(DrizzleError::Other(
                     r.error()
                         .unwrap_or_else(|| "D1 migration batch failed".into())
@@ -356,6 +363,27 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
 #[derive(serde::Deserialize)]
 struct AppliedName {
     name: String,
+}
+
+async fn d1_migrations_are_applied(
+    conn: &D1Database,
+    set: &drizzle_migrations::Migrations,
+    migrations: &[&drizzle_migrations::Migration],
+) -> drizzle_core::error::Result<bool> {
+    let applied = conn
+        .prepare(set.applied_names_sql())
+        .all()
+        .await
+        .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+    let names = applied
+        .results::<AppliedName>()
+        .map_err(|error| DrizzleError::Other(error.to_string().into()))?
+        .into_iter()
+        .map(|record| record.name)
+        .collect::<std::collections::HashSet<_>>();
+    Ok(migrations
+        .iter()
+        .all(|migration| names.contains(migration.name())))
 }
 
 async fn ensure_d1_migration_table(
@@ -386,6 +414,7 @@ async fn ensure_d1_migration_table(
         .results()
         .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
     if col_rows.iter().any(|c| c.name == "name") {
+        ensure_d1_migration_name_index(conn, set).await?;
         return Ok(());
     }
 
@@ -457,6 +486,29 @@ async fn ensure_d1_migration_table(
             return Err(DrizzleError::Other(
                 r.error()
                     .unwrap_or_else(|| "D1 migration upgrade batch failed".into())
+                    .into(),
+            ));
+        }
+    }
+    ensure_d1_migration_name_index(conn, set).await?;
+    Ok(())
+}
+
+async fn ensure_d1_migration_name_index(
+    conn: &D1Database,
+    set: &drizzle_migrations::Migrations,
+) -> drizzle_core::error::Result<()> {
+    if let Some(sql) = set.create_name_unique_index_sql() {
+        let result = conn
+            .prepare(sql)
+            .run()
+            .await
+            .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+        if !result.success() {
+            return Err(DrizzleError::Other(
+                result
+                    .error()
+                    .unwrap_or_else(|| "D1 migration-name index creation failed".into())
                     .into(),
             ));
         }

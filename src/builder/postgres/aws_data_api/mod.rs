@@ -372,37 +372,49 @@ impl<Schema> Drizzle<Schema> {
         self.run_statement(&set.create_table_sql(), Vec::new(), None::<&str>)
             .await?;
 
-        let applied_rows = self
-            .run_statement(&set.applied_names_sql(), Vec::new(), None::<&str>)
-            .await?;
-        let applied_names: Vec<String> = decode_rows(applied_rows)
-            .into_iter()
-            .filter_map(|row| row.try_get::<String>(0).ok())
-            .collect();
-        let pending: Vec<_> = set.pending(&applied_names).collect();
-
-        if pending.is_empty() {
-            return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
-        }
-
-        // Run all pending migrations in a single transaction.
-        let applied = self
+        let outcome = self
             .transaction(PostgresTransactionType::default(), async |tx| {
+                tx.execute(
+                    format!(
+                        "SELECT pg_advisory_xact_lock({})",
+                        set.postgres_advisory_lock_key()
+                    )
+                    .as_str(),
+                )
+                .await?;
+                let applied_rows = tx
+                    .run_statement(&set.applied_names_sql(), Vec::new())
+                    .await?;
+                let applied_names = decode_rows(applied_rows)
+                    .into_iter()
+                    .map(|row| row.try_get::<String>(0))
+                    .collect::<drizzle_core::error::Result<Vec<_>>>()?;
+                let pending: Vec<_> = set.pending(&applied_names).collect();
+                if pending.is_empty() {
+                    return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
+                }
+
                 let mut applied = Vec::with_capacity(pending.len());
                 for migration in &pending {
-                    for stmt in migration.statements() {
-                        if !stmt.trim().is_empty() {
-                            tx.execute(stmt).await?;
+                    for statement in migration.statements() {
+                        if statement.trim().is_empty() {
+                            continue;
+                        }
+                        if drizzle_migrations::is_postgres_concurrent_index_statement(statement) {
+                            self.run_statement(statement, Vec::new(), None::<&str>)
+                                .await?;
+                        } else {
+                            tx.execute(statement).await?;
                         }
                     }
                     tx.execute(set.record_migration_sql(migration).as_str())
                         .await?;
                     applied.push(migration.tag().to_string());
                 }
-                Ok(applied)
+                Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
             })
             .await?;
-        Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
+        Ok(outcome)
     }
 }
 

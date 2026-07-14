@@ -1,0 +1,6 @@
+error: Cannot specify both 'default' (literal default) and 'default_sql' (raw SQL default).
+       Choose one: either 'default = literal' or 'default_sql = "CURRENT_TIMESTAMP"'
+ --> tests/ui/sqlite_macro_errors/fail/default_and_default_sql.rs:6:5
+  |
+6 |     value: i32,
+  |     ^^^^^

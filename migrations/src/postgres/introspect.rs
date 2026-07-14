@@ -201,6 +201,70 @@ pub struct RawRoleInfo {
     pub inherit: bool,
 }
 
+/// Transport-decoded PostgreSQL catalog rows used by every driver.
+#[derive(Debug, Clone, Default)]
+pub struct RawIntrospection {
+    pub schemas: Vec<Schema>,
+    pub tables: Vec<RawTableInfo>,
+    pub columns: Vec<RawColumnInfo>,
+    pub enums: Vec<RawEnumInfo>,
+    pub sequences: Vec<RawSequenceInfo>,
+    pub views: Vec<RawViewInfo>,
+    pub indexes: Vec<RawIndexInfo>,
+    pub foreign_keys: Vec<RawForeignKeyInfo>,
+    pub primary_keys: Vec<RawPrimaryKeyInfo>,
+    pub unique_constraints: Vec<RawUniqueInfo>,
+    pub check_constraints: Vec<RawCheckInfo>,
+    pub roles: Vec<RawRoleInfo>,
+    pub policies: Vec<RawPolicyInfo>,
+}
+
+/// Assemble transport-decoded PostgreSQL metadata into the canonical DDL.
+#[must_use]
+pub fn assemble_ddl(raw: RawIntrospection) -> super::PostgresDDL {
+    let mut ddl = super::PostgresDDL::new();
+    for schema in raw.schemas {
+        ddl.schemas.push(schema);
+    }
+    for value in process_enums(&raw.enums) {
+        ddl.enums.push(value);
+    }
+    for sequence in process_sequences(&raw.sequences) {
+        ddl.sequences.push(sequence);
+    }
+    for role in process_roles(&raw.roles) {
+        ddl.roles.push(role);
+    }
+    for policy in process_policies(&raw.policies) {
+        ddl.policies.push(policy);
+    }
+    for table in process_tables(&raw.tables) {
+        ddl.tables.push(table);
+    }
+    for column in process_columns(&raw.columns) {
+        ddl.columns.push(column);
+    }
+    for index in process_indexes(&raw.indexes) {
+        ddl.indexes.push(index);
+    }
+    for foreign_key in process_foreign_keys(&raw.foreign_keys) {
+        ddl.fks.push(foreign_key);
+    }
+    for primary_key in process_primary_keys(&raw.primary_keys) {
+        ddl.pks.push(primary_key);
+    }
+    for unique in process_unique_constraints(&raw.unique_constraints) {
+        ddl.uniques.push(unique);
+    }
+    for check in process_check_constraints(&raw.check_constraints) {
+        ddl.checks.push(check);
+    }
+    for view in process_views(&raw.views) {
+        ddl.views.push(view);
+    }
+    ddl
+}
+
 // =============================================================================
 // Introspection Result
 // =============================================================================

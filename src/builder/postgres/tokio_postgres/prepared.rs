@@ -1,8 +1,4 @@
-use std::{
-    borrow::Cow,
-    marker::PhantomData,
-    sync::{Arc, Mutex},
-};
+use std::{borrow::Cow, marker::PhantomData};
 
 use drizzle_core::{
     param::{OwnedParam, Param},
@@ -20,8 +16,6 @@ use tokio_postgres::{
 
 use crate::builder::postgres::prepared_common::postgres_prepared_async_impl;
 
-const STATEMENT_CACHE_CAP: usize = 32;
-
 /// A prepared statement that can be executed multiple times with different parameters.
 ///
 /// This statement can be run against a `tokio-postgres` client.
@@ -32,14 +26,17 @@ pub struct PreparedStatement<'a, Marker = (), DecodedRow = ()> {
     pub(crate) marker: PhantomData<(Marker, DecodedRow)>,
 }
 
+/// Preparation policy for the public `&Client` execution API.
+///
+/// `tokio-postgres` statements are connection-bound, but `Client` does not
+/// expose a stable connection identity. In particular, using the address of a
+/// borrowed `Client` as a cache key is unsound because that address can be
+/// reused after the connection is dropped. Keep this type so prepared values
+/// retain their existing layout/API plumbing, but prepare against the supplied
+/// client on each execution.
 #[derive(Clone, Default)]
-pub(crate) struct StatementCache(Arc<Mutex<Vec<CachedStatement>>>);
-
-struct CachedStatement {
-    client_key: usize,
-    sql: Box<str>,
-    param_types: Box<[Type]>,
-    statement: Statement,
+pub(crate) struct StatementCache {
+    _private: (),
 }
 
 impl std::fmt::Debug for StatementCache {
@@ -55,44 +52,7 @@ impl StatementCache {
         sql: &str,
         param_types: &[Type],
     ) -> Result<Statement, tokio_postgres::Error> {
-        let client_key = client as *const Client as usize;
-        {
-            let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
-            if let Some(pos) = cache.iter().position(|cached| {
-                cached.client_key == client_key
-                    && cached.sql.as_ref() == sql
-                    && cached.param_types.as_ref() == param_types
-            }) {
-                let cached = cache.remove(pos);
-                let statement = cached.statement.clone();
-                cache.insert(0, cached);
-                return Ok(statement);
-            }
-        }
-
-        let statement = client.prepare_typed(sql, param_types).await?;
-        let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
-        if let Some(pos) = cache.iter().position(|cached| {
-            cached.client_key == client_key
-                && cached.sql.as_ref() == sql
-                && cached.param_types.as_ref() == param_types
-        }) {
-            let cached = cache.remove(pos);
-            let statement = cached.statement.clone();
-            cache.insert(0, cached);
-            return Ok(statement);
-        }
-        cache.insert(
-            0,
-            CachedStatement {
-                client_key,
-                sql: sql.into(),
-                param_types: param_types.into(),
-                statement: statement.clone(),
-            },
-        );
-        cache.truncate(STATEMENT_CACHE_CAP);
-        Ok(statement)
+        client.prepare_typed(sql, param_types).await
     }
 }
 

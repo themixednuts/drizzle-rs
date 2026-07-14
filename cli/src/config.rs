@@ -437,7 +437,7 @@ impl std::str::FromStr for Extension {
 // ============================================================================
 
 /// Database credentials - validated and typed
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Credentials {
     /// Local `SQLite` file
     Sqlite { path: Box<str> },
@@ -475,7 +475,7 @@ pub enum Credentials {
 }
 
 /// `PostgreSQL` credentials
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum PostgresCreds {
     Url(Box<str>),
     Host {
@@ -484,30 +484,142 @@ pub enum PostgresCreds {
         user: Option<Box<str>>,
         password: Option<Box<str>>,
         database: Box<str>,
-        ssl: bool,
+        ssl: PostgresSslMode,
     },
 }
 
-impl PostgresCreds {
-    /// Build connection URL
-    #[must_use]
-    pub fn connection_url(&self) -> String {
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Url(url) => url.to_string(),
+            Self::Sqlite { path } => f.debug_struct("Sqlite").field("path", path).finish(),
+            Self::Turso { url, auth_token } => f
+                .debug_struct("Turso")
+                .field("url", url)
+                .field("auth_token", &auth_token.as_ref().map(|_| "[REDACTED]"))
+                .finish(),
+            Self::Postgres(credentials) => f.debug_tuple("Postgres").field(credentials).finish(),
+            Self::D1 {
+                account_id,
+                database_id,
+                token,
+            } => f
+                .debug_struct("D1")
+                .field("account_id", account_id)
+                .field("database_id", database_id)
+                .field("token", &(!token.is_empty()).then_some("[REDACTED]"))
+                .finish(),
+            Self::AwsDataApi {
+                database,
+                secret_arn,
+                resource_arn,
+            } => f
+                .debug_struct("AwsDataApi")
+                .field("database", database)
+                .field("secret_arn", secret_arn)
+                .field("resource_arn", resource_arn)
+                .finish(),
+        }
+    }
+}
+
+impl std::fmt::Debug for PostgresCreds {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Url(_) => f.debug_tuple("Url").field(&"[REDACTED]").finish(),
             Self::Host {
                 host,
                 port,
                 user,
                 password,
                 database,
-                ..
-            } => {
-                let auth = match (user, password) {
-                    (Some(u), Some(p)) => format!("{u}:{p}@"),
-                    (Some(u), None) => format!("{u}@"),
-                    _ => String::new(),
+                ssl,
+            } => f
+                .debug_struct("Host")
+                .field("host", host)
+                .field("port", port)
+                .field("user", user)
+                .field("password", &password.as_ref().map(|_| "[REDACTED]"))
+                .field("database", database)
+                .field("ssl", ssl)
+                .finish(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PostgresSslMode {
+    #[default]
+    Disable,
+    Allow,
+    Prefer,
+    Require,
+    VerifyCa,
+    VerifyFull,
+}
+
+impl PostgresSslMode {
+    pub(crate) fn parse(value: &str) -> Result<Self, String> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "false" | "0" | "no" | "off" | "disable" => Ok(Self::Disable),
+            "allow" => Ok(Self::Allow),
+            "prefer" => Ok(Self::Prefer),
+            "true" | "1" | "yes" | "on" | "require" => Ok(Self::Require),
+            "verify-ca" => Ok(Self::VerifyCa),
+            "verify-full" => Ok(Self::VerifyFull),
+            _ => Err(format!("invalid PostgreSQL SSL mode `{value}`")),
+        }
+    }
+}
+
+pub struct PostgresConnectionConfig {
+    pub config: tokio_postgres::Config,
+    pub ssl: PostgresSslMode,
+}
+
+impl PostgresCreds {
+    pub fn connection_config(&self) -> Result<PostgresConnectionConfig, String> {
+        match self {
+            Self::Url(url) => {
+                let config = url
+                    .parse::<tokio_postgres::Config>()
+                    .map_err(|error| error.to_string())?;
+                let ssl = match config.get_ssl_mode() {
+                    tokio_postgres::config::SslMode::Disable => PostgresSslMode::Disable,
+                    tokio_postgres::config::SslMode::Prefer => PostgresSslMode::Prefer,
+                    tokio_postgres::config::SslMode::Require => PostgresSslMode::Require,
+                    _ => PostgresSslMode::Require,
                 };
-                format!("postgres://{auth}{host}:{port}/{database}")
+                Ok(PostgresConnectionConfig { config, ssl })
+            }
+            Self::Host {
+                host,
+                port,
+                user,
+                password,
+                database,
+                ssl,
+            } => {
+                let mut config = tokio_postgres::Config::new();
+                config
+                    .host(host.as_ref())
+                    .port(*port)
+                    .dbname(database.as_ref());
+                if let Some(user) = user {
+                    config.user(user.as_ref());
+                }
+                if let Some(password) = password {
+                    config.password(password.as_bytes());
+                }
+                config.ssl_mode(match ssl {
+                    PostgresSslMode::Disable => tokio_postgres::config::SslMode::Disable,
+                    PostgresSslMode::Allow | PostgresSslMode::Prefer => {
+                        tokio_postgres::config::SslMode::Prefer
+                    }
+                    PostgresSslMode::Require
+                    | PostgresSslMode::VerifyCa
+                    | PostgresSslMode::VerifyFull => tokio_postgres::config::SslMode::Require,
+                });
+                Ok(PostgresConnectionConfig { config, ssl: *ssl })
             }
         }
     }
@@ -643,10 +755,11 @@ enum SslVal {
 }
 
 impl SslVal {
-    fn enabled(&self) -> bool {
+    fn mode(&self) -> Result<PostgresSslMode, String> {
         match self {
-            Self::Bool(b) => *b,
-            Self::Str(s) => !matches!(s.as_str(), "disable" | "false" | "no" | "off"),
+            Self::Bool(false) => Ok(PostgresSslMode::Disable),
+            Self::Bool(true) => Ok(PostgresSslMode::Require),
+            Self::Str(value) => PostgresSslMode::parse(value),
         }
     }
 }
@@ -998,7 +1111,10 @@ impl DatabaseConfig {
                 user: resolve_opt(user)?,
                 password: resolve_opt(password)?,
                 database: database.resolve()?.into_boxed_str(),
-                ssl: ssl.as_ref().is_some_and(SslVal::enabled),
+                ssl: ssl
+                    .as_ref()
+                    .map_or(Ok(PostgresSslMode::Disable), SslVal::mode)
+                    .map_err(Error::InvalidCredentials)?,
             }),
             _ => return Ok(None),
         };
@@ -1511,6 +1627,28 @@ mod tests {
             cfg.credentials().unwrap(),
             Some(Credentials::Postgres(PostgresCreds::Url(_)))
         ));
+    }
+
+    #[test]
+    fn postgres_host_credentials_are_structured_without_url_encoding() {
+        let credentials = PostgresCreds::Host {
+            host: "db.example.com".into(),
+            port: 5432,
+            user: Some("user@tenant".into()),
+            password: Some("p:a/ss% word".into()),
+            database: "app/db name".into(),
+            ssl: PostgresSslMode::VerifyFull,
+        };
+
+        let connection = credentials.connection_config().expect("build config");
+        assert_eq!(connection.config.get_user(), Some("user@tenant"));
+        assert_eq!(connection.config.get_password(), Some(&b"p:a/ss% word"[..]));
+        assert_eq!(connection.config.get_dbname(), Some("app/db name"));
+        assert_eq!(
+            connection.config.get_ssl_mode(),
+            tokio_postgres::config::SslMode::Require
+        );
+        assert_eq!(connection.ssl, PostgresSslMode::VerifyFull);
     }
 
     #[test]
@@ -2170,6 +2308,34 @@ mod tests {
         // Must not leak into other dialects.
         assert!(!Driver::AwsDataApi.is_valid_for(Dialect::Sqlite));
         assert!(!Driver::AwsDataApi.is_valid_for(Dialect::Turso));
+    }
+
+    #[test]
+    fn credentials_debug_redacts_secrets() {
+        let postgres = Credentials::Postgres(PostgresCreds::Host {
+            host: "localhost".into(),
+            port: 5432,
+            user: Some("alice".into()),
+            password: Some("super-secret-password".into()),
+            database: "app".into(),
+            ssl: PostgresSslMode::Require,
+        });
+        let turso = Credentials::Turso {
+            url: "libsql://example.turso.io".into(),
+            auth_token: Some("super-secret-token".into()),
+        };
+        let d1 = Credentials::D1 {
+            account_id: "account".into(),
+            database_id: "database".into(),
+            token: "super-secret-d1-token".into(),
+        };
+        let postgres_url = Credentials::Postgres(PostgresCreds::Url(
+            "postgres://alice:super-secret-url-password@localhost/app".into(),
+        ));
+
+        let rendered = format!("{postgres:?} {turso:?} {d1:?} {postgres_url:?}");
+        assert!(rendered.contains("[REDACTED]"));
+        assert!(!rendered.contains("super-secret"));
     }
 
     #[cfg(windows)]

@@ -45,20 +45,23 @@ impl MigrationDir {
     fn discover_v3(&self) -> Result<Vec<Migration>, MigratorError> {
         use std::fs;
 
-        let mut entries: Vec<_> = fs::read_dir(&self.path)
-            .map_err(|e| MigratorError::IoError(e.to_string()))?
-            .filter_map(Result::ok)
-            .filter(|entry| entry.file_type().is_ok_and(|t| t.is_dir()))
-            .filter_map(|entry| {
-                let tag = entry.file_name().to_string_lossy().to_string();
-                let sql_path = entry.path().join("migration.sql");
-                if sql_path.exists() {
-                    Some((tag, sql_path))
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let mut entries = Vec::new();
+        for entry in fs::read_dir(&self.path).map_err(|e| MigratorError::IoError(e.to_string()))? {
+            let entry = entry.map_err(|e| MigratorError::IoError(e.to_string()))?;
+            let file_type = entry
+                .file_type()
+                .map_err(|e| MigratorError::IoError(e.to_string()))?;
+            if !file_type.is_dir() {
+                continue;
+            }
+
+            let tag = entry.file_name().to_string_lossy().to_string();
+            let sql_path = entry.path().join("migration.sql");
+            if !sql_path.is_file() {
+                return Err(MigratorError::MissingMigration(tag));
+            }
+            entries.push((tag, sql_path));
+        }
 
         entries.sort_by(|a, b| a.0.cmp(&b.0));
 

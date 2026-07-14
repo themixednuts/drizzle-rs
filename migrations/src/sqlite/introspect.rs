@@ -9,7 +9,7 @@ use super::ddl::{
 };
 use super::ddl::{GeneratedType, ParsedGenerated};
 use super::snapshot::SQLiteSnapshot;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Error type for introspection operations
 #[derive(Debug, Clone)]
@@ -88,6 +88,86 @@ pub struct RawForeignKey {
 pub struct RawViewInfo {
     pub name: String,
     pub sql: String,
+}
+
+/// Transport-independent raw rows needed to assemble a complete SQLite DDL.
+///
+/// Drivers are responsible only for decoding these rows from their transport;
+/// schema semantics live in [`assemble_ddl`].
+#[derive(Debug, Clone, Default)]
+pub struct RawIntrospection {
+    pub tables: Vec<(String, Option<String>)>,
+    pub columns: Vec<RawColumnInfo>,
+    pub indexes: Vec<RawIndexInfo>,
+    pub index_columns: Vec<RawIndexColumn>,
+    pub foreign_keys: Vec<RawForeignKey>,
+    pub views: Vec<RawViewInfo>,
+}
+
+/// Assemble transport-decoded SQLite metadata into the canonical DDL model.
+#[must_use]
+pub fn assemble_ddl(raw: RawIntrospection) -> super::SQLiteDDL {
+    let table_sql_map: HashMap<String, String> = raw
+        .tables
+        .iter()
+        .filter_map(|(name, sql)| sql.as_ref().map(|sql| (name.clone(), sql.clone())))
+        .collect();
+
+    let mut generated_columns = HashMap::<String, ParsedGenerated>::new();
+    for (table, sql) in &table_sql_map {
+        generated_columns.extend(parse_generated_columns_from_table_sql(table, sql));
+    }
+    let primary_key_columns: HashSet<(String, String)> = raw
+        .columns
+        .iter()
+        .filter(|column| column.pk > 0)
+        .map(|column| (column.table.clone(), column.name.clone()))
+        .collect();
+
+    let (columns, primary_keys) =
+        process_columns(&raw.columns, &generated_columns, &primary_key_columns);
+    let indexes = process_indexes(&raw.indexes, &raw.index_columns, &table_sql_map);
+    let foreign_keys = process_foreign_keys(&raw.foreign_keys);
+    let unique_constraints =
+        process_unique_constraints_from_indexes(&raw.indexes, &raw.index_columns);
+
+    let mut ddl = super::SQLiteDDL::new();
+    for (table_name, table_sql) in raw.tables {
+        let mut table = Table::new(table_name);
+        if let Some(sql) = table_sql {
+            let sql_upper = sql.to_uppercase();
+            table.strict = sql_upper.contains(" STRICT");
+            table.without_rowid = sql_upper.contains("WITHOUT ROWID");
+        }
+        ddl.tables.push(table);
+    }
+    for column in columns {
+        ddl.columns.push(column);
+    }
+    for index in indexes {
+        ddl.indexes.push(index);
+    }
+    for foreign_key in foreign_keys {
+        ddl.fks.push(foreign_key);
+    }
+    for primary_key in primary_keys {
+        ddl.pks.push(primary_key);
+    }
+    for unique_constraint in unique_constraints {
+        ddl.uniques.push(unique_constraint);
+    }
+
+    for raw_view in raw.views {
+        let mut view = View::new(raw_view.name);
+        if let Some(definition) = parse_view_sql(&raw_view.sql) {
+            view.definition = Some(definition.into());
+        } else {
+            view.error = Some("Failed to parse view SQL".into());
+        }
+        ddl.views.push(view);
+    }
+
+    ddl
 }
 
 /// Entity filter function type
@@ -650,23 +730,72 @@ pub mod queries {
         ORDER BY m.name, p.cid
     "#;
 
-    /// Query template to get indexes for a table
-    #[must_use]
-    pub fn indexes_query(table_name: &str) -> String {
-        format!("PRAGMA index_list(\"{table_name}\")")
-    }
+    /// Query all indexes in one round trip.
+    pub const INDEXES_QUERY: &str = r#"
+        SELECT
+            m.name AS "table",
+            p.name,
+            p."unique",
+            p.origin,
+            p.partial
+        FROM sqlite_master AS m
+            JOIN pragma_index_list(m.name) AS p
+        WHERE m.type = 'table'
+            AND m.tbl_name != '__drizzle_migrations'
+            AND m.tbl_name NOT LIKE '\_cf\_%' ESCAPE '\'
+            AND m.tbl_name NOT LIKE '\_litestream\_%' ESCAPE '\'
+            AND m.tbl_name NOT LIKE 'libsql\_%' ESCAPE '\'
+            AND m.tbl_name NOT LIKE 'sqlite\_%' ESCAPE '\'
+            AND m.tbl_name NOT LIKE 'd1\_%' ESCAPE '\'
+        ORDER BY m.name COLLATE NOCASE, p.seq
+    "#;
 
-    /// Query template to get index columns
-    #[must_use]
-    pub fn index_info_query(index_name: &str) -> String {
-        format!("PRAGMA index_xinfo(\"{index_name}\")")
-    }
+    /// Query all indexed columns in one round trip.
+    pub const INDEX_COLUMNS_QUERY: &str = r#"
+        SELECT
+            indexes.name AS index_name,
+            columns.seqno,
+            columns.cid,
+            columns.name,
+            columns."desc",
+            columns.coll,
+            columns."key"
+        FROM sqlite_master AS m
+            JOIN pragma_index_list(m.name) AS indexes
+            JOIN pragma_index_xinfo(indexes.name) AS columns
+        WHERE m.type = 'table'
+            AND m.tbl_name != '__drizzle_migrations'
+            AND m.tbl_name NOT LIKE '\_cf\_%' ESCAPE '\'
+            AND m.tbl_name NOT LIKE '\_litestream\_%' ESCAPE '\'
+            AND m.tbl_name NOT LIKE 'libsql\_%' ESCAPE '\'
+            AND m.tbl_name NOT LIKE 'sqlite\_%' ESCAPE '\'
+            AND m.tbl_name NOT LIKE 'd1\_%' ESCAPE '\'
+        ORDER BY m.name COLLATE NOCASE, indexes.seq, columns.seqno
+    "#;
 
-    /// Query template to get foreign keys for a table
-    #[must_use]
-    pub fn foreign_keys_query(table_name: &str) -> String {
-        format!("PRAGMA foreign_key_list(\"{table_name}\")")
-    }
+    /// Query all foreign keys in one round trip.
+    pub const FOREIGN_KEYS_QUERY: &str = r#"
+        SELECT
+            m.name AS "table",
+            p.id,
+            p.seq,
+            p."table" AS to_table,
+            p."from" AS from_column,
+            p."to" AS to_column,
+            p.on_update,
+            p.on_delete,
+            p."match"
+        FROM sqlite_master AS m
+            JOIN pragma_foreign_key_list(m.name) AS p
+        WHERE m.type = 'table'
+            AND m.tbl_name != '__drizzle_migrations'
+            AND m.tbl_name NOT LIKE '\_cf\_%' ESCAPE '\'
+            AND m.tbl_name NOT LIKE '\_litestream\_%' ESCAPE '\'
+            AND m.tbl_name NOT LIKE 'libsql\_%' ESCAPE '\'
+            AND m.tbl_name NOT LIKE 'sqlite\_%' ESCAPE '\'
+            AND m.tbl_name NOT LIKE 'd1\_%' ESCAPE '\'
+        ORDER BY m.name COLLATE NOCASE, p.id, p.seq
+    "#;
 }
 
 /// Parse a view SQL to extract the definition
@@ -819,5 +948,49 @@ CREATE TABLE users (
         let total = map.get("users:total").expect("total generated");
         assert_eq!(total.gen_type, GeneratedType::Stored);
         assert!(total.expression.contains("id"));
+    }
+
+    #[test]
+    fn set_based_metadata_queries_cover_all_tables_and_indexes() {
+        let connection = rusqlite::Connection::open_in_memory().expect("open SQLite");
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 CREATE TABLE parents(id INTEGER PRIMARY KEY);
+                 CREATE TABLE children(
+                    id INTEGER PRIMARY KEY,
+                    parent_id INTEGER NOT NULL,
+                    email TEXT UNIQUE,
+                    FOREIGN KEY(parent_id) REFERENCES parents(id)
+                 );
+                 CREATE INDEX children_parent_idx ON children(parent_id);",
+            )
+            .expect("create schema");
+
+        let index_count: i64 = connection
+            .query_row(
+                &format!("SELECT COUNT(*) FROM ({})", queries::INDEXES_QUERY),
+                [],
+                |row| row.get(0),
+            )
+            .expect("query all indexes");
+        let indexed_column_count: i64 = connection
+            .query_row(
+                &format!("SELECT COUNT(*) FROM ({})", queries::INDEX_COLUMNS_QUERY),
+                [],
+                |row| row.get(0),
+            )
+            .expect("query all index columns");
+        let foreign_key_count: i64 = connection
+            .query_row(
+                &format!("SELECT COUNT(*) FROM ({})", queries::FOREIGN_KEYS_QUERY),
+                [],
+                |row| row.get(0),
+            )
+            .expect("query all foreign keys");
+
+        assert!(index_count >= 2);
+        assert!(indexed_column_count >= 2);
+        assert_eq!(foreign_key_count, 1);
     }
 }

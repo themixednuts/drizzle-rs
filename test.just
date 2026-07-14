@@ -10,9 +10,9 @@
 set windows-shell := ["pwsh", "-NoLogo", "-NoProfile", "-Command"]
 
 # Additive features shared across all SQLite drivers
-_sqlite-ext := "uuid,serde,arrayvec,compact-str,bytes,smallvec-types"
+_sqlite-ext := "uuid,serde,arrayvec,compact-str,bytes,smallvec-types,query"
 # Additive features shared across all PostgreSQL drivers
-_pg-ext := "uuid,serde,arrayvec,compact-str,bytes,smallvec-types,chrono,cidr,geo-types,bit-vec"
+_pg-ext := "uuid,serde,arrayvec,compact-str,bytes,smallvec-types,chrono,cidr,geo-types,bit-vec,query"
 
 # Run all test matrixes (SQLite + PostgreSQL)
 default: sqlite-matrix pg-matrix

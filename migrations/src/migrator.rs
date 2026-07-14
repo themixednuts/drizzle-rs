@@ -58,6 +58,13 @@ use crate::config::Tracking;
 use drizzle_types::Dialect;
 use sha2::{Digest, Sha256};
 
+fn quote_identifier(dialect: Dialect, identifier: &str) -> String {
+    match dialect {
+        Dialect::MySQL => format!("`{}`", identifier.replace('`', "``")),
+        _ => format!("\"{}\"", identifier.replace('"', "\"\"")),
+    }
+}
+
 /// A migration with its SQL content
 ///
 /// Represents a single migration that can be applied to the database.
@@ -204,6 +211,14 @@ impl Migration {
     pub fn is_empty(&self) -> bool {
         self.sql.is_empty() || self.sql.iter().all(|s| s.trim().is_empty())
     }
+
+    /// Whether this migration contains a PostgreSQL concurrent-index command.
+    #[must_use]
+    pub fn has_postgres_concurrent_index(&self) -> bool {
+        self.sql
+            .iter()
+            .any(|statement| is_postgres_concurrent_index_statement(statement))
+    }
 }
 
 /// A collection of migrations ready to be applied
@@ -313,21 +328,66 @@ impl Migrations {
         self.table_ident()
     }
 
+    /// Stable advisory-lock key for serializing PostgreSQL migration runners.
+    #[must_use]
+    pub fn postgres_advisory_lock_key(&self) -> i64 {
+        let digest =
+            Sha256::digest(format!("drizzle-rs:migrate:{}", self.table_ident()).as_bytes());
+        i64::from_be_bytes(
+            digest[..8]
+                .try_into()
+                .expect("SHA-256 prefix is eight bytes"),
+        )
+    }
+
+    /// Whether any migration requires execution outside a PostgreSQL transaction.
+    #[must_use]
+    pub fn has_postgres_concurrent_index(&self) -> bool {
+        self.list
+            .iter()
+            .any(Migration::has_postgres_concurrent_index)
+    }
+
+    /// Create a partial unique index that prevents duplicate non-null names in
+    /// the migration tracking table.
+    #[must_use]
+    pub fn create_name_unique_index_sql(&self) -> Option<String> {
+        if self.dialect == Dialect::MySQL {
+            return None;
+        }
+        let digest = Sha256::digest(self.table_ident().as_bytes());
+        let suffix = digest[..8]
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let index = quote_identifier(self.dialect, &format!("drizzle_migration_name_{suffix}"));
+        Some(format!(
+            "CREATE UNIQUE INDEX IF NOT EXISTS {index} ON {} (\"name\") WHERE \"name\" IS NOT NULL;",
+            self.table_ident()
+        ))
+    }
+
     /// Get the full table identifier (with schema for `PostgreSQL`)
     fn table_ident(&self) -> String {
         match (&self.dialect, &self.schema) {
-            (Dialect::PostgreSQL, Some(schema)) => format!("\"{}\".\"{}\"", schema, self.table),
-            (Dialect::MySQL, _) => format!("`{}`", self.table),
-            _ => format!("\"{}\"", self.table),
+            (Dialect::PostgreSQL, Some(schema)) => format!(
+                "{}.{}",
+                quote_identifier(self.dialect, schema),
+                quote_identifier(self.dialect, &self.table)
+            ),
+            _ => quote_identifier(self.dialect, &self.table),
         }
     }
 
     /// Get the SQL to create the migrations schema (`PostgreSQL` only)
     #[must_use]
     pub fn create_schema_sql(&self) -> Option<String> {
-        self.schema
-            .as_ref()
-            .map(|schema| format!("CREATE SCHEMA IF NOT EXISTS \"{schema}\";"))
+        self.schema.as_ref().map(|schema| {
+            format!(
+                "CREATE SCHEMA IF NOT EXISTS {};",
+                quote_identifier(self.dialect, schema)
+            )
+        })
     }
 
     /// Get the SQL to create the migrations tracking table
@@ -451,6 +511,34 @@ pub enum MigratorError {
     ExecutionError(String),
 }
 
+/// Detect PostgreSQL `CREATE/DROP INDEX CONCURRENTLY` statements.
+#[must_use]
+pub fn is_postgres_concurrent_index_statement(sql: &str) -> bool {
+    let tokens = sql
+        .split_whitespace()
+        .take(4)
+        .map(|token| token.trim_matches(|character: char| !character.is_ascii_alphabetic()))
+        .map(str::to_ascii_uppercase)
+        .collect::<Vec<_>>();
+
+    matches!(
+        tokens.as_slice(),
+        [create, index, concurrently, ..]
+            if create == "CREATE" && index == "INDEX" && concurrently == "CONCURRENTLY"
+    ) || matches!(
+        tokens.as_slice(),
+        [create, unique, index, concurrently, ..]
+            if create == "CREATE"
+                && unique == "UNIQUE"
+                && index == "INDEX"
+                && concurrently == "CONCURRENTLY"
+    ) || matches!(
+        tokens.as_slice(),
+        [drop, index, concurrently, ..]
+            if drop == "DROP" && index == "INDEX" && concurrently == "CONCURRENTLY"
+    )
+}
+
 // =============================================================================
 // Helper Functions
 // =============================================================================
@@ -470,22 +558,13 @@ pub(crate) fn compute_hash(sql: &str) -> String {
 
 /// Split SQL content into individual statements
 pub(crate) fn split_statements(sql: &str) -> Vec<String> {
-    if sql.contains("--> statement-breakpoint") {
-        // Use explicit breakpoint markers
-        sql.split("--> statement-breakpoint")
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect()
-    } else {
-        // Fall back to splitting on semicolons
-        // This is a simple approach - a full SQL parser would handle edge cases
-        // like semicolons in strings, but this works for typical DDL statements
-        split_on_semicolons(sql)
-    }
+    split_on_semicolons(sql)
 }
 
 /// Split SQL on semicolons, handling basic cases
 fn split_on_semicolons(sql: &str) -> Vec<String> {
+    const BREAKPOINT: &str = "--> statement-breakpoint";
+
     let mut statements = Vec::new();
     let mut current = String::new();
     let mut pos = 0;
@@ -590,6 +669,15 @@ fn split_on_semicolons(sql: &str) -> Vec<String> {
         }
 
         // Enter comment states
+        if sql[pos..].starts_with(BREAKPOINT) && line_prefix_is_whitespace(sql, pos) {
+            let stmt = current.trim().to_string();
+            if !stmt.is_empty() {
+                statements.push(stmt);
+            }
+            current.clear();
+            pos += BREAKPOINT.len();
+            continue;
+        }
         if sql[pos..].starts_with("--") {
             current.push_str("--");
             pos += 2;
@@ -651,6 +739,11 @@ fn split_on_semicolons(sql: &str) -> Vec<String> {
     }
 
     statements
+}
+
+fn line_prefix_is_whitespace(sql: &str, pos: usize) -> bool {
+    let line_start = sql[..pos].rfind('\n').map_or(0, |index| index + 1);
+    sql[line_start..pos].chars().all(char::is_whitespace)
 }
 
 /// Match applied database rows to local migrations for migration-table upgrades.
@@ -854,11 +947,49 @@ macro_rules! migrations {
 #[cfg(test)]
 mod tests {
     use super::{
-        AppliedMigrationMetadata, Migrations, compute_hash, match_applied_migration_metadata,
-        parse_timestamp_from_tag, split_on_semicolons,
+        AppliedMigrationMetadata, Migrations, compute_hash, is_postgres_concurrent_index_statement,
+        match_applied_migration_metadata, parse_timestamp_from_tag, split_on_semicolons,
+        split_statements,
     };
+    use crate::config::Tracking;
     use crate::dir::MigrationDir;
     use drizzle_types::Dialect;
+
+    #[test]
+    fn migration_tracking_identifiers_are_escaped_per_dialect() {
+        let sqlite = Migrations::with_tracking(
+            Vec::new(),
+            Dialect::SQLite,
+            Tracking::new("migration\"records", None::<String>),
+        );
+        assert_eq!(sqlite.table_ident_sql(), "\"migration\"\"records\"");
+        assert!(
+            sqlite
+                .create_table_sql()
+                .starts_with("CREATE TABLE IF NOT EXISTS \"migration\"\"records\"")
+        );
+
+        let postgres = Migrations::with_tracking(
+            Vec::new(),
+            Dialect::PostgreSQL,
+            Tracking::new("migration\"records", Some("audit\"schema")),
+        );
+        assert_eq!(
+            postgres.table_ident_sql(),
+            "\"audit\"\"schema\".\"migration\"\"records\""
+        );
+        assert_eq!(
+            postgres.create_schema_sql().as_deref(),
+            Some("CREATE SCHEMA IF NOT EXISTS \"audit\"\"schema\";")
+        );
+
+        let mysql = Migrations::with_tracking(
+            Vec::new(),
+            Dialect::MySQL,
+            Tracking::new("migration`records", None::<String>),
+        );
+        assert_eq!(mysql.table_ident_sql(), "`migration``records`");
+    }
 
     #[test]
     fn split_handles_strings_and_comments() {
@@ -924,6 +1055,27 @@ mod tests {
     }
 
     #[test]
+    fn breakpoints_split_only_at_top_level_marker_lines() {
+        let sql = r#"
+            CREATE TABLE notes(value TEXT DEFAULT '--> statement-breakpoint');
+            -- ordinary comment containing --> statement-breakpoint
+            CREATE FUNCTION marker_text() RETURNS text AS $$
+            BEGIN
+              RETURN '--> statement-breakpoint';
+            END;
+            $$ LANGUAGE plpgsql;
+            --> statement-breakpoint
+            CREATE TABLE users(id INTEGER);
+        "#;
+
+        let statements = split_statements(sql);
+        assert_eq!(statements.len(), 3, "unexpected split: {statements:?}");
+        assert!(statements[1].contains("ordinary comment containing"));
+        assert!(statements[1].contains("RETURN '--> statement-breakpoint'"));
+        assert_eq!(statements[2], "CREATE TABLE users(id INTEGER)");
+    }
+
+    #[test]
     fn hash_is_stable_for_same_input() {
         let a = compute_hash("CREATE TABLE users(id INTEGER);");
         let b = compute_hash("CREATE TABLE users(id INTEGER);");
@@ -940,6 +1092,46 @@ mod tests {
         assert_eq!(
             hash,
             "238b0b8f98ac8bb3155ac1081ad6a3ce07cfba14eeaa6beeebf2161091265fcc"
+        );
+    }
+
+    #[test]
+    fn concurrent_index_detection_is_token_aware() {
+        assert!(is_postgres_concurrent_index_statement(
+            "CREATE INDEX CONCURRENTLY users_email ON users (email)"
+        ));
+        assert!(is_postgres_concurrent_index_statement(
+            "CREATE UNIQUE INDEX CONCURRENTLY users_email ON users (email)"
+        ));
+        assert!(is_postgres_concurrent_index_statement(
+            "DROP INDEX CONCURRENTLY users_email"
+        ));
+        assert!(!is_postgres_concurrent_index_statement(
+            "SELECT 'CREATE INDEX CONCURRENTLY hidden in text'"
+        ));
+    }
+
+    #[test]
+    fn postgres_advisory_lock_key_is_stable_per_tracking_table() {
+        let first = Migrations::with_tracking(
+            Vec::new(),
+            Dialect::PostgreSQL,
+            Tracking::new("migrations", Some("audit")),
+        );
+        let same = first.clone();
+        let different = Migrations::with_tracking(
+            Vec::new(),
+            Dialect::PostgreSQL,
+            Tracking::new("other_migrations", Some("audit")),
+        );
+
+        assert_eq!(
+            first.postgres_advisory_lock_key(),
+            same.postgres_advisory_lock_key()
+        );
+        assert_ne!(
+            first.postgres_advisory_lock_key(),
+            different.postgres_advisory_lock_key()
         );
     }
 

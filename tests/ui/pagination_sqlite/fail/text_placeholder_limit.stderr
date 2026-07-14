@@ -1,0 +1,40 @@
+error[E0277]: `drizzle::sqlite::types::Text` is not an integer SQL type
+  --> tests/ui/pagination_sqlite/fail/text_placeholder_limit.rs:21:44
+   |
+21 |     let _ = db.select(()).from(user).limit(limit);
+   |                                      ----- ^^^^^ expected SmallInt, Int, or BigInt
+   |                                      |
+   |                                      required by a bound introduced by this call
+   |
+   = help: the trait `Integral` is not implemented for `drizzle::sqlite::types::Text`
+help: the following other types implement trait `Integral`
+  --> types/src/sql/mod.rs
+   |
+   | impl Integral for crate::sqlite::types::Integer {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::sqlite::types::Integer`
+...
+   | impl Integral for crate::postgres::types::Int2 {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Int2`
+   | impl Integral for crate::postgres::types::Int4 {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Int4`
+   | impl Integral for crate::postgres::types::Int8 {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Int8`
+   = note: required for `TypedPlaceholder<drizzle::sqlite::types::Text>` to implement `drizzle_core::pagination::PaginationArg<'_, SQLiteValue<'_>>`
+note: required by a bound in `drizzle::builder::sqlite::common::DrizzleBuilder::<'d, Runner, Schema, drizzle::sqlite::builder::QueryBuilder<'a, Schema, SelectFromSet, T, M, R, G>, SelectFromSet>::limit`
+  --> src/builder/sqlite/common.rs
+   |
+   |           pub fn limit<P>(
+   |                  ----- required by a bound in this associated function
+...
+   |               P: drizzle_core::PaginationArg<'a, SQLiteValue<'a>>,
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `DrizzleBuilder::<'d, Runner, Schema, QueryBuilder<'a, Schema, SelectFromSet, T, M, R, G>, SelectFromSet>::limit`
+...
+   | / impl_select_methods! {
+   | |     SelectFromSet  => [r#where, group_by, order_by, limit, offset, join],
+   | |     SelectJoinSet  => [r#where, group_by, order_by, join],
+   | |     SelectWhereSet => [group_by, order_by, limit],
+...  |
+   | |     SelectSetOpSet => [order_by, limit, offset],
+   | | }
+   | |_- in this macro invocation
+   = note: this error originates in the macro `impl_select_methods` (in Nightly builds, run with -Z macro-backtrace for more info)

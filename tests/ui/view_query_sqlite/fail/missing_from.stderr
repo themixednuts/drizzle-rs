@@ -1,0 +1,12 @@
+error: query requires a `from(...)` clause
+  --> tests/ui/view_query_sqlite/fail/missing_from.rs:10:1
+   |
+10 | / #[SQLiteView(
+11 | |     query(
+12 | |         select(User::id, User::name),
+13 | |     ),
+14 | |     NAME = "bad_view"
+15 | | )]
+   | |__^
+   |
+   = note: this error originates in the attribute macro `SQLiteView` (in Nightly builds, run with -Z macro-backtrace for more info)

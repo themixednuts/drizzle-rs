@@ -140,7 +140,7 @@ pub use dir::MigrationDir;
 pub use journal::{Journal, JournalEntry};
 pub use migrator::{
     AppliedMigrationMetadata, MatchedMigrationMetadata, MigrateOutcome, Migration, Migrations,
-    MigratorError, match_applied_migration_metadata,
+    MigratorError, is_postgres_concurrent_index_statement, match_applied_migration_metadata,
 };
 pub use words::{PrefixMode, generate_migration_tag};
 pub use writer::{MigrationError, Writer};

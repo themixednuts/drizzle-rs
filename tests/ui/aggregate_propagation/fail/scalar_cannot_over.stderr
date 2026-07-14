@@ -1,0 +1,8 @@
+error[E0599]: no method named `over` found for struct `ItemPrice` in the current scope
+  --> tests/ui/aggregate_propagation/fail/scalar_cannot_over.rs:14:24
+   |
+ 4 | #[SQLiteTable]
+   | -------------- method `over` not found for this struct
+...
+14 |     let _ = item.price.over(window());
+   |                        ^^^^ method not found in `ItemPrice`

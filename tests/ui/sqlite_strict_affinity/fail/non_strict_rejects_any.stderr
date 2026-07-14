@@ -1,0 +1,5 @@
+error: column `payload` uses `ANY`, which is only allowed on STRICT tables; add `#[SQLiteTable(strict)]`
+ --> tests/ui/sqlite_strict_affinity/fail/non_strict_rejects_any.rs:8:5
+  |
+8 |     payload: String,
+  |     ^^^^^^^

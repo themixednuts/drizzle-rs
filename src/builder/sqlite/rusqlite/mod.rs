@@ -331,19 +331,18 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         );
 
         ensure_sqlite_migration_table(&self.conn, &set)?;
-        let mut stmt = self.conn.prepare(&set.applied_names_sql())?;
-        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
-        let applied_names = rows.filter_map(Result::ok).collect::<Vec<_>>();
+        self.conn.busy_timeout(std::time::Duration::from_secs(30))?;
+        self.conn.execute("BEGIN IMMEDIATE", [])?;
 
-        let pending: Vec<_> = set.pending(&applied_names).collect();
+        let result = (|| -> drizzle_core::error::Result<drizzle_migrations::MigrateOutcome> {
+            let mut statement = self.conn.prepare(&set.applied_names_sql())?;
+            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+            let applied_names = rows.collect::<Result<Vec<_>, _>>()?;
+            let pending: Vec<_> = set.pending(&applied_names).collect();
+            if pending.is_empty() {
+                return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
+            }
 
-        if pending.is_empty() {
-            return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
-        }
-
-        self.conn.execute("BEGIN", [])?;
-
-        let result = (|| -> drizzle_core::error::Result<Vec<String>> {
             let mut applied = Vec::with_capacity(pending.len());
             for migration in &pending {
                 for stmt in migration.statements() {
@@ -355,13 +354,13 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                     .execute(&set.record_migration_sql(migration), [])?;
                 applied.push(migration.tag().to_string());
             }
-            Ok(applied)
+            Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
         })();
 
         match result {
-            Ok(applied) => {
+            Ok(outcome) => {
                 self.conn.execute("COMMIT", [])?;
-                Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
+                Ok(outcome)
             }
             Err(e) => {
                 let _ = self.conn.execute("ROLLBACK", []);
@@ -464,8 +463,7 @@ fn introspect_query_tables(
     let mut tables_stmt = conn.prepare(queries::TABLES_QUERY)?;
     let tables: Vec<(String, Option<String>)> = tables_stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .filter_map(Result::ok)
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(tables)
 }
 
@@ -488,14 +486,12 @@ fn introspect_query_columns(
                 sql: row.get(8)?,
             })
         })?
-        .filter_map(Result::ok)
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(raw_columns)
 }
 
 fn introspect_query_indexes_and_fks(
     conn: &rusqlite::Connection,
-    tables: &[(String, Option<String>)],
 ) -> drizzle_core::error::Result<(
     Vec<drizzle_migrations::sqlite::introspect::RawIndexInfo>,
     Vec<drizzle_migrations::sqlite::introspect::RawIndexColumn>,
@@ -505,157 +501,69 @@ fn introspect_query_indexes_and_fks(
         RawForeignKey, RawIndexColumn, RawIndexInfo, queries,
     };
 
-    let mut all_indexes: Vec<RawIndexInfo> = Vec::new();
-    let mut all_index_columns: Vec<RawIndexColumn> = Vec::new();
-    let mut all_fks: Vec<RawForeignKey> = Vec::new();
-
-    for (table_name, _) in tables {
-        if let Ok(mut idx_stmt) = conn.prepare(&queries::indexes_query(table_name)) {
-            let indexes: Vec<RawIndexInfo> = idx_stmt
-                .query_map([], |row| {
-                    Ok(RawIndexInfo {
-                        table: table_name.clone(),
-                        name: row.get(1)?,
-                        unique: row.get::<_, i32>(2)? != 0,
-                        origin: row.get(3)?,
-                        partial: row.get::<_, i32>(4)? != 0,
-                    })
-                })?
-                .filter_map(Result::ok)
-                .collect();
-
-            for idx in &indexes {
-                if let Ok(mut col_stmt) = conn.prepare(&queries::index_info_query(&idx.name))
-                    && let Ok(col_iter) = col_stmt.query_map([], |row| {
-                        Ok(RawIndexColumn {
-                            index_name: idx.name.clone(),
-                            seqno: row.get(0)?,
-                            cid: row.get(1)?,
-                            name: row.get(2)?,
-                            desc: row.get::<_, i32>(3)? != 0,
-                            coll: row.get(4)?,
-                            key: row.get::<_, i32>(5)? != 0,
-                        })
-                    })
-                {
-                    all_index_columns.extend(col_iter.filter_map(Result::ok));
-                }
-            }
-            all_indexes.extend(indexes);
-        }
-
-        if let Ok(mut fk_stmt) = conn.prepare(&queries::foreign_keys_query(table_name))
-            && let Ok(fk_iter) = fk_stmt.query_map([], |row| {
-                Ok(RawForeignKey {
-                    table: table_name.clone(),
-                    id: row.get(0)?,
-                    seq: row.get(1)?,
-                    to_table: row.get(2)?,
-                    from_column: row.get(3)?,
-                    to_column: row.get(4)?,
-                    on_update: row.get(5)?,
-                    on_delete: row.get(6)?,
-                    r#match: row.get(7)?,
-                })
+    let mut index_stmt = conn.prepare(queries::INDEXES_QUERY)?;
+    let all_indexes = index_stmt
+        .query_map([], |row| {
+            Ok(RawIndexInfo {
+                table: row.get(0)?,
+                name: row.get(1)?,
+                unique: row.get::<_, i32>(2)? != 0,
+                origin: row.get(3)?,
+                partial: row.get::<_, i32>(4)? != 0,
             })
-        {
-            all_fks.extend(fk_iter.filter_map(Result::ok));
-        }
-    }
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut index_columns_stmt = conn.prepare(queries::INDEX_COLUMNS_QUERY)?;
+    let all_index_columns = index_columns_stmt
+        .query_map([], |row| {
+            Ok(RawIndexColumn {
+                index_name: row.get(0)?,
+                seqno: row.get(1)?,
+                cid: row.get(2)?,
+                name: row.get(3)?,
+                desc: row.get::<_, i32>(4)? != 0,
+                coll: row.get(5)?,
+                key: row.get::<_, i32>(6)? != 0,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut foreign_keys_stmt = conn.prepare(queries::FOREIGN_KEYS_QUERY)?;
+    let all_fks = foreign_keys_stmt
+        .query_map([], |row| {
+            Ok(RawForeignKey {
+                table: row.get(0)?,
+                id: row.get(1)?,
+                seq: row.get(2)?,
+                to_table: row.get(3)?,
+                from_column: row.get(4)?,
+                to_column: row.get(5)?,
+                on_update: row.get(6)?,
+                on_delete: row.get(7)?,
+                r#match: row.get(8)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok((all_indexes, all_index_columns, all_fks))
 }
 
 fn introspect_query_views(
     conn: &rusqlite::Connection,
-) -> Vec<drizzle_migrations::sqlite::introspect::RawViewInfo> {
+) -> drizzle_core::error::Result<Vec<drizzle_migrations::sqlite::introspect::RawViewInfo>> {
     use drizzle_migrations::sqlite::introspect::{RawViewInfo, queries};
 
     let mut all_views: Vec<RawViewInfo> = Vec::new();
-    if let Ok(mut views_stmt) = conn.prepare(queries::VIEWS_QUERY)
-        && let Ok(view_iter) = views_stmt.query_map([], |row| {
-            Ok(RawViewInfo {
-                name: row.get(0)?,
-                sql: row.get(1)?,
-            })
+    let mut views_stmt = conn.prepare(queries::VIEWS_QUERY)?;
+    let view_iter = views_stmt.query_map([], |row| {
+        Ok(RawViewInfo {
+            name: row.get(0)?,
+            sql: row.get(1)?,
         })
-    {
-        all_views.extend(view_iter.filter_map(Result::ok));
-    }
-    all_views
-}
-
-fn introspect_build_ddl(
-    tables: &[(String, Option<String>)],
-    raw_columns: &[drizzle_migrations::sqlite::introspect::RawColumnInfo],
-    all_indexes: &[drizzle_migrations::sqlite::introspect::RawIndexInfo],
-    all_index_columns: &[drizzle_migrations::sqlite::introspect::RawIndexColumn],
-    all_fks: &[drizzle_migrations::sqlite::introspect::RawForeignKey],
-    all_views: Vec<drizzle_migrations::sqlite::introspect::RawViewInfo>,
-) -> drizzle_migrations::sqlite::SQLiteDDL {
-    use drizzle_migrations::sqlite::{
-        SQLiteDDL, Table as SqliteTable, View,
-        introspect::{
-            parse_generated_columns_from_table_sql, parse_view_sql, process_columns,
-            process_foreign_keys, process_indexes, process_unique_constraints_from_indexes,
-        },
-    };
-    use std::collections::{HashMap, HashSet};
-
-    let table_sql_map: HashMap<String, String> = tables
-        .iter()
-        .filter_map(|(name, sql)| sql.as_ref().map(|s| (name.clone(), s.clone())))
-        .collect();
-
-    let mut generated_columns: HashMap<String, drizzle_migrations::sqlite::ddl::ParsedGenerated> =
-        HashMap::new();
-    for (table, sql) in &table_sql_map {
-        generated_columns.extend(parse_generated_columns_from_table_sql(table, sql));
-    }
-    let pk_columns: HashSet<(String, String)> = raw_columns
-        .iter()
-        .filter(|c| c.pk > 0)
-        .map(|c| (c.table.clone(), c.name.clone()))
-        .collect();
-
-    let (columns, primary_keys) = process_columns(raw_columns, &generated_columns, &pk_columns);
-    let indexes = process_indexes(all_indexes, all_index_columns, &table_sql_map);
-    let foreign_keys = process_foreign_keys(all_fks);
-    let uniques = process_unique_constraints_from_indexes(all_indexes, all_index_columns);
-
-    let mut ddl = SQLiteDDL::new();
-    for (table_name, table_sql) in tables {
-        let mut table = SqliteTable::new(table_name.clone());
-        if let Some(sql) = table_sql {
-            let sql_upper = sql.to_uppercase();
-            table.strict = sql_upper.contains(" STRICT");
-            table.without_rowid = sql_upper.contains("WITHOUT ROWID");
-        }
-        ddl.tables.push(table);
-    }
-    for col in columns {
-        ddl.columns.push(col);
-    }
-    for idx in indexes {
-        ddl.indexes.push(idx);
-    }
-    for fk in foreign_keys {
-        ddl.fks.push(fk);
-    }
-    for pk in primary_keys {
-        ddl.pks.push(pk);
-    }
-    for u in uniques {
-        ddl.uniques.push(u);
-    }
-    for v in all_views {
-        let mut view = View::new(v.name);
-        if let Some(def) = parse_view_sql(&v.sql) {
-            view.definition = Some(def.into());
-        }
-        ddl.views.push(view);
-    }
-    ddl
+    })?;
+    all_views.extend(view_iter.collect::<Result<Vec<_>, _>>()?);
+    Ok(all_views)
 }
 
 impl<Schema> common::Drizzle<Connection, Schema> {
@@ -667,16 +575,18 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         let tables = introspect_query_tables(&self.conn)?;
         let raw_columns = introspect_query_columns(&self.conn)?;
         let (all_indexes, all_index_columns, all_fks) =
-            introspect_query_indexes_and_fks(&self.conn, &tables)?;
-        let all_views = introspect_query_views(&self.conn);
+            introspect_query_indexes_and_fks(&self.conn)?;
+        let all_views = introspect_query_views(&self.conn)?;
 
-        let ddl = introspect_build_ddl(
-            &tables,
-            &raw_columns,
-            &all_indexes,
-            &all_index_columns,
-            &all_fks,
-            all_views,
+        let ddl = drizzle_migrations::sqlite::introspect::assemble_ddl(
+            drizzle_migrations::sqlite::introspect::RawIntrospection {
+                tables,
+                columns: raw_columns,
+                indexes: all_indexes,
+                index_columns: all_index_columns,
+                foreign_keys: all_fks,
+                views: all_views,
+            },
         );
 
         let mut snapshot = drizzle_migrations::sqlite::SQLiteSnapshot::new();

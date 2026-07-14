@@ -81,6 +81,15 @@ impl<T> EntityCollection<T> {
     }
 }
 
+impl<T> Extend<T> for EntityCollection<T> {
+    fn extend<I>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = T>,
+    {
+        self.entities.extend(iter);
+    }
+}
+
 impl<T: Clone> EntityCollection<T> {
     /// Consume the collection and return the underlying `Vec`.
     #[must_use]
@@ -109,5 +118,19 @@ impl<T: Clone> EntityCollection<T> {
         for entity in &mut self.entities {
             transform(entity);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EntityCollection;
+
+    #[test]
+    fn extend_preserves_insertion_order() {
+        let mut entities = EntityCollection::new();
+        entities.push(1);
+        entities.extend([2, 3]);
+
+        assert_eq!(entities.list(), &[1, 2, 3]);
     }
 }
