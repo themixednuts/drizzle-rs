@@ -124,6 +124,7 @@ mod prepared;
 use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
 use drizzle_core::prepared::prepare_render;
 use drizzle_core::traits::ToSQL;
+use futures_util::FutureExt;
 use turso::{Connection, IntoValue, Row};
 
 #[cfg(feature = "sqlite")]
@@ -312,14 +313,22 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         let tx = self.conn.transaction_with_behavior(tx_type.into()).await?;
         let transaction = Transaction::new(tx, tx_type, self.schema);
 
-        match f(&transaction).await {
-            Ok(result) => {
+        let outcome = std::panic::AssertUnwindSafe(f(&transaction))
+            .catch_unwind()
+            .await;
+
+        match outcome {
+            Ok(Ok(result)) => {
                 transaction.commit().await?;
                 Ok(result)
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 let _ = transaction.rollback().await;
                 Err(e)
+            }
+            Err(panic_payload) => {
+                let _ = transaction.rollback().await;
+                std::panic::resume_unwind(panic_payload);
             }
         }
     }
