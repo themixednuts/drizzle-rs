@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.14](https://github.com/themixednuts/drizzle-rs/compare/v0.1.13...v0.1.14) - 2026-07-18
+
+### Fixed
+
+- support turso 0.7 and restore transaction panic rollback
+
 ## [0.1.13](https://github.com/themixednuts/drizzle-rs/compare/v0.1.12...v0.1.13) - 2026-07-14
 
 ### Fixed
