@@ -508,10 +508,9 @@ let age = cast(user.age, drizzle::postgres::types::Int4);
 
 Requires the `query` feature. Fetches a table with its relations in a single query — no manual joins.
 
-Relation methods are auto-generated from `#[column(references = ...)]` foreign keys. Given `Posts.author_id → Users.id`, calling `users.posts()` returns the reverse (one-to-many) relation and `posts.author()` returns the forward (many-to-one) relation.
+Relation methods are generated from `#[column(references = ...)]`. Given `Posts.author_id → Users.id`, `users.posts()` is the reverse (one-to-many) and `posts.author()` is the forward (many-to-one).
 
 ```rust
-// Users with their posts
 let users = db.query(users)
     .with(users.posts())
     .find_many()?;
@@ -521,7 +520,7 @@ for user in &users {
 }
 ```
 
-`.find_first()` returns `Option<...>` instead of `Vec`:
+`.find_first()` returns `Option<...>`:
 
 ```rust
 let user = db.query(users)
@@ -530,18 +529,17 @@ let user = db.query(users)
     .find_first()?;
 ```
 
-Relations nest — fetch users with their posts and each post's comments:
+Nest relations:
 
 ```rust
 let users = db.query(users)
     .with(users.posts().with(posts.comments()))
     .find_many()?;
 
-let first_post = &users[0].posts[0];
-println!("{} comments", first_post.comments.len());
+println!("{} comments", users[0].posts[0].comments.len());
 ```
 
-Supports `where`, `order_by`, `limit`, and `offset` on the root query:
+Filter and paginate the root query:
 
 ```rust
 let users = db.query(users)
@@ -554,7 +552,7 @@ let users = db.query(users)
 
 ### Selecting Specific Columns
 
-Use `.columns(...)` to pick which columns to return (or `.omit(...)` for the inverse). The result type becomes `PartialSelectUsers` — same shape as `SelectUsers` but every field is `Option<T>`, with `None` for columns you didn't ask for:
+`.columns(...)` / `.omit(...)` return `PartialSelectUsers` — same shape as `SelectUsers`, but every field is `Option<T>`:
 
 ```rust
 let users = db.query(users)
@@ -567,20 +565,15 @@ for u in &users {
 }
 ```
 
-### Type Aliases
+### Result Types
 
-Each table generates convenient type aliases for use in function signatures:
+`.with(users.posts())` returns `UsersWithPosts` — base columns via deref, relation data on fields like `user.posts`:
 
 ```rust
 fn print_user_posts(user: &UsersWithPosts) {
     println!("{} has {} posts", user.name, user.posts.len());
 }
 ```
-
-`UsersWithPosts` is the row type returned by `db.query(users).with(users.posts())`. Nest `*With*` types when composing multiple relations.
-
-> [!NOTE]
-> Relation data is exposed as fields on the generated `*With*` row type (e.g. `user.posts`, `post.comments`). Base columns remain available via deref.
 
 ## Transactions
 
