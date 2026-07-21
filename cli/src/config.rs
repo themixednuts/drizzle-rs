@@ -571,11 +571,13 @@ impl PostgresSslMode {
     }
 }
 
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 pub struct PostgresConnectionConfig {
     pub config: tokio_postgres::Config,
     pub ssl: PostgresSslMode,
 }
 
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 impl PostgresCreds {
     pub fn connection_config(&self) -> Result<PostgresConnectionConfig, String> {
         match self {
@@ -1629,6 +1631,7 @@ mod tests {
         ));
     }
 
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
     #[test]
     fn postgres_host_credentials_are_structured_without_url_encoding() {
         let credentials = PostgresCreds::Host {

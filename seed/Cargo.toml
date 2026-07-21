@@ -15,14 +15,18 @@ drizzle-postgres = { workspace = true, optional = true, features = ["std"] }
 rand = { workspace = true }
 
 [features]
-default = ["sqlite", "postgres"]
+# No dialect by default — callers opt into sqlite and/or postgres.
+default = []
 
 sqlite = ["dep:drizzle-sqlite"]
 postgres = ["dep:drizzle-postgres"]
 
-serde = ["postgres", "drizzle-postgres/serde"]
-uuid = ["postgres", "drizzle-postgres/uuid"]
-chrono = ["postgres", "drizzle-postgres/chrono"]
-cidr = ["postgres", "drizzle-postgres/cidr"]
-geo-types = ["postgres", "drizzle-postgres/geo-types"]
-bit-vec = ["postgres", "drizzle-postgres/bit-vec"]
+# Weak forwards: type features must not activate a dialect the caller did not
+# request (previously `uuid = ["postgres", ...]` pulled drizzle-postgres into
+# sqlite-only builds).
+serde = ["drizzle-postgres?/serde", "drizzle-sqlite?/serde"]
+uuid = ["drizzle-postgres?/uuid", "drizzle-sqlite?/uuid"]
+chrono = ["drizzle-postgres?/chrono", "drizzle-sqlite?/chrono"]
+cidr = ["drizzle-postgres?/cidr"]
+geo-types = ["drizzle-postgres?/geo-types"]
+bit-vec = ["drizzle-postgres?/bit-vec"]

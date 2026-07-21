@@ -66,11 +66,7 @@ chrono = ["dep:chrono", "postgres?/with-chrono-0_4", "tokio-postgres?/with-chron
 time = ["dep:time", "postgres?/with-time-0_3", "tokio-postgres?/with-time-0_3"]
 arrayvec = ["dep:arrayvec"]
 bytes = ["dep:bytes"]
-rust-decimal = [
-    "dep:rust_decimal",
-    "rust_decimal?/db-postgres",
-    "rust_decimal?/db-tokio-postgres",
-]
+rust-decimal = ["dep:rust_decimal"]
 cidr = ["dep:cidr", "postgres?/with-cidr-0_3", "tokio-postgres?/with-cidr-0_3"]
 geo-types = [
     "dep:geo-types",
@@ -104,8 +100,8 @@ sqlite = []
 rusqlite = ["std", "dep:rusqlite"]
 turso = ["std", "dep:turso"]
 libsql = ["std", "dep:libsql"]
-postgres-sync = ["std", "dep:postgres"]
-tokio-postgres = ["std", "dep:tokio-postgres"]
+postgres-sync = ["std", "dep:postgres", "rust_decimal?/db-postgres"]
+tokio-postgres = ["std", "dep:tokio-postgres", "rust_decimal?/db-tokio-postgres"]
 
 # Profiling
 profiling = ["std", "dep:puffin"]
