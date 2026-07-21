@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.15](https://github.com/themixednuts/drizzle-rs/compare/v0.1.14...v0.1.15) - 2026-07-21
+
+### Added
+
+- *(query)* concrete With* relation fields and reverse FK naming
+
+### Documentation
+
+- tighten relational query README and CLI release install
+
+### Fixed
+
+- keep workspace rusqlite lock on 0.39
+- allow rusqlite 0.40
+- stop type features from pulling unrelated dialect deps
+
 ## [0.1.14](https://github.com/themixednuts/drizzle-rs/compare/v0.1.13...v0.1.14) - 2026-07-18
 
 ### Fixed
