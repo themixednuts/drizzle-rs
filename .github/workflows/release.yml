@@ -190,38 +190,12 @@ jobs:
 
             ### Installation
 
-            #### Linux (x86_64, glibc)
             ```bash
-            curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/drizzle-x86_64-unknown-linux-gnu.tar.gz | tar -xz
-            sudo mv drizzle /usr/local/bin/
+            cargo install drizzle-cli --locked --all-features
+            # or: cargo binstall drizzle-cli
             ```
 
-            #### Linux (x86_64, musl - static)
-            ```bash
-            curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/drizzle-x86_64-unknown-linux-musl.tar.gz | tar -xz
-            sudo mv drizzle /usr/local/bin/
-            ```
-
-            #### Linux (ARM64)
-            ```bash
-            curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/drizzle-aarch64-unknown-linux-gnu.tar.gz | tar -xz
-            sudo mv drizzle /usr/local/bin/
-            ```
-
-            #### macOS (Intel)
-            ```bash
-            curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/drizzle-x86_64-apple-darwin.tar.gz | tar -xz
-            sudo mv drizzle /usr/local/bin/
-            ```
-
-            #### macOS (Apple Silicon)
-            ```bash
-            curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/drizzle-aarch64-apple-darwin.tar.gz | tar -xz
-            sudo mv drizzle /usr/local/bin/
-            ```
-
-            #### Windows (x86_64)
-            Download `drizzle-x86_64-pc-windows-msvc.zip`, extract, and add to PATH.
+            Prebuilt binaries for common targets are attached below.
 
             ### Verify
             ```bash
