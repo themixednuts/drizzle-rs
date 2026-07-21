@@ -84,9 +84,9 @@ smallvec = { version = "1.15", default-features = false, features = [
 ] }
 thiserror = { version = "2.0", default-features = false }
 toml = { version = "0.9" }
-tokio = { version = "1.48" }
+tokio = { version = ">=1.48, <2" }
 turso = { version = ">=0.7, <0.8", default-features = false, features = ["pure-rust-crypto"] }
-worker = { version = "0.8", default-features = false }
+worker = { version = ">=0.8, <0.9", default-features = false }
 wasm-bindgen = { version = "0.2" }
 js-sys = { version = "0.3" }
 uuid = { version = "1.18", features = ["v4"] }
@@ -95,9 +95,9 @@ puffin = { version = "0.19" }
 tracing = { version = "0.1" }
 arrayvec = { version = "0.7", default-features = false, features = ["serde"] }
 postgres = { version = ">=0.19.11, <0.20" }
-postgres-native-tls = "0.5.3"
-native-tls = { version = "0.2.18", features = ["vendored"] }
-tokio-postgres = { version = ">=0.7.15, <0.8", default-features = false, features = [
+postgres-native-tls = { version = ">=0.5.3, <0.6" }
+native-tls = { version = ">=0.2.18, <0.3", features = ["vendored"] }
+tokio-postgres = { version = ">=0.7.18, <0.8", default-features = false, features = [
   "runtime",
 ] }
 # AWS Aurora Data API (RDS Data Service) — Postgres + MySQL over HTTP.
