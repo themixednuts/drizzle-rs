@@ -350,6 +350,33 @@ pub const DEFAULT: ColumnMarker = ColumnMarker;
 /// See: <https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK>
 pub const REFERENCES: ColumnMarker = ColumnMarker;
 
+/// Sets the reverse relation accessor name on the referenced table.
+///
+/// By default, reverse relations are named from the source table
+/// (`posts` for a `Post` table). When multiple foreign keys target the
+/// same table — or the FK is self-referential — the name is disambiguated
+/// as `{forward}_{plural}` (e.g. `author_posts`). Use `relation` to pick
+/// an explicit reverse name instead.
+///
+/// The forward relation (on this table) is unchanged; only the reverse
+/// accessor on the referenced table is renamed.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// // Users get `.authored()` instead of `.author_posts()`
+/// #[column(REFERENCES = User::id, RELATION = "authored")]
+/// author_id: i32,
+///
+/// // Still auto-disambiguated: Users get `.editor_posts()`
+/// #[column(REFERENCES = User::id)]
+/// editor_id: Option<i32>,
+/// # "####;
+/// ```
+///
+/// Requires a `REFERENCES` attribute on the same column.
+pub const RELATION: ColumnMarker = ColumnMarker;
+
 /// Specifies the ON DELETE action for foreign key references.
 ///
 /// ## Example

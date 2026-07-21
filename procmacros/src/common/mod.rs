@@ -22,7 +22,7 @@ pub mod view_query;
 
 pub use constraint::Constraint;
 pub use context::ModelType;
-pub use diagnostics::references_required_message;
+pub use diagnostics::{references_required_message, relation_requires_references_message};
 #[cfg(feature = "sqlite")]
 pub use helpers::has_json_attribute;
 pub use helpers::{extract_struct_fields, make_uppercase_path, parse_column_reference};

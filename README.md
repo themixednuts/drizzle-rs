@@ -517,11 +517,11 @@ let users = db.query(users)
     .find_many()?;
 
 for user in &users {
-    println!("{}: {} posts", user.name, user.posts().len());
+    println!("{}: {} posts", user.name, user.posts.len());
 }
 ```
 
-`.find_first()` returns `Option<QueryRow<...>>` instead of `Vec`:
+`.find_first()` returns `Option<...>` instead of `Vec`:
 
 ```rust
 let user = db.query(users)
@@ -537,8 +537,8 @@ let users = db.query(users)
     .with(users.posts().with(posts.comments()))
     .find_many()?;
 
-let first_post = &users[0].posts()[0];
-println!("{} comments", first_post.comments().len());
+let first_post = &users[0].posts[0];
+println!("{} comments", first_post.comments.len());
 ```
 
 Supports `where`, `order_by`, `limit`, and `offset` on the root query:
@@ -572,15 +572,15 @@ for u in &users {
 Each table generates convenient type aliases for use in function signatures:
 
 ```rust
-fn print_user_posts(user: &UsersQueryRow<UsersWithPosts>) {
-    println!("{} has {} posts", user.name, user.posts().len());
+fn print_user_posts(user: &UsersWithPosts) {
+    println!("{} has {} posts", user.name, user.posts.len());
 }
 ```
 
-`UsersQueryRow<R>` is the row type returned by `db.query(users)`, parameterized over the `with(...)` shape (`UsersWithPosts` here means "include `posts`").
+`UsersWithPosts` is the row type returned by `db.query(users).with(users.posts())`. Nest `*With*` types when composing multiple relations.
 
 > [!NOTE]
-> Accessing a relation on a returned row (`user.posts()`, `post.comments()`) requires the generated `Query{Table}{Relation}` trait to be in scope — import it from your schema module (e.g. `use crate::schema::{QueryUsersPosts, QueryPostsComments};`).
+> Relation data is exposed as fields on the generated `*With*` row type (e.g. `user.posts`, `post.comments`). Base columns remain available via deref.
 
 ## Transactions
 

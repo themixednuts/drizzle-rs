@@ -214,6 +214,7 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
                 target_table_ident: fk.table_ident.clone(),
                 target_column_ident: fk.column_ident.clone(),
                 is_nullable: f.is_nullable,
+                relation_name: f.relation_name.clone(),
             })
         })
         .collect();

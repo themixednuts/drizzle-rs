@@ -15,3 +15,9 @@ pub fn references_required_message(on_delete: bool, on_update: bool) -> String {
             .to_string()
     }
 }
+
+/// Error when `relation = "..."` is set without a foreign key reference.
+pub fn relation_requires_references_message() -> &'static str {
+    "relation requires a references attribute.\n\
+     Example: #[column(references = Table::column, relation = \"posts\")]"
+}

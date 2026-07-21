@@ -61,8 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use drizzle::sqlite::rusqlite::Drizzle;
 
     use readme::{
-        InsertComments, InsertPosts, InsertUsers, Posts, QueryPostsComments, QueryUsersPosts,
-        Schema, SelectUsers, UpdateUsers, Users,
+        InsertComments, InsertPosts, InsertUsers, Posts, Schema, SelectUsers, UpdateUsers, Users,
     };
 
     // -------- 4. Connect & Query --------
@@ -254,7 +253,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // -------- Relational Queries --------
     let user_rows = db.query(users).with(users.posts()).find_many()?;
     for u in &user_rows {
-        let _ = u.posts().len();
+        let _ = u.posts.len();
     }
 
     let _found = db
@@ -268,7 +267,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(users.posts().with(posts.comments()))
         .find_many()?;
     if let Some(first) = nested.first() {
-        let _ = first.posts().first().map(|p| p.comments().len());
+        let _ = first.posts.first().map(|p| p.comments.len());
     }
 
     let _paged = db
@@ -290,7 +289,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Type aliases used in function signatures (no body needed — just verify they exist).
-    fn _consume(_: &readme::UsersQueryRow<readme::UsersWithPosts>) {}
+    fn _consume(_: &readme::UsersWithPosts) {}
 
     // -------- Transactions --------
     use drizzle::sqlite::connection::SQLiteTransactionType;

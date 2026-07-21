@@ -1,7 +1,7 @@
 //! Shared query API code generation for both `SQLite` and `PostgreSQL`.
 //!
-//! Generates relation ZSTs, `RelationDef` impls, inherent accessor methods,
-//! result accessor traits, type aliases, JSON decoder impls, and column
+//! Generates relation ZSTs, `RelationDef` impls, inherent builder accessors,
+//! concrete `*With*` result row structs, JSON decoder impls, and column
 //! selectors from FK declarations.
 
 use heck::{ToSnakeCase, ToUpperCamelCase};
@@ -19,6 +19,9 @@ pub struct FkInfo {
     pub target_column_ident: Ident,
     /// Whether the source field is nullable (Option<T>).
     pub is_nullable: bool,
+    /// Optional reverse-relation name from `#[column(relation = "...")]`.
+    /// When set, overrides the auto-derived reverse accessor name.
+    pub relation_name: Option<String>,
 }
 
 /// How an enum field is stored in the database.
@@ -72,8 +75,8 @@ pub struct FieldJsonInfo {
 ///
 /// Returns a `TokenStream` containing:
 /// - `QueryTable` impl for the table ZST
-/// - Forward relation items (ZST, `RelationDef` impl, accessor method, result accessor trait, type alias)
-/// - Reverse relation items (ZST, `RelationDef` impl, accessor method, result accessor trait, type alias)
+/// - Forward relation items (ZST, `RelationDef` impl, builder accessor, `*With*` row struct)
+/// - Reverse relation items (ZST, `RelationDef` impl, builder accessor, `*With*` row struct)
 /// - JSON decoder impl for the select model
 /// - JSON decoder impl for the partial select model
 /// - Column selector struct and `.columns()` method
@@ -107,20 +110,14 @@ pub fn generate_query_api(
         &blob_column_names,
     ));
 
-    // 1b. Generate QueryRow type alias for cleaner function signatures
+    // 1b. Type alias for a query result row with no relations loaded.
     let query_row_alias = format_ident!("{}QueryRow", struct_ident);
     tokens.extend(quote! {
-        /// Type alias for a query result row from this table.
+        /// Type alias for a query result row from this table with no relations loaded.
         ///
-        /// Use `S` to specify loaded relations:
-        /// ```rust
-        /// # type UsersWithPosts = ();
-        /// # type UsersQueryRow<T> = T;
-        /// fn process(rows: &[UsersQueryRow<UsersWithPosts>]) {
-        ///     let _ = rows;
-        /// }
-        /// ```
-        #struct_vis type #query_row_alias<S = ()> = drizzle::core::query::QueryRow<#select_model_ident, S>;
+        /// Relation-loaded results use the generated `*With*` structs instead
+        /// (for example `UsersWithPosts`).
+        #struct_vis type #query_row_alias = #select_model_ident;
     });
 
     // 2. Generate forward relations (from this table to target)
@@ -225,28 +222,55 @@ fn reverse_method_name(source_table_ident: &Ident) -> String {
     pluralize(&source_table_ident.to_string().to_snake_case())
 }
 
+/// Resolve the reverse relation accessor name for one FK.
+///
+/// Priority:
+/// 1. Explicit `relation = "..."` override
+/// 2. Disambiguated `{forward}_{plural(source)}` when self-ref or multi-FK
+/// 3. Plain `plural(source)` otherwise
+fn reverse_relation_method_name(
+    fk: &FkInfo,
+    source_table_ident: &Ident,
+    needs_disambiguation: bool,
+) -> String {
+    if let Some(name) = &fk.relation_name {
+        return name.clone();
+    }
+    let base = reverse_method_name(source_table_ident);
+    if needs_disambiguation {
+        format!("{}_{base}", forward_method_name(&fk.source_column))
+    } else {
+        base
+    }
+}
+
 /// Pluralize an English word using the `pluralizer` crate.
 fn pluralize(s: &str) -> String {
     pluralizer::pluralize(s, 2, false)
 }
 
+/// Cardinality of a generated relation — controls the with-row field type.
+enum RelCardKind {
+    Many,
+    One,
+    OptionalOne,
+}
+
 /// Parameters needed to emit one relation (ZST + `RelationDef` + accessor
-/// method + result accessor trait + type alias) regardless of cardinality.
+/// method + concrete with-row struct) regardless of cardinality.
 ///
 /// Forward, reverse, and many-to-many generation all produce the same
 /// skeleton; only the source/target types, cardinality, FK columns body,
-/// optional junction body, accessor receiver, and the type alias's data
-/// slot differ. `RelEmitter::emit` is the sole place that knows the skeleton.
+/// optional junction body, and accessor receiver differ.
+/// `RelEmitter::emit` is the sole place that knows the skeleton.
 struct RelEmitter<'a> {
     /// `pub` / `pub(crate)` from the host struct.
     vis: &'a Visibility,
     /// `__Rel_X_Y` — the ZST that implements `RelationDef`.
     rel_zst: Ident,
-    /// `QueryXY` — the result accessor trait.
-    accessor_trait: Ident,
-    /// `XWithY` — public type alias for the loaded-relation row.
+    /// `XWithY` — public concrete with-row struct.
     type_alias: Ident,
-    /// Method ident on both the accessor receiver and the accessor trait.
+    /// Method / field ident (`posts`, `author`, …).
     method: Ident,
     /// `RelationDef::NAME` — the method name string for runtime use.
     method_str: String,
@@ -254,8 +278,12 @@ struct RelEmitter<'a> {
     source: TokenStream,
     /// `RelationDef::Target` type tokens.
     target: TokenStream,
-    /// `RelationDef::Card` (One / OptionalOne / Many).
-    card: TokenStream,
+    /// Default `Inner` select model (usually `Select{Source}`).
+    source_select: Ident,
+    /// Default `Child` select model (usually `Select{Target}`).
+    target_select: Ident,
+    /// Cardinality kind for the with-row field wrapper.
+    card_kind: RelCardKind,
     /// Body of `fn fk_columns()` — usually `&[(...)]` or `&[]` for M2M.
     fk_columns_body: TokenStream,
     /// `Some(body)` to emit `fn junction()`, `None` to omit it.
@@ -263,9 +291,6 @@ struct RelEmitter<'a> {
     /// Receiver of the accessor method's inherent impl
     /// (e.g. `__XForwardRels`, the target table ZST, the source table ZST).
     accessor_receiver: TokenStream,
-    /// Data slot of `RelEntry` in the type alias
-    /// (e.g. `QueryRow<...>`, `Option<QueryRow<...>>`, `Vec<QueryRow<...>>`).
-    data_type: TokenStream,
 }
 
 impl RelEmitter<'_> {
@@ -273,18 +298,30 @@ impl RelEmitter<'_> {
         let RelEmitter {
             vis,
             rel_zst,
-            accessor_trait,
             type_alias,
             method,
             method_str,
             source,
             target,
-            card,
+            source_select,
+            target_select,
+            card_kind,
             fk_columns_body,
             junction_body,
             accessor_receiver,
-            data_type,
         } = self;
+
+        let card = match card_kind {
+            RelCardKind::Many => quote!(drizzle::core::relation::Many),
+            RelCardKind::One => quote!(drizzle::core::relation::One),
+            RelCardKind::OptionalOne => quote!(drizzle::core::relation::OptionalOne),
+        };
+
+        let field_ty = match card_kind {
+            RelCardKind::Many => quote!(::std::vec::Vec<Child>),
+            RelCardKind::One => quote!(Child),
+            RelCardKind::OptionalOne => quote!(::std::option::Option<Child>),
+        };
 
         let junction_fn = junction_body.as_ref().map(|body| {
             quote! {
@@ -311,30 +348,45 @@ impl RelEmitter<'_> {
                 #junction_fn
             }
 
-            /// Type alias for query results with this relation loaded.
+            /// Query result row with the `#method` relation loaded.
             ///
-            /// Nest `Rest` to compose multiple relations.
-            #vis type #type_alias<Rest = ()> =
-                drizzle::core::query::RelEntry<#rel_zst, #data_type, Rest>;
+            /// Base columns are available through [`Deref`](core::ops::Deref).
+            /// The `#method` field holds the loaded relation. Compose multiple
+            /// relations by nesting another `*With*` type as `Inner`.
+            #[derive(Debug, Clone)]
+            #vis struct #type_alias<Inner = #source_select, Child = #target_select> {
+                /// Inner row — the root select model, or a previously composed with-row.
+                pub inner: Inner,
+                /// Loaded `#method` relation.
+                pub #method: #field_ty,
+            }
+
+            impl<Inner, Child> ::core::ops::Deref for #type_alias<Inner, Child> {
+                type Target = Inner;
+                #[inline]
+                fn deref(&self) -> &Inner {
+                    &self.inner
+                }
+            }
+
+            impl drizzle::core::relation::AssembleRel for #rel_zst {
+                type Row<Inner, Child> = #type_alias<Inner, Child>;
+
+                #[inline]
+                fn assemble_row<Inner, Child>(
+                    inner: Inner,
+                    data: <Self::Card as drizzle::core::relation::CardWrap>::Wrap<Child>,
+                ) -> Self::Row<Inner, Child> {
+                    #type_alias {
+                        inner,
+                        #method: data,
+                    }
+                }
+            }
 
             impl #accessor_receiver {
                 #vis fn #method<'a, __V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<'a, __V, #rel_zst> {
                     drizzle::core::query::RelationHandle::new()
-                }
-            }
-
-            #vis trait #accessor_trait<W> {
-                type Data;
-                fn #method(&self) -> &Self::Data;
-            }
-
-            impl<Base, Store, W> #accessor_trait<W> for drizzle::core::query::QueryRow<Base, Store>
-            where
-                Store: drizzle::core::query::FindRel<#rel_zst, W>,
-            {
-                type Data = <Store as drizzle::core::query::FindRel<#rel_zst, W>>::Data;
-                fn #method(&self) -> &Self::Data {
-                    self.store.get()
                 }
             }
         }
@@ -375,6 +427,8 @@ fn generate_forward_relations(
         }
     });
 
+    let source_select = format_ident!("Select{struct_ident}");
+
     for fk in fk_infos {
         let method_name_str = forward_method_name(&fk.source_column);
         let target_table = &fk.target_table_ident;
@@ -383,34 +437,27 @@ fn generate_forward_relations(
         let target_col = fk.target_column_ident.to_string();
         let method_pascal = to_pascal(&method_name_str);
 
-        // Nullable FK -> OptionalOne + Option<...> data slot, else One.
-        let (card, data_type) = if fk.is_nullable {
-            (
-                quote!(drizzle::core::relation::OptionalOne),
-                quote!(Option<drizzle::core::query::QueryRow<#target_select, ()>>),
-            )
+        let card_kind = if fk.is_nullable {
+            RelCardKind::OptionalOne
         } else {
-            (
-                quote!(drizzle::core::relation::One),
-                quote!(drizzle::core::query::QueryRow<#target_select, ()>),
-            )
+            RelCardKind::One
         };
 
         tokens.extend(
             RelEmitter {
                 vis,
                 rel_zst: format_ident!("__Rel_{struct_ident}_{method_pascal}"),
-                accessor_trait: format_ident!("Query{struct_ident}{method_pascal}"),
                 type_alias: format_ident!("{struct_ident}With{method_pascal}"),
                 method: format_ident!("{method_name_str}"),
                 method_str: method_name_str.clone(),
                 source: quote!(#struct_ident),
                 target: quote!(#target_table),
-                card,
+                source_select: source_select.clone(),
+                target_select,
+                card_kind,
                 fk_columns_body: quote!(&[(#target_col, #source_col)]),
                 junction_body: None,
                 accessor_receiver: quote!(#rels_struct),
-                data_type,
             }
             .emit(),
         );
@@ -420,6 +467,11 @@ fn generate_forward_relations(
 }
 
 /// Generates reverse relations (Many from target tables back to this table).
+///
+/// Unique FKs use the pluralized source table name (`posts`). Self-referential
+/// FKs and multiple FKs to the same target are disambiguated as
+/// `{forward}_{plural}` (e.g. `author_posts`), unless `relation = "..."`
+/// overrides the reverse name.
 fn generate_reverse_relations(
     struct_ident: &Ident,
     vis: &Visibility,
@@ -434,49 +486,64 @@ fn generate_reverse_relations(
         *target_fk_counts.entry(target_name).or_insert(0usize) += 1;
     }
 
-    // Track which targets already had reverse generated to avoid duplicates
-    let mut seen_targets = std::collections::HashSet::new();
+    // Planned reverses: (fk, method_name). Collision-checked per target.
+    let mut planned: Vec<(&FkInfo, String)> = Vec::with_capacity(fk_infos.len());
+    let mut names_by_target: std::collections::HashMap<String, Vec<(String, String)>> =
+        std::collections::HashMap::new();
 
     for fk in fk_infos {
         let target_name = fk.target_table_ident.to_string();
+        let is_self_ref = fk.target_table_ident == *struct_ident;
+        let needs_disambiguation = is_self_ref || target_fk_counts[&target_name] > 1;
+        let method_name_str = reverse_relation_method_name(fk, struct_ident, needs_disambiguation);
 
-        // Skip self-referential FKs
-        if fk.target_table_ident == *struct_ident {
-            continue;
+        names_by_target
+            .entry(target_name)
+            .or_default()
+            .push((method_name_str.clone(), fk.source_column.clone()));
+        planned.push((fk, method_name_str));
+    }
+
+    for (target, entries) in &names_by_target {
+        let mut seen = std::collections::HashMap::<&str, &str>::new();
+        for (method, col) in entries {
+            if let Some(prev_col) = seen.insert(method.as_str(), col.as_str()) {
+                let msg = format!(
+                    "duplicate reverse relation `{method}` on `{target}` \
+                     (from columns `{prev_col}` and `{col}`). \
+                     Use `#[column(relation = \"...\")]` to disambiguate."
+                );
+                tokens.extend(quote! {
+                    ::core::compile_error!(#msg);
+                });
+            }
         }
+    }
 
-        // Skip multiple FKs to same target (ambiguous reverse)
-        if target_fk_counts[&target_name] > 1 {
-            continue;
-        }
-
-        // Skip if already generated for this target
-        if !seen_targets.insert(target_name.clone()) {
-            continue;
-        }
-
+    for (fk, method_name_str) in planned {
         let target_table = &fk.target_table_ident;
-        let source_select = format_ident!("Select{}", struct_ident);
-        let method_name_str = reverse_method_name(struct_ident);
+        let child_select = format_ident!("Select{struct_ident}");
+        let parent_select = format_ident!("Select{target_table}");
         let method_pascal = to_pascal(&method_name_str);
         let source_col = &fk.source_column;
         let target_col = fk.target_column_ident.to_string();
+        let method = format_ident!("{method_name_str}");
 
         tokens.extend(
             RelEmitter {
                 vis,
                 rel_zst: format_ident!("__Rel_{target_table}_{method_pascal}"),
-                accessor_trait: format_ident!("Query{target_table}{method_pascal}"),
                 type_alias: format_ident!("{target_table}With{method_pascal}"),
-                method: format_ident!("{method_name_str}"),
-                method_str: method_name_str.clone(),
+                method,
+                method_str: method_name_str,
                 source: quote!(#target_table),
                 target: quote!(#struct_ident),
-                card: quote!(drizzle::core::relation::Many),
+                source_select: parent_select,
+                target_select: child_select,
+                card_kind: RelCardKind::Many,
                 fk_columns_body: quote!(&[(#source_col, #target_col)]),
                 junction_body: None,
                 accessor_receiver: quote!(#target_table),
-                data_type: quote!(Vec<drizzle::core::query::QueryRow<#source_select, ()>>),
             }
             .emit(),
         );
@@ -520,7 +587,8 @@ fn generate_many_to_many_relations(
     for (source_fk, target_fk) in [(fk_a, fk_b), (fk_b, fk_a)] {
         let source_table = &source_fk.target_table_ident;
         let target_table = &target_fk.target_table_ident;
-        let target_select = format_ident!("Select{}", target_table);
+        let source_select = format_ident!("Select{source_table}");
+        let target_select = format_ident!("Select{target_table}");
 
         let method_name_str = reverse_method_name(target_table);
         let method_pascal = to_pascal(&method_name_str);
@@ -535,15 +603,14 @@ fn generate_many_to_many_relations(
                 vis,
                 // Include junction table name to avoid collisions with reverse relations
                 rel_zst: format_ident!("__Rel_{source_table}_Via{junction_pascal}_{method_pascal}"),
-                accessor_trait: format_ident!(
-                    "Query{source_table}Via{junction_pascal}{method_pascal}"
-                ),
                 type_alias: format_ident!("{source_table}Via{junction_pascal}With{method_pascal}"),
                 method: format_ident!("{method_name_str}"),
                 method_str: method_name_str.clone(),
                 source: quote!(#source_table),
                 target: quote!(#target_table),
-                card: quote!(drizzle::core::relation::Many),
+                source_select,
+                target_select,
+                card_kind: RelCardKind::Many,
                 fk_columns_body: quote!(&[]),
                 junction_body: Some(quote! {
                     Some(drizzle::core::relation::JunctionMeta {
@@ -553,7 +620,6 @@ fn generate_many_to_many_relations(
                     })
                 }),
                 accessor_receiver: quote!(#source_table),
-                data_type: quote!(Vec<drizzle::core::query::QueryRow<#target_select, ()>>),
             }
             .emit(),
         );

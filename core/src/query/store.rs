@@ -2,14 +2,9 @@
 
 use core::marker::PhantomData;
 
-/// Stores one relation's data plus the rest of the chain.
+/// One loaded relation's data plus the remaining store chain.
 ///
-/// A `QueryRow` with two included relations has store type:
-/// ```rust
-/// # let _ = r####"
-/// RelEntry<RelPosts, Vec<SelectPost>, RelEntry<RelInvitedBy, Option<SelectUser>, ()>>
-/// # "####;
-/// ```
+/// Built during JSON column decode and consumed by [`super::BuildRow`].
 #[derive(Debug, Clone)]
 pub struct RelEntry<Rel, Data, Rest> {
     pub(crate) data: Data,
@@ -25,5 +20,10 @@ impl<Rel, Data, Rest> RelEntry<Rel, Data, Rest> {
             rest,
             _rel: PhantomData,
         }
+    }
+
+    /// Splits this entry into its relation data and the remaining chain.
+    pub(crate) fn into_parts(self) -> (Data, Rest) {
+        (self.data, self.rest)
     }
 }
