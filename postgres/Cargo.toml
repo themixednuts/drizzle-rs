@@ -79,12 +79,7 @@ bit-vec = [
     "tokio-postgres?/with-bit-vec-0_8",
 ]
 
-rust-decimal = [
-    "dep:rust_decimal",
-    "drizzle-core/rust-decimal",
-    "rust_decimal?/db-postgres",
-    "rust_decimal?/db-tokio-postgres",
-]
+rust-decimal = ["dep:rust_decimal", "drizzle-core/rust-decimal"]
 
 arrayvec = ["dep:arrayvec"]
 smallvec = ["dep:smallvec"]
@@ -99,13 +94,20 @@ query = [
     "postgres?/with-serde_json-1",
     "tokio-postgres?/with-serde_json-1",
 ]
-postgres-sync = ["std", "dep:postgres", "dep:bytes", "drizzle-core/postgres-sync"]
+postgres-sync = [
+    "std",
+    "dep:postgres",
+    "dep:bytes",
+    "drizzle-core/postgres-sync",
+    "rust_decimal?/db-postgres",
+]
 tokio-postgres = [
     "std",
     "dep:tokio-postgres",
     "dep:tokio",
     "dep:bytes",
     "drizzle-core/tokio-postgres",
+    "rust_decimal?/db-tokio-postgres",
 ]
 # AWS Aurora Data API (RDS Data Service). Uses the aws-sdk-rdsdata crate
 # (HTTP-based, not wire-protocol). Row decoding goes through a dedicated

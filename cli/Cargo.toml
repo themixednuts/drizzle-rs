@@ -57,7 +57,8 @@ rusqlite = { workspace = true, optional = true, features = ["bundled"] }
 postgres = { workspace = true, optional = true }
 postgres-native-tls = { workspace = true, optional = true }
 native-tls = { workspace = true, optional = true }
-tokio-postgres = { workspace = true }
+# Shared URL/host config parsing for both postgres drivers (see PostgresCreds).
+tokio-postgres = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["rt", "macros"] }
 libsql = { workspace = true, optional = true }
 turso = { workspace = true, optional = true }
@@ -80,8 +81,25 @@ libsql = ["dep:libsql", "dep:tokio", "dep:drizzle-seed", "drizzle-seed/sqlite"]
 turso = ["dep:turso", "dep:libsql", "dep:tokio", "dep:drizzle-seed", "drizzle-seed/sqlite"]
 
 # PostgreSQL drivers
-postgres-sync = ["dep:postgres", "dep:postgres-native-tls", "dep:native-tls", "dep:drizzle-seed", "drizzle-seed/postgres"]
-tokio-postgres = ["dep:postgres-native-tls", "dep:native-tls", "dep:tokio", "dep:drizzle-seed", "drizzle-seed/postgres"]
+# Both drivers need `tokio-postgres` for `PostgresCreds::connection_config`
+# (URL/host → `tokio_postgres::Config`). The sync driver additionally pulls
+# the `postgres` crate; the async driver pulls `tokio`.
+postgres-sync = [
+  "dep:postgres",
+  "dep:tokio-postgres",
+  "dep:postgres-native-tls",
+  "dep:native-tls",
+  "dep:drizzle-seed",
+  "drizzle-seed/postgres",
+]
+tokio-postgres = [
+  "dep:tokio-postgres",
+  "dep:postgres-native-tls",
+  "dep:native-tls",
+  "dep:tokio",
+  "dep:drizzle-seed",
+  "drizzle-seed/postgres",
+]
 
 # Cloudflare D1 HTTP driver (CLI-only — runtime D1 uses the Worker binding via
 # the main `drizzle` crate's `d1` feature, not this).

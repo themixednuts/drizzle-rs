@@ -14,7 +14,6 @@ serde_json = { workspace = true, features = ["std"] }
 uuid = { workspace = true, features = ["v4", "serde"] }
 thiserror = { workspace = true }
 regex = { workspace = true, optional = true }
-tempfile = { workspace = true }
 heck = { workspace = true }
 nom = { workspace = true }
 drizzle-types = { workspace = true, features = ["serde", "std", "uuid"] }
@@ -24,6 +23,7 @@ toml = { workspace = true }
 [dev-dependencies]
 rusqlite = { workspace = true }
 postgres = { workspace = true }
+tempfile = { workspace = true }
 
 [features]
 default = ["std"]
