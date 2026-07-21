@@ -15,16 +15,7 @@ use crate::common::schema::sqlite::{
     SelectComment, SelectComplex, SelectPost,
 };
 
-// Import generated query result accessor traits from the common schema.
-// Relation accessors (e.g., users.posts()) and column selectors are now
-// inherent methods — no import needed. Only QueryAccess traits for result
-// field access still require imports.
-#[allow(unused_imports)]
-use crate::common::schema::sqlite::{
-    ComplexId, ComplexWithInvitedBy, ComplexWithPosts, QueryCategoryViaPostCategoryPosts,
-    QueryCommentReplies, QueryComplexInvitedBy, QueryComplexPosts, QueryPostAuthor,
-    QueryPostComments, QueryPostViaPostCategoryCategories,
-};
+use crate::common::schema::sqlite::{ComplexId, ComplexWithInvitedBy, ComplexWithPosts};
 
 // =============================================================================
 // Schemas for different test scenarios
@@ -153,14 +144,14 @@ fn query_reverse_relation_many(db: &mut TestDb<ComplexPostQuerySchema>) {
 
     // Alice has 2 posts
     let alice = users.iter().find(|u| u.name == "Alice").unwrap();
-    assert_eq!(alice.posts().len(), 2);
-    assert_eq!(alice.posts()[0].title, "Alice Post 1");
-    assert_eq!(alice.posts()[1].title, "Alice Post 2");
+    assert_eq!(alice.posts.len(), 2);
+    assert_eq!(alice.posts[0].title, "Alice Post 1");
+    assert_eq!(alice.posts[1].title, "Alice Post 2");
 
     // Bob has 1 post
     let bob = users.iter().find(|u| u.name == "Bob").unwrap();
-    assert_eq!(bob.posts().len(), 1);
-    assert_eq!(bob.posts()[0].title, "Bob Post 1");
+    assert_eq!(bob.posts.len(), 1);
+    assert_eq!(bob.posts[0].title, "Bob Post 1");
 }
 
 // -- Forward relation: Post -> Author (OptionalOne) --
@@ -184,7 +175,7 @@ fn query_forward_relation_one(db: &mut TestDb<ComplexPostQuerySchema>) {
 
     assert_eq!(posts.len(), 1);
     assert_eq!(posts[0].title, "Hello World");
-    assert_eq!(posts[0].author().as_ref().unwrap().name, "Alice");
+    assert_eq!(posts[0].author.as_ref().unwrap().name, "Alice");
 }
 
 // -- Forward relation: OptionalOne (nullable FK, self-referential) --
@@ -212,12 +203,12 @@ fn query_forward_optional_one(db: &mut TestDb<ComplexPostQuerySchema>) {
 
     // Alice has no inviter
     let alice = users.iter().find(|u| u.name == "Alice").unwrap();
-    assert!(alice.invited_by().is_none());
+    assert!(alice.invited_by.is_none());
 
     // Bob was invited by Alice
     let bob = users.iter().find(|u| u.name == "Bob").unwrap();
-    assert!(bob.invited_by().is_some());
-    assert_eq!(bob.invited_by().as_ref().unwrap().name, "Alice");
+    assert!(bob.invited_by.is_some());
+    assert_eq!(bob.invited_by.as_ref().unwrap().name, "Alice");
 }
 
 // -- Nested relations: Complex -> Posts -> Comments --
@@ -270,15 +261,15 @@ fn query_nested_relations(db: &mut TestDb<FullQuerySchema>) {
     assert_eq!(users.len(), 1);
     let alice = &users[0];
     assert_eq!(alice.name, "Alice");
-    assert_eq!(alice.posts().len(), 2);
+    assert_eq!(alice.posts.len(), 2);
 
     // Find post 1 and check its comments
-    let p1 = alice.posts().iter().find(|p| p.title == "Post 1").unwrap();
-    assert_eq!(p1.comments().len(), 2);
+    let p1 = alice.posts.iter().find(|p| p.title == "Post 1").unwrap();
+    assert_eq!(p1.comments.len(), 2);
 
-    let p2 = alice.posts().iter().find(|p| p.title == "Post 2").unwrap();
-    assert_eq!(p2.comments().len(), 1);
-    assert_eq!(p2.comments()[0].body, "Comment on P2");
+    let p2 = alice.posts.iter().find(|p| p.title == "Post 2").unwrap();
+    assert_eq!(p2.comments.len(), 1);
+    assert_eq!(p2.comments[0].body, "Comment on P2");
 }
 
 // -- Multiple relations: Complex with posts AND invited_by --
@@ -321,15 +312,15 @@ fn query_multiple_relations(db: &mut TestDb<ComplexPostQuerySchema>) {
 
     // Bob has 1 post and was invited by Alice
     let bob = users.iter().find(|u| u.name == "Bob").unwrap();
-    assert_eq!(bob.posts().len(), 1);
-    assert_eq!(bob.posts()[0].title, "Bob's Post");
-    assert!(bob.invited_by().is_some());
-    assert_eq!(bob.invited_by().as_ref().unwrap().name, "Alice");
+    assert_eq!(bob.posts.len(), 1);
+    assert_eq!(bob.posts[0].title, "Bob's Post");
+    assert!(bob.invited_by.is_some());
+    assert_eq!(bob.invited_by.as_ref().unwrap().name, "Alice");
 
     // Alice has no posts and no inviter
     let alice = users.iter().find(|u| u.name == "Alice").unwrap();
-    assert_eq!(alice.posts().len(), 0);
-    assert!(alice.invited_by().is_none());
+    assert_eq!(alice.posts.len(), 0);
+    assert!(alice.invited_by.is_none());
 }
 
 // -- Empty relation (Many with no rows) --
@@ -344,7 +335,7 @@ fn query_empty_many_relation(db: &mut TestDb<ComplexPostQuerySchema>) {
     let users = db.query(complex).with(complex.posts()).find_many();
 
     assert_eq!(users.len(), 1);
-    assert_eq!(users[0].posts().len(), 0);
+    assert_eq!(users[0].posts.len(), 0);
 }
 
 // -- Typed WHERE on root query --
@@ -425,7 +416,7 @@ fn query_relation_where_typed(db: &mut TestDb<ComplexPostQuerySchema>) {
         .find_many();
 
     assert_eq!(users.len(), 1);
-    assert_eq!(users[0].posts().len(), 2);
+    assert_eq!(users[0].posts.len(), 2);
 }
 
 // -- Typed ORDER BY + LIMIT on relation subquery --
@@ -455,9 +446,9 @@ fn query_relation_order_limit_typed(db: &mut TestDb<ComplexPostQuerySchema>) {
         .find_many();
 
     assert_eq!(users.len(), 1);
-    assert_eq!(users[0].posts().len(), 2);
-    assert_eq!(users[0].posts()[0].title, "Post C");
-    assert_eq!(users[0].posts()[1].title, "Post B");
+    assert_eq!(users[0].posts.len(), 2);
+    assert_eq!(users[0].posts[0].title, "Post C");
+    assert_eq!(users[0].posts[1].title, "Post B");
 }
 
 // -- Forward relation with NULL FK --
@@ -491,9 +482,9 @@ fn query_forward_relation_null_fk(db: &mut TestDb<ComplexPostQuerySchema>) {
 
     assert_eq!(posts.len(), 2);
     // "No Author" comes first alphabetically
-    assert!(posts[0].author().is_none());
-    assert!(posts[1].author().is_some());
-    assert_eq!(posts[1].author().as_ref().unwrap().name, "Alice");
+    assert!(posts[0].author.is_none());
+    assert!(posts[1].author.is_some());
+    assert_eq!(posts[1].author.as_ref().unwrap().name, "Alice");
 }
 
 // -- Combined root WHERE + relation WHERE (tests param ordering) --
@@ -529,8 +520,8 @@ fn query_root_and_relation_where_combined(db: &mut TestDb<ComplexPostQuerySchema
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].name, "Alice");
-    assert_eq!(users[0].posts().len(), 1);
-    assert_eq!(users[0].posts()[0].title, "Alice Published");
+    assert_eq!(users[0].posts.len(), 1);
+    assert_eq!(users[0].posts[0].title, "Alice Published");
 }
 
 // =============================================================================
@@ -709,9 +700,9 @@ fn query_view_with_forward_relation(db: &mut TestDb<ViewFkSchema>) {
 
     assert_eq!(posts.len(), 2);
     assert_eq!(posts[0].title, "Alice's Post");
-    assert_eq!(posts[0].author().as_ref().unwrap().name, "Alice");
+    assert_eq!(posts[0].author.as_ref().unwrap().name, "Alice");
     assert_eq!(posts[1].title, "Bob's Post");
-    assert_eq!(posts[1].author().as_ref().unwrap().name, "Bob");
+    assert_eq!(posts[1].author.as_ref().unwrap().name, "Bob");
 }
 
 // -- Combo: query regular tables and views in the same schema --
@@ -750,9 +741,9 @@ fn query_combo_tables_and_views(db: &mut TestDb<ViewFkSchema>) {
         .find_many();
     assert_eq!(users.len(), 2);
     assert_eq!(users[0].name, "Alice");
-    assert_eq!(users[0].posts().len(), 2);
+    assert_eq!(users[0].posts.len(), 2);
     assert_eq!(users[1].name, "Bob");
-    assert_eq!(users[1].posts().len(), 1);
+    assert_eq!(users[1].posts.len(), 1);
 
     // 2) Query view with relations from the same schema
     let view_posts = db
@@ -762,9 +753,9 @@ fn query_combo_tables_and_views(db: &mut TestDb<ViewFkSchema>) {
         .find_many();
     assert_eq!(view_posts.len(), 3);
     assert_eq!(view_posts[0].title, "Post A");
-    assert_eq!(view_posts[0].author().as_ref().unwrap().name, "Alice");
+    assert_eq!(view_posts[0].author.as_ref().unwrap().name, "Alice");
     assert_eq!(view_posts[2].title, "Post C");
-    assert_eq!(view_posts[2].author().as_ref().unwrap().name, "Bob");
+    assert_eq!(view_posts[2].author.as_ref().unwrap().name, "Bob");
 
     // 3) Query view standalone (no relations)
     let view_first = db
@@ -901,8 +892,8 @@ fn query_deep_nested_complex(db: &mut TestDb<DeepQuerySchema>) {
     assert_eq!(users[3].name, "Dave");
 
     // -- Alice: no inviter, 4 posts but LIMIT 3 --
-    assert!(users[0].invited_by().is_none());
-    let alice_posts = users[0].posts();
+    assert!(users[0].invited_by.is_none());
+    let alice_posts = &users[0].posts;
     // LIMIT 3, ordered by title DESC: "Update", "Thoughts", "Draft" (Announcement excluded)
     assert_eq!(alice_posts.len(), 3);
     assert_eq!(alice_posts[0].title, "Alice Update");
@@ -910,75 +901,64 @@ fn query_deep_nested_complex(db: &mut TestDb<DeepQuerySchema>) {
     assert_eq!(alice_posts[2].title, "Alice Draft");
 
     // Alice Update: 0 comments
-    assert_eq!(alice_posts[0].comments().len(), 0);
+    assert_eq!(alice_posts[0].comments.len(), 0);
 
     // Alice Thoughts: 1 comment, no replies
-    assert_eq!(alice_posts[1].comments().len(), 1);
-    assert_eq!(alice_posts[1].comments()[0].body, "Interesting thoughts");
-    assert_eq!(alice_posts[1].comments()[0].replies().len(), 0);
+    assert_eq!(alice_posts[1].comments.len(), 1);
+    assert_eq!(alice_posts[1].comments[0].body, "Interesting thoughts");
+    assert_eq!(alice_posts[1].comments[0].replies.len(), 0);
 
     // Alice Draft: 3 comments ordered by body ASC
-    let draft_comments = alice_posts[2].comments();
+    let draft_comments = &alice_posts[2].comments;
     assert_eq!(draft_comments.len(), 3);
     assert_eq!(draft_comments[0].body, "Great draft!");
     assert_eq!(draft_comments[1].body, "Love this");
     assert_eq!(draft_comments[2].body, "Needs work");
     // "Great draft!" has 1 reply
-    assert_eq!(draft_comments[0].replies().len(), 1);
-    assert_eq!(draft_comments[0].replies()[0].text, "Thanks!");
+    assert_eq!(draft_comments[0].replies.len(), 1);
+    assert_eq!(draft_comments[0].replies[0].text, "Thanks!");
     // "Love this" has 0 replies
-    assert_eq!(draft_comments[1].replies().len(), 0);
+    assert_eq!(draft_comments[1].replies.len(), 0);
     // "Needs work" has 1 reply
-    assert_eq!(draft_comments[2].replies().len(), 1);
-    assert_eq!(draft_comments[2].replies()[0].text, "Will revise");
+    assert_eq!(draft_comments[2].replies.len(), 1);
+    assert_eq!(draft_comments[2].replies[0].text, "Will revise");
 
     // -- Bob: invited by Alice, 1 post with 1 comment with 1 reply --
-    assert!(users[1].invited_by().is_some());
-    assert_eq!(users[1].invited_by().as_ref().unwrap().name, "Alice");
-    assert_eq!(users[1].posts().len(), 1);
-    assert_eq!(users[1].posts()[0].title, "Bob First Post");
-    assert_eq!(users[1].posts()[0].comments().len(), 1);
-    assert_eq!(users[1].posts()[0].comments()[0].body, "Welcome Bob!");
-    assert_eq!(users[1].posts()[0].comments()[0].replies().len(), 1);
+    assert!(users[1].invited_by.is_some());
+    assert_eq!(users[1].invited_by.as_ref().unwrap().name, "Alice");
+    assert_eq!(users[1].posts.len(), 1);
+    assert_eq!(users[1].posts[0].title, "Bob First Post");
+    assert_eq!(users[1].posts[0].comments.len(), 1);
+    assert_eq!(users[1].posts[0].comments[0].body, "Welcome Bob!");
+    assert_eq!(users[1].posts[0].comments[0].replies.len(), 1);
     assert_eq!(
-        users[1].posts()[0].comments()[0].replies()[0].text,
+        users[1].posts[0].comments[0].replies[0].text,
         "Glad to be here"
     );
 
     // -- Charlie: invited by Alice, no posts --
-    assert!(users[2].invited_by().is_some());
-    assert_eq!(users[2].invited_by().as_ref().unwrap().name, "Alice");
-    assert_eq!(users[2].posts().len(), 0);
+    assert!(users[2].invited_by.is_some());
+    assert_eq!(users[2].invited_by.as_ref().unwrap().name, "Alice");
+    assert_eq!(users[2].posts.len(), 0);
 
     // -- Dave: no inviter, no posts --
-    assert!(users[3].invited_by().is_none());
-    assert_eq!(users[3].posts().len(), 0);
+    assert!(users[3].invited_by.is_none());
+    assert_eq!(users[3].posts.len(), 0);
 }
 
 // =============================================================================
 // Type alias ergonomics
 // =============================================================================
 
-// Verify generated type aliases work in function signatures.
-// The query API generates aliases like `ComplexWithPosts<Rest = ()>` so users
-// can write clean function signatures instead of spelling out RelEntry<__Rel_...>.
-use drizzle::core::query::QueryRow;
-
-// Single relation: Complex with posts loaded
-type ComplexWithPostsRow = QueryRow<SelectComplex, ComplexWithPosts>;
-
-// Composed relations: Complex with invited_by AND posts loaded.
-// The Rest parameter chains them: `ComplexWithInvitedBy<ComplexWithPosts>`
-// means "store has invited_by first, then posts".
-// Note: order must match the .with() call order (last .with() is outermost).
-type ComplexWithPostsAndInviter = QueryRow<SelectComplex, ComplexWithInvitedBy<ComplexWithPosts>>;
+type ComplexWithPostsRow = ComplexWithPosts;
+type ComplexWithPostsAndInviter = ComplexWithInvitedBy<ComplexWithPosts>;
 
 fn count_posts(user: &ComplexWithPostsRow) -> usize {
-    user.posts().len()
+    user.posts.len()
 }
 
 fn get_inviter_name(user: &ComplexWithPostsAndInviter) -> Option<&str> {
-    user.invited_by().as_ref().map(|u| u.name.as_str())
+    user.invited_by.as_ref().map(|u| u.name.as_str())
 }
 
 #[drizzle::test]
@@ -1007,7 +987,6 @@ fn query_type_alias_in_fn_signature(db: &mut TestDb<ComplexPostQuerySchema>) {
         ])
         .execute();
 
-    // Use type alias with single relation
     let users: Vec<ComplexWithPostsRow> = db.query(complex).with(complex.posts()).find_many();
 
     let alice = users.iter().find(|u| u.name == "Alice").unwrap();
@@ -1016,9 +995,6 @@ fn query_type_alias_in_fn_signature(db: &mut TestDb<ComplexPostQuerySchema>) {
     let bob = users.iter().find(|u| u.name == "Bob").unwrap();
     assert_eq!(count_posts(bob), 1);
 
-    // Use type alias with composed relations
-    // .with() order: posts first, then invited_by
-    // Type order: InvitedBy<Posts> (last .with() is outermost in the store)
     let users: Vec<ComplexWithPostsAndInviter> = db
         .query(complex)
         .with(complex.posts())
@@ -1091,9 +1067,9 @@ fn query_relation_limit_offset(db: &mut TestDb<ComplexPostQuerySchema>) {
         .find_many();
 
     assert_eq!(users.len(), 1);
-    assert_eq!(users[0].posts().len(), 2);
-    assert_eq!(users[0].posts()[0].title, "BBB");
-    assert_eq!(users[0].posts()[1].title, "CCC");
+    assert_eq!(users[0].posts.len(), 2);
+    assert_eq!(users[0].posts[0].title, "BBB");
+    assert_eq!(users[0].posts[1].title, "CCC");
 }
 
 #[drizzle::test]
@@ -1140,9 +1116,9 @@ fn query_prepare_with_placeholders(db: &mut TestDb<ComplexPostQuerySchema>) {
 
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].name, "Alice");
-    assert_eq!(users[0].posts().len(), 2);
-    assert_eq!(users[0].posts()[0].title, "AAA");
-    assert_eq!(users[0].posts()[1].title, "BBB");
+    assert_eq!(users[0].posts.len(), 2);
+    assert_eq!(users[0].posts[0].title, "AAA");
+    assert_eq!(users[0].posts[1].title, "BBB");
 }
 
 // =============================================================================
@@ -1229,9 +1205,9 @@ fn query_columns_with_relations(db: &mut TestDb<ComplexPostQuerySchema>) {
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].name.as_deref(), Some("Alice"));
     assert!(users[0].invited_by.is_none()); // not selected
-    assert_eq!(users[0].posts().len(), 2);
+    assert_eq!(users[0].posts.len(), 2);
     // Relations are full SelectModel (not partial)
-    assert_eq!(users[0].posts()[0].title, "Post 1");
+    assert_eq!(users[0].posts[0].title, "Post 1");
 }
 
 // -- Partial columns on a relation --
@@ -1263,11 +1239,11 @@ fn query_relation_columns(db: &mut TestDb<ComplexPostQuerySchema>) {
     // Base is full SelectModel
     assert_eq!(users[0].name, "Alice");
     // Relation is PartialSelectModel
-    assert_eq!(users[0].posts().len(), 2);
-    assert!(users[0].posts()[0].id.is_some());
-    assert_eq!(users[0].posts()[0].title.as_deref(), Some("Post 1"));
+    assert_eq!(users[0].posts.len(), 2);
+    assert!(users[0].posts[0].id.is_some());
+    assert_eq!(users[0].posts[0].title.as_deref(), Some("Post 1"));
     // author_id not selected
-    assert!(users[0].posts()[0].author_id.is_none());
+    assert!(users[0].posts[0].author_id.is_none());
 }
 
 // -- find_first with partial columns --
@@ -1317,7 +1293,7 @@ fn query_first_limits_to_one(db: &mut TestDb<ComplexPostQuerySchema>) {
     let users = db.query(complex).with(complex.posts().first()).find_many();
 
     assert_eq!(users.len(), 1);
-    assert_eq!(users[0].posts().len(), 1);
+    assert_eq!(users[0].posts.len(), 1);
 }
 
 // =============================================================================
@@ -1332,7 +1308,7 @@ struct M2MQuerySchema {
     post_category: PostCategory,
 }
 
-// -- basic m2m: post.categories() returns categories through junction --
+// -- basic m2m: post.categories returns categories through junction --
 #[drizzle::test]
 fn query_many_to_many_basic(db: &mut TestDb<M2MQuerySchema>) {
     let M2MQuerySchema {
@@ -1379,9 +1355,9 @@ fn query_many_to_many_basic(db: &mut TestDb<M2MQuerySchema>) {
 
     assert_eq!(posts.len(), 1);
     assert_eq!(posts[0].title, "My Post");
-    assert_eq!(posts[0].categories().len(), 2);
+    assert_eq!(posts[0].categories.len(), 2);
     let cat_names: Vec<&str> = posts[0]
-        .categories()
+        .categories
         .iter()
         .map(|c| c.name.as_str())
         .collect();
@@ -1439,8 +1415,8 @@ fn query_many_to_many_reverse(db: &mut TestDb<M2MQuerySchema>) {
 
     assert_eq!(cats.len(), 1);
     assert_eq!(cats[0].name, "Tech");
-    assert_eq!(cats[0].posts().len(), 2);
-    let post_titles: Vec<&str> = cats[0].posts().iter().map(|p| p.title.as_str()).collect();
+    assert_eq!(cats[0].posts.len(), 2);
+    let post_titles: Vec<&str> = cats[0].posts.iter().map(|p| p.title.as_str()).collect();
     assert!(post_titles.contains(&"Post A"));
     assert!(post_titles.contains(&"Post B"));
 }
@@ -1470,7 +1446,7 @@ fn query_many_to_many_empty(db: &mut TestDb<M2MQuerySchema>) {
     let posts = db.query(post).with(post.categories()).find_many();
 
     assert_eq!(posts.len(), 1);
-    assert_eq!(posts[0].categories().len(), 0);
+    assert_eq!(posts[0].categories.len(), 0);
 }
 
 // -- m2m with limit --
@@ -1521,5 +1497,101 @@ fn query_many_to_many_with_limit(db: &mut TestDb<M2MQuerySchema>) {
     let posts = db.query(post).with(post.categories().limit(2)).find_many();
 
     assert_eq!(posts.len(), 1);
-    assert_eq!(posts[0].categories().len(), 2);
+    assert_eq!(posts[0].categories.len(), 2);
+}
+
+// =============================================================================
+// Multi-FK reverse relations + `relation = "..."` override
+// =============================================================================
+
+#[SQLiteTable(NAME = "articles")]
+struct Article {
+    #[column(PRIMARY, DEFAULT_FN = Uuid::new_v4)]
+    id: Uuid,
+    title: String,
+    /// Reverse on Complex: `.authored()` via explicit relation name.
+    #[column(REFERENCES = Complex::id, RELATION = "authored")]
+    author_id: Uuid,
+    /// Reverse on Complex: `.editor_articles()` via auto-disambiguation.
+    #[column(REFERENCES = Complex::id)]
+    editor_id: Option<Uuid>,
+}
+
+#[derive(SQLiteSchema)]
+struct MultiFkQuerySchema {
+    complex: Complex,
+    article: Article,
+}
+
+// -- Multi-FK: relation override + auto-disambiguated reverse --
+#[drizzle::test]
+fn query_multi_fk_reverse_disambiguated(db: &mut TestDb<MultiFkQuerySchema>) {
+    let MultiFkQuerySchema { complex, article } = schema;
+
+    db.insert(complex)
+        .values([
+            InsertComplex::new("Alice", true, Role::User),
+            InsertComplex::new("Bob", true, Role::User),
+        ])
+        .execute();
+
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
+    let alice_id = all_users.iter().find(|u| u.name == "Alice").unwrap().id;
+    let bob_id = all_users.iter().find(|u| u.name == "Bob").unwrap().id;
+
+    db.insert(article)
+        .values([InsertArticle::new("Draft A", alice_id).with_editor_id(bob_id)])
+        .execute();
+    db.insert(article)
+        .values([InsertArticle::new("Draft B", bob_id)])
+        .execute();
+
+    // `relation = "authored"` → Complex.authored()
+    let authors = db.query(complex).with(complex.authored()).find_many();
+    let alice = authors.iter().find(|u| u.name == "Alice").unwrap();
+    assert_eq!(alice.authored.len(), 1);
+    assert_eq!(alice.authored[0].title, "Draft A");
+    let bob = authors.iter().find(|u| u.name == "Bob").unwrap();
+    assert_eq!(bob.authored.len(), 1);
+    assert_eq!(bob.authored[0].title, "Draft B");
+
+    // Auto-disambiguated: Complex.editor_articles()
+    let editors = db
+        .query(complex)
+        .with(complex.editor_articles())
+        .find_many();
+    let bob_ed = editors.iter().find(|u| u.name == "Bob").unwrap();
+    assert_eq!(bob_ed.editor_articles.len(), 1);
+    assert_eq!(bob_ed.editor_articles[0].title, "Draft A");
+    let alice_ed = editors.iter().find(|u| u.name == "Alice").unwrap();
+    assert_eq!(alice_ed.editor_articles.len(), 0);
+}
+
+// -- Self-referential reverse: Complex.invited_by_complexes() --
+#[drizzle::test]
+fn query_self_ref_reverse_disambiguated(db: &mut TestDb<ComplexPostQuerySchema>) {
+    let ComplexPostQuerySchema { complex, post: _ } = schema;
+
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
+    let alice_id = all_users[0].id;
+
+    db.insert(complex)
+        .values([
+            InsertComplex::new("Bob", true, Role::User).with_invited_by(alice_id),
+            InsertComplex::new("Charlie", true, Role::User).with_invited_by(alice_id),
+        ])
+        .execute();
+
+    let users = db
+        .query(complex)
+        .with(complex.invited_by_complexes())
+        .find_many();
+
+    let alice = users.iter().find(|u| u.name == "Alice").unwrap();
+    assert_eq!(alice.invited_by_complexes.len(), 2);
+    let bob = users.iter().find(|u| u.name == "Bob").unwrap();
+    assert_eq!(bob.invited_by_complexes.len(), 0);
 }

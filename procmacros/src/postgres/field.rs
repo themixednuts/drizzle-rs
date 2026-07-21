@@ -7,13 +7,14 @@ use syn::{Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Result, Token, Ty
 
 use crate::common::make_uppercase_path;
 use crate::common::{
-    is_option_type, option_inner_type, references_required_message, type_is_array_char,
-    type_is_array_string, type_is_array_u8, type_is_arrayvec_u8, type_is_bit_vec, type_is_bool,
-    type_is_datetime_tz, type_is_float, type_is_geo_linestring, type_is_geo_point,
-    type_is_geo_rect, type_is_int, type_is_ip_addr, type_is_ip_cidr, type_is_json_value,
-    type_is_mac_addr, type_is_naive_date, type_is_naive_datetime, type_is_naive_time,
-    type_is_offset_datetime, type_is_primitive_date_time, type_is_string_like, type_is_time_date,
-    type_is_time_time, type_is_uuid, type_is_vec_u8, unwrap_option, vec_inner_type,
+    is_option_type, option_inner_type, references_required_message,
+    relation_requires_references_message, type_is_array_char, type_is_array_string,
+    type_is_array_u8, type_is_arrayvec_u8, type_is_bit_vec, type_is_bool, type_is_datetime_tz,
+    type_is_float, type_is_geo_linestring, type_is_geo_point, type_is_geo_rect, type_is_int,
+    type_is_ip_addr, type_is_ip_cidr, type_is_json_value, type_is_mac_addr, type_is_naive_date,
+    type_is_naive_datetime, type_is_naive_time, type_is_offset_datetime,
+    type_is_primitive_date_time, type_is_string_like, type_is_time_date, type_is_time_time,
+    type_is_uuid, type_is_vec_u8, unwrap_option, vec_inner_type,
 };
 
 // Note: drizzle_types::postgres::TypeCategory exists but has different feature gates.
@@ -681,6 +682,8 @@ pub struct FieldInfo {
     pub default_fn: Option<TokenStream>,
     pub check_constraint: Option<String>,
     pub foreign_key: Option<PostgreSQLReference>,
+    /// Optional reverse-relation name from `#[column(relation = "...")]`.
+    pub relation_name: Option<String>,
     pub has_default: bool,
     pub marker_exprs: Vec<syn::ExprPath>,
     /// True for unknown types that are validated at type-check time via `DrizzlePostgresColumn` trait
@@ -809,6 +812,7 @@ impl FieldInfo {
         let mut is_explicit_jsonb = false;
         let mut column_name = None;
         let mut collate: Option<String> = None;
+        let mut relation_name: Option<String> = None;
         for attr in &field.attrs {
             if let Some(column_info) =
                 Self::parse_column_attribute(attr, type_category, name.span())?
@@ -829,6 +833,7 @@ impl FieldInfo {
                 is_explicit_jsonb = column_info.is_jsonb;
                 column_name = column_info.column_name;
                 collate = column_info.collate;
+                relation_name = column_info.relation_name;
                 marker_exprs = column_info.marker_exprs;
                 break;
             }
@@ -950,6 +955,7 @@ impl FieldInfo {
             default_fn,
             check_constraint,
             foreign_key,
+            relation_name,
             has_default,
             marker_exprs,
             is_custom_type,
@@ -1003,6 +1009,7 @@ impl FieldInfo {
         let enum_type_name: Option<String> = None;
         let mut column_name = None;
         let mut collate: Option<String> = None;
+        let mut relation_name: Option<String> = None;
         let mut marker_exprs = Vec::new();
 
         // Parse attribute arguments: #[column(primary, unique, default = "foo")]
@@ -1276,7 +1283,32 @@ impl FieldInfo {
                         if meta.input.peek(Token![=]) {
                             meta.input.parse::<Token![=]>()?;
                             let path: ExprPath = meta.input.parse()?;
-                            foreign_key = Some(Self::parse_reference(&path)?);                            marker_exprs.push(make_uppercase_path(path_ident, "REFERENCES"));
+                            foreign_key = Some(Self::parse_reference(&path)?);
+                            marker_exprs.push(make_uppercase_path(path_ident, "REFERENCES"));
+                        }
+                    }
+                    "RELATION" => {
+                        if meta.input.peek(Token![=]) {
+                            meta.input.parse::<Token![=]>()?;
+                            let lit: Lit = meta.input.parse()?;
+                            if let Lit::Str(s) = lit {
+                                let name = s.value();
+                                if syn::parse_str::<Ident>(&name).is_err() {
+                                    return Err(syn::Error::new_spanned(
+                                        &s,
+                                        format!(
+                                            "relation = \"{name}\" must be a valid Rust identifier"
+                                        ),
+                                    ));
+                                }
+                                relation_name = Some(name);
+                                marker_exprs.push(make_uppercase_path(path_ident, "RELATION"));
+                            } else {
+                                return Err(syn::Error::new_spanned(
+                                    lit,
+                                    "relation requires a string literal, e.g. relation = \"authored\"",
+                                ));
+                            }
                         }
                     }
                     "ON_DELETE" => {
@@ -1346,7 +1378,7 @@ impl FieldInfo {
                             format!("unknown #[column] attribute `{path_ident}`.\n\
                                      Supported: primary, unique, serial, bigserial, smallserial, identity, \
                                      generated, json, jsonb, enum, name, default, default_fn, default_sql, check, references, \
-                                     on_delete, on_update, deferrable, initially_deferred"),
+                                     relation, on_delete, on_update, deferrable, initially_deferred"),
                         ));
                     }
                 }
@@ -1369,12 +1401,20 @@ impl FieldInfo {
             ));
         }
 
+        if relation_name.is_some() && foreign_key.is_none() {
+            return Err(syn::Error::new(
+                span,
+                relation_requires_references_message(),
+            ));
+        }
+
         Ok(Some(ColumnInfo {
             flags,
             default,
             default_fn,
             check_constraint,
             foreign_key,
+            relation_name,
             is_serial,
             is_smallserial,
             is_bigserial,
@@ -1824,6 +1864,7 @@ struct ColumnInfo {
     default_fn: Option<TokenStream>,
     check_constraint: Option<String>,
     foreign_key: Option<PostgreSQLReference>,
+    relation_name: Option<String>,
     is_serial: bool,
     is_smallserial: bool,
     is_bigserial: bool,

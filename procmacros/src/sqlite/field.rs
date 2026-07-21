@@ -10,9 +10,10 @@ use syn::{
 
 use crate::common::make_uppercase_path;
 use crate::common::{
-    is_option_type, option_inner_type, references_required_message, type_is_array_string,
-    type_is_array_u8, type_is_arrayvec_u8, type_is_bool, type_is_byte_slice, type_is_datetime_tz,
-    type_is_float, type_is_int, type_is_json_value, type_is_naive_date, type_is_naive_datetime,
+    is_option_type, option_inner_type, references_required_message,
+    relation_requires_references_message, type_is_array_string, type_is_array_u8,
+    type_is_arrayvec_u8, type_is_bool, type_is_byte_slice, type_is_datetime_tz, type_is_float,
+    type_is_int, type_is_json_value, type_is_naive_date, type_is_naive_datetime,
     type_is_naive_time, type_is_offset_datetime, type_is_primitive_date_time, type_is_string_like,
     type_is_time_date, type_is_time_time, type_is_uuid, type_is_vec_u8, unwrap_option,
 };
@@ -250,6 +251,9 @@ pub struct FieldInfo<'a> {
     // Foreign key support
     pub(crate) foreign_key: Option<ForeignKeyReference>,
 
+    /// Optional reverse-relation name from `#[column(relation = "...")]`.
+    pub(crate) relation_name: Option<String>,
+
     /// Resolved primary-key / unique state.
     ///
     /// Set in `from_field` once the table-level `is_composite_pk` decision
@@ -350,6 +354,8 @@ struct ParsedArgs {
     references: Option<Expr>,
     on_delete: Option<String>,
     on_update: Option<String>,
+    /// Reverse-relation accessor name from `relation = "..."`.
+    relation: Option<String>,
     name: Option<Expr>,
     /// SQLite collation name from `collate = "NOCASE"` (or other built-in /
     /// custom registered collation). Stored as the literal name; emitted
@@ -377,6 +383,8 @@ struct AttributeData {
     references_path: Option<ExprPath>,
     on_delete: Option<String>,
     on_update: Option<String>,
+    /// Reverse-relation accessor name from `relation = "..."`.
+    relation: Option<String>,
     attr_name: Option<String>,
     /// SQLite collation name. See [`ParsedArgs::collate`].
     collate: Option<String>,
@@ -511,6 +519,32 @@ impl<'a> FieldInfo<'a> {
                                 args.references = Some(*assign.right.clone());
                                 args.marker_exprs
                                     .push(make_uppercase_path(param, "REFERENCES"));
+                            }
+                            "RELATION" => {
+                                if let Expr::Lit(syn::ExprLit {
+                                    lit: Lit::Str(lit_str),
+                                    ..
+                                }) = &*assign.right
+                                {
+                                    let name = lit_str.value();
+                                    // Must be a valid Rust identifier for the generated accessor.
+                                    if syn::parse_str::<Ident>(&name).is_err() {
+                                        return Err(Error::new_spanned(
+                                            lit_str,
+                                            format!(
+                                                "relation = \"{name}\" must be a valid Rust identifier"
+                                            ),
+                                        ));
+                                    }
+                                    args.relation = Some(name);
+                                    args.marker_exprs
+                                        .push(make_uppercase_path(param, "RELATION"));
+                                } else {
+                                    return Err(Error::new_spanned(
+                                        &assign.right,
+                                        "relation requires a string literal, e.g. relation = \"authored\"",
+                                    ));
+                                }
                             }
                             "ON_DELETE" => {
                                 if let Expr::Path(action_path) = &*assign.right
@@ -724,6 +758,7 @@ impl<'a> FieldInfo<'a> {
                 data.marker_exprs.extend(args.marker_exprs);
                 data.on_delete = data.on_delete.or(args.on_delete);
                 data.on_update = data.on_update.or(args.on_update);
+                data.relation = data.relation.or(args.relation);
                 data.collate = data.collate.or(args.collate);
 
                 if let Some(Expr::Path(path)) = args.references {
@@ -768,6 +803,7 @@ impl<'a> FieldInfo<'a> {
                 data.marker_exprs.extend(args.marker_exprs);
                 data.on_delete = data.on_delete.or(args.on_delete);
                 data.on_update = data.on_update.or(args.on_update);
+                data.relation = data.relation.or(args.relation);
                 data.collate = data.collate.or(args.collate);
 
                 if let Some(Expr::Path(path)) = args.references {
@@ -788,6 +824,15 @@ impl<'a> FieldInfo<'a> {
             let msg =
                 references_required_message(data.on_delete.is_some(), data.on_update.is_some());
             // Use the first marker as span source for the error
+            if let Some(marker) = data.marker_exprs.first() {
+                return Err(Error::new_spanned(marker, msg));
+            }
+            return Err(Error::new(proc_macro2::Span::call_site(), msg));
+        }
+
+        // Validate: relation requires references
+        if data.relation.is_some() && data.references_path.is_none() {
+            let msg = relation_requires_references_message();
             if let Some(marker) = data.marker_exprs.first() {
                 return Err(Error::new_spanned(marker, msg));
             }
@@ -905,6 +950,7 @@ impl<'a> FieldInfo<'a> {
             is_custom_type,
             column_type,
             foreign_key,
+            relation_name: attrs.relation,
             constraint: crate::common::Constraint::from_flags(
                 is_primary,
                 is_unique,

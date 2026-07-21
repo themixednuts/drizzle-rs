@@ -691,10 +691,9 @@ impl<'a, Schema, T, Rels, Cl>
         self,
     ) -> drizzle_core::error::Result<
         Vec<
-            drizzle_core::query::QueryRow<
+            <Rels as drizzle_core::query::BuildRow<
                 <T as drizzle_core::query::QueryTable>::Select,
-                <Rels as drizzle_core::query::BuildStore>::Store,
-            >,
+            >>::Row,
         >,
     >
     where
@@ -702,7 +701,7 @@ impl<'a, Schema, T, Rels, Cl>
         <T as drizzle_core::query::QueryTable>::Select: for<'r> TryFrom<&'r ::libsql::Row>,
         for<'r> <<T as drizzle_core::query::QueryTable>::Select as TryFrom<&'r ::libsql::Row>>::Error:
             Into<drizzle_core::error::DrizzleError>,
-        Rels: drizzle_core::query::BuildStore
+        Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::Select>
             + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
@@ -761,7 +760,9 @@ impl<'a, Schema, T, Rels, Cl>
             let store =
                 <Rels as drizzle_core::query::BuildStore>::Store::from_json_columns(&mut next_rel)?;
 
-            results.push(drizzle_core::query::QueryRow::new(base, store));
+            results.push(<Rels as drizzle_core::query::BuildRow<_>>::assemble(
+                base, store,
+            ));
         }
 
         drop(raw_rows);
@@ -789,10 +790,9 @@ impl<'a, Schema, T, Rels, W, Ord>
         self,
     ) -> drizzle_core::error::Result<
         Option<
-            drizzle_core::query::QueryRow<
+            <Rels as drizzle_core::query::BuildRow<
                 <T as drizzle_core::query::QueryTable>::Select,
-                <Rels as drizzle_core::query::BuildStore>::Store,
-            >,
+            >>::Row,
         >,
     >
     where
@@ -800,7 +800,7 @@ impl<'a, Schema, T, Rels, W, Ord>
         <T as drizzle_core::query::QueryTable>::Select: for<'r> TryFrom<&'r ::libsql::Row>,
         for<'r> <<T as drizzle_core::query::QueryTable>::Select as TryFrom<&'r ::libsql::Row>>::Error:
             Into<drizzle_core::error::DrizzleError>,
-        Rels: drizzle_core::query::BuildStore
+        Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::Select>
             + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
@@ -829,16 +829,15 @@ impl<'a, Schema, T, Rels, Cl>
         self,
     ) -> drizzle_core::error::Result<
         Vec<
-            drizzle_core::query::QueryRow<
+            <Rels as drizzle_core::query::BuildRow<
                 <T as drizzle_core::query::QueryTable>::PartialSelect,
-                <Rels as drizzle_core::query::BuildStore>::Store,
-            >,
+            >>::Row,
         >,
     >
     where
         T: drizzle_core::query::QueryTable,
         <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
-        Rels: drizzle_core::query::BuildStore
+        Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::PartialSelect>
             + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
@@ -902,7 +901,9 @@ impl<'a, Schema, T, Rels, Cl>
             let store =
                 <Rels as drizzle_core::query::BuildStore>::Store::from_json_columns(&mut next_rel)?;
 
-            results.push(drizzle_core::query::QueryRow::new(base, store));
+            results.push(<Rels as drizzle_core::query::BuildRow<_>>::assemble(
+                base, store,
+            ));
         }
 
         drop(raw_rows);
@@ -930,16 +931,15 @@ impl<'a, Schema, T, Rels, W, Ord>
         self,
     ) -> drizzle_core::error::Result<
         Option<
-            drizzle_core::query::QueryRow<
+            <Rels as drizzle_core::query::BuildRow<
                 <T as drizzle_core::query::QueryTable>::PartialSelect,
-                <Rels as drizzle_core::query::BuildStore>::Store,
-            >,
+            >>::Row,
         >,
     >
     where
         T: drizzle_core::query::QueryTable,
         <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
-        Rels: drizzle_core::query::BuildStore
+        Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::PartialSelect>
             + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
@@ -958,10 +958,9 @@ impl<'a, T, Rels>
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<
         Vec<
-            drizzle_core::query::QueryRow<
+            <Rels as drizzle_core::query::BuildRow<
                 <T as drizzle_core::query::QueryTable>::Select,
-                <Rels as drizzle_core::query::BuildStore>::Store,
-            >,
+            >>::Row,
         >,
     >
     where
@@ -969,7 +968,7 @@ impl<'a, T, Rels>
         <T as drizzle_core::query::QueryTable>::Select: for<'r> TryFrom<&'r ::libsql::Row>,
         for<'r> <<T as drizzle_core::query::QueryTable>::Select as TryFrom<&'r ::libsql::Row>>::Error:
             Into<drizzle_core::error::DrizzleError>,
-        Rels: drizzle_core::query::BuildStore,
+        Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::Select>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         debug_assert_eq!(
@@ -1005,7 +1004,9 @@ impl<'a, T, Rels>
             let store =
                 <Rels as drizzle_core::query::BuildStore>::Store::from_json_columns(&mut next_rel)?;
 
-            results.push(drizzle_core::query::QueryRow::new(base, store));
+            results.push(<Rels as drizzle_core::query::BuildRow<_>>::assemble(
+                base, store,
+            ));
         }
 
         Ok(results)
@@ -1020,10 +1021,9 @@ impl<'a, T, Rels>
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<
         Option<
-            drizzle_core::query::QueryRow<
+            <Rels as drizzle_core::query::BuildRow<
                 <T as drizzle_core::query::QueryTable>::Select,
-                <Rels as drizzle_core::query::BuildStore>::Store,
-            >,
+            >>::Row,
         >,
     >
     where
@@ -1031,7 +1031,7 @@ impl<'a, T, Rels>
         <T as drizzle_core::query::QueryTable>::Select: for<'r> TryFrom<&'r ::libsql::Row>,
         for<'r> <<T as drizzle_core::query::QueryTable>::Select as TryFrom<&'r ::libsql::Row>>::Error:
             Into<drizzle_core::error::DrizzleError>,
-        Rels: drizzle_core::query::BuildStore,
+        Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::Select>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         Ok(self.find_many(conn, params).await?.into_iter().next())
@@ -1049,16 +1049,15 @@ impl<'a, T, Rels>
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<
         Vec<
-            drizzle_core::query::QueryRow<
+            <Rels as drizzle_core::query::BuildRow<
                 <T as drizzle_core::query::QueryTable>::PartialSelect,
-                <Rels as drizzle_core::query::BuildStore>::Store,
-            >,
+            >>::Row,
         >,
     >
     where
         T: drizzle_core::query::QueryTable,
         <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
-        Rels: drizzle_core::query::BuildStore,
+        Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::PartialSelect>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         debug_assert_eq!(
@@ -1097,7 +1096,9 @@ impl<'a, T, Rels>
             let store =
                 <Rels as drizzle_core::query::BuildStore>::Store::from_json_columns(&mut next_rel)?;
 
-            results.push(drizzle_core::query::QueryRow::new(base, store));
+            results.push(<Rels as drizzle_core::query::BuildRow<_>>::assemble(
+                base, store,
+            ));
         }
 
         Ok(results)
@@ -1112,16 +1113,15 @@ impl<'a, T, Rels>
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<
         Option<
-            drizzle_core::query::QueryRow<
+            <Rels as drizzle_core::query::BuildRow<
                 <T as drizzle_core::query::QueryTable>::PartialSelect,
-                <Rels as drizzle_core::query::BuildStore>::Store,
-            >,
+            >>::Row,
         >,
     >
     where
         T: drizzle_core::query::QueryTable,
         <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
-        Rels: drizzle_core::query::BuildStore,
+        Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::PartialSelect>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         Ok(self.find_many(conn, params).await?.into_iter().next())

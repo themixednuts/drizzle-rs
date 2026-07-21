@@ -96,7 +96,7 @@ pub use pagination::PaginationArg;
 pub use param::{OwnedParam, Param, ParamBind, ParamSet};
 pub use placeholder::*;
 #[cfg(feature = "query")]
-pub use relation::{CardWrap, Many, One, OptionalOne, RelationDef};
+pub use relation::{AssembleRel, CardWrap, Many, One, OptionalOne, RelationDef};
 pub use relation::{Joinable, Relation, SchemaHasTable};
 pub use row::{
     AfterFullJoin, AfterJoin, AfterLeftJoin, AfterRightJoin, DecodeSelectedRef, ExprValueType,

@@ -798,6 +798,7 @@ mod tests {
             is_custom_type: false,
             column_type: SQLiteType::Text,
             foreign_key: None,
+            relation_name: None,
             constraint: Constraint::None,
             collate: None,
             default_value: default,

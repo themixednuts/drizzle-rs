@@ -307,12 +307,12 @@ impl<'a, V: SQLParam, T: QueryTable, Rels, Cl> QueryBuilder<'a, V, T, Rels, AllC
 }
 
 // =============================================================================
-// BuildStore
+// BuildStore / BuildRow
 // =============================================================================
 
-/// Maps a builder's type-level relation list to a `RelEntry` storage chain.
+/// Maps a builder's relation list to the JSON-decode store type.
 pub trait BuildStore {
-    /// The concrete storage type for this relation configuration.
+    /// Storage type for the configured relations.
     type Store;
 }
 
@@ -336,6 +336,58 @@ where
         >,
         <Rest as BuildStore>::Store,
     >;
+}
+
+/// Assembles a decoded relation store into the public query row type.
+///
+/// With no relations, `Row` is the base select / partial-select model. Each
+/// `.with(...)` wraps that row in a generated `*With*` struct that exposes the
+/// relation as a named field.
+pub trait BuildRow<Base>: BuildStore {
+    /// Row type returned by `find_many` / `find_first`.
+    type Row;
+
+    /// Builds the public row from a base model and decoded relation store.
+    fn assemble(base: Base, store: Self::Store) -> Self::Row;
+}
+
+impl<Base> BuildRow<Base> for () {
+    type Row = Base;
+
+    fn assemble(base: Base, (): ()) -> Self::Row {
+        base
+    }
+}
+
+impl<'a, V: SQLParam, R, Nested, Rest, Cols, Cl, Base> BuildRow<Base>
+    for (RelationHandle<'a, V, R, Nested, Cols, Cl>, Rest)
+where
+    R: RelationDef + crate::relation::AssembleRel,
+    R::Target: QueryTable,
+    Cols: ResolveSelect<R::Target>,
+    Nested: BuildRow<<Cols as ResolveSelect<R::Target>>::Model>,
+    Rest: BuildRow<Base>,
+    Self: BuildStore<
+        Store = RelEntry<
+            R,
+            <R::Card as CardWrap>::Wrap<
+                QueryRow<<Cols as ResolveSelect<R::Target>>::Model, Nested::Store>,
+            >,
+            Rest::Store,
+        >,
+    >,
+{
+    type Row = <R as crate::relation::AssembleRel>::Row<Rest::Row, Nested::Row>;
+
+    fn assemble(base: Base, store: Self::Store) -> Self::Row {
+        let (data, rest) = store.into_parts();
+        let inner = Rest::assemble(base, rest);
+        let children = R::Card::map_wrap(data, |child_row| {
+            let (child_base, child_store) = child_row.into_parts();
+            Nested::assemble(child_base, child_store)
+        });
+        R::assemble_row(inner, children)
+    }
 }
 
 // =============================================================================

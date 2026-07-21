@@ -6,8 +6,7 @@ use drizzle::sqlite::prelude::*;
 use drizzle::sqlite::rusqlite::Drizzle;
 
 use schema::{
-    InsertComments, InsertPosts, InsertUsers, Posts, QueryUsersPosts, Schema, SelectUsers,
-    UpdateUsers, Users,
+    InsertComments, InsertPosts, InsertUsers, Posts, Schema, SelectUsers, UpdateUsers, Users,
 };
 
 fn main() -> drizzle::Result<()> {
@@ -72,7 +71,7 @@ fn main() -> drizzle::Result<()> {
     println!("--- relations ---");
     let loaded = db.query(users).with(users.posts()).find_many()?;
     for u in &loaded {
-        println!("{}: {} posts", u.name, u.posts().len());
+        println!("{}: {} posts", u.name, u.posts.len());
     }
 
     Ok(())

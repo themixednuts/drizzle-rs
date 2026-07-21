@@ -60,6 +60,25 @@ pub trait CardWrap: private::Sealed {
     /// The cardinality for runtime SQL generation decisions.
     const CARDINALITY: crate::query::RelCardinality;
     type Wrap<T>;
+
+    /// Maps the wrapped value from `A` to `B`.
+    fn map_wrap<A, B>(data: Self::Wrap<A>, f: impl FnMut(A) -> B) -> Self::Wrap<B>;
+}
+
+/// Constructs the public with-row type for a loaded relation.
+///
+/// Implemented by table macros for each relation definition. `Row<Inner, Child>`
+/// is the generated struct (for example `UsersWithPosts<Inner, Child>`).
+#[cfg(feature = "query")]
+pub trait AssembleRel: RelationDef {
+    /// Row type produced when this relation is included in a query.
+    type Row<Inner, Child>;
+
+    /// Builds a with-row from the composed inner row and this relation's data.
+    fn assemble_row<Inner, Child>(
+        inner: Inner,
+        data: <Self::Card as CardWrap>::Wrap<Child>,
+    ) -> Self::Row<Inner, Child>;
 }
 
 /// Many-cardinality: wraps data as `Vec<T>`.
@@ -97,18 +116,30 @@ impl private::Sealed for OptionalOne {}
 impl CardWrap for Many {
     const CARDINALITY: crate::query::RelCardinality = crate::query::RelCardinality::Many;
     type Wrap<T> = crate::prelude::Vec<T>;
+
+    fn map_wrap<A, B>(data: Self::Wrap<A>, f: impl FnMut(A) -> B) -> Self::Wrap<B> {
+        data.into_iter().map(f).collect()
+    }
 }
 
 #[cfg(feature = "query")]
 impl CardWrap for One {
     const CARDINALITY: crate::query::RelCardinality = crate::query::RelCardinality::One;
     type Wrap<T> = T;
+
+    fn map_wrap<A, B>(data: Self::Wrap<A>, mut f: impl FnMut(A) -> B) -> Self::Wrap<B> {
+        f(data)
+    }
 }
 
 #[cfg(feature = "query")]
 impl CardWrap for OptionalOne {
     const CARDINALITY: crate::query::RelCardinality = crate::query::RelCardinality::OptionalOne;
     type Wrap<T> = Option<T>;
+
+    fn map_wrap<A, B>(data: Self::Wrap<A>, f: impl FnMut(A) -> B) -> Self::Wrap<B> {
+        data.map(f)
+    }
 }
 
 #[cfg(feature = "query")]
