@@ -45,6 +45,9 @@ pub mod types {
 }
 pub mod values;
 
+#[cfg(all(test, feature = "query"))]
+mod relational_sql_tests;
+
 #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 pub use postgres::Row;
 #[cfg(feature = "tokio-postgres")]
