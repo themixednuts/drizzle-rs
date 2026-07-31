@@ -7,7 +7,7 @@ error[E0277]: boolean aggregates are not supported for `drizzle::sqlite::types::
   |             required by a bound introduced by this call
   |
   = help: the trait `BooleanAggregatePolicy<SQLiteDialect>` is not implemented for `drizzle::sqlite::types::Integer`
-help: the trait `BooleanAggregatePolicy<PostgresDialect>` is implemented for `drizzle::ddl::postgres::types::Boolean`
+help: the trait `BooleanAggregatePolicy<PostgresDialect>` is implemented for `drizzle::postgres::types::Boolean`
  --> core/src/expr/agg.rs
   |
   | impl BooleanAggregatePolicy<PostgresDialect> for PgBoolean {}

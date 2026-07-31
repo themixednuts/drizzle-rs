@@ -912,9 +912,27 @@ mod decimal_impls {
 
 /// Decode a single `ArrayValue` variant into `Vec<T>`. Nested arrays are not
 /// supported here (flat arrays only — the common case for Aurora Data API).
+/// The SDK models elements as `Option<T>`; a null element in a non-nullable
+/// `Vec<T>` target is a conversion error, matching scalar null handling.
+fn require_non_null_elements<T: Clone>(
+    values: &[Option<T>],
+    variant: &'static str,
+) -> Result<Vec<T>, DrizzleError> {
+    values
+        .iter()
+        .map(|v| {
+            v.clone().ok_or_else(|| {
+                DrizzleError::ConversionError(
+                    format!("AWS Data API array: null element in {variant}").into(),
+                )
+            })
+        })
+        .collect()
+}
+
 fn decode_array_i64(array: &ArrayValue) -> Result<Vec<i64>, DrizzleError> {
     match array {
-        ArrayValue::LongValues(v) => Ok(v.clone()),
+        ArrayValue::LongValues(v) => require_non_null_elements(v, "LongValues"),
         other => Err(DrizzleError::ConversionError(
             format!("AWS Data API array: expected LongValues, got {other:?}").into(),
         )),
@@ -923,7 +941,7 @@ fn decode_array_i64(array: &ArrayValue) -> Result<Vec<i64>, DrizzleError> {
 
 fn decode_array_f64(array: &ArrayValue) -> Result<Vec<f64>, DrizzleError> {
     match array {
-        ArrayValue::DoubleValues(v) => Ok(v.clone()),
+        ArrayValue::DoubleValues(v) => require_non_null_elements(v, "DoubleValues"),
         other => Err(DrizzleError::ConversionError(
             format!("AWS Data API array: expected DoubleValues, got {other:?}").into(),
         )),
@@ -932,7 +950,7 @@ fn decode_array_f64(array: &ArrayValue) -> Result<Vec<f64>, DrizzleError> {
 
 fn decode_array_bool(array: &ArrayValue) -> Result<Vec<bool>, DrizzleError> {
     match array {
-        ArrayValue::BooleanValues(v) => Ok(v.clone()),
+        ArrayValue::BooleanValues(v) => require_non_null_elements(v, "BooleanValues"),
         other => Err(DrizzleError::ConversionError(
             format!("AWS Data API array: expected BooleanValues, got {other:?}").into(),
         )),
@@ -941,7 +959,7 @@ fn decode_array_bool(array: &ArrayValue) -> Result<Vec<bool>, DrizzleError> {
 
 fn decode_array_string(array: &ArrayValue) -> Result<Vec<String>, DrizzleError> {
     match array {
-        ArrayValue::StringValues(v) => Ok(v.clone()),
+        ArrayValue::StringValues(v) => require_non_null_elements(v, "StringValues"),
         other => Err(DrizzleError::ConversionError(
             format!("AWS Data API array: expected StringValues, got {other:?}").into(),
         )),
@@ -1638,7 +1656,7 @@ fn encode_array(items: &[PostgresValue<'_>]) -> Field {
                     V::Bigint(i) => *i,
                     _ => return fallback_string_array(items),
                 };
-                out.push(i);
+                out.push(Some(i));
             }
             ArrayValue::LongValues(out)
         }
@@ -1650,7 +1668,7 @@ fn encode_array(items: &[PostgresValue<'_>]) -> Field {
                     V::DoublePrecision(f) => *f,
                     _ => return fallback_string_array(items),
                 };
-                out.push(f);
+                out.push(Some(f));
             }
             ArrayValue::DoubleValues(out)
         }
@@ -1658,7 +1676,7 @@ fn encode_array(items: &[PostgresValue<'_>]) -> Field {
             let mut out = Vec::with_capacity(items.len());
             for v in items {
                 match v {
-                    V::Boolean(b) => out.push(*b),
+                    V::Boolean(b) => out.push(Some(*b)),
                     _ => return fallback_string_array(items),
                 }
             }
@@ -1671,7 +1689,7 @@ fn encode_array(items: &[PostgresValue<'_>]) -> Field {
 }
 
 fn fallback_string_array(items: &[PostgresValue<'_>]) -> Field {
-    let out: Vec<String> = items.iter().map(std::string::ToString::to_string).collect();
+    let out: Vec<Option<String>> = items.iter().map(|item| Some(item.to_string())).collect();
     Field::ArrayValue(ArrayValue::StringValues(out))
 }
 
@@ -1697,7 +1715,7 @@ mod tests {
             Field::ArrayValue(ArrayValue::StringValues(values)) => {
                 assert_eq!(
                     values.as_slice(),
-                    ["\\x000102".to_string(), "\\xfffe".to_string()]
+                    [Some("\\x000102".to_string()), Some("\\xfffe".to_string())]
                 );
             }
             other => panic!("expected string array, got {other:?}"),
@@ -1736,8 +1754,8 @@ mod tests {
                 assert_eq!(
                     values.as_slice(),
                     [
-                        r#"{"kind":"object","n":1}"#.to_string(),
-                        r#"["array",2]"#.to_string()
+                        Some(r#"{"kind":"object","n":1}"#.to_string()),
+                        Some(r#"["array",2]"#.to_string())
                     ]
                 );
             }

@@ -341,7 +341,7 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
 
     // Rusqlite implementation
     #[cfg(feature = "rusqlite")]
-    {
+    if crate::common::caller_has_dep("rusqlite") {
         let field_assignments =
             generate_field_assignments(fields, is_tuple, rusqlite::generate_field_assignment);
         let from_drizzle_assignments = if decode_named_by_name {
@@ -387,7 +387,7 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
 
     // Turso implementation
     #[cfg(feature = "turso")]
-    {
+    if crate::common::caller_has_dep("turso") {
         let field_assignments =
             generate_field_assignments(fields, is_tuple, turso::generate_field_assignment);
         let from_drizzle_assignments = fields
@@ -429,7 +429,7 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
 
     // Libsql implementation
     #[cfg(feature = "libsql")]
-    {
+    if crate::common::caller_has_dep("libsql") {
         let field_assignments =
             generate_field_assignments(fields, is_tuple, libsql::generate_field_assignment);
         let from_drizzle_assignments = if decode_named_by_name {
