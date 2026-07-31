@@ -237,9 +237,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             .collect::<Result<Vec<_>, _>>()
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
-        let rows = self
-            .conn
-            .query(&sql_str, driver_params)
+        let rows = turso_query_cached(&self.conn, &sql_str, driver_params)
             .await
             .map_err(DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
@@ -1203,10 +1201,7 @@ where
             .map(std::convert::Into::into)
             .collect();
 
-        let rows = self
-            .runner
-            .conn
-            .query(&sql_str, driver_params)
+        let rows = turso_query_cached(&self.runner.conn, &sql_str, driver_params)
             .await
             .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?;

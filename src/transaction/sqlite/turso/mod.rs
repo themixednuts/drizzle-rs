@@ -10,6 +10,20 @@ use turso::Row;
 use crate::builder::sqlite::rows::TursoRows as Rows;
 use crate::transaction::savepoint::{AsyncSavepointState, async_savepoint};
 
+#[cfg(feature = "sqlite")]
+use drizzle_sqlite::{
+    builder::{
+        self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
+        update::UpdateBuilder,
+    },
+    connection::SQLiteTransactionType,
+    values::SQLiteValue,
+};
+
+// `Transaction` derefs to `Connection`, so the compiled-program cache these
+// helpers hit is the connection's and outlives the transaction. Turso caches
+// the compiled program (not the live statement) and builds a fresh statement
+// per call, so concurrent uses of the same SQL don't alias cursors.
 async fn turso_transaction_execute_cached(
     tx: &turso::transaction::Transaction<'_>,
     sql: &str,
@@ -27,16 +41,6 @@ async fn turso_transaction_query_cached(
     let mut statement = tx.prepare_cached(sql).await?;
     statement.query(params).await
 }
-
-#[cfg(feature = "sqlite")]
-use drizzle_sqlite::{
-    builder::{
-        self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
-        update::UpdateBuilder,
-    },
-    connection::SQLiteTransactionType,
-    values::SQLiteValue,
-};
 
 /// Turso-specific transaction builder. See
 /// [`crate::transaction::sqlite::typestate::TransactionBuilder`] for the
