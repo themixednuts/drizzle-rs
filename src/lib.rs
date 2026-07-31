@@ -218,9 +218,9 @@ pub mod core {
     pub use drizzle_core::row::{
         AfterFullJoin, AfterJoin, AfterLeftJoin, AfterRightJoin, DecodeSelectedRef, ExprValueType,
         FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy, IntoSelectTarget,
-        MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, ResolveRow, RowColumnList,
-        SQLTypeToRust, ScopePush, Scoped, SelectAs, SelectAsFrom, SelectCols, SelectExpr,
-        SelectRequiredTables, SelectStar, WrapNullable,
+        MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, PkGroup, ResolveRow,
+        RowColumnList, SQLTypeToRust, ScopePush, Scoped, SelectAs, SelectAsFrom, SelectCols,
+        SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
     };
 }
 

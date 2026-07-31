@@ -7,6 +7,7 @@
 
 #[cfg(feature = "uuid")]
 use crate::common::schema::postgres::*;
+use crate::common::schema::postgres::{InsertSimple, SimpleSchema};
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
 
@@ -18,6 +19,13 @@ use drizzle::postgres::prelude::*;
 struct GroupSumResult {
     active: bool,
     total_age: Option<i64>,
+}
+
+#[derive(Debug, PostgresFromRow)]
+struct PkGroupResult {
+    id: i32,
+    name: String,
+    total: i64,
 }
 
 #[derive(Debug, PostgresFromRow)]
@@ -35,6 +43,32 @@ struct GroupAvgResult {
 // =============================================================================
 // GROUP BY Tests
 // =============================================================================
+
+#[drizzle::test]
+fn test_group_by_primary_key_functional_dependency(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([InsertSimple::new("alice"), InsertSimple::new("bob")])
+        .execute();
+
+    // Grouping by the primary key functionally determines the whole row —
+    // Postgres implements this natively, and the builder's GROUP BY
+    // validation now accepts it as well.
+    let results: Vec<PkGroupResult> = db
+        .select((simple.id, simple.name, alias(count(simple.id), "total")))
+        .from(simple)
+        .group_by(simple.id)
+        .order_by(asc(simple.id))
+        .all();
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].name, "alice");
+    assert_eq!(results[0].total, 1);
+    assert_eq!(results[1].name, "bob");
+    assert_eq!(results[1].total, 1);
+    assert!(results[0].id < results[1].id);
+}
 
 #[cfg(feature = "uuid")]
 #[drizzle::test]

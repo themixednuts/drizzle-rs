@@ -299,6 +299,17 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
             quote! {}
         };
 
+        // Grouping by a table's sole primary key functionally determines the
+        // whole row (SQL:1999 — Postgres implements this natively), so
+        // `.group_by(table.pk)` produces the `PkGroup` marker, which lets any
+        // scalar column of the table appear in SELECT. Composite-PK members
+        // keep exact-list semantics.
+        let group_by_columns_ty = if field_info.constraint.is_inline_primary() {
+            quote! { drizzle::core::PkGroup<#struct_ident> }
+        } else {
+            quote! { drizzle::core::Cons<#zst_ident, drizzle::core::Nil> }
+        };
+
         let column_code = quote! {
             #[allow(non_camel_case_types)]
             #[derive(Debug, Clone, Copy, Default, PartialOrd, Ord, Eq, PartialEq, Hash)]
@@ -400,7 +411,7 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
                 }
             }
             impl<'a> drizzle::core::IntoGroupBy<'a, PostgresValue<'a>> for #zst_ident {
-                type Columns = drizzle::core::Cons<#zst_ident, drizzle::core::Nil>;
+                type Columns = #group_by_columns_ty;
             }
 
             // Expr trait implementation for type-safe expressions

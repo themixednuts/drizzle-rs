@@ -24,6 +24,13 @@ struct GroupCountResult {
 }
 
 #[derive(Debug, SQLiteFromRow)]
+struct PkGroupResult {
+    id: i32,
+    name: String,
+    count: i64,
+}
+
+#[derive(Debug, SQLiteFromRow)]
 struct BoolGroupResult {
     active: bool,
     total: Option<i32>,
@@ -66,6 +73,35 @@ fn test_group_by_simple_count(db: &mut TestDb<SimpleSchema>) {
     assert_eq!(results[0].count, 2);
     assert_eq!(results[1].name, "bob");
     assert_eq!(results[1].count, 3);
+}
+
+#[drizzle::test]
+fn test_group_by_primary_key_functional_dependency(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    let test_data = vec![
+        InsertSimple::new("alice").with_id(1),
+        InsertSimple::new("bob").with_id(2),
+    ];
+
+    db.insert(simple).values(test_data).execute();
+
+    // Grouping by the primary key functionally determines the whole row, so
+    // non-aggregated columns may appear in SELECT without being grouped.
+    let results: Vec<PkGroupResult> = db
+        .select((simple.id, simple.name, alias(count(simple.id), "count")))
+        .from(simple)
+        .group_by(simple.id)
+        .order_by(asc(simple.id))
+        .all();
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].id, 1);
+    assert_eq!(results[0].name, "alice");
+    assert_eq!(results[0].count, 1);
+    assert_eq!(results[1].id, 2);
+    assert_eq!(results[1].name, "bob");
+    assert_eq!(results[1].count, 1);
 }
 
 #[cfg(feature = "uuid")]

@@ -101,9 +101,9 @@ pub use relation::{Joinable, Relation, SchemaHasTable};
 pub use row::{
     AfterFullJoin, AfterJoin, AfterLeftJoin, AfterRightJoin, DecodeSelectedRef, ExprValueType,
     FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy, IntoSelectTarget,
-    MarkerAggValidFor, MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, ResolveRow,
-    RowColumnList, SQLTypeToRust, ScopePush, Scoped, SelectAs, SelectAsFrom, SelectCols,
-    SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
+    MarkerAggValidFor, MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, PkGroup,
+    ResolveRow, RowColumnList, SQLTypeToRust, ScopePush, Scoped, SelectAs, SelectAsFrom,
+    SelectCols, SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
 };
 pub use schema::{OrderBy, asc, desc};
 pub use sql::{

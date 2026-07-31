@@ -271,6 +271,22 @@ pub trait IntoGroupBy<'a, V: crate::SQLParam + 'a>: crate::ToSQL<'a, V> {
 // Single column → Cons<Self, Nil>
 // (Implemented by proc macros for each column ZST)
 
+/// Type-level GROUP BY marker: the group key is table `Table`'s single-column
+/// primary key.
+///
+/// Produced by the proc-macro `IntoGroupBy` impl when `.group_by(col)` is
+/// called with a table's sole primary-key column. Every other column of that
+/// table is functionally dependent on its primary key (SQL:1999), so any
+/// scalar column of `Table` may appear in SELECT without being listed in
+/// GROUP BY. Columns of *other* tables (e.g. joined tables) still must be
+/// aggregated.
+///
+/// Beyond correctness, grouping by the bare primary key lets the database
+/// stream groups off the PK order instead of sorting the full result through
+/// a temp structure, which matters for `GROUP BY ... ORDER BY pk LIMIT n`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PkGroup<Table>(PhantomData<Table>);
+
 // Tuple impls: (Col1, Col2) → Cons<Col1, Cons<Col2, Nil>>
 macro_rules! impl_into_group_by_tuple {
     // 1-tuple: skip (single column uses direct impl)
@@ -323,7 +339,8 @@ with_col_sizes_16!(impl_into_group_by_tuple);
 #[diagnostic::on_unimplemented(
     message = "non-aggregate column in SELECT is not in GROUP BY",
     label = "this column must appear in .group_by(...) or be wrapped in an aggregate function",
-    note = "when using GROUP BY, every non-aggregate column in SELECT must be listed in GROUP BY"
+    note = "when using GROUP BY, every non-aggregate column in SELECT must be listed in GROUP BY, \
+            unless the group key is the column's table primary key (`.group_by(table.pk)`)"
 )]
 pub trait ScalarColumnsIn<Grouped, Proof> {}
 
@@ -332,6 +349,10 @@ pub struct AggSkip;
 
 /// Scalar expressions need a `ScopeContains` witness.
 pub struct ScalarCheck<W>(core::marker::PhantomData<W>);
+
+/// Witness: scalar column allowed because the group key is its table's
+/// primary key (functional dependency).
+pub struct PkDependent;
 
 // 1-tuple
 impl<E, Grouped, Proof> ScalarColumnsIn<Grouped, (Proof,)> for (E,) where
@@ -388,6 +409,17 @@ impl<E, Grouped, W> SingleColGroupCheck<Grouped, ScalarCheck<W>> for E
 where
     E: crate::expr::HasAggStatus<Status = crate::expr::AllScalar> + GroupByIdentity,
     Grouped: ScopeContains<E::Identity, W>,
+{
+}
+
+// Scalar expressions under a primary-key group → the whole row of that table
+// is functionally dependent on the group key, so any column of the grouped
+// table passes. No overlap with the `ScalarCheck` impl above: `PkGroup<T>`
+// never implements `ScopeContains`.
+impl<E, T> SingleColGroupCheck<PkGroup<T>, PkDependent> for E
+where
+    E: crate::expr::HasAggStatus<Status = crate::expr::AllScalar> + GroupByIdentity,
+    E::Identity: crate::traits::ColumnOf<T>,
 {
 }
 
@@ -462,6 +494,20 @@ impl<Scope, Cols, Head, Tail, Proof> MarkerAggValidFor<Cons<Head, Tail>, Proof>
     for Scoped<SelectCols<Cols>, Scope>
 where
     Cols: ScalarColumnsIn<Cons<Head, Tail>, Proof>,
+{
+}
+
+// GROUP BY a table's primary key (`Grouped = PkGroup<T>`): same shape as the
+// Cons impls above, but scalar columns are checked for membership in the
+// grouped table instead of the grouped column list.
+impl<Scope, T> MarkerAggValidFor<PkGroup<T>> for Scoped<SelectStar, Scope> {}
+
+impl<Scope, T> MarkerAggValidFor<PkGroup<T>> for Scoped<SelectExpr, Scope> {}
+
+impl<Scope, R, T> MarkerAggValidFor<PkGroup<T>> for Scoped<SelectAs<R>, Scope> {}
+
+impl<Scope, Cols, T, Proof> MarkerAggValidFor<PkGroup<T>, Proof> for Scoped<SelectCols<Cols>, Scope> where
+    Cols: ScalarColumnsIn<PkGroup<T>, Proof>
 {
 }
 
