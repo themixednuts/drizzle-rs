@@ -106,9 +106,10 @@ changelog_update = false
 [[package]]
 name = "drizzle-mysql"
 changelog_update = false
-# MySQL driver is WIP — keep it out of crates.io for now.
-publish = false
-release = false
+# WIP, but released in lockstep with the workspace. The crates share one
+# version field and the umbrella pins internal deps exactly, so a
+# non-released member makes the release PR unresolvable (its path crate
+# gets dragged to the new version while the pin still names the old one).
 
 [[package]]
 name = "drizzle-seed"
