@@ -131,7 +131,7 @@ async fn turso_get_finishes_returning_cursor_before_another_connection_writes() 
     second_connection
         .busy_timeout(std::time::Duration::from_millis(50))
         .expect("set writer busy timeout");
-    let (first, SimpleSchema { simple }) =
+    let (mut first, SimpleSchema { simple }) =
         drizzle::sqlite::turso::Drizzle::new(first_connection, SimpleSchema::new());
     let (second, _) = drizzle::sqlite::turso::Drizzle::new(second_connection, SimpleSchema::new());
     first.create().await.expect("create schema");
@@ -169,6 +169,63 @@ async fn turso_get_finishes_returning_cursor_before_another_connection_writes() 
         .execute()
         .await
         .expect("the completed prepared cursor must release its write transaction");
+
+    first
+        .transaction(
+            drizzle::sqlite::connection::SQLiteTransactionType::Immediate,
+            async |transaction| {
+                let returned: SelectSimple = transaction
+                    .insert(simple)
+                    .values([InsertSimple::new("transaction").with_id(5)])
+                    .returning(())
+                    .get()
+                    .await?;
+                assert_eq!(returned.id, 5);
+                Ok(())
+            },
+        )
+        .await
+        .expect("commit insert returning transaction");
+
+    let visible: Vec<SelectSimple> = second.select(()).from(simple).all().await.unwrap();
+    assert_eq!(visible.len(), 5);
+
+    let mut transaction_context = first.clone();
+    transaction_context
+        .transaction(
+            drizzle::sqlite::connection::SQLiteTransactionType::Immediate,
+            async |transaction| {
+                let existing: Vec<SelectSimple> = transaction
+                    .select(())
+                    .from(simple)
+                    .r#where(eq(simple.id, 6))
+                    .all()
+                    .await?;
+                assert!(existing.is_empty());
+                let _: SelectSimple = transaction
+                    .insert(simple)
+                    .values([InsertSimple::new("cloned-transaction").with_id(6)])
+                    .returning(())
+                    .get()
+                    .await?;
+                transaction
+                    .update(simple)
+                    .set(UpdateSimple::default().with_name("updated-cloned-transaction"))
+                    .r#where(eq(simple.id, 6))
+                    .execute()
+                    .await?;
+                Ok(())
+            },
+        )
+        .await
+        .expect("commit cloned transaction context");
+
+    let visible: Vec<SelectSimple> = second.select(()).from(simple).all().await.unwrap();
+    assert_eq!(visible.len(), 6);
+    assert_eq!(
+        visible.iter().find(|row| row.id == 6).unwrap().name,
+        "updated-cloned-transaction"
+    );
 }
 
 #[cfg(feature = "uuid")]
