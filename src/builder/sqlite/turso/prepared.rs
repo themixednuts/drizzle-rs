@@ -37,11 +37,13 @@ impl TursoExecutor for Connection {
         sql: &str,
         params: Vec<turso::Value>,
     ) -> drizzle_core::error::Result<turso::Rows> {
-        Ok(self.query(sql, params).await?)
+        let mut stmt = self.prepare_cached(sql).await?;
+        Ok(stmt.query(params).await?)
     }
 
     async fn exec(&self, sql: &str, params: Vec<turso::Value>) -> drizzle_core::error::Result<u64> {
-        self.execute(sql, params).await.map_err(Into::into)
+        let mut stmt = self.prepare_cached(sql).await?;
+        stmt.execute(params).await.map_err(Into::into)
     }
 }
 
@@ -51,11 +53,13 @@ impl TursoExecutor for turso::transaction::Transaction<'_> {
         sql: &str,
         params: Vec<turso::Value>,
     ) -> drizzle_core::error::Result<turso::Rows> {
-        Ok(self.query(sql, params).await?)
+        let mut stmt = self.prepare_cached(sql).await?;
+        Ok(stmt.query(params).await?)
     }
 
     async fn exec(&self, sql: &str, params: Vec<turso::Value>) -> drizzle_core::error::Result<u64> {
-        self.execute(sql, params).await.map_err(Into::into)
+        let mut stmt = self.prepare_cached(sql).await?;
+        stmt.execute(params).await.map_err(Into::into)
     }
 }
 
