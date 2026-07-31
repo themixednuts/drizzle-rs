@@ -47,14 +47,14 @@ rust-version = "1.95"
 
 [workspace.dependencies]
 drizzle = { path = "." }
-drizzle-core = { path = "./core", version = "0.1", default-features = false }
-drizzle-macros = { path = "./procmacros", version = "0.1" }
-drizzle-mysql = { path = "./mysql", version = "0.1", default-features = false }
-drizzle-postgres = { path = "./postgres", version = "0.1", default-features = false }
-drizzle-sqlite = { path = "./sqlite", version = "0.1", default-features = false }
-drizzle-migrations = { path = "./migrations", version = "0.1" }
-drizzle-types = { path = "./types", version = "0.1", default-features = false }
-drizzle-seed = { path = "./seed", version = "0.1", default-features = false }
+drizzle-core = { path = "./core", version = "=0.1.15", default-features = false }
+drizzle-macros = { path = "./procmacros", version = "=0.1.15" }
+drizzle-mysql = { path = "./mysql", version = "=0.1.15", default-features = false }
+drizzle-postgres = { path = "./postgres", version = "=0.1.15", default-features = false }
+drizzle-sqlite = { path = "./sqlite", version = "=0.1.15", default-features = false }
+drizzle-migrations = { path = "./migrations", version = "=0.1.15" }
+drizzle-types = { path = "./types", version = "=0.1.15", default-features = false }
+drizzle-seed = { path = "./seed", version = "=0.1.15", default-features = false }
 regex = { version = "1.12" }
 anyhow = { version = "1.0" }
 clap = { version = "4.5", features = ["derive", "env", "color"] }

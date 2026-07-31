@@ -111,6 +111,12 @@ Until we hit 1.0, stay on `0.1.x` and use `feat!:` only when you genuinely want 
 - Re-enable `semver_check = true` so accidental API breaks get caught.
 - Bump `[workspace.package].version` to `1.0.0-rc.1` (or whatever prep version) and let release-plz take it from there.
 
+### Internal crates are pinned exactly — keep it that way
+
+Every intra-workspace dependency in `[workspace.dependencies]` uses an exact requirement (`version = "=0.1.x"`), and release-plz rewrites these in lockstep on each release (its requirement updater preserves the `=` operator). **Never loosen these to `"0.1"`.**
+
+Why: the workspace crates release as one atomic unit — `feat:` commits ship in patch releases (see the table above), driver major bumps land inside 0.1.x, and `drizzle-macros` output must match the runtime crates exactly. A caret requirement published to crates.io asserts that any 0.1.x mix is compatible, which is false. That assertion is how drizzle 0.1.15 shipped resolvable against drizzle-core/sqlite/macros 0.1.9, putting turso 0.6.1 and 0.7.2 in the same tree with colliding types (stale lockfiles and pins satisfy `^0.1` without pulling internals forward). Exact pins make a torn graph unrepresentable, and the "Verify published resolution" step in `publish.yml` fails the release if crates.io ever resolves the umbrella against mismatched internals.
+
 ### Manual override
 
 If release-plz proposes a wrong version on a release PR, edit the workspace version in the PR before merging. release-plz publishes whatever's in `Cargo.toml` after the merge.

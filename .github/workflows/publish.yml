@@ -154,6 +154,47 @@ jobs:
             exit 1
           }
 
+      - name: Verify published resolution
+        # A torn publish (umbrella at X, internals resolving elsewhere) is
+        # invisible to the publish step itself — each crate uploads fine in
+        # isolation. Resolve the umbrella from crates.io in a scratch project
+        # and require every drizzle-* crate to land on exactly the workspace
+        # version. This is what caught-too-late looked like in 0.1.15: the
+        # umbrella's loose `^0.1` internal requirements let stale lockfiles
+        # and pins mix 0.1.9 internals (turso 0.6) under a 0.1.15 umbrella
+        # (turso 0.7), producing duplicate incompatible driver crates.
+        run: |
+          VERSION=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c "import json,sys; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='drizzle'))")
+          echo "Verifying crates.io resolution for drizzle $VERSION"
+
+          DIR=$(mktemp -d)
+          cargo new "$DIR/smoke" >/dev/null
+          cd "$DIR/smoke"
+
+          # The sparse index can lag the publish by a little; retry.
+          for attempt in $(seq 1 20); do
+            if cargo add "drizzle@=$VERSION" --features rusqlite,postgres-sync >/dev/null 2>&1; then
+              break
+            fi
+            if [[ "$attempt" == 20 ]]; then
+              echo "::error::drizzle $VERSION not resolvable from crates.io after $attempt attempts"
+              exit 1
+            fi
+            sleep 15
+          done
+
+          TREE=$(cargo tree --prefix none -e normal,build)
+          echo "$TREE" | grep '^drizzle' | sort -u | sed 's/^/  /'
+
+          BAD=$(echo "$TREE" | grep -E '^drizzle(-[a-z]+)? v' | grep -v " v$VERSION" || true)
+          if [[ -n "$BAD" ]]; then
+            echo "::error::Published drizzle $VERSION resolves internal crates to other versions:"
+            echo "$BAD" | sed 's/^/::error::  /'
+            exit 1
+          fi
+          echo "All drizzle-* crates resolve to $VERSION."
+
       - name: Trigger binary release
         # Tag pushes by GITHUB_TOKEN don't trigger workflows, so dispatch
         # release.yml explicitly. workflow_dispatch IS one of the two events
