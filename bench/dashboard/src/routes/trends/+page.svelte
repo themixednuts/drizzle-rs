@@ -5,7 +5,8 @@
 	import Section from '#lib/components/Section.svelte';
 	import FilterBar from '#lib/components/FilterBar.svelte';
 	import FilterPills from '#lib/components/FilterPills.svelte';
-	import PickerSelect from '#lib/components/PickerSelect.svelte';
+	import FilterForm from '#lib/components/FilterForm.svelte';
+	import SelectField from '#lib/components/SelectField.svelte';
 	import WarningNotice from '#lib/components/WarningNotice.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import MetricGrid from '#lib/components/MetricGrid.svelte';
@@ -37,9 +38,12 @@
 </svelte:head>
 
 <Page>
-	<PageHeader eyebrow="/ trends" title="Performance trends">
+	<PageHeader title="Trends">
 		{#snippet subtitle()}
-			{view.trends.length} sets{view.targetLabel ? ` / ${view.targetLabel}` : ''}
+			{view.targetLabel ?? 'select a library'} &#183; {view.trends.length} run{view.trends
+				.length === 1
+				? ''
+				: 's'}
 		{/snippet}
 		{#snippet aside()}
 			{#if view.latest}
@@ -54,33 +58,40 @@
 	<WarningNotice warnings={view.warnings} />
 
 	<FilterBar>
-		<FilterPills label="suite" options={view.suiteFilters} />
-		<PickerSelect
-			id="trend-target"
-			label="target"
-			value={view.targetKey ?? ''}
-			options={view.targetOptions}
-			placeholder="select target..."
-			onSelect={view.selectTarget}
-			class="min-w-0 flex-1"
-		/>
+		{#if view.showSuiteFilter}
+			<FilterPills label="suite" options={view.suiteFilters} />
+		{/if}
+		<FilterForm action="/trends" class="contents">
+			{#if view.suite}
+				<input type="hidden" name="suite" value={view.suite} />
+			{/if}
+			<SelectField
+				id="trend-target"
+				name="target"
+				label="target"
+				value={view.targetKey ?? ''}
+				options={view.targetOptions}
+				placeholder="select target..."
+				class="min-w-0 flex-1"
+			/>
+		</FilterForm>
 	</FilterBar>
 
 	{#if !view.targetKey}
-		<div class="pt-8">
+		<div class="mt-7">
 			<EmptyState title="Select a target to view its history.">
 				The dropdown lists the targets in the newest benchmark set; history is then fetched for that
 				target alone.
 			</EmptyState>
 		</div>
 	{:else if view.trends.length === 0}
-		<div class="pt-8">
+		<div class="mt-7">
 			<EmptyState title="No successful trend data for {view.targetLabel}.">
 				Runs with this target will appear here after CI publishes their summaries.
 			</EmptyState>
 		</div>
 	{:else}
-		<div class="pt-6">
+		<div class="mt-7">
 			<Note>
 				Every point is one benchmark set for this one target on this one runner OS. An up arrow
 				means the set improved on the one before it — for latency, CPU and errors that means the

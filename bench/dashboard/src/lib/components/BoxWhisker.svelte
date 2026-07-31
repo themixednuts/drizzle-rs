@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { BoxPlot, Chart, Rule, Svg } from 'layerchart';
+	import { BoxPlot, Chart, getChartContext, Rule, Svg } from 'layerchart';
 	import { scaleBand } from 'd3-scale';
+	import ChartTip from './ChartTip.svelte';
 	import { cn } from '#lib/utils.js';
+	import { ssrBox } from '#lib/chart-ssr';
 	import type { BoxWhiskerDatum, BoxWhiskerExtent } from '#lib/boxplot';
 
 	/**
@@ -41,13 +43,21 @@
 	});
 </script>
 
+<!--
+	The spread, spelled out. This used to be a `title=` attribute, which never appears on touch,
+	is not reachable by keyboard, and looks nothing like the tooltip every other chart shows.
+-->
+{#snippet tip()}
+	{@const ctx = getChartContext()}
+	{#if ctx.tooltip.data}
+		<ChartTip class="max-w-72">
+			<span class="text-pretty">{label}</span>
+		</ChartTip>
+	{/if}
+{/snippet}
+
 <div class="grid min-w-0 gap-1.5">
-	<div
-		class="border-border bg-muted/50 h-6 w-full border"
-		role="img"
-		aria-label={label}
-		title={label}
-	>
+	<div class="border-border bg-muted/50 h-6 w-full border" role="img" aria-label={label}>
 		<Chart
 			data={[datum]}
 			x="min"
@@ -56,7 +66,8 @@
 			xDomain={[extent.min, extent.min + extent.span]}
 			valueAxis="x"
 			padding={{ left: 1, right: 1 }}
-			pointerEvents={false}
+			tooltipContext={{ mode: 'band' }}
+			{...ssrBox(210, 24)}
 		>
 			<Svg>
 				{#if box.spread !== 'none'}
@@ -78,6 +89,8 @@
 					<Rule x={median} class="stroke-foreground stroke-2" />
 				{/if}
 			</Svg>
+
+			{@render tip()}
 		</Chart>
 	</div>
 	{#if summaryLabel}

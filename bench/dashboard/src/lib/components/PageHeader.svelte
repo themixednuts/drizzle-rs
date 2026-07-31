@@ -2,37 +2,41 @@
 	import type { Snippet } from 'svelte';
 
 	/**
-	 * One page header pattern: a route eyebrow, the title, a line of provenance under it, and an
-	 * optional right-hand aside for "latest set" / "all runs" style links.
+	 * One page header pattern: an optional back link, the title, and a mono provenance line sitting
+	 * on the title's baseline rather than under it.
+	 *
+	 * The route eyebrow this used to carry ("/ overview", "/ runs") is gone, and so is the rule
+	 * underneath. The nav already says which page you are on and the title repeats it, so the
+	 * eyebrow was a third label competing for the top of every page without adding a fact.
 	 */
 	let {
-		eyebrow,
 		title,
+		back,
 		subtitle,
 		aside,
 	}: {
-		eyebrow: string;
 		title: string;
+		/** `{ href, label }` for a back link above the title, e.g. run detail's "all runs". */
+		back?: { href: string; label: string };
+		/** Mono provenance: commit, date, trial count — whatever identifies this page's data. */
 		subtitle?: Snippet;
 		aside?: Snippet;
 	} = $props();
 </script>
 
-<div
-	class="border-border flex flex-col items-start justify-between gap-3 border-b pt-8 pb-5 sm:flex-row sm:items-end sm:gap-6"
->
-	<div class="min-w-0">
-		<div class="text-caption text-muted-foreground font-mono uppercase">{eyebrow}</div>
-		<h1 class="text-title mt-1.5 font-medium text-balance">{title}</h1>
+<div class="pt-12">
+	{#if back}
+		<a href={back.href} class="text-body text-link hover:underline">&#8592; {back.label}</a>
+	{/if}
+	<div class="flex flex-wrap items-baseline gap-x-6 gap-y-2.5 {back ? 'mt-3' : ''}">
+		<h1 class="text-title font-semibold text-balance">{title}</h1>
 		{#if subtitle}
-			<div class="text-caption text-muted-foreground mt-1.5 font-mono tracking-normal">
-				{@render subtitle()}
+			<div class="text-caption text-muted-foreground font-mono">{@render subtitle()}</div>
+		{/if}
+		{#if aside}
+			<div class="text-caption text-muted-foreground ml-auto shrink-0 font-mono">
+				{@render aside()}
 			</div>
 		{/if}
 	</div>
-	{#if aside}
-		<div class="text-caption text-muted-foreground shrink-0 font-mono tracking-normal">
-			{@render aside()}
-		</div>
-	{/if}
 </div>

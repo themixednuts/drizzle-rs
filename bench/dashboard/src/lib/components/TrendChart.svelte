@@ -3,6 +3,7 @@
 	import * as ChartUI from '#lib/components/ui/chart/index.js';
 	import { METRICS, metricChartConfig, type MetricKey } from '#lib/metrics';
 	import { shortHash } from '#lib/format';
+	import { ssrBox } from '#lib/chart-ssr';
 	import type { TrendPoint } from '#lib/types';
 	import { TrendChartState, type TrendChartMetric, type TrendSample } from './trend-chart.svelte';
 
@@ -43,6 +44,7 @@
 				yNice
 				padding={{ top: 12, right: 12, bottom: 26, left: 56 }}
 				tooltipContext={{ mode: 'bisect-x' }}
+				{...ssrBox(800, 208)}
 			>
 				<Svg>
 					<Axis placement="left" grid ticks={5} format={(value: number) => format(value)} />

@@ -62,6 +62,65 @@ Two rough edges worth knowing:
 `vp preview` serves the Cloudflare build in Node, where `caches` does not exist — use
 `bun run cf:dev` (wrangler) to exercise the real runtime, including the page cache.
 
+## Progressive enhancement
+
+Every page renders completely on the server, charts included — LayerChart only draws server-side
+when `<Chart ssr>` is given explicit dimensions, which `#lib/chart-ssr` supplies and then drops in
+the browser so the chart can fill its column.
+
+Interactions degrade to plain HTTP:
+
+| Interaction                         | Without scripting                                  | With scripting                           |
+| ----------------------------------- | -------------------------------------------------- | ---------------------------------------- |
+| Suite / status filters              | links                                              | links (unchanged)                        |
+| Set, category, trend-target pickers | native `<select>` in a `GET` form + submit button  | `onchange` navigates client-side         |
+| `/runs` search                      | `GET` form, filtered server-side via `?q=`         | filters as you type                      |
+| Run-detail metric tabs              | links to `?metric=`, rendered server-side          | swaps one target's chart in place        |
+| Query catalog                       | native `<details>`                                 | same                                     |
+| Ranking database filter / sort      | links to `?db=` / `?sort=`, rendered server-side   | links (unchanged)                        |
+| Ranking row details                 | native `<details>`                                 | same                                     |
+| Theme toggle                        | `POST` form -> cookie -> 303 back to the same page | attribute flips instantly, then persists |
+
+Filters are `GET` forms rather than Kit's `form()` remote function on purpose: `form()` is POST-only
+(`instance.method = 'POST'`), and filters are URL state that should stay shareable, cacheable and
+back-navigable. `form()` is used for the theme toggle, which is a real mutation.
+
+Submit buttons a scripted browser does not need are hidden by a `js:` Tailwind variant keyed off a
+class set by a tiny inline `<head>` script, so they are never painted rather than disappearing after
+hydration.
+
+## Design
+
+The visual system comes from a single design comp and is implemented entirely through the shadcn
+token layer in `src/app.css` — the comp's own CSS and markup are not used anywhere.
+
+- **Palette.** Dark is the designed mode and every dark value is the comp's, in `oklch`. Light is
+  derived from the same two hues (262 neutrals, 132 accent) by mirroring the lightness ramp, so the
+  two modes are one palette rather than two to keep in sync. Both are declared once as
+  `light-dark(<light>, <dark>)`; there is no second dark block.
+- **Accent discipline.** Lime marks exactly three things: links, the active filter, and drizzle-rs
+  itself. Amber is reserved for the one callout allowed to interrupt — the cross-machine warning on
+  `/compare`.
+- **Type.** Instrument Sans for UI, IBM Plex Mono for every number, both self-hosted from Fontsource.
+  The comp's Google Fonts link is deliberately not copied: it would put a third-party origin on the
+  critical path of every first paint.
+- **Contrast.** Every foreground/surface pair is checked against WCAG AA (4.5:1 text, 3:1 marks) in
+  both modes. One value departs from the comp for this reason, and says so in `app.css`.
+
+De-noising followed the comp's hierarchy. The three changes that removed the most furniture:
+
+- Badge chips became a **quiet note line** under each target name plus a tooltip. The chips carried
+  kind/driver/prepared/access/OS as five outlined boxes per row, which on a sixteen-row table was
+  the loudest thing on the page. The facts survive as a sentence (`query builder on rusqlite,
+prepared`), the dialect moved to its own column, and the full attribute list is on the tooltip and
+  in the accessible name. An in-process cache still states itself in full, never abbreviated.
+- The ranking is **one flat table** across database families instead of a table per family. The
+  honesty that the split used to carry now rides on things that are always on screen: the `database`
+  column, the note line, the footnote pointing at Repeatability and Method, and the amber callout on
+  `/compare`.
+- Route eyebrows, section rules and per-tile card borders are gone. Nothing below the headline was
+  deleted — the numbers the old ranking showed inline are one native `<details>` away on each row.
+
 ## Page cache
 
 Rendered pages and JSON API responses are cached at the edge with the Workers Cache API
@@ -78,7 +137,7 @@ A request is cached only when **all** of these hold:
 | ------------------------------------------ | ---------------------------------------------------- |
 | Method is `GET` or `HEAD`                  | Anything else may have side effects.                 |
 | `event.route.id` is in the allowlist below | An unmatched route has a `null` id and is denied.    |
-| No `Cookie` header                         | A cookie means the response may be visitor-specific. |
+| No cookies other than `theme`              | A cookie means the response may be visitor-specific. |
 | No `Authorization` header                  | Same, for token auth.                                |
 
 …and a response is **stored** only when all of these hold:
@@ -110,27 +169,34 @@ CDN stored it. `x-cache` is therefore an exact signal for pages and an approxima
 API; varying a parameter the cache key ignores (`&cb=1`) reaches the Worker and shows the true
 status.
 
+The theme cookie is the single carve-out, and it is safe precisely because it is _not_ treated as
+invisible: its value becomes part of the cache key, so light, dark and system are three separate
+entries that can never be served to one another. Without it, every visitor who has ever touched the
+toggle would bypass the cache entirely. The name match is exact — `theme2` or `mytheme` counts as
+"some other cookie" and bypasses.
+
 ### Allowlist
 
-| Route id                           | TTL    | Query params in the cache key |
-| ---------------------------------- | ------ | ----------------------------- |
-| `/`                                | 300s   | `suite`, `status`             |
-| `/runs`                            | 300s   | `suite`, `status`             |
-| `/runs/[run_id]`                   | 1 year | —                             |
-| `/trends`                          | 300s   | `suite`, `target`             |
-| `/compare`                         | 300s   | `cohort`, `metric`            |
-| `/methodology`                     | 300s   | —                             |
-| `/api/v1/runs/latest`              | 300s   | `suite`                       |
-| `/api/v1/runs/[run_id]/manifest`   | 300s   | —                             |
-| `/api/v1/runs/[run_id]/summary`    | 300s   | `targets`                     |
-| `/api/v1/runs/[run_id]/timeseries` | 300s   | `targets`, `from`, `to`       |
-| `/api/v1/compare`                  | 300s   | `base`, `head`, `metric`      |
+| Route id                           | TTL    | Query params in the cache key   |
+| ---------------------------------- | ------ | ------------------------------- |
+| `/`                                | 300s   | `suite`, `status`, `db`, `sort` |
+| `/runs`                            | 300s   | `suite`, `status`, `q`          |
+| `/runs/[run_id]`                   | 1 year | `metric`                        |
+| `/trends`                          | 300s   | `suite`, `target`               |
+| `/compare`                         | 300s   | `cohort`, `metric`              |
+| `/repeatability`                   | 300s   | `suite`                         |
+| `/methodology`                     | 300s   | —                               |
+| `/api/v1/runs/latest`              | 300s   | `suite`                         |
+| `/api/v1/runs/[run_id]/manifest`   | 300s   | —                               |
+| `/api/v1/runs/[run_id]/summary`    | 300s   | `targets`                       |
+| `/api/v1/runs/[run_id]/timeseries` | 300s   | `targets`, `from`, `to`         |
+| `/api/v1/compare`                  | 300s   | `base`, `head`, `metric`        |
 
 A run's artifacts are immutable once published, hence the long TTL on `/runs/[run_id]`.
 
 ### Cache key
 
-`origin + /__page-cache/<version> + pathname + allowlisted params (sorted)`. Any query parameter
+`origin + /__page-cache/<version>/<theme> + pathname + allowlisted params (sorted)`. Any query parameter
 not listed for the route is dropped, so unknown params cannot mint unbounded entries. `<version>`
 is SvelteKit's build version, which means **every deploy starts cold** — that is the invalidation
 story, and it is why there is no purge API.

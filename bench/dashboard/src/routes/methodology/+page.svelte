@@ -122,16 +122,16 @@
 </svelte:head>
 
 <Page>
-	<PageHeader eyebrow="/ methodology" title="How we measure">
+	<PageHeader title="Method">
 		{#snippet subtitle()}
 			fields shown here come from each run manifest and summary artifact
 		{/snippet}
 	</PageHeader>
 
 	<Section title="what these numbers are not">
-		<div class="measure text-body text-foreground-secondary space-y-6 leading-relaxed">
+		<div class="measure text-prose text-foreground-secondary space-y-7">
 			<section>
-				<h3 class="text-lead text-foreground mb-1.5 font-medium">
+				<h3 class="text-heading text-foreground mb-2 font-semibold">
 					The load generator shares the machine with what it measures.
 				</h3>
 				<p>
@@ -155,7 +155,7 @@
 			</section>
 
 			<section>
-				<h3 class="text-lead text-foreground mb-1.5 font-medium">
+				<h3 class="text-heading text-foreground mb-2 font-semibold">
 					Cross-family rows usually come from different VMs.
 				</h3>
 				<p>
@@ -175,7 +175,7 @@
 			</section>
 
 			<section>
-				<h3 class="text-lead text-foreground mb-1.5 font-medium">
+				<h3 class="text-heading text-foreground mb-2 font-semibold">
 					Pacing imposes a ceiling on offered load.
 				</h3>
 				<p>
@@ -189,7 +189,7 @@
 			</section>
 
 			<section>
-				<h3 class="text-lead text-foreground mb-1.5 font-medium">
+				<h3 class="text-heading text-foreground mb-2 font-semibold">
 					In-process caches are not doing database work.
 				</h3>
 				<p>
@@ -202,7 +202,7 @@
 	</Section>
 
 	<Section title="how values are aggregated">
-		<div class="measure text-body text-foreground-secondary space-y-4 leading-relaxed">
+		<div class="measure text-prose text-foreground-secondary space-y-5">
 			<p>
 				Each target is measured over <em>n</em> trials. The summary artifact spells its cross-trial
 				keys <code class="text-meta font-mono">avg</code>, but the value stored there is the

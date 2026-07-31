@@ -1,4 +1,3 @@
-import { goto } from '$app/navigation';
 import { page } from '$app/state';
 import { boxWhiskerExtent } from '#lib/boxplot';
 import {
@@ -10,8 +9,9 @@ import {
 	type CompareCategory,
 	type CompareCategoryColumn,
 } from '#lib/compare';
-import type { PickerOption } from '#lib/components/PickerSelect.svelte';
-import { fmtDate, runDisplayName, shortHash } from '#lib/format';
+import type { SelectOption } from '#lib/components/SelectField.svelte';
+import { fmtDate, shortHash } from '#lib/format';
+import { runTitle } from '#lib/run-name';
 import {
 	drizzleDelta,
 	drizzleDeltaDirection,
@@ -19,6 +19,7 @@ import {
 	type DeltaDirection,
 } from '#lib/leaderboard';
 import { targetDisplay } from '#lib/target-display';
+import { summarizeAll, type QualitativeNote } from '#lib/qualitative';
 import type { TargetCompareItem, TargetCompareValue } from '#lib/types';
 import type { PageData } from './$types';
 
@@ -183,6 +184,20 @@ export class ComparePageState {
 		return item.values.find((value) => value.key === column) ?? null;
 	}
 
+	/** Short forms for this set's SQL notes, disambiguated against each other. */
+	#variantNotes = $derived(
+		summarizeAll(
+			(this.items ?? [])
+				.map((item) => targetDisplay(item).sqlVariant)
+				.filter((text): text is string => Boolean(text)),
+		),
+	);
+
+	variantNote(item: TargetCompareItem): QualitativeNote | null {
+		const raw = targetDisplay(item).sqlVariant;
+		return raw ? (this.#variantNotes.get(raw.trim()) ?? null) : null;
+	}
+
 	targetDisplay(item: TargetCompareItem) {
 		return targetDisplay(item);
 	}
@@ -227,33 +242,14 @@ export class ComparePageState {
 		return `${median} / no per-trial spread`;
 	};
 
-	cohortOptions: PickerOption[] = $derived(
+	cohortOptions: SelectOption[] = $derived(
 		this.cohorts.map((cohort) => ({
 			value: cohort.id,
-			label: `${runDisplayName(cohort)} / ${shortHash(cohort.git)} / ${fmtDate(cohort.start)} / ${cohort.result_count} results`,
+			label: `${runTitle(cohort.targets)} · ${shortHash(cohort.git)} · ${fmtDate(cohort.start)}`,
 		})),
 	);
 
-	categoryOptions: PickerOption[] = $derived(
+	categoryOptions: SelectOption[] = $derived(
 		compareCategoryOptions.map((option) => ({ value: option.value, label: option.label })),
 	);
-
-	/**
-	 * Single navigation mechanism: changing either picker pushes a new URL. There is no competing
-	 * form submit, so the selected value and the URL cannot disagree.
-	 */
-	selectCohort = (value: string): void => {
-		this.#go(value, this.category);
-	};
-
-	selectCategory = (value: string): void => {
-		this.#go(this.cohortId, parseCompareCategory(value));
-	};
-
-	#go(cohort: string, category: CompareCategory): void {
-		const params = new URLSearchParams();
-		if (cohort) params.set('cohort', cohort);
-		params.set('metric', category);
-		void goto('/compare?' + params.toString());
-	}
 }

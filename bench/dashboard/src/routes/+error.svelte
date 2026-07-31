@@ -41,11 +41,11 @@
 </svelte:head>
 
 <Page>
-	<PageHeader eyebrow="/ {status}" title={headline}>
+	<PageHeader title={headline}>
 		{#snippet subtitle()}{page.url.pathname}{page.url.search}{/snippet}
 	</PageHeader>
 
-	<div class="pt-8">
+	<div class="mt-7">
 		<p class="measure text-body text-foreground">{message}</p>
 		<div class="mt-4">
 			<Note>{hint}</Note>

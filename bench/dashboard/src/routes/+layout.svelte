@@ -7,14 +7,19 @@
 	import ThemeToggle from '#lib/components/ThemeToggle.svelte';
 	import { cn } from '#lib/utils.js';
 
-	let { children } = $props();
+	let { children, data } = $props();
 
+	/**
+	 * Sentence-case labels, in the comp's order. `Trends` is ours — the comp has no equivalent, but
+	 * a benchmark site without a history view is missing the only thing that catches a regression.
+	 */
 	const NAV = [
-		{ href: '/', label: 'overview' },
-		{ href: '/runs', label: 'runs' },
-		{ href: '/trends', label: 'trends' },
-		{ href: '/compare', label: 'compare' },
-		{ href: '/methodology', label: 'methodology' },
+		{ href: '/', label: 'Ranking' },
+		{ href: '/runs', label: 'Runs' },
+		{ href: '/trends', label: 'Trends' },
+		{ href: '/compare', label: 'Compare' },
+		{ href: '/repeatability', label: 'Repeatability' },
+		{ href: '/methodology', label: 'Method' },
 	];
 
 	const pathname = $derived(page.url.pathname);
@@ -33,24 +38,26 @@
 		skip to content
 	</a>
 
-	<header
-		class="border-border bg-background/92 sticky top-0 z-100 border-b backdrop-blur-md max-sm:static"
-	>
-		<div class="page-gutter flex flex-wrap items-center gap-x-5 gap-y-2 py-3">
-			<a href="/" class="text-body shrink-0 font-semibold tracking-tight">
-				drizzle-rs<span class="text-muted-foreground mx-px font-normal">/</span>bench
+	<header class="border-border bg-surface-chrome sticky top-0 z-100 border-b max-sm:static">
+		<!-- Fixed height while sticky, so the header can never resize under the content. -->
+		<div
+			class="page-gutter flex flex-wrap items-center gap-x-8 gap-y-2 py-3 sm:h-[3.875rem] sm:flex-nowrap sm:py-0"
+		>
+			<a href="/" class="shrink-0 text-[0.96875rem] font-semibold tracking-[-0.01em]">
+				drizzle&#8209;rs <span class="text-muted-foreground font-normal">benchmarks</span>
 			</a>
 
-			<nav class="flex flex-wrap items-center gap-0.5" aria-label="Primary">
+			<nav class="flex flex-wrap items-center gap-0.5 sm:ml-auto" aria-label="Primary">
 				{#each NAV as item (item.href)}
 					{@const active = isActive(item.href)}
 					<a
 						href={item.href}
 						aria-current={active ? 'page' : undefined}
 						class={cn(
-							buttonVariants({ variant: 'ghost', size: 'sm' }),
-							'font-normal',
-							active ? 'bg-muted text-foreground' : 'text-muted-foreground',
+							'text-body px-3 py-1.5 font-medium transition-colors',
+							active
+								? 'bg-muted text-foreground'
+								: 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
 						)}
 					>
 						{item.label}
@@ -58,22 +65,7 @@
 				{/each}
 			</nav>
 
-			<div
-				class="text-caption text-muted-foreground ml-auto flex items-center gap-2 font-mono tracking-normal"
-			>
-				<a href="/api/v1/runs/latest?suite=throughput-http" class="hover:text-foreground">
-					json api
-				</a>
-				<Separator orientation="vertical" class="h-3.5" />
-				<a
-					href="https://github.com/themixednuts/drizzle-rs"
-					rel="noreferrer"
-					class="hover:text-foreground"
-				>
-					github
-				</a>
-				<ThemeToggle />
-			</div>
+			<ThemeToggle theme={data.theme} />
 		</div>
 	</header>
 
@@ -85,16 +77,29 @@
 		{@render children()}
 	</div>
 
+	<!--
+		The header carries only the wordmark and the nav, per the comp. The provenance links it used
+		to hold live here instead — still one click away, but no longer competing with navigation for
+		attention on every page.
+	-->
 	<footer class="border-border border-t">
 		<div
-			class="page-gutter text-caption text-muted-foreground flex flex-wrap justify-between gap-4 py-6 font-mono tracking-normal"
+			class="page-gutter text-caption text-muted-foreground flex flex-wrap justify-between gap-4 py-6 font-mono"
 		>
-			<span>drizzle-rs/bench</span>
-			<span class="flex items-center gap-2">
-				<a href="/methodology" class="hover:text-foreground">methodology</a>
+			<span>drizzle-rs benchmarks</span>
+			<span class="flex items-center gap-2.5">
+				<a href="/methodology" class="hover:text-foreground">method</a>
 				<Separator orientation="vertical" class="h-3" />
 				<a href="/api/v1/runs/latest?suite=throughput-http" class="hover:text-foreground">
-					latest json
+					json api
+				</a>
+				<Separator orientation="vertical" class="h-3" />
+				<a
+					href="https://github.com/themixednuts/drizzle-rs"
+					rel="noreferrer"
+					class="hover:text-foreground"
+				>
+					github
 				</a>
 			</span>
 		</div>

@@ -4,18 +4,20 @@
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import Section from '#lib/components/Section.svelte';
 	import FilterBar from '#lib/components/FilterBar.svelte';
-	import PickerSelect from '#lib/components/PickerSelect.svelte';
+	import FilterForm from '#lib/components/FilterForm.svelte';
+	import SelectField from '#lib/components/SelectField.svelte';
 	import WarningNotice from '#lib/components/WarningNotice.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import Note from '#lib/components/Note.svelte';
 	import TargetLabel from '#lib/components/TargetLabel.svelte';
+	import Hint from '#lib/components/Hint.svelte';
 	import Delta from '#lib/components/Delta.svelte';
 	import DataTable from '#lib/components/data/DataTable.svelte';
 	import Th from '#lib/components/data/Th.svelte';
 	import Td from '#lib/components/data/Td.svelte';
 	import Tr from '#lib/components/data/Tr.svelte';
 	import * as Table from '#lib/components/ui/table/index.js';
-	import { fmtDuration, shardLabel, suiteLabel } from '#lib/format';
+	import { fmtDate, shardLabel, shortHash } from '#lib/format';
 	import { ComparePageState } from './compare.svelte';
 	import type { PageData } from './$types';
 
@@ -28,76 +30,72 @@
 </svelte:head>
 
 <Page>
-	<PageHeader eyebrow="/ compare" title="Compare targets">
+	<PageHeader title="Compare">
 		{#snippet subtitle()}
-			rank target results within each database family by category and trial spread
-		{/snippet}
-		{#snippet aside()}{view.cohorts.length} benchmark sets available{/snippet}
-	</PageHeader>
-
-	<WarningNotice warnings={view.warnings} />
-
-	<FilterBar>
-		<PickerSelect
-			id="cohort"
-			label="set"
-			value={view.cohortId}
-			options={view.cohortOptions}
-			onSelect={view.selectCohort}
-			class="min-w-0 flex-1"
-		/>
-		<PickerSelect
-			id="metric"
-			label="category"
-			value={view.category}
-			options={view.categoryOptions}
-			onSelect={view.selectCategory}
-		/>
-		{#snippet summary()}
 			{#if view.cohort}
-				{view.cohort.run_ids.length} shards / {view.cohort.targets.length} target ids / {view.cohort
-					.result_count} results / {fmtDuration(view.cohort.start, view.cohort.end)} / {suiteLabel(
-					view.cohort.suite,
-				)} / {view.cohort.class}
+				commit {shortHash(view.cohort.git)} &#183; {fmtDate(view.cohort.start)}
 			{/if}
 		{/snippet}
+	</PageHeader>
+
+	{#if view.warnings.length > 0}
+		<div class="mt-7"><WarningNotice warnings={view.warnings} /></div>
+	{/if}
+
+	<FilterBar>
+		<FilterForm action="/compare">
+			<SelectField
+				id="cohort"
+				name="cohort"
+				label="set"
+				value={view.cohortId}
+				options={view.cohortOptions}
+				class="min-w-0 flex-1"
+			/>
+			<SelectField
+				id="metric"
+				name="metric"
+				label="category"
+				value={view.category}
+				options={view.categoryOptions}
+			/>
+		</FilterForm>
 	</FilterBar>
 
 	{#if view.items}
-		<Section title="{view.categoryLabel} target ranking">
-			{#snippet aside()}
-				{view.items?.length} comparable results / box-and-whisker scale is per section
-			{/snippet}
-
-			{#if view.sections.length === 0}
+		{#if view.sections.length === 0}
+			<div class="mt-7">
 				<EmptyState title="No comparable target results found for this category.">
 					Pick another category, or a set whose artifacts recorded this metric.
 				</EmptyState>
-			{:else}
-				<Note>
-					Ranking happens inside a database family only. Different families in the same set come
-					from different CI jobs and therefore different VMs; the load generator, the target server
-					and the database share that VM's cores. See
-					<a class="text-link underline" href="/methodology">methodology</a>.
+			</div>
+		{:else}
+			<!--
+				The one place in this design allowed to interrupt. A reader on this page is explicitly
+				putting numbers side by side, which is exactly when "these came off different machines"
+				stops being a footnote and starts being the most important fact on screen.
+			-->
+			<div class="mt-6">
+				<Note variant="warn">
+					Each database family below ran as its own CI job on its own machine. Within a family the
+					numbers are directly comparable; across families, most of any gap is hardware — see
+					<a class="underline" href="/repeatability">how far the same job moves</a> between machines.
 				</Note>
+			</div>
 
-				{#each view.sections as section (section.key)}
-					<div class="mt-7">
-						<div class="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-							<h3 class="text-lead font-medium">{section.label}</h3>
-							<span class="text-micro text-muted-foreground font-mono tracking-normal">
-								{section.rows.length} result{section.rows.length === 1 ? '' : 's'}
-								{#if section.shards.length > 0}
-									/ {section.shards.map((shard) => shardLabel(shard.os, shard.run_id)).join(' · ')}
-								{/if}
-							</span>
+			{#each view.sections as section (section.key)}
+				<Section title={section.label} flush>
+					{#snippet aside()}
+						{section.shards.map((shard) => shard.os).join(' · ')}
+					{/snippet}
+
+					{#if section.note}
+						<div class="px-6 pt-3">
+							<Note>{section.note}</Note>
 						</div>
-						{#if section.note}
-							<div class="mb-3">
-								<Note>{section.note}</Note>
-							</div>
-						{/if}
+					{/if}
 
+					<div class="mt-4">
 						<DataTable fixed>
 							<Table.Header>
 								<Table.Row class="border-0">
@@ -133,14 +131,22 @@
 												{display}
 												href="/runs/{item.run_id}"
 												targetId={item.target_id}
-												stacked
+												accent={row.isBaseline}
 											/>
-											<div class="text-micro text-muted-foreground mt-1">
+											<div class="text-meta text-muted-foreground mt-1">
 												{shardLabel(item.runner_os, item.run_id)}
-												{#if display.sqlVariant}
-													/ sql variant: {display.sqlVariant}
-												{/if}
 											</div>
+											{#if view.variantNote(item)}
+												{@const variant = view.variantNote(item)!}
+												<div class="text-meta text-muted-foreground mt-1">
+													SQL:
+													{#if variant.elided}
+														<Hint hint={variant.full}>{variant.short}</Hint>
+													{:else}
+														{variant.short}
+													{/if}
+												</div>
+											{/if}
 										</Td>
 										{#each view.columns as column (column.key)}
 											{@const value = view.valueFor(item, column.key)}
@@ -170,11 +176,11 @@
 							</Table.Body>
 						</DataTable>
 					</div>
-				{/each}
-			{/if}
-		</Section>
+				</Section>
+			{/each}
+		{/if}
 	{:else}
-		<div class="pt-8">
+		<div class="mt-7">
 			<EmptyState
 				title={view.cohort
 					? 'Select a benchmark set with comparable target results.'

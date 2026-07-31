@@ -2,16 +2,96 @@
 @import 'tw-animate-css';
 @import 'shadcn-svelte/tailwind.css';
 
-/* Self-hosted, so first paint never waits on a third-party stylesheet. The `wght` entry point is
-   the weight axis only (no optical-size or italic files), and every @font-face inside it carries a
-   unicode-range, so a latin page downloads latin woff2 and nothing else. */
-@import '@fontsource-variable/inter/wght.css';
-@import '@fontsource-variable/jetbrains-mono/wght.css';
+/*
+ * Fonts are declared here rather than imported from Fontsource's stylesheet, for two reasons that
+ * both come down to layout stability.
+ *
+ * `font-display: optional` is the only value that guarantees zero layout shift: there is no swap
+ * period, so the browser either has the font in time for first paint or renders the whole page in
+ * the fallback and swaps on the next navigation. It never re-lays-out text that is already on
+ * screen. Fontsource's own CSS hardcodes `swap`, which is exactly the FOUT that moves things.
+ *
+ * The fallback faces below carry metric overrides measured against the real fonts with fontTools,
+ * so even the fallback render occupies the same space — nothing reflows in either direction. Only
+ * the latin subset is declared; this dashboard has no other content.
+ *
+ * Both families are self-hosted from Fontsource. The design comp loads them from Google Fonts;
+ * that would put a third-party origin on the critical path for every first paint, which is exactly
+ * what the preload-plus-`optional` arrangement here exists to avoid.
+ */
+@font-face {
+	font-family: 'Instrument Sans Variable';
+	font-style: normal;
+	font-weight: 400 700;
+	font-display: optional;
+	src: url('@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2')
+		format('woff2-variations');
+	unicode-range:
+		U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+		U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Plex Mono is not a variable family; the comp uses 400 and 500, so exactly those ship. */
+@font-face {
+	font-family: 'IBM Plex Mono';
+	font-style: normal;
+	font-weight: 400;
+	font-display: optional;
+	src: url('@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2') format('woff2');
+	unicode-range:
+		U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+		U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+	font-family: 'IBM Plex Mono';
+	font-style: normal;
+	font-weight: 500;
+	font-display: optional;
+	src: url('@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2') format('woff2');
+	unicode-range:
+		U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+		U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/*
+ * Metric-matched stand-ins, so the fallback render has the same line box and the same line-break
+ * points as the real font. Every number below was measured off the shipped woff2:
+ *
+ *   Instrument Sans  1000upm  asc 970  desc -250  gap 0   avg advance 0.58845em
+ *   Arial            2048upm                              avg advance 0.56966em  -> size-adjust 103.30%
+ *   IBM Plex Mono    1000upm  asc 1025 desc -275  gap 0   advance 0.600em
+ *   Courier New      2048upm                              advance 0.6001em      -> size-adjust 99.98%
+ *
+ * The ascent/descent overrides are the real font's percentages divided by the size-adjust, which is
+ * what keeps the line box identical once the stand-in has been scaled.
+ */
+@font-face {
+	font-family: 'Instrument Sans Fallback';
+	src: local('Arial');
+	ascent-override: 93.9%;
+	descent-override: 24.2%;
+	line-gap-override: 0%;
+	size-adjust: 103.3%;
+}
+
+@font-face {
+	font-family: 'IBM Plex Mono Fallback';
+	src: local('Courier New');
+	ascent-override: 102.52%;
+	descent-override: 27.5%;
+	line-gap-override: 0%;
+	size-adjust: 99.98%;
+}
 
 /* Dark mode has two triggers and one source of truth. `light-dark()` below resolves against the
    used color-scheme, which follows the OS by default and is pinned by `data-theme` on <html>. This
    variant exists so the `dark:` utilities inside the vendored shadcn components resolve against the
    same two conditions. */
+/* `js:` applies once the inline head script has marked the document as scripted. It exists for
+   progressive-enhancement affordances that should not be shown to a scripted browser. */
+@custom-variant js (&:where(:root.js, :root.js *));
+
 @custom-variant dark {
 	&:where([data-theme='dark'], [data-theme='dark'] *) {
 		@slot;
@@ -36,53 +116,81 @@
 	color-scheme: light dark;
 
 	/* Surfaces -------------------------------------------------------------- */
-	/* Warm paper, not white: this is a printed-measurement aesthetic, and the warmth is what keeps
-	   a page of dense hairline rules from reading as a spreadsheet. */
-	--background: light-dark(#fafaf7, #14140f);
-	--foreground: light-dark(#1a1a17, #f2f1ea);
-	--card: light-dark(#fdfcf9, #1b1b16);
+	/* Dark is the designed mode; every dark value is the comp's. Light is derived from the same two
+	   hues (262 for the neutrals, 132 for the accent) by mirroring the lightness ramp, so the two
+	   modes are one palette seen from either end rather than two palettes to keep in sync. */
+	--background: light-dark(oklch(0.975 0.003 262), oklch(0.185 0.014 262));
+	--foreground: light-dark(oklch(0.22 0.015 262), oklch(0.95 0.005 262));
+	--card: light-dark(oklch(0.995 0.002 262), oklch(0.235 0.014 262));
 	--card-foreground: var(--foreground);
-	--popover: light-dark(#fdfcf9, #1b1b16);
+	--popover: var(--card);
 	--popover-foreground: var(--foreground);
-	--muted: light-dark(#f1f0ea, #26251f);
-	--muted-foreground: light-dark(#63615a, #a09d92);
+	--muted: light-dark(oklch(0.955 0.005 262), oklch(0.265 0.014 262));
+	--muted-foreground: light-dark(oklch(0.5 0.018 262), oklch(0.72 0.012 262));
 	--secondary: var(--muted);
 	--secondary-foreground: var(--foreground);
 	--accent: var(--muted);
 	--accent-foreground: var(--foreground);
 
-	/* Ink steps beyond the two shadcn roles. `faint` is decorative only — separators and disabled
+	/* Two more surfaces the comp uses structurally: the tinted header row of a table or card, and
+	   the recessed well a chart is drawn into. */
+	--surface-raised: light-dark(oklch(0.955 0.005 262), oklch(0.265 0.014 262));
+	--surface-inset: light-dark(oklch(0.962 0.004 262), oklch(0.21 0.014 262));
+	/* The page chrome sits away from the page: darker in dark, lighter in light. */
+	--surface-chrome: light-dark(oklch(0.995 0.002 262), oklch(0.155 0.014 262));
+
+	/* Ink steps beyond the two shadcn roles. The comp reads its muted text as a ramp, not a single
+	   grey: labels sit low, values sit high. `faint` is decorative only — separators and disabled
 	   marks — because it does not clear 4.5:1 for text. */
-	--foreground-secondary: light-dark(#4b4941, #c4c1b6);
-	--foreground-faint: light-dark(#8a877c, #7b786e);
+	--foreground-secondary: light-dark(oklch(0.38 0.016 262), oklch(0.84 0.008 262));
+	--foreground-faint: light-dark(oklch(0.62 0.014 262), oklch(0.58 0.012 262));
 
 	/* Rules ----------------------------------------------------------------- */
-	--border: light-dark(#dcd9d0, #33322b);
+	--border: light-dark(oklch(0.87 0.008 262), oklch(0.31 0.014 262));
 	/* The hairline between table rows: present, but never louder than the numbers. */
-	--border-soft: light-dark(#e9e7e0, #26251f);
-	--input: var(--border);
-	--ring: light-dark(#b8770a, #c08316);
+	--border-soft: light-dark(oklch(0.925 0.006 262), oklch(0.275 0.014 262));
+	--input: light-dark(oklch(0.85 0.01 262), oklch(0.36 0.014 262));
+	--ring: light-dark(oklch(0.52 0.14 138), oklch(0.86 0.18 132));
 
 	/* Accent ---------------------------------------------------------------- */
-	--primary: light-dark(#9a6408, #d9a23a);
-	--primary-foreground: light-dark(#fdfcf9, #14140f);
-	/* Amber dark enough to be link text on paper (5.7:1) — the fill amber is not. */
-	--link: light-dark(#8a5a07, #e0a533);
+	/* Lime. It marks exactly three things: links, the active filter, and drizzle-rs itself. */
+	--primary: light-dark(oklch(0.86 0.18 132), oklch(0.86 0.18 132));
+	--primary-foreground: light-dark(oklch(0.24 0.04 132), oklch(0.24 0.04 132));
+	/* The fill lime is far too light to be text on paper; link text drops to a readable L. */
+	--link: light-dark(oklch(0.52 0.14 138), oklch(0.86 0.18 132));
+	/* The row wash behind a drizzle-rs result — a tint, never a fill. */
+	--accent-tint: light-dark(oklch(0.965 0.035 140), oklch(0.26 0.03 140));
 
 	/* Status ---------------------------------------------------------------- */
 	/* Never carried by colour alone: every use pairs with a sign, an arrow, or a word. */
-	--positive: light-dark(#2a6b37, #5fb872);
-	--negative: light-dark(#9c3b28, #e0705a);
+	--positive: light-dark(oklch(0.5 0.12 150), oklch(0.8 0.13 150));
+	--negative: light-dark(oklch(0.5 0.17 25), oklch(0.75 0.15 25));
 	--destructive: var(--negative);
 
+	/* The comp's one loud surface: the cross-machine warning. Amber, and used nowhere else, so it
+	   never has to compete for meaning. */
+	--warning: light-dark(oklch(0.96 0.05 85), oklch(0.29 0.05 80));
+	--warning-border: light-dark(oklch(0.8 0.09 80), oklch(0.45 0.08 80));
+	--warning-foreground: light-dark(oklch(0.4 0.08 70), oklch(0.93 0.04 85));
+
+	/* Chart series ---------------------------------------------------------- */
+	/* The overlay charts are one accent line against a neutral ramp: drizzle-rs is lime, everything
+	   else steps down the same 262 hue so the comparison reads as figure-against-ground. */
+	--series-1: light-dark(oklch(0.45 0.05 262), oklch(0.88 0.05 262));
+	--series-2: light-dark(oklch(0.58 0.05 262), oklch(0.72 0.05 262));
+	/* The light-mode third step is darker than mirroring the dark ramp would suggest: the comp's
+	   own value lands at 2.3:1 on paper, and a chart line has to clear 3:1 to be a usable mark. */
+	--series-3: light-dark(oklch(0.63 0.045 262), oklch(0.58 0.04 262));
+
 	/* Metric hues ----------------------------------------------------------- */
-	/* Categorical, validated for CVD separation and >=3:1 against both surfaces at every pair
-	   (OKLab dE >= 15 normal vision, >= 6.8 deutan/protan). Charts are faceted small multiples with
-	   a direct label on each, so hue reinforces identity and is never the only carrier. */
-	--chart-1: light-dark(#b8770a, #c08316);
-	--chart-2: light-dark(#1f6fb2, #3f88cf);
-	--chart-3: light-dark(#0f8a5f, #1a9a70);
-	--chart-4: light-dark(#a8348b, #b954a4);
+	/* Categorical, kept for the per-metric charts. Throughput takes the accent because it is the
+	   headline number; the rest use the alternates the comp itself offers (teal, amber,
+	   periwinkle) plus a red for errors. Charts carry a direct label, so hue reinforces identity
+	   and is never the only carrier. */
+	--chart-1: light-dark(oklch(0.52 0.14 138), oklch(0.86 0.18 132));
+	--chart-2: light-dark(oklch(0.48 0.14 265), oklch(0.8 0.12 265));
+	--chart-3: light-dark(oklch(0.5 0.11 195), oklch(0.85 0.15 195));
+	--chart-4: light-dark(oklch(0.52 0.13 75), oklch(0.82 0.16 85));
 	--chart-5: var(--negative);
 
 	/* One metric, one hue, everywhere it is drawn. */
@@ -93,7 +201,7 @@
 	--metric-err: var(--chart-5);
 
 	/* Geometry -------------------------------------------------------------- */
-	/* Square. Measurement instruments do not have rounded corners. */
+	/* Square. Measurement instruments do not have rounded corners, and neither does the comp. */
 	--radius: 0rem;
 }
 
@@ -107,8 +215,9 @@
 }
 
 @theme inline {
-	--font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
-	--font-mono: 'JetBrains Mono Variable', ui-monospace, 'Geist Mono', Menlo, monospace;
+	--font-sans:
+		'Instrument Sans Variable', 'Instrument Sans Fallback', ui-sans-serif, system-ui, sans-serif;
+	--font-mono: 'IBM Plex Mono', 'IBM Plex Mono Fallback', ui-monospace, monospace;
 
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
@@ -134,6 +243,16 @@
 	--color-link: var(--link);
 	--color-positive: var(--positive);
 	--color-negative: var(--negative);
+	--color-surface-raised: var(--surface-raised);
+	--color-surface-inset: var(--surface-inset);
+	--color-surface-chrome: var(--surface-chrome);
+	--color-accent-tint: var(--accent-tint);
+	--color-warning: var(--warning);
+	--color-warning-border: var(--warning-border);
+	--color-warning-foreground: var(--warning-foreground);
+	--color-series-1: var(--series-1);
+	--color-series-2: var(--series-2);
+	--color-series-3: var(--series-3);
 
 	--color-chart-1: var(--chart-1);
 	--color-chart-2: var(--chart-2);
@@ -147,37 +266,52 @@
 	--color-metric-err: var(--metric-err);
 
 	/*
-	 * Type ramp. Seven steps, each with a job, so a size is picked by role and never by nudging a
-	 * pixel value. Tailwind's own text-xs/text-sm scale is left untouched — the vendored shadcn
-	 * components are calibrated against it.
+	 * Type ramp, taken step for step off the comp. Each step has one job, so a size is picked by
+	 * role and never by nudging a pixel value. Tailwind's own text-xs/text-sm scale is left
+	 * untouched — the vendored shadcn components are calibrated against it.
 	 *
-	 *   micro    badges, axis ticks, chart annotations
-	 *   caption  eyebrows, section labels, column headers, footnotes
-	 *   meta     table cells and mono metadata — the workhorse
-	 *   body     prose
-	 *   lead     group and target headings
-	 *   metric   KPI values
-	 *   title    page titles
+	 *   micro    10.5px mono UPPERCASE — KPI labels, column headers, axis ticks
+	 *   caption  11.5px mono           — the meta strips beside a title
+	 *   meta     12.5px                — the quiet note line under a name, footnote-weight text
+	 *   body     14px                  — body copy: UI text, nav, filters, prose footnotes
+	 *   lead     15px                  — card titles, section headings, a table row's primary cell
+	 *   heading  16.5px                — a target's own heading on run detail
+	 *   prose    15px/1.65             — Method, the only place with real paragraphs
+	 *   metric   22px mono             — KPI values
+	 *   title    26px                  — page titles
+	 *
+	 * `body` sits at 14px deliberately: it is the size the page's default `font-size` is set to, and
+	 * the step below it (`meta`) is for text that is genuinely subordinate. An earlier pass had
+	 * `body` at 13.5px and `meta` at 12.5px, which put ordinary reading copy a half-step below the
+	 * document default and squeezed the gap between "read this" and "glance at this" to almost
+	 * nothing — everything looked like fine print. The jumps that carry hierarchy here are
+	 * 12.5 -> 14 -> 15 -> 16.5 -> 22 -> 26, reinforced by weight (600 headings against 400/500 copy)
+	 * and by colour, never by size alone.
 	 */
-	--text-micro: 0.625rem;
+	--text-micro: 0.65625rem;
 	--text-micro--line-height: 1.3;
-	--text-micro--letter-spacing: 0.04em;
-	--text-caption: 0.6875rem;
-	--text-caption--line-height: 1.35;
-	--text-caption--letter-spacing: 0.08em;
-	--text-meta: 0.75rem;
-	--text-meta--line-height: 1.45;
-	--text-body: 0.8125rem;
-	--text-body--line-height: 1.6;
-	--text-lead: 0.875rem;
-	--text-lead--line-height: 1.4;
-	--text-lead--letter-spacing: -0.005em;
+	--text-micro--letter-spacing: 0.06em;
+	--text-caption: 0.71875rem;
+	--text-caption--line-height: 1.4;
+	--text-caption--letter-spacing: 0.005em;
+	--text-meta: 0.78125rem;
+	--text-meta--line-height: 1.5;
+	--text-body: 0.875rem;
+	--text-body--line-height: 1.55;
+	--text-lead: 0.9375rem;
+	--text-lead--line-height: 1.35;
+	--text-lead--letter-spacing: -0.01em;
+	--text-heading: 1.03125rem;
+	--text-heading--line-height: 1.25;
+	--text-heading--letter-spacing: -0.012em;
+	--text-prose: 0.9375rem;
+	--text-prose--line-height: 1.65;
 	--text-metric: 1.375rem;
 	--text-metric--line-height: 1;
-	--text-metric--letter-spacing: -0.015em;
-	--text-title: 1.5rem;
+	--text-metric--letter-spacing: -0.01em;
+	--text-title: 1.625rem;
 	--text-title--line-height: 1.15;
-	--text-title--letter-spacing: -0.02em;
+	--text-title--letter-spacing: -0.022em;
 
 	--radius-sm: calc(var(--radius) * 0.6);
 	--radius-md: calc(var(--radius) * 0.8);
@@ -203,7 +337,7 @@
 		min-height: 100vh;
 		background: var(--background);
 		color: var(--foreground);
-		font-size: var(--text-body);
+		font-size: 0.875rem;
 		line-height: 1.5;
 		/* Every number on this site is read in a column against the number above it. */
 		font-variant-numeric: tabular-nums;
@@ -224,8 +358,8 @@
 	}
 
 	::selection {
-		background: var(--primary);
-		color: var(--primary-foreground);
+		background: light-dark(oklch(0.86 0.14 132 / 0.45), oklch(0.45 0.1 132));
+		color: var(--foreground);
 	}
 
 	::-webkit-scrollbar {
@@ -249,15 +383,16 @@
 @utility page-gutter {
 	margin-inline: auto;
 	width: 100%;
-	max-width: 76rem;
-	padding-inline: --spacing(4);
+	/* 1140px content column, 36px gutters — the comp's measure. */
+	max-width: 71.25rem;
+	padding-inline: --spacing(5);
 
 	@media (width >= 40rem) {
-		padding-inline: --spacing(6);
+		padding-inline: 2.25rem;
 	}
 }
 
-/* Prose measure for the methodology page: ~65 characters is where a line stops needing a ruler. */
+/* Prose measure for Method: the comp sets 62ch, which is where a line stops needing a ruler. */
 @utility measure {
-	max-width: 65ch;
+	max-width: 62ch;
 }

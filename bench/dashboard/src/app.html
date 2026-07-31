@@ -1,21 +1,15 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" %theme%>
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<!--
-			Applies a stored theme override before first paint. Pages are served from an edge cache, so
-			the HTML cannot carry a per-visitor theme; without this the page would paint in the OS
-			theme and then flip. No override stored means no attribute, and `light-dark()` follows
-			`prefers-color-scheme` on its own.
+			Marks the document as scripted before first paint, so progressive-enhancement affordances
+			(the submit buttons on the filter forms) are hidden without ever having been painted.
+			Everything still works with this script blocked; the buttons simply stay visible.
 		-->
 		<script>
-			try {
-				var t = localStorage.getItem('drizzle-bench-theme');
-				if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
-			} catch (e) {
-				/* private mode: fall through to the OS preference */
-			}
+			document.documentElement.classList.add('js');
 		</script>
 		%sveltekit.head%
 	</head>

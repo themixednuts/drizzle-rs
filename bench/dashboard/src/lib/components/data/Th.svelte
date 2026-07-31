@@ -26,7 +26,7 @@
 <Table.Head
 	scope="col"
 	class={cn(
-		'border-foreground text-caption text-muted-foreground h-auto border-b px-2.5 py-2 align-bottom font-mono font-normal uppercase first:pl-0 last:pr-0',
+		'border-border text-micro text-muted-foreground h-auto border-b px-3 pt-1 pb-2.5 align-bottom font-mono font-normal uppercase first:pl-0 last:pr-0',
 		numeric && 'text-right',
 		className,
 	)}

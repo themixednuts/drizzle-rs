@@ -27,6 +27,19 @@ export interface TargetDisplay {
 	dataAccess: DataAccess | null;
 	sqlVariant: string | null;
 	badges: string[];
+	/**
+	 * The one-line plain-language description that sits under a target's name — "query builder on
+	 * rusqlite, prepared", "raw driver, unprepared".
+	 *
+	 * This replaces the row of badge chips. The chips carried the same facts, but as five separate
+	 * outlined boxes per row they were the single loudest thing in every table: on the ranking page
+	 * that was eighty bordered rectangles competing with sixteen numbers. The facts survive as a
+	 * sentence, which is quieter and also reads correctly to a screen reader. The dialect is not in
+	 * here because it gets its own column, and the runner OS is not either because it is a property
+	 * of the machine rather than the library — both stay on `TargetDisplay` for the callers that
+	 * show them.
+	 */
+	note: string;
 	familyKey: string;
 	detail: string;
 	incomplete: boolean;
@@ -163,10 +176,39 @@ export function targetDisplay(input: TargetDisplayInput): TargetDisplay {
 		dataAccess: access,
 		sqlVariant: meta?.sql_variant ?? null,
 		badges,
+		note: targetNote(meta, driver, mode, access),
 		familyKey: slug(`${name}:${dialect}:${driver ?? 'default'}`),
 		detail: badges.join(' / '),
 		incomplete: meta?.incomplete === true,
 	};
+}
+
+/**
+ * What kind of thing is being measured: a raw driver, a query builder, or a full ORM.
+ *
+ * Drizzle is a query builder rather than an ORM, and saying so is the honest framing — comparing a
+ * query builder against a raw driver is a different claim than comparing two ORMs.
+ */
+function targetKind(meta: TargetMeta | undefined): string {
+	const orm = meta?.orm.name.toLowerCase() ?? '';
+	if (!orm || orm === 'none') return 'raw driver';
+	if (orm.includes('drizzle')) return 'query builder';
+	return 'ORM';
+}
+
+function targetNote(
+	meta: TargetMeta | undefined,
+	driver: string | null,
+	mode: string | null,
+	access: DataAccess | null,
+): string {
+	// An in-process cache is not doing the same work as everything else in the table, so it says so
+	// in full rather than being reduced to a two-word chip. This is the one note that never
+	// abbreviates.
+	if (access === 'in-process-cache') return 'in-memory cache — no per-request DB work';
+
+	const head = driver ? `${targetKind(meta)} on ${driver}` : targetKind(meta);
+	return mode ? `${head}, ${mode}` : head;
 }
 
 export function targetLabel(input: TargetDisplayInput): string {

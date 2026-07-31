@@ -9,12 +9,16 @@
 	let { children, summary }: { children: Snippet; summary?: Snippet } = $props();
 </script>
 
+<!--
+	No rule under it any more. The controls already sit in their own band of whitespace, and in the
+	comp the first bordered thing on a page is the data itself.
+-->
 <div
-	class="border-border-soft mt-4 flex flex-col items-stretch gap-2 border-b pb-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-5"
+	class="mt-7 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-5"
 >
 	{@render children()}
 	{#if summary}
-		<div class="text-caption text-muted-foreground font-mono tracking-normal sm:ml-auto">
+		<div class="text-body text-muted-foreground sm:ml-auto">
 			{@render summary()}
 		</div>
 	{/if}

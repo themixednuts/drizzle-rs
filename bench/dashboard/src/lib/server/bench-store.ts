@@ -98,11 +98,26 @@ const localRoot = Config.string('BENCH_DATA_DIR').pipe(
 /**
  * Prefer the real R2 binding whenever one is bound — `wrangler dev` and `vite dev` with the
  * Cloudflare platform proxy both provide it, and reading the bucket beats reading a stale local
- * export. The on-disk directory is a dev-only fallback for when no binding exists.
+ * export. The on-disk directory is a dev-only fallback for when no binding exists — except that
+ * in dev an EXPLICIT `BENCH_DATA_DIR` outranks the implicit proxy binding: setting the env var is
+ * a direct request to serve that directory (e.g. previewing a local run before it is published).
  */
 const resolveBucket = Effect.fn('BenchStore.resolveBucket')(function* (
 	platform: App.Platform | undefined,
 ) {
+	const explicitLocal = yield* Config.string('BENCH_DATA_DIR').pipe(
+		Config.withDefault(''),
+		Effect.mapError(
+			(cause) =>
+				new BenchStoreUnavailable({
+					message: `Benchmark data directory could not be read from BENCH_DATA_DIR: ${cause}`,
+				}),
+		),
+	);
+	if (dev && explicitLocal !== '') {
+		return new LocalBenchBucket(explicitLocal);
+	}
+
 	const bucket = platform?.env?.BENCH_DATA;
 	if (bucket) return bucket as BenchBucket;
 

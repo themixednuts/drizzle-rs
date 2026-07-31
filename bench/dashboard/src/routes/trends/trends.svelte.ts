@@ -1,7 +1,6 @@
-import { goto } from '$app/navigation';
 import { page } from '$app/state';
 import type { FilterOption } from '#lib/components/FilterPills.svelte';
-import type { PickerOption } from '#lib/components/PickerSelect.svelte';
+import type { SelectOption } from '#lib/components/SelectField.svelte';
 import { fmtCpu, fmtLatency, fmtPct, fmtRps, suiteLabel } from '#lib/format';
 import type { DeltaDirection } from '#lib/leaderboard';
 import type { TrendPoint } from '#lib/types';
@@ -71,6 +70,11 @@ export class TrendsPageState {
 		return [...this.trends].reverse();
 	}
 
+	/** Same rule as the other list pages: a one-option filter is not a filter. */
+	get showSuiteFilter(): boolean {
+		return this.suites.length > 1;
+	}
+
 	suiteFilters: FilterOption[] = $derived([
 		{ label: 'all', href: this.buildUrl(null, this.targetKey), active: !this.suite },
 		...this.suites.map((suite) => ({
@@ -80,7 +84,7 @@ export class TrendsPageState {
 		})),
 	]);
 
-	targetOptions: PickerOption[] = $derived(
+	targetOptions: SelectOption[] = $derived(
 		this.targets.map((target) => ({ value: target.key, label: target.label })),
 	);
 
@@ -175,8 +179,4 @@ export class TrendsPageState {
 		const query = params.toString();
 		return '/trends' + (query ? '?' + query : '');
 	}
-
-	selectTarget = (value: string): void => {
-		void goto(this.buildUrl(this.suite, value || null));
-	};
 }

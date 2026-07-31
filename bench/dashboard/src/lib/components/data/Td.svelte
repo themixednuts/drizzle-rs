@@ -2,7 +2,7 @@
 	import { tv, type VariantProps } from 'tailwind-variants';
 
 	export const tdVariants = tv({
-		base: 'border-b border-border-soft px-2.5 py-1.5 align-middle whitespace-nowrap first:pl-0 last:pr-0',
+		base: 'border-b border-border-soft px-3 py-3 align-middle whitespace-nowrap first:pl-0 last:pr-0',
 		variants: {
 			/** Emphasis inside a row: the headline number, a supporting one, or metadata. */
 			tone: {
@@ -10,7 +10,8 @@
 				secondary: 'text-foreground-secondary',
 				muted: 'text-muted-foreground',
 			},
-			numeric: { true: 'text-right', false: '' },
+			/** Numbers are the only thing that gets the monospace face, and they get it here. */
+			numeric: { true: 'text-right font-mono tabular-nums', false: '' },
 			wrap: { true: 'whitespace-normal', false: '' },
 		},
 		defaultVariants: { tone: 'default', numeric: false, wrap: false },

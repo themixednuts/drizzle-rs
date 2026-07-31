@@ -8,6 +8,6 @@
 	let { children }: { children: Snippet } = $props();
 </script>
 
-<div class="mt-3 grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-2">
+<div class="grid grid-cols-[repeat(auto-fit,minmax(7.875rem,1fr))] gap-x-6 gap-y-6">
 	{@render children()}
 </div>

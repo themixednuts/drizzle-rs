@@ -1,4 +1,5 @@
 import { version } from '$app/env';
+import { parseTheme, THEME_COOKIE, type ThemePreference } from '#lib/theme';
 import type { Handle, RequestEvent } from '@sveltejs/kit';
 
 /**
@@ -39,11 +40,12 @@ const ONE_YEAR = 31_536_000;
  * an arbitrary path segment opt itself in.
  */
 const POLICIES: Record<string, CachePolicy> = {
-	'/': { ttl: FIVE_MINUTES, params: ['suite', 'status'] },
-	'/runs': { ttl: FIVE_MINUTES, params: ['suite', 'status'] },
-	'/runs/[run_id]': { ttl: ONE_YEAR, params: [] },
+	'/': { ttl: FIVE_MINUTES, params: ['suite', 'status', 'db', 'sort'] },
+	'/runs': { ttl: FIVE_MINUTES, params: ['suite', 'status', 'q'] },
+	'/runs/[run_id]': { ttl: ONE_YEAR, params: ['metric'] },
 	'/trends': { ttl: FIVE_MINUTES, params: ['suite', 'target'] },
 	'/compare': { ttl: FIVE_MINUTES, params: ['cohort', 'metric'] },
+	'/repeatability': { ttl: FIVE_MINUTES, params: ['suite'] },
 	'/methodology': { ttl: FIVE_MINUTES, params: [] },
 	// The JSON API already advertises `max-age=300` to shared caches; the edge TTL matches it.
 	'/api/v1/runs/latest': { ttl: FIVE_MINUTES, params: ['suite'] },
@@ -58,13 +60,42 @@ type CacheStatus = 'hit' | 'miss' | 'bypass';
 
 const CACHEABLE_METHODS = new Set(['GET', 'HEAD']);
 
+interface Caller {
+	/** True when anything about this request could make the response visitor-specific. */
+	credentialed: boolean;
+	/** Theme the response will be rendered in; a dimension of the cache key. */
+	theme: ThemePreference;
+}
+
 /**
- * Headers that mean "this response may be specific to one visitor". Their presence on the request
- * disqualifies it from the cache entirely — we neither serve a stored copy to a credentialed
- * caller nor store whatever the renderer produced for them.
+ * Decide whether a request may participate in a shared cache, and in which theme.
+ *
+ * An `Authorization` header, or any cookie at all beyond the theme cookie, disqualifies the
+ * request entirely — we neither serve a stored copy to that caller nor store what the renderer
+ * produced for them. The theme cookie is the single exception, and it is safe precisely because it
+ * is *not* treated as invisible: its value becomes part of the cache key, so a light entry and a
+ * dark entry are different entries and can never be served to each other. Without that carve-out
+ * every returning visitor would bypass the cache, since the theme cookie is set for everyone who
+ * ever touches the toggle.
+ *
+ * The name match is exact. A cookie called `theme2` or `mytheme` counts as "some other cookie".
  */
-function isCredentialed(request: Request): boolean {
-	return request.headers.has('cookie') || request.headers.has('authorization');
+function inspectCaller(request: Request): Caller {
+	if (request.headers.has('authorization')) return { credentialed: true, theme: 'system' };
+
+	const header = request.headers.get('cookie');
+	if (!header) return { credentialed: false, theme: 'system' };
+
+	let theme: ThemePreference = 'system';
+	for (const pair of header.split(';')) {
+		const separator = pair.indexOf('=');
+		const name = (separator === -1 ? pair : pair.slice(0, separator)).trim();
+		if (name === '') continue;
+		if (name !== THEME_COOKIE) return { credentialed: true, theme: 'system' };
+		theme = parseTheme(decodeURIComponent(pair.slice(separator + 1).trim()));
+	}
+
+	return { credentialed: false, theme };
 }
 
 /**
@@ -75,8 +106,8 @@ function isCredentialed(request: Request): boolean {
  * is what makes every deploy start cold, which is the whole invalidation story: there is no purge
  * API because nothing in the app ever needed to invalidate a single entry.
  */
-function cacheKey(url: URL, policy: CachePolicy): Request {
-	const key = new URL(`/__page-cache/${version}${url.pathname}`, url.origin);
+function cacheKey(url: URL, policy: CachePolicy, theme: ThemePreference): Request {
+	const key = new URL(`/__page-cache/${version}/${theme}${url.pathname}`, url.origin);
 
 	for (const name of [...policy.params].sort()) {
 		for (const value of url.searchParams.getAll(name).sort()) {
@@ -174,18 +205,19 @@ function run(promise: Promise<unknown>, event: RequestEvent): void {
 export const pageCache: Handle = async ({ event, resolve }) => {
 	const policy = event.route.id ? POLICIES[event.route.id] : undefined;
 	const cache = openCache(event);
+	const caller = inspectCaller(event.request);
 
 	const eligible =
 		policy !== undefined &&
 		cache !== undefined &&
 		CACHEABLE_METHODS.has(event.request.method) &&
-		!isCredentialed(event.request);
+		!caller.credentialed;
 
 	if (!policy || !cache || !eligible) {
 		return forClient(await resolve(event), 'bypass', event.request.method);
 	}
 
-	const key = cacheKey(event.url, policy);
+	const key = cacheKey(event.url, policy, caller.theme);
 
 	const hit = await cache.match(key).catch(() => undefined);
 	if (hit) return forClient(hit, 'hit', event.request.method);

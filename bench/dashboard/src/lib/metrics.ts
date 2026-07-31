@@ -11,6 +11,18 @@ import type { ChartConfig } from './components/ui/chart/index.js';
  */
 export type MetricKey = 'rps' | 'latency' | 'cpu' | 'mem' | 'err';
 
+/** Metrics a run detail can chart, in tab order. `err` is reported but never plotted. */
+export const CHART_METRIC_KEYS = ['rps', 'latency', 'cpu', 'mem'] as const;
+
+export const METRIC_KEYS = [...CHART_METRIC_KEYS, 'err'] as const satisfies readonly MetricKey[];
+
+/** Narrow an untrusted `?metric=` value; anything unrecognised falls back to throughput. */
+export function parseChartMetric(value: string | null): MetricKey {
+	return (CHART_METRIC_KEYS as readonly string[]).includes(value ?? '')
+		? (value as MetricKey)
+		: 'rps';
+}
+
 export interface MetricDefinition {
 	key: MetricKey;
 	/** Short label used on chart headers and tab triggers. */

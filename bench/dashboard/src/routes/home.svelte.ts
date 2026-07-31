@@ -1,6 +1,6 @@
 import { page } from '$app/state';
 import { boxWhiskerExtent, rpsBox } from '#lib/boxplot';
-import { fmtCpu, fmtLatency, fmtPct, fmtRps, suiteLabel } from '#lib/format';
+import { fmtCpu, fmtDate, fmtLatency, fmtPct, fmtRps, shortHash, suiteLabel } from '#lib/format';
 import {
 	drizzleDelta,
 	drizzleDeltaDirection,
@@ -8,12 +8,23 @@ import {
 	type DeltaDirection,
 	type TargetGroup,
 } from '#lib/leaderboard';
-import { isDrizzleRsTarget, targetDisplay } from '#lib/target-display';
+import {
+	dbProfile,
+	dbProfileLabel,
+	isDrizzleRsTarget,
+	isInProcessCache,
+	targetDisplay,
+	type DbProfile,
+} from '#lib/target-display';
+import { cohortSearchText } from '#lib/cohort-search';
+import { summarizeAll, type QualitativeNote } from '#lib/qualitative';
 import type { FilterOption } from '#lib/components/FilterPills.svelte';
+import { parseRankingSort, type RankingRow, type RankingSort } from '#lib/ranking';
 import type { Manifest, RunCohort, RunIndexEntry, SummaryResult } from '#lib/types';
 
 interface RunsPageData {
 	runs: RunIndexEntry[];
+	q?: string;
 	cohorts: RunCohort[];
 	warnings: string[];
 	latest?: { cohort: RunCohort; manifest: Manifest; summaries: SummaryResult[] } | null;
@@ -57,6 +68,19 @@ function hasMaterialErrors(summary: SummaryResult): boolean {
 	return summary.primary.err > 0.005;
 }
 
+/** Short names for the ranking's database column — the long forms are in `dbProfileLabel`. */
+const DB_NAMES: Record<DbProfile, string> = {
+	sqlite: 'SQLite',
+	turso: 'Turso',
+	postgres: 'PostgreSQL',
+	spacetimedb: 'SpacetimeDB',
+	other: 'other',
+};
+
+function dbLabel(profile: DbProfile): string {
+	return DB_NAMES[profile];
+}
+
 function compareLeaderboard(a: SummaryResult, b: SummaryResult): number {
 	const aBad = hasMaterialErrors(a);
 	const bBad = hasMaterialErrors(b);
@@ -67,10 +91,17 @@ function compareLeaderboard(a: SummaryResult, b: SummaryResult): number {
 export class RunsPageState {
 	#data: () => RunsPageData;
 	#basePath: string;
+	/**
+	 * Seeded from `?q=`, which the server has already filtered on. Typing refines further without a
+	 * navigation; with scripting off the form submit does the same work server-side.
+	 */
 	query = $state('');
 	hoverFamilyKey = $state<string | null>(null);
 	suite = $derived(page.url.searchParams.get('suite'));
 	status = $derived(page.url.searchParams.get('status'));
+	/** Ranking view state, both in the URL so a filtered ranking is a shareable address. */
+	db = $derived(page.url.searchParams.get('db'));
+	sort = $derived(parseRankingSort(page.url.searchParams.get('sort')));
 
 	constructor(data: () => RunsPageData, basePath = '/') {
 		this.#data = data;
@@ -100,21 +131,7 @@ export class RunsPageState {
 	get filteredCohorts() {
 		const query = this.query.trim().toLowerCase();
 		if (!query) return this.cohorts;
-		return this.cohorts.filter((cohort) => {
-			const text = [
-				cohort.id,
-				cohort.name,
-				cohort.git,
-				cohort.suite,
-				cohort.status,
-				cohort.class,
-				...cohort.targets,
-				...cohort.run_ids,
-			]
-				.join(' ')
-				.toLowerCase();
-			return text.includes(query);
-		});
+		return this.cohorts.filter((cohort) => cohortSearchText(cohort).includes(query));
 	}
 
 	get latest() {
@@ -127,6 +144,11 @@ export class RunsPageState {
 
 	get statuses() {
 		return this.#data().statuses;
+	}
+
+	/** The search term the server rendered for, used to seed the input and the client filter. */
+	get serverQuery(): string {
+		return this.#data().q ?? '';
 	}
 
 	get totalRuns() {
@@ -157,6 +179,113 @@ export class RunsPageState {
 	sections: LeaderboardSection[] = $derived(
 		groupTargets(this.results, compareLeaderboard).map((group) => this.#toSection(group)),
 	);
+
+	/**
+	 * The flat ranking: every target in the set, in one order, across database families.
+	 *
+	 * The sectioned-by-family leaderboard is gone from this page. Splitting the table was how the
+	 * old design stopped a reader inferring "SQLite beats PostgreSQL" from adjacency, but it cost
+	 * the page its headline — you could not see, at a glance, where drizzle-rs stood. The honesty
+	 * now rides on three things that are always on screen instead of on the layout: the `database`
+	 * column, the note under each name (an in-process cache says so in words), and the footnote
+	 * under the table pointing at Repeatability and Method. `/compare` keeps the amber callout for
+	 * the case where someone actually puts two incomparable jobs side by side.
+	 */
+	get rankingRows(): RankingRow[] {
+		const rows = this.results.filter((summary) => !this.db || dbProfile(summary) === this.db);
+		const ordered = [...rows].sort(
+			this.sort === 'latency'
+				? (a, b) => this.#byErrorsThen(a, b, a.primary.latency.p95 - b.primary.latency.p95)
+				: (a, b) => this.#byErrorsThen(a, b, b.primary.rps.avg - a.primary.rps.avg),
+		);
+
+		// Scaled to the rows on screen, not to every row that exists. With "all databases" selected
+		// the in-memory-cache target is several times faster than anything doing real per-request
+		// work, and an absolute scale would squash every other bar into an unreadable stub. The
+		// number beside each bar is always the real one, so the bar is a shape cue and never the
+		// source of a value.
+		const baselineRps = this.#baselineRps;
+		const peak = Math.max(1, ...ordered.map((summary) => summary.primary.rps.avg));
+		const peakLatency = Math.max(1, ...ordered.map((summary) => summary.primary.latency.p95));
+
+		return ordered.map((summary, index) => {
+			const isOurs = isDrizzleRsTarget(summary);
+			const fraction =
+				this.sort === 'latency'
+					? summary.primary.latency.p95 / peakLatency
+					: summary.primary.rps.avg / peak;
+			return {
+				id: `${summary.run_id}:${summary.target_key}`,
+				summary,
+				rank: index + 1,
+				isOurs,
+				barPct: `${Math.max(1.5, fraction * 100).toFixed(1)}%`,
+				...this.#delta(summary, baselineRps, isOurs),
+			};
+		});
+	}
+
+	/** Errored targets sort last whichever column is chosen; their numbers are not comparable. */
+	#byErrorsThen(a: SummaryResult, b: SummaryResult, tiebreak: number): number {
+		const aBad = hasMaterialErrors(a);
+		const bBad = hasMaterialErrors(b);
+		if (aBad !== bBad) return aBad ? 1 : -1;
+		return tiebreak;
+	}
+
+	get #baselineRps(): number | null {
+		const ours = this.results
+			.filter((summary) => isDrizzleRsTarget(summary))
+			.sort(compareLeaderboard)[0];
+		return ours?.primary.rps.avg ?? null;
+	}
+
+	/** Which database families this set actually produced, in the canonical order. */
+	get dbFilters(): FilterOption[] {
+		const present = new Set(this.results.map((summary) => dbProfile(summary)));
+		const families = (
+			['sqlite', 'turso', 'postgres', 'spacetimedb', 'other'] as DbProfile[]
+		).filter((profile) => present.has(profile));
+		return [
+			{ label: 'All', href: this.rankingUrl(null, this.sort), active: !this.db },
+			...families.map((profile) => ({
+				label: dbLabel(profile),
+				href: this.rankingUrl(profile, this.sort),
+				active: this.db === profile,
+			})),
+		];
+	}
+
+	get sortOptions(): FilterOption[] {
+		return (['throughput', 'latency'] as RankingSort[]).map((sort) => ({
+			label: sort,
+			href: this.rankingUrl(this.db, sort),
+			active: this.sort === sort,
+		}));
+	}
+
+	rankingUrl(db: string | null, sort: RankingSort): string {
+		const params = new URLSearchParams();
+		if (this.suite) params.set('suite', this.suite);
+		if (this.status) params.set('status', this.status);
+		if (db) params.set('db', db);
+		if (sort !== 'throughput') params.set('sort', sort);
+		const query = params.toString();
+		return this.#basePath + (query ? '?' + query : '');
+	}
+
+	/** Short database name for the ranking's own column; the long form is the filter's tooltip. */
+	dbName(summary: SummaryResult): string {
+		return dbLabel(dbProfile(summary));
+	}
+
+	dbDetail(summary: SummaryResult): string {
+		return dbProfileLabel(dbProfile(summary));
+	}
+
+	isCache(summary: SummaryResult): boolean {
+		return isInProcessCache(summary.target_meta);
+	}
 
 	#toSection(group: TargetGroup<SummaryResult>): LeaderboardSection {
 		const baseline = group.baseline;
@@ -249,21 +378,28 @@ export class RunsPageState {
 		return { summary: fastest, label: `fastest: ${targetDisplay(fastest).name}`, isOurs: false };
 	}
 
-	get overviewMeta() {
-		const cohort = this.latest?.cohort;
-		if (!cohort)
-			return `${this.totalCohorts} sets / ${this.totalResults} results / ${this.totalTargets} target ids`;
-		const runner = this.latest!.manifest.runner;
-		return `${this.totalCohorts} set / ${this.totalResults} results / ${this.totalTargets} target ids / ${runner.class} / ${runner.cores} cores`;
+	/**
+	 * The single line of run-level metadata a list page is allowed: which commit, when, how many
+	 * trials. Nothing else.
+	 *
+	 * This replaced a dump of counts — sets, results, target ids, runner class, cores — that was
+	 * identical on every visit and could not change what anyone clicked. The counts that do matter
+	 * are still on screen where they mean something: the number of rows is the list itself, and a
+	 * job that fell short says so on its own row.
+	 */
+	get overviewMeta(): string {
+		const latest = this.latest;
+		if (!latest) return `${this.totalCohorts} job${this.totalCohorts === 1 ? '' : 's'}`;
+		const trials = latest.manifest.trials.count;
+		return `commit ${shortHash(latest.cohort.git)} · ${fmtDate(latest.cohort.start)} · ${trials} trial${trials === 1 ? '' : 's'} each`;
 	}
 
-	get filterMeta() {
-		const latest = this.latest;
-		if (!latest) return `${this.cohorts.length} matching sets`;
-
-		const load = latest.manifest.load;
-		const trials = latest.manifest.trials;
-		return `${latest.cohort.result_count} results / ${latest.cohort.run_ids.length} shards / n=${trials.count} trials, ${trials.aggregate} across trials / ${load.duration_s}s / ${load.max_vus} max vus${load.pacing ? ` / ${load.pacing} pacing` : ''}`;
+	/** Same line for `/runs`, where the newest job is the one that dates the page. */
+	get runsMeta(): string {
+		const newest = this.cohorts[0];
+		const count = this.totalCohorts;
+		if (!newest) return `${count} job${count === 1 ? '' : 's'}`;
+		return `${count} job${count === 1 ? '' : 's'} · commit ${shortHash(newest.git)} · ${fmtDate(newest.start)}`;
 	}
 
 	/**
@@ -327,6 +463,23 @@ export class RunsPageState {
 	}
 
 	/**
+	 * Short forms for every SQL note on this page, computed together so two targets whose
+	 * explanations open the same way are told apart rather than both collapsing to one label.
+	 */
+	#variantNotes = $derived(
+		summarizeAll(
+			this.results
+				.map((summary) => targetDisplay(summary).sqlVariant)
+				.filter((text): text is string => Boolean(text)),
+		),
+	);
+
+	variantNote(summary: SummaryResult): QualitativeNote | null {
+		const raw = targetDisplay(summary).sqlVariant;
+		return raw ? (this.#variantNotes.get(raw.trim()) ?? null) : null;
+	}
+
+	/**
 	 * Hovering a row lifts every row from the same target family and recedes the rest, which is how
 	 * you follow one ORM across drivers without re-sorting the table.
 	 */
@@ -356,6 +509,15 @@ export class RunsPageState {
 		const median = box.median === null ? 'n/a' : fmtRps(box.median);
 		if (box.spread === 'none') return `${median} / n=${box.samples}`;
 		return `min ${fmtRps(box.min)} / med ${median} / max ${fmtRps(box.max)} / n=${box.samples}`;
+	}
+
+	/**
+	 * A filter with one option filters nothing. This site has published a single suite for its whole
+	 * life, so the suite row was two pills — "all" and the only suite — taking a line on three pages
+	 * to offer no choice. It appears the moment a second suite exists.
+	 */
+	get showSuiteFilter(): boolean {
+		return this.suites.length > 1;
 	}
 
 	/** Both filter rows are built here so `/` and `/runs` cannot drift apart. */

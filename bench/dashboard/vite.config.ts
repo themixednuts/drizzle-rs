@@ -38,6 +38,9 @@ export default defineConfig({
 			experimental: {
 				remoteFunctions: true,
 			},
+			// Inline the stylesheet rather than blocking first paint on a separate request. The whole
+			// sheet is a few KB gzipped because the UI is Tailwind utilities over one token block.
+			inlineStyleThreshold: 96 * 1024,
 		}),
 	],
 });

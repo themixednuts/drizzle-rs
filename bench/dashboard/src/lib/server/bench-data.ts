@@ -11,7 +11,17 @@ import {
 	parseCompareCategory,
 	type CompareMetric,
 } from '#lib/compare';
-import { fallbackTargetMeta, targetLabel } from '#lib/target-display';
+import {
+	fallbackTargetMeta,
+	isDrizzleRsTarget,
+	targetDisplay,
+	targetLabel,
+} from '#lib/target-display';
+import { buildTargetChart, emptyTargetChart, type TargetChart } from '#lib/chart-series';
+import { buildOverlay, type OverlayTarget } from '#lib/overlay';
+import type { RepeatabilityGroup } from '#lib/repeatability';
+import { cohortSearchText } from '#lib/cohort-search';
+import type { MetricKey } from '#lib/metrics';
 import type {
 	CompareItem,
 	Manifest,
@@ -269,6 +279,7 @@ function indexTotals(index: { runs: RunIndexEntry[] }) {
 export const runsPageData = Effect.fn('BenchData.runsPage')(function* (filters: {
 	suite: MaybeFilter;
 	status: MaybeFilter;
+	q?: MaybeFilter;
 }) {
 	const store = yield* BenchStore;
 	const index = yield* store.readIndexOrEmpty;
@@ -281,9 +292,17 @@ export const runsPageData = Effect.fn('BenchData.runsPage')(function* (filters: 
 	const filtered = buildRunCohorts(runs);
 	const all = buildRunCohorts(index.runs);
 
+	// The free-text filter is applied server-side so the search box is a real GET form that works
+	// with scripting off; the client keeps filtering as you type purely as an enhancement.
+	const query = filters.q?.trim().toLowerCase() ?? '';
+	const cohorts = query
+		? filtered.cohorts.filter((cohort) => cohortSearchText(cohort).includes(query))
+		: filtered.cohorts;
+
 	return {
 		runs,
-		cohorts: filtered.cohorts.sort((a, b) => b.start.localeCompare(a.start)),
+		q: filters.q ?? '',
+		cohorts: cohorts.sort((a, b) => b.start.localeCompare(a.start)),
 		warnings: [...new Set([...filtered.warnings, ...all.warnings])],
 		totalCohorts: all.cohorts.length,
 		hasData: index.runs.length > 0,
@@ -314,19 +333,167 @@ export const overviewPageData = Effect.fn('BenchData.overviewPage')(function* (f
 	return { ...base, latest: snapshot.success as LatestRunOverview };
 });
 
-export const runDetailPageData = Effect.fn('BenchData.runDetailPage')(function* (runId: string) {
+/**
+ * A target only offers the memory tab when the runner sampled memory for it, so a page-wide
+ * `?metric=mem` degrades to throughput for the targets that have none rather than charting zeroes.
+ */
+function chartMetricFor(summary: Summary, metric: MetricKey): MetricKey {
+	return metric === 'mem' && !summary.primary.mem ? 'rps' : metric;
+}
+
+export const runDetailPageData = Effect.fn('BenchData.runDetailPage')(function* (
+	runId: string,
+	metric: MetricKey,
+) {
 	const store = yield* BenchStore;
 	const manifest = yield* store.readManifest(runId);
 	const summaries = yield* store.readAllSummaries(runId, manifest.targets);
-	return { manifest, summaries };
+
+	const queries = manifest.queries ?? [];
+	const trials = manifest.trials.count;
+
+	// Every chart on the page is derived here so the server can render all of them. The timeseries
+	// artifacts are ~800 KB each and never leave this function — only the few hundred plotted points
+	// do. Each target's artifact is read exactly once and feeds both its own per-metric chart and
+	// its line on the two overlay charts.
+	const derived = yield* Effect.forEach(
+		summaries,
+		(summary) =>
+			Effect.map(store.readTimeseries(runId, summary.target_id), (timeseries) => {
+				const wanted = chartMetricFor(summary, metric);
+				const display = targetDisplay(summary);
+				return {
+					summary,
+					chart: timeseries
+						? buildTargetChart(timeseries.points, queries, wanted, trials)
+						: emptyTargetChart(wanted),
+					overlay: {
+						targetId: summary.target_id,
+						name: display.name,
+						isOurs: isDrizzleRsTarget(summary),
+						points: timeseries?.points ?? [],
+					} satisfies OverlayTarget,
+				};
+			}),
+		{ concurrency: R2_CONCURRENCY },
+	);
+
+	const overlayTargets = derived.map((entry) => entry.overlay);
+
+	return {
+		manifest,
+		summaries,
+		metric,
+		charts: Object.fromEntries(
+			derived.map((entry) => [entry.summary.target_id, entry.chart]),
+		) as Record<string, TargetChart>,
+		overlays: {
+			rps: buildOverlay(overlayTargets, 'rps', trials),
+			latency: buildOverlay(overlayTargets, 'latency', trials),
+		},
+	};
 });
 
-export const timeseriesData = Effect.fn('BenchData.timeseries')(function* (
+/**
+ * One target's chart, for the remote function that swaps metrics after hydration. Same builder as
+ * the initial render, so an enhanced switch and a full navigation produce identical output.
+ */
+export const targetChartData = Effect.fn('BenchData.targetChart')(function* (
 	runId: string,
 	targetId: string,
+	metric: MetricKey,
 ) {
 	const store = yield* BenchStore;
-	return yield* store.readTimeseries(runId, targetId);
+	const manifest = yield* store.readManifest(runId);
+	const timeseries = yield* store.readTimeseries(runId, targetId);
+	return timeseries
+		? buildTargetChart(timeseries.points, manifest.queries ?? [], metric, manifest.trials.count)
+		: emptyTargetChart(metric);
+});
+
+/**
+ * Repeatability: the same job, run on more than one machine.
+ *
+ * This is the page the honesty of every other page leans on. The ranking table puts libraries that
+ * ran on different machines in one list, which is only defensible if a reader can go and see, in
+ * concrete numbers, how much a machine change moves a result. So it takes the newest successful
+ * set, finds the targets whose work was repeated across shards, and shows each machine's throughput
+ * side by side.
+ *
+ * A target that only ever ran on one machine is excluded rather than shown with a single bar: one
+ * measurement says nothing about repeatability, and drawing it as if it did would be the exact
+ * failure this page exists to prevent.
+ */
+export const repeatabilityPageData = Effect.fn('BenchData.repeatabilityPage')(function* (filters: {
+	suite: MaybeFilter;
+}) {
+	const store = yield* BenchStore;
+	const index = yield* store.readIndexOrEmpty;
+
+	let runs = index.runs.filter((run) => run.status === 'success');
+	if (filters.suite) runs = runs.filter((run) => run.suite === filters.suite);
+
+	const suites = [...new Set(index.runs.map((run) => run.suite))].sort();
+	const built = buildRunCohorts(runs);
+	const cohort = built.cohorts.sort((a, b) => b.start.localeCompare(a.start))[0];
+
+	const empty = {
+		suites,
+		cohort: null as RunCohort | null,
+		groups: [] as RepeatabilityGroup[],
+		warnings: built.warnings,
+	};
+	if (!cohort) return empty;
+
+	// A broken snapshot degrades this page to "nothing to show", it does not 500.
+	const snapshot = yield* Effect.result(readCohortSnapshot(store, cohort));
+	if (snapshot._tag === 'Failure') {
+		return { ...empty, cohort, warnings: [...built.warnings, snapshot.failure.message] };
+	}
+
+	const byTarget = new Map<string, SummaryResult[]>();
+	for (const summary of snapshot.success.summaries) {
+		const bucket = byTarget.get(summary.target_id);
+		if (bucket) bucket.push(summary);
+		else byTarget.set(summary.target_id, [summary]);
+	}
+
+	const groups: RepeatabilityGroup[] = [];
+	for (const [targetId, summaries] of byTarget) {
+		// "Different machines" means distinct runner labels, not merely distinct shards: two shards
+		// of the same OS are the same machine class and would overstate the spread.
+		const machines = new Map<string, SummaryResult>();
+		for (const summary of summaries) {
+			const key = summary.runner_label || summary.runner_os;
+			if (!machines.has(key)) machines.set(key, summary);
+		}
+		if (machines.size < 2) continue;
+
+		const runsOnMachines = [...machines.entries()]
+			.map(([label, summary]) => ({
+				label,
+				run_id: summary.run_id,
+				os: summary.runner_os,
+				rps: summary.primary.rps.avg,
+				p95: summary.primary.latency.p95,
+			}))
+			.sort((a, b) => b.rps - a.rps);
+
+		const values = runsOnMachines.map((entry) => entry.rps);
+		const display = targetDisplay(summaries[0]);
+		groups.push({
+			targetId,
+			name: display.name,
+			note: display.note,
+			isOurs: isDrizzleRsTarget(summaries[0]),
+			min: Math.min(...values),
+			max: Math.max(...values),
+			runs: runsOnMachines,
+		});
+	}
+
+	groups.sort((a, b) => b.max - a.max);
+	return { suites, cohort, groups, warnings: built.warnings };
 });
 
 /**

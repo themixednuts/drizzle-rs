@@ -7,6 +7,7 @@ export const load: PageServerLoad = ({ platform, url }) =>
 		runsPageData({
 			suite: url.searchParams.get('suite'),
 			status: url.searchParams.get('status'),
+			q: url.searchParams.get('q'),
 		}),
 		platform,
 	);

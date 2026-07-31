@@ -1,18 +1,22 @@
 import { getRequestEvent, query } from '$app/server';
 import * as v from 'valibot';
-import { timeseriesData } from '#lib/server/bench-data';
+import { targetChartData } from '#lib/server/bench-data';
 import { runServerEffect } from '#lib/server/effect';
+import { METRIC_KEYS } from '#lib/metrics';
 
 /**
- * The only remote query the app actually calls: run-detail sparklines fetch a target's
- * timeseries lazily, per target.
+ * The app's only remote query, and it is strictly an enhancement.
  *
- * Everything else (runs list, run detail, trends, compare) is loaded by the route's
- * `+page.server.ts`. Exporting remote wrappers for them created live public endpoints that
- * nothing consumed, so they were removed rather than left as unused attack surface.
+ * Every chart is rendered by the server on first load, and the metric tabs are real links — with
+ * scripting off, clicking one navigates and the server renders the new metric. Once hydrated this
+ * swaps a single target's chart in place instead, without a navigation.
  */
-export const loadTimeseries = query(
-	v.object({ runId: v.string(), targetId: v.string() }),
-	({ runId, targetId }) =>
-		runServerEffect(timeseriesData(runId, targetId), getRequestEvent().platform),
+export const loadTargetChart = query(
+	v.object({
+		runId: v.string(),
+		targetId: v.string(),
+		metric: v.picklist(METRIC_KEYS),
+	}),
+	({ runId, targetId, metric }) =>
+		runServerEffect(targetChartData(runId, targetId, metric), getRequestEvent().platform),
 );
