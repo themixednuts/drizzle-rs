@@ -446,7 +446,9 @@ async fn migration_table_exists(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '{table_name}' LIMIT 1"
     );
     let mut rows = conn.query(&sql, ()).await.map_err(DrizzleError::from)?;
-    Ok(rows.next().await.map_err(DrizzleError::from)?.is_some())
+    let exists = rows.next().await.map_err(DrizzleError::from)?.is_some();
+    while rows.next().await.map_err(DrizzleError::from)?.is_some() {}
+    Ok(exists)
 }
 
 async fn migration_table_has_name_column(

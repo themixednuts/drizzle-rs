@@ -453,6 +453,10 @@ async fn turso_up_to_date_migration_check_is_read_only() {
         .expect("an up-to-date migration check must not request a write lock");
     assert!(outcome.is_up_to_date());
     writer.rollback().await.expect("rollback concurrent writer");
+    writer_connection
+        .execute("INSERT INTO records(value) VALUES (2)", ())
+        .await
+        .expect("the completed migration metadata cursor must release its read transaction");
 }
 
 #[cfg(feature = "turso")]
