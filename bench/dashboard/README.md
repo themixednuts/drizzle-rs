@@ -127,6 +127,13 @@ Rendered pages and JSON API responses are cached at the edge with the Workers Ca
 (`caches.default`) by the hook in `src/lib/server/page-cache.ts`. Every response carries an
 `x-cache: hit | miss | bypass` header so the behaviour is observable from `curl`.
 
+> **Hosting note:** the site is deployed to `workers.dev`, where Cloudflare disables the
+> Cache API — the hook degrades to pass-through (every request renders; `x-cache: miss`)
+> and everything stays correct, just uncached. That is a deliberate choice at current
+> traffic. If load ever warrants edge caching, attach a custom domain
+> (`routes = [{ pattern = "bench.example.com", custom_domain = true }]` in
+> `wrangler.toml`) and the cache activates with no code change.
+
 The site is public and read-only today. The cache is nonetheless written **deny-by-default**, so
 that adding an authenticated route later cannot leak a private response into a shared cache
 without anyone changing this file.
