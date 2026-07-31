@@ -10,7 +10,7 @@ use crate::SQLParam;
 use crate::dialect::Dialect;
 use crate::prelude::*;
 use crate::relation::{CardWrap, JunctionMeta, RelationDef};
-use crate::sql::{SQLChunk, write_quoted_ident};
+use crate::sql::{SQLChunk, Token, write_quoted_ident};
 
 use super::builder::{AllColumns, PartialColumns, QueryTable};
 use super::handle::RelationHandle;
@@ -157,6 +157,35 @@ pub fn build_query_sql<'a, V: SQLParam>(
     let alias = "t0";
     let dialect = V::DIALECT;
 
+    // PostgreSQL evaluates SELECT-list subqueries for every row the plan
+    // produces before LIMIT/OFFSET discard it — an OFFSET of N runs each
+    // relation subquery N extra times. Pushing the base scan into a derived
+    // table applies pagination first, so relation subqueries only run for
+    // rows that survive it. SQLite skips OFFSET rows before evaluating the
+    // projection, so it keeps the flat shape.
+    let paginate_first = dialect == Dialect::PostgreSQL
+        && !relations.is_empty()
+        && (limit.is_some() || offset.is_some());
+
+    // Columns the derived table must expose beyond the selection: parent-side
+    // FK columns for the relation joins and ORDER BY columns re-applied in
+    // the outer query. Collected before `relations` is consumed below.
+    let inner_extra_cols = if paginate_first {
+        let mut extra = collect_nested_extra_cols(&relations, column_names);
+        for chunk in &order_by_sql.chunks {
+            if let SQLChunk::Column(column) = chunk
+                && column.table == table_name
+                && !column_names.contains(&column.name)
+                && !extra.contains(&column.name)
+            {
+                extra.push(column.name);
+            }
+        }
+        extra
+    } else {
+        Vec::new()
+    };
+
     // SELECT base columns
     sql.push_str("SELECT ");
 
@@ -202,6 +231,62 @@ pub fn build_query_sql<'a, V: SQLParam>(
     }
 
     // FROM
+    if paginate_first {
+        // Derived table: base scan with WHERE/ORDER BY/LIMIT/OFFSET applied
+        // inside, re-exposed under the same alias for the outer projection.
+        sql.push_str(" FROM (SELECT ");
+        for (i, c) in column_names
+            .iter()
+            .chain(inner_extra_cols.iter())
+            .enumerate()
+        {
+            if i > 0 {
+                sql.push_str(", ");
+            }
+            write_qualified_column(alias, c, sql.buf_mut());
+        }
+        sql.push_str(" FROM \"");
+        sql.push_str(table_name);
+        sql.push_str("\" AS \"");
+        sql.push_str(alias);
+        sql.push('"');
+
+        if !where_sql.chunks.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_fragment(where_sql, table_name, alias);
+        }
+
+        // Row order out of a derived table is not guaranteed, so the ORDER BY
+        // also gets re-applied in the outer query below.
+        let outer_order_by = (!order_by_sql.chunks.is_empty()).then(|| order_by_sql.clone());
+        if !order_by_sql.chunks.is_empty() {
+            sql.push_str(" ORDER BY ");
+            sql.push_fragment(order_by_sql, table_name, alias);
+        }
+
+        if let Some(limit_sql) = limit {
+            sql.push_str(" LIMIT ");
+            sql.push_fragment(limit_sql, table_name, alias);
+        }
+
+        if let Some(offset_sql) = offset {
+            sql.push_str(" OFFSET ");
+            sql.push_fragment(offset_sql, table_name, alias);
+        }
+
+        sql.push_rparen();
+        sql.push_str(" AS \"");
+        sql.push_str(alias);
+        sql.push('"');
+
+        if let Some(order_by_sql) = outer_order_by {
+            sql.push_str(" ORDER BY ");
+            sql.push_fragment(order_by_sql, table_name, alias);
+        }
+
+        return sql.finish();
+    }
+
     sql.push_str(" FROM \"");
     sql.push_str(table_name);
     sql.push_str("\" AS \"");
@@ -280,6 +365,14 @@ impl<'a, V: SQLParam> QuerySql<'a, V> {
         }
     }
 
+    /// Pushes a `)` as a token chunk. Raw `")"` text directly after a bound
+    /// parameter renders with a stray space (`"$1 )"`); the token form
+    /// follows the renderer's punctuation spacing rules instead.
+    fn push_rparen(&mut self) {
+        self.flush();
+        self.sql.push_mut(SQLChunk::Token(Token::RPAREN));
+    }
+
     fn flush(&mut self) {
         if !self.buf.is_empty() {
             self.sql
@@ -327,7 +420,7 @@ fn write_inner_subquery_prelude(
 
 fn collect_nested_extra_cols<V: SQLParam>(
     nested: &[RenderedRelation<'_, V>],
-    target_columns: &[&'static str],
+    target_columns: &[&str],
 ) -> Vec<&'static str> {
     let mut extra_cols = Vec::new();
     for nested_rel in nested {
@@ -628,7 +721,8 @@ fn write_relation_subquery<'a, V: SQLParam>(
     );
 
     if needs_inner_subquery {
-        sql.push_str(") AS \"");
+        sql.push_rparen();
+        sql.push_str(" AS \"");
         sql.push_str(alias);
         sql.push('"');
     }
