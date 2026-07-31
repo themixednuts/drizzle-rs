@@ -96,7 +96,7 @@
 					{/if}
 
 					<div class="mt-4">
-						<DataTable fixed>
+						<DataTable fixed minWidth="min-w-[52rem]">
 							<Table.Header>
 								<Table.Row class="border-0">
 									<Th numeric class="w-8">#</Th>
@@ -107,8 +107,12 @@
 									{#if view.showErrorColumn}
 										<Th numeric class="w-16">err</Th>
 									{/if}
-									<Th numeric hint="positive means drizzle is ahead of this target" class="w-24">
-										drizzle Δ
+									<Th
+										numeric
+										hint="Each row against drizzle-rs. Positive means this library is better on the selected category, whichever direction better runs for it."
+										class="w-24"
+									>
+										vs drizzle-rs
 									</Th>
 									<Th class="w-52">box-and-whisker</Th>
 								</Table.Row>
@@ -117,12 +121,7 @@
 								{#each section.rows as row (row.id)}
 									{@const item = row.item}
 									{@const display = view.targetDisplay(item)}
-									<Tr
-										baseline={row.isBaseline}
-										emphasis={view.rowEmphasis(item)}
-										onpointerenter={() => view.hoverTarget(item)}
-										onpointerleave={view.clearHover}
-									>
+									<Tr baseline={row.isBaseline}>
 										<Td numeric tone="muted">
 											{row.rank === null ? '-' : String(row.rank).padStart(2, '0')}
 										</Td>

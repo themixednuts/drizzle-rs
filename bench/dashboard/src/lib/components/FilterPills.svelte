@@ -26,7 +26,8 @@
 			aria-current={option.active ? 'true' : undefined}
 			class={cn(
 				buttonVariants({ variant: option.active ? 'default' : 'outline', size: 'sm' }),
-				'text-body h-auto px-3 py-1.5 font-medium',
+				// 40px on touch; the desktop row keeps its tighter rhythm.
+				'text-body h-auto min-h-10 px-3 py-1.5 font-medium sm:min-h-0',
 				!option.active && 'text-muted-foreground',
 			)}
 		>

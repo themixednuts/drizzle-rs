@@ -158,8 +158,16 @@
 	--primary-foreground: light-dark(oklch(0.24 0.04 132), oklch(0.24 0.04 132));
 	/* The fill lime is far too light to be text on paper; link text drops to a readable L. */
 	--link: light-dark(oklch(0.52 0.14 138), oklch(0.86 0.18 132));
-	/* The row wash behind a drizzle-rs result — a tint, never a fill. */
-	--accent-tint: light-dark(oklch(0.965 0.035 140), oklch(0.26 0.03 140));
+	/*
+	 * Two steps of the same wash, and the order between them is the whole point.
+	 *
+	 * `--accent-tint` marks identity: the row that *is* drizzle-rs. `--accent-tint-strong` marks
+	 * attention: the row under the pointer or holding focus. Attention has to out-rank identity,
+	 * because a reader pointing at a row expects that row to light up — when identity was the
+	 * louder of the two, hovering one row appeared to highlight a different one.
+	 */
+	--accent-tint: light-dark(oklch(0.975 0.02 140), oklch(0.245 0.018 140));
+	--accent-tint-strong: light-dark(oklch(0.945 0.055 140), oklch(0.3 0.045 140));
 
 	/* Status ---------------------------------------------------------------- */
 	/* Never carried by colour alone: every use pairs with a sign, an arrow, or a word. */
@@ -247,6 +255,7 @@
 	--color-surface-inset: var(--surface-inset);
 	--color-surface-chrome: var(--surface-chrome);
 	--color-accent-tint: var(--accent-tint);
+	--color-accent-tint-strong: var(--accent-tint-strong);
 	--color-warning: var(--warning);
 	--color-warning-border: var(--warning-border);
 	--color-warning-foreground: var(--warning-foreground);
@@ -280,6 +289,12 @@
 	 *   metric   22px mono             — KPI values
 	 *   title    26px                  — page titles
 	 *
+	 * Line heights are absolute rather than unitless, and every one lands on a whole pixel at the
+	 * default root size (14/16/18/22/20/22/25/22/30). A unitless 1.55 on 14px text is a 21.7px line
+	 * box, and a stack of fractional boxes rounds differently depending on the exact glyph metrics
+	 * in use — which showed up as a 1px layout shift during the font settle. Whole-pixel line boxes
+	 * make the height of a paragraph identical in the fallback and the real face.
+	 *
 	 * `body` sits at 14px deliberately: it is the size the page's default `font-size` is set to, and
 	 * the step below it (`meta`) is for text that is genuinely subordinate. An earlier pass had
 	 * `body` at 13.5px and `meta` at 12.5px, which put ordinary reading copy a half-step below the
@@ -289,28 +304,28 @@
 	 * and by colour, never by size alone.
 	 */
 	--text-micro: 0.65625rem;
-	--text-micro--line-height: 1.3;
+	--text-micro--line-height: 0.875rem;
 	--text-micro--letter-spacing: 0.06em;
 	--text-caption: 0.71875rem;
-	--text-caption--line-height: 1.4;
+	--text-caption--line-height: 1rem;
 	--text-caption--letter-spacing: 0.005em;
 	--text-meta: 0.78125rem;
-	--text-meta--line-height: 1.5;
+	--text-meta--line-height: 1.125rem;
 	--text-body: 0.875rem;
-	--text-body--line-height: 1.55;
+	--text-body--line-height: 1.375rem;
 	--text-lead: 0.9375rem;
-	--text-lead--line-height: 1.35;
+	--text-lead--line-height: 1.25rem;
 	--text-lead--letter-spacing: -0.01em;
 	--text-heading: 1.03125rem;
-	--text-heading--line-height: 1.25;
+	--text-heading--line-height: 1.375rem;
 	--text-heading--letter-spacing: -0.012em;
 	--text-prose: 0.9375rem;
-	--text-prose--line-height: 1.65;
+	--text-prose--line-height: 1.5625rem;
 	--text-metric: 1.375rem;
 	--text-metric--line-height: 1;
 	--text-metric--letter-spacing: -0.01em;
 	--text-title: 1.625rem;
-	--text-title--line-height: 1.15;
+	--text-title--line-height: 1.875rem;
 	--text-title--letter-spacing: -0.022em;
 
 	--radius-sm: calc(var(--radius) * 0.6);
@@ -338,7 +353,9 @@
 		background: var(--background);
 		color: var(--foreground);
 		font-size: 0.875rem;
-		line-height: 1.5;
+		/* 22px, matching --text-body: whole pixels, so a paragraph is the same height in the
+		   fallback face and the real one. */
+		line-height: 1.375rem;
 		/* Every number on this site is read in a column against the number above it. */
 		font-variant-numeric: tabular-nums;
 		-webkit-font-smoothing: antialiased;
@@ -377,6 +394,28 @@
 }
 
 /*
+ * LayerChart sizes its root from a measurement that only exists once the component is in the DOM,
+ * so between the server's markup and hydration the root has no height of its own and collapses for
+ * a frame — which drops everything below the chart and then lifts it back. It was the last layout
+ * shift left on the site (0.0295 on /trends at desktop width).
+ *
+ * Every chart here already sits in a wrapper whose height is reserved in CSS, so the fix is simply
+ * to let the root fill the box that is already the right size. This is a global element rule rather
+ * than a utility on each chart because it is a property of the library, not of any one chart.
+ */
+.lc-root-container {
+	height: 100%;
+	/*
+	 * Full width for the same reason, and it fixes a second, subtler shift. The server renders the
+	 * chart at the nominal width `#lib/chart-ssr` supplies (800px), and the library's own wrapper
+	 * centres it; on a 1016px-wide column that put the chart 108px in from the left, and hydration
+	 * then snapped it back to the edge. Filling the box means the chart's left edge is in the same
+	 * place before and after, so growing to the real width moves nothing.
+	 */
+	width: 100%;
+}
+
+/*
  * The only two app-level utilities. Everything else is a component: another class here would be a
  * second place where a colour or spacing decision could be made.
  */
@@ -392,7 +431,15 @@
 	}
 }
 
-/* Prose measure for Method: the comp sets 62ch, which is where a line stops needing a ruler. */
+/*
+ * Prose measure: the comp sets 62ch, which is where a line stops needing a ruler.
+ *
+ * Expressed in rem rather than ch, and that is a layout-stability fix rather than a preference.
+ * `ch` is the advance width of the font's "0" glyph, so a `ch`-based max-width is recomputed the
+ * moment the real font replaces the metric-matched fallback — the paragraph re-wraps, its height
+ * changes, and everything below it moves. It was the only remaining source of layout shift on the
+ * site. 34rem is 544px, the same measure at the 15px prose size, and it does not move.
+ */
 @utility measure {
-	max-width: 62ch;
+	max-width: 34rem;
 }

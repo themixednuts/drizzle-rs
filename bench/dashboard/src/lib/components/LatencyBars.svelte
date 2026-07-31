@@ -36,7 +36,7 @@
 	{/if}
 {/snippet}
 
-<ChartUI.Container {config} class="aspect-auto w-full" style="height: {height}px">
+<ChartUI.Container {config} class="aspect-auto w-full justify-start" style="height: {height}px">
 	<Chart
 		data={view.tiers}
 		x="value"

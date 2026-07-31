@@ -2,9 +2,10 @@ import { page } from '$app/state';
 import { boxWhiskerExtent, rpsBox } from '#lib/boxplot';
 import { fmtCpu, fmtDate, fmtLatency, fmtPct, fmtRps, shortHash, suiteLabel } from '#lib/format';
 import {
-	drizzleDelta,
-	drizzleDeltaDirection,
+	deltaDirection,
+	deltaSentence,
 	groupTargets,
+	rowDelta,
 	type DeltaDirection,
 	type TargetGroup,
 } from '#lib/leaderboard';
@@ -19,7 +20,14 @@ import {
 import { cohortSearchText } from '#lib/cohort-search';
 import { summarizeAll, type QualitativeNote } from '#lib/qualitative';
 import type { FilterOption } from '#lib/components/FilterPills.svelte';
-import { parseRankingSort, type RankingRow, type RankingSort } from '#lib/ranking';
+import {
+	ordinal,
+	parseRankingSort,
+	type FamilyVerdict,
+	type RankingFamily,
+	type RankingRow,
+	type RankingSort,
+} from '#lib/ranking';
 import type { Manifest, RunCohort, RunIndexEntry, SummaryResult } from '#lib/types';
 
 interface RunsPageData {
@@ -79,6 +87,20 @@ const DB_NAMES: Record<DbProfile, string> = {
 
 function dbLabel(profile: DbProfile): string {
 	return DB_NAMES[profile];
+}
+
+/** What kind of thing the database is, for the divider's short label. */
+const FAMILY_QUALIFIER: Partial<Record<DbProfile, string>> = {
+	sqlite: 'embedded',
+	turso: 'embedded',
+	postgres: 'over TCP',
+};
+
+function familyLabel(key: string, fallback: string): string {
+	const name = DB_NAMES[key as DbProfile];
+	if (!name) return fallback;
+	const qualifier = FAMILY_QUALIFIER[key as DbProfile];
+	return qualifier ? `${name} · ${qualifier}` : name;
 }
 
 function compareLeaderboard(a: SummaryResult, b: SummaryResult): number {
@@ -225,6 +247,100 @@ export class RunsPageState {
 		});
 	}
 
+	/**
+	 * The ranking as one table of family bands.
+	 *
+	 * Each band is ranked, scaled and compared entirely within itself — that is what keeps a single
+	 * flat table from implying that a SQLite number and a PostgreSQL number are the same
+	 * measurement. Family separation stops being layout separation: no card per family, no repeated
+	 * header row, just a divider that reads as a pause. The `?db=` pills choose which bands show,
+	 * never how a band is computed.
+	 */
+	get rankingFamilies(): RankingFamily[] {
+		return this.sections
+			.filter((section) => !this.db || section.key === this.db)
+			.map((section) => {
+				const peak = Math.max(1, ...section.rows.map((row) => row.summary.primary.rps.avg));
+				const label = familyLabel(section.key, section.label);
+				return {
+					key: section.key,
+					label,
+					// The long description moves to the divider's tooltip; it never sits inline.
+					note: section.note ?? (label === section.label ? null : section.label),
+					provenance: [...new Set(section.shards.map((shard) => shard.os))].join(' · '),
+					anchor: `family-${section.key}`,
+					ranked: section.ranked,
+					rows: section.rows.map((row) => ({
+						id: row.id,
+						summary: row.summary,
+						rank: row.rank ?? 0,
+						isOurs: row.isBaseline,
+						barPct: `${Math.max(1.5, (row.summary.primary.rps.avg / peak) * 100).toFixed(1)}%`,
+						deltaText: row.deltaText,
+						deltaDirection: row.deltaDirection,
+						deltaTitle: row.deltaTitle,
+					})),
+				};
+			});
+	}
+
+	/** True when the current `?db=` filter matched no family at all. */
+	get hasFamilies(): boolean {
+		return this.rankingFamilies.length > 0;
+	}
+
+	/**
+	 * One verdict per family: where drizzle-rs placed, and by how much against the best alternative.
+	 *
+	 * The comparison is the strongest *other* library in the same family rather than a fixed
+	 * raw-driver baseline — the raw driver is not always present, and when it is it is not always
+	 * the one to beat. Naming the target keeps the claim checkable. Built from the rows the table
+	 * renders, so a tile and its band can never disagree.
+	 */
+	get verdicts(): FamilyVerdict[] {
+		const out: FamilyVerdict[] = [];
+		for (const family of this.rankingFamilies) {
+			if (!family.ranked) continue;
+			const ours = family.rows.find((row) => isDrizzleRsTarget(row.summary));
+			if (!ours) continue;
+
+			const standing = `${ordinal(ours.rank)} of ${family.rows.length}`;
+			const best = family.rows
+				.filter((row) => !isDrizzleRsTarget(row.summary))
+				.sort((a, b) => b.summary.primary.rps.avg - a.summary.primary.rps.avg)[0];
+
+			if (!best) {
+				out.push({
+					family: family.label,
+					anchor: family.anchor,
+					standing,
+					margin: null,
+					leads: true,
+					detail: `drizzle-rs is the only library measured on ${family.label}.`,
+				});
+				continue;
+			}
+
+			const bestName = targetDisplay(best.summary).name;
+			const delta = rowDelta(ours.summary.primary.rps.avg, best.summary.primary.rps.avg, true);
+			out.push({
+				family: family.label,
+				anchor: family.anchor,
+				standing,
+				margin:
+					delta === null
+						? null
+						: `${delta >= 0 ? '+' : ''}${(delta * 100).toFixed(1)}% vs ${bestName}`,
+				leads: ours.rank === 1,
+				detail:
+					delta === null
+						? `Not comparable against ${bestName}.`
+						: `${deltaSentence(delta, 'drizzle-rs', bestName, { better: 'faster', worse: 'slower' })} — the fastest other library on ${family.label}.`,
+			});
+		}
+		return out;
+	}
+
 	/** Errored targets sort last whichever column is chosen; their numbers are not comparable. */
 	#byErrorsThen(a: SummaryResult, b: SummaryResult, tiebreak: number): number {
 		const aBad = hasMaterialErrors(a);
@@ -345,18 +461,18 @@ export class RunsPageState {
 			};
 		}
 
-		const delta = drizzleDelta(summary.primary.rps.avg, baselineRps, true);
+		// Throughput: higher is better, so the row's own sign is already the natural one.
+		const delta = rowDelta(summary.primary.rps.avg, baselineRps, true);
 		if (delta === null) {
 			return { deltaText: '-', deltaDirection: 'flat', deltaTitle: 'not comparable' };
 		}
-		const pct = `${delta >= 0 ? '+' : ''}${(delta * 100).toFixed(1)}%`;
 		return {
-			deltaText: pct,
-			deltaDirection: drizzleDeltaDirection(delta),
-			deltaTitle:
-				delta >= 0
-					? `drizzle does ${Math.abs(delta * 100).toFixed(1)}% more rps than this target`
-					: `this target does ${Math.abs(delta * 100).toFixed(1)}% more rps than drizzle`,
+			deltaText: `${delta >= 0 ? '+' : ''}${(delta * 100).toFixed(1)}%`,
+			deltaDirection: deltaDirection(delta),
+			deltaTitle: deltaSentence(delta, 'This library', 'drizzle-rs', {
+				better: 'faster',
+				worse: 'slower',
+			}),
 		};
 	}
 

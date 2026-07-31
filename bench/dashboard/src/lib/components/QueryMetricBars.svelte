@@ -46,7 +46,7 @@
 					</div>
 					<!-- Height reserved so the row does not grow when the chart paints. -->
 					<div class="h-7 w-full overflow-hidden">
-						<ChartUI.Container {config} class="aspect-auto h-7 w-full">
+						<ChartUI.Container {config} class="aspect-auto h-7 w-full justify-start">
 							<Chart
 								data={toPoints(route.series)}
 								x="index"

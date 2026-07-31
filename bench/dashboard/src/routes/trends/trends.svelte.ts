@@ -2,7 +2,7 @@ import { page } from '$app/state';
 import type { FilterOption } from '#lib/components/FilterPills.svelte';
 import type { SelectOption } from '#lib/components/SelectField.svelte';
 import { fmtCpu, fmtLatency, fmtPct, fmtRps, suiteLabel } from '#lib/format';
-import type { DeltaDirection } from '#lib/leaderboard';
+import { deltaDirection, deltaSentence, rowDelta, type DeltaDirection } from '#lib/leaderboard';
 import type { TrendPoint } from '#lib/types';
 import type { PageData } from './$types';
 
@@ -14,9 +14,6 @@ export interface TrendKpi {
 	delta?: { text: string; direction: DeltaDirection; hint: string };
 	detail?: string;
 }
-
-/** Below this the two sets are the same number for reporting purposes. */
-const SIGNIFICANT = 0.005;
 
 export class TrendsPageState {
 	#data: () => PageData;
@@ -99,24 +96,25 @@ export class TrendsPageState {
 		if (!latest) return [];
 		const previous = this.previous;
 
+		// Same convention as every other delta on the site: positive means better than the
+		// reference, whichever direction "better" runs for the metric. Without the flip, a latency
+		// drop rendered as "-5.0%" beside an up arrow meaning "improved" — the sign and the glyph
+		// said opposite things.
 		const move = (
 			current: number,
 			before: number | undefined,
 			lowerIsBetter: boolean,
 		): TrendKpi['delta'] => {
-			if (before === undefined || !Number.isFinite(before) || before === 0) return undefined;
-			const change = (current - before) / before;
-			const improved = lowerIsBetter ? change < 0 : change > 0;
-			const direction: DeltaDirection =
-				Math.abs(change) < SIGNIFICANT ? 'flat' : improved ? 'up' : 'down';
-			const text = `${change >= 0 ? '+' : ''}${(change * 100).toFixed(1)}%`;
+			if (before === undefined) return undefined;
+			const delta = rowDelta(current, before, !lowerIsBetter);
+			if (delta === null) return undefined;
+			const words = lowerIsBetter
+				? { better: 'lower', worse: 'higher' }
+				: { better: 'higher', worse: 'lower' };
 			return {
-				text,
-				direction,
-				hint:
-					direction === 'flat'
-						? 'unchanged against the previous benchmark set'
-						: `${improved ? 'improved' : 'regressed'} against the previous benchmark set`,
+				text: `${delta >= 0 ? '+' : ''}${(delta * 100).toFixed(1)}%`,
+				direction: deltaDirection(delta),
+				hint: deltaSentence(delta, 'This run', 'the previous run', words),
 			};
 		};
 

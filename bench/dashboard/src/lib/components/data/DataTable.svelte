@@ -17,13 +17,21 @@
 		children,
 		class: className,
 		fixed = false,
-	}: { children: Snippet; class?: string; fixed?: boolean } = $props();
+		/**
+		 * Minimum width before the wrapper scrolls. shadcn's `Table.Root` already provides the
+		 * `overflow-x-auto` container; without a floor the table just squashes inside it instead,
+		 * which on a phone turns a numeric column into one character per line. Two-column key/value
+		 * tables leave this unset — they wrap perfectly well.
+		 */
+		minWidth,
+	}: { children: Snippet; class?: string; fixed?: boolean; minWidth?: string } = $props();
 </script>
 
 <Table.Root
 	class={cn(
 		'text-body w-full border-separate border-spacing-0 tabular-nums',
 		fixed && 'table-fixed',
+		minWidth,
 		className,
 	)}
 >

@@ -216,7 +216,7 @@
 					declared configuration and spread
 				</summary>
 				<div class="mt-3">
-					<DataTable>
+					<DataTable minWidth="min-w-[40rem]">
 						<Table.Body>
 							{#if !display.incomplete}
 								<Tr>

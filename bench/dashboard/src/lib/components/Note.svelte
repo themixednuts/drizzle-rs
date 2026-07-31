@@ -38,7 +38,13 @@
 			className,
 		)}
 	>
-		<TriangleAlert aria-hidden="true" />
+		<!--
+			Sized on the element, not by a descendant selector on the Alert. A lucide icon carries
+			`width="24" height="24"` as attributes, so until the CSS that shrinks it applies the box is
+			24px tall — which on a slow load made the callout one line taller and pushed every section
+			below it down. An explicit class is part of the element's own style and lands with it.
+		-->
+		<TriangleAlert aria-hidden="true" class="size-3.5 shrink-0" />
 		{#if title}
 			<Alert.Title class="font-semibold">{title}</Alert.Title>
 		{/if}

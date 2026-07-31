@@ -5,11 +5,12 @@
 	import ArrowDown from '@lucide/svelte/icons/arrow-down';
 
 	/**
-	 * "How far ahead drizzle is" on the leaderboards, and "how this set moved" on trends.
+	 * How the row this sits on compares to its reference. Positive is always "this row is better".
 	 *
-	 * Direction is carried three ways — an arrow glyph, the sign in the text, and colour — so the
-	 * green/red pairing is a reinforcement rather than the only signal a red-green colourblind
-	 * reader has.
+	 * Rendered in neutral mono, per the comp: green/red on every row turned the ranking into a
+	 * scoreboard where losing rows glowed red, which is both louder than the data and a claim the
+	 * numbers do not support at 0.2% apart. Direction is still carried twice — the arrow glyph and
+	 * the sign — so it never depends on colour, and the tooltip spells it out in words.
 	 */
 	let {
 		text,
@@ -25,10 +26,8 @@
 <Tooltip.Root>
 	<Tooltip.Trigger
 		class={cn(
-			'inline-flex items-center gap-1 tabular-nums',
-			direction === 'up' && 'text-positive',
-			direction === 'down' && 'text-negative',
-			direction === 'flat' && 'text-muted-foreground',
+			'inline-flex items-center gap-1 font-mono tabular-nums',
+			direction === 'flat' ? 'text-muted-foreground' : 'text-foreground-secondary',
 		)}
 	>
 		{#if direction === 'up'}

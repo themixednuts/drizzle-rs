@@ -28,6 +28,7 @@
 		spreadDetail,
 		sort,
 		variant = null,
+		ranked = true,
 	}: {
 		row: RankingRow;
 		display: TargetDisplay;
@@ -38,6 +39,12 @@
 		sort: RankingSort;
 		/** Short form plus full text for the target's SQL notes; `null` when it declared none. */
 		variant?: QualitativeNote | null;
+		/**
+		 * False for the in-process-cache band, which is listed but carries no rank: it is not doing
+		 * the same work as the rest, so numbering it against them would be the claim this whole
+		 * layout exists to avoid.
+		 */
+		ranked?: boolean;
 	} = $props();
 
 	const p = $derived(row.summary.primary);
@@ -45,24 +52,37 @@
 </script>
 
 <details
-	class={cn('group border-border-soft border-b last:border-b-0', row.isOurs && 'bg-accent-tint')}
+	class={cn(
+		'group border-border-soft border-b transition-colors last:border-b-0',
+		// Identity: this row is drizzle-rs. Deliberately faint — see `--accent-tint` in app.css.
+		row.isOurs && 'bg-accent-tint',
+		// Attention: the row under the pointer, or holding keyboard focus, always wins. `hover:` and
+		// `focus-within:` carry a pseudo-class, so they out-specify the identity tint above on the
+		// drizzle row too.
+		'hover:bg-accent-tint-strong focus-within:bg-accent-tint-strong',
+	)}
 >
 	<summary
-		class="hover:bg-muted/40 grid cursor-pointer list-none grid-cols-[2rem_minmax(9rem,1.05fr)_6.5rem_minmax(7rem,1.5fr)_6.5rem_5.125rem] items-center gap-x-6 px-6 py-4 transition-colors marker:content-[''] max-lg:grid-cols-[2rem_minmax(9rem,1fr)_6.5rem_5.125rem]"
+		class="grid cursor-pointer list-none grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 px-5 py-4 transition-colors marker:content-[''] lg:grid-cols-[2rem_minmax(9rem,1.05fr)_6.5rem_minmax(7rem,1.5fr)_6.5rem_5.125rem] lg:gap-x-6 lg:px-6"
 	>
 		<span
 			class={cn('font-mono text-[0.75rem]', row.isOurs ? 'text-link' : 'text-muted-foreground')}
 		>
-			{rank}
+			{#if ranked}{rank}{:else}<span aria-hidden="true">·</span>{/if}
 		</span>
 
 		<span class="min-w-0">
-			<span class={cn('text-lead block font-semibold', row.isOurs && 'text-link')}>
+			<span class={cn('text-lead block font-medium', row.isOurs && 'text-link')}>
 				{display.name}
 			</span>
 			{#if display.note}
 				<span class="text-meta text-muted-foreground mt-1 block">{display.note}</span>
 			{/if}
+			<!-- The database has its own column from `lg`; below that it joins the note line rather
+			     than claiming a column the row cannot spare. -->
+			<span class="text-meta text-muted-foreground mt-0.5 block lg:hidden" title={dbDetail}>
+				{db}
+			</span>
 		</span>
 
 		<span class="text-meta text-foreground-secondary max-lg:hidden" title={dbDetail}>{db}</span>
@@ -76,25 +96,32 @@
 			></span>
 		</span>
 
-		<span
-			class={cn(
-				'text-lead text-right font-mono font-medium tabular-nums',
-				sort === 'throughput' && 'text-foreground',
-			)}
-		>
-			{fmtRps(p.rps.avg)}
-		</span>
-		<span
-			class={cn(
-				'text-foreground-secondary text-body text-right font-mono tabular-nums',
-				sort === 'latency' && 'text-foreground',
-			)}
-		>
-			{fmtLatency(p.latency.p95)}
+		<!--
+			`lg:contents` dissolves this wrapper into the grid on wide screens, so the two numbers
+			become their own columns. Below that they stack in one right-hand column, which is what
+			keeps the row inside a 375px viewport without a horizontal scrollbar.
+		-->
+		<span class="text-right lg:contents">
+			<span
+				class={cn(
+					'text-lead block font-mono font-medium tabular-nums lg:text-right',
+					sort === 'throughput' && 'text-foreground',
+				)}
+			>
+				{fmtRps(p.rps.avg)}
+			</span>
+			<span
+				class={cn(
+					'text-foreground-secondary text-meta lg:text-body block font-mono tabular-nums lg:text-right',
+					sort === 'latency' && 'text-foreground',
+				)}
+			>
+				{fmtLatency(p.latency.p95)}
+			</span>
 		</span>
 	</summary>
 
-	<div class="bg-surface-inset border-border-soft mx-6 mb-5 border-t px-5 py-5">
+	<div class="bg-surface-inset border-border-soft mx-5 mb-5 border-t px-4 py-5 lg:mx-6 lg:px-5">
 		<dl
 			class="grid grid-cols-[repeat(auto-fit,minmax(8.5rem,1fr))] gap-x-6 gap-y-5 max-lg:grid-cols-2"
 		>
@@ -135,7 +162,13 @@
 				<dd class="text-body mt-1.5 font-mono tabular-nums" title={spreadDetail}>{spread}</dd>
 			</div>
 			<div>
-				<dt class="text-micro text-muted-foreground font-mono uppercase">vs drizzle-rs</dt>
+				<dt class="text-micro text-muted-foreground font-mono uppercase">
+					<Hint
+						hint="This library against drizzle-rs on throughput. Positive means this library is faster."
+					>
+						vs drizzle-rs
+					</Hint>
+				</dt>
 				<dd class="text-body mt-1.5">
 					<Delta text={row.deltaText} direction={row.deltaDirection} hint={row.deltaTitle} />
 				</dd>

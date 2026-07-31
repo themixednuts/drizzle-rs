@@ -8,6 +8,8 @@
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import Note from '#lib/components/Note.svelte';
 	import RankRow from '#lib/components/RankRow.svelte';
+	import FamilyDivider from '#lib/components/FamilyDivider.svelte';
+	import VerdictStrip from '#lib/components/VerdictStrip.svelte';
 	import RunList from '#lib/components/RunList.svelte';
 	import { RunsPageState } from './home.svelte';
 	import type { PageData } from './$types';
@@ -53,7 +55,7 @@
 			<SortLinks options={view.sortOptions} />
 		</div>
 
-		{#if view.rankingRows.length === 0}
+		{#if !view.hasFamilies}
 			<div class="mt-7">
 				<EmptyState title="No results for this database.">
 					This set published no targets for that database. Choose
@@ -61,41 +63,50 @@
 				</EmptyState>
 			</div>
 		{:else}
+			<VerdictStrip verdicts={view.verdicts} />
+
 			<!--
-				The comp's flat table, as a grid rather than a <table>: every row is a native <details>, so
-				the six headline columns stay quiet while the full metric set for a target is one click (or
-				one Enter) away, with no JavaScript involved.
+				One table for every family. The column header is sticky, so the meaning of a column
+				survives scrolling past a divider; each family is a `role="group"` labelled by its
+				divider, and rank/bar/delta are all computed inside the band.
 			-->
 			<div class="bg-card border-border mt-4 border">
 				<div
-					class="bg-surface-raised border-border text-micro text-muted-foreground grid grid-cols-[2rem_minmax(9rem,1.05fr)_6.5rem_minmax(7rem,1.5fr)_6.5rem_5.125rem] items-center gap-x-6 border-b px-6 py-3.5 font-mono uppercase max-lg:grid-cols-[2rem_minmax(9rem,1fr)_6.5rem_5.125rem]"
+					class="bg-surface-raised border-border text-micro text-muted-foreground sticky top-0 z-10 grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 border-b px-5 py-3 font-mono uppercase sm:top-[3.875rem] lg:grid-cols-[2rem_minmax(9rem,1.05fr)_6.5rem_minmax(7rem,1.5fr)_6.5rem_5.125rem] lg:gap-x-6 lg:px-6 lg:py-3.5"
 				>
 					<span><span class="sr-only">rank</span></span>
 					<span>library</span>
 					<span class="max-lg:hidden">database</span>
 					<span class="max-lg:hidden"><span class="sr-only">relative throughput</span></span>
-					<span class="text-right">requests/sec</span>
-					<span class="text-right">p95</span>
+					<span class="text-right max-lg:hidden">requests/sec</span>
+					<span class="text-right lg:hidden">rps / p95</span>
+					<span class="text-right max-lg:hidden">p95</span>
 				</div>
 
-				{#each view.rankingRows as row (row.id)}
-					<RankRow
-						{row}
-						display={view.targetDisplay(row.summary)}
-						db={view.dbName(row.summary)}
-						dbDetail={view.dbDetail(row.summary)}
-						spread={view.throughputSummaryLabel(row.summary)}
-						spreadDetail={view.throughputLabel(row.summary)}
-						variant={view.variantNote(row.summary)}
-						sort={view.sort}
-					/>
+				{#each view.rankingFamilies as family (family.key)}
+					<FamilyDivider {family} />
+					<div role="group" aria-labelledby="{family.anchor}-label">
+						{#each family.rows as row (row.id)}
+							<RankRow
+								{row}
+								display={view.targetDisplay(row.summary)}
+								db={view.dbName(row.summary)}
+								dbDetail={view.dbDetail(row.summary)}
+								spread={view.throughputSummaryLabel(row.summary)}
+								spreadDetail={view.throughputLabel(row.summary)}
+								variant={view.variantNote(row.summary)}
+								ranked={family.ranked}
+								sort={view.sort}
+							/>
+						{/each}
+					</div>
 				{/each}
 			</div>
 
 			<div class="mt-4">
 				<Note>
-					Same database, same machine. Across databases,
-					<a class="text-link underline" href="/repeatability">different machines</a> — and a repeat
+					Rank, bar and delta are all measured inside a database. Across databases the jobs ran on
+					<a class="text-link underline" href="/repeatability">different machines</a>, and a repeat
 					of the same job can land far apart. Open a row for the full numbers, or read
 					<a class="text-link underline" href="/methodology">the method</a>.
 				</Note>

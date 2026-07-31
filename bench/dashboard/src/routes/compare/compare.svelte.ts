@@ -13,9 +13,10 @@ import type { SelectOption } from '#lib/components/SelectField.svelte';
 import { fmtDate, shortHash } from '#lib/format';
 import { runTitle } from '#lib/run-name';
 import {
-	drizzleDelta,
-	drizzleDeltaDirection,
+	deltaDirection,
+	deltaSentence,
 	groupTargets,
+	rowDelta,
 	type DeltaDirection,
 } from '#lib/leaderboard';
 import { targetDisplay } from '#lib/target-display';
@@ -47,7 +48,6 @@ export interface CompareSection {
 export class ComparePageState {
 	#data: () => PageData;
 	category = $derived(parseCompareCategory(page.url.searchParams.get('metric')));
-	hoverFamilyKey = $state<string | null>(null);
 
 	constructor(data: () => PageData) {
 		this.#data = data;
@@ -146,18 +146,20 @@ export class ComparePageState {
 			};
 		}
 
-		const delta = drizzleDelta(item.sort_value, baselineValue, higherIsBetter);
+		// The sign belongs to this row: positive means this library beats drizzle-rs on the selected
+		// category. `rowDelta` flips the subtraction for lower-is-better categories so that stays
+		// true for latency and cpu as well as throughput.
+		const delta = rowDelta(item.sort_value, baselineValue, higherIsBetter);
 		if (delta === null) {
 			return { deltaText: '-', deltaDirection: 'flat', deltaTitle: 'not comparable' };
 		}
-		const pct = `${delta >= 0 ? '+' : ''}${(delta * 100).toFixed(1)}%`;
+		const words = higherIsBetter
+			? { better: 'higher', worse: 'lower' }
+			: { better: 'lower', worse: 'higher' };
 		return {
-			deltaText: pct,
-			deltaDirection: drizzleDeltaDirection(delta),
-			deltaTitle:
-				delta >= 0
-					? `drizzle is ${Math.abs(delta * 100).toFixed(1)}% better than this target on ${this.categoryLabel}`
-					: `this target is ${Math.abs(delta * 100).toFixed(1)}% better than drizzle on ${this.categoryLabel}`,
+			deltaText: `${delta >= 0 ? '+' : ''}${(delta * 100).toFixed(1)}%`,
+			deltaDirection: deltaDirection(delta),
+			deltaTitle: `${deltaSentence(delta, 'This library', 'drizzle-rs', words)} on ${this.categoryLabel}`,
 		};
 	}
 
@@ -201,20 +203,6 @@ export class ComparePageState {
 	targetDisplay(item: TargetCompareItem) {
 		return targetDisplay(item);
 	}
-
-	/** Same family-hover behaviour as the overview leaderboard. */
-	rowEmphasis(item: TargetCompareItem): 'none' | 'related' | 'dimmed' {
-		if (!this.hoverFamilyKey) return 'none';
-		return targetDisplay(item).familyKey === this.hoverFamilyKey ? 'related' : 'dimmed';
-	}
-
-	hoverTarget = (item: TargetCompareItem): void => {
-		this.hoverFamilyKey = targetDisplay(item).familyKey;
-	};
-
-	clearHover = (): void => {
-		this.hoverFamilyKey = null;
-	};
 
 	boxPlotLabel = (item: TargetCompareItem): string => {
 		const box = item.box;

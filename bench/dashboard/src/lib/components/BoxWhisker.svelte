@@ -93,8 +93,14 @@
 			{@render tip()}
 		</Chart>
 	</div>
+	<!--
+		The min/median/max caption used to sit under every whisker, which put a second line of numbers
+		in a column whose entire job is to show a shape. It is the same text the tooltip already
+		carries, so on a wide screen only the glyph shows; the caption returns below `lg`, where the
+		whisker is small enough that the numbers are doing the work instead of the drawing.
+	-->
 	{#if summaryLabel}
-		<span class="text-micro text-muted-foreground truncate font-mono tracking-normal">
+		<span class="text-micro text-muted-foreground truncate font-mono lg:hidden">
 			{summaryLabel}
 		</span>
 	{/if}

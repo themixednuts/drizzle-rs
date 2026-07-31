@@ -47,7 +47,7 @@
 	     placeholder all occupy identical space and nothing reflows when one replaces another. -->
 	<div class="h-12 w-full overflow-hidden">
 		{#if chart.hasSeries}
-			<ChartUI.Container {config} class="aspect-auto h-12 w-full">
+			<ChartUI.Container {config} class="aspect-auto h-12 w-full justify-start">
 				<Chart
 					data={toPoints(chart.series)}
 					x="index"

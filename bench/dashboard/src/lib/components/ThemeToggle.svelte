@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { buttonVariants } from '#lib/components/ui/button/index.js';
+	import { cn } from '#lib/utils.js';
 	import { setTheme } from '#lib/theme.remote';
 	import { nextTheme, THEME_LABELS, type ThemePreference } from '#lib/theme';
 	import Sun from '@lucide/svelte/icons/sun';
@@ -46,7 +47,7 @@
 	<input {...setTheme.fields.theme.as('hidden', next)} />
 	<button
 		type="submit"
-		class={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
+		class={cn(buttonVariants({ variant: 'ghost', size: 'icon-sm' }), 'size-10 sm:size-6')}
 		title="Theme: {THEME_LABELS[theme]}. Switch to {THEME_LABELS[next]}."
 	>
 		<Icon aria-hidden="true" />

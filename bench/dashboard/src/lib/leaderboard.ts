@@ -118,28 +118,57 @@ function shardsOf<T extends RankableTarget>(rows: readonly T[]): { os: string; r
 }
 
 /**
- * How far ahead drizzle is, relative to the row being compared: `+0.25` reads "drizzle is 25%
- * faster than this target". Positive always means drizzle wins, for both higher-is-better
- * (rps) and lower-is-better (latency) metrics.
+ * How this row compares to the reference it is measured against.
+ *
+ * ONE convention, everywhere in the app: **the number belongs to the row it is printed on, and
+ * positive means this row is better than the reference.** A row showing `-0.2%` is 0.2% worse than
+ * the reference; a row showing `+12%` is 12% better.
+ *
+ * This used to be computed the other way round — `(reference - row) / row`, "how far ahead drizzle
+ * is" — while being printed on the row under a column headed "vs drizzle-rs". The arithmetic was
+ * right and the reading was backwards: a target measured at 468 rps against drizzle's 469 rendered
+ * `+0.3%` on its own row, which every reader takes to mean "this one is faster". It is slower.
+ *
+ * Because "better" differs by metric, the sign is normalised here rather than at each call site:
+ * for higher-is-better metrics (throughput) that is `(row - ref) / ref`; for lower-is-better ones
+ * (latency, cpu, memory, errors) the subtraction flips, so a faster row is still positive. That
+ * keeps the sign, the arrow and the sentence in the tooltip from ever disagreeing.
  */
-export function drizzleDelta(
-	value: number,
-	baseline: number,
+export function rowDelta(
+	rowValue: number,
+	reference: number,
 	higherIsBetter: boolean,
 ): number | null {
-	if (!Number.isFinite(value) || !Number.isFinite(baseline) || value === 0) return null;
-	const raw = (baseline - value) / value;
+	if (!Number.isFinite(rowValue) || !Number.isFinite(reference) || reference === 0) return null;
+	const raw = (rowValue - reference) / reference;
 	return higherIsBetter ? raw : -raw;
 }
 
 /** Which way a delta points. Rendered as an arrow and a sign, not colour alone. */
 export type DeltaDirection = 'up' | 'down' | 'flat';
 
-/**
- * `up` always means drizzle is ahead, matching /trends where up means improved.
- */
-export function drizzleDeltaDirection(delta: number | null): DeltaDirection {
+/** `up` means this row is better than its reference; `down` means worse. */
+export function deltaDirection(delta: number | null): DeltaDirection {
 	if (delta === null) return 'flat';
 	if (Math.abs(delta) < 0.005) return 'flat';
 	return delta > 0 ? 'up' : 'down';
+}
+
+/**
+ * The delta as a sentence, so the plain-language reading can never contradict the sign.
+ *
+ * `better`/`worse` wording is metric-specific because "more" is good for throughput and bad for
+ * latency — the caller supplies the pair of words that fit its metric.
+ */
+export function deltaSentence(
+	delta: number,
+	subject: string,
+	reference: string,
+	words: { better: string; worse: string },
+): string {
+	const pct = Math.abs(delta * 100).toFixed(1);
+	if (Math.abs(delta) < 0.005) return `${subject} matches ${reference}`;
+	return delta > 0
+		? `${subject} is ${pct}% ${words.better} than ${reference}`
+		: `${subject} is ${pct}% ${words.worse} than ${reference}`;
 }
