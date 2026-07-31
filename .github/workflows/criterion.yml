@@ -26,13 +26,13 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            sqlite_features: "rusqlite,turso,uuid"
+            sqlite_features: "rusqlite,turso,uuid,query"
           - os: windows-latest
             platform: windows
-            sqlite_features: "rusqlite,uuid"
+            sqlite_features: "rusqlite,uuid,query"
           - os: macos-latest
             platform: macos
-            sqlite_features: "rusqlite,turso,uuid"
+            sqlite_features: "rusqlite,turso,uuid,query"
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -131,10 +131,10 @@ jobs:
       matrix:
         include:
           - driver: sync
-            features: postgres-sync,uuid
+            features: postgres-sync,uuid,query
             baseline: sync-main
           - driver: tokio
-            features: tokio-postgres,uuid
+            features: tokio-postgres,uuid,query
             baseline: tokio-main
     runs-on: ubuntu-latest
     timeout-minutes: 60

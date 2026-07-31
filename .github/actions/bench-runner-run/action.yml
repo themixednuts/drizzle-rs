@@ -224,6 +224,21 @@ runs:
           runner_output.txt
         retention-days: 30
 
+    # On failure the run step never emits run_id (e.g. a parity divergence),
+    # but the run dir with parity snapshots exists and is exactly what is
+    # needed to diagnose. Upload the whole runs dir; restored baselines may
+    # ride along, so keep retention short.
+    - name: Upload failed-run diagnostics
+      if: ${{ failure() && steps.setup.outputs.act != 'true' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: runner-${{ steps.setup.outputs.slug }}-failed
+        path: |
+          ${{ steps.setup.outputs.out }}/runs
+          runner_output.txt
+        retention-days: 7
+        if-no-files-found: warn
+
     - name: Save runner baseline
       if: ${{ inputs.publish == 'true' && steps.setup.outputs.act != 'true' }}
       uses: actions/cache/save@v5
