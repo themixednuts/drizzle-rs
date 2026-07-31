@@ -12,10 +12,10 @@ help: the following other types implement trait `DateTruncPolicy<D>`
  --> core/src/expr/datetime.rs
   |
   | impl DateTruncPolicy<PostgresDialect> for PgTimestamptz {
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Timestamptz`
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::postgres::types::Timestamptz`
 ...
   | impl DateTruncPolicy<PostgresDialect> for PgTimestamp {
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Timestamp`
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::postgres::types::Timestamp`
 note: required by a bound in `date_trunc`
  --> core/src/expr/datetime.rs
   |
@@ -65,7 +65,7 @@ help: the following other types implement trait `DateTruncPolicy<D>`
  --> core/src/expr/datetime.rs
   |
   | impl DateTruncPolicy<PostgresDialect> for PgTimestamptz {
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Timestamptz`
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::postgres::types::Timestamptz`
 ...
   | impl DateTruncPolicy<PostgresDialect> for PgTimestamp {
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Timestamp`
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::postgres::types::Timestamp`

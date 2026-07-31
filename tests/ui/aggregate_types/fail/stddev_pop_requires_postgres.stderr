@@ -13,7 +13,7 @@ error[E0277]: no statistical aggregate policy for `drizzle::sqlite::types::Integ
             Int2
             Int4
             Int8
-            drizzle::postgres::types::Numeric
+            drizzle::ddl::postgres::types::Numeric
 note: required by a bound in `stddev_pop`
  --> core/src/expr/agg.rs
   |
@@ -36,4 +36,4 @@ error[E0277]: no statistical aggregate policy for `drizzle::sqlite::types::Integ
             Int2
             Int4
             Int8
-            drizzle::postgres::types::Numeric
+            drizzle::ddl::postgres::types::Numeric
