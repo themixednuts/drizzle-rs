@@ -1214,13 +1214,7 @@ fn handle_cmd(db: &mut drizzle::postgres::sync::Drizzle<Schema>, cmd: DbCmd) -> 
                 ))
                 .from(schema.order)
                 .left_join((schema.detail, eq(schema.order.id, schema.detail.order_id)))
-                .group_by((
-                    schema.order.id,
-                    schema.order.shipped_date,
-                    schema.order.ship_name,
-                    schema.order.ship_city,
-                    schema.order.ship_country,
-                ))
+                .group_by(schema.order.id)
                 .order_by([asc(schema.order.id)])
                 .limit(limit)
                 .offset(offset)
