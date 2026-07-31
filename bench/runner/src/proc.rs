@@ -105,7 +105,7 @@ pub fn pin_self_to_load_cpuset() -> Option<String> {
     #[cfg(target_os = "linux")]
     {
         apply_affinity(&cpus);
-        return Some(spec);
+        Some(spec)
     }
     #[cfg(not(target_os = "linux"))]
     {
