@@ -1,0 +1,12 @@
+node_modules/
+.svelte-kit/
+.wrangler/
+build/
+dist/
+*.log
+
+# Local env for Wrangler/dev.
+.dev.vars
+.env
+.env.*
+!.env.example

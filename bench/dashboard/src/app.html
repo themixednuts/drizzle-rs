@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<!--
+			Applies a stored theme override before first paint. Pages are served from an ISR cache, so
+			the HTML cannot carry a per-visitor theme; without this the page would paint in the OS
+			theme and then flip. No override stored means no attribute, and `light-dark()` follows
+			`prefers-color-scheme` on its own.
+		-->
+		<script>
+			try {
+				var t = localStorage.getItem('drizzle-bench-theme');
+				if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+			} catch (e) {
+				/* private mode: fall through to the OS preference */
+			}
+		</script>
+		%sveltekit.head%
+	</head>
+	<body>
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>

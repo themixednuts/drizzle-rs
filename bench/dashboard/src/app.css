@@ -1,0 +1,263 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn-svelte/tailwind.css';
+
+/* Self-hosted, so first paint never waits on a third-party stylesheet. The `wght` entry point is
+   the weight axis only (no optical-size or italic files), and every @font-face inside it carries a
+   unicode-range, so a latin page downloads latin woff2 and nothing else. */
+@import '@fontsource-variable/inter/wght.css';
+@import '@fontsource-variable/jetbrains-mono/wght.css';
+
+/* Dark mode has two triggers and one source of truth. `light-dark()` below resolves against the
+   used color-scheme, which follows the OS by default and is pinned by `data-theme` on <html>. This
+   variant exists so the `dark:` utilities inside the vendored shadcn components resolve against the
+   same two conditions. */
+@custom-variant dark {
+	&:where([data-theme='dark'], [data-theme='dark'] *) {
+		@slot;
+	}
+
+	@media (prefers-color-scheme: dark) {
+		&:where(:root:not([data-theme='light']), :root:not([data-theme='light']) *) {
+			@slot;
+		}
+	}
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Design tokens — the only place a colour, type step, or radius is decided.
+ * ---------------------------------------------------------------------------
+ * Every value is declared once as `light-dark(<light>, <dark>)`. There is no second dark block to
+ * keep in sync, and no parallel hand-rolled palette: `@theme inline` below is what publishes these
+ * to Tailwind, and the vendored shadcn components read the same names.
+ */
+:root {
+	color-scheme: light dark;
+
+	/* Surfaces -------------------------------------------------------------- */
+	/* Warm paper, not white: this is a printed-measurement aesthetic, and the warmth is what keeps
+	   a page of dense hairline rules from reading as a spreadsheet. */
+	--background: light-dark(#fafaf7, #14140f);
+	--foreground: light-dark(#1a1a17, #f2f1ea);
+	--card: light-dark(#fdfcf9, #1b1b16);
+	--card-foreground: var(--foreground);
+	--popover: light-dark(#fdfcf9, #1b1b16);
+	--popover-foreground: var(--foreground);
+	--muted: light-dark(#f1f0ea, #26251f);
+	--muted-foreground: light-dark(#63615a, #a09d92);
+	--secondary: var(--muted);
+	--secondary-foreground: var(--foreground);
+	--accent: var(--muted);
+	--accent-foreground: var(--foreground);
+
+	/* Ink steps beyond the two shadcn roles. `faint` is decorative only — separators and disabled
+	   marks — because it does not clear 4.5:1 for text. */
+	--foreground-secondary: light-dark(#4b4941, #c4c1b6);
+	--foreground-faint: light-dark(#8a877c, #7b786e);
+
+	/* Rules ----------------------------------------------------------------- */
+	--border: light-dark(#dcd9d0, #33322b);
+	/* The hairline between table rows: present, but never louder than the numbers. */
+	--border-soft: light-dark(#e9e7e0, #26251f);
+	--input: var(--border);
+	--ring: light-dark(#b8770a, #c08316);
+
+	/* Accent ---------------------------------------------------------------- */
+	--primary: light-dark(#9a6408, #d9a23a);
+	--primary-foreground: light-dark(#fdfcf9, #14140f);
+	/* Amber dark enough to be link text on paper (5.7:1) — the fill amber is not. */
+	--link: light-dark(#8a5a07, #e0a533);
+
+	/* Status ---------------------------------------------------------------- */
+	/* Never carried by colour alone: every use pairs with a sign, an arrow, or a word. */
+	--positive: light-dark(#2a6b37, #5fb872);
+	--negative: light-dark(#9c3b28, #e0705a);
+	--destructive: var(--negative);
+
+	/* Metric hues ----------------------------------------------------------- */
+	/* Categorical, validated for CVD separation and >=3:1 against both surfaces at every pair
+	   (OKLab dE >= 15 normal vision, >= 6.8 deutan/protan). Charts are faceted small multiples with
+	   a direct label on each, so hue reinforces identity and is never the only carrier. */
+	--chart-1: light-dark(#b8770a, #c08316);
+	--chart-2: light-dark(#1f6fb2, #3f88cf);
+	--chart-3: light-dark(#0f8a5f, #1a9a70);
+	--chart-4: light-dark(#a8348b, #b954a4);
+	--chart-5: var(--negative);
+
+	/* One metric, one hue, everywhere it is drawn. */
+	--metric-rps: var(--chart-1);
+	--metric-latency: var(--chart-2);
+	--metric-mem: var(--chart-3);
+	--metric-cpu: var(--chart-4);
+	--metric-err: var(--chart-5);
+
+	/* Geometry -------------------------------------------------------------- */
+	/* Square. Measurement instruments do not have rounded corners. */
+	--radius: 0rem;
+}
+
+/* An explicit choice wins over the OS preference, in both directions. */
+:root[data-theme='light'] {
+	color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+	color-scheme: dark;
+}
+
+@theme inline {
+	--font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
+	--font-mono: 'JetBrains Mono Variable', ui-monospace, 'Geist Mono', Menlo, monospace;
+
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-foreground-secondary: var(--foreground-secondary);
+	--color-foreground-faint: var(--foreground-faint);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-border: var(--border);
+	--color-border-soft: var(--border-soft);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-link: var(--link);
+	--color-positive: var(--positive);
+	--color-negative: var(--negative);
+
+	--color-chart-1: var(--chart-1);
+	--color-chart-2: var(--chart-2);
+	--color-chart-3: var(--chart-3);
+	--color-chart-4: var(--chart-4);
+	--color-chart-5: var(--chart-5);
+	--color-metric-rps: var(--metric-rps);
+	--color-metric-latency: var(--metric-latency);
+	--color-metric-mem: var(--metric-mem);
+	--color-metric-cpu: var(--metric-cpu);
+	--color-metric-err: var(--metric-err);
+
+	/*
+	 * Type ramp. Seven steps, each with a job, so a size is picked by role and never by nudging a
+	 * pixel value. Tailwind's own text-xs/text-sm scale is left untouched — the vendored shadcn
+	 * components are calibrated against it.
+	 *
+	 *   micro    badges, axis ticks, chart annotations
+	 *   caption  eyebrows, section labels, column headers, footnotes
+	 *   meta     table cells and mono metadata — the workhorse
+	 *   body     prose
+	 *   lead     group and target headings
+	 *   metric   KPI values
+	 *   title    page titles
+	 */
+	--text-micro: 0.625rem;
+	--text-micro--line-height: 1.3;
+	--text-micro--letter-spacing: 0.04em;
+	--text-caption: 0.6875rem;
+	--text-caption--line-height: 1.35;
+	--text-caption--letter-spacing: 0.08em;
+	--text-meta: 0.75rem;
+	--text-meta--line-height: 1.45;
+	--text-body: 0.8125rem;
+	--text-body--line-height: 1.6;
+	--text-lead: 0.875rem;
+	--text-lead--line-height: 1.4;
+	--text-lead--letter-spacing: -0.005em;
+	--text-metric: 1.375rem;
+	--text-metric--line-height: 1;
+	--text-metric--letter-spacing: -0.015em;
+	--text-title: 1.5rem;
+	--text-title--line-height: 1.15;
+	--text-title--letter-spacing: -0.02em;
+
+	--radius-sm: calc(var(--radius) * 0.6);
+	--radius-md: calc(var(--radius) * 0.8);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) * 1.4);
+	--radius-2xl: calc(var(--radius) * 1.8);
+	--radius-3xl: calc(var(--radius) * 2.2);
+	--radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+	*,
+	::after,
+	::before {
+		border-color: var(--border);
+	}
+
+	html {
+		font-family: var(--font-sans);
+	}
+
+	body {
+		min-height: 100vh;
+		background: var(--background);
+		color: var(--foreground);
+		font-size: var(--text-body);
+		line-height: 1.5;
+		/* Every number on this site is read in a column against the number above it. */
+		font-variant-numeric: tabular-nums;
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+	}
+
+	a {
+		color: inherit;
+		text-decoration: none;
+	}
+
+	/* Keyboard focus stays visible everywhere. Components that suppress the default outline on
+	   :focus fall through to this. */
+	:focus-visible {
+		outline: 2px solid var(--ring);
+		outline-offset: 2px;
+	}
+
+	::selection {
+		background: var(--primary);
+		color: var(--primary-foreground);
+	}
+
+	::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+	}
+
+	::-webkit-scrollbar-thumb {
+		background: var(--foreground-faint);
+	}
+
+	::-webkit-scrollbar-thumb:hover {
+		background: var(--muted-foreground);
+	}
+}
+
+/*
+ * The only two app-level utilities. Everything else is a component: another class here would be a
+ * second place where a colour or spacing decision could be made.
+ */
+@utility page-gutter {
+	margin-inline: auto;
+	width: 100%;
+	max-width: 76rem;
+	padding-inline: --spacing(4);
+
+	@media (width >= 40rem) {
+		padding-inline: --spacing(6);
+	}
+}
+
+/* Prose measure for the methodology page: ~65 characters is where a line stops needing a ruler. */
+@utility measure {
+	max-width: 65ch;
+}
