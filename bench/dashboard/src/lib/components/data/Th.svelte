@@ -1,7 +1,7 @@
 <script lang="ts">
-	import * as Table from '$lib/components/ui/table/index.js';
+	import * as Table from '#lib/components/ui/table/index.js';
 	import Hint from '../Hint.svelte';
-	import { cn } from '$lib/utils.js';
+	import { cn } from '#lib/utils.js';
 	import type { Snippet } from 'svelte';
 
 	/**

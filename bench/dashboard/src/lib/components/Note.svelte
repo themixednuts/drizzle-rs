@@ -1,6 +1,6 @@
 <script lang="ts">
-	import * as Alert from '$lib/components/ui/alert/index.js';
-	import { cn } from '$lib/utils.js';
+	import * as Alert from '#lib/components/ui/alert/index.js';
+	import { cn } from '#lib/utils.js';
 	import Info from '@lucide/svelte/icons/info';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import type { Snippet } from 'svelte';

@@ -1,8 +1,8 @@
 <script lang="ts">
-	import * as Card from '$lib/components/ui/card/index.js';
+	import * as Card from '#lib/components/ui/card/index.js';
 	import Hint from './Hint.svelte';
 	import Delta from './Delta.svelte';
-	import type { DeltaDirection } from '$lib/leaderboard';
+	import type { DeltaDirection } from '#lib/leaderboard';
 
 	/**
 	 * One KPI tile. The value is the loudest thing in it; the label says which metric, and the

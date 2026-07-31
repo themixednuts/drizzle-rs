@@ -1,16 +1,16 @@
 import { page } from '$app/state';
-import { boxWhiskerExtent, rpsBox } from '$lib/boxplot';
-import { fmtCpu, fmtLatency, fmtPct, fmtRps, suiteLabel } from '$lib/format';
+import { boxWhiskerExtent, rpsBox } from '#lib/boxplot';
+import { fmtCpu, fmtLatency, fmtPct, fmtRps, suiteLabel } from '#lib/format';
 import {
 	drizzleDelta,
 	drizzleDeltaDirection,
 	groupTargets,
 	type DeltaDirection,
 	type TargetGroup,
-} from '$lib/leaderboard';
-import { isDrizzleRsTarget, targetDisplay } from '$lib/target-display';
-import type { FilterOption } from '$lib/components/FilterPills.svelte';
-import type { Manifest, RunCohort, RunIndexEntry, SummaryResult } from '$lib/types';
+} from '#lib/leaderboard';
+import { isDrizzleRsTarget, targetDisplay } from '#lib/target-display';
+import type { FilterOption } from '#lib/components/FilterPills.svelte';
+import type { Manifest, RunCohort, RunIndexEntry, SummaryResult } from '#lib/types';
 
 interface RunsPageData {
 	runs: RunIndexEntry[];

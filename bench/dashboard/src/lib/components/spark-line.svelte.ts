@@ -1,6 +1,6 @@
-import type { TimeseriesPoint } from '$lib/types';
-import { METRICS, type MetricKey } from '$lib/metrics';
-import { meanCpu, representativeTrial, timeGapIndices, trialSampleText } from '$lib/trials';
+import type { TimeseriesPoint } from '#lib/types';
+import { METRICS, type MetricKey } from '#lib/metrics';
+import { meanCpu, representativeTrial, timeGapIndices, trialSampleText } from '#lib/trials';
 
 export type SparkLineMetric = MetricKey;
 

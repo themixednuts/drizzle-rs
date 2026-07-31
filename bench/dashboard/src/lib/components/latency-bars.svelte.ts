@@ -1,4 +1,4 @@
-import type { LatencyPercentiles } from '$lib/types';
+import type { LatencyPercentiles } from '#lib/types';
 
 export interface LatencyBarsProps {
 	latency: LatencyPercentiles;

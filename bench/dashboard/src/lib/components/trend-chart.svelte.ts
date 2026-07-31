@@ -1,5 +1,5 @@
-import type { TrendPoint } from '$lib/types';
-import type { MetricKey } from '$lib/metrics';
+import type { TrendPoint } from '#lib/types';
+import type { MetricKey } from '#lib/metrics';
 
 export type TrendChartMetric =
 	| 'rps_avg'

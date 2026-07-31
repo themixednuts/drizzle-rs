@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { BoxPlot, Chart, Rule, Svg } from 'layerchart';
 	import { scaleBand } from 'd3-scale';
-	import { cn } from '$lib/utils.js';
-	import type { BoxWhiskerDatum, BoxWhiskerExtent } from '$lib/boxplot';
+	import { cn } from '#lib/utils.js';
+	import type { BoxWhiskerDatum, BoxWhiskerExtent } from '#lib/boxplot';
 
 	/**
 	 * Trial spread for one target row.

@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import Page from '$lib/components/Page.svelte';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Note from '$lib/components/Note.svelte';
-	import { buttonVariants } from '$lib/components/ui/button/index.js';
+	import Page from '#lib/components/Page.svelte';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Note from '#lib/components/Note.svelte';
+	import { buttonVariants } from '#lib/components/ui/button/index.js';
 
 	const status = $derived(page.status);
 	const message = $derived(page.error?.message ?? 'Something went wrong.');

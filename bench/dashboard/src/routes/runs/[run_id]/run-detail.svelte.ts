@@ -1,7 +1,7 @@
-import { fallbackTargetMeta, isDrizzleRsTarget, targetDisplay } from '$lib/target-display';
-import { fmtCpu, fmtLatency, fmtPct, fmtRps } from '$lib/format';
-import type { MetricKey } from '$lib/metrics';
-import type { QueryDoc, Summary, TargetMeta } from '$lib/types';
+import { fallbackTargetMeta, isDrizzleRsTarget, targetDisplay } from '#lib/target-display';
+import { fmtCpu, fmtLatency, fmtPct, fmtRps } from '#lib/format';
+import type { MetricKey } from '#lib/metrics';
+import type { QueryDoc, Summary, TargetMeta } from '#lib/types';
 import type { PageData } from './$types';
 
 /** Metrics a target's chart column can show. `err` is reported but never charted. */

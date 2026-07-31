@@ -1,6 +1,6 @@
 import type { RequestHandler } from './$types';
-import { compareApiData } from '$lib/server/bench-data';
-import { runJsonEffect } from '$lib/server/effect';
+import { compareApiData } from '#lib/server/bench-data';
+import { runJsonEffect } from '#lib/server/effect';
 
 export const GET: RequestHandler = ({ platform, url }) =>
 	runJsonEffect(

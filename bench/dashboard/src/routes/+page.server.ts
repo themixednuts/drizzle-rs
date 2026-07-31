@@ -1,6 +1,6 @@
 import type { PageServerLoad } from './$types';
-import { overviewPageData } from '$lib/server/bench-data';
-import { runServerEffect } from '$lib/server/effect';
+import { overviewPageData } from '#lib/server/bench-data';
+import { runServerEffect } from '#lib/server/effect';
 
 export const load: PageServerLoad = ({ platform, url }) =>
 	runServerEffect(

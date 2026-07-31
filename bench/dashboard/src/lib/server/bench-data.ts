@@ -10,8 +10,8 @@ import {
 	isHigherBetterCategory,
 	parseCompareCategory,
 	type CompareMetric,
-} from '$lib/compare';
-import { fallbackTargetMeta, targetLabel } from '$lib/target-display';
+} from '#lib/compare';
+import { fallbackTargetMeta, targetLabel } from '#lib/target-display';
 import type {
 	CompareItem,
 	Manifest,
@@ -24,7 +24,7 @@ import type {
 	TargetOption,
 	Timeseries,
 	TrendPoint,
-} from '$lib/types';
+} from '#lib/types';
 import { failHttp } from './effect';
 
 type MaybeFilter = string | null;

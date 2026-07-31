@@ -1,6 +1,6 @@
-import { dev } from '$app/environment';
+import { dev } from '$app/env';
 import { Config, Context, Effect, Layer, Schema } from 'effect';
-import type { Manifest, RunIndex, Summary, Timeseries } from '$lib/types';
+import type { Manifest, RunIndex, Summary, Timeseries } from '#lib/types';
 
 /**
  * Reading published benchmark artifacts.

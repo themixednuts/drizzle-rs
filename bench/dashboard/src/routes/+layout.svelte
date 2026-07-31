@@ -1,11 +1,11 @@
 <script lang="ts">
 	import '../app.css';
 	import { page } from '$app/state';
-	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
-	import { Separator } from '$lib/components/ui/separator/index.js';
-	import { buttonVariants } from '$lib/components/ui/button/index.js';
-	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
-	import { cn } from '$lib/utils.js';
+	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
+	import { Separator } from '#lib/components/ui/separator/index.js';
+	import { buttonVariants } from '#lib/components/ui/button/index.js';
+	import ThemeToggle from '#lib/components/ThemeToggle.svelte';
+	import { cn } from '#lib/utils.js';
 
 	let { children } = $props();
 

@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { Axis, Bars, Chart, Labels, Svg } from 'layerchart';
 	import { scaleBand } from 'd3-scale';
-	import * as ChartUI from '$lib/components/ui/chart/index.js';
-	import { metricChartConfig } from '$lib/metrics';
-	import { fmtLatency } from '$lib/format';
-	import type { LatencyPercentiles } from '$lib/types';
+	import * as ChartUI from '#lib/components/ui/chart/index.js';
+	import { metricChartConfig } from '#lib/metrics';
+	import { fmtLatency } from '#lib/format';
+	import type { LatencyPercentiles } from '#lib/types';
 	import { LatencyBarsState } from './latency-bars.svelte';
 
 	let { latency }: { latency: LatencyPercentiles } = $props();

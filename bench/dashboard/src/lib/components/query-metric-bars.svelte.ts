@@ -1,6 +1,6 @@
-import type { QueryDoc, QueryTimeseriesPoint, TimeseriesPoint } from '$lib/types';
-import { METRICS } from '$lib/metrics';
-import { representativeTrial, timeGapIndices, trialSampleText } from '$lib/trials';
+import type { QueryDoc, QueryTimeseriesPoint, TimeseriesPoint } from '#lib/types';
+import { METRICS } from '#lib/metrics';
+import { representativeTrial, timeGapIndices, trialSampleText } from '#lib/trials';
 import type { SparkLineMetric, SparkPoint } from './spark-line.svelte';
 
 export interface QueryMetricBarsProps {

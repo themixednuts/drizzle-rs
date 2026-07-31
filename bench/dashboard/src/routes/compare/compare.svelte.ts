@@ -1,6 +1,6 @@
 import { goto } from '$app/navigation';
 import { page } from '$app/state';
-import { boxWhiskerExtent } from '$lib/boxplot';
+import { boxWhiskerExtent } from '#lib/boxplot';
 import {
 	compareCategoryLabel,
 	compareCategoryOptions,
@@ -9,17 +9,17 @@ import {
 	visibleCategoryColumns,
 	type CompareCategory,
 	type CompareCategoryColumn,
-} from '$lib/compare';
-import type { PickerOption } from '$lib/components/PickerSelect.svelte';
-import { fmtDate, runDisplayName, shortHash } from '$lib/format';
+} from '#lib/compare';
+import type { PickerOption } from '#lib/components/PickerSelect.svelte';
+import { fmtDate, runDisplayName, shortHash } from '#lib/format';
 import {
 	drizzleDelta,
 	drizzleDeltaDirection,
 	groupTargets,
 	type DeltaDirection,
-} from '$lib/leaderboard';
-import { targetDisplay } from '$lib/target-display';
-import type { TargetCompareItem, TargetCompareValue } from '$lib/types';
+} from '#lib/leaderboard';
+import { targetDisplay } from '#lib/target-display';
+import type { TargetCompareItem, TargetCompareValue } from '#lib/types';
 import type { PageData } from './$types';
 
 export interface CompareRow {

@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { Area, Axis, Chart, Highlight, Svg } from 'layerchart';
-	import * as ChartUI from '$lib/components/ui/chart/index.js';
-	import { METRICS, metricChartConfig, type MetricKey } from '$lib/metrics';
-	import { shortHash } from '$lib/format';
-	import type { TrendPoint } from '$lib/types';
+	import * as ChartUI from '#lib/components/ui/chart/index.js';
+	import { METRICS, metricChartConfig, type MetricKey } from '#lib/metrics';
+	import { shortHash } from '#lib/format';
+	import type { TrendPoint } from '#lib/types';
 	import { TrendChartState, type TrendChartMetric, type TrendSample } from './trend-chart.svelte';
 
 	let {

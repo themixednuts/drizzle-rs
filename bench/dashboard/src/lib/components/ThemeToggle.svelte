@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { Button } from '$lib/components/ui/button/index.js';
+	import { Button } from '#lib/components/ui/button/index.js';
 	import Sun from '@lucide/svelte/icons/sun';
 	import Moon from '@lucide/svelte/icons/moon';
 	import MonitorCog from '@lucide/svelte/icons/monitor-cog';
-	import { theme, THEME_LABELS } from '$lib/theme.svelte';
+	import { theme, THEME_LABELS } from '#lib/theme.svelte';
 
 	/**
 	 * Cycles system -> light -> dark. "System" is the default and is a real state, not the absence

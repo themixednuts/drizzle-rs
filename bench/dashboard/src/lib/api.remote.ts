@@ -1,7 +1,7 @@
 import { getRequestEvent, query } from '$app/server';
 import * as v from 'valibot';
-import { timeseriesData } from '$lib/server/bench-data';
-import { runServerEffect } from '$lib/server/effect';
+import { timeseriesData } from '#lib/server/bench-data';
+import { runServerEffect } from '#lib/server/effect';
 
 /**
  * The only remote query the app actually calls: run-detail sparklines fetch a target's

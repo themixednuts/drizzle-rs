@@ -1,4 +1,6 @@
+import adapter from '@sveltejs/adapter-cloudflare';
 import { sveltekit } from '@sveltejs/kit/vite';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite-plus';
 
@@ -15,5 +17,27 @@ export default defineConfig({
 		sortTailwindcss: true,
 		ignorePatterns: ['src/lib/api-types.d.ts', 'src/cloudflare.d.ts', '.svelte-kit', '.wrangler'],
 	},
-	plugins: [tailwindcss(), sveltekit()],
+	plugins: [
+		tailwindcss(),
+		// SvelteKit 3 removed `svelte.config.js` entirely — it throws if the file exists — and the
+		// whole configuration (Kit options, Svelte compiler options and preprocessors alike) is now
+		// passed here instead. `kit: { ... }` is flattened: what was `kit.adapter` is `adapter`.
+		sveltekit({
+			preprocess: vitePreprocess(),
+			compilerOptions: {
+				runes: true,
+				experimental: {
+					async: true,
+				},
+			},
+			adapter: adapter({
+				platformProxy: {
+					persist: { path: './.wrangler/state/v3' },
+				},
+			}),
+			experimental: {
+				remoteFunctions: true,
+			},
+		}),
+	],
 });

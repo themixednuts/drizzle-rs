@@ -6,21 +6,21 @@
 		runStamp,
 		shortHash,
 		suiteLabel,
-	} from '$lib/format';
-	import Page from '$lib/components/Page.svelte';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Section from '$lib/components/Section.svelte';
-	import FilterBar from '$lib/components/FilterBar.svelte';
-	import FilterPills from '$lib/components/FilterPills.svelte';
-	import WarningNotice from '$lib/components/WarningNotice.svelte';
-	import EmptyState from '$lib/components/EmptyState.svelte';
-	import StatusBadge from '$lib/components/StatusBadge.svelte';
-	import DataTable from '$lib/components/data/DataTable.svelte';
-	import Th from '$lib/components/data/Th.svelte';
-	import Td from '$lib/components/data/Td.svelte';
-	import Tr from '$lib/components/data/Tr.svelte';
-	import * as Table from '$lib/components/ui/table/index.js';
-	import { Input } from '$lib/components/ui/input/index.js';
+	} from '#lib/format';
+	import Page from '#lib/components/Page.svelte';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Section from '#lib/components/Section.svelte';
+	import FilterBar from '#lib/components/FilterBar.svelte';
+	import FilterPills from '#lib/components/FilterPills.svelte';
+	import WarningNotice from '#lib/components/WarningNotice.svelte';
+	import EmptyState from '#lib/components/EmptyState.svelte';
+	import StatusBadge from '#lib/components/StatusBadge.svelte';
+	import DataTable from '#lib/components/data/DataTable.svelte';
+	import Th from '#lib/components/data/Th.svelte';
+	import Td from '#lib/components/data/Td.svelte';
+	import Tr from '#lib/components/data/Tr.svelte';
+	import * as Table from '#lib/components/ui/table/index.js';
+	import { Input } from '#lib/components/ui/input/index.js';
 	import { RunsPageState } from '../home.svelte';
 	import type { PageData } from './$types';
 

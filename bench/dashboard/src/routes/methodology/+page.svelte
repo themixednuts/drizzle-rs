@@ -1,11 +1,11 @@
 <script lang="ts">
-	import Page from '$lib/components/Page.svelte';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Section from '$lib/components/Section.svelte';
-	import DataTable from '$lib/components/data/DataTable.svelte';
-	import Td from '$lib/components/data/Td.svelte';
-	import Tr from '$lib/components/data/Tr.svelte';
-	import * as Table from '$lib/components/ui/table/index.js';
+	import Page from '#lib/components/Page.svelte';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Section from '#lib/components/Section.svelte';
+	import DataTable from '#lib/components/data/DataTable.svelte';
+	import Td from '#lib/components/data/Td.svelte';
+	import Tr from '#lib/components/data/Tr.svelte';
+	import * as Table from '#lib/components/ui/table/index.js';
 
 	/**
 	 * Reference tables. Each row is `term -> what it means`, which is a definition list rendered as

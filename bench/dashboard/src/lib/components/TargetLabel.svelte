@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Badge } from '$lib/components/ui/badge/index.js';
-	import type { TargetDisplay } from '$lib/target-display';
+	import { Badge } from '#lib/components/ui/badge/index.js';
+	import type { TargetDisplay } from '#lib/target-display';
 
 	/**
 	 * A target's name plus its declared attributes (dialect, driver, prepared/unprepared, data

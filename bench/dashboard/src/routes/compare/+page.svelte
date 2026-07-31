@@ -1,21 +1,21 @@
 <script lang="ts">
-	import BoxWhisker from '$lib/components/BoxWhisker.svelte';
-	import Page from '$lib/components/Page.svelte';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Section from '$lib/components/Section.svelte';
-	import FilterBar from '$lib/components/FilterBar.svelte';
-	import PickerSelect from '$lib/components/PickerSelect.svelte';
-	import WarningNotice from '$lib/components/WarningNotice.svelte';
-	import EmptyState from '$lib/components/EmptyState.svelte';
-	import Note from '$lib/components/Note.svelte';
-	import TargetLabel from '$lib/components/TargetLabel.svelte';
-	import Delta from '$lib/components/Delta.svelte';
-	import DataTable from '$lib/components/data/DataTable.svelte';
-	import Th from '$lib/components/data/Th.svelte';
-	import Td from '$lib/components/data/Td.svelte';
-	import Tr from '$lib/components/data/Tr.svelte';
-	import * as Table from '$lib/components/ui/table/index.js';
-	import { fmtDuration, shardLabel, suiteLabel } from '$lib/format';
+	import BoxWhisker from '#lib/components/BoxWhisker.svelte';
+	import Page from '#lib/components/Page.svelte';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Section from '#lib/components/Section.svelte';
+	import FilterBar from '#lib/components/FilterBar.svelte';
+	import PickerSelect from '#lib/components/PickerSelect.svelte';
+	import WarningNotice from '#lib/components/WarningNotice.svelte';
+	import EmptyState from '#lib/components/EmptyState.svelte';
+	import Note from '#lib/components/Note.svelte';
+	import TargetLabel from '#lib/components/TargetLabel.svelte';
+	import Delta from '#lib/components/Delta.svelte';
+	import DataTable from '#lib/components/data/DataTable.svelte';
+	import Th from '#lib/components/data/Th.svelte';
+	import Td from '#lib/components/data/Td.svelte';
+	import Tr from '#lib/components/data/Tr.svelte';
+	import * as Table from '#lib/components/ui/table/index.js';
+	import { fmtDuration, shardLabel, suiteLabel } from '#lib/format';
 	import { ComparePageState } from './compare.svelte';
 	import type { PageData } from './$types';
 

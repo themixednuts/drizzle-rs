@@ -1,6 +1,6 @@
 <script lang="ts">
-	import * as Table from '$lib/components/ui/table/index.js';
-	import { cn } from '$lib/utils.js';
+	import * as Table from '#lib/components/ui/table/index.js';
+	import { cn } from '#lib/utils.js';
 	import type { Snippet } from 'svelte';
 
 	/**

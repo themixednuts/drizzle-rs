@@ -16,6 +16,12 @@ declare global {
 				ISR_CACHE?: KVNamespace;
 				TAG_INDEX?: DurableObjectNamespace;
 			};
+			/** What `@sveltejs/adapter-cloudflare` 8 passes. */
+			ctx?: ExecutionContext;
+			/**
+			 * Adapter 7's deprecated alias for `ctx`, removed in adapter 8 and re-added by the shim in
+			 * `hooks.server.ts` because `cloudflare-isr` still reads it.
+			 */
 			context?: ExecutionContext;
 		}
 	}

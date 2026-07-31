@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Area, Chart, Svg } from 'layerchart';
-	import * as ChartUI from '$lib/components/ui/chart/index.js';
-	import { metricChartConfig } from '$lib/metrics';
-	import type { TimeseriesPoint } from '$lib/types';
+	import * as ChartUI from '#lib/components/ui/chart/index.js';
+	import { metricChartConfig } from '#lib/metrics';
+	import type { TimeseriesPoint } from '#lib/types';
 	import { SparkLineState, type SparkLineMetric, type SparkPoint } from './spark-line.svelte';
 
 	let {

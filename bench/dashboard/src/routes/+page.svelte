@@ -1,23 +1,23 @@
 <script lang="ts">
-	import BoxWhisker from '$lib/components/BoxWhisker.svelte';
-	import Page from '$lib/components/Page.svelte';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Section from '$lib/components/Section.svelte';
-	import FilterBar from '$lib/components/FilterBar.svelte';
-	import FilterPills from '$lib/components/FilterPills.svelte';
-	import WarningNotice from '$lib/components/WarningNotice.svelte';
-	import EmptyState from '$lib/components/EmptyState.svelte';
-	import MetricGrid from '$lib/components/MetricGrid.svelte';
-	import MetricTile from '$lib/components/MetricTile.svelte';
-	import Note from '$lib/components/Note.svelte';
-	import StatusBadge from '$lib/components/StatusBadge.svelte';
-	import TargetLabel from '$lib/components/TargetLabel.svelte';
-	import Delta from '$lib/components/Delta.svelte';
-	import DataTable from '$lib/components/data/DataTable.svelte';
-	import Th from '$lib/components/data/Th.svelte';
-	import Td from '$lib/components/data/Td.svelte';
-	import Tr from '$lib/components/data/Tr.svelte';
-	import * as Table from '$lib/components/ui/table/index.js';
+	import BoxWhisker from '#lib/components/BoxWhisker.svelte';
+	import Page from '#lib/components/Page.svelte';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Section from '#lib/components/Section.svelte';
+	import FilterBar from '#lib/components/FilterBar.svelte';
+	import FilterPills from '#lib/components/FilterPills.svelte';
+	import WarningNotice from '#lib/components/WarningNotice.svelte';
+	import EmptyState from '#lib/components/EmptyState.svelte';
+	import MetricGrid from '#lib/components/MetricGrid.svelte';
+	import MetricTile from '#lib/components/MetricTile.svelte';
+	import Note from '#lib/components/Note.svelte';
+	import StatusBadge from '#lib/components/StatusBadge.svelte';
+	import TargetLabel from '#lib/components/TargetLabel.svelte';
+	import Delta from '#lib/components/Delta.svelte';
+	import DataTable from '#lib/components/data/DataTable.svelte';
+	import Th from '#lib/components/data/Th.svelte';
+	import Td from '#lib/components/data/Td.svelte';
+	import Tr from '#lib/components/data/Tr.svelte';
+	import * as Table from '#lib/components/ui/table/index.js';
 	import {
 		fmtCpu,
 		fmtDate,
@@ -29,7 +29,7 @@
 		shardLabel,
 		shortHash,
 		suiteLabel,
-	} from '$lib/format';
+	} from '#lib/format';
 	import { RunsPageState } from './home.svelte';
 	import type { PageData } from './$types';
 

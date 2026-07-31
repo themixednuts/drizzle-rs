@@ -42,6 +42,33 @@ They must be separate invocations: `wrangler deploy` accepts only one `-c`. The 
 because the app's Durable Object binding uses `script_name = "drizzle-bench-isr"`, which has to
 exist first.
 
+## SvelteKit 3 notes
+
+Two things about this app are shaped by SvelteKit 3 rather than by preference:
+
+- **There is no `svelte.config.js`.** Kit 3 throws if the file exists; the whole configuration —
+  Kit options, Svelte compiler options and preprocessors — is passed to `sveltekit({ ... })` in
+  `vite.config.ts`, with what used to be `kit.adapter` now just `adapter`.
+- **`$lib` is `#lib`.** Kit 3 removed the built-in alias (`files.lib has been removed. Use #lib
+instead of $lib`) in favour of Node subpath imports, so `package.json` declares
+  `"imports": { "#lib/*": "./src/lib/*" }` and Kit derives both the Vite aliases and the generated
+  tsconfig paths from it. `tsconfig.json` extends `$app/tsconfig`.
+
+Two rough edges worth knowing:
+
+- **`bun run dev` uses plain `vite`, not `vp`.** Kit 3's dev server asserts
+  `vite.isRunnableDevEnvironment(server.environments.ssr)` against the standalone `vite` package,
+  while Vite+ builds that environment from its own bundled copy — two module instances, so the
+  check always fails with "The configured Vite SSR environment must be a RunnableDevEnvironment".
+  `vp` still runs fmt, lint, typecheck and build.
+- **`svelte-kit sync` warns `"paths" was overwritten. Imports from "#lib" may not typecheck`.** It
+  is a false positive: Kit validates the resolved tsconfig by handing TypeScript a raw JSON object,
+  which cannot follow `extends: "$app/tsconfig"`, so it sees no `paths` at all. Resolving the config
+  from disk gives the expected absolute path, and `svelte-check` reports no errors.
+
+`vp preview` serves the Cloudflare build in Node, where `caches` does not exist — use
+`bun run cf:dev` (wrangler) to exercise the real runtime, including ISR.
+
 ## Why `cloudflare-isr` is a git pin
 
 `cloudflare-isr` is pinned to a commit SHA in `package.json` rather than a published version

@@ -1,28 +1,28 @@
 <script lang="ts">
-	import { loadTimeseries } from '$lib/api.remote';
-	import LatencyBars from '$lib/components/LatencyBars.svelte';
-	import QueryMetricBars from '$lib/components/QueryMetricBars.svelte';
-	import SparkLine from '$lib/components/SparkLine.svelte';
-	import Page from '$lib/components/Page.svelte';
-	import PageHeader from '$lib/components/PageHeader.svelte';
-	import Section from '$lib/components/Section.svelte';
-	import MetricGrid from '$lib/components/MetricGrid.svelte';
-	import MetricTile from '$lib/components/MetricTile.svelte';
-	import Note from '$lib/components/Note.svelte';
-	import Hint from '$lib/components/Hint.svelte';
-	import StatusBadge from '$lib/components/StatusBadge.svelte';
-	import TargetLabel from '$lib/components/TargetLabel.svelte';
-	import DataTable from '$lib/components/data/DataTable.svelte';
-	import Th from '$lib/components/data/Th.svelte';
-	import Td from '$lib/components/data/Td.svelte';
-	import Tr from '$lib/components/data/Tr.svelte';
-	import * as Table from '$lib/components/ui/table/index.js';
-	import * as Tabs from '$lib/components/ui/tabs/index.js';
-	import * as Accordion from '$lib/components/ui/accordion/index.js';
-	import { Badge } from '$lib/components/ui/badge/index.js';
-	import { Button } from '$lib/components/ui/button/index.js';
-	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
-	import { Separator } from '$lib/components/ui/separator/index.js';
+	import { loadTimeseries } from '#lib/api.remote';
+	import LatencyBars from '#lib/components/LatencyBars.svelte';
+	import QueryMetricBars from '#lib/components/QueryMetricBars.svelte';
+	import SparkLine from '#lib/components/SparkLine.svelte';
+	import Page from '#lib/components/Page.svelte';
+	import PageHeader from '#lib/components/PageHeader.svelte';
+	import Section from '#lib/components/Section.svelte';
+	import MetricGrid from '#lib/components/MetricGrid.svelte';
+	import MetricTile from '#lib/components/MetricTile.svelte';
+	import Note from '#lib/components/Note.svelte';
+	import Hint from '#lib/components/Hint.svelte';
+	import StatusBadge from '#lib/components/StatusBadge.svelte';
+	import TargetLabel from '#lib/components/TargetLabel.svelte';
+	import DataTable from '#lib/components/data/DataTable.svelte';
+	import Th from '#lib/components/data/Th.svelte';
+	import Td from '#lib/components/data/Td.svelte';
+	import Tr from '#lib/components/data/Tr.svelte';
+	import * as Table from '#lib/components/ui/table/index.js';
+	import * as Tabs from '#lib/components/ui/tabs/index.js';
+	import * as Accordion from '#lib/components/ui/accordion/index.js';
+	import { Badge } from '#lib/components/ui/badge/index.js';
+	import { Button } from '#lib/components/ui/button/index.js';
+	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
+	import { Separator } from '#lib/components/ui/separator/index.js';
 	import {
 		fmtCpu,
 		fmtDate,
@@ -33,7 +33,7 @@
 		fmtRps,
 		shortHash,
 		suiteLabel,
-	} from '$lib/format';
+	} from '#lib/format';
 	import { RunDetailState } from './run-detail.svelte';
 	import type { PageData } from './$types';
 

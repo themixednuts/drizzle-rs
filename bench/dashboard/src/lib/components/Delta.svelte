@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { cn } from '$lib/utils.js';
-	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
+	import { cn } from '#lib/utils.js';
+	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
 	import ArrowUp from '@lucide/svelte/icons/arrow-up';
 	import ArrowDown from '@lucide/svelte/icons/arrow-down';
 

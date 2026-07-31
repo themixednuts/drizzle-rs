@@ -1,10 +1,10 @@
 import { goto } from '$app/navigation';
 import { page } from '$app/state';
-import type { FilterOption } from '$lib/components/FilterPills.svelte';
-import type { PickerOption } from '$lib/components/PickerSelect.svelte';
-import { fmtCpu, fmtLatency, fmtPct, fmtRps, suiteLabel } from '$lib/format';
-import type { DeltaDirection } from '$lib/leaderboard';
-import type { TrendPoint } from '$lib/types';
+import type { FilterOption } from '#lib/components/FilterPills.svelte';
+import type { PickerOption } from '#lib/components/PickerSelect.svelte';
+import { fmtCpu, fmtLatency, fmtPct, fmtRps, suiteLabel } from '#lib/format';
+import type { DeltaDirection } from '#lib/leaderboard';
+import type { TrendPoint } from '#lib/types';
 import type { PageData } from './$types';
 
 export interface TrendKpi {

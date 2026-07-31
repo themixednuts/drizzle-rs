@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { Area, Chart, Svg } from 'layerchart';
-	import * as ChartUI from '$lib/components/ui/chart/index.js';
-	import { Separator } from '$lib/components/ui/separator/index.js';
-	import { metricChartConfig } from '$lib/metrics';
-	import type { QueryDoc, TimeseriesPoint } from '$lib/types';
+	import * as ChartUI from '#lib/components/ui/chart/index.js';
+	import { Separator } from '#lib/components/ui/separator/index.js';
+	import { metricChartConfig } from '#lib/metrics';
+	import type { QueryDoc, TimeseriesPoint } from '#lib/types';
 	import { QueryMetricBarsState } from './query-metric-bars.svelte';
 	import type { SparkLineMetric, SparkPoint } from './spark-line.svelte';
 
