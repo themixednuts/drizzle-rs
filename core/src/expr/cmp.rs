@@ -886,7 +886,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
             <L as ComparisonOperand<'a, V, Self>>::Aggregate,
         >>::Output:
             AggOr<<H as ComparisonOperand<'a, V, Self>>::Aggregate>,
-    {
+{
         between(self, low, high)
     }
 
@@ -926,7 +926,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
             <L as ComparisonOperand<'a, V, Self>>::Aggregate,
         >>::Output:
             AggOr<<H as ComparisonOperand<'a, V, Self>>::Aggregate>,
-    {
+{
         not_between(self, low, high)
     }
 
