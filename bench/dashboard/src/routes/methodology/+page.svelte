@@ -249,7 +249,9 @@
 			>
 cargo bench --features "rusqlite,uuid"
 
-<span class="text-muted-foreground"># run the dashboard with Cloudflare bindings and ISR</span>
+<span class="text-muted-foreground"
+				># run the dashboard with Cloudflare bindings and the edge cache</span
+			>
 cd bench/dashboard
 bun run cf:dev</pre>
 	</Section>

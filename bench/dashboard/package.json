@@ -13,15 +13,12 @@
 		"check": "vp check && svelte-check --tsconfig ./tsconfig.json",
 		"svelte:check": "svelte-check --tsconfig ./tsconfig.json",
 		"cf:build": "vp build",
-		"cf:dev": "vp build && wrangler dev -c wrangler.toml -c wrangler.isr.jsonc",
-		"cf:deploy": "vp build && bun run cf:deploy:isr && bun run cf:deploy:app",
-		"cf:deploy:isr": "wrangler deploy -c wrangler.isr.jsonc",
-		"cf:deploy:app": "wrangler deploy -c wrangler.toml",
+		"cf:dev": "vp build && wrangler dev",
+		"cf:deploy": "vp build && wrangler deploy",
 		"cf:types": "wrangler types src/cloudflare.d.ts",
 		"api:types": "openapi-typescript ../../docs/benchmark-spec/openapi/bench-api.v1.yaml -o src/lib/api-types.d.ts"
 	},
 	"dependencies": {
-		"cloudflare-isr": "git+https://github.com/themixednuts/cloudflare-isr.git#ae25e331f2179cc49cfbdf4b9415b6c12cd94b51",
 		"effect": "^4.0.0-beta.102",
 		"valibot": "^1.4.2"
 	},

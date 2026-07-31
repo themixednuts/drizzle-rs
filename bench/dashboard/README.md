@@ -32,15 +32,8 @@ bucket wins. With neither configured the app renders an empty state instead of e
 
 ## Deploying
 
-`bun run cf:deploy` deploys two workers, in order:
-
-1. `wrangler deploy -c wrangler.isr.jsonc` — the Durable Object host (`drizzle-bench-isr`).
-2. `wrangler deploy -c wrangler.toml` — the SvelteKit app, which binds `TAG_INDEX` to a class
-   defined in the worker above.
-
-They must be separate invocations: `wrangler deploy` accepts only one `-c`. The order matters
-because the app's Durable Object binding uses `script_name = "drizzle-bench-isr"`, which has to
-exist first.
+`bun run cf:deploy` builds and runs a single `wrangler deploy`. There is one worker and one
+config (`wrangler.toml`); its only binding is the `BENCH_DATA` R2 bucket.
 
 ## SvelteKit 3 notes
 
@@ -67,14 +60,77 @@ Two rough edges worth knowing:
   from disk gives the expected absolute path, and `svelte-check` reports no errors.
 
 `vp preview` serves the Cloudflare build in Node, where `caches` does not exist — use
-`bun run cf:dev` (wrangler) to exercise the real runtime, including ISR.
+`bun run cf:dev` (wrangler) to exercise the real runtime, including the page cache.
 
-## Why `cloudflare-isr` is a git pin
+## Page cache
 
-`cloudflare-isr` is pinned to a commit SHA in `package.json` rather than a published version
-because the package is developed alongside this dashboard and its Durable Object migration tags
-are part of the deployment contract. `wrangler.isr.jsonc` declares
-`migrations: [{ tag: "v2", new_sqlite_classes: ["ISRTagIndexDO"] }]`; bumping the dependency to a
-revision that renames or re-shapes `ISRTagIndexDO` requires a matching new migration tag in that
-file, or the deploy will fail (or, worse, orphan the existing DO storage). Bump the SHA and the
-migration tag together, deliberately — do not let a range specifier float it.
+Rendered pages and JSON API responses are cached at the edge with the Workers Cache API
+(`caches.default`) by the hook in `src/lib/server/page-cache.ts`. Every response carries an
+`x-cache: hit | miss | bypass` header so the behaviour is observable from `curl`.
+
+The site is public and read-only today. The cache is nonetheless written **deny-by-default**, so
+that adding an authenticated route later cannot leak a private response into a shared cache
+without anyone changing this file.
+
+A request is cached only when **all** of these hold:
+
+| Requirement                                | Why                                                  |
+| ------------------------------------------ | ---------------------------------------------------- |
+| Method is `GET` or `HEAD`                  | Anything else may have side effects.                 |
+| `event.route.id` is in the allowlist below | An unmatched route has a `null` id and is denied.    |
+| No `Cookie` header                         | A cookie means the response may be visitor-specific. |
+| No `Authorization` header                  | Same, for token auth.                                |
+
+…and a response is **stored** only when all of these hold:
+
+| Requirement                                   | Why                                                   |
+| --------------------------------------------- | ----------------------------------------------------- |
+| Status is exactly `200`                       | A 404 or 500 is never pinned at the edge for the TTL. |
+| No `Set-Cookie` header                        | The renderer marked it visitor-specific.              |
+| `Cache-Control` has no `private` / `no-store` | Same, explicitly.                                     |
+
+`Set-Cookie` is stripped from the stored copy regardless, and a credentialed request bypasses the
+read path as well as the write path — so a cached public page is never handed to a signed-in
+visitor either.
+
+### One shared cache, not two
+
+The credential check only means something if every request actually reaches this Worker. A
+response that leaves the Worker advertising `s-maxage` is stored by Cloudflare's CDN _in front of_
+it, which then answers later requests directly — including credentialed ones. Testing caught
+exactly that, so the edge TTL is written onto the **stored copy only**, and pages (which set no
+`Cache-Control` of their own) go downstream as `private, no-cache`. They are still served from the
+edge entry in microseconds; the browser revalidates against the ETag.
+
+Routes that set their own directive keep it: `/api/v1/*` still tells consumers
+`public, max-age=300, stale-while-revalidate=600`, because it is a public API and that is the
+contract it advertises. The consequence is that the CDN also caches those responses, so a repeated
+API request can be answered above the Worker and its `x-cache` header is whatever it was when the
+CDN stored it. `x-cache` is therefore an exact signal for pages and an approximate one for the JSON
+API; varying a parameter the cache key ignores (`&cb=1`) reaches the Worker and shows the true
+status.
+
+### Allowlist
+
+| Route id                           | TTL    | Query params in the cache key |
+| ---------------------------------- | ------ | ----------------------------- |
+| `/`                                | 300s   | `suite`, `status`             |
+| `/runs`                            | 300s   | `suite`, `status`             |
+| `/runs/[run_id]`                   | 1 year | —                             |
+| `/trends`                          | 300s   | `suite`, `target`             |
+| `/compare`                         | 300s   | `cohort`, `metric`            |
+| `/methodology`                     | 300s   | —                             |
+| `/api/v1/runs/latest`              | 300s   | `suite`                       |
+| `/api/v1/runs/[run_id]/manifest`   | 300s   | —                             |
+| `/api/v1/runs/[run_id]/summary`    | 300s   | `targets`                     |
+| `/api/v1/runs/[run_id]/timeseries` | 300s   | `targets`, `from`, `to`       |
+| `/api/v1/compare`                  | 300s   | `base`, `head`, `metric`      |
+
+A run's artifacts are immutable once published, hence the long TTL on `/runs/[run_id]`.
+
+### Cache key
+
+`origin + /__page-cache/<version> + pathname + allowlisted params (sorted)`. Any query parameter
+not listed for the route is dropped, so unknown params cannot mint unbounded entries. `<version>`
+is SvelteKit's build version, which means **every deploy starts cold** — that is the invalidation
+story, and it is why there is no purge API.

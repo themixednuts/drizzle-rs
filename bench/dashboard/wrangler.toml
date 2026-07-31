@@ -8,11 +8,3 @@ assets = { directory = ".svelte-kit/cloudflare", binding = "ASSETS" }
 [[r2_buckets]]
 binding = "BENCH_DATA"
 bucket_name = "drizzle-bench"
-
-# ISR caching layer
-[[kv_namespaces]]
-binding = "ISR_CACHE"
-id = "c9767b93da2a4b3c80956215ba53548f"
-
-[durable_objects]
-bindings = [{ name = "TAG_INDEX", class_name = "ISRTagIndexDO", script_name = "drizzle-bench-isr" }]
