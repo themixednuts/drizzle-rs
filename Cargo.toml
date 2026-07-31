@@ -85,7 +85,7 @@ smallvec = { version = "1.15", default-features = false, features = [
 thiserror = { version = "2.0", default-features = false }
 toml = { version = "0.9" }
 tokio = { version = ">=1.48, <2" }
-turso = { version = ">=0.7, <0.8", default-features = false, features = ["pure-rust-crypto"] }
+turso = { version = ">=0.7.2, <0.8", default-features = false, features = ["pure-rust-crypto"] }
 worker = { version = ">=0.8, <0.9", default-features = false }
 wasm-bindgen = { version = "0.2" }
 js-sys = { version = "0.3" }

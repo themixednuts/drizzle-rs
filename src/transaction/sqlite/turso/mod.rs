@@ -10,6 +10,24 @@ use turso::Row;
 use crate::builder::sqlite::rows::TursoRows as Rows;
 use crate::transaction::savepoint::{AsyncSavepointState, async_savepoint};
 
+async fn turso_transaction_execute_cached(
+    tx: &turso::transaction::Transaction<'_>,
+    sql: &str,
+    params: Vec<turso::Value>,
+) -> turso::Result<u64> {
+    let mut statement = tx.prepare_cached(sql).await?;
+    statement.execute(params).await
+}
+
+async fn turso_transaction_query_cached(
+    tx: &turso::transaction::Transaction<'_>,
+    sql: &str,
+    params: Vec<turso::Value>,
+) -> turso::Result<turso::Rows> {
+    let mut statement = tx.prepare_cached(sql).await?;
+    statement.query(params).await
+}
+
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
     builder::{
@@ -148,7 +166,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let (sql_str, params) = query.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
-        Ok(self.tx.execute(&sql_str, params).await?)
+        Ok(turso_transaction_execute_cached(&self.tx, &sql_str, params).await?)
     }
 
     /// Runs a query and returns all matching rows within the transaction
@@ -181,7 +199,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let (sql_str, params) = sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
-        let rows = self.tx.query(&sql_str, params).await?;
+        let rows = turso_transaction_query_cached(&self.tx, &sql_str, params).await?;
         Ok(Rows::new(rows))
     }
 
@@ -201,7 +219,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let (sql_str, params) = sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
-        let mut rows = self.tx.query(&sql_str, params).await?;
+        let mut rows = turso_transaction_query_cached(&self.tx, &sql_str, params).await?;
 
         rows.next().await?.map_or_else(
             || Err(DrizzleError::NotFound),
@@ -244,7 +262,7 @@ where
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
-        Ok(self.runner.tx.execute(&sql_str, params).await?)
+        Ok(turso_transaction_execute_cached(&self.runner.tx, &sql_str, params).await?)
     }
 
     /// Runs the query and returns all matching rows using the builder's row type.
@@ -259,7 +277,7 @@ where
         self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
-        let mut rows = self.runner.tx.query(&sql_str, params).await?;
+        let mut rows = turso_transaction_query_cached(&self.runner.tx, &sql_str, params).await?;
         let mut decoded = Vec::new();
         while let Some(row) = rows.next().await? {
             decoded.push(<Mk as drizzle_core::row::DecodeSelectedRef<
@@ -280,7 +298,7 @@ where
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
-        let rows = self.runner.tx.query(&sql_str, params).await?;
+        let rows = turso_transaction_query_cached(&self.runner.tx, &sql_str, params).await?;
         Ok(Rows::new(rows))
     }
 
@@ -296,7 +314,7 @@ where
         self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
-        let mut rows = self.runner.tx.query(&sql_str, params).await?;
+        let mut rows = turso_transaction_query_cached(&self.runner.tx, &sql_str, params).await?;
         rows.next().await?.map_or_else(
             || Err(DrizzleError::NotFound),
             |row| <Mk as drizzle_core::row::DecodeSelectedRef<&::turso::Row, R>>::decode(&row),
