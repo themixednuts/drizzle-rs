@@ -133,15 +133,17 @@ fn select_limit_offset_with_placeholders(db: &mut TestDb<SimpleSchema>) {
         ])
         .execute();
 
-    let literal = db
+    // Numeric pagination values bind as parameters on PostgreSQL so the SQL
+    // text stays stable across pages (statement-cache friendly).
+    let numeric = db
         .select((simple.id, simple.name))
         .from(simple)
         .order_by([asc(simple.name)])
         .limit(2)
         .offset(1);
     assert_eq!(
-        literal.to_sql().sql(),
-        r#"SELECT "simple"."id", "simple"."name" FROM "simple" ORDER BY "simple"."name" ASC LIMIT 2 OFFSET 1"#
+        numeric.to_sql().sql(),
+        r#"SELECT "simple"."id", "simple"."name" FROM "simple" ORDER BY "simple"."name" ASC LIMIT $1 OFFSET $2"#
     );
 
     let untyped_limit = drizzle::core::Placeholder::named("limit");
@@ -237,7 +239,7 @@ fn select_with_order_by(db: &mut TestDb<SimpleSchema>) {
 
     assert_eq!(
         stmt.to_sql().sql(),
-        r#"SELECT "simple"."id", "simple"."name" FROM "simple" ORDER BY "simple"."name" ASC LIMIT 2"#
+        r#"SELECT "simple"."id", "simple"."name" FROM "simple" ORDER BY "simple"."name" ASC LIMIT $1"#
     );
 
     let results: Vec<SelectSimple> = stmt.all();
@@ -262,7 +264,7 @@ fn select_with_limit(db: &mut TestDb<SimpleSchema>) {
 
     assert_eq!(
         stmt.to_sql().sql(),
-        r#"SELECT "simple"."id", "simple"."name" FROM "simple" LIMIT 2"#
+        r#"SELECT "simple"."id", "simple"."name" FROM "simple" LIMIT $1"#
     );
 
     let results: Vec<SelectSimple> = stmt.all();
@@ -291,7 +293,7 @@ fn select_with_offset(db: &mut TestDb<SimpleSchema>) {
 
     assert_eq!(
         stmt.to_sql().sql(),
-        r#"SELECT "simple"."id", "simple"."name" FROM "simple" ORDER BY "simple"."name" ASC LIMIT 2 OFFSET 1"#
+        r#"SELECT "simple"."id", "simple"."name" FROM "simple" ORDER BY "simple"."name" ASC LIMIT $1 OFFSET $2"#
     );
 
     let results: Vec<SelectSimple> = stmt.all();

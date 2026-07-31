@@ -18,6 +18,19 @@ pub trait SQLParam: Clone + core::fmt::Debug {
     /// and by [`crate::dialect::DialectTypes`] to resolve conceptual SQL types to
     /// dialect-native markers.
     type DialectMarker: crate::dialect::DialectTypes;
+
+    /// Converts a numeric `LIMIT`/`OFFSET` value into a bindable parameter.
+    ///
+    /// Dialects that return `Some` render `.limit(n)` / `.offset(n)` as a
+    /// bound parameter instead of a numeric literal, keeping the generated
+    /// SQL text stable across pagination values so statement caches can hit.
+    /// The default (`None`) keeps the numeric-literal rendering.
+    #[inline]
+    #[must_use]
+    fn pagination_param(value: usize) -> Option<Self> {
+        let _ = value;
+        None
+    }
 }
 
 // Implement SQLParam for common types

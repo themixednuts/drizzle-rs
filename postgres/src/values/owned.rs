@@ -138,6 +138,13 @@ pub enum OwnedPostgresValue {
 impl SQLParam for OwnedPostgresValue {
     const DIALECT: drizzle_core::Dialect = drizzle_core::Dialect::PostgreSQL;
     type DialectMarker = drizzle_core::dialect::PostgresDialect;
+
+    /// Binds LIMIT/OFFSET values as `BIGINT` parameters so paginated queries
+    /// share one SQL text (and one cached prepared statement) across pages.
+    #[inline]
+    fn pagination_param(value: usize) -> Option<Self> {
+        i64::try_from(value).ok().map(Self::Bigint)
+    }
 }
 
 impl From<OwnedPostgresValue> for SQL<'_, OwnedPostgresValue> {

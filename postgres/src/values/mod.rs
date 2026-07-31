@@ -780,6 +780,13 @@ impl PostgresValue<'_> {
 impl SQLParam for PostgresValue<'_> {
     const DIALECT: drizzle_core::dialect::Dialect = drizzle_core::dialect::Dialect::PostgreSQL;
     type DialectMarker = drizzle_core::dialect::PostgresDialect;
+
+    /// Binds LIMIT/OFFSET values as `BIGINT` parameters so paginated queries
+    /// share one SQL text (and one cached prepared statement) across pages.
+    #[inline]
+    fn pagination_param(value: usize) -> Option<Self> {
+        i64::try_from(value).ok().map(Self::Bigint)
+    }
 }
 
 impl<'a> From<PostgresValue<'a>> for SQL<'a, PostgresValue<'a>> {
