@@ -161,6 +161,22 @@ async fn turso_query_cached(
     stmt.query(params).await
 }
 
+pub(crate) async fn turso_decode_first_and_finish<R>(
+    rows: &mut turso::Rows,
+    decode: impl FnOnce(&Row) -> drizzle_core::error::Result<R>,
+) -> drizzle_core::error::Result<R> {
+    let decoded = match rows.next().await? {
+        Some(row) => decode(&row),
+        None => Err(DrizzleError::NotFound),
+    };
+
+    // Turso owns the live statement through `Rows`. Step it to `Done` before
+    // returning so a one-row read or `RETURNING` query cannot retain a read or
+    // write transaction until the cursor is eventually dropped.
+    while rows.next().await?.is_some() {}
+    decoded
+}
+
 impl<Schema> common::Drizzle<Connection, Schema> {
     pub async fn execute<'a, T>(
         &'a self,
@@ -266,14 +282,9 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             .map_err(DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
-        rows.next()
+        turso_decode_first_and_finish(&mut rows, |row| R::try_from(row).map_err(Into::into))
             .await
-            .map_err(DrizzleError::from)
-            .with_query(|| QueryContext::new(&sql_str, &params))?
-            .map_or_else(
-                || Err(DrizzleError::NotFound),
-                |row| R::try_from(&row).map_err(Into::into),
-            )
+            .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
     /// Executes a transaction with the given callback.
@@ -1263,13 +1274,10 @@ where
             .await
             .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
-        rows.next()
-            .await
-            .map_err(drizzle_core::error::DrizzleError::from)
-            .with_query(|| QueryContext::new(&sql_str, &params))?
-            .map_or_else(
-                || Err(drizzle_core::error::DrizzleError::NotFound),
-                |row| <Mk as drizzle_core::row::DecodeSelectedRef<&::turso::Row, R>>::decode(&row),
-            )
+        turso_decode_first_and_finish(&mut rows, |row| {
+            <Mk as drizzle_core::row::DecodeSelectedRef<&::turso::Row, R>>::decode(row)
+        })
+        .await
+        .with_query(|| QueryContext::new(&sql_str, &params))
     }
 }

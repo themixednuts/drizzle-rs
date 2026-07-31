@@ -67,11 +67,13 @@ macro_rules! sqlite_async_prepared_impl {
                 driver_params.extend(params.map(Into::into));
                 let mut rows = conn.fetch(sql_str, driver_params).await?;
 
-                if let Some(row) = rows.next().await? {
+                let decoded = if let Some(row) = rows.next().await? {
                     <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)
                 } else {
                     Err(drizzle_core::error::DrizzleError::NotFound)
-                }
+                };
+                while rows.next().await?.is_some() {}
+                decoded
             }
         }
 
@@ -141,11 +143,13 @@ macro_rules! sqlite_async_prepared_impl {
                 driver_params.extend(params.map(Into::into));
                 let mut rows = conn.fetch(sql_str, driver_params).await?;
 
-                if let Some(row) = rows.next().await? {
+                let decoded = if let Some(row) = rows.next().await? {
                     <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)
                 } else {
                     Err(drizzle_core::error::DrizzleError::NotFound)
-                }
+                };
+                while rows.next().await?.is_some() {}
+                decoded
             }
         }
     };

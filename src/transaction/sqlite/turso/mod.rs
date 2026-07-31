@@ -225,10 +225,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
         let mut rows = turso_transaction_query_cached(&self.tx, &sql_str, params).await?;
 
-        rows.next().await?.map_or_else(
-            || Err(DrizzleError::NotFound),
-            |row| R::try_from(&row).map_err(Into::into),
-        )
+        crate::builder::sqlite::turso::turso_decode_first_and_finish(&mut rows, |row| {
+            R::try_from(row).map_err(Into::into)
+        })
+        .await
     }
 
     /// Commits the transaction (turso transactions are auto-committed)
@@ -319,9 +319,9 @@ where
         let (sql_str, params) = self.builder.sql.build();
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
         let mut rows = turso_transaction_query_cached(&self.runner.tx, &sql_str, params).await?;
-        rows.next().await?.map_or_else(
-            || Err(DrizzleError::NotFound),
-            |row| <Mk as drizzle_core::row::DecodeSelectedRef<&::turso::Row, R>>::decode(&row),
-        )
+        crate::builder::sqlite::turso::turso_decode_first_and_finish(&mut rows, |row| {
+            <Mk as drizzle_core::row::DecodeSelectedRef<&::turso::Row, R>>::decode(row)
+        })
+        .await
     }
 }

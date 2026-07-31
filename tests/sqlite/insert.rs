@@ -113,6 +113,64 @@ fn insert_returning_star(db: &mut TestDb<SimpleSchema>) {
     assert_eq!(rows[0].name, "returning_star");
 }
 
+#[cfg(feature = "turso")]
+#[tokio::test]
+async fn turso_get_finishes_returning_cursor_before_another_connection_writes() {
+    let path = crate::common::helpers::temp_db_path();
+    let path_text = path
+        .to_str()
+        .expect("temporary sqlite path must be valid UTF-8");
+    let database = turso::Builder::new_local(path_text)
+        .experimental_index_method(true)
+        .experimental_mvcc_passive_checkpoint(true)
+        .build()
+        .await
+        .expect("build Turso database");
+    let first_connection = database.connect().expect("first connection");
+    let second_connection = database.connect().expect("second connection");
+    second_connection
+        .busy_timeout(std::time::Duration::from_millis(50))
+        .expect("set writer busy timeout");
+    let (first, SimpleSchema { simple }) =
+        drizzle::sqlite::turso::Drizzle::new(first_connection, SimpleSchema::new());
+    let (second, _) = drizzle::sqlite::turso::Drizzle::new(second_connection, SimpleSchema::new());
+    first.create().await.expect("create schema");
+
+    let returned: SelectSimple = first
+        .insert(simple)
+        .values([InsertSimple::new("first").with_id(1)])
+        .returning(())
+        .get()
+        .await
+        .expect("insert returning one row");
+    assert_eq!(returned.id, 1);
+
+    second
+        .insert(simple)
+        .values([InsertSimple::new("second").with_id(2)])
+        .execute()
+        .await
+        .expect("the completed returning cursor must release its write transaction");
+
+    let prepared = first
+        .insert(simple)
+        .values([InsertSimple::new("prepared").with_id(3)])
+        .returning(())
+        .prepare();
+    let returned: SelectSimple = prepared
+        .get(first.conn(), [])
+        .await
+        .expect("prepared insert returning one row");
+    assert_eq!(returned.id, 3);
+
+    second
+        .insert(simple)
+        .values([InsertSimple::new("after-prepared").with_id(4)])
+        .execute()
+        .await
+        .expect("the completed prepared cursor must release its write transaction");
+}
+
 #[cfg(feature = "uuid")]
 #[drizzle::test]
 fn complex_insert(db: &mut TestDb<ComplexSchema>) {
