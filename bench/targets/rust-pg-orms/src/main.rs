@@ -1231,61 +1231,93 @@ fn sea_order_detail_product(
     })
 }
 
+/// Rust type a projected column is decoded as before it becomes JSON.
+#[derive(Clone, Copy)]
+enum SeaColumn {
+    Text,
+    Int,
+    BigInt,
+    Double,
+    Date,
+}
+
+/// JSON key and decoded type for one projected column, or `None` for a column
+/// this encoder does not surface at the top level (the `s_*` supplier aliases).
+///
+/// Columns are looked up from the result set rather than probed one by one:
+/// sea-orm 2.0 answers `try_get::<Option<T>>` for a column that is *not in the
+/// result set* with `Ok(None)` — `TryGetable for Option<T>` maps sqlx's
+/// `ColumnNotFound` to `None` — so probing a union of every route's columns
+/// emits an explicit `null` for every column the route did not select. That
+/// breaks the response contract and inflates every response body.
+fn sea_column(name: &str) -> Option<(&'static str, SeaColumn)> {
+    use SeaColumn::{BigInt, Date, Double, Int, Text};
+    Some(match name {
+        "id" => ("id", Int),
+        "company_name" => ("companyName", Text),
+        "contact_name" => ("contactName", Text),
+        "contact_title" => ("contactTitle", Text),
+        "address" => ("address", Text),
+        "city" => ("city", Text),
+        "postal_code" => ("postalCode", Text),
+        "region" => ("region", Text),
+        "country" => ("country", Text),
+        "phone" => ("phone", Text),
+        "fax" => ("fax", Text),
+        "last_name" => ("lastName", Text),
+        "first_name" => ("firstName", Text),
+        "title" => ("title", Text),
+        "title_of_courtesy" => ("titleOfCourtesy", Text),
+        "home_phone" => ("homePhone", Text),
+        "notes" => ("notes", Text),
+        "recipient_last_name" => ("recipientLastName", Text),
+        "recipient_first_name" => ("recipientFirstName", Text),
+        "name" => ("name", Text),
+        "qt_per_unit" => ("qtPerUnit", Text),
+        "ship_name" => ("shipName", Text),
+        "ship_city" => ("shipCity", Text),
+        "ship_country" => ("shipCountry", Text),
+        "extension" => ("extension", Int),
+        "recipient_id" => ("recipientId", Int),
+        "units_in_stock" => ("unitsInStock", Int),
+        "units_on_order" => ("unitsOnOrder", Int),
+        "reorder_level" => ("reorderLevel", Int),
+        "discontinued" => ("discontinued", Int),
+        "supplier_id" => ("supplierId", Int),
+        "products_count" => ("productsCount", BigInt),
+        "unit_price" => ("unitPrice", Double),
+        "quantity_sum" => ("quantitySum", Double),
+        "total_price" => ("totalPrice", Double),
+        "birth_date" => ("birthDate", Date),
+        "hire_date" => ("hireDate", Date),
+        "shipped_date" => ("shippedDate", Date),
+        _ => return None,
+    })
+}
+
 fn row_to_json(row: &sea_orm::QueryResult) -> Result<serde_json::Value, sea_orm::DbErr> {
-    let mut map = serde_json::Map::new();
+    let columns = row.column_names();
+    let mut map = serde_json::Map::with_capacity(columns.len());
 
-    for (snake, camel) in [
-        ("company_name", "companyName"),
-        ("contact_name", "contactName"),
-        ("contact_title", "contactTitle"),
-        ("address", "address"),
-        ("city", "city"),
-        ("postal_code", "postalCode"),
-        ("region", "region"),
-        ("country", "country"),
-        ("phone", "phone"),
-        ("fax", "fax"),
-        ("last_name", "lastName"),
-        ("first_name", "firstName"),
-        ("title", "title"),
-        ("title_of_courtesy", "titleOfCourtesy"),
-        ("home_phone", "homePhone"),
-        ("notes", "notes"),
-        ("recipient_last_name", "recipientLastName"),
-        ("recipient_first_name", "recipientFirstName"),
-        ("name", "name"),
-        ("qt_per_unit", "qtPerUnit"),
-        ("ship_name", "shipName"),
-        ("ship_city", "shipCity"),
-        ("ship_country", "shipCountry"),
-    ] {
-        insert_sea_opt_string(row, &mut map, snake, camel)?;
+    for column in &columns {
+        let Some((key, kind)) = sea_column(column) else {
+            continue;
+        };
+        let value = match kind {
+            SeaColumn::Text => serde_json::json!(row.try_get::<Option<String>>("", column)?),
+            SeaColumn::Int => serde_json::json!(row.try_get::<Option<i32>>("", column)?),
+            SeaColumn::BigInt => serde_json::json!(row.try_get::<Option<i64>>("", column)?),
+            SeaColumn::Double => serde_json::json!(row.try_get::<Option<f64>>("", column)?),
+            SeaColumn::Date => serde_json::json!(row.try_get::<Option<NaiveDate>>("", column)?),
+        };
+        map.insert(key.to_string(), value);
     }
 
-    for (snake, camel) in [
-        ("id", "id"),
-        ("extension", "extension"),
-        ("recipient_id", "recipientId"),
-        ("units_in_stock", "unitsInStock"),
-        ("units_on_order", "unitsOnOrder"),
-        ("reorder_level", "reorderLevel"),
-        ("discontinued", "discontinued"),
-        ("supplier_id", "supplierId"),
-    ] {
-        insert_sea_i32(row, &mut map, snake, camel)?;
-    }
-
-    insert_sea_i64(row, &mut map, "products_count", "productsCount")?;
-    insert_sea_f64(row, &mut map, "unit_price", "unitPrice")?;
-    insert_sea_f64(row, &mut map, "quantity_sum", "quantitySum")?;
-    insert_sea_f64(row, &mut map, "total_price", "totalPrice")?;
-    insert_sea_opt_date(row, &mut map, "birth_date", "birthDate")?;
-    insert_sea_opt_date(row, &mut map, "hire_date", "hireDate")?;
-    insert_sea_opt_date(row, &mut map, "shipped_date", "shippedDate")?;
-
-    if let Ok(s_id) = row.try_get::<i32>("", "s_id") {
+    // The `s_*` aliases are the joined supplier; they nest under `supplier`
+    // instead of appearing at the top level.
+    if columns.iter().any(|column| column == "s_id") {
         let supplier = serde_json::json!({
-            "id": s_id,
+            "id": row.try_get::<Option<i32>>("", "s_id")?,
             "companyName": sea_opt_string(row, "s_company_name")?,
             "contactName": sea_opt_string(row, "s_contact_name")?,
             "contactTitle": sea_opt_string(row, "s_contact_title")?,
@@ -1300,66 +1332,6 @@ fn row_to_json(row: &sea_orm::QueryResult) -> Result<serde_json::Value, sea_orm:
     }
 
     Ok(serde_json::Value::Object(map))
-}
-
-fn insert_sea_i32(
-    row: &sea_orm::QueryResult,
-    map: &mut serde_json::Map<String, serde_json::Value>,
-    snake: &str,
-    camel: &str,
-) -> Result<(), sea_orm::DbErr> {
-    if let Ok(value) = row.try_get::<Option<i32>>("", snake) {
-        map.insert(camel.to_string(), serde_json::json!(value));
-    }
-    Ok(())
-}
-
-fn insert_sea_i64(
-    row: &sea_orm::QueryResult,
-    map: &mut serde_json::Map<String, serde_json::Value>,
-    snake: &str,
-    camel: &str,
-) -> Result<(), sea_orm::DbErr> {
-    if let Ok(value) = row.try_get::<Option<i64>>("", snake) {
-        map.insert(camel.to_string(), serde_json::json!(value));
-    }
-    Ok(())
-}
-
-fn insert_sea_f64(
-    row: &sea_orm::QueryResult,
-    map: &mut serde_json::Map<String, serde_json::Value>,
-    snake: &str,
-    camel: &str,
-) -> Result<(), sea_orm::DbErr> {
-    if let Ok(value) = row.try_get::<Option<f64>>("", snake) {
-        map.insert(camel.to_string(), serde_json::json!(value));
-    }
-    Ok(())
-}
-
-fn insert_sea_opt_string(
-    row: &sea_orm::QueryResult,
-    map: &mut serde_json::Map<String, serde_json::Value>,
-    snake: &str,
-    camel: &str,
-) -> Result<(), sea_orm::DbErr> {
-    if let Ok(value) = sea_opt_string(row, snake) {
-        map.insert(camel.to_string(), serde_json::json!(value));
-    }
-    Ok(())
-}
-
-fn insert_sea_opt_date(
-    row: &sea_orm::QueryResult,
-    map: &mut serde_json::Map<String, serde_json::Value>,
-    snake: &str,
-    camel: &str,
-) -> Result<(), sea_orm::DbErr> {
-    if let Ok(value) = row.try_get::<Option<NaiveDate>>("", snake) {
-        map.insert(camel.to_string(), serde_json::json!(value));
-    }
-    Ok(())
 }
 
 fn sea_opt_string(

@@ -276,7 +276,20 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
             })?;
     }
 
-    // Generate deterministic seed data with the same cardinalities used by every target.
+    // Reproduce the dataset the module's `seed` reducer would have written.
+    //
+    // `spacetime-sdk-rs` seeds by calling that reducer; this target cannot
+    // (SpacetimeDB's PGWire dialect has no `CALL`), so it rebuilds the same
+    // rows and INSERTs them. Both targets share one module database, so the
+    // two generators must agree exactly or whichever seeds last silently
+    // invalidates the other's numbers.
+    //
+    // Agreeing on the *values* is not enough: `StdRng` is a stream, so every
+    // field must draw in the same order as the corresponding field of
+    // `bench/targets/spacetime-module/src/lib.rs::seed`. Reordering two draws
+    // here swaps two columns' values; reordering a conditional draw
+    // desynchronizes the streams from that row on. Keep each loop below in the
+    // reducer's field order, and treat the reducer as the authority.
     let mut rng = StdRng::seed_from_u64(seed);
 
     const NUM_CUSTOMERS: usize = SEED_CUSTOMERS;
@@ -354,6 +367,7 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         // so keep date-like timestamps positive for this target.
         let birth_date = rng.random_range(315_360_000..946_080_000_i64);
         let hire_date = rng.random_range(946_684_800..1_672_531_200_i64);
+        let postal_code = format!("{:05}", rng.random_range(10000..99999));
         let extension = rng.random_range(100..9999_i32);
         let recipient_id: i32 = if i > 0 {
             rng.random_range(1..=i as i32)
@@ -371,7 +385,7 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
             hire_date,
             sql_escape(&format!("{i} Elm St")),
             sql_escape(&format!("City-{i}")),
-            sql_escape(&format!("{:05}", rng.random_range(10000..99999))),
+            sql_escape(&postal_code),
             sql_escape(&format!("Country-{}", i % 20)),
             sql_escape(&format!("555-{i:04}")),
             extension,
@@ -442,6 +456,11 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
     let mut product_rows = Vec::with_capacity(INSERT_BATCH_ROWS);
     for i in 0..NUM_PRODUCTS {
         let id = i + 1;
+        let qt_per_unit = format!(
+            "{} boxes x {} bags",
+            rng.random_range(1..20),
+            rng.random_range(1..50)
+        );
         let unit_price = (rng.random_range(1.0..500.0_f64) * 100.0).round() / 100.0;
         let units_in_stock = rng.random_range(0..200_i32);
         let units_on_order = rng.random_range(0..100_i32);
@@ -455,11 +474,7 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
                 "P-{}-{i}",
                 PRODUCT_SEARCH_TERMS[i % PRODUCT_SEARCH_TERMS.len()]
             )),
-            sql_escape(&format!(
-                "{} boxes x {} bags",
-                rng.random_range(1..20),
-                rng.random_range(1..50)
-            )),
+            sql_escape(&qt_per_unit),
             unit_price,
             units_in_stock,
             units_on_order,
@@ -497,8 +512,6 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         } else {
             0
         };
-        let ship_via = rng.random_range(1..=3_i32);
-        let freight = (rng.random_range(0.5..500.0_f64) * 100.0).round() / 100.0;
         let ship_region = if rng.random_bool(0.5) {
             format!("Region-{}", rng.random_range(1..50))
         } else {
@@ -509,6 +522,8 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
         } else {
             String::new()
         };
+        let ship_via = rng.random_range(1..=3_i32);
+        let freight = (rng.random_range(0.5..500.0_f64) * 100.0).round() / 100.0;
         let customer_id = rng.random_range(1..=NUM_CUSTOMERS as i32);
         let employee_id = rng.random_range(1..=NUM_EMPLOYEES as i32);
         let row = format!(
@@ -1229,7 +1244,9 @@ async fn search_customer(
 ) -> Result<Json<Vec<CustomerResponse>>, StatusCode> {
     let term_lower = params.term.as_deref().unwrap_or("").to_ascii_lowercase();
     let sql = "SELECT id, company_name, contact_name, contact_title, address, city, postal_code, region, country, phone, fax FROM customers";
-    let resp: Vec<CustomerResponse> = pg_rows(&state, sql)
+    // Like every other list route here: SpacetimeDB scans are unordered, so the
+    // ordering the HTTP contract implies has to be imposed in-process.
+    let resp: Vec<CustomerResponse> = pg_sorted_rows(&state, sql, 0)
         .await?
         .into_iter()
         .filter(|c| contains_term(&col_str(c, 1), &term_lower))
@@ -1257,7 +1274,7 @@ async fn search_product(
 ) -> Result<Json<Vec<ProductResponse>>, StatusCode> {
     let term_lower = params.term.as_deref().unwrap_or("").to_ascii_lowercase();
     let sql = "SELECT id, name, qt_per_unit, unit_price, units_in_stock, units_on_order, reorder_level, discontinued, supplier_id FROM products";
-    let resp: Vec<ProductResponse> = pg_rows(&state, sql)
+    let resp: Vec<ProductResponse> = pg_sorted_rows(&state, sql, 0)
         .await?
         .into_iter()
         .filter(|c| contains_term(&col_str(c, 1), &term_lower))

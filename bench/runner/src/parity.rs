@@ -5,6 +5,7 @@ use crate::load;
 use crate::model::Target;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 type FieldCheck = (&'static str, fn(&serde_json::Value) -> bool);
@@ -773,14 +774,96 @@ pub fn compare_snapshots(targets: &[Target], dir: &Path) -> Result<(), Fail> {
                 return Err(Fail::new(
                     Code::ParityFail,
                     format!(
-                        "parity {}: {path} diverges from {} (reference)",
-                        target.id, reference.id
+                        "parity {}: {path} diverges from {} (reference)\n{}",
+                        target.id,
+                        reference.id,
+                        describe_divergence(&reference.id, want, &target.id, got),
                     ),
                 ));
             }
         }
     }
     Ok(())
+}
+
+/// Differing leaves reported before the diff is truncated.
+///
+/// A body is up to 50 rows wide, so a whole-body dump buries the signal; a
+/// handful of concrete `row[3].region: "x" != null` lines is what makes a CI
+/// log actionable without a local reproduction.
+const MAX_REPORTED_DIFFS: usize = 8;
+
+/// Render a compact, path-addressed diff of two canonical bodies.
+fn describe_divergence(reference_id: &str, want: &Value, target_id: &str, got: &Value) -> String {
+    let mut diffs = Vec::new();
+    collect_diffs(String::new(), want, got, &mut diffs);
+
+    let mut out = String::new();
+    let shown = diffs.len().min(MAX_REPORTED_DIFFS);
+    for (at, want, got) in diffs.iter().take(shown) {
+        let at = if at.is_empty() { "<body>" } else { at.as_str() };
+        let _ = writeln!(out, "  {at}: {reference_id}={want}  {target_id}={got}");
+    }
+    if diffs.len() > shown {
+        let _ = writeln!(
+            out,
+            "  ... and {} more differing values",
+            diffs.len() - shown
+        );
+    }
+    if diffs.is_empty() {
+        // Only reachable if two values compare unequal without any leaf
+        // disagreeing, which would mean the walk missed a case.
+        let _ = writeln!(out, "  (no leaf differences located)");
+    }
+    out
+}
+
+/// Walk two canonical values in parallel, recording `(json path, want, got)`
+/// for every leaf that disagrees.
+fn collect_diffs(at: String, want: &Value, got: &Value, out: &mut Vec<(String, String, String)>) {
+    if want == got {
+        return;
+    }
+    match (want, got) {
+        (Value::Array(want_items), Value::Array(got_items)) => {
+            if want_items.len() != got_items.len() {
+                out.push((
+                    format!("{at}.len()"),
+                    want_items.len().to_string(),
+                    got_items.len().to_string(),
+                ));
+            }
+            for (index, (want, got)) in want_items.iter().zip(got_items).enumerate() {
+                collect_diffs(format!("{at}[{index}]"), want, got, out);
+            }
+        }
+        (Value::Object(want_map), Value::Object(got_map)) => {
+            for (key, want) in want_map {
+                match got_map.get(key) {
+                    Some(got) => collect_diffs(format!("{at}.{key}"), want, got, out),
+                    None => out.push((format!("{at}.{key}"), compact(want), "<missing>".into())),
+                }
+            }
+            for key in got_map.keys().filter(|key| !want_map.contains_key(*key)) {
+                out.push((
+                    format!("{at}.{key}"),
+                    "<missing>".into(),
+                    compact(&got_map[key]),
+                ));
+            }
+        }
+        _ => out.push((at, compact(want), compact(got))),
+    }
+}
+
+/// One-line rendering of a value, elided when it is a whole subtree.
+fn compact(value: &Value) -> String {
+    match value {
+        Value::Array(items) => format!("[{} items]", items.len()),
+        Value::Object(map) => format!("{{{} fields}}", map.len()),
+        other => other.to_string(),
+    }
 }
 
 /// Path this target's parity run writes its canonical bodies to.
@@ -871,6 +954,30 @@ mod tests {
             target("other", Some("id-range pagination")),
         ];
         compare_snapshots(&exempt, dir.path()).expect("allow-listed route must pass");
+    }
+
+    #[test]
+    fn failure_message_locates_the_differing_leaves() {
+        let dir = tempfile::tempdir().expect("tmp");
+        write_snapshot(
+            dir.path(),
+            "reference",
+            serde_json::json!([{ "id": 1, "region": "Bavaria", "fax": null }]),
+        );
+        write_snapshot(
+            dir.path(),
+            "other",
+            serde_json::json!([{ "id": 1, "region": null }]),
+        );
+
+        let targets = vec![target("reference", None), target("other", None)];
+        let err = compare_snapshots(&targets, dir.path()).expect_err("divergence must fail");
+        // The route alone is not actionable; the message has to say which
+        // field of which row disagreed and what each side sent.
+        assert!(err.msg.contains("[0].region"), "{}", err.msg);
+        assert!(err.msg.contains("\"Bavaria\""), "{}", err.msg);
+        assert!(err.msg.contains("[0].fax"), "{}", err.msg);
+        assert!(err.msg.contains("<missing>"), "{}", err.msg);
     }
 
     #[test]
