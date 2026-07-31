@@ -1,13 +1,13 @@
-error[E0277]: the trait bound `UserName: drizzle_core::row::SingleColGroupCheck<Cons<UserEmail, Nil>, _>` is not satisfied
-  --> tests/ui/aggregate_mixing_sqlite/fail/mixed_without_group_by.rs:35:10
+error[E0277]: the trait bound `PostTitle: drizzle_core::row::SingleColGroupCheck<PkGroup<User>, _>` is not satisfied
+  --> tests/ui/aggregate_mixing_sqlite/fail/joined_scalar_with_pk_group.rs:45:10
    |
-35 |         .all();
+45 |         .all();
    |          ^^^ unsatisfied trait bound
    |
-help: the trait `drizzle_core::row::SingleColGroupCheck<Cons<UserEmail, Nil>, _>` is not implemented for `UserName`
-  --> tests/ui/aggregate_mixing_sqlite/fail/mixed_without_group_by.rs:5:1
+help: the trait `drizzle_core::row::SingleColGroupCheck<PkGroup<User>, _>` is not implemented for `PostTitle`
+  --> tests/ui/aggregate_mixing_sqlite/fail/joined_scalar_with_pk_group.rs:12:1
    |
- 5 | #[SQLiteTable]
+12 | #[SQLiteTable]
    | ^^^^^^^^^^^^^^
    = help: the following other types implement trait `drizzle_core::row::MarkerAggValidFor<Grouped, Proof>`:
              `Scoped<SelectAs<R>, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
@@ -18,8 +18,10 @@ help: the trait `drizzle_core::row::SingleColGroupCheck<Cons<UserEmail, Nil>, _>
              `Scoped<SelectExpr, Scope>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
              `Scoped<SelectStar, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
              `Scoped<SelectStar, Scope>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
-   = note: required for `(UserName, AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull, Agg>>)` to implement `drizzle_core::row::ScalarColumnsIn<Cons<UserEmail, Nil>, (_, drizzle_core::row::AggSkip)>`
-   = note: required for `Scoped<SelectCols<(UserName, AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull, Agg>>)>, Cons<User, Nil>>` to implement `drizzle_core::row::MarkerAggValidFor<Cons<UserEmail, Nil>, (_, drizzle_core::row::AggSkip)>`
+   = note: required for `(PostTitle, AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull, Agg>>)` to implement `drizzle_core::row::ScalarColumnsIn<PkGroup<User>, (_, drizzle_core::row::AggSkip)>`
+   = note: 1 redundant requirement hidden
+   = note: required for `(UserName, PostTitle, AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull, Agg>>)` to implement `drizzle_core::row::ScalarColumnsIn<PkGroup<User>, (drizzle_core::row::PkDependent, (_, drizzle_core::row::AggSkip))>`
+   = note: required for `Scoped<SelectCols<(UserName, PostTitle, AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull, Agg>>)>, Cons<Post, Cons<User, Nil>>>` to implement `drizzle_core::row::MarkerAggValidFor<PkGroup<User>, (drizzle_core::row::PkDependent, (_, drizzle_core::row::AggSkip))>`
 note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'_, drizzle::builder::sqlite::common::Drizzle<Connection, S>, S, drizzle::sqlite::builder::QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
   --> src/builder/sqlite/rusqlite/mod.rs
    |

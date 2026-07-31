@@ -271,6 +271,12 @@ where
     State: drizzle_core::GroupByAllowed,
 {
     /// Adds a GROUP BY clause to the query.
+    ///
+    /// Non-aggregate columns in SELECT must appear in the GROUP BY list, with
+    /// one exception: grouping by a table's single-column primary key
+    /// functionally determines the whole row (SQL:1999, which `PostgreSQL`
+    /// implements natively), so any scalar column of that table may be
+    /// selected without being listed.
     pub fn group_by<Gr>(
         self,
         columns: Gr,

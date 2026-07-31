@@ -294,6 +294,16 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             quote! {}
         };
 
+        // Grouping by a table's sole primary key functionally determines the
+        // whole row (SQL:1999), so `.group_by(table.pk)` produces the
+        // `PkGroup` marker, which lets any scalar column of the table appear
+        // in SELECT. Composite-PK members keep exact-list semantics.
+        let group_by_columns_ty = if info.constraint.is_inline_primary() {
+            quote! { drizzle::core::PkGroup<#struct_ident> }
+        } else {
+            quote! { drizzle::core::Cons<#zst_ident, drizzle::core::Nil> }
+        };
+
         let column_code = quote! {
             #struct_def
             impl<'a> ::core::default::Default for &'a #zst_ident {
@@ -328,7 +338,7 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             }
             #to_sql_impl
             impl<'a> drizzle::core::IntoGroupBy<'a, #sqlite_value<'a>> for #zst_ident {
-                type Columns = drizzle::core::Cons<#zst_ident, drizzle::core::Nil>;
+                type Columns = #group_by_columns_ty;
             }
             #into_sqlite_value_impl
             #expr_impl

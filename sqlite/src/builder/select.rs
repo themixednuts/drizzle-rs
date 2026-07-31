@@ -468,6 +468,13 @@ where
     State: drizzle_core::GroupByAllowed,
 {
     /// Adds a GROUP BY clause to the query.
+    ///
+    /// Non-aggregate columns in SELECT must appear in the GROUP BY list, with
+    /// one exception: grouping by a table's single-column primary key
+    /// functionally determines the whole row (SQL:1999), so any scalar column
+    /// of that table may be selected. Prefer `.group_by(table.pk)` over
+    /// listing every selected column — it also lets `SQLite` stream groups in
+    /// key order instead of sorting through a temp B-tree.
     pub fn group_by<Gr>(
         self,
         columns: Gr,
