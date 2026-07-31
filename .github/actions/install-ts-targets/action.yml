@@ -1,0 +1,20 @@
+name: Install TypeScript target dependencies
+description: >-
+  Install the Bun dependencies for the PostgreSQL TypeScript targets and run
+  `prisma generate`. The generate step is load-bearing: the prisma target's
+  `server.cmd` runs `server.ts` directly and imports the generated client, so
+  nothing regenerates it at spawn time.
+
+runs:
+  using: composite
+  steps:
+    - name: Install TS target dependencies
+      shell: bash
+      env:
+        # Only consumed by `prisma generate` to resolve the datasource block.
+        # The measured run gets its DATABASE_URL from the service container.
+        DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/drizzle_test'
+      run: |
+        cd "$GITHUB_WORKSPACE/bench/targets/drizzle-ts-pg" && bun install
+        cd "$GITHUB_WORKSPACE/bench/targets/prisma-pg" && bun install && bunx prisma generate
+        cd "$GITHUB_WORKSPACE/bench/targets/bun-sql-pg" && bun install

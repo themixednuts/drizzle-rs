@@ -1,0 +1,693 @@
+name: Runners
+
+on:
+  push:
+    branches: [main]
+    tags: ['*']
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+  schedule:
+    - cron: '0 4 * * 1'  # weekly Monday 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      benchmark_size:
+        description: Benchmark workload to run
+        required: false
+        type: choice
+        options:
+          - full
+          - preview
+          - single
+        default: full
+      publish_to_r2:
+        description: Publish manual main runs to Cloudflare R2
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: "1.95"
+  NODE_VERSION: "24"
+  BENCHMARK_SIZE: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_size || (github.event_name == 'pull_request' && 'preview' || 'full') }}
+  BENCH_COHORT_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}-throughput-http
+  PUBLISH_TO_R2: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_to_r2 && github.ref == 'refs/heads/main') }}
+  R2_BUCKET: drizzle-bench
+
+# Every family job is a thin caller of `.github/actions/bench-runner-run`, which
+# owns the prebuild / run / validate / upload / baseline sequence. `plan`
+# resolves the class and workload once so the resolution cannot drift between
+# families, and so job-level `if:` can read it (the `env` context is not
+# available in `jobs.<id>.if`).
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      size: ${{ steps.resolve.outputs.size }}
+      class: ${{ steps.resolve.outputs.class }}
+      workload: ${{ steps.resolve.outputs.workload }}
+      publish: ${{ steps.resolve.outputs.publish }}
+      pg_all: ${{ steps.resolve.outputs.pg_all }}
+    steps:
+      - name: Resolve run class and workload
+        id: resolve
+        shell: bash
+        run: |
+          size="${BENCHMARK_SIZE}"
+          publish="${PUBLISH_TO_R2}"
+
+          class="full"
+          workload="bench/spec/workload.throughput.v1.json"
+          if [[ "$size" == "preview" && "$publish" != "true" ]]; then
+            class="small"
+            workload="bench/spec/workload.preview.v1.json"
+          elif [[ "$size" == "single" ]]; then
+            workload="bench/spec/workload.single-throughput.v1.json"
+            if [[ "$publish" == "true" ]]; then
+              class="publish"
+            fi
+          elif [[ "$publish" == "true" ]]; then
+            class="publish"
+          fi
+
+          # Cross-family PostgreSQL ranking must come from one machine. On the
+          # weekly schedule and on a manual publish dispatch the three
+          # PostgreSQL families collapse into the single `postgres-all` job;
+          # every other event keeps them parallel and per-family.
+          pg_all="false"
+          if [[ "$publish" == "true" ]] \
+            && { [[ "$GITHUB_EVENT_NAME" == "schedule" ]] || [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; }; then
+            pg_all="true"
+          fi
+
+          {
+            echo "size=$size"
+            echo "class=$class"
+            echo "workload=$workload"
+            echo "publish=$publish"
+            echo "pg_all=$pg_all"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "size=$size class=$class workload=$workload publish=$publish pg_all=$pg_all"
+
+  sqlite:
+    name: SQLite (${{ matrix.platform }})
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+    runs-on: ${{ matrix.os }}
+    # ~6 min per trial per target on the full workload; 4 targets x 5 trials
+    # plus a cold release build. Preview runs are a tenth of that.
+    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 240 }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-sqlite-${{ matrix.platform }}
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Benchmark SQLite family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: sqlite
+          platform: ${{ matrix.platform }}
+          targets: bench/spec/targets.sqlite.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+
+  postgres:
+    name: PostgreSQL (linux)
+    needs: plan
+    if: ${{ needs.plan.outputs.pg_all != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 240 }}
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: drizzle_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-postgres
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Resolve DATABASE_URL
+        id: pgurl
+        uses: ./.github/actions/resolve-postgres-url
+        with:
+          port: ${{ job.services.postgres.ports[5432] }}
+          service-id: ${{ job.services.postgres.id }}
+
+      - name: Benchmark PostgreSQL family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: postgres
+          targets: bench/spec/targets.postgres.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          database-url: ${{ steps.pgurl.outputs.url }}
+
+  postgres-rust-orms:
+    name: PostgreSQL Rust ORMs (linux)
+    needs: plan
+    if: ${{ needs.plan.outputs.pg_all != 'true' }}
+    runs-on: ubuntu-latest
+    # Two external target crates to build on top of the runner.
+    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 75 || 280 }}
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: drizzle_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-postgres-rust-orms
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Resolve DATABASE_URL
+        id: pgurl
+        uses: ./.github/actions/resolve-postgres-url
+        with:
+          port: ${{ job.services.postgres.ports[5432] }}
+          service-id: ${{ job.services.postgres.id }}
+
+      - name: Benchmark PostgreSQL Rust ORM family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: postgres-rust-orms
+          targets: bench/spec/targets.postgres-rust-orms.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          database-url: ${{ steps.pgurl.outputs.url }}
+          prebuild-manifests: |
+            bench/targets/rust-pg-orms/Cargo.toml
+            bench/targets/toasty/Cargo.toml
+
+  postgres-ts:
+    name: PostgreSQL TS (linux)
+    needs: plan
+    if: ${{ needs.plan.outputs.pg_all != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 240 }}
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: drizzle_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+          package-manager-cache: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-postgres-ts
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Install TS target dependencies
+        uses: ./.github/actions/install-ts-targets
+
+      - name: Resolve DATABASE_URL
+        id: pgurl
+        uses: ./.github/actions/resolve-postgres-url
+        with:
+          port: ${{ job.services.postgres.ports[5432] }}
+          service-id: ${{ job.services.postgres.id }}
+
+      - name: Benchmark PostgreSQL TS family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: postgres-ts
+          targets: bench/spec/targets.postgres-ts.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          database-url: ${{ steps.pgurl.outputs.url }}
+
+  postgres-all:
+    name: PostgreSQL cross-family (linux)
+    needs: plan
+    # Publish-grade cross-family ranking only. One VM, one PostgreSQL service,
+    # one cohort id, three families run back to back, so the leaderboard rows
+    # for drizzle-rs / Rust ORMs / TypeScript come from identical hardware
+    # instead of three separate CI VMs.
+    if: ${{ needs.plan.outputs.pg_all == 'true' }}
+    runs-on: ubuntu-latest
+    # 11 targets x 5 trials x ~6 min is close to the 6 h hosted-runner ceiling.
+    # If a family is added here, drop the trial count for this job instead of
+    # raising the timeout — GitHub hard-cancels at 360.
+    timeout-minutes: 350
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: drizzle_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+          package-manager-cache: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-postgres-all
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Install TS target dependencies
+        uses: ./.github/actions/install-ts-targets
+
+      - name: Resolve DATABASE_URL
+        id: pgurl
+        uses: ./.github/actions/resolve-postgres-url
+        with:
+          port: ${{ job.services.postgres.ports[5432] }}
+          service-id: ${{ job.services.postgres.id }}
+
+      # Sequential on purpose: the three runs must not contend for the same
+      # cores or the same PostgreSQL instance. Artifact and baseline names match
+      # the per-family jobs, which are skipped on these runs, so downstream
+      # consumers see exactly one artifact per family either way.
+      # trials: 3 (instead of the publish default 5) keeps the three-family
+      # sequence comfortably inside the 360-minute hard ceiling; spread/CI docs
+      # record the actual trial count per run.
+      - name: Benchmark PostgreSQL family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: postgres
+          targets: bench/spec/targets.postgres.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          database-url: ${{ steps.pgurl.outputs.url }}
+          trials: "3"
+
+      - name: Benchmark PostgreSQL Rust ORM family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: postgres-rust-orms
+          targets: bench/spec/targets.postgres-rust-orms.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          database-url: ${{ steps.pgurl.outputs.url }}
+          trials: "3"
+          prebuild-manifests: |
+            bench/targets/rust-pg-orms/Cargo.toml
+            bench/targets/toasty/Cargo.toml
+
+      - name: Benchmark PostgreSQL TS family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: postgres-ts
+          targets: bench/spec/targets.postgres-ts.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          database-url: ${{ steps.pgurl.outputs.url }}
+          trials: "3"
+
+  spacetimedb:
+    name: SpacetimeDB (linux)
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 180 }}
+    # Job-level so the composite action's steps inherit them; SPACETIME_TOKEN is
+    # appended to the job environment by the extraction step below because it
+    # comes from a step output, which `jobs.<id>.env` cannot reference.
+    env:
+      SPACETIME_URI: "ws://127.0.0.1:3000"
+      SPACETIME_MODULE: "bench-module"
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      # No Node or Bun here on purpose: `targets.spacetimedb.v1.json` is two
+      # Rust targets since `spacetime-native-ts` was removed.
+      - name: Install SpacetimeDB CLI
+        shell: bash
+        run: |
+          curl -fsSL https://install.spacetimedb.com | bash -s -- -y
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-spacetimedb
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Start SpacetimeDB
+        shell: bash
+        run: |
+          rm -rf "$HOME/.local/share/spacetime/data" "$HOME/.config/spacetime"
+          pkill -f spacetimedb-standalone 2>/dev/null || true
+          sleep 1
+          spacetime start --listen-addr 127.0.0.1:3000 --pg-port 5433 &
+          for i in $(seq 1 30); do
+            if spacetime server ping http://127.0.0.1:3000 2>/dev/null; then
+              echo "SpacetimeDB WebSocket ready"
+              break
+            fi
+            sleep 1
+          done
+          for i in $(seq 1 15); do
+            if (echo > /dev/tcp/127.0.0.1/5433) 2>/dev/null; then
+              echo "SpacetimeDB PGWire ready on :5433"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Build and publish SpacetimeDB module
+        shell: bash
+        run: |
+          spacetime build -p bench/targets/spacetime-module
+          spacetime publish bench-module -p bench/targets/spacetime-module --server http://127.0.0.1:3000
+
+      - name: Extract SpacetimeDB identity token
+        id: spacetime-token
+        shell: bash
+        run: |
+          config="$HOME/.config/spacetime/cli.toml"
+          if [[ ! -f "$config" ]]; then
+            echo "WARNING: $config not found"
+            exit 0
+          fi
+          token=$(sed -n 's/^[[:space:]]*spacetimedb_token[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' "$config" | head -n1)
+          if [[ -z "$token" ]]; then
+            echo "WARNING: No token found in $config"
+            cat "$config"
+            exit 0
+          fi
+          echo "::add-mask::$token"
+          echo "SPACETIME_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: Benchmark SpacetimeDB family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: spacetimedb
+          targets: bench/spec/targets.spacetimedb.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          prebuild-manifests: bench/targets/spacetime-native-rs/Cargo.toml
+
+  turso:
+    name: Turso (linux)
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 240 }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-turso
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Benchmark Turso family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: turso
+          targets: bench/spec/targets.turso.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          # toasty-turso is an external cargo target in this family.
+          prebuild-manifests: bench/targets/toasty/Cargo.toml
+
+  dashboard-preview:
+    name: Dashboard preview data
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs:
+      - plan
+      - sqlite
+      - postgres
+      - postgres-rust-orms
+      - postgres-ts
+      - postgres-all
+      - spacetimedb
+      - turso
+    # Assemble whatever succeeded. One flaky family used to void the preview
+    # data for every other family; now the assembly step is the gate and it
+    # fails only when nothing at all was produced.
+    if: ${{ always() && !cancelled() }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+          package-manager-cache: false
+
+      - name: Download runner artifacts
+        # A run where every family failed downloads nothing; the assembly step
+        # below reports that as the failure instead of an opaque action error.
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: runner-*
+          path: bench-preview/artifacts
+
+      - name: Build publish tool
+        shell: bash
+        run: |
+          cargo build --release -p bench-runner
+          bin="$GITHUB_WORKSPACE/target/release/bench-runner"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            bin="${bin}.exe"
+          fi
+          echo "BENCH_RUNNER_BIN=$bin" >> "$GITHUB_ENV"
+
+      - name: Assemble dashboard object store
+        shell: bash
+        run: |
+          out="bench-out/dashboard-data"
+          index="$out/index.json"
+          rm -rf "$out"
+          mkdir -p "$out/runs"
+          echo '{"version":"v1","runs":[]}' > "$index"
+
+          manifests=()
+          if [[ -d bench-preview/artifacts ]]; then
+            mapfile -t manifests < <(find bench-preview/artifacts -name manifest.json | sort)
+          fi
+
+          assembled=0
+          skipped=()
+          for manifest in "${manifests[@]}"; do
+            run_dir="$(dirname "$manifest")"
+            run_id="$(sed -n 's/^[[:space:]]*"run_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" | head -n1)"
+            if [[ -z "$run_id" ]]; then
+              echo "::warning::manifest is missing run_id, skipping: $manifest"
+              skipped+=("$manifest")
+              continue
+            fi
+            dest="$out/runs/$run_id"
+            mkdir -p "$dest"
+            cp -R "$run_dir"/. "$dest"/
+
+            if ! "$BENCH_RUNNER_BIN" publish --run "$dest" --index "$index"; then
+              echo "::warning::publish failed for $run_id, dropping it from the index"
+              rm -rf "$dest"
+              skipped+=("$manifest")
+              continue
+            fi
+            assembled=$(( assembled + 1 ))
+          done
+
+          if (( assembled == 0 )); then
+            echo "::error::no runner manifests could be assembled (${#manifests[@]} found, ${#skipped[@]} skipped)"
+            exit 1
+          fi
+
+          if (( ${#skipped[@]} > 0 )); then
+            echo "::warning::assembled $assembled run(s); skipped ${#skipped[@]}"
+          fi
+
+          echo "Dashboard data contains $assembled run(s):"
+          find "$out" -maxdepth 3 -type f | sort
+
+      - name: Upload dashboard preview data
+        uses: actions/upload-artifact@v7
+        with:
+          name: dashboard-bench-data
+          path: bench-out/dashboard-data
+          retention-days: 30
+
+      - name: Publish dashboard data to R2
+        if: ${{ env.PUBLISH_TO_R2 == 'true' && !env.ACT }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "No R2 credentials, skipping publish"
+            exit 0
+          fi
+
+          # Install once, outside the workspace. `npx wrangler` per object
+          # re-resolved the package for every file in the store.
+          npm install --no-audit --no-fund --prefix "$RUNNER_TEMP/wrangler" 'wrangler@^4.116.0'
+          wrangler="$RUNNER_TEMP/wrangler/node_modules/.bin/wrangler"
+
+          find bench-out/dashboard-data -type f | sort | while read -r file; do
+            key="${file#bench-out/dashboard-data/}"
+            "$wrangler" r2 object put "$R2_BUCKET/$key" --file "$file"
+          done

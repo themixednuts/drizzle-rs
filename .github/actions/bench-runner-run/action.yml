@@ -1,0 +1,232 @@
+name: Bench runner family run
+description: >-
+  Prebuild bench-runner (and any external Rust target crates a family's spec
+  spawns), execute one benchmark family, validate its artifacts, upload them,
+  and refresh that family's regression baseline cache.
+
+# Why a composite action and not a `workflow_call` reusable workflow:
+#
+# 1. GitHub does not support conditional service containers, so a single
+#    reusable workflow cannot serve both the families that need a PostgreSQL
+#    service and the ones that must not have a foreign process on the
+#    benchmark VM.
+# 2. The publish-class `postgres-all` job runs this body three times inside one
+#    job so the three PostgreSQL families are ranked on identical hardware. A
+#    reusable workflow is a job, so it cannot be invoked more than once per job.
+# 3. Composite actions keep the caller job names unchanged, so branch
+#    protection required checks do not have to be renamed.
+
+inputs:
+  family:
+    description: >-
+      Target family id (sqlite, postgres, postgres-rust-orms, ...). Combined
+      with `platform` into the `<family>-<platform>` slug used for the output
+      directory, the artifact name, and the baseline cache key.
+    required: true
+  platform:
+    description: Platform slug (linux, windows, macos).
+    required: false
+    default: linux
+  targets:
+    description: Path to the family's target spec (`bench/spec/targets.*.v1.json`).
+    required: true
+  workload:
+    description: Path to the workload spec. Resolved once by the `plan` job.
+    required: true
+  class:
+    description: Run class (small | full | publish). Resolved once by the `plan` job.
+    required: true
+  cohort-id:
+    description: >-
+      Cohort id shared by every family in this workflow run. Runs that share a
+      cohort id are comparable; runs measured on the same VM additionally share
+      hardware.
+    required: true
+  publish:
+    description: '"true" on publish-class runs; controls whether the baseline cache is written.'
+    required: false
+    default: 'false'
+  database-url:
+    description: >-
+      libpq connection string exported as DATABASE_URL. Empty for families
+      without a database service (the runner treats an empty value as "no
+      remote database").
+    required: false
+    default: ''
+  prebuild-manifests:
+    description: >-
+      Whitespace-separated Cargo.toml paths for the external target crates this
+      family's spec spawns. They are built with --release before the run so no
+      cargo build (or build-lock wait) happens between measured trials.
+    required: false
+    default: ''
+  trials:
+    description: Override the class default trial count. Empty keeps the class default.
+    required: false
+    default: ''
+  cpu-isolation:
+    description: >-
+      `auto` pins the load generator and the spawned target processes to
+      disjoint core sets on Linux runners with at least 4 cores. `off` disables
+      pinning. No-op on macOS and Windows.
+    required: false
+    default: auto
+
+outputs:
+  run-id:
+    description: Run id emitted by the runner.
+    value: ${{ steps.runner.outputs.run_id }}
+  out-dir:
+    description: Output root for this family (`bench-out/<family>-<platform>`).
+    value: ${{ steps.setup.outputs.out }}
+  slug:
+    description: '`<family>-<platform>`.'
+    value: ${{ steps.setup.outputs.slug }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve run environment
+      id: setup
+      shell: bash
+      env:
+        FAMILY: ${{ inputs.family }}
+        PLATFORM: ${{ inputs.platform }}
+      run: |
+        slug="${FAMILY}-${PLATFORM}"
+        echo "slug=$slug" >> "$GITHUB_OUTPUT"
+        echo "out=bench-out/$slug" >> "$GITHUB_OUTPUT"
+        # The `env` context is not dependably readable from composite-action
+        # `if:` expressions, so surface act mode as a step output instead.
+        if [[ -n "${ACT:-}" ]]; then
+          echo "act=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "act=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Restore runner baseline
+      if: ${{ steps.setup.outputs.act != 'true' }}
+      uses: actions/cache/restore@v5
+      with:
+        path: ${{ steps.setup.outputs.out }}/runs
+        key: runner-baseline-${{ steps.setup.outputs.slug }}-
+        restore-keys: |
+          runner-baseline-${{ steps.setup.outputs.slug }}-
+
+    - name: Prebuild benchmark binaries
+      shell: bash
+      env:
+        MANIFESTS: ${{ inputs.prebuild-manifests }}
+      run: |
+        # One release build up front. Target specs invoke the runner as
+        # `$BENCH_RUNNER_BIN`, and external targets are launched from prebuilt
+        # release binaries, so nothing compiles once measurement starts.
+        cargo build --release -p bench-runner
+
+        bin="$GITHUB_WORKSPACE/target/release/bench-runner"
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          bin="${bin}.exe"
+        fi
+        if [[ ! -f "$bin" ]]; then
+          echo "prebuilt bench-runner is missing at $bin"
+          exit 1
+        fi
+        echo "BENCH_RUNNER_BIN=$bin" >> "$GITHUB_ENV"
+        "$bin" --version
+
+        for manifest in $MANIFESTS; do
+          echo "prebuilding external target crate: $manifest"
+          cargo build --release --manifest-path "$manifest"
+        done
+
+    - name: Run contract runner
+      id: runner
+      shell: bash
+      env:
+        BENCH_CLASS: ${{ inputs.class }}
+        BENCH_WORKLOAD: ${{ inputs.workload }}
+        BENCH_TARGETS: ${{ inputs.targets }}
+        BENCH_OUT: ${{ steps.setup.outputs.out }}
+        BENCH_COHORT: ${{ inputs.cohort-id }}
+        BENCH_TRIALS: ${{ inputs.trials }}
+        CPU_ISOLATION: ${{ inputs.cpu-isolation }}
+        DATABASE_URL: ${{ inputs.database-url }}
+      run: |
+        mkdir -p "$BENCH_OUT"
+
+        # Best-effort CPU separation. The load generator, the target process and
+        # (for the PostgreSQL families) the database all share one CI VM, so
+        # this is a partition of a shared machine, not real isolation: memory
+        # bandwidth, caches and the kernel network stack stay shared. It only
+        # stops the load generator and the system under test from fighting over
+        # the same cores. Linux-only; the runner ignores the variables
+        # elsewhere. ubuntu-latest is a 4 vCPU VM, so the split is 0-1 for load
+        # and 2-3 for the target, derived from nproc rather than hard-coded so a
+        # future runner size keeps a balanced split.
+        if [[ "$CPU_ISOLATION" == "auto" && "$RUNNER_OS" == "Linux" ]]; then
+          cores="$(nproc 2>/dev/null || echo 0)"
+          if (( cores >= 4 )); then
+            half=$(( cores / 2 ))
+            export BENCH_CPUSET_LOAD="0-$(( half - 1 ))"
+            export BENCH_CPUSET_SERVER="${half}-$(( cores - 1 ))"
+            echo "cpu isolation: load=$BENCH_CPUSET_LOAD server=$BENCH_CPUSET_SERVER (of $cores cores)"
+          else
+            echo "cpu isolation: skipped, runner reports $cores cores"
+          fi
+        else
+          echo "cpu isolation: disabled (mode=$CPU_ISOLATION os=$RUNNER_OS)"
+        fi
+
+        trials_arg=()
+        if [[ -n "$BENCH_TRIALS" ]]; then
+          trials_arg=(--trials "$BENCH_TRIALS")
+        fi
+
+        "$BENCH_RUNNER_BIN" run \
+          --suite throughput-http \
+          --workload "$BENCH_WORKLOAD" \
+          --targets "$BENCH_TARGETS" \
+          --requests bench/spec/requests.empty.v1.json \
+          --out "$BENCH_OUT" \
+          --cohort-id "$BENCH_COHORT" \
+          --class "$BENCH_CLASS" \
+          --baseline auto \
+          "${trials_arg[@]}" \
+          --json | tee runner_output.txt
+
+        run_id="$(grep '^run_id=' runner_output.txt | tail -n1 | cut -d= -f2)"
+        if [[ -z "$run_id" ]]; then
+          echo "run_id was not emitted"
+          exit 1
+        fi
+        echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+    - name: Validate runner artifacts
+      shell: bash
+      env:
+        BENCH_WORKLOAD: ${{ inputs.workload }}
+        BENCH_TARGETS: ${{ inputs.targets }}
+        BENCH_OUT: ${{ steps.setup.outputs.out }}
+        RUN_ID: ${{ steps.runner.outputs.run_id }}
+      run: |
+        "$BENCH_RUNNER_BIN" validate \
+          --run "$BENCH_OUT/runs/$RUN_ID" \
+          --workload "$BENCH_WORKLOAD" \
+          --targets "$BENCH_TARGETS"
+
+    - name: Upload runner artifacts
+      if: ${{ steps.setup.outputs.act != 'true' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: runner-${{ steps.setup.outputs.slug }}
+        path: |
+          ${{ steps.setup.outputs.out }}/runs/${{ steps.runner.outputs.run_id }}
+          runner_output.txt
+        retention-days: 30
+
+    - name: Save runner baseline
+      if: ${{ inputs.publish == 'true' && steps.setup.outputs.act != 'true' }}
+      uses: actions/cache/save@v5
+      with:
+        path: ${{ steps.setup.outputs.out }}/runs/${{ steps.runner.outputs.run_id }}
+        key: runner-baseline-${{ steps.setup.outputs.slug }}-${{ github.sha }}
