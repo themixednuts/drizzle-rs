@@ -232,18 +232,6 @@ fn test_prepared_performance_comparison(db: &mut TestDb<SimpleSchema>) {
         .collect();
     db.insert(simple).values(test_data).execute();
 
-    // Test regular query performance
-    let start = std::time::Instant::now();
-    for i in 0..10 {
-        let _results: Vec<SelectSimple> = db
-            .select(())
-            .from(simple)
-            .r#where(eq(simple.name, format!("User{}", i)))
-            .all();
-    }
-    let regular_duration = start.elapsed();
-
-    // Test prepared statement performance
     let name = simple.name.placeholder("name");
     let prepared = db
         .select(())
@@ -252,17 +240,31 @@ fn test_prepared_performance_comparison(db: &mut TestDb<SimpleSchema>) {
         .prepare()
         .into_owned();
 
-    let start = std::time::Instant::now();
-    for i in 0..10 {
+    // Interleave the two paths and compare per-query minimums: the suite
+    // runs hundreds of tests against one server, so any total-based timing
+    // comparison flakes on a single scheduler stall.
+    let mut regular_min = std::time::Duration::MAX;
+    let mut prepared_min = std::time::Duration::MAX;
+    for i in 0..20 {
+        let start = std::time::Instant::now();
+        let _results: Vec<SelectSimple> = db
+            .select(())
+            .from(simple)
+            .r#where(eq(simple.name, format!("User{}", i)))
+            .all();
+        regular_min = regular_min.min(start.elapsed());
+
+        let start = std::time::Instant::now();
         let _results: Vec<SelectSimple> =
             prepared.all(drizzle_client!(), [name.bind(format!("User{}", i))]);
+        prepared_min = prepared_min.min(start.elapsed());
     }
-    let prepared_duration = start.elapsed();
 
     // Prepared statements shouldn't be significantly slower
     assert!(
-        prepared_duration <= regular_duration * 3,
-        "Prepared statements shouldn't be significantly slower"
+        prepared_min <= regular_min * 3 + std::time::Duration::from_millis(2),
+        "Prepared statements shouldn't be significantly slower \
+         (prepared min {prepared_min:?} vs regular min {regular_min:?})"
     );
 }
 

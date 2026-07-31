@@ -197,7 +197,10 @@ crate::drizzle_prepare_impl!();
 pub struct Drizzle<Schema = ()> {
     client: Arc<Client>,
     schema: Schema,
-    statement_cache: prepared::StatementCache,
+    statement_cache: prepared::ClientStatementCache,
+    // Registers the client for the prepared-statement cache; unregisters when
+    // the last clone drops.
+    registration: Arc<prepared::ClientRegistration>,
 }
 
 impl<S: Clone> Clone for Drizzle<S> {
@@ -207,6 +210,7 @@ impl<S: Clone> Clone for Drizzle<S> {
             client: self.client.clone(),
             schema: self.schema.clone(),
             statement_cache: self.statement_cache.clone(),
+            registration: self.registration.clone(),
         }
     }
 }
@@ -244,10 +248,13 @@ impl Drizzle {
     /// Returns a tuple of (Drizzle, Schema) for destructuring.
     #[inline]
     pub fn new<S: Copy>(client: Client, schema: S) -> (Drizzle<S>, S) {
+        let client = Arc::new(client);
+        let registration = Arc::new(prepared::ClientRegistration::new(&client));
         let drizzle = Drizzle {
-            client: Arc::new(client),
+            client,
             schema,
-            statement_cache: prepared::StatementCache::default(),
+            statement_cache: prepared::ClientStatementCache::default(),
+            registration,
         };
         (drizzle, schema)
     }
