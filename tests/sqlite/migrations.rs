@@ -417,6 +417,46 @@ async fn libsql_runtime_migrate_upgrade_rejects_unmatched_legacy_rows() {
 
 #[cfg(feature = "turso")]
 #[tokio::test]
+async fn turso_up_to_date_migration_check_is_read_only() {
+    let path = crate::common::helpers::temp_db_path();
+    let path_text = path
+        .to_str()
+        .expect("temporary sqlite path must be valid UTF-8");
+    let database = turso::Builder::new_local(path_text)
+        .experimental_mvcc_passive_checkpoint(true)
+        .build()
+        .await
+        .expect("build Turso database");
+    let migration_connection = database.connect().expect("migration connection");
+    let mut writer_connection = database.connect().expect("writer connection");
+    let (mut db, ()) = drizzle::sqlite::turso::Drizzle::new(migration_connection, ());
+    let migration = Migration::new(
+        "20260731000000_read_only_current_check",
+        "CREATE TABLE records(value INTEGER NOT NULL)",
+    );
+
+    db.migrate(std::slice::from_ref(&migration), Tracking::SQLITE)
+        .await
+        .expect("apply migration");
+    let writer = writer_connection
+        .transaction_with_behavior(turso::transaction::TransactionBehavior::Immediate)
+        .await
+        .expect("begin concurrent writer");
+    writer
+        .execute("INSERT INTO records(value) VALUES (1)", ())
+        .await
+        .expect("hold an uncommitted write");
+
+    let outcome = db
+        .migrate(&[migration], Tracking::SQLITE)
+        .await
+        .expect("an up-to-date migration check must not request a write lock");
+    assert!(outcome.is_up_to_date());
+    writer.rollback().await.expect("rollback concurrent writer");
+}
+
+#[cfg(feature = "turso")]
+#[tokio::test]
 async fn turso_runtime_migrate_upgrades_legacy_tracking_table() {
     let mut db = crate::common::helpers::turso_setup::setup_empty().await;
     crate::common::helpers::turso_setup::create_legacy_tracking_table(

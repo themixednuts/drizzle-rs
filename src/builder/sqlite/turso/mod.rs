@@ -363,6 +363,13 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         );
 
         ensure_sqlite_migration_table(&mut self.conn, &set).await?;
+        let applied_names = load_applied_migration_names(&self.conn, &set).await?;
+        if set.pending(&applied_names).next().is_none() {
+            return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
+        }
+
+        // Re-read the applied set while holding the write transaction. Another
+        // migrator may have completed after the read-only fast path above.
         let tx = self
             .conn
             .transaction_with_behavior(turso::transaction::TransactionBehavior::Immediate)
@@ -402,6 +409,33 @@ impl<Schema> common::Drizzle<Connection, Schema> {
 
         Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
     }
+}
+
+async fn load_applied_migration_names(
+    conn: &turso::Connection,
+    set: &drizzle_migrations::Migrations,
+) -> drizzle_core::error::Result<Vec<String>> {
+    let mut rows = conn
+        .query(&set.applied_names_sql(), ())
+        .await
+        .map_err(DrizzleError::from)?;
+    let mut applied_names = Vec::new();
+    while let Some(row) = rows.next().await.map_err(DrizzleError::from)? {
+        applied_names.push(row.get::<String>(0).map_err(DrizzleError::from)?);
+    }
+    Ok(applied_names)
+}
+
+async fn migration_table_exists(
+    conn: &turso::Connection,
+    set: &drizzle_migrations::Migrations,
+) -> drizzle_core::error::Result<bool> {
+    let table_name = set.table_name().replace('\'', "''");
+    let sql = format!(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '{table_name}' LIMIT 1"
+    );
+    let mut rows = conn.query(&sql, ()).await.map_err(DrizzleError::from)?;
+    Ok(rows.next().await.map_err(DrizzleError::from)?.is_some())
 }
 
 async fn migration_table_has_name_column(
@@ -506,9 +540,11 @@ async fn ensure_sqlite_migration_table(
     conn: &mut turso::Connection,
     set: &drizzle_migrations::Migrations,
 ) -> drizzle_core::error::Result<()> {
-    conn.execute(&set.create_table_sql(), ())
-        .await
-        .map_err(DrizzleError::from)?;
+    if !migration_table_exists(conn, set).await? {
+        conn.execute(&set.create_table_sql(), ())
+            .await
+            .map_err(DrizzleError::from)?;
+    }
 
     if migration_table_has_name_column(conn, set).await? {
         return Ok(());
