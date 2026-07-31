@@ -282,9 +282,12 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             .map_err(DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
-        turso_decode_first_and_finish(&mut rows, |row| R::try_from(row).map_err(Into::into))
+        match turso_decode_first_and_finish(&mut rows, |row| R::try_from(row).map_err(Into::into))
             .await
-            .with_query(|| QueryContext::new(&sql_str, &params))
+        {
+            Err(DrizzleError::NotFound) => Err(DrizzleError::NotFound),
+            result => result.with_query(|| QueryContext::new(&sql_str, &params)),
+        }
     }
 
     /// Executes a transaction with the given callback.
@@ -1276,10 +1279,13 @@ where
             .await
             .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
-        turso_decode_first_and_finish(&mut rows, |row| {
+        match turso_decode_first_and_finish(&mut rows, |row| {
             <Mk as drizzle_core::row::DecodeSelectedRef<&::turso::Row, R>>::decode(row)
         })
         .await
-        .with_query(|| QueryContext::new(&sql_str, &params))
+        {
+            Err(DrizzleError::NotFound) => Err(DrizzleError::NotFound),
+            result => result.with_query(|| QueryContext::new(&sql_str, &params)),
+        }
     }
 }

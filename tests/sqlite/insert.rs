@@ -136,6 +136,18 @@ async fn turso_get_finishes_returning_cursor_before_another_connection_writes() 
     let (second, _) = drizzle::sqlite::turso::Drizzle::new(second_connection, SimpleSchema::new());
     first.create().await.expect("create schema");
 
+    let missing: drizzle::Result<SelectSimple> = first
+        .select(())
+        .from(simple)
+        .r#where(eq(simple.id, 999))
+        .limit(1)
+        .get()
+        .await;
+    assert!(matches!(
+        missing,
+        Err(drizzle::error::DrizzleError::NotFound)
+    ));
+
     let returned: SelectSimple = first
         .insert(simple)
         .values([InsertSimple::new("first").with_id(1)])
