@@ -292,11 +292,11 @@ let names: Vec<(i64, String)> = db
     .from(users)
     .all()?;
 
-// Multiple conditions
+// Multiple conditions — a tuple is an AND of its elements
 let active_adults: Vec<SelectUsers> = db
     .select(())
     .from(users)
-    .r#where(and(gt(users.age, 18), eq(users.name, "Alex Smith")))
+    .r#where((gt(users.age, 18), eq(users.name, "Alex Smith")))
     .all()?;
 
 // Or
@@ -306,6 +306,44 @@ let rows: Vec<SelectUsers> = db
     .r#where(eq(users.name, "Alice") | eq(users.name, "Bob"))
     .all()?;
 ```
+
+#### Combining Conditions
+
+A tuple of conditions *is* a condition, so lists stay flat instead of nesting
+`and(a, and(b, c))`. `all` and `any` combine the same lists explicitly.
+
+```rust
+use drizzle::core::expr::{all, any};
+
+// WHERE ("age" > $1 AND "name" = $2 AND "email" IS NOT NULL)
+.r#where((gt(users.age, 18), eq(users.name, "Alex"), is_not_null(users.email)))
+
+// Flat OR lists
+.r#where(any((eq(users.role, "admin"), eq(users.role, "moderator"))))
+
+// Tuples nest inside or(), and inside each other
+.r#where(or((a, b), (c, d)))
+
+// `all` is the spelling for a join's ON condition, which takes any SQL fragment
+.inner_join((posts, all((eq(posts.author_id, users.id), is_not_null(posts.content)))))
+```
+
+Elements may be `Option`s — `None` contributes nothing, which makes dynamic
+filters composable:
+
+```rust
+let by_name = name.map(|n| eq(users.name, n));
+
+// Some("alex") => ("age" > $1 AND "name" = $2)
+// None         => ("age" > $1)
+.r#where((gt(users.age, 18), by_name))
+```
+
+When every element is absent the list renders as its operator's identity:
+`TRUE` for a tuple or `all` (matches everything, like an absent `WHERE`) and
+`FALSE` for `any` (matches nothing, so a fully-optional `any` fails closed).
+
+Bare tuples hold up to 8 conditions; `all`/`any` and nesting cover longer lists.
 
 #### Ordering, Limiting, Pagination
 
@@ -483,7 +521,7 @@ let rows: Vec<(String,)> = db
 Available in `drizzle::core::expr`:
 
 - **Comparisons** — `eq`, `neq`, `gt`, `gte`, `lt`, `lte`
-- **Boolean** — `and`, `or`, `not`
+- **Boolean** — `and`, `or`, `not`, `all`, `any` (and tuples, which mean AND)
 - **Aggregates** — `count`, `sum`, `avg`, `min`, `max`
 - **Null handling** — `coalesce`, `is_null`, `is_not_null`
 - **Strings** — `upper`, `lower`, `length`

@@ -1,0 +1,40 @@
+error[E0277]: `drizzle::sqlite::types::Text` is not a boolean SQL type
+  --> tests/ui/boolean_enforcement_sqlite/fail/where_tuple_text_element_sqlite.rs:26:18
+   |
+26 |         .r#where((user.active, user.name))
+   |          ------- ^^^^^^^^^^^^^^^^^^^^^^^^ logical operations require a boolean-typed expression
+   |          |
+   |          required by a bound introduced by this call
+   |
+   = help: the trait `BooleanLike` is not implemented for `drizzle::sqlite::types::Text`
+help: the following other types implement trait `BooleanLike`
+  --> types/src/sql/mod.rs
+   |
+   | impl BooleanLike for Conjunction {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Conjunction`
+...
+   | impl BooleanLike for crate::sqlite::types::Integer {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::sqlite::types::Integer`
+...
+   | impl BooleanLike for crate::postgres::types::Boolean {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::postgres::types::Boolean`
+   = note: required for `(UserActive, UserName)` to implement `ConditionList<'_, SQLiteValue<'_>>`
+   = note: required for `(UserActive, UserName)` to implement `Expr<'_, SQLiteValue<'_>>`
+note: required by a bound in `drizzle::builder::sqlite::common::DrizzleBuilder::<'d, Runner, Schema, drizzle::sqlite::builder::QueryBuilder<'a, Schema, SelectFromSet, T, M, R, G>, SelectFromSet>::r#where`
+  --> src/builder/sqlite/common.rs
+   |
+   |           pub fn r#where<E>(
+   |                  ------- required by a bound in this associated function
+...
+   |               E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `DrizzleBuilder::<'d, Runner, Schema, QueryBuilder<'a, Schema, SelectFromSet, T, M, R, G>, SelectFromSet>::r#where`
+...
+   | / impl_select_methods! {
+   | |     SelectFromSet  => [r#where, group_by, order_by, limit, offset, join],
+   | |     SelectJoinSet  => [r#where, group_by, order_by, join],
+   | |     SelectWhereSet => [group_by, order_by, limit],
+...  |
+   | |     SelectSetOpSet => [order_by, limit, offset],
+   | | }
+   | |_- in this macro invocation
+   = note: this error originates in the macro `impl_select_methods` (in Nightly builds, run with -Z macro-backtrace for more info)

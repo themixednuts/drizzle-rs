@@ -1,0 +1,5 @@
+error[E0271]: type mismatch resolving `<Scalar as AggOr<Scalar>>::Output == Agg`
+  --> tests/ui/aggregate_propagation/fail/condition_tuple_of_scalars_cannot_over.rs:15:23
+   |
+15 |     let conjunction = all::<SQLiteValue, _>((gt(item.price, 5), lt(item.price, 100)));
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Agg`, found `Scalar`

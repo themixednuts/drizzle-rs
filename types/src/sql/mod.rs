@@ -82,11 +82,24 @@ pub struct Array<T: DataType>(pub PhantomData<T>);
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Placeholder;
 
+/// The SQL type of a condition list — a tuple of conditions combined with AND.
+///
+/// Boolean-like, so a condition list is accepted anywhere a condition is, but
+/// deliberately **not** [`Compatible`] with
+/// itself. A condition list occupies one expression slot rather than one column
+/// slot, and self-incompatibility is what lets APIs that accept either a single
+/// column or a tuple of columns (`IN (subquery)` row values) tell the two apart.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct Conjunction;
+
 impl<T: DataType> private::Sealed for Array<T> {}
 impl<T: DataType> DataType for Array<T> {}
 impl private::Sealed for Placeholder {}
 impl DataType for Placeholder {}
 impl Textual for Placeholder {}
+impl private::Sealed for Conjunction {}
+impl DataType for Conjunction {}
+impl BooleanLike for Conjunction {}
 
 // =============================================================================
 // SQLite dialect marker impls

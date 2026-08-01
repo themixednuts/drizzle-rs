@@ -220,7 +220,7 @@ where
             .push(Token::FILTER)
             .push(Token::LPAREN)
             .push(Token::WHERE)
-            .append(condition.into_sql())
+            .append(condition.into_expr_sql())
             .push(Token::RPAREN);
         SQLExpr::new(sql)
     }

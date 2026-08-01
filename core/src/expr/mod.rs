@@ -25,6 +25,7 @@ mod agg;
 mod case;
 mod cmp;
 mod column_ops;
+mod cond;
 mod datetime;
 mod logical;
 mod math;
@@ -44,6 +45,7 @@ pub use case::*;
 pub use cmp::*;
 #[doc(hidden)]
 pub use column_ops::*;
+pub use cond::*;
 pub use datetime::*;
 pub use logical::*;
 pub use math::*;
@@ -285,6 +287,23 @@ pub trait Expr<'a, V: SQLParam>: ToSQL<'a, V> {
         Self: Sized,
     {
         self.into_sql().parens_if_subquery()
+    }
+
+    /// Render this value as one element of a [`ConditionList`].
+    ///
+    /// `None` means the element contributes no condition and is dropped from
+    /// the combined SQL. Only `Option::None` does this; every other expression
+    /// renders through [`Expr::to_expr_sql`].
+    fn to_condition_sql(&self) -> Option<crate::SQL<'a, V>> {
+        Some(self.to_expr_sql())
+    }
+
+    /// Consuming counterpart of [`Expr::to_condition_sql`].
+    fn into_condition_sql(self) -> Option<crate::SQL<'a, V>>
+    where
+        Self: Sized,
+    {
+        Some(self.into_expr_sql())
     }
 }
 
