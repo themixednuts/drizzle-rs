@@ -58,11 +58,15 @@
 				],
 				[
 					'data access',
-					'sql-roundtrip or in-process-cache; decides which section a target is ranked in',
+					'sql-roundtrip or in-process-cache; an in-process cache is listed in the ranking but never given a comparison against drizzle-rs, and keeps its own unranked section on compare',
 				],
 				[
 					'sql variant',
 					"free-form note when a target's SQL deviates from the canonical query catalog, shown under the target name",
+				],
+				[
+					'drizzle-rs api',
+					'which drizzle-rs surface a target exercises, derived from the target id suffix and the sql variant, and shown as a "sql" or "relational" tag beside the name: "sql" is the typed select builder, "relational" is the db.query(..).with(..) relational query API. They generate different SQL and are two measurements, not one. Targets from other libraries carry no tag',
 				],
 				[
 					'fair block',
@@ -83,7 +87,7 @@
 				],
 				[
 					'runner',
-					'class, os, cpu model, core count, memory, metric scopes, and peak cpu are captured per run',
+					'class, os, cpu model, core count, memory, metric scopes, and peak cpu are captured per run; the os appears throughout the site as an LNX / MAC / WIN badge whose tooltip names the machine and the shard',
 				],
 				[
 					'trials',
@@ -161,9 +165,13 @@
 				<p>
 					A benchmark set is assembled from several CI jobs — typically one per database family —
 					and each job runs on its own freshly allocated runner. Two rows in the same set are only
-					directly comparable when they share a shard, which the leaderboard and compare pages print
-					next to every row as <code class="text-meta font-mono">os / shard timestamp</code>. That
-					is why ranking is scoped to a database family and never applied across the whole set.
+					directly comparable when they share a shard. Every page that lists targets marks which
+					machine each row came off with a three-letter badge —
+					<code class="text-meta font-mono">LNX</code>, <code class="text-meta font-mono">MAC</code>
+					or <code class="text-meta font-mono">WIN</code> — whose tooltip carries the full OS name and
+					the shard timestamp. Rows with different badges were measured on different hardware, and the
+					ranking is one table across every database precisely so that fact is visible on the row rather
+					than implied by which section a row was filed under.
 				</p>
 				<p class="mt-3">
 					Publish-class runs are the exception for PostgreSQL: there the three PostgreSQL families
@@ -193,9 +201,12 @@
 					In-process caches are not doing database work.
 				</h3>
 				<p>
-					Targets declaring <code class="text-meta font-mono">data_access: in-process-cache</code> answer
-					from a replicated local copy, with no per-request round trip to a database. They are listed
-					in their own section and excluded from the SQL rankings.
+					Targets declaring <code class="text-meta font-mono">data_access: in-process-cache</code>
+					answer from a replicated local copy, with no per-request round trip to a database. On the ranking
+					they appear in the one table like everything else, with "in-memory cache — no per-request DB
+					work" spelled out under the name and a dash instead of a comparison against drizzle-rs, because
+					a cache hit and a query are not the same measurement. On
+					<a class="text-link underline" href="/compare">compare</a> they keep their own unranked section.
 				</p>
 			</section>
 		</div>

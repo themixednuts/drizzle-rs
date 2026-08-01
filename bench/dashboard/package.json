@@ -36,6 +36,7 @@
 		"@tailwindcss/vite": "^4.3.3",
 		"@types/d3-scale": "^4.0.9",
 		"@types/d3-shape": "^3.1.8",
+		"@types/node": "^26.1.2",
 		"bits-ui": "^2.16.3",
 		"clsx": "^2.1.1",
 		"layerchart": "^2.0.0",

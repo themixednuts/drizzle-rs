@@ -10,6 +10,8 @@
 	import MetricTile from '#lib/components/MetricTile.svelte';
 	import Note from '#lib/components/Note.svelte';
 	import Hint from '#lib/components/Hint.svelte';
+	import ApiTag from '#lib/components/ApiTag.svelte';
+	import OsBadge from '#lib/components/OsBadge.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import DataTable from '#lib/components/data/DataTable.svelte';
 	import Td from '#lib/components/data/Td.svelte';
@@ -24,6 +26,7 @@
 		fmtLatency,
 		fmtPct,
 		fmtRps,
+		runStamp,
 		shortHash,
 		suiteLabel,
 	} from '#lib/format';
@@ -62,7 +65,12 @@
 		<span>{fmtDate(manifest.start)}</span>
 		<span>{fmtDuration(manifest.start, manifest.end)}</span>
 		<span>{manifest.trials.count} trials each</span>
-		<span>{runner.cores}-core {runner.os}</span>
+		<!-- The machine this run's every number came off, as the same badge the ranking prints on
+		     each of its rows. -->
+		<span class="inline-flex items-center gap-x-2">
+			<OsBadge os={runner.os} detail="shard {runStamp(manifest.run_id)}" />
+			{runner.cores}-core
+		</span>
 		{#if classLabel(runner.class)}<span>{classLabel(runner.class)}</span>{/if}
 	</div>
 
@@ -83,6 +91,7 @@
 		<Section class={cn(ours && 'border-l-primary border-l-[3px]')}>
 			<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
 				<h2 class={cn('text-heading font-semibold', ours && 'text-link')}>{display.name}</h2>
+				<ApiTag api={display.api} />
 				<span class="text-meta text-foreground-secondary">{display.note}</span>
 				<span class="text-caption text-muted-foreground ml-auto font-mono">
 					{view.rangeText(summary)}

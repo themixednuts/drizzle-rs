@@ -1,3 +1,4 @@
+import { osBadge } from './os';
 import type {
 	DataAccess,
 	SummaryResult,
@@ -18,6 +19,26 @@ type TargetDisplayInput =
 			target_meta?: TargetMeta;
 	  };
 
+/**
+ * Which of drizzle-rs's two query surfaces a target exercises.
+ *
+ * drizzle-rs ships two ways to ask the same question — the typed select builder and the relational
+ * query API — and they generate different SQL, so they are two measurements and not one. Until this
+ * existed the only thing telling `drizzle-rs-pg` and `drizzle-rs-pg-query` apart on a row was the
+ * 200-character `sql_variant` sentence folded into a disclosure, which meant the ranking showed two
+ * rows called "Drizzle RS" on the same database with no visible reason for the gap between them.
+ *
+ * `null` for everything that is not drizzle-rs. drizzle-orm's TypeScript rows are the TS ORM and
+ * have their own surface area; tagging them `sql`/`relational` would be borrowing our vocabulary
+ * for someone else's library.
+ */
+export interface TargetApi {
+	/** Compact form, rendered beside the library name. */
+	label: 'sql' | 'relational';
+	/** Long form for the tooltip and for the picker labels. */
+	hint: string;
+}
+
 export interface TargetDisplay {
 	name: string;
 	dialect: string;
@@ -26,6 +47,8 @@ export interface TargetDisplay {
 	mode: string | null;
 	dataAccess: DataAccess | null;
 	sqlVariant: string | null;
+	/** Which drizzle-rs API this row exercises; `null` for every other library. */
+	api: TargetApi | null;
 	badges: string[];
 	/**
 	 * The one-line plain-language description that sits under a target's name — "query builder on
@@ -64,6 +87,21 @@ const DB_PROFILE_LABELS: Record<DbProfile, string> = {
 	other: 'other',
 };
 
+/**
+ * What kind of work a request against this database actually is.
+ *
+ * This is the sentence the ranking used to print on a divider above each family band. With one
+ * global table there is no divider to hang it on, so it moves onto the database cell of every row
+ * that carries that database — same words, attached to the thing they describe rather than to a
+ * position in the layout.
+ */
+const DB_PROFILE_NOTES: Partial<Record<DbProfile, string>> = {
+	sqlite: 'Embedded engine: queries run in the server process, no network hop.',
+	turso: 'Embedded engine: queries run in the server process, no network hop.',
+	postgres: 'Client/server engine: every query is a TCP round trip to a separate process.',
+	spacetimedb: 'Database and application logic run together; access is over its own protocol.',
+};
+
 const ORM_NAMES = new Map([
 	['drizzle-rs', 'Drizzle RS'],
 	['drizzle-orm', 'Drizzle ORM'],
@@ -93,6 +131,18 @@ export function dbProfile(input: TargetDisplayInput): DbProfile {
 
 export function dbProfileLabel(profile: DbProfile): string {
 	return DB_PROFILE_LABELS[profile];
+}
+
+/** The one-sentence description of what this database makes a request do. `null` when there is
+ * nothing useful to say — `other` is a bucket, not a kind of engine. */
+export function dbProfileNote(profile: DbProfile): string | null {
+	return DB_PROFILE_NOTES[profile] ?? null;
+}
+
+/** Label plus description as one string, for tooltips and accessible names. */
+export function dbProfileDetail(profile: DbProfile): string {
+	const note = dbProfileNote(profile);
+	return note ? `${DB_PROFILE_LABELS[profile]} — ${note}` : DB_PROFILE_LABELS[profile];
 }
 
 /**
@@ -131,6 +181,34 @@ export function isDrizzleRsTarget(input: {
 	return orm === 'drizzle-rs' || group === 'drizzle-rs' || id.includes('drizzle-rs');
 }
 
+const API_HINTS = {
+	sql: 'drizzle-rs typed select builder — the SQL API: you write the query, it types the result.',
+	relational:
+		'drizzle-rs relational query API — `db.query(..).with(..)`: relations are loaded for you as subqueries.',
+} as const;
+
+/**
+ * Which drizzle-rs API a target exercises, from the two things the runner actually records.
+ *
+ * The target id is the primary signal because it is the contract the benchmark harness names its
+ * jobs by (`drizzle-rs-pg` vs `drizzle-rs-pg-query`), and it is present on every artifact ever
+ * published. `sql_variant` is the confirming one, and it carries the case the id cannot: a target
+ * whose id was not suffixed but whose runner declared it used the relational API.
+ */
+export function targetApi(input: {
+	target_id: string;
+	group?: string;
+	target_meta?: TargetMeta;
+}): TargetApi | null {
+	if (!isDrizzleRsTarget(input)) return null;
+
+	const id = input.target_id.toLowerCase();
+	const variant = (input.target_meta?.sql_variant ?? '').toLowerCase();
+	const relational = /(^|-)query(-|$)/.test(id) || variant.includes('relational query api');
+	const label = relational ? 'relational' : 'sql';
+	return { label, hint: API_HINTS[label] };
+}
+
 /**
  * Placeholder for a target that a manifest summarized but never described. Rendering a marked
  * placeholder keeps one malformed manifest entry from taking down the page (previously this
@@ -163,7 +241,14 @@ export function targetDisplay(input: TargetDisplayInput): TargetDisplay {
 	const mode = targetMode(meta, input.target_id);
 	const driver = targetDriver(meta, input);
 	const access = dataAccess(meta);
-	const badges = [dialect, driver, mode, accessBadge(access), os]
+	const api = targetApi({
+		target_id: input.target_id,
+		group: inputGroup(input),
+		target_meta: meta,
+	});
+	// The API tag joins the attribute list so it reaches every picker label too — a `<select>` full
+	// of options all reading "Drizzle RS / SQLite / rusqlite / prepared" cannot be chosen from.
+	const badges = [dialect, driver, mode, api && `${api.label} API`, accessBadge(access), os]
 		.filter((badge): badge is string => Boolean(badge))
 		.filter((badge) => !sameLabel(badge, name));
 
@@ -175,6 +260,7 @@ export function targetDisplay(input: TargetDisplayInput): TargetDisplay {
 		mode,
 		dataAccess: access,
 		sqlVariant: meta?.sql_variant ?? null,
+		api,
 		badges,
 		note: targetNote(meta, driver, mode, access),
 		familyKey: slug(`${name}:${dialect}:${driver ?? 'default'}`),
@@ -254,13 +340,16 @@ function targetDialect(meta: TargetMeta | undefined, targetId: string): string {
 	return 'SQL';
 }
 
+/**
+ * Recognising runner OS strings happens in exactly one place (`#lib/os`), so the badge on a row and
+ * the words in that row's tooltip can never name two different machines. An unrecognised value is
+ * passed through verbatim rather than flattened, because the raw string is the only evidence left.
+ */
 function targetOs(os: string | undefined): string {
-	const raw = (os ?? '').toLowerCase();
+	const raw = (os ?? '').trim();
 	if (!raw) return 'unknown OS';
-	if (raw.includes('windows')) return 'Windows';
-	if (raw.includes('mac')) return 'macOS';
-	if (raw.includes('linux') || raw.includes('ubuntu')) return 'Linux';
-	return os ?? raw;
+	const badge = osBadge(raw);
+	return badge.code === 'OS?' ? raw : badge.name;
 }
 
 /**

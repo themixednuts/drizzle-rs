@@ -6,6 +6,8 @@
 		label: string;
 		href: string;
 		active: boolean;
+		/** Long form, when the short label is an abbreviation of something worth spelling out. */
+		title?: string;
 	}
 
 	/**
@@ -23,6 +25,7 @@
 	{#each options as option (option.href + option.label)}
 		<a
 			href={option.href}
+			title={option.title}
 			aria-current={option.active ? 'true' : undefined}
 			class={cn(
 				buttonVariants({ variant: option.active ? 'default' : 'outline', size: 'sm' }),

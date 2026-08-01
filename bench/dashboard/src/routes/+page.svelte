@@ -8,7 +8,6 @@
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import Note from '#lib/components/Note.svelte';
 	import RankRow from '#lib/components/RankRow.svelte';
-	import FamilyDivider from '#lib/components/FamilyDivider.svelte';
 	import VerdictStrip from '#lib/components/VerdictStrip.svelte';
 	import RunList from '#lib/components/RunList.svelte';
 	import { RunsPageState } from './home.svelte';
@@ -55,7 +54,7 @@
 			<SortLinks options={view.sortOptions} />
 		</div>
 
-		{#if !view.hasFamilies}
+		{#if !view.hasRankingRows}
 			<div class="mt-7">
 				<EmptyState title="No results for this database.">
 					This set published no targets for that database. Choose
@@ -66,48 +65,47 @@
 			<VerdictStrip verdicts={view.verdicts} />
 
 			<!--
-				One table for every family. The column header is sticky, so the meaning of a column
-				survives scrolling past a divider; each family is a `role="group"` labelled by its
-				divider, and rank/bar/delta are all computed inside the band.
+				One table, one order, every database. The column header is sticky, so the meaning of a
+				column survives scrolling; rank runs 01..N across the whole list and the bar is scaled to
+				the fastest row on screen. Which database a row ran against, and on which machine, are
+				columns rather than section headings.
 			-->
 			<div class="bg-card border-border mt-4 border">
 				<div
-					class="bg-surface-raised border-border text-micro text-muted-foreground sticky top-0 z-10 grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 border-b px-5 py-3 font-mono uppercase sm:top-[3.875rem] lg:grid-cols-[2rem_minmax(9rem,1.05fr)_6.5rem_minmax(7rem,1.5fr)_6.5rem_5.125rem] lg:gap-x-6 lg:px-6 lg:py-3.5"
+					class="bg-surface-raised border-border text-micro text-muted-foreground sticky top-0 z-10 grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 border-b px-5 py-3 font-mono uppercase sm:top-[3.875rem] lg:grid-cols-[2rem_minmax(9rem,1.05fr)_6.5rem_3.25rem_minmax(5rem,1.3fr)_6.5rem_5.125rem] lg:gap-x-5 lg:px-6 lg:py-3.5"
 				>
 					<span><span class="sr-only">rank</span></span>
 					<span>library</span>
 					<span class="max-lg:hidden">database</span>
+					<span class="max-lg:hidden">os</span>
 					<span class="max-lg:hidden"><span class="sr-only">relative throughput</span></span>
 					<span class="text-right max-lg:hidden">requests/sec</span>
 					<span class="text-right lg:hidden">rps / p95</span>
 					<span class="text-right max-lg:hidden">p95</span>
 				</div>
 
-				{#each view.rankingFamilies as family (family.key)}
-					<FamilyDivider {family} />
-					<div role="group" aria-labelledby="{family.anchor}-label">
-						{#each family.rows as row (row.id)}
-							<RankRow
-								{row}
-								display={view.targetDisplay(row.summary)}
-								db={view.dbName(row.summary)}
-								dbDetail={view.dbDetail(row.summary)}
-								spread={view.throughputSummaryLabel(row.summary)}
-								spreadDetail={view.throughputLabel(row.summary)}
-								variant={view.variantNote(row.summary)}
-								ranked={family.ranked}
-								sort={view.sort}
-							/>
-						{/each}
-					</div>
+				{#each view.rankingRows as row (row.id)}
+					<RankRow
+						{row}
+						display={view.targetDisplay(row.summary)}
+						db={view.dbName(row.summary)}
+						dbDetail={view.dbDetail(row.summary)}
+						spread={view.throughputSummaryLabel(row.summary)}
+						spreadDetail={view.throughputLabel(row.summary)}
+						variant={view.variantNote(row.summary)}
+						sort={view.sort}
+					/>
 				{/each}
 			</div>
 
 			<div class="mt-4">
 				<Note>
-					Rank, bar and delta are all measured inside a database. Across databases the jobs ran on
-					<a class="text-link underline" href="/repeatability">different machines</a>, and a repeat
-					of the same job can land far apart. Open a row for the full numbers, or read
+					One table, every database. Rows on different databases did different amounts of work per
+					request, and rows carrying different <abbr title="operating system">OS</abbr> badges came
+					off
+					<a class="text-link underline" href="/repeatability">different machines</a>, where a
+					repeat of the same job can land far apart. Open a row for the full numbers and how it
+					compares to drizzle-rs on its own database, or read
 					<a class="text-link underline" href="/methodology">the method</a>.
 				</Note>
 			</div>

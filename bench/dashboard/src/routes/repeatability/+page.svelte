@@ -5,9 +5,11 @@
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import Note from '#lib/components/Note.svelte';
 	import WarningNotice from '#lib/components/WarningNotice.svelte';
+	import ApiTag from '#lib/components/ApiTag.svelte';
+	import OsBadge from '#lib/components/OsBadge.svelte';
 	import { cn } from '#lib/utils.js';
-	import { fmtDate, fmtLatency, fmtRps, shortHash } from '#lib/format';
-	import { runTitle } from '#lib/run-name';
+	import { fmtDate, fmtLatency, fmtRps, runStamp, shortHash } from '#lib/format';
+	import { classLabel, runTitle } from '#lib/run-name';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -61,6 +63,7 @@
 			<Section class={cn(group.isOurs && 'border-l-primary border-l-[3px]')}>
 				<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
 					<h2 class={cn('text-lead font-semibold', group.isOurs && 'text-link')}>{group.name}</h2>
+					<ApiTag api={group.api} />
 					<span class="text-meta text-foreground-secondary">{group.note}</span>
 					<span class="text-caption text-muted-foreground ml-auto font-mono">
 						{spreadText(group.min, group.max)}
@@ -77,9 +80,19 @@
 								></div>
 							</div>
 							<div class="mt-2.5 font-mono text-[0.9375rem] tabular-nums">{fmtRps(run.rps)}</div>
-							<div class="text-meta text-muted-foreground mt-0.5">
-								<a class="hover:text-link hover:underline" href="/runs/{run.run_id}">{run.label}</a>
-								&#183; p95 {fmtLatency(run.p95)}
+							<!--
+								Which machine produced this bar is the entire subject of this page, so the OS
+								leads the line as the same badge every other page prints, and the runner's own
+								label follows it as the link to the run.
+							-->
+							<div class="text-meta text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2">
+								<OsBadge os={run.os} detail="shard {runStamp(run.run_id)}" />
+								<span>
+									<a class="hover:text-link hover:underline" href="/runs/{run.run_id}">
+										{classLabel(run.runner_class) ?? run.label}
+									</a>
+									&#183; p95 {fmtLatency(run.p95)}
+								</span>
 							</div>
 						</div>
 					{/each}
@@ -90,9 +103,10 @@
 		<div class="mt-4">
 			<Note>
 				Order held where the libraries were ranked the same on every machine; absolute throughput
-				did not. This is why the <a class="text-link underline" href="/">ranking</a> compares
-				libraries within a database and not across machines — and why a 5% difference there is
-				noise. <a class="text-link underline" href="/methodology">The method</a> spells out the rest.
+				did not. This is why the <a class="text-link underline" href="/">ranking</a> puts an OS
+				badge on every row — two rows carrying different badges came off different machines, and
+				most of any gap between them is the hardware. It is also why a 5% difference there is noise.
+				<a class="text-link underline" href="/methodology">The method</a> spells out the rest.
 			</Note>
 		</div>
 	{/if}
