@@ -29,11 +29,19 @@ address, including the act fallback) and `.github/actions/install-ts-targets`
 | Target family | Contract target file | Targets |
 | --- | --- | --- |
 | SQLite/rusqlite | `bench/spec/targets.sqlite.v1.json` | `drizzle-rs-sqlite`, `rusqlite-sqlite-prepared`, `rusqlite-sqlite-unprepared` |
+| TS SQLite comparators | `bench/spec/targets.sqlite-ts.v1.json` | `bun-sqlite`, `drizzle-orm-sqlite` |
 | Drizzle-RS/Turso SQLite | `bench/spec/targets.turso.v1.json` | `drizzle-rs-turso`, `turso-sqlite-prepared`, `turso-sqlite-unprepared` |
+| Drizzle-RS/libSQL SQLite | `bench/spec/targets.libsql.v1.json` | `drizzle-rs-libsql`, `libsql-sqlite-prepared`, `libsql-sqlite-unprepared` |
 | PostgreSQL driver baselines | `bench/spec/targets.postgres.v1.json` | `tokio-postgres-prepared`, `tokio-postgres-unprepared` |
 | Rust PostgreSQL ORMs | `bench/spec/targets.postgres-rust-orms.v1.json` | `sqlx-pg`, `diesel-pg`, `seaorm-pg` |
 | TS PostgreSQL comparators | `bench/spec/targets.postgres-ts.v1.json` | `bun-sql-pg`, `drizzle-ts-pg`, `prisma-pg` |
 | SpacetimeDB | `bench/spec/targets.spacetimedb.v1.json` | `spacetime-pgwire-rs` |
+
+The libSQL family is the one exception to "every family runs on every platform
+its driver supports": it is behind the `libsql` cargo feature, off by default,
+and its CI job is Linux-only, because libsql has a history of crashing the
+benchmark process on Windows and macOS. A default `bench-runner` build does not
+link it, so the Windows and macOS SQLite jobs are unaffected.
 
 ## Data Contract
 
