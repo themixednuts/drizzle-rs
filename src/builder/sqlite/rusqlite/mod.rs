@@ -121,6 +121,25 @@
 //! let bob: Vec<SelectUser> = find_user.all(db.conn(), [find_name.bind("Bob")])?;
 //! # Ok(()) }
 //! ```
+//!
+//! # Statement caching
+//!
+//! The builder paths here deliberately call [`Connection::prepare`], not
+//! `prepare_cached`, and that is not an oversight.
+//!
+//! Unlike the network drivers, where preparing costs a server round trip,
+//! `sqlite3_prepare_v2` is an in-process C call against an already-open
+//! database. Caching was measured on this driver and came out
+//! **net-neutral to negative**: the hash lookup and the `RefCell` bookkeeping
+//! that `prepare_cached` adds cost about as much as the prepare it avoids,
+//! even on the warm path, while pinning statements alive for the connection's
+//! lifetime. See the `sqlite-stmt-cache-neutral` note in the project's
+//! benchmark records.
+//!
+//! Do not wire `prepare_cached` into these paths without a fresh measurement
+//! showing a win. The explicit [`prepare`](crate::drizzle_prepare_impl) API
+//! does use `prepare_cached`, because there the caller has already declared
+//! that one statement is going to be reused many times.
 
 pub(crate) mod prepared;
 

@@ -29,6 +29,17 @@
 //! let users: Vec<SelectUser> = db.select(()).from(user).all().await?;
 //! # Ok(()) }
 //! ```
+//!
+//! # Statement caching
+//!
+//! Not applicable. The RDS Data API has no client-side prepare: its whole
+//! operation set is `ExecuteStatement`, `BatchExecuteStatement`, and the three
+//! transaction verbs. Every call ships SQL text over HTTP and there is no
+//! statement handle to hold on to, so unlike the wire-protocol Postgres
+//! drivers there is no Parse round trip for a cache to remove.
+//!
+//! This driver also has no `prepare()`, for the same reason — there would be
+//! nothing for the returned statement to reuse beyond the rendered SQL.
 
 use std::sync::Arc;
 

@@ -343,6 +343,42 @@ fn test_prepare_inside_transaction(db: &mut TestDb<SimpleSchema>) {
 }
 
 #[drizzle::test]
+fn test_owned_statement_binds_closure_local_by_reference(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")])
+        .execute();
+
+    #[derive(SQLiteFromRow, Default)]
+    struct PartialSimple {
+        name: String,
+    }
+
+    let name = simple.name.placeholder("name");
+
+    // A borrowed statement pins its bindings to the statement's own lifetime,
+    // so a value built inside the closure cannot be bound by reference.
+    // `into_owned` gives the executors a fresh per-call lifetime instead, so
+    // closure-local values bind borrowed — no clone of the bound value.
+    let by_name = db
+        .select(simple.name)
+        .from(simple)
+        .r#where(eq(simple.name, name))
+        .prepare()
+        .into_owned();
+
+    let found = result!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
+        let wanted = String::from("Ali") + "ce";
+        let rows: Vec<PartialSimple> =
+            result!(by_name.all(tx.inner(), [name.bind(wanted.as_str())]))?;
+        Ok(rows.into_iter().map(|row| row.name).collect::<Vec<_>>())
+    }));
+
+    assert_eq!(found.unwrap(), vec!["Alice".to_string()]);
+}
+
+#[drizzle::test]
 fn test_prepared_write_inside_transaction_rolls_back(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 

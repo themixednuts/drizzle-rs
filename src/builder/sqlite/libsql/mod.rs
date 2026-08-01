@@ -81,6 +81,22 @@
 //! }).await?;
 //! # "####;
 //! ```
+//!
+//! # Statement caching
+//!
+//! The connection runner carries a single-slot statement cache: it holds the
+//! most recently used [`libsql::Statement`] and reuses it when the next query
+//! renders the same SQL. That shape suits the loop-over-one-query pattern
+//! without pinning statements for every query a connection has ever seen.
+//!
+//! Transactions are **not** cached — they run through `Transaction::query` /
+//! `execute`, which prepare per call. For a local database file that follows
+//! the same economics as the [`rusqlite`](crate::sqlite::rusqlite) driver,
+//! where caching measured net-neutral, so the machinery has not been added on
+//! spec. That reasoning does not obviously carry to a remote or
+//! embedded-replica database, where preparing can cost a round trip; if you
+//! run write-heavy transactions against a remote libsql, measure before
+//! assuming this is free.
 
 pub(crate) mod prepared;
 
