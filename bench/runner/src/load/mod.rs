@@ -1,5 +1,10 @@
 mod external;
 pub(crate) use external::{resolve_arg_token, resolve_cmd_token};
+// libsql has a history of crashing the benchmark process on Windows and macOS,
+// so it is off by default and its CI family is Linux-only; a default build
+// never links it.
+#[cfg(feature = "libsql")]
+mod libsql;
 mod pg_sync;
 mod pg_tokio;
 mod pool;
@@ -131,6 +136,22 @@ async fn serve_builtin_target(target: &str, seed: u64) -> Result<ServerHandle, F
         "drizzle-rs-turso" => turso::serve(seed).await,
         "turso-sqlite-prepared" => turso::serve_raw_prepared(seed).await,
         "turso-sqlite-unprepared" => turso::serve_raw_unprepared(seed).await,
+        #[cfg(feature = "libsql")]
+        "drizzle-rs-libsql" => libsql::serve(seed).await,
+        #[cfg(feature = "libsql")]
+        "libsql-sqlite-prepared" => libsql::serve_raw_prepared(seed).await,
+        #[cfg(feature = "libsql")]
+        "libsql-sqlite-unprepared" => libsql::serve_raw_unprepared(seed).await,
+        // Naming the libsql ids in the default build turns "this runner was
+        // built without --features libsql" into a clear message instead of the
+        // generic "unsupported target".
+        #[cfg(not(feature = "libsql"))]
+        "drizzle-rs-libsql" | "libsql-sqlite-prepared" | "libsql-sqlite-unprepared" => {
+            Err(Fail::new(
+                Code::InvalidCli,
+                format!("target {target} requires bench-runner built with --features libsql"),
+            ))
+        }
         other => Err(Fail::new(
             Code::InvalidCli,
             format!("unsupported target: {other}"),

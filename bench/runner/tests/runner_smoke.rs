@@ -22,6 +22,8 @@ fn checked_in_benchmark_specs_validate() {
 
     for path in [
         "bench/spec/targets.sqlite.v1.json",
+        "bench/spec/targets.sqlite-ts.v1.json",
+        "bench/spec/targets.libsql.v1.json",
         "bench/spec/targets.turso.v1.json",
         "bench/spec/targets.postgres.v1.json",
         "bench/spec/targets.postgres-rust-orms.v1.json",
@@ -329,10 +331,6 @@ fn load_can_spawn_builtin_server_process() {
 
 /// Every builtin embedded target must resolve, serve the whole route contract,
 /// and pass the value-level parity checks.
-///
-/// `parity` is the cheapest end-to-end proof that a target id is wired up: it
-/// starts the server, exercises all fourteen routes, and asserts row counts,
-/// pagination and aggregate consistency against real seeded data.
 #[test]
 fn builtin_embedded_targets_serve_and_pass_parity() {
     for target in [
@@ -342,16 +340,58 @@ fn builtin_embedded_targets_serve_and_pass_parity() {
         "rusqlite-sqlite-unprepared",
         "drizzle-rs-turso",
     ] {
+        assert_parity(target);
+    }
+}
+
+/// The libsql family is feature-gated, so its ids only exist — and only need
+/// proving — in a build that linked the driver.
+#[cfg(feature = "libsql")]
+#[test]
+fn builtin_libsql_targets_serve_and_pass_parity() {
+    for target in [
+        "drizzle-rs-libsql",
+        "libsql-sqlite-prepared",
+        "libsql-sqlite-unprepared",
+    ] {
+        assert_parity(target);
+    }
+}
+
+/// Without the feature the ids must still be recognised, and rejected with a
+/// message that names the missing feature rather than "unsupported target".
+#[cfg(not(feature = "libsql"))]
+#[test]
+fn libsql_targets_report_the_missing_feature() {
+    for target in [
+        "drizzle-rs-libsql",
+        "libsql-sqlite-prepared",
+        "libsql-sqlite-unprepared",
+    ] {
         let mut cmd = cargo_bin_cmd!("bench-runner");
         cmd.args(["parity", "--target", target, "--seed", "42"]);
-        let output = cmd.assert().get_output().clone();
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "{target}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        let output = cmd.assert().failure().get_output().clone();
+        let stderr = String::from_utf8(output.stderr).expect("utf8");
+        assert!(stderr.contains("--features libsql"), "{target}: {stderr}");
     }
+}
+
+/// Start a builtin target, exercise all fourteen routes, and assert the
+/// value-level parity checks.
+///
+/// `parity` is the cheapest end-to-end proof that a target id is wired up: it
+/// asserts row counts, pagination and aggregate consistency against real
+/// seeded data.
+fn assert_parity(target: &str) {
+    let mut cmd = cargo_bin_cmd!("bench-runner");
+    cmd.args(["parity", "--target", target, "--seed", "42"]);
+    let output = cmd.assert().get_output().clone();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{target}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]

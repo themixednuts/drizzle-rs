@@ -12,6 +12,15 @@ publish = false
 name = "bench-runner"
 path = "src/main.rs"
 
+[features]
+default = []
+# libsql benchmark family. Off by default and Linux-only in CI: libsql has a
+# history of crashing the benchmark process on Windows and macOS, and the
+# Windows/macOS SQLite jobs must stay unaffected. Enabling it links libsql-ffi
+# alongside rusqlite's bundled SQLite, which only works while the workspace
+# stays on rusqlite 0.39 (see the pin comment in the root Cargo.toml).
+libsql = ["dep:libsql", "drizzle/libsql"]
+
 [dependencies]
 clap = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -32,6 +41,7 @@ postgres = { workspace = true, features = ["with-chrono-0_4"] }
 tokio-postgres = { workspace = true, features = ["with-chrono-0_4"] }
 rusqlite = { workspace = true }
 turso = { workspace = true }
+libsql = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 sysinfo = { version = "0.39.6" }
 jsonschema = { version = "0.49.2", default-features = false, features = ["resolve-file"] }
