@@ -561,6 +561,71 @@ pub async fn serve_raw_rusqlite_unprepared(seed: u64) -> Result<ServerHandle, Fa
     serve_with_mode(seed, SqliteMode::RusqliteUnprepared).await
 }
 
+/// Build the Northwind schema at `path` and seed it deterministically.
+///
+/// Shared by the built-in rusqlite targets and by the `seed-sqlite`
+/// subcommand that the external SQLite targets shell out to, so every
+/// SQLite-family target measures byte-identical data. The connection is closed
+/// before returning so another process can open the finished file.
+pub(crate) fn create_and_seed(path: &Path, seed: u64) -> Result<(), Fail> {
+    let seed_conn = ::rusqlite::Connection::open(path)
+        .map_err(|err| Fail::new(Code::RunFail, format!("sqlite open failed: {err}")))?;
+    // WAL is a persistent property of the file, so targets that attach to the
+    // finished database inherit the journal mode set here.
+    seed_conn
+        .execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;
+             PRAGMA temp_store = MEMORY;",
+        )
+        .map_err(|err| Fail::new(Code::RunFail, format!("sqlite pragmas failed: {err}")))?;
+    let (db, schema) = drizzle::sqlite::rusqlite::Drizzle::new(seed_conn, Schema::new());
+
+    // Create tables via drizzle
+    db.create()
+        .map_err(|err| Fail::new(Code::RunFail, format!("sqlite create failed: {err}")))?;
+
+    // Create indexes via raw SQL
+    db.conn()
+        .execute_batch(
+            "CREATE INDEX IF NOT EXISTS recepient_idx ON employees(recipient_id);
+             CREATE INDEX IF NOT EXISTS supplier_idx ON products(supplier_id);
+             CREATE INDEX IF NOT EXISTS order_id_idx ON order_details(order_id);
+             CREATE INDEX IF NOT EXISTS product_id_idx ON order_details(product_id);",
+        )
+        .map_err(|err| {
+            Fail::new(
+                Code::RunFail,
+                format!("sqlite create indexes failed: {err}"),
+            )
+        })?;
+
+    // Seed via drizzle-seed (deterministic from seed value)
+    let stmts = SeedConfig::sqlite(&schema)
+        .seed(seed)
+        .count(&schema.customer, super::SEED_CUSTOMERS)
+        .count(&schema.employee, super::SEED_EMPLOYEES)
+        .count(&schema.supplier, super::SEED_SUPPLIERS)
+        .count(&schema.product, super::SEED_PRODUCTS)
+        .count(&schema.order, super::SEED_ORDERS)
+        .relation(&schema.order, &schema.detail, 6)
+        .generate();
+    for stmt in stmts {
+        db.execute(stmt)
+            .map_err(|err| Fail::new(Code::RunFail, format!("sqlite seed failed: {err}")))?;
+    }
+
+    // Without statistics every target plans the same queries from rowid
+    // guesses; the ORM comparison would then be measuring plan luck rather
+    // than driver overhead.
+    db.conn()
+        .execute_batch("ANALYZE;")
+        .map_err(|err| Fail::new(Code::RunFail, format!("sqlite analyze failed: {err}")))?;
+
+    drop(db);
+    Ok(())
+}
+
 async fn serve_with_mode(seed: u64, mode: SqliteMode) -> Result<ServerHandle, Fail> {
     let temp_dir = tempfile::Builder::new()
         .prefix("drizzle-bench-sqlite-")
@@ -572,60 +637,7 @@ async fn serve_with_mode(seed: u64, mode: SqliteMode) -> Result<ServerHandle, Fa
     let resources = tokio::task::spawn_blocking({
         let db_path = db_path.clone();
         move || -> Result<Vec<SqliteDb>, Fail> {
-            let seed_conn = ::rusqlite::Connection::open(&db_path)
-                .map_err(|err| Fail::new(Code::RunFail, format!("sqlite open failed: {err}")))?;
-            seed_conn
-                .execute_batch(
-                    "PRAGMA journal_mode = WAL;
-                     PRAGMA synchronous = NORMAL;
-                     PRAGMA temp_store = MEMORY;",
-                )
-                .map_err(|err| Fail::new(Code::RunFail, format!("sqlite pragmas failed: {err}")))?;
-            let (db, schema) = drizzle::sqlite::rusqlite::Drizzle::new(seed_conn, Schema::new());
-
-            // Create tables via drizzle
-            db.create()
-                .map_err(|err| Fail::new(Code::RunFail, format!("sqlite create failed: {err}")))?;
-
-            // Create indexes via raw SQL
-            db.conn()
-                .execute_batch(
-                    "CREATE INDEX IF NOT EXISTS recepient_idx ON employees(recipient_id);
-                     CREATE INDEX IF NOT EXISTS supplier_idx ON products(supplier_id);
-                     CREATE INDEX IF NOT EXISTS order_id_idx ON order_details(order_id);
-                     CREATE INDEX IF NOT EXISTS product_id_idx ON order_details(product_id);",
-                )
-                .map_err(|err| {
-                    Fail::new(
-                        Code::RunFail,
-                        format!("sqlite create indexes failed: {err}"),
-                    )
-                })?;
-
-            // Seed via drizzle-seed (deterministic from seed value)
-            let stmts = SeedConfig::sqlite(&schema)
-                .seed(seed)
-                .count(&schema.customer, super::SEED_CUSTOMERS)
-                .count(&schema.employee, super::SEED_EMPLOYEES)
-                .count(&schema.supplier, super::SEED_SUPPLIERS)
-                .count(&schema.product, super::SEED_PRODUCTS)
-                .count(&schema.order, super::SEED_ORDERS)
-                .relation(&schema.order, &schema.detail, 6)
-                .generate();
-            for stmt in stmts {
-                db.execute(stmt).map_err(|err| {
-                    Fail::new(Code::RunFail, format!("sqlite seed failed: {err}"))
-                })?;
-            }
-
-            // Without statistics every target plans the same queries from
-            // rowid guesses; the ORM comparison would then be measuring plan
-            // luck rather than driver overhead.
-            db.conn()
-                .execute_batch("ANALYZE;")
-                .map_err(|err| Fail::new(Code::RunFail, format!("sqlite analyze failed: {err}")))?;
-
-            drop(db);
+            create_and_seed(&db_path, seed)?;
 
             let mut resources = Vec::with_capacity(pool_size);
             for _ in 0..pool_size {

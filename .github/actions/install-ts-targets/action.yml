@@ -1,9 +1,13 @@
 name: Install TypeScript target dependencies
 description: >-
-  Install the Bun dependencies for the PostgreSQL TypeScript targets and run
+  Install the Bun dependencies for every TypeScript benchmark target and run
   `prisma generate`. The generate step is load-bearing: the prisma target's
   `server.cmd` runs `server.ts` directly and imports the generated client, so
   nothing regenerates it at spawn time.
+
+  Installing all families' targets in one action is deliberate — `bun install`
+  on a target with no third-party dependency is close to free, and a per-family
+  split would drift the moment a target moves between families.
 
 runs:
   using: composite
@@ -18,3 +22,5 @@ runs:
         cd "$GITHUB_WORKSPACE/bench/targets/drizzle-ts-pg" && bun install
         cd "$GITHUB_WORKSPACE/bench/targets/prisma-pg" && bun install && bunx prisma generate
         cd "$GITHUB_WORKSPACE/bench/targets/bun-sql-pg" && bun install
+        cd "$GITHUB_WORKSPACE/bench/targets/drizzle-orm-sqlite" && bun install
+        cd "$GITHUB_WORKSPACE/bench/targets/bun-sqlite" && bun install

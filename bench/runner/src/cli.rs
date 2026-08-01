@@ -24,6 +24,8 @@ pub enum Cmd {
     Parity(Parity),
     /// Seed the PostgreSQL database an external target will use.
     SeedPostgres(SeedPostgres),
+    /// Seed the SQLite database file an external target will use.
+    SeedSqlite(SeedSqlite),
     /// Validate a completed run (and optionally its inputs) against the schemas.
     Validate(Validate),
     /// Append a completed run to the run index.
@@ -166,6 +168,17 @@ pub struct Parity {
 
 #[derive(Debug, Clone, Args)]
 pub struct SeedPostgres {
+    /// Dataset seed. Falls back to `BENCH_SEED`, then 42.
+    #[arg(long)]
+    pub seed: Option<u64>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SeedSqlite {
+    /// Database file to create and seed. Parent directories must exist.
+    #[arg(long)]
+    pub db: PathBuf,
+
     /// Dataset seed. Falls back to `BENCH_SEED`, then 42.
     #[arg(long)]
     pub seed: Option<u64>,

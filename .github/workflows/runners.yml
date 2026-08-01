@@ -141,6 +141,93 @@ jobs:
           cohort-id: ${{ env.BENCH_COHORT_ID }}
           publish: ${{ needs.plan.outputs.publish }}
 
+  sqlite-ts:
+    name: SQLite TS (linux)
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 240 }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+          package-manager-cache: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-sqlite-ts
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Install TS target dependencies
+        uses: ./.github/actions/install-ts-targets
+
+      # No database service: both targets seed their own file-backed temp
+      # database via `bench-runner seed-sqlite` before announcing LISTENING.
+      - name: Benchmark SQLite TS family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: sqlite-ts
+          targets: bench/spec/targets.sqlite-ts.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+
+  libsql:
+    name: libSQL (linux)
+    needs: plan
+    # Linux only, deliberately. libsql has a history of segfaulting the
+    # benchmark process on Windows and macOS — that is why it was dropped from
+    # the criterion benches — and `bench-runner` only links it when the
+    # `libsql` cargo feature is on, so the Windows/macOS SQLite jobs are
+    # unaffected by this family existing.
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 240 }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-libsql
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Benchmark libSQL family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: libsql
+          targets: bench/spec/targets.libsql.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          # The builtin libsql targets are behind this cargo feature; without it
+          # the prebuilt `$BENCH_RUNNER_BIN` rejects their ids.
+          runner-features: libsql
+
   postgres:
     name: PostgreSQL (linux)
     needs: plan
@@ -569,6 +656,8 @@ jobs:
     needs:
       - plan
       - sqlite
+      - sqlite-ts
+      - libsql
       - postgres
       - postgres-rust-orms
       - postgres-ts

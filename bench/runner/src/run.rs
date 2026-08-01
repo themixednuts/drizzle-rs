@@ -39,6 +39,7 @@ pub async fn exec(cli: Cli) -> Result<Code, Fail> {
         Cmd::Load(args) => crate::load::run(args).await,
         Cmd::Parity(args) => crate::parity::run(args).await,
         Cmd::SeedPostgres(args) => crate::load::seed_postgres(args).await,
+        Cmd::SeedSqlite(args) => crate::load::seed_sqlite(args).await,
         Cmd::Validate(args) => validate(args),
         Cmd::Publish(args) => crate::publish::run(args),
     }
