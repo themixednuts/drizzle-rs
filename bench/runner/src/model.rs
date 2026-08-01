@@ -97,6 +97,13 @@ pub struct Sampling {
 pub struct Limits {
     pub err: f64,
     pub p95: Option<f64>,
+    /// Optional hard ceiling on mean-across-cores CPU (headroom gate). When
+    /// absent the headroom gate is informational only: the closed-loop ramp
+    /// saturates a colocated host by design, so "CPU touched 100%" is a
+    /// property of the methodology, not a defect. Set this only on topologies
+    /// where genuine headroom is expected (e.g. a dedicated two-host setup).
+    #[serde(default)]
+    pub cpu_mean_peak: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]

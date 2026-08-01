@@ -1138,12 +1138,14 @@ fn run_gates(
     events: &mut BufWriter<File>,
     json: bool,
 ) -> Result<Gates, Fail> {
-    // Gate on mean-across-cores utilisation. `cpu_peak` (single-core) hits 100%
-    // on any multi-core host the moment one thread is busy, which would fail
-    // every publish run for no reason.
+    // The headroom number is informational unless the workload opts into
+    // enforcement via `limits.cpu_mean_peak`. The closed-loop ramp drives a
+    // colocated host to saturation on purpose (knee detection needs it), so a
+    // saturated mean is expected there; an unconditional gate would fail every
+    // publish run on single-VM topologies. The measurement is still recorded in
+    // the manifest and events either way.
     let headroom_cpu = headroom.cpu_mean_peak.unwrap_or(headroom.cpu_peak);
-    let headroom_ok = headroom_cpu < 85.0;
-    let headroom_gate = if headroom_ok { Gate::Pass } else { Gate::Fail };
+    let (headroom_ok, headroom_gate) = headroom_gate(headroom_cpu, limits.cpu_mean_peak);
     let regression_gate = regression_gate(current, baseline);
     let limits_gate = limits_gate(current, limits);
     let gates = Gates {
@@ -1166,7 +1168,7 @@ fn run_gates(
                 .net_peak
                 .map(|peak| format!("{peak:.2}"))
                 .unwrap_or_else(|| "unmeasured".to_string()),
-            if headroom_ok { "pass" } else { "fail" }
+            gate_name(&gates.headroom)
         ),
     )?;
     emit(
@@ -2590,6 +2592,18 @@ fn regression_gate(current: &BTreeMap<String, PrimaryDoc>, baseline: Option<&Bas
     }
 }
 
+/// Headroom is informational (`skip`) unless the workload sets an explicit
+/// `limits.cpu_mean_peak` ceiling — see the module docs on gate semantics.
+fn headroom_gate(headroom_cpu: f64, limit: Option<f64>) -> (bool, Gate) {
+    match limit {
+        Some(limit) => {
+            let ok = headroom_cpu < limit;
+            (ok, if ok { Gate::Pass } else { Gate::Fail })
+        }
+        None => (true, Gate::Skip),
+    }
+}
+
 fn limits_gate(summaries: &BTreeMap<String, PrimaryDoc>, limits: &Limits) -> Gate {
     for summary in summaries.values() {
         if summary.err > limits.err {
@@ -3257,14 +3271,33 @@ fn variance_metric(values: &[f64]) -> VarianceMetricDoc {
 #[cfg(test)]
 mod tests {
     use super::{
-        MIX_CUSTOMER_BY_ID, MIX_SEARCH_CUSTOMER, MIX_SEARCH_PRODUCT, TrialMeasurement, box_metric,
-        combined_series, compute_headroom, compute_primary, compute_saturation, compute_spread,
-        materialize_requests, point_from_series, query_catalog_total_mix, request_path_skipped,
-        resolve_seed, sample_variance,
+        Gate, MIX_CUSTOMER_BY_ID, MIX_SEARCH_CUSTOMER, MIX_SEARCH_PRODUCT, TrialMeasurement,
+        box_metric, combined_series, compute_headroom, compute_primary, compute_saturation,
+        compute_spread, headroom_gate, materialize_requests, point_from_series,
+        query_catalog_total_mix, request_path_skipped, resolve_seed, sample_variance,
     };
     use crate::cli::Class;
     use crate::model::{Latency, Phase, Point};
     use std::collections::BTreeMap;
+
+    #[test]
+    fn headroom_gate_is_informational_without_a_configured_limit() {
+        // A saturated colocated host must not fail a publish run by default.
+        let (ok, gate) = headroom_gate(100.0, None);
+        assert!(ok);
+        assert!(matches!(gate, Gate::Skip));
+    }
+
+    #[test]
+    fn headroom_gate_enforces_an_explicit_ceiling() {
+        let (ok, gate) = headroom_gate(84.9, Some(85.0));
+        assert!(ok);
+        assert!(matches!(gate, Gate::Pass));
+
+        let (ok, gate) = headroom_gate(85.0, Some(85.0));
+        assert!(!ok);
+        assert!(matches!(gate, Gate::Fail));
+    }
 
     #[test]
     fn publish_seed_ignores_cli_override() {
