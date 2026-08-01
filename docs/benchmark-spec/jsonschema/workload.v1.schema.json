@@ -271,6 +271,12 @@
         "p95": {
           "type": ["number", "null"],
           "exclusiveMinimum": 0
+        },
+        "cpu_mean_peak": {
+          "type": ["number", "null"],
+          "exclusiveMinimum": 0,
+          "maximum": 100,
+          "description": "Optional hard ceiling on peak mean-across-cores CPU. Absent: the headroom gate is informational (skip) — closed-loop ramps saturate colocated hosts by design. Set only where genuine headroom is expected (dedicated load/SUT hosts)."
         }
       }
     }

@@ -240,7 +240,7 @@ Output root:
   "trials": 5,
   "gates": {
     "parity": "pass",
-    "headroom": "pass",
+    "headroom": "skip",
     "regression": "pass",
     "limits": "pass"
   }
@@ -363,13 +363,19 @@ Breaking examples requiring `runner.v2`:
 
 Headroom gate:
 
-1. fails when `runner.headroom.cpu_mean_peak` reaches `85`.
-2. deliberately uses the mean across cores. The single-core peak hits 100% on
-   any multi-core host the moment one thread is busy, so gating on it would fail
-   every run.
-3. the gate reads the whole host, not the load generator's cpuset. Under CI
-   pinning (§13) a saturated target still shows as roughly half the host, so the
-   85% threshold is measuring the machine, not the system under test.
+1. informational by default (`skip`): the closed-loop ramp saturates a
+   colocated host on purpose (knee detection needs to reach saturation), so a
+   saturated mean is a property of the methodology, not a defect. The measured
+   `cpu_mean_peak` is still recorded in the manifest and events.
+2. enforced only when the workload sets `limits.cpu_mean_peak` (a hard ceiling
+   in percent). Set it on topologies where genuine headroom is expected — e.g.
+   dedicated load and SUT hosts — and publish-class runs then hard-fail above
+   the ceiling.
+3. the number deliberately uses the mean across cores. The single-core peak
+   hits 100% on any multi-core host the moment one thread is busy.
+4. the measurement reads the whole host, not the load generator's cpuset. Under
+   CI pinning (§13) a saturated target still shows as roughly half the host —
+   the number describes the machine, not the system under test.
 
 Regression gate, when a baseline is provided:
 
