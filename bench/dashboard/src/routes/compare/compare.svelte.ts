@@ -25,7 +25,11 @@ import type { TargetCompareItem, TargetCompareValue } from '#lib/types';
 import type { PageData } from './$types';
 
 export interface CompareRow {
-	/** Render identity; see `LeaderboardRow.id` — `target_key` is shard-independent. */
+	/**
+	 * Render identity. `target_key` is deliberately shard-independent (it is what dedupes the target
+	 * dropdowns), so two shards of the same OS running the same target share one — which makes it
+	 * unusable as a keyed-each key without the run id in front of it.
+	 */
 	id: string;
 	item: TargetCompareItem;
 	rank: number | null;

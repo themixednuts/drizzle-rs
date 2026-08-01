@@ -1,17 +1,17 @@
 import { page } from '$app/state';
-import { boxWhiskerExtent, rpsBox } from '#lib/boxplot';
+import { rpsBox } from '#lib/boxplot';
 import { fmtCpu, fmtDate, fmtLatency, fmtPct, fmtRps, shortHash, suiteLabel } from '#lib/format';
 import {
+	baselinesByDb,
 	deltaDirection,
 	deltaSentence,
-	groupTargets,
 	rowDelta,
 	type DeltaDirection,
-	type TargetGroup,
 } from '#lib/leaderboard';
 import {
+	DB_PROFILE_ORDER,
 	dbProfile,
-	dbProfileLabel,
+	dbProfileDetail,
 	isDrizzleRsTarget,
 	isInProcessCache,
 	targetDisplay,
@@ -23,8 +23,7 @@ import type { FilterOption } from '#lib/components/FilterPills.svelte';
 import {
 	ordinal,
 	parseRankingSort,
-	type FamilyVerdict,
-	type RankingFamily,
+	type DbVerdict,
 	type RankingRow,
 	type RankingSort,
 } from '#lib/ranking';
@@ -45,33 +44,6 @@ interface RunsPageData {
 	statuses: string[];
 }
 
-export interface LeaderboardRow {
-	/**
-	 * Render identity. `target_key` is deliberately shard-independent (it is what dedupes the
-	 * target dropdowns), so two shards of the same OS running the same target share one — which
-	 * makes it unusable as a keyed-each key on its own.
-	 */
-	id: string;
-	summary: SummaryResult;
-	/** Position inside its own section; null in sections that are not ranked. */
-	rank: number | null;
-	isBaseline: boolean;
-	deltaText: string;
-	deltaDirection: DeltaDirection;
-	deltaTitle: string;
-}
-
-export interface LeaderboardSection {
-	key: string;
-	label: string;
-	note: string | null;
-	ranked: boolean;
-	rows: LeaderboardRow[];
-	baselineName: string | null;
-	shards: { os: string; run_id: string }[];
-	extent: ReturnType<typeof boxWhiskerExtent>;
-}
-
 function hasMaterialErrors(summary: SummaryResult): boolean {
 	return summary.primary.err > 0.005;
 }
@@ -87,20 +59,6 @@ const DB_NAMES: Record<DbProfile, string> = {
 
 function dbLabel(profile: DbProfile): string {
 	return DB_NAMES[profile];
-}
-
-/** What kind of thing the database is, for the divider's short label. */
-const FAMILY_QUALIFIER: Partial<Record<DbProfile, string>> = {
-	sqlite: 'embedded',
-	turso: 'embedded',
-	postgres: 'over TCP',
-};
-
-function familyLabel(key: string, fallback: string): string {
-	const name = DB_NAMES[key as DbProfile];
-	if (!name) return fallback;
-	const qualifier = FAMILY_QUALIFIER[key as DbProfile];
-	return qualifier ? `${name} · ${qualifier}` : name;
 }
 
 function compareLeaderboard(a: SummaryResult, b: SummaryResult): number {
@@ -194,24 +152,19 @@ export class RunsPageState {
 	}
 
 	/**
-	 * Rows are grouped by database family instead of being poured into one RPS-sorted table:
-	 * an embedded SQLite file, a TCP PostgreSQL connection and an in-process cache are not
-	 * doing the same work, so a single ranking would imply a comparison that does not hold.
-	 */
-	sections: LeaderboardSection[] = $derived(
-		groupTargets(this.results, compareLeaderboard).map((group) => this.#toSection(group)),
-	);
-
-	/**
-	 * The flat ranking: every target in the set, in one order, across database families.
+	 * The ranking: every target in the set, in one order, across every database.
 	 *
-	 * The sectioned-by-family leaderboard is gone from this page. Splitting the table was how the
-	 * old design stopped a reader inferring "SQLite beats PostgreSQL" from adjacency, but it cost
-	 * the page its headline — you could not see, at a glance, where drizzle-rs stood. The honesty
-	 * now rides on three things that are always on screen instead of on the layout: the `database`
-	 * column, the note under each name (an in-process cache says so in words), and the footnote
-	 * under the table pointing at Repeatability and Method. `/compare` keeps the amber callout for
-	 * the case where someone actually puts two incomparable jobs side by side.
+	 * There are no family bands. Rank runs `01..N` over the whole list, the bar is scaled to the
+	 * fastest row on screen, and SQLite sits directly above PostgreSQL if that is where the numbers
+	 * put it — because whether an embedded engine beats a TCP one at this workload *is* part of the
+	 * comparison, not an artefact to be partitioned away. Banding it also had a cost nobody wanted:
+	 * the TypeScript and Prisma rows lived in a PostgreSQL band three screens down and readers
+	 * reported simply not finding them.
+	 *
+	 * Everything the bands carried is still on the page, attached to rows instead of to layout: the
+	 * `database` column (with the family's description on its tooltip), the OS badge, an in-process
+	 * cache saying so in words on its own note line, the per-database "vs drizzle-rs" delta inside
+	 * each row, and the footnote under the table pointing at Repeatability and Method.
 	 */
 	get rankingRows(): RankingRow[] {
 		const rows = this.results.filter((summary) => !this.db || dbProfile(summary) === this.db);
@@ -226,12 +179,11 @@ export class RunsPageState {
 		// work, and an absolute scale would squash every other bar into an unreadable stub. The
 		// number beside each bar is always the real one, so the bar is a shape cue and never the
 		// source of a value.
-		const baselineRps = this.#baselineRps;
+		const baselines = this.#baselines;
 		const peak = Math.max(1, ...ordered.map((summary) => summary.primary.rps.avg));
 		const peakLatency = Math.max(1, ...ordered.map((summary) => summary.primary.latency.p95));
 
 		return ordered.map((summary, index) => {
-			const isOurs = isDrizzleRsTarget(summary);
 			const fraction =
 				this.sort === 'latency'
 					? summary.primary.latency.p95 / peakLatency
@@ -240,102 +192,88 @@ export class RunsPageState {
 				id: `${summary.run_id}:${summary.target_key}`,
 				summary,
 				rank: index + 1,
-				isOurs,
+				// Identity, not baseline-hood: every drizzle-rs row is "us", including the second and
+				// third API variants that are not the row the delta is measured against.
+				isOurs: isDrizzleRsTarget(summary),
 				barPct: `${Math.max(1.5, fraction * 100).toFixed(1)}%`,
-				...this.#delta(summary, baselineRps, isOurs),
+				...this.#delta(summary, baselines.get(dbProfile(summary)) ?? null),
 			};
 		});
 	}
 
-	/**
-	 * The ranking as one table of family bands.
-	 *
-	 * Each band is ranked, scaled and compared entirely within itself — that is what keeps a single
-	 * flat table from implying that a SQLite number and a PostgreSQL number are the same
-	 * measurement. Family separation stops being layout separation: no card per family, no repeated
-	 * header row, just a divider that reads as a pause. The `?db=` pills choose which bands show,
-	 * never how a band is computed.
-	 */
-	get rankingFamilies(): RankingFamily[] {
-		return this.sections
-			.filter((section) => !this.db || section.key === this.db)
-			.map((section) => {
-				const peak = Math.max(1, ...section.rows.map((row) => row.summary.primary.rps.avg));
-				const label = familyLabel(section.key, section.label);
-				return {
-					key: section.key,
-					label,
-					// The long description moves to the divider's tooltip; it never sits inline.
-					note: section.note ?? (label === section.label ? null : section.label),
-					provenance: [...new Set(section.shards.map((shard) => shard.os))].join(' · '),
-					anchor: `family-${section.key}`,
-					ranked: section.ranked,
-					rows: section.rows.map((row) => ({
-						id: row.id,
-						summary: row.summary,
-						rank: row.rank ?? 0,
-						isOurs: row.isBaseline,
-						barPct: `${Math.max(1.5, (row.summary.primary.rps.avg / peak) * 100).toFixed(1)}%`,
-						deltaText: row.deltaText,
-						deltaDirection: row.deltaDirection,
-						deltaTitle: row.deltaTitle,
-					})),
-				};
-			});
-	}
-
-	/** True when the current `?db=` filter matched no family at all. */
-	get hasFamilies(): boolean {
-		return this.rankingFamilies.length > 0;
+	/** True when the current `?db=` filter matched nothing at all. */
+	get hasRankingRows(): boolean {
+		return this.rankingRows.length > 0;
 	}
 
 	/**
-	 * One verdict per family: where drizzle-rs placed, and by how much against the best alternative.
+	 * One tile per database: where drizzle-rs placed on it, and by how much against the best
+	 * alternative *on that database*.
 	 *
-	 * The comparison is the strongest *other* library in the same family rather than a fixed
-	 * raw-driver baseline — the raw driver is not always present, and when it is it is not always
-	 * the one to beat. Naming the target keeps the claim checkable. Built from the rows the table
-	 * renders, so a tile and its band can never disagree.
+	 * These sit above the table and are deliberately not derived from it — the table is one global
+	 * order and these are per-database standings, which is exactly the orientation the flat table
+	 * does not give you. Each tile links to the table filtered to its database, so it doubles as
+	 * the way in. Tiles are computed from the whole set rather than from the current filter, so
+	 * they stay a complete index however the table is filtered.
+	 *
+	 * In-process-cache targets are left out of each database's field: they answer without touching
+	 * the database, so placing drizzle-rs against one would not be a standing among comparable
+	 * libraries.
 	 */
-	get verdicts(): FamilyVerdict[] {
-		const out: FamilyVerdict[] = [];
-		for (const family of this.rankingFamilies) {
-			if (!family.ranked) continue;
-			const ours = family.rows.find((row) => isDrizzleRsTarget(row.summary));
-			if (!ours) continue;
+	get verdicts(): DbVerdict[] {
+		const byDb = new Map<DbProfile, SummaryResult[]>();
+		for (const summary of this.results) {
+			if (isInProcessCache(summary.target_meta)) continue;
+			const profile = dbProfile(summary);
+			const bucket = byDb.get(profile);
+			if (bucket) bucket.push(summary);
+			else byDb.set(profile, [summary]);
+		}
 
-			const standing = `${ordinal(ours.rank)} of ${family.rows.length}`;
-			const best = family.rows
-				.filter((row) => !isDrizzleRsTarget(row.summary))
-				.sort((a, b) => b.summary.primary.rps.avg - a.summary.primary.rps.avg)[0];
+		const out: DbVerdict[] = [];
+		for (const profile of DB_PROFILE_ORDER) {
+			const bucket = byDb.get(profile);
+			if (!bucket || bucket.length === 0) continue;
 
+			const rows = [...bucket].sort(compareLeaderboard);
+			const ourIndex = rows.findIndex((summary) => isDrizzleRsTarget(summary));
+			if (ourIndex === -1) continue;
+
+			const ours = rows[ourIndex];
+			const label = dbLabel(profile);
+			const standing = `${ordinal(ourIndex + 1)} of ${rows.length}`;
+			const common = {
+				db: profile,
+				label,
+				href: this.rankingUrl(profile, this.sort),
+				active: this.db === profile,
+				standing,
+			};
+
+			const best = rows.find((summary) => !isDrizzleRsTarget(summary));
 			if (!best) {
 				out.push({
-					family: family.label,
-					anchor: family.anchor,
-					standing,
+					...common,
 					margin: null,
 					leads: true,
-					detail: `drizzle-rs is the only library measured on ${family.label}.`,
+					detail: `drizzle-rs is the only library measured on ${label} in this set.`,
 				});
 				continue;
 			}
 
-			const bestName = targetDisplay(best.summary).name;
-			const delta = rowDelta(ours.summary.primary.rps.avg, best.summary.primary.rps.avg, true);
+			const bestName = targetDisplay(best).name;
+			const delta = rowDelta(ours.primary.rps.avg, best.primary.rps.avg, true);
 			out.push({
-				family: family.label,
-				anchor: family.anchor,
-				standing,
+				...common,
 				margin:
 					delta === null
 						? null
 						: `${delta >= 0 ? '+' : ''}${(delta * 100).toFixed(1)}% vs ${bestName}`,
-				leads: ours.rank === 1,
+				leads: ourIndex === 0,
 				detail:
 					delta === null
 						? `Not comparable against ${bestName}.`
-						: `${deltaSentence(delta, 'drizzle-rs', bestName, { better: 'faster', worse: 'slower' })} — the fastest other library on ${family.label}.`,
+						: `${deltaSentence(delta, 'drizzle-rs', bestName, { better: 'faster', worse: 'slower' })} — the fastest other library measured on ${label} in this set. Opens the ranking filtered to ${label}.`,
 			});
 		}
 		return out;
@@ -349,25 +287,40 @@ export class RunsPageState {
 		return tiebreak;
 	}
 
-	get #baselineRps(): number | null {
-		const ours = this.results
-			.filter((summary) => isDrizzleRsTarget(summary))
-			.sort(compareLeaderboard)[0];
-		return ours?.primary.rps.avg ?? null;
+	/**
+	 * The drizzle row each database's rows are measured against.
+	 *
+	 * Computed from the *whole* set, not the filtered view, so switching the `?db=` pills never
+	 * changes a single delta — the number on a row means the same thing whichever way the table is
+	 * currently sliced. Sorting first is what makes `pickBaseline` return the strongest drizzle-rs
+	 * result on each database rather than whichever one the artifact happened to list first.
+	 */
+	get #baselines(): Map<DbProfile, SummaryResult> {
+		return baselinesByDb([...this.results].sort(compareLeaderboard));
 	}
 
-	/** Which database families this set actually produced, in the canonical order. */
+	/**
+	 * Which databases this set actually produced, in the canonical order.
+	 *
+	 * These narrow the one table; they never change how a row in it is computed. Rank, bar and
+	 * delta are the same numbers with "All" selected as with one database selected — the pills are
+	 * a lens, not a different ranking.
+	 */
 	get dbFilters(): FilterOption[] {
 		const present = new Set(this.results.map((summary) => dbProfile(summary)));
-		const families = (
-			['sqlite', 'turso', 'postgres', 'spacetimedb', 'other'] as DbProfile[]
-		).filter((profile) => present.has(profile));
+		const families = DB_PROFILE_ORDER.filter((profile) => present.has(profile));
 		return [
-			{ label: 'All', href: this.rankingUrl(null, this.sort), active: !this.db },
+			{
+				label: 'All',
+				href: this.rankingUrl(null, this.sort),
+				active: !this.db,
+				title: 'Every database in this set, in one ranked table',
+			},
 			...families.map((profile) => ({
 				label: dbLabel(profile),
 				href: this.rankingUrl(profile, this.sort),
 				active: this.db === profile,
+				title: dbProfileDetail(profile),
 			})),
 		];
 	}
@@ -395,62 +348,49 @@ export class RunsPageState {
 		return dbLabel(dbProfile(summary));
 	}
 
+	/** Full description of the row's database, for the database cell's tooltip. */
 	dbDetail(summary: SummaryResult): string {
-		return dbProfileLabel(dbProfile(summary));
+		return dbProfileDetail(dbProfile(summary));
 	}
 
 	isCache(summary: SummaryResult): boolean {
 		return isInProcessCache(summary.target_meta);
 	}
 
-	#toSection(group: TargetGroup<SummaryResult>): LeaderboardSection {
-		const baseline = group.baseline;
-		const baselineRps = baseline?.primary.rps.avg ?? null;
-		const rows = group.rows.map((summary, index): LeaderboardRow => {
-			const isBaseline = summary === baseline;
-			return {
-				id: `${summary.run_id}:${summary.target_key}`,
-				summary,
-				rank: group.ranked ? index + 1 : null,
-				isBaseline,
-				...this.#delta(summary, baselineRps, isBaseline),
-			};
-		});
-
-		return {
-			key: group.key,
-			label: group.label,
-			note: group.note,
-			ranked: group.ranked,
-			rows,
-			baselineName: baseline ? targetDisplay(baseline).name : null,
-			shards: group.shards,
-			// Each family gets its own throughput scale; a shared one flattens the slower family
-			// into an unreadable sliver.
-			extent: boxWhiskerExtent(
-				group.rows.map((summary) => rpsBox(summary)),
-				group.rows.map((summary) => summary.primary.rps.avg),
-			),
-		};
-	}
-
+	/**
+	 * How this row compares to drizzle-rs *on this row's own database*.
+	 *
+	 * One table now holds every database, so the reference has to be named rather than assumed: a
+	 * PostgreSQL row measured against a SQLite drizzle number would be comparing two engines and
+	 * calling it a library comparison. Where the set contains no drizzle row for a database, the
+	 * cell says so instead of quietly borrowing the nearest one.
+	 */
 	#delta(
 		summary: SummaryResult,
-		baselineRps: number | null,
-		isBaseline: boolean,
+		baseline: SummaryResult | null,
 	): { deltaText: string; deltaDirection: DeltaDirection; deltaTitle: string } {
-		if (baselineRps === null) {
+		const db = dbLabel(dbProfile(summary));
+		if (baseline === null) {
 			return {
-				deltaText: '-',
+				deltaText: '—',
 				deltaDirection: 'flat',
-				deltaTitle: 'no drizzle target in this database family to compare against',
+				deltaTitle: `no drizzle-rs row on ${db} in this set, so there is nothing on this row's own database to compare against`,
 			};
 		}
-		if (isBaseline) {
+
+		const reference = `${targetDisplay(baseline).name} on ${db}`;
+		if (summary === baseline) {
 			return {
 				deltaText: 'baseline',
 				deltaDirection: 'flat',
-				deltaTitle: 'the drizzle baseline row',
+				deltaTitle: `the drizzle-rs baseline row for ${db}; every other ${db} row is measured against this one`,
+			};
+		}
+		if (isInProcessCache(summary.target_meta)) {
+			return {
+				deltaText: '—',
+				deltaDirection: 'flat',
+				deltaTitle: `this target answers from an in-process cache and never crosses a database boundary, so it is not comparable to ${reference}`,
 			};
 		}
 		if (hasMaterialErrors(summary)) {
@@ -462,14 +402,18 @@ export class RunsPageState {
 		}
 
 		// Throughput: higher is better, so the row's own sign is already the natural one.
-		const delta = rowDelta(summary.primary.rps.avg, baselineRps, true);
+		const delta = rowDelta(summary.primary.rps.avg, baseline.primary.rps.avg, true);
 		if (delta === null) {
-			return { deltaText: '-', deltaDirection: 'flat', deltaTitle: 'not comparable' };
+			return {
+				deltaText: '—',
+				deltaDirection: 'flat',
+				deltaTitle: `not comparable to ${reference}`,
+			};
 		}
 		return {
 			deltaText: `${delta >= 0 ? '+' : ''}${(delta * 100).toFixed(1)}%`,
 			deltaDirection: deltaDirection(delta),
-			deltaTitle: deltaSentence(delta, 'This library', 'drizzle-rs', {
+			deltaTitle: deltaSentence(delta, 'This library', reference, {
 				better: 'faster',
 				worse: 'slower',
 			}),

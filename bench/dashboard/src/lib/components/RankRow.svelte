@@ -1,19 +1,26 @@
 <script lang="ts">
+	import ApiTag from './ApiTag.svelte';
 	import Delta from './Delta.svelte';
 	import Hint from './Hint.svelte';
+	import OsBadge from './OsBadge.svelte';
 	import { cn } from '#lib/utils.js';
-	import { fmtCpu, fmtLatency, fmtPct, fmtRps, shardLabel } from '#lib/format';
+	import { fmtCpu, fmtLatency, fmtPct, fmtRps, runStamp, shardLabel } from '#lib/format';
 	import type { QualitativeNote } from '#lib/qualitative';
 	import type { RankingRow, RankingSort } from '#lib/ranking';
 	import type { TargetDisplay } from '#lib/target-display';
 
 	/**
-	 * One row of the flat ranking.
+	 * One row of the ranking.
 	 *
-	 * Closed, it is exactly the comp's six columns: rank, library with its note, database, a bar,
-	 * throughput, p95. Opened, it is every other number the old sectioned table used to show
-	 * inline — mean and p99 latency, cpu, errors, memory, the across-trial spread, and the delta
-	 * against drizzle-rs.
+	 * Closed, it is seven columns: rank, library (with its API tag and note), database, machine,
+	 * a bar, throughput, p95. Opened, it is every other number the old sectioned table used to show
+	 * inline — mean and p99 latency, cpu, errors, memory, the across-trial spread, the delta against
+	 * drizzle-rs on this row's own database, and a link to the shard it came from.
+	 *
+	 * Three of those columns exist because the table is one global list rather than a stack of
+	 * per-database bands: `database` is the family context the bands used to supply by position,
+	 * the machine badge is the confound that matters most when adjacent rows came from different
+	 * CI VMs, and the API tag is what tells two rows both named "Drizzle RS" apart.
 	 *
 	 * A native `<details>` rather than a JS disclosure: it is keyboard operable, announces its own
 	 * expanded state, and works with scripting off — which is the only way "quieter, but still
@@ -28,7 +35,6 @@
 		spreadDetail,
 		sort,
 		variant = null,
-		ranked = true,
 	}: {
 		row: RankingRow;
 		display: TargetDisplay;
@@ -39,16 +45,11 @@
 		sort: RankingSort;
 		/** Short form plus full text for the target's SQL notes; `null` when it declared none. */
 		variant?: QualitativeNote | null;
-		/**
-		 * False for the in-process-cache band, which is listed but carries no rank: it is not doing
-		 * the same work as the rest, so numbering it against them would be the claim this whole
-		 * layout exists to avoid.
-		 */
-		ranked?: boolean;
 	} = $props();
 
 	const p = $derived(row.summary.primary);
 	const rank = $derived(String(row.rank).padStart(2, '0'));
+	const shard = $derived(`shard ${runStamp(row.summary.run_id)}`);
 </script>
 
 <details
@@ -63,29 +64,44 @@
 	)}
 >
 	<summary
-		class="grid cursor-pointer list-none grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 px-5 py-4 transition-colors marker:content-[''] lg:grid-cols-[2rem_minmax(9rem,1.05fr)_6.5rem_minmax(7rem,1.5fr)_6.5rem_5.125rem] lg:gap-x-6 lg:px-6"
+		class="grid cursor-pointer list-none grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 px-5 py-4 transition-colors marker:content-[''] lg:grid-cols-[2rem_minmax(9rem,1.05fr)_6.5rem_3.25rem_minmax(5rem,1.3fr)_6.5rem_5.125rem] lg:gap-x-5 lg:px-6"
 	>
 		<span
 			class={cn('font-mono text-[0.75rem]', row.isOurs ? 'text-link' : 'text-muted-foreground')}
 		>
-			{#if ranked}{rank}{:else}<span aria-hidden="true">·</span>{/if}
+			{rank}
 		</span>
 
 		<span class="min-w-0">
-			<span class={cn('text-lead block font-medium', row.isOurs && 'text-link')}>
-				{display.name}
+			<span class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+				<span class={cn('text-lead font-medium', row.isOurs && 'text-link')}>
+					{display.name}
+				</span>
+				<ApiTag api={display.api} />
 			</span>
 			{#if display.note}
 				<span class="text-meta text-muted-foreground mt-1 block">{display.note}</span>
 			{/if}
-			<!-- The database has its own column from `lg`; below that it joins the note line rather
-			     than claiming a column the row cannot spare. -->
-			<span class="text-meta text-muted-foreground mt-0.5 block lg:hidden" title={dbDetail}>
-				{db}
+			<!-- The database and the machine have their own columns from `lg`; below that they join the
+			     note line rather than claiming columns the row cannot spare. -->
+			<span class="mt-1 flex items-center gap-x-2 lg:hidden">
+				<OsBadge os={row.summary.runner_os} detail={shard} />
+				<span class="text-meta text-muted-foreground" title={dbDetail}>{db}</span>
 			</span>
 		</span>
 
+		<!--
+			`title` rather than a `Hint` here, deliberately. The two badges in this row are
+			abbreviations and have to be explainable from the keyboard, so they are real tooltip
+			triggers; "SQLite" is a word that already says what it is, and its family description is
+			background. Making it a third focusable control per row would have tripled the tab stops
+			needed to walk a twenty-row table for a sentence nobody is looking for.
+		-->
 		<span class="text-meta text-foreground-secondary max-lg:hidden" title={dbDetail}>{db}</span>
+
+		<span class="max-lg:hidden">
+			<OsBadge os={row.summary.runner_os} detail={shard} />
+		</span>
 
 		<!-- Decorative: the number beside it is the value, and the bar is scaled within the current
 		     filter, so it says "relative to what is on screen" and nothing more. -->
@@ -164,7 +180,7 @@
 			<div>
 				<dt class="text-micro text-muted-foreground font-mono uppercase">
 					<Hint
-						hint="This library against drizzle-rs on throughput. Positive means this library is faster."
+						hint="This library against drizzle-rs on the same database, on throughput. Positive means this library is faster. A dash means this set has no drizzle-rs row on this database."
 					>
 						vs drizzle-rs
 					</Hint>

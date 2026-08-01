@@ -114,12 +114,44 @@ De-noising followed the comp's hierarchy. The three changes that removed the mos
   the loudest thing on the page. The facts survive as a sentence (`query builder on rusqlite,
 prepared`), the dialect moved to its own column, and the full attribute list is on the tooltip and
   in the accessible name. An in-process cache still states itself in full, never abbreviated.
-- The ranking is **one flat table** across database families instead of a table per family. The
-  honesty that the split used to carry now rides on things that are always on screen: the `database`
-  column, the note line, the footnote pointing at Repeatability and Method, and the amber callout on
+- The ranking is **one flat table** across every database — no family bands, no per-band rank
+  restart, no per-band bar scale. Rank runs `01..N` over the whole set and the bar is scaled to the
+  fastest row on screen, because whether an embedded engine beats a TCP one at this workload is part
+  of the comparison rather than an artefact to partition away. The honesty the split used to carry
+  rides on things that are always on the row instead: the `database` column (family description on
+  its tooltip), the OS badge, the in-process-cache note, the per-database `vs drizzle-rs` delta
+  inside each row, the footnote pointing at Repeatability and Method, and the amber callout on
   `/compare`.
 - Route eyebrows, section rules and per-tile card borders are gone. Nothing below the headline was
   deleted — the numbers the old ranking showed inline are one native `<details>` away on each row.
+
+Two abbreviations earn a box, and only two:
+
+- **OS badge** (`LNX` / `MAC` / `WIN`, `OS?` when the artifact did not say). One fixed-width mono
+  cell per row, on every page that lists targets — ranking, run detail meta strip, repeatability
+  bars, compare sections and rows. Which CI VM produced a number is the biggest confound in the
+  data, and a code keeps that column a straight edge where `windows / 07-31 04:03` made it ragged.
+  The full OS name and the shard timestamp are the badge's accessible name, its `Hint` tooltip
+  (keyboard-reachable) and its `title` (works with scripting off). `#lib/os` is the only place that
+  recognises an OS string, so a badge and its tooltip can never name two different machines.
+- **drizzle-rs API tag** (`sql` / `relational`). drizzle-rs ships two query surfaces that generate
+  different SQL, so `drizzle-rs-pg` and `drizzle-rs-pg-query` are two measurements; without the tag
+  the ranking showed two rows both called "Drizzle RS" on the same database with no visible reason
+  for the gap. Derived from the target id suffix and `sql_variant` in `targetApi()`, rendered beside
+  the name everywhere a target is named, and folded into `targetLabel()` so the compare and trends
+  `<select>` options are distinguishable too. `null` for every non-drizzle-rs library — the
+  drizzle-orm TypeScript rows are a different library and do not borrow our vocabulary.
+
+**Ranking baselines.** The table is global; the `vs drizzle-rs` delta is not. Each row is measured
+against the drizzle baseline for _its own database_ (`baselinesByDb`), computed from the whole set
+rather than the filtered view so a `?db=` pill never changes a number. A database with no drizzle
+row shows `—`, and every delta tooltip names the row it compared against.
+
+**Verdict strip.** One wrapping row of compact tiles above the table, one per database, each linking
+to `?db=`. It answers "how does drizzle-rs place against its own field", which a single global order
+genuinely cannot show — drizzle-rs can be tenth overall and first on its database, and both are
+true. It is deliberately small: as a grid of cards it read as the page's headline and inverted what
+the page is for.
 
 ## Page cache
 

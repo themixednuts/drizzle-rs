@@ -103,9 +103,10 @@
 		<div class="mt-4">
 			<Note>
 				Order held where the libraries were ranked the same on every machine; absolute throughput
-				did not. This is why the <a class="text-link underline" href="/">ranking</a> compares
-				libraries within a database and not across machines — and why a 5% difference there is
-				noise. <a class="text-link underline" href="/methodology">The method</a> spells out the rest.
+				did not. This is why the <a class="text-link underline" href="/">ranking</a> puts an OS
+				badge on every row — two rows carrying different badges came off different machines, and
+				most of any gap between them is the hardware. It is also why a 5% difference there is noise.
+				<a class="text-link underline" href="/methodology">The method</a> spells out the rest.
 			</Note>
 		</div>
 	{/if}

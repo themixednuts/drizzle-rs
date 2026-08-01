@@ -2,6 +2,7 @@ import {
 	DB_PROFILE_ORDER,
 	dbProfile,
 	dbProfileLabel,
+	dbProfileNote,
 	isDrizzleRsTarget,
 	isDrizzleTarget,
 	isInProcessCache,
@@ -40,16 +41,16 @@ const CACHE_GROUP_LABEL = 'in-memory cache — no per-request DB work';
 const CACHE_GROUP_NOTE =
 	'These targets answer from a replicated in-process cache, so a request never crosses a database boundary. They are shown for context and are deliberately excluded from the SQL round-trip rankings above.';
 
-const PROFILE_NOTES: Partial<Record<DbProfile, string>> = {
-	sqlite: 'Embedded engine: queries run in the server process, no network hop.',
-	turso: 'Embedded engine: queries run in the server process, no network hop.',
-	postgres: 'Client/server engine: every query is a TCP round trip to a separate process.',
-};
-
 /**
- * Split rows into comparable sections. Ranking only ever happens *within* a section, because
- * an embedded-file engine, a TCP database and an in-process cache do different amounts of work
- * per request and a single sorted table implies they do not.
+ * Split rows into comparable sections, one per database plus one for in-process caches.
+ *
+ * This is `/compare`'s layout, and only `/compare`'s. That page exists to put chosen numbers side
+ * by side on a chosen metric, which is exactly where an unlabelled adjacency between an
+ * embedded-file engine and a TCP database is most likely to be read as a like-for-like result — so
+ * there the split stays, along with the amber callout above it.
+ *
+ * The ranking does not use this. It is one global table whose rows each carry their own database,
+ * machine and per-database baseline; see `RankingRow`.
  */
 export function groupTargets<T extends RankableTarget>(
 	rows: readonly T[],
@@ -77,7 +78,7 @@ export function groupTargets<T extends RankableTarget>(
 		groups.push({
 			key: profile,
 			label: dbProfileLabel(profile),
-			note: PROFILE_NOTES[profile] ?? null,
+			note: dbProfileNote(profile),
 			ranked: true,
 			rows: sorted,
 			baseline: pickBaseline(sorted),
@@ -106,6 +107,35 @@ export function pickBaseline<T extends RankableTarget>(rows: readonly T[]): T | 
 	return (
 		rows.find((row) => isDrizzleRsTarget(row)) ?? rows.find((row) => isDrizzleTarget(row)) ?? null
 	);
+}
+
+/**
+ * The drizzle baseline for each database present in `rows`, keyed by database.
+ *
+ * The ranking is one global table now, but "vs drizzle-rs" is still a within-database question:
+ * comparing a PostgreSQL row against a SQLite drizzle number would be measuring the two engines,
+ * not the two libraries. So the table is global and the baseline is local, and a database with no
+ * drizzle target in the set simply has no entry here — its rows say so rather than borrowing
+ * someone else's reference.
+ *
+ * `rows` must be pre-sorted by whatever "best" means to the caller: `pickBaseline` takes the first
+ * drizzle row it finds, so a sorted input yields the strongest drizzle result as the baseline.
+ */
+export function baselinesByDb<T extends RankableTarget>(rows: readonly T[]): Map<DbProfile, T> {
+	const byDb = new Map<DbProfile, T[]>();
+	for (const row of rows) {
+		const profile = dbProfile(row);
+		const bucket = byDb.get(profile);
+		if (bucket) bucket.push(row);
+		else byDb.set(profile, [row]);
+	}
+
+	const out = new Map<DbProfile, T>();
+	for (const [profile, bucket] of byDb) {
+		const baseline = pickBaseline(bucket);
+		if (baseline) out.set(profile, baseline);
+	}
+	return out;
 }
 
 function shardsOf<T extends RankableTarget>(rows: readonly T[]): { os: string; run_id: string }[] {
