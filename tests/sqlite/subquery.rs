@@ -205,3 +205,24 @@ fn test_typed_in_subquery_multi_column_row_value(db: &mut TestDb<SimpleSchema>) 
     assert_eq!(1, results.len());
     assert_eq!("bob", results[0].name);
 }
+
+// SQLite's Integer is `BooleanLike`, so a tuple of integer columns is also a
+// valid condition list. The row-value LHS must still win here — see the
+// `Conjunction` SQL type in drizzle-types.
+#[drizzle::test]
+fn test_in_subquery_all_integer_tuple_lhs(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([InsertSimple::new("alice").with_id(1)])
+        .execute();
+
+    let self_row = db.select((simple.id, simple.id)).from(simple);
+    let results: Vec<SubqueryResult> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(in_subquery((simple.id, simple.id), self_row))
+        .all();
+
+    assert_eq!(1, results.len());
+}
