@@ -688,6 +688,15 @@ use drizzle_core::query::DeserializeStore as _;
 #[cfg(feature = "query")]
 use drizzle_core::query::FromJsonObject as _;
 
+#[cfg(feature = "query")]
+impl common::private::Sealed for Connection {}
+
+// Positional rows: base columns decode via `TryFrom<&Row>` by index.
+#[cfg(feature = "query")]
+impl common::QueryRowFormat for Connection {
+    const WRAP_BASE_JSON: bool = false;
+}
+
 // AllColumns: read base from individual row columns via TryFrom<Row>
 #[cfg(feature = "query")]
 impl<'a, Schema, T, Rels, Cl>
