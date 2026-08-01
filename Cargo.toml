@@ -90,7 +90,12 @@ smallvec = { version = "1.15", default-features = false, features = [
 thiserror = { version = "2.0", default-features = false }
 toml = { version = "0.9" }
 tokio = { version = ">=1.48, <2" }
-turso = { version = ">=0.7, <0.8", default-features = false, features = ["pure-rust-crypto"] }
+# The prerelease-bearing upper bound is what lets cargo match 0.8.0-pre.*
+# at all (a plain "<0.9" range never matches prereleases); bump the bound one
+# line per new upstream pre after re-running the turso suite against it.
+# Verified at both endpoints: 0.7.2 and 0.8.0-pre.2 (330 passed, 8 failures =
+# known upstream parser gaps, one of the previous nine fixed by the pre).
+turso = { version = ">=0.7, <=0.8.0-pre.2", default-features = false, features = ["pure-rust-crypto"] }
 worker = { version = ">=0.8, <0.9", default-features = false }
 wasm-bindgen = { version = "0.2" }
 js-sys = { version = "0.3" }
