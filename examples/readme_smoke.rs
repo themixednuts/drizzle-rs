@@ -123,7 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let active_adults: Vec<SelectUsers> = db
         .select(())
         .from(users)
-        .r#where(and(gt(users.age, 18), eq(users.name, "Alex Smith")))
+        .r#where((gt(users.age, 18), eq(users.name, "Alex Smith")))
         .all()?;
     assert_eq!(active_adults.len(), 1);
 
@@ -133,6 +133,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .r#where(eq(users.name, "Alice") | eq(users.name, "Bob"))
         .all()?;
     assert_eq!(or_rows.len(), 2);
+
+    // -------- Querying > Select > Combining Conditions --------
+    let flat_and: Vec<SelectUsers> = db
+        .select(())
+        .from(users)
+        .r#where((
+            gt(users.age, 18),
+            eq(users.name, "Alex Smith"),
+            is_not_null(users.email),
+        ))
+        .all()?;
+    assert_eq!(flat_and.len(), 1);
+
+    let flat_or: Vec<SelectUsers> = db
+        .select(())
+        .from(users)
+        .r#where(any((eq(users.name, "Alice"), eq(users.name, "Bob"))))
+        .all()?;
+    assert_eq!(flat_or.len(), 2);
+
+    let nested: Vec<SelectUsers> = db
+        .select(())
+        .from(users)
+        .r#where(or(
+            (gt(users.age, 18), eq(users.name, "Alex Smith")),
+            (lt(users.age, 100), eq(users.name, "Alice")),
+        ))
+        .all()?;
+    assert_eq!(nested.len(), 2);
+
+    // `all` here is the combinator, not the `all` binding above.
+    let _joined_on_all: Vec<(String,)> = db
+        .select((users.name,))
+        .from(users)
+        .inner_join((
+            posts,
+            drizzle::core::expr::all((eq(posts.author_id, users.id), is_not_null(posts.content))),
+        ))
+        .all()?;
+
+    // Optional elements: `None` contributes nothing.
+    let by_name = |name: Option<&'static str>| -> Result<usize, drizzle::error::DrizzleError> {
+        let rows: Vec<SelectUsers> = db
+            .select(())
+            .from(users)
+            .r#where((gt(users.age, 0), name.map(|n| eq(users.name, n))))
+            .all()?;
+        Ok(rows.len())
+    };
+    assert_eq!(by_name(None)?, all.len());
+    assert_eq!(by_name(Some("Alex Smith"))?, 1);
 
     // -------- Querying > Ordering, Limiting, Pagination --------
     let _page: Vec<SelectUsers> = db
