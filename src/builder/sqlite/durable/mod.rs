@@ -132,6 +132,7 @@ where
 {
     let sql = query.to_sql();
     let (sql_str, params) = sql.build();
+    drizzle_core::drizzle_trace_query!(&sql_str, params.len());
     let values: Vec<SqlStorageValue> = params.into_iter().map(sqlite_value_to_storage).collect();
     conn.exec(&sql_str, Some(values))
         .map_err(|e| DrizzleError::Other(e.to_string().into()))
@@ -201,6 +202,7 @@ impl<Schema> common::Drizzle<SqlStorage, Schema> {
             &crate::transaction::sqlite::durable::Transaction<Schema>,
         ) -> drizzle_core::error::Result<R>,
     {
+        drizzle_core::drizzle_trace_tx!("begin", "sqlite.durable");
         self.conn
             .exec("BEGIN", None)
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
