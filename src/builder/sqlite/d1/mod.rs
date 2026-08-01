@@ -71,6 +71,9 @@
 //! - **Row decoding is serde-based.** Rows come back as column-keyed objects,
 //!   so `SelectX` models must implement `serde::Deserialize`. `SQLiteFromRow`
 //!   derives this when the `serde` feature is enabled.
+//! - **Integers are limited to ±2^53.** D1 parameters and results travel as
+//!   JS numbers, so `i64` values outside `Number.MAX_SAFE_INTEGER` lose
+//!   precision. Store larger identifiers as TEXT or BLOB.
 //!
 //! # Statement caching
 //!
@@ -116,9 +119,11 @@ fn sqlite_value_to_js(value: &SQLiteValue<'_>) -> JsValue {
     match value {
         SQLiteValue::Null => JsValue::NULL,
         SQLiteValue::Integer(i) => {
-            // D1 accepts JS number for integers within Number.MAX_SAFE_INTEGER,
-            // otherwise BigInt. We always coerce to f64 for compatibility — D1
-            // rounds-trip large ints through BigInt where needed on its side.
+            // D1 only accepts JS numbers as integer bind parameters (BigInt is
+            // rejected), so values outside ±2^53 lose precision here. The
+            // Durable Objects driver behaves the same way — the `worker` crate
+            // performs an identical f64 coercion for `SqlStorageValue::Integer`.
+            // Store larger identifiers as TEXT or BLOB.
             JsValue::from(*i as f64)
         }
         SQLiteValue::Real(r) => JsValue::from(*r),
@@ -144,6 +149,7 @@ where
 {
     let sql = query.to_sql();
     let (sql_str, params) = sql.build();
+    drizzle_core::drizzle_trace_query!(&sql_str, params.len());
     let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
     let stmt = conn.prepare(sql_str);
     bind_statement(stmt, &values)
@@ -276,10 +282,20 @@ where
         }
         let prepared: Vec<D1PreparedStatement> =
             stmts.into_iter().map(|s| self.conn.prepare(s)).collect();
-        self.conn
+        let results = self
+            .conn
             .batch(prepared)
             .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        for r in &results {
+            if !r.success() {
+                return Err(DrizzleError::Other(
+                    r.error()
+                        .unwrap_or_else(|| "D1 create batch failed".into())
+                        .into(),
+                ));
+            }
+        }
         Ok(())
     }
 }
@@ -405,10 +421,19 @@ async fn ensure_d1_migration_table(
     conn: &D1Database,
     set: &drizzle_migrations::Migrations,
 ) -> drizzle_core::error::Result<()> {
-    conn.prepare(set.create_table_sql())
+    let created = conn
+        .prepare(set.create_table_sql())
         .run()
         .await
         .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+    if !created.success() {
+        return Err(DrizzleError::Other(
+            created
+                .error()
+                .unwrap_or_else(|| "D1 migration-table creation failed".into())
+                .into(),
+        ));
+    }
 
     // Check whether the `name` column already exists — if yes, nothing else to
     // do. Otherwise we need to upgrade the legacy (hash, created_at)-only
@@ -532,7 +557,7 @@ async fn ensure_d1_migration_name_index(
 }
 
 // =============================================================================
-// Terminal methods on DrizzleBuilder (execute / all / get / rows)
+// Terminal methods on DrizzleBuilder (execute / all / get)
 // =============================================================================
 
 #[cfg(feature = "d1")]
@@ -544,6 +569,7 @@ where
     /// Runs the query and returns the number of affected rows.
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
         let stmt = self.runner.conn.prepare(sql_str);
         let stmt = bind_statement(stmt, &values)?;
@@ -573,6 +599,7 @@ where
         R: for<'de> serde::Deserialize<'de>,
     {
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
         let stmt = self.runner.conn.prepare(sql_str);
         let stmt = bind_statement(stmt, &values)?;
@@ -599,6 +626,7 @@ where
         R: for<'de> serde::Deserialize<'de>,
     {
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
         let stmt = self.runner.conn.prepare(sql_str);
         let stmt = bind_statement(stmt, &values)?;
