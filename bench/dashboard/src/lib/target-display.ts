@@ -69,10 +69,11 @@ export interface TargetDisplay {
 }
 
 /** Coarse database family used to keep cross-family rows out of one ranked table. */
-export type DbProfile = 'sqlite' | 'turso' | 'postgres' | 'spacetimedb' | 'other';
+export type DbProfile = 'sqlite' | 'libsql' | 'turso' | 'postgres' | 'spacetimedb' | 'other';
 
 export const DB_PROFILE_ORDER: DbProfile[] = [
 	'sqlite',
+	'libsql',
 	'turso',
 	'postgres',
 	'spacetimedb',
@@ -81,7 +82,8 @@ export const DB_PROFILE_ORDER: DbProfile[] = [
 
 const DB_PROFILE_LABELS: Record<DbProfile, string> = {
 	sqlite: 'SQLite (embedded, in-process file)',
-	turso: 'Turso / libSQL (embedded)',
+	libsql: 'libSQL (embedded, in-process file)',
+	turso: 'Turso (embedded)',
 	postgres: 'PostgreSQL (TCP round trip)',
 	spacetimedb: 'SpacetimeDB',
 	other: 'other',
@@ -97,6 +99,7 @@ const DB_PROFILE_LABELS: Record<DbProfile, string> = {
  */
 const DB_PROFILE_NOTES: Partial<Record<DbProfile, string>> = {
 	sqlite: 'Embedded engine: queries run in the server process, no network hop.',
+	libsql: 'Embedded engine: queries run in the server process, no network hop.',
 	turso: 'Embedded engine: queries run in the server process, no network hop.',
 	postgres: 'Client/server engine: every query is a TCP round trip to a separate process.',
 	spacetimedb: 'Database and application logic run together; access is over its own protocol.',
@@ -113,6 +116,8 @@ const ORM_NAMES = new Map([
 
 const GROUP_NAMES = new Map([
 	['bun-sql', 'Bun SQL'],
+	['bun-sqlite', 'Bun SQLite'],
+	['libsql', 'libSQL'],
 	['tokio-postgres', 'tokio-postgres'],
 	['rusqlite', 'rusqlite'],
 	['turso', 'Turso'],
@@ -123,7 +128,8 @@ export function dbProfile(input: TargetDisplayInput): DbProfile {
 	const meta = input.target_meta;
 	const raw = `${meta?.db.profile ?? ''} ${meta?.fair.db ?? ''} ${input.target_id}`.toLowerCase();
 	if (raw.includes('spacetime')) return 'spacetimedb';
-	if (raw.includes('turso') || raw.includes('libsql')) return 'turso';
+	if (raw.includes('libsql')) return 'libsql';
+	if (raw.includes('turso')) return 'turso';
 	if (raw.includes('postgres') || raw.includes('-pg') || raw.endsWith('pg')) return 'postgres';
 	if (raw.includes('sqlite')) return 'sqlite';
 	return 'other';
@@ -336,7 +342,7 @@ function targetDialect(meta: TargetMeta | undefined, targetId: string): string {
 	const raw = `${meta?.fair.db ?? ''} ${meta?.db.profile ?? ''} ${targetId}`.toLowerCase();
 	if (raw.includes('spacetime')) return 'SpacetimeDB';
 	if (raw.includes('postgres') || raw.includes('-pg') || raw.endsWith('pg')) return 'PostgreSQL';
-	if (raw.includes('sqlite') || raw.includes('turso')) return 'SQLite';
+	if (raw.includes('sqlite') || raw.includes('turso') || raw.includes('libsql')) return 'SQLite';
 	return 'SQL';
 }
 

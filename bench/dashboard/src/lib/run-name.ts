@@ -17,13 +17,14 @@ import type { TargetMeta } from './types';
 
 const FAMILY_NAMES: Record<DbProfile, string> = {
 	sqlite: 'SQLite',
+	libsql: 'libSQL',
 	turso: 'Turso',
 	postgres: 'PostgreSQL',
 	spacetimedb: 'SpacetimeDB',
 	other: 'Mixed',
 };
 
-const FAMILY_ORDER: DbProfile[] = ['sqlite', 'turso', 'postgres', 'spacetimedb', 'other'];
+const FAMILY_ORDER: DbProfile[] = ['sqlite', 'libsql', 'turso', 'postgres', 'spacetimedb', 'other'];
 
 /** What sort of thing a target is. Ordered from closest-to-the-database outwards. */
 type Kind = 'raw' | 'builder' | 'orm';

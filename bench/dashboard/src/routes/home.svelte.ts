@@ -51,6 +51,7 @@ function hasMaterialErrors(summary: SummaryResult): boolean {
 /** Short names for the ranking's database column — the long forms are in `dbProfileLabel`. */
 const DB_NAMES: Record<DbProfile, string> = {
 	sqlite: 'SQLite',
+	libsql: 'libSQL',
 	turso: 'Turso',
 	postgres: 'PostgreSQL',
 	spacetimedb: 'SpacetimeDB',
