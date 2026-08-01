@@ -11,13 +11,14 @@
 	import Note from '#lib/components/Note.svelte';
 	import TargetLabel from '#lib/components/TargetLabel.svelte';
 	import Hint from '#lib/components/Hint.svelte';
+	import OsBadge from '#lib/components/OsBadge.svelte';
 	import Delta from '#lib/components/Delta.svelte';
 	import DataTable from '#lib/components/data/DataTable.svelte';
 	import Th from '#lib/components/data/Th.svelte';
 	import Td from '#lib/components/data/Td.svelte';
 	import Tr from '#lib/components/data/Tr.svelte';
 	import * as Table from '#lib/components/ui/table/index.js';
-	import { fmtDate, shardLabel, shortHash } from '#lib/format';
+	import { fmtDate, runStamp, shortHash } from '#lib/format';
 	import { ComparePageState } from './compare.svelte';
 	import type { PageData } from './$types';
 
@@ -86,7 +87,13 @@
 			{#each view.sections as section (section.key)}
 				<Section title={section.label} flush>
 					{#snippet aside()}
-						{section.shards.map((shard) => shard.os).join(' · ')}
+						<!-- Which machines this family's rows came off, as the same badge the ranking uses.
+						     One badge per distinct runner, never per row. -->
+						<span class="inline-flex flex-wrap items-center gap-1.5">
+							{#each view.sectionMachines(section) as machine (machine.os)}
+								<OsBadge os={machine.os} detail={machine.detail} />
+							{/each}
+						</span>
 					{/snippet}
 
 					{#if section.note}
@@ -132,8 +139,9 @@
 												targetId={item.target_id}
 												accent={row.isBaseline}
 											/>
-											<div class="text-meta text-muted-foreground mt-1">
-												{shardLabel(item.runner_os, item.run_id)}
+											<div class="text-meta text-muted-foreground mt-1 flex items-center gap-x-2">
+												<OsBadge os={item.runner_os} detail="shard {runStamp(item.run_id)}" />
+												<span class="font-mono">{runStamp(item.run_id)}</span>
 											</div>
 											{#if view.variantNote(item)}
 												{@const variant = view.variantNote(item)!}

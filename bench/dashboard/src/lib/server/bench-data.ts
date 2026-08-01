@@ -474,6 +474,7 @@ export const repeatabilityPageData = Effect.fn('BenchData.repeatabilityPage')(fu
 				label,
 				run_id: summary.run_id,
 				os: summary.runner_os,
+				runner_class: summary.runner_class,
 				rps: summary.primary.rps.avg,
 				p95: summary.primary.latency.p95,
 			}))
@@ -485,6 +486,7 @@ export const repeatabilityPageData = Effect.fn('BenchData.repeatabilityPage')(fu
 			targetId,
 			name: display.name,
 			note: display.note,
+			api: display.api,
 			isOurs: isDrizzleRsTarget(summaries[0]),
 			min: Math.min(...values),
 			max: Math.max(...values),

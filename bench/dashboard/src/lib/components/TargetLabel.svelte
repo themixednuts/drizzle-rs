@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ApiTag from './ApiTag.svelte';
 	import Hint from './Hint.svelte';
 	import { cn } from '#lib/utils.js';
 	import type { TargetDisplay } from '#lib/target-display';
@@ -11,6 +12,9 @@
 	 * was dropped: the note carries kind/driver/prepared (and states an in-process cache in full),
 	 * the dialect gets its own column wherever there is one, and the full attribute list — runner OS
 	 * included — is on the tooltip and in the accessible name.
+	 *
+	 * The one chip that survived is the drizzle-rs API tag, because it is the only attribute that
+	 * distinguishes two otherwise identically-named rows on the same database.
 	 */
 	let {
 		display,
@@ -29,17 +33,20 @@
 </script>
 
 <div class={cn('min-w-0', className)}>
-	<svelte:element
-		this={href ? 'a' : 'span'}
-		{href}
-		class={cn(
-			'text-lead font-medium',
-			accent ? 'text-link' : 'text-foreground',
-			href && 'hover:underline',
-		)}
-	>
-		{display.name}
-	</svelte:element>
+	<span class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+		<svelte:element
+			this={href ? 'a' : 'span'}
+			{href}
+			class={cn(
+				'text-lead font-medium',
+				accent ? 'text-link' : 'text-foreground',
+				href && 'hover:underline',
+			)}
+		>
+			{display.name}
+		</svelte:element>
+		<ApiTag api={display.api} />
+	</span>
 	{#if display.note}
 		<div class="text-meta text-muted-foreground mt-1">
 			<Hint hint="{targetId} — {display.detail}">{display.note}</Hint>

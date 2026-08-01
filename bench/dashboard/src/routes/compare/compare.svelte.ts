@@ -10,7 +10,7 @@ import {
 	type CompareCategoryColumn,
 } from '#lib/compare';
 import type { SelectOption } from '#lib/components/SelectField.svelte';
-import { fmtDate, shortHash } from '#lib/format';
+import { fmtDate, runStamp, shortHash } from '#lib/format';
 import { runTitle } from '#lib/run-name';
 import {
 	deltaDirection,
@@ -161,6 +161,30 @@ export class ComparePageState {
 			deltaDirection: deltaDirection(delta),
 			deltaTitle: `${deltaSentence(delta, 'This library', 'drizzle-rs', words)} on ${this.categoryLabel}`,
 		};
+	}
+
+	/**
+	 * The distinct machines a section's rows came off, one entry per runner OS.
+	 *
+	 * A family that ran as a single CI job has exactly one; a family whose shards landed on
+	 * different VMs has more than one, and that is the case the amber callout above the table is
+	 * about. The shard timestamps ride along on each badge's tooltip.
+	 */
+	sectionMachines(section: CompareSection): { os: string; detail: string }[] {
+		const byOs = new Map<string, string[]>();
+		for (const shard of section.shards) {
+			const stamps = byOs.get(shard.os);
+			const stamp = runStamp(shard.run_id);
+			if (stamps) {
+				if (!stamps.includes(stamp)) stamps.push(stamp);
+			} else {
+				byOs.set(shard.os, [stamp]);
+			}
+		}
+		return [...byOs].map(([os, stamps]) => ({
+			os,
+			detail: `shard${stamps.length === 1 ? '' : 's'} ${stamps.join(', ')}`,
+		}));
 	}
 
 	formatValue = (value: number, category: CompareCategory = this.category): string => {
