@@ -60,6 +60,14 @@ inputs:
       cargo build (or build-lock wait) happens between measured trials.
     required: false
     default: ''
+  runner-features:
+    description: >-
+      Extra cargo features to build `bench-runner` with. A family whose builtin
+      targets sit behind a feature gate (libsql) must set this: the prebuilt
+      binary becomes `$BENCH_RUNNER_BIN`, and one built without the feature
+      rejects that family's target ids.
+    required: false
+    default: ''
   trials:
     description: Override the class default trial count. Empty keeps the class default.
     required: false
@@ -117,11 +125,16 @@ runs:
       shell: bash
       env:
         MANIFESTS: ${{ inputs.prebuild-manifests }}
+        RUNNER_FEATURES: ${{ inputs.runner-features }}
       run: |
         # One release build up front. Target specs invoke the runner as
         # `$BENCH_RUNNER_BIN`, and external targets are launched from prebuilt
         # release binaries, so nothing compiles once measurement starts.
-        cargo build --release -p bench-runner
+        features_arg=()
+        if [[ -n "$RUNNER_FEATURES" ]]; then
+          features_arg=(--features "$RUNNER_FEATURES")
+        fi
+        cargo build --release -p bench-runner "${features_arg[@]}"
 
         bin="$GITHUB_WORKSPACE/target/release/bench-runner"
         if [[ "$RUNNER_OS" == "Windows" ]]; then
