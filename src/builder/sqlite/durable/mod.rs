@@ -75,8 +75,21 @@
 //!   derives this when the `serde` feature is enabled.
 //! - **Transactions and nested savepoints** are supported via
 //!   [`Drizzle::transaction`] and [`Transaction::savepoint`].
+//!
+//! # Statement caching
+//!
+//! This driver does not keep a statement cache because the platform exposes no
+//! statement to cache. A Durable Object's `SqlStorage` surface is
+//! `exec(query, bindings)` and `exec_raw` — there is no prepare step and no
+//! handle that survives a call, so drizzle has no way to hold parse work
+//! across executions. Any reuse happens inside the Durable Object runtime,
+//! below this API and outside drizzle's control.
+//!
+//! [`prepare`](crate::drizzle_prepare_impl) still helps here: it renders the
+//! SQL and fixes the parameter layout once, so a loop re-binds instead of
+//! re-rendering. It just cannot skip the storage engine's own parse.
 
-mod prepared;
+pub(crate) mod prepared;
 
 use ::worker::{SqlStorage, SqlStorageValue};
 use drizzle_core::error::DrizzleError;

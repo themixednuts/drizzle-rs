@@ -114,7 +114,7 @@
 //! # Ok(()) }
 //! ```
 
-mod prepared;
+pub(crate) mod prepared;
 
 use core::marker::PhantomData;
 use std::sync::OnceLock;
@@ -168,7 +168,7 @@ pub struct Drizzle<Schema = ()> {
 /// Lazy decoded row cursor for postgres sync queries.
 pub type Rows<R> = DecodeRows<Row, R>;
 
-fn postgres_sync_materialize_params<'p>(
+pub(crate) fn postgres_sync_materialize_params<'p>(
     params: &[&'p PostgresValue<'_>],
 ) -> (SmallVec<[Type; 8]>, SmallVec<[&'p (dyn ToSql + Sync); 8]>) {
     let mut param_types = SmallVec::with_capacity(params.len());
@@ -428,6 +428,12 @@ impl<Schema> Drizzle<Schema> {
         Schema: Copy,
         F: FnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
+        // Resolved before the transaction borrows the client mutably; sharing the
+        // connection's identity and cache lets statements prepared inside the
+        // transaction serve later transactions and the connection runner.
+        let client_id = self.client_id();
+        let statement_cache = self.statement_cache();
+
         let builder = self.client.build_transaction();
         let builder = if tx_type == PostgresTransactionType::default() {
             builder
@@ -443,7 +449,7 @@ impl<Schema> Drizzle<Schema> {
         drizzle_core::drizzle_trace_tx!("begin", "postgres.sync");
         let tx = builder.start()?;
 
-        let transaction = Transaction::new(tx, tx_type, self.schema);
+        let transaction = Transaction::new(tx, tx_type, self.schema, client_id, statement_cache);
         sync_transaction(
             transaction,
             "postgres.sync",

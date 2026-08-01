@@ -230,6 +230,28 @@ impl ClientStatementCache {
         Ok(statement)
     }
 
+    /// Resolves a statement for a query running inside a transaction.
+    ///
+    /// Shares the connection's cache rather than keeping a per-transaction one:
+    /// a `Statement` is bound to the *session*, not the transaction, and
+    /// PostgreSQL does not roll back the prepared-statement catalog. A statement
+    /// first prepared inside a transaction therefore stays valid after that
+    /// transaction commits, rolls back, or rolls back to a savepoint, so later
+    /// transactions and the connection runner reuse the same Parse.
+    pub(crate) async fn transaction_statement(
+        &self,
+        tx: &tokio_postgres::Transaction<'_>,
+        sql: &str,
+        param_types: &[Type],
+    ) -> Result<Statement, tokio_postgres::Error> {
+        if let Some(statement) = self.lookup(sql, param_types) {
+            return Ok(statement);
+        }
+        let statement = tx.prepare_typed(sql, param_types).await?;
+        self.store(sql, param_types, &statement);
+        Ok(statement)
+    }
+
     fn lookup(&self, sql: &str, param_types: &[Type]) -> Option<Statement> {
         let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
         let pos = cache.iter().position(|cached| {

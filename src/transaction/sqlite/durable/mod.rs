@@ -39,6 +39,11 @@ pub type TransactionBuilder<'tx, Schema, Builder, State> =
         State,
     >;
 
+use crate::builder::sqlite::durable::prepared;
+use drizzle_core::prepared::prepare_render;
+
+crate::drizzle_tx_prepare_impl!();
+
 /// Transaction handle for a Durable Object's SQL storage.
 ///
 /// Provides the same query-building surface as

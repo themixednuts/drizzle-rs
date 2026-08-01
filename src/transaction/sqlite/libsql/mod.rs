@@ -32,6 +32,11 @@ pub type TransactionBuilder<'tx, Schema, Builder, State> =
         State,
     >;
 
+use crate::builder::sqlite::libsql::prepared;
+use drizzle_core::prepared::prepare_render;
+
+crate::drizzle_tx_prepare_impl!();
+
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 pub struct Transaction<Schema = ()> {
     tx: libsql::Transaction,

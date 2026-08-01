@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 use tokio_postgres::{Row, Transaction as TokioPgTransaction};
 
+use crate::builder::postgres::tokio_postgres::prepared::ClientStatementCache;
 use crate::transaction::savepoint::{AsyncSavepointState, async_savepoint};
 
 /// Returns an error indicating the transaction has already been consumed.
@@ -19,7 +20,8 @@ use drizzle_postgres::builder::{
 };
 use drizzle_postgres::common::PostgresTransactionType;
 use drizzle_postgres::values::PostgresValue;
-use smallvec::SmallVec;
+
+use crate::builder::postgres::tokio_postgres::tokio_postgres_materialize_params as materialize_params;
 
 /// `tokio_postgres`-specific transaction builder. See
 /// [`crate::transaction::postgres::typestate::TransactionBuilder`] for the
@@ -33,12 +35,18 @@ pub type TransactionBuilder<'tx, 'conn, Schema, Builder, State> =
         State,
     >;
 
+use crate::builder::postgres::tokio_postgres::prepared;
+use drizzle_core::prepared::prepare_render;
+
+crate::drizzle_tx_prepare_impl!('conn);
+
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 pub struct Transaction<'conn, Schema = ()> {
     tx: RefCell<Option<TokioPgTransaction<'conn>>>,
     tx_type: PostgresTransactionType,
     savepoints: AsyncSavepointState,
     schema: Schema,
+    statement_cache: ClientStatementCache,
 }
 
 impl<Schema> std::fmt::Debug for Transaction<'_, Schema> {
@@ -56,12 +64,14 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         tx: TokioPgTransaction<'conn>,
         tx_type: PostgresTransactionType,
         schema: Schema,
+        statement_cache: ClientStatementCache,
     ) -> Self {
         Self {
             tx: RefCell::new(Some(tx)),
             tx_type,
             savepoints: AsyncSavepointState::new(),
             schema,
+            statement_cache,
         }
     }
 
@@ -149,23 +159,24 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     {
         self.savepoints.ensure_usable()?;
         let query_sql = query.to_sql();
-        let (sql, param_refs) = {
+        let (sql, params) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.execute");
             let (sql, params) = query_sql.build();
             drizzle_core::drizzle_trace_query!(&sql, params.len());
-
-            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-                .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            (sql, param_refs)
+            (sql, params)
         };
+        let (param_types, param_refs) = materialize_params(&params);
 
         let tx_ref = self.tx.borrow();
         let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let statement = self
+            .statement_cache
+            .transaction_statement(tx, &sql, &param_types)
+            .await
+            .map_err(DrizzleError::from)?;
         Ok(tx
-            .execute(&sql, &param_refs[..])
+            .execute(&statement, &param_refs[..])
             .await
             .map_err(DrizzleError::from)?)
     }
@@ -184,24 +195,25 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     {
         self.savepoints.ensure_usable()?;
         let sql = query.to_sql();
-        let (sql_str, param_refs) = {
+        let (sql_str, params) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.all");
             let (sql_str, params) = sql.build();
             drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-
-            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-                .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            (sql_str, param_refs)
+            (sql_str, params)
         };
+        let (param_types, param_refs) = materialize_params(&params);
 
         let tx_ref = self.tx.borrow();
         let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let statement = self
+            .statement_cache
+            .transaction_statement(tx, &sql_str, &param_types)
+            .await
+            .map_err(DrizzleError::from)?;
 
         let rows = tx
-            .query(&sql_str, &param_refs[..])
+            .query(&statement, &param_refs[..])
             .await
             .map_err(DrizzleError::from)?;
 
@@ -226,24 +238,25 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     {
         self.savepoints.ensure_usable()?;
         let sql = query.to_sql();
-        let (sql_str, param_refs) = {
+        let (sql_str, params) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.get");
             let (sql_str, params) = sql.build();
             drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-
-            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-                .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            (sql_str, param_refs)
+            (sql_str, params)
         };
+        let (param_types, param_refs) = materialize_params(&params);
 
         let tx_ref = self.tx.borrow();
         let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let statement = self
+            .statement_cache
+            .transaction_statement(tx, &sql_str, &param_types)
+            .await
+            .map_err(DrizzleError::from)?;
 
         let row = tx
-            .query_one(&sql_str, &param_refs[..])
+            .query_one(&statement, &param_refs[..])
             .await
             .map_err(DrizzleError::from)?;
 
@@ -280,24 +293,26 @@ where
     /// Runs the query and returns the number of affected rows
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         self.runner.savepoints.ensure_usable()?;
-        let (sql_str, param_refs) = {
+        let (sql_str, params) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.execute");
             let (sql_str, params) = self.builder.sql.build();
             drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-
-            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-                .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            (sql_str, param_refs)
+            (sql_str, params)
         };
+        let (param_types, param_refs) = materialize_params(&params);
 
         let tx_ref = self.runner.tx.borrow();
         let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let statement = self
+            .runner
+            .statement_cache
+            .transaction_statement(tx, &sql_str, &param_types)
+            .await
+            .map_err(DrizzleError::from)?;
 
         Ok(tx
-            .execute(&sql_str, &param_refs[..])
+            .execute(&statement, &param_refs[..])
             .await
             .map_err(DrizzleError::from)?)
     }
@@ -312,23 +327,25 @@ where
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         self.runner.savepoints.ensure_usable()?;
-        let (sql_str, param_refs) = {
+        let (sql_str, params) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.all");
             let (sql_str, params) = self.builder.sql.build();
             drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-
-            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-                .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            (sql_str, param_refs)
+            (sql_str, params)
         };
+        let (param_types, param_refs) = materialize_params(&params);
 
         let tx_ref = self.runner.tx.borrow();
         let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let statement = self
+            .runner
+            .statement_cache
+            .transaction_statement(tx, &sql_str, &param_types)
+            .await
+            .map_err(DrizzleError::from)?;
         let rows = tx
-            .query(&sql_str, &param_refs[..])
+            .query(&statement, &param_refs[..])
             .await
             .map_err(DrizzleError::from)?;
 
@@ -352,23 +369,25 @@ where
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         self.runner.savepoints.ensure_usable()?;
-        let (sql_str, param_refs) = {
+        let (sql_str, params) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.get");
             let (sql_str, params) = self.builder.sql.build();
             drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-
-            let param_refs: SmallVec<[&(dyn tokio_postgres::types::ToSql + Sync); 8]> = params
-                .iter()
-                .map(|&p| p as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            (sql_str, param_refs)
+            (sql_str, params)
         };
+        let (param_types, param_refs) = materialize_params(&params);
 
         let tx_ref = self.runner.tx.borrow();
         let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let statement = self
+            .runner
+            .statement_cache
+            .transaction_statement(tx, &sql_str, &param_types)
+            .await
+            .map_err(DrizzleError::from)?;
         let row = tx
-            .query_one(&sql_str, &param_refs[..])
+            .query_one(&statement, &param_refs[..])
             .await
             .map_err(DrizzleError::from)?;
 

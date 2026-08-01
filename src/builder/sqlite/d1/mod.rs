@@ -71,8 +71,23 @@
 //! - **Row decoding is serde-based.** Rows come back as column-keyed objects,
 //!   so `SelectX` models must implement `serde::Deserialize`. `SQLiteFromRow`
 //!   derives this when the `serde` feature is enabled.
+//!
+//! # Statement caching
+//!
+//! This driver does not keep a statement cache, and there is nothing useful to
+//! cache. `D1Database::prepare` does not parse anything: it builds a JS
+//! statement object inside the Worker, and the SQL text still crosses the HTTP
+//! boundary to D1 on every `run`/`all`/`first`. The parse happens server side,
+//! per request, and D1 hands back no handle that would let a later call skip
+//! it.
+//!
+//! Caching `D1PreparedStatement` values would therefore save a JS object
+//! allocation and nothing else, while adding a per-connection map to a type
+//! that is not `Send`/`Sync`. Batch multiple statements with
+//! [`Drizzle::batch`] instead — that removes whole round trips, which is where
+//! the cost actually is.
 
-mod prepared;
+pub(crate) mod prepared;
 
 use ::worker::{D1Database, D1PreparedStatement};
 use drizzle_core::error::DrizzleError;
