@@ -687,7 +687,9 @@ jobs:
           npm install --no-audit --no-fund --prefix "$RUNNER_TEMP/wrangler" 'wrangler@^4.116.0'
           wrangler="$RUNNER_TEMP/wrangler/node_modules/.bin/wrangler"
 
+          # --remote is load-bearing: wrangler v4 defaults `r2 object put` to
+          # LOCAL simulated storage, which "succeeds" while publishing nothing.
           find bench-out/dashboard-data -type f | sort | while read -r file; do
             key="${file#bench-out/dashboard-data/}"
-            "$wrangler" r2 object put "$R2_BUCKET/$key" --file "$file"
+            "$wrangler" r2 object put "$R2_BUCKET/$key" --file "$file" --remote
           done
