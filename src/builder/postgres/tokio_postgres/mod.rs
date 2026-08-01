@@ -148,7 +148,7 @@
 //! # Ok(()) }
 //! ```
 
-mod prepared;
+pub(crate) mod prepared;
 
 use std::sync::Arc;
 
@@ -218,7 +218,7 @@ impl<S: Clone> Clone for Drizzle<S> {
 /// Lazy decoded row cursor for tokio-postgres queries.
 pub type Rows<R> = DecodeRows<Row, R>;
 
-fn tokio_postgres_materialize_params<'p>(
+pub(crate) fn tokio_postgres_materialize_params<'p>(
     params: &[&'p PostgresValue<'_>],
 ) -> (SmallVec<[Type; 8]>, SmallVec<[&'p (dyn ToSql + Sync); 8]>) {
     let mut param_types = SmallVec::with_capacity(params.len());
@@ -482,7 +482,7 @@ impl<Schema> Drizzle<Schema> {
         // Transaction in Drop by queuing ROLLBACK on the client. If the user
         // future below is dropped, this wrapper is dropped with it and the
         // inner transaction's Drop handles rollback.
-        let transaction = Transaction::new(tx, tx_type, self.schema);
+        let transaction = Transaction::new(tx, tx_type, self.schema, self.statement_cache.clone());
 
         match f(&transaction).await {
             Ok(value) => {

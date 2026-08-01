@@ -113,21 +113,57 @@ impl StatementCache {
             return client.prepare_typed(sql, param_types);
         };
 
-        {
-            let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
-            if let Some(pos) = cache.iter().position(|cached| {
-                cached.client_id == client_id
-                    && cached.sql.as_ref() == sql
-                    && cached.param_types.as_ref() == param_types
-            }) {
-                let cached = cache.remove(pos);
-                let statement = cached.statement.clone();
-                cache.insert(0, cached);
-                return Ok(statement);
-            }
+        if let Some(statement) = self.lookup(client_id, sql, param_types) {
+            return Ok(statement);
         }
-
         let statement = client.prepare_typed(sql, param_types)?;
+        Ok(self.store(client_id, sql, param_types, statement))
+    }
+
+    /// Resolves a statement for a query running inside a transaction.
+    ///
+    /// Shares the connection's cache rather than keeping a per-transaction one:
+    /// a `Statement` is bound to the *session*, not the transaction, and
+    /// PostgreSQL does not roll back the prepared-statement catalog. A statement
+    /// first prepared inside a transaction therefore stays valid after that
+    /// transaction commits, rolls back, or rolls back to a savepoint, so later
+    /// transactions and the connection runner reuse the same Parse.
+    pub(crate) fn transaction_statement(
+        &self,
+        client_id: u64,
+        tx: &mut postgres::Transaction<'_>,
+        sql: &str,
+        param_types: &[Type],
+    ) -> Result<Statement, postgres::Error> {
+        if let Some(statement) = self.lookup(client_id, sql, param_types) {
+            return Ok(statement);
+        }
+        let statement = tx.prepare_typed(sql, param_types)?;
+        Ok(self.store(client_id, sql, param_types, statement))
+    }
+
+    fn lookup(&self, client_id: u64, sql: &str, param_types: &[Type]) -> Option<Statement> {
+        let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
+        let pos = cache.iter().position(|cached| {
+            cached.client_id == client_id
+                && cached.sql.as_ref() == sql
+                && cached.param_types.as_ref() == param_types
+        })?;
+        let cached = cache.remove(pos);
+        let statement = cached.statement.clone();
+        cache.insert(0, cached);
+        Some(statement)
+    }
+
+    /// Inserts `statement` unless a concurrent caller already cached this key,
+    /// in which case the already-cached statement wins and is returned.
+    fn store(
+        &self,
+        client_id: u64,
+        sql: &str,
+        param_types: &[Type],
+        statement: Statement,
+    ) -> Statement {
         let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
         if let Some(pos) = cache.iter().position(|cached| {
             cached.client_id == client_id
@@ -137,7 +173,7 @@ impl StatementCache {
             let cached = cache.remove(pos);
             let statement = cached.statement.clone();
             cache.insert(0, cached);
-            return Ok(statement);
+            return statement;
         }
         cache.insert(
             0,
@@ -149,7 +185,7 @@ impl StatementCache {
             },
         );
         cache.truncate(STATEMENT_CACHE_CAP);
-        Ok(statement)
+        statement
     }
 }
 
