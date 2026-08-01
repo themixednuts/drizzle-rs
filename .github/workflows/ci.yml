@@ -318,5 +318,11 @@ jobs:
       - name: Check D1 driver
         run: cargo check -p drizzle --target wasm32-unknown-unknown --no-default-features --features d1
 
+      - name: Check D1 driver (query)
+        run: cargo check -p drizzle --target wasm32-unknown-unknown --no-default-features --features d1,query
+
       - name: Check Durable driver
         run: cargo check -p drizzle --target wasm32-unknown-unknown --no-default-features --features durable
+
+      - name: Check Durable driver (query)
+        run: cargo check -p drizzle --target wasm32-unknown-unknown --no-default-features --features durable,query
