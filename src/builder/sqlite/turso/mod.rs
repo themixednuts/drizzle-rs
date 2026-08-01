@@ -187,6 +187,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     {
         let query = query.to_sql();
         let (sql_str, params) = query.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<turso::Value> = params
             .iter()
             .copied()
@@ -213,6 +214,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<turso::Value> = params
             .iter()
             .copied()
@@ -246,6 +248,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<turso::Value> = params
             .iter()
             .copied()
@@ -270,6 +273,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<turso::Value> = params
             .iter()
             .copied()
@@ -322,6 +326,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         Schema: Copy,
         F: AsyncFnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
+        drizzle_core::drizzle_trace_tx!("begin", "sqlite.turso");
         let tx = self.conn.transaction_with_behavior(tx_type.into()).await?;
         let transaction = Transaction::new(tx, tx_type, self.schema);
 
@@ -331,14 +336,17 @@ impl<Schema> common::Drizzle<Connection, Schema> {
 
         match outcome {
             Ok(Ok(result)) => {
+                drizzle_core::drizzle_trace_tx!("commit", "sqlite.turso");
                 transaction.commit().await?;
                 Ok(result)
             }
             Ok(Err(e)) => {
+                drizzle_core::drizzle_trace_tx!("rollback", "sqlite.turso");
                 let _ = transaction.rollback().await;
                 Err(e)
             }
             Err(panic_payload) => {
+                drizzle_core::drizzle_trace_tx!("rollback", "sqlite.turso");
                 let _ = transaction.rollback().await;
                 std::panic::resume_unwind(panic_payload);
             }
@@ -805,6 +813,7 @@ impl<'a, Schema, T, Rels, Cl>
             false,
         );
         let (sql, bind_params) = query_sql.build();
+        drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
         let params: Vec<turso::Value> = bind_params
             .iter()
@@ -933,6 +942,7 @@ impl<'a, Schema, T, Rels, Cl>
             true,
         );
         let (sql, bind_params) = query_sql.build();
+        drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
         let params: Vec<turso::Value> = bind_params
             .iter()
@@ -1195,6 +1205,7 @@ where
     /// Runs the query and returns the number of affected rows
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<turso::Value> = params
             .iter()
             .copied()
@@ -1216,6 +1227,7 @@ where
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<turso::Value> = params
             .iter()
             .copied()
@@ -1247,6 +1259,7 @@ where
         for<'r> <Rw as TryFrom<&'r turso::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<turso::Value> = params
             .iter()
             .copied()
@@ -1270,6 +1283,7 @@ where
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<turso::Value> = params
             .iter()
             .copied()

@@ -153,6 +153,7 @@ impl<Schema> Transaction<Schema> {
         self.savepoints.ensure_usable()?;
         let query = query.to_sql();
         let (sql, params) = query.build();
+        drizzle_core::drizzle_trace_query!(&sql, params.len());
         let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
         Ok(self.tx.execute(&sql, params).await?)
@@ -186,6 +187,7 @@ impl<Schema> Transaction<Schema> {
         self.savepoints.ensure_usable()?;
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
         let rows = self.tx.query(&sql_str, params).await?;
@@ -206,6 +208,7 @@ impl<Schema> Transaction<Schema> {
         self.savepoints.ensure_usable()?;
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
         let mut rows = self.tx.query(&sql_str, params).await?;
@@ -249,6 +252,7 @@ where
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         self.runner.savepoints.ensure_usable()?;
         let (sql, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql, params.len());
         let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
         Ok(self.runner.tx.execute(&sql, params).await?)
@@ -265,6 +269,7 @@ where
     {
         self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
         let mut rows = self.runner.tx.query(&sql_str, params).await?;
         let mut decoded = Vec::new();
@@ -285,6 +290,7 @@ where
     {
         self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
         let rows = self.runner.tx.query(&sql_str, params).await?;
@@ -302,6 +308,7 @@ where
     {
         self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
         let mut rows = self.runner.tx.query(&sql_str, params).await?;
         rows.next().await?.map_or_else(

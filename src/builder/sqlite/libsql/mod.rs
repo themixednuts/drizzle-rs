@@ -178,6 +178,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     {
         let query = query.to_sql();
         let (sql, params) = query.build();
+        drizzle_core::drizzle_trace_query!(&sql, params.len());
         let driver_params: Vec<libsql::Value> = params
             .iter()
             .copied()
@@ -201,6 +202,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<libsql::Value> = params
             .iter()
             .copied()
@@ -237,6 +239,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<libsql::Value> = params
             .iter()
             .copied()
@@ -262,6 +265,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<libsql::Value> = params
             .iter()
             .copied()
@@ -318,16 +322,19 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         Schema: Copy,
         F: AsyncFnOnce(&Transaction<Schema>) -> Result<R, DrizzleError>,
     {
+        drizzle_core::drizzle_trace_tx!("begin", "sqlite.libsql");
         let tx = self.conn.transaction_with_behavior(tx_type.into()).await?;
         let transaction = Transaction::new(tx, tx_type, self.schema);
 
         let result = f(&transaction).await;
         match result {
             Ok(val) => {
+                drizzle_core::drizzle_trace_tx!("commit", "sqlite.libsql");
                 transaction.commit().await?;
                 Ok(val)
             }
             Err(e) => {
+                drizzle_core::drizzle_trace_tx!("rollback", "sqlite.libsql");
                 let _ = transaction.rollback().await;
                 Err(e)
             }
@@ -738,6 +745,7 @@ impl<'a, Schema, T, Rels, Cl>
             false,
         );
         let (sql, bind_params) = query_sql.build();
+        drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
         let params: Vec<libsql::Value> = bind_params
             .iter()
@@ -874,6 +882,7 @@ impl<'a, Schema, T, Rels, Cl>
             true,
         );
         let (sql, bind_params) = query_sql.build();
+        drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
         let params: Vec<libsql::Value> = bind_params
             .iter()
@@ -1153,6 +1162,7 @@ where
     /// Runs the query and returns the number of affected rows
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<libsql::Value> = params
             .iter()
             .copied()
@@ -1175,6 +1185,7 @@ where
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<libsql::Value> = params
             .iter()
             .copied()
@@ -1209,6 +1220,7 @@ where
         for<'r> <Rw as TryFrom<&'r libsql::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<libsql::Value> = params
             .iter()
             .copied()
@@ -1234,6 +1246,7 @@ where
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = self.builder.sql.build();
+        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<libsql::Value> = params
             .iter()
             .copied()
