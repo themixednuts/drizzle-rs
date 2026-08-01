@@ -7,7 +7,7 @@ mod spacetime_pg;
 mod sqlite;
 mod turso;
 
-use crate::cli::{Load, SeedPostgres, Serve, Suite};
+use crate::cli::{Load, SeedPostgres, SeedSqlite, Serve, Suite};
 use crate::clock::now_rfc3339;
 use crate::code::{Code, Fail};
 use crate::jsonio;
@@ -220,15 +220,35 @@ pub async fn serve(args: Serve) -> Result<Code, Fail> {
     Ok(Code::Success)
 }
 
-pub(crate) async fn seed_postgres(args: SeedPostgres) -> Result<Code, Fail> {
-    let seed = args
-        .seed
+/// Dataset seed for the `seed-*` subcommands: the flag wins, then the
+/// environment the runner injects into external targets, then the contract
+/// default.
+fn seed_or_default(explicit: Option<u64>) -> u64 {
+    explicit
         .or_else(|| {
             std::env::var("BENCH_SEED")
                 .ok()
                 .and_then(|raw| raw.parse().ok())
         })
-        .unwrap_or(42);
+        .unwrap_or(42)
+}
+
+/// Build and seed a SQLite database file for an external target.
+///
+/// The TypeScript SQLite targets cannot run drizzle-seed themselves, so they
+/// shell out here before announcing `LISTENING`. The rows are therefore the
+/// same ones the built-in rusqlite targets serve.
+pub(crate) async fn seed_sqlite(args: SeedSqlite) -> Result<Code, Fail> {
+    let seed = seed_or_default(args.seed);
+    let db = args.db;
+    tokio::task::spawn_blocking(move || sqlite::create_and_seed(&db, seed))
+        .await
+        .map_err(|err| Fail::new(Code::RunFail, format!("sqlite seed panicked: {err}")))??;
+    Ok(Code::Success)
+}
+
+pub(crate) async fn seed_postgres(args: SeedPostgres) -> Result<Code, Fail> {
+    let seed = seed_or_default(args.seed);
     let database_url = pg_url();
     tokio::task::spawn_blocking(move || pg_sync::seed_database_url(&database_url, seed))
         .await
