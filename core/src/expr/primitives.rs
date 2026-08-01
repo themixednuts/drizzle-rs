@@ -273,6 +273,16 @@ where
     type SQLType = T::SQLType;
     type Nullable = Null;
     type Aggregate = T::Aggregate;
+
+    /// A missing optional condition contributes nothing to a condition list.
+    fn to_condition_sql(&self) -> Option<SQL<'a, V>> {
+        self.as_ref().map(<T as Expr<'a, V>>::to_expr_sql)
+    }
+
+    /// A missing optional condition contributes nothing to a condition list.
+    fn into_condition_sql(self) -> Option<SQL<'a, V>> {
+        self.map(<T as Expr<'a, V>>::into_expr_sql)
+    }
 }
 
 // =============================================================================
@@ -295,6 +305,14 @@ where
 
     fn into_expr_sql(self) -> SQL<'a, V> {
         (*self).to_expr_sql()
+    }
+
+    fn to_condition_sql(&self) -> Option<SQL<'a, V>> {
+        (**self).to_condition_sql()
+    }
+
+    fn into_condition_sql(self) -> Option<SQL<'a, V>> {
+        (*self).to_condition_sql()
     }
 }
 

@@ -124,7 +124,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: BooleanLike,
 {
-    SQL::from(Token::WHERE).append(condition.into_sql())
+    SQL::from(Token::WHERE).append(condition.into_expr_sql())
 }
 
 /// Helper function to create a GROUP BY clause
@@ -160,7 +160,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: BooleanLike,
 {
-    SQL::from(Token::HAVING).append(condition.into_sql())
+    SQL::from(Token::HAVING).append(condition.into_expr_sql())
 }
 
 /// Helper function to create an ORDER BY clause

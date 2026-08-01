@@ -981,7 +981,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate>
     where
         S: Expr<'a, V>,
-        Self::SQLType: Compatible<S::SQLType>,
+        Self::SQLType: Compatible<S::SQLType> + Compatible<Self::SQLType>,
     {
         crate::expr::in_subquery(self, subquery)
     }
@@ -993,7 +993,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate>
     where
         S: Expr<'a, V>,
-        Self::SQLType: Compatible<S::SQLType>,
+        Self::SQLType: Compatible<S::SQLType> + Compatible<Self::SQLType>,
     {
         crate::expr::not_in_subquery(self, subquery)
     }

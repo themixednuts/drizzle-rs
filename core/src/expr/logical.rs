@@ -14,9 +14,12 @@
 //! condition1 | condition2   // BitOr
 //! !condition                 // Not
 //!
-//! // Multiple conditions (iterator)
-//! and_all([condition1, condition2, condition3])
-//! or_all([condition1, condition2, condition3])
+//! // Multiple conditions, flat (see the `cond` module)
+//! all((condition1, condition2, condition3))
+//! any((condition1, condition2, condition3))
+//!
+//! // A tuple is already a conjunction wherever a condition is accepted
+//! query.r#where((condition1, condition2, condition3))
 //! # "####;
 //! ```
 

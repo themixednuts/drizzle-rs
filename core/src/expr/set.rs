@@ -39,10 +39,18 @@ pub trait InSubqueryLhs<'a, V: SQLParam, M>: Sized {
 }
 
 /// Single expression: `in_subquery(users.id, sub)`
+///
+/// The self-compatibility bound is what keeps condition tuples out of this
+/// impl. A tuple of conditions is an expression too, so without it a tuple of
+/// boolean-typed columns would match both this impl and the row-value impl
+/// below and the marker `M` could not be inferred. Every SQL type that names a
+/// column is compatible with itself; `Conjunction`, the SQL type of a condition
+/// list, deliberately is not.
 impl<'a, V, E> InSubqueryLhs<'a, V, Single> for E
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
+    E::SQLType: Compatible<E::SQLType>,
 {
     type SQLType = E::SQLType;
     type Aggregate = E::Aggregate;

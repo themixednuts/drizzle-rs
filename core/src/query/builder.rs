@@ -174,7 +174,7 @@ impl<'a, V: SQLParam, T, Rels, Cols, Ord, Lim>
         V: 'a,
     {
         QueryBuilder {
-            where_sql: condition.to_sql(),
+            where_sql: condition.into_expr_sql(),
             order_by_sql: self.order_by_sql,
             limit: self.limit,
             offset: self.offset,

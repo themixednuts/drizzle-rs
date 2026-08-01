@@ -10,6 +10,9 @@ error[E0277]: `drizzle::postgres::types::Text` is not a boolean SQL type
 help: the following other types implement trait `BooleanLike`
   --> types/src/sql/mod.rs
    |
+   | impl BooleanLike for Conjunction {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Conjunction`
+...
    | impl BooleanLike for crate::sqlite::types::Integer {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::sqlite::types::Integer`
 ...
@@ -36,6 +39,9 @@ error[E0277]: `drizzle::postgres::types::Text` is not a boolean SQL type
 help: the following other types implement trait `BooleanLike`
   --> types/src/sql/mod.rs
    |
+   | impl BooleanLike for Conjunction {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Conjunction`
+...
    | impl BooleanLike for crate::sqlite::types::Integer {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::sqlite::types::Integer`
 ...
