@@ -1,0 +1,76 @@
+name: Resolve DATABASE_URL
+description: >-
+  Build the libpq connection string for a job's PostgreSQL service container.
+  Under act the service port mapping is discovered from the local docker daemon
+  and the reachable host is probed, because act does not populate the
+  `job.services` context the way GitHub-hosted runners do.
+
+inputs:
+  port:
+    description: 'Host port published by the service, i.e. `job.services.postgres.ports[5432]`.'
+    required: false
+    default: ''
+  service-id:
+    description: 'Container id of the service, i.e. `job.services.postgres.id`.'
+    required: false
+    default: ''
+  user:
+    description: PostgreSQL user.
+    required: false
+    default: postgres
+  password:
+    description: PostgreSQL password.
+    required: false
+    default: postgres
+  database:
+    description: PostgreSQL database name.
+    required: false
+    default: drizzle_test
+
+outputs:
+  url:
+    description: libpq keyword/value connection string.
+    value: ${{ steps.resolve.outputs.url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve DATABASE_URL
+      id: resolve
+      shell: bash
+      env:
+        PG_PORT: ${{ inputs.port }}
+        PG_SERVICE_ID: ${{ inputs.service-id }}
+        PG_USER: ${{ inputs.user }}
+        PG_PASSWORD: ${{ inputs.password }}
+        PG_DATABASE: ${{ inputs.database }}
+      run: |
+        pg_host="localhost"
+        pg_port="$PG_PORT"
+        if [[ -n "${ACT:-}" ]]; then
+          pg_host="127.0.0.1"
+          pg_id="$PG_SERVICE_ID"
+          if [[ -z "$pg_id" ]] && command -v docker >/dev/null 2>&1; then
+            pg_id="$(
+              docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' \
+              | awk '$2 ~ /^act-/ && $0 ~ /->5432\/tcp/ { print $1; exit }'
+            )"
+          fi
+          if [[ -n "$pg_id" ]] && command -v docker >/dev/null 2>&1; then
+            mapped="$(docker port "$pg_id" 5432/tcp 2>/dev/null | head -n1)"
+            if [[ "$mapped" == *:* ]]; then
+              pg_port="${mapped##*:}"
+            fi
+          fi
+          for host in host.docker.internal 127.0.0.1 localhost; do
+            if (echo >"/dev/tcp/${host}/${pg_port}") >/dev/null 2>&1; then
+              pg_host="$host"
+              break
+            fi
+          done
+        fi
+        if [[ -z "$pg_port" ]]; then
+          pg_port="5432"
+        fi
+        echo "postgres host=${pg_host} port=${pg_port}"
+        echo "url=host=${pg_host} port=${pg_port} user=${PG_USER} password=${PG_PASSWORD} dbname=${PG_DATABASE}" >> "$GITHUB_OUTPUT"

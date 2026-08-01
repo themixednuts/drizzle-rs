@@ -26,6 +26,7 @@ members = [
   "types",
   "cli",
   "seed",
+  "bench/runner",
 ]
 exclude = [
   "examples/orm-comparison/drizzle",
@@ -33,6 +34,10 @@ exclude = [
   "examples/orm-comparison/diesel",
   "examples/orm-comparison/seaorm",
   "examples/orm-comparison/toasty",
+  "bench/targets/spacetime-module",
+  "bench/targets/spacetime-native-rs",
+  "bench/targets/rust-pg-orms",
+  "bench/targets/toasty",
 ]
 
 [workspace.package]

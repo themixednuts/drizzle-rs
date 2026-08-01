@@ -1,0 +1,281 @@
+[
+  {
+    "version": "v1",
+    "id": "drizzle-rs-turso",
+    "display": {
+      "name": "Drizzle RS Turso",
+      "description": "drizzle-rs select builder on every route via the async Turso driver; file-backed temp database with journal_mode=mvcc"
+    },
+    "group": "drizzle-rs",
+    "lang": "rust",
+    "runtime": {
+      "name": "rust",
+      "ver": "1.95.0"
+    },
+    "orm": {
+      "name": "drizzle-rs",
+      "ver": "0.1.15"
+    },
+    "driver": {
+      "name": "turso",
+      "ver": "0.7.2"
+    },
+    "proc": {
+      "mode": "single",
+      "workers": 1
+    },
+    "pool": {
+      "max": 4,
+      "min": 1,
+      "acquire_ms": 50
+    },
+    "db": {
+      "profile": "sqlite",
+      "hash": "sha256:7bd4286ec47f86445e5ef9f6cc6357a27974cb8313766444fa5cbeff8eb83d43",
+      "prepared": true
+    },
+    "wire": {
+      "format": "json"
+    },
+    "fair": {
+      "workers": 1,
+      "pool": 4,
+      "db": "sqlite",
+      "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
+      "contract": "v1"
+    },
+    "contract": {
+      "ver": "v1"
+    },
+    "server": {
+      "cmd": [
+        "$BENCH_RUNNER_BIN",
+        "serve"
+      ]
+    },
+    "parity": {
+      "cmd": [
+        "$BENCH_RUNNER_BIN",
+        "parity"
+      ]
+    },
+    "load": {
+      "cmd": [
+        "$BENCH_RUNNER_BIN",
+        "load"
+      ]
+    },
+    "sql_variant": "drizzle-rs select builder on every route, including the employees self-join (table alias); /orders-with-details is an order page plus an order_id-range detail fetch aggregated in Rust, the same shape the raw turso baselines use"
+  },
+  {
+    "version": "v1",
+    "id": "turso-sqlite-prepared",
+    "display": {
+      "name": "Turso SQLite (prepared)",
+      "description": "Turso driver baseline using the shared SQLite schema with cached prepared statements; file-backed temp database with journal_mode=mvcc"
+    },
+    "group": "turso",
+    "lang": "rust",
+    "runtime": {
+      "name": "rust",
+      "ver": "1.95.0"
+    },
+    "orm": {
+      "name": "none",
+      "ver": "0"
+    },
+    "driver": {
+      "name": "turso",
+      "ver": "0.7.2"
+    },
+    "proc": {
+      "mode": "single",
+      "workers": 1
+    },
+    "pool": {
+      "max": 4,
+      "min": 1,
+      "acquire_ms": 50
+    },
+    "db": {
+      "profile": "sqlite-prepared",
+      "hash": "sha256:7bd4286ec47f86445e5ef9f6cc6357a27974cb8313766444fa5cbeff8eb83d43",
+      "prepared": true
+    },
+    "wire": {
+      "format": "json"
+    },
+    "fair": {
+      "workers": 1,
+      "pool": 4,
+      "db": "sqlite",
+      "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
+      "contract": "v1"
+    },
+    "contract": {
+      "ver": "v1"
+    },
+    "server": {
+      "cmd": [
+        "$BENCH_RUNNER_BIN",
+        "serve"
+      ]
+    },
+    "parity": {
+      "cmd": [
+        "$BENCH_RUNNER_BIN",
+        "parity"
+      ]
+    },
+    "load": {
+      "cmd": [
+        "$BENCH_RUNNER_BIN",
+        "load"
+      ]
+    },
+    "sql_variant": "hand-written SQL; /orders-with-details is an order page plus an order_id-range detail fetch aggregated in Rust"
+  },
+  {
+    "version": "v1",
+    "id": "turso-sqlite-unprepared",
+    "display": {
+      "name": "Turso SQLite (unprepared)",
+      "description": "Turso driver baseline using the shared SQLite schema with direct query execution; file-backed temp database with journal_mode=mvcc"
+    },
+    "group": "turso",
+    "lang": "rust",
+    "runtime": {
+      "name": "rust",
+      "ver": "1.95.0"
+    },
+    "orm": {
+      "name": "none",
+      "ver": "0"
+    },
+    "driver": {
+      "name": "turso",
+      "ver": "0.7.2"
+    },
+    "proc": {
+      "mode": "single",
+      "workers": 1
+    },
+    "pool": {
+      "max": 4,
+      "min": 1,
+      "acquire_ms": 50
+    },
+    "db": {
+      "profile": "sqlite-unprepared",
+      "hash": "sha256:7bd4286ec47f86445e5ef9f6cc6357a27974cb8313766444fa5cbeff8eb83d43",
+      "prepared": false
+    },
+    "wire": {
+      "format": "json"
+    },
+    "fair": {
+      "workers": 1,
+      "pool": 4,
+      "db": "sqlite",
+      "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
+      "contract": "v1"
+    },
+    "contract": {
+      "ver": "v1"
+    },
+    "server": {
+      "cmd": [
+        "$BENCH_RUNNER_BIN",
+        "serve"
+      ]
+    },
+    "parity": {
+      "cmd": [
+        "$BENCH_RUNNER_BIN",
+        "parity"
+      ]
+    },
+    "load": {
+      "cmd": [
+        "$BENCH_RUNNER_BIN",
+        "load"
+      ]
+    },
+    "sql_variant": "hand-written SQL; /orders-with-details is an order page plus an order_id-range detail fetch aggregated in Rust"
+  },
+  {
+    "version": "v1",
+    "id": "toasty-turso",
+    "display": {
+      "name": "Toasty Turso",
+      "description": "Toasty ORM against a file-backed Turso database seeded at startup with the same drizzle-seed generator, seed and row counts as the built-in Turso targets; file-backed temp database with journal_mode=mvcc"
+    },
+    "group": "toasty",
+    "lang": "rust",
+    "runtime": {
+      "name": "rust",
+      "ver": "1.95.0"
+    },
+    "orm": {
+      "name": "toasty",
+      "ver": "0.9.0"
+    },
+    "driver": {
+      "name": "turso",
+      "ver": "0.7.2",
+      "transport": "embedded"
+    },
+    "proc": {
+      "mode": "single",
+      "workers": 1
+    },
+    "pool": {
+      "max": 4,
+      "min": 1,
+      "acquire_ms": 50
+    },
+    "db": {
+      "profile": "sqlite",
+      "hash": "sha256:7bd4286ec47f86445e5ef9f6cc6357a27974cb8313766444fa5cbeff8eb83d43",
+      "prepared": true
+    },
+    "wire": {
+      "format": "json"
+    },
+    "fair": {
+      "workers": 1,
+      "pool": 4,
+      "db": "sqlite",
+      "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
+      "contract": "v1"
+    },
+    "contract": {
+      "ver": "v1"
+    },
+    "server": {
+      "cmd": [
+        "cargo",
+        "run",
+        "-q",
+        "--release",
+        "--manifest-path",
+        "bench/targets/toasty/Cargo.toml",
+        "--",
+        "toasty-turso"
+      ]
+    },
+    "parity": {
+      "cmd": [
+        "$BENCH_RUNNER_BIN",
+        "parity"
+      ]
+    },
+    "load": {
+      "cmd": [
+        "$BENCH_RUNNER_BIN",
+        "load"
+      ]
+    },
+    "sql_variant": "toasty 0.9 exposes no user-reachable JOIN and no GROUP BY/SUM: related rows (recipient, supplier, detail product names) are extra round trips and /orders-with-details is an order page plus an order_id-range detail fetch aggregated in Rust; ILIKE is PostgreSQL-only in toasty so the search routes use SQLite LIKE, matching the built-in Turso targets"
+  }
+]

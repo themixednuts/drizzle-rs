@@ -1,9 +1,11 @@
 /target
+node_modules/
 .claude/
 /tmp
 /.idea/
 /queries/
 .codemogger/
+.codex-logs/
 
 # act (local GitHub Actions runner)
 .env
@@ -13,3 +15,10 @@ tmpclaude-*
 # release-plz generates the config schema on demand for editor autocomplete:
 #   release-plz generate-schema
 .schema/
+
+# benchmark and dashboard generated artifacts
+/bench-out/
+/bench/targets/**/target/
+/bench/dashboard/.svelte-kit/
+/bench/dashboard/.wrangler/
+/bench/dashboard/.codex-logs/

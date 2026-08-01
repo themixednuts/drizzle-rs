@@ -1,0 +1,8 @@
+{
+  "_comment": "act event payload for a publish-class manual dispatch, used by `just act::runner-pg-all`. `ref` must be main because the PUBLISH_TO_R2 expression checks it, and the input values are strings because that is what GitHub sends in the webhook payload (act keeps the declared default when a boolean input arrives as a JSON bool). benchmark_size=single is the cheapest publish-class workload; publish class never resolves to the short preview workload by design.",
+  "ref": "refs/heads/main",
+  "inputs": {
+    "benchmark_size": "single",
+    "publish_to_r2": "true"
+  }
+}

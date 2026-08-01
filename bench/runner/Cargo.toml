@@ -1,0 +1,46 @@
+[package]
+name = "bench-runner"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "bench-runner"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["std"] }
+time = { workspace = true, features = ["std", "formatting"] }
+sha2 = { workspace = true }
+rand = { workspace = true }
+axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "macros", "query", "tokio"] }
+drizzle = { workspace = true, features = ["postgres-sync", "tokio-postgres", "rusqlite", "turso", "chrono", "query"] }
+# The benchmark handlers select up to 19 columns in a single tuple. The umbrella
+# `drizzle` crate does not forward the tuple-arity features, so depend on
+# drizzle-core directly purely to turn on `col32` (features unify across the
+# build graph). Not otherwise used by this crate.
+drizzle-core = { workspace = true, features = ["std", "col32"] }
+drizzle-seed = { workspace = true, default-features = false, features = ["sqlite", "postgres", "chrono"] }
+chrono = { workspace = true, features = ["serde"] }
+postgres = { workspace = true, features = ["with-chrono-0_4"] }
+tokio-postgres = { workspace = true, features = ["with-chrono-0_4"] }
+rusqlite = { workspace = true }
+turso = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+sysinfo = { version = "0.39.6" }
+jsonschema = { version = "0.49.2", default-features = false, features = ["resolve-file"] }
+parquet = { version = "59.1.0", default-features = false }
+tempfile = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2" }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+serde_json = { workspace = true, features = ["std"] }

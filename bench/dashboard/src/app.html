@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en" %theme%>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<!--
+			Marks the document as scripted before first paint, so progressive-enhancement affordances
+			(the submit buttons on the filter forms) are hidden without ever having been painted.
+			Everything still works with this script blocked; the buttons simply stay visible.
+		-->
+		<script>
+			document.documentElement.classList.add('js');
+		</script>
+		%sveltekit.head%
+	</head>
+	<body>
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>

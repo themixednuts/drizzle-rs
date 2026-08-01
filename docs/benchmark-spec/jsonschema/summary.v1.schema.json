@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bench.drizzle.rs/schema/summary.v1.schema.json",
+  "title": "Summary v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "run_id",
+    "suite",
+    "target_id",
+    "primary",
+    "spread",
+    "saturation"
+  ],
+  "properties": {
+    "version": {
+      "const": "v1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}T[0-9]{6}Z_[a-f0-9]{7,40}_[a-z0-9-]+$"
+    },
+    "suite": {
+      "type": "string",
+      "enum": [
+        "throughput-http"
+      ]
+    },
+    "target_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "group": {
+      "type": "string",
+      "minLength": 1
+    },
+    "primary": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Cross-trial aggregate. Every field is the MEDIAN across trials of that trial's own aggregate, which itself covers only phase=hold buckets weighted by request count. The `avg` key names are historical; read them as `median`.",
+      "required": [
+        "rps",
+        "latency",
+        "cpu",
+        "err"
+      ],
+      "properties": {
+        "rps": {
+          "$ref": "#/$defs/avg_peak"
+        },
+        "latency": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Percentiles are computed from the merged raw hold-phase samples of each trial, then medianed across trials. They are not medians of per-bucket percentiles.",
+          "required": [
+            "avg",
+            "p90",
+            "p95",
+            "p99",
+            "p999"
+          ],
+          "properties": {
+            "avg": {
+              "type": "number",
+              "minimum": 0
+            },
+            "p50": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Measured median latency. Absent in artifacts written before p50 was recorded."
+            },
+            "p90": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Measured 90th percentile. Earlier runs interpolated this from avg and p95; that value was fabricated and is no longer produced."
+            },
+            "p95": {
+              "type": "number",
+              "minimum": 0
+            },
+            "p99": {
+              "type": "number",
+              "minimum": 0
+            },
+            "p999": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        },
+        "cpu": {
+          "$ref": "#/$defs/avg_peak"
+        },
+        "mem": {
+          "$ref": "#/$defs/avg_peak"
+        },
+        "err": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Total hold-phase errors divided by total hold-phase requests, medianed across trials."
+        }
+      }
+    },
+    "spread": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trials",
+        "aggregate",
+        "rps",
+        "p95",
+        "variance"
+      ],
+      "properties": {
+        "trials": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "aggregate": {
+          "type": "string",
+          "description": "How per-trial values were combined into `primary`. Always `median` today.",
+          "enum": [
+            "median",
+            "mean"
+          ]
+        },
+        "rps": {
+          "$ref": "#/$defs/range"
+        },
+        "p95": {
+          "$ref": "#/$defs/range"
+        },
+        "variance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rps",
+            "p95",
+            "cpu",
+            "err"
+          ],
+          "properties": {
+            "rps": {
+              "$ref": "#/$defs/variance_metric"
+            },
+            "p95": {
+              "$ref": "#/$defs/variance_metric"
+            },
+            "cpu": {
+              "$ref": "#/$defs/variance_metric"
+            },
+            "mem": {
+              "$ref": "#/$defs/variance_metric"
+            },
+            "err": {
+              "$ref": "#/$defs/variance_metric"
+            }
+          }
+        },
+        "boxplot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rps",
+            "p95",
+            "cpu",
+            "err"
+          ],
+          "properties": {
+            "rps": {
+              "$ref": "#/$defs/box_metric"
+            },
+            "p95": {
+              "$ref": "#/$defs/box_metric"
+            },
+            "cpu": {
+              "$ref": "#/$defs/box_metric"
+            },
+            "mem": {
+              "$ref": "#/$defs/box_metric"
+            },
+            "err": {
+              "$ref": "#/$defs/box_metric"
+            }
+          }
+        },
+        "ci95": {
+          "deprecated": true,
+          "description": "Removed. A 512-resample bootstrap over 3-5 trials reports the resampling noise, not a confidence interval for the target. Use spread.rps / spread.p95 and spread.boxplot instead.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rps": {
+              "$ref": "#/$defs/range"
+            },
+            "p95": {
+              "$ref": "#/$defs/range"
+            }
+          }
+        }
+      }
+    },
+    "saturation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Knee of the throughput/latency curve, computed per trial and medianed. A bucket counts as degraded once its p95 exceeds 2x the median p95 of that trial's lowest-VU hold plateau; the knee is the third consecutive degraded bucket, or the highest-throughput hold bucket if none qualifies.",
+      "required": [
+        "knee_rps",
+        "knee_p95"
+      ],
+      "properties": {
+        "knee_rps": {
+          "type": "number",
+          "minimum": 0
+        },
+        "knee_p95": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "avg_peak": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "avg",
+        "peak"
+      ],
+      "properties": {
+        "avg": {
+          "type": "number",
+          "minimum": 0
+        },
+        "peak": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "min",
+        "max"
+      ],
+      "properties": {
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        }
+      }
+    },
+    "box_metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "min",
+        "q1",
+        "median",
+        "q3",
+        "max",
+        "samples"
+      ],
+      "properties": {
+        "min": {
+          "type": "number",
+          "minimum": 0
+        },
+        "q1": {
+          "type": "number",
+          "minimum": 0
+        },
+        "median": {
+          "type": "number",
+          "minimum": 0
+        },
+        "q3": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max": {
+          "type": "number",
+          "minimum": 0
+        },
+        "samples": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "variance_metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "stdev",
+        "samples"
+      ],
+      "properties": {
+        "value": {
+          "type": "number",
+          "minimum": 0
+        },
+        "stdev": {
+          "type": "number",
+          "minimum": 0
+        },
+        "samples": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}
