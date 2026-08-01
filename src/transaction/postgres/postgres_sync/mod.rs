@@ -45,6 +45,11 @@ pub type TransactionBuilder<'tx, 'conn, Schema, Builder, State> =
         State,
     >;
 
+use crate::builder::postgres::postgres_sync::prepared;
+use drizzle_core::prepared::prepare_render;
+
+crate::drizzle_tx_prepare_impl!('conn);
+
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 pub struct Transaction<'conn, Schema = ()> {
     tx: RefCell<Option<PgTransaction<'conn>>>,

@@ -72,7 +72,7 @@
 //!   so `SelectX` models must implement `serde::Deserialize`. `SQLiteFromRow`
 //!   derives this when the `serde` feature is enabled.
 
-mod prepared;
+pub(crate) mod prepared;
 
 use ::worker::{D1Database, D1PreparedStatement};
 use drizzle_core::error::DrizzleError;

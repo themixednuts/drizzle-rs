@@ -6,6 +6,8 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
 use drizzle::core::expr::*;
+use drizzle::error::DrizzleError;
+use drizzle::sqlite::connection::SQLiteTransactionType;
 use drizzle::sqlite::prelude::*;
 
 use crate::common::schema::sqlite::{InsertSimple, SelectSimple, SimpleSchema};
@@ -296,4 +298,71 @@ fn test_prepared_insert_multiple_times(db: &mut TestDb<SimpleSchema>) {
     for i in 0..5 {
         assert!(results.iter().any(|r| r.name == format!("BatchUser{}", i)));
     }
+}
+
+#[drizzle::test]
+fn test_prepare_inside_transaction(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("Alice"),
+            InsertSimple::new("Bob"),
+            InsertSimple::new("Charlie"),
+        ])
+        .execute();
+
+    #[derive(SQLiteFromRow, Default)]
+    struct PartialSimple {
+        name: String,
+    }
+
+    // Building the statement inside the closure is the point: before
+    // `.prepare()` existed on the transaction builder it had to be hoisted
+    // outside and threaded in.
+    let found = result!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
+        let name = simple.name.placeholder("name");
+        let by_name = tx
+            .select(simple.name)
+            .from(simple)
+            .r#where(eq(simple.name, name))
+            .prepare();
+
+        let mut hits: Vec<String> = Vec::new();
+        for wanted in ["Alice", "Charlie"] {
+            let rows: Vec<PartialSimple> = result!(by_name.all(tx.inner(), [name.bind(wanted)]))?;
+            hits.extend(rows.into_iter().map(|row| row.name));
+        }
+        Ok(hits)
+    }));
+
+    assert_eq!(
+        found.unwrap(),
+        vec!["Alice".to_string(), "Charlie".to_string()]
+    );
+}
+
+#[drizzle::test]
+fn test_prepared_write_inside_transaction_rolls_back(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    let result: Result<(), DrizzleError> =
+        result!(db.transaction(SQLiteTransactionType::Immediate, |tx| {
+            let ghost = tx
+                .insert(simple)
+                .values([InsertSimple::new("Ghost")])
+                .prepare();
+            result!(ghost.execute(tx.inner(), []))?;
+            Err(DrizzleError::Other("rollback".to_string().into()))
+        }));
+
+    assert!(result.is_err());
+
+    // The prepared write ran through the transaction, so it rolls back with it.
+    let rows: Vec<SelectSimple> = db.select(()).from(simple).all();
+    assert!(
+        rows.is_empty(),
+        "expected rollback, found {} rows",
+        rows.len()
+    );
 }

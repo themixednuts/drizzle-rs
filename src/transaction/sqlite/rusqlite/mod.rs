@@ -39,6 +39,11 @@ pub type TransactionBuilder<'tx, 'conn, Schema, Builder, State> =
         State,
     >;
 
+use crate::builder::sqlite::rusqlite::prepared;
+use drizzle_core::prepared::prepare_render;
+
+crate::drizzle_tx_prepare_impl!('conn);
+
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 #[derive(Debug)]
 pub struct Transaction<'conn, Schema = ()> {

@@ -122,7 +122,7 @@
 //! # Ok(()) }
 //! ```
 
-mod prepared;
+pub(crate) mod prepared;
 
 use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
 use drizzle_core::prepared::prepare_render;

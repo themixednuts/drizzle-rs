@@ -76,7 +76,7 @@
 //! - **Transactions and nested savepoints** are supported via
 //!   [`Drizzle::transaction`] and [`Transaction::savepoint`].
 
-mod prepared;
+pub(crate) mod prepared;
 
 use ::worker::{SqlStorage, SqlStorageValue};
 use drizzle_core::error::DrizzleError;
