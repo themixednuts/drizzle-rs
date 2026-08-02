@@ -106,4 +106,8 @@ jobs:
 
           echo "Dispatching CI for release PR #$PR_NUMBER ($HEAD_REF @ $HEAD_SHA)."
           gh workflow run ci.yml --ref "$HEAD_REF"
-          gh workflow run benchmarks.yml --ref "$HEAD_REF"
+          gh workflow run criterion.yml --ref "$HEAD_REF"
+          # `preview` mirrors what a pull_request event would pick, so the
+          # release PR gets the same short benchmark workload as any other PR
+          # instead of the multi-hour `full` workflow_dispatch default.
+          gh workflow run runners.yml --ref "$HEAD_REF" -f benchmark_size=preview
