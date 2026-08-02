@@ -212,3 +212,177 @@ where
             .ok_or(DrizzleError::NotFound)
     }
 }
+
+// =============================================================================
+// Query API: transaction-scoped find_many / find_first
+// =============================================================================
+
+#[cfg(feature = "query")]
+use crate::builder::sqlite::common;
+
+#[cfg(feature = "query")]
+impl<Schema> Transaction<Schema> {
+    /// Creates a relational query builder scoped to this transaction.
+    ///
+    /// Rows read here observe the transaction's uncommitted state.
+    pub fn query<'a, T>(&self, _table: T) -> common::DrizzleQueryBuilder<'_, 'a, &Self, Schema, T>
+    where
+        T: drizzle_core::query::QueryTable,
+    {
+        common::DrizzleQueryBuilder {
+            runner: self,
+            builder: drizzle_core::query::QueryBuilder::new(),
+            _schema: std::marker::PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "query")]
+impl<Schema> common::RelationalPreparedDriver for &Transaction<Schema> {
+    type PreparedDriver = SqlStorage;
+}
+
+// AllColumns: base decoded from the JSON "__base" column
+#[cfg(feature = "query")]
+impl<'db, 'a, Schema, T, Rels, Cl>
+    common::DrizzleQueryBuilder<
+        'db,
+        'a,
+        &'db Transaction<Schema>,
+        Schema,
+        T,
+        Rels,
+        drizzle_core::query::AllColumns,
+        Cl,
+    >
+{
+    /// Executes the query and returns all matching rows with their relations.
+    pub fn find_many(
+        self,
+    ) -> drizzle_core::error::Result<
+        Vec<
+            <Rels as drizzle_core::query::BuildRow<
+                <T as drizzle_core::query::QueryTable>::Select,
+            >>::Row,
+        >,
+    >
+    where
+        T: drizzle_core::query::QueryTable,
+        <T as drizzle_core::query::QueryTable>::Select: drizzle_core::query::FromJsonObject,
+        Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::Select>
+            + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
+        <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
+    {
+        crate::builder::sqlite::durable::relational_find_many(self.runner.inner(), self.builder)
+    }
+}
+
+// AllColumns find_first: requires no LIMIT set yet (internally adds LIMIT 1)
+#[cfg(feature = "query")]
+impl<'db, 'a, Schema, T, Rels, W, Ord>
+    common::DrizzleQueryBuilder<
+        'db,
+        'a,
+        &'db Transaction<Schema>,
+        Schema,
+        T,
+        Rels,
+        drizzle_core::query::AllColumns,
+        drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
+    >
+{
+    /// Executes the query and returns the first matching row, or `None`.
+    pub fn find_first(
+        self,
+    ) -> drizzle_core::error::Result<
+        Option<
+            <Rels as drizzle_core::query::BuildRow<
+                <T as drizzle_core::query::QueryTable>::Select,
+            >>::Row,
+        >,
+    >
+    where
+        T: drizzle_core::query::QueryTable,
+        <T as drizzle_core::query::QueryTable>::Select: drizzle_core::query::FromJsonObject,
+        Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::Select>
+            + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
+        <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
+    {
+        Ok(self.limit(1).find_many()?.into_iter().next())
+    }
+}
+
+// PartialColumns: base decoded from the JSON "__base" column of selected columns
+#[cfg(feature = "query")]
+impl<'db, 'a, Schema, T, Rels, Cl>
+    common::DrizzleQueryBuilder<
+        'db,
+        'a,
+        &'db Transaction<Schema>,
+        Schema,
+        T,
+        Rels,
+        drizzle_core::query::PartialColumns,
+        Cl,
+    >
+{
+    /// Executes the query and returns all matching rows with their relations.
+    ///
+    /// Base columns are deserialized from a JSON `"__base"` column.
+    pub fn find_many(
+        self,
+    ) -> drizzle_core::error::Result<
+        Vec<
+            <Rels as drizzle_core::query::BuildRow<
+                <T as drizzle_core::query::QueryTable>::PartialSelect,
+            >>::Row,
+        >,
+    >
+    where
+        T: drizzle_core::query::QueryTable,
+        <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
+        Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::PartialSelect>
+            + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
+        <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
+    {
+        crate::builder::sqlite::durable::relational_find_many_partial(
+            self.runner.inner(),
+            self.builder,
+        )
+    }
+}
+
+// PartialColumns find_first: requires no LIMIT set yet
+#[cfg(feature = "query")]
+impl<'db, 'a, Schema, T, Rels, W, Ord>
+    common::DrizzleQueryBuilder<
+        'db,
+        'a,
+        &'db Transaction<Schema>,
+        Schema,
+        T,
+        Rels,
+        drizzle_core::query::PartialColumns,
+        drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
+    >
+{
+    /// Executes the query and returns the first matching row, or `None`.
+    pub fn find_first(
+        self,
+    ) -> drizzle_core::error::Result<
+        Option<
+            <Rels as drizzle_core::query::BuildRow<
+                <T as drizzle_core::query::QueryTable>::PartialSelect,
+            >>::Row,
+        >,
+    >
+    where
+        T: drizzle_core::query::QueryTable,
+        <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
+        Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::PartialSelect>
+            + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
+        <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
+    {
+        Ok(self.limit(1).find_many()?.into_iter().next())
+    }
+}
