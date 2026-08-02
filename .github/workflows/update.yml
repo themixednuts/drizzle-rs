@@ -105,9 +105,29 @@ jobs:
           HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid --jq '.headRefOid')
 
           echo "Dispatching CI for release PR #$PR_NUMBER ($HEAD_REF @ $HEAD_SHA)."
-          gh workflow run ci.yml --ref "$HEAD_REF"
-          gh workflow run criterion.yml --ref "$HEAD_REF"
+
+          # Each dispatch is independent: one failing must not skip the others.
+          # A rename leaves the old workflow registered until GitHub catches up,
+          # so a dispatch can transiently resolve to a workflow that no longer
+          # exists on the ref — report it and keep going, then fail at the end.
+          dispatch_failed=0
+          dispatch() {
+            local workflow="$1"
+            shift
+            if ! gh workflow run "$workflow" --ref "$HEAD_REF" "$@"; then
+              echo "::warning::failed to dispatch $workflow for $HEAD_REF"
+              dispatch_failed=1
+            fi
+          }
+
+          dispatch ci.yml
+          dispatch criterion.yml
           # `preview` mirrors what a pull_request event would pick, so the
           # release PR gets the same short benchmark workload as any other PR
           # instead of the multi-hour `full` workflow_dispatch default.
-          gh workflow run runners.yml --ref "$HEAD_REF" -f benchmark_size=preview
+          dispatch runners.yml -f benchmark_size=preview
+
+          if (( dispatch_failed )); then
+            echo "::error::one or more CI dispatches failed for release PR #$PR_NUMBER"
+            exit 1
+          fi

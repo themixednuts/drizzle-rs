@@ -778,7 +778,35 @@ jobs:
 
           # --remote is load-bearing: wrangler v4 defaults `r2 object put` to
           # LOCAL simulated storage, which "succeeds" while publishing nothing.
-          find bench-out/dashboard-data -type f | sort | while read -r file; do
+          #
+          # A store is hundreds of objects, so a single transient upstream blip
+          # (R2 has returned 10001 "internal error" here) would otherwise abort
+          # the whole publish under `set -e` and leave the bucket half-written.
+          # Each object retries with backoff; index.json is uploaded last so a
+          # partial store never becomes visible to the dashboard.
+          put_object() {
+            local key="$1" file="$2" attempt
+            for attempt in 1 2 3 4 5; do
+              if "$wrangler" r2 object put "$R2_BUCKET/$key" --file "$file" --remote; then
+                return 0
+              fi
+              echo "::warning::r2 put failed for $key (attempt $attempt), retrying"
+              sleep $(( attempt * 5 ))
+            done
+            echo "::error::r2 put failed for $key after 5 attempts"
+            return 1
+          }
+
+          failed=0
+          while read -r file; do
             key="${file#bench-out/dashboard-data/}"
-            "$wrangler" r2 object put "$R2_BUCKET/$key" --file "$file" --remote
-          done
+            [[ "$key" == "index.json" ]] && continue
+            put_object "$key" "$file" || failed=1
+          done < <(find bench-out/dashboard-data -type f | sort)
+
+          if (( failed )); then
+            echo "::error::one or more objects failed to publish; index.json withheld"
+            exit 1
+          fi
+
+          put_object "index.json" "bench-out/dashboard-data/index.json"
