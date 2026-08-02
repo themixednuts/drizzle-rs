@@ -23,7 +23,7 @@ pub use builder::{
 };
 pub use deser::{
     DeserializeStore, FromJsonColumn, FromJsonField, FromJsonObject, JsonBool, JsonObjectDecoder,
-    JsonOptionalBool,
+    JsonOptionalBool, JsonQueryRow,
 };
 pub use handle::RelationHandle;
 pub use row::QueryRow;

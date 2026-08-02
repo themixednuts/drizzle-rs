@@ -426,14 +426,50 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
     }
 }
 
+/// Declares which relational-query row shape a driver's connection consumes.
+///
+/// [`DrizzleQueryBuilder::prepare`] renders SQL once, generically, before any
+/// driver-specific code runs — so the connection type itself carries the
+/// shape decision:
+///
+/// - Native drivers (rusqlite, turso, libsql) read positional columns and
+///   decode the base model via `TryFrom<&Row>`, so base columns stay plain
+///   (`WRAP_BASE_JSON = false`).
+/// - The Cloudflare drivers (d1, durable) receive rows as column-keyed serde
+///   objects where text is the only lossless value transport (integers cross
+///   the JS boundary as `f64`; raw blob bytes don't match the hex contract of
+///   the generated decoders). They read the base model from a single
+///   `"__base"` JSON text column (`WRAP_BASE_JSON = true`) and decode rows
+///   through [`drizzle_core::query::JsonQueryRow`].
+///
+/// Sealed: the shape is a contract between `prepare()` and a driver's
+/// `find_many` / `find_first` executors, and only driver modules in this
+/// crate provide both sides.
+#[cfg(all(feature = "sqlite", feature = "query"))]
+pub trait QueryRowFormat: private::Sealed {
+    /// Whether `build_query_sql` must wrap base columns into `"__base"` JSON.
+    const WRAP_BASE_JSON: bool;
+}
+
+#[cfg(all(feature = "sqlite", feature = "query"))]
+pub(crate) mod private {
+    /// Seals [`QueryRowFormat`](super::QueryRowFormat).
+    pub trait Sealed {}
+}
+
 #[cfg(all(feature = "sqlite", feature = "query"))]
 impl<'db, 'a, Conn, Schema, T, Rels, Cl>
     DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::AllColumns, Cl>
 where
+    Conn: QueryRowFormat,
     T: drizzle_core::query::QueryTable,
     Rels: drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
 {
     /// Creates a prepared relational query.
+    ///
+    /// The SQL shape follows the connection type's [`QueryRowFormat`], so the
+    /// statement matches what that driver's prepared `find_many` /
+    /// `find_first` executors decode.
     pub fn prepare(
         self,
     ) -> DrizzlePreparedQuery<'a, Conn, T, Rels, drizzle_core::query::AllColumns> {
@@ -449,7 +485,7 @@ where
             builder.order_by_sql,
             builder.limit,
             builder.offset,
-            false,
+            Conn::WRAP_BASE_JSON,
         );
         DrizzlePreparedQuery {
             inner: drizzle_core::prepared::prepare_render(&query_sql),

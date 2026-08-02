@@ -10,6 +10,7 @@ use crate::error::DrizzleError;
 use crate::prelude::*;
 use crate::relation::RelationDef;
 
+use super::builder::BuildRow;
 use super::row::QueryRow;
 use super::store::RelEntry;
 
@@ -66,7 +67,7 @@ where
 
 /// Deserializes a `RelEntry` chain from relation JSON columns.
 pub trait DeserializeStore: Sized {
-    /// Reads relation JSON columns from a row reader.
+    /// Reads relation JSON columns from a positional row reader.
     ///
     /// Each relation column is parsed when its matching relation field is
     /// decoded.
@@ -76,6 +77,19 @@ pub trait DeserializeStore: Sized {
     fn from_json_columns<F>(next: &mut F) -> Result<Self, DrizzleError>
     where
         F: FnMut() -> Result<Option<String>, DrizzleError>;
+
+    /// Reads relation JSON columns through a by-name lookup.
+    ///
+    /// Each entry in the chain requests its own relation name, so callers
+    /// holding column-keyed rows need no positional bookkeeping. A lookup
+    /// result of `Ok(None)` means the column was SQL `NULL` or absent.
+    ///
+    /// # Errors
+    /// Returns `DrizzleError` if the lookup fails or a JSON column fails to
+    /// decode.
+    fn from_named_json_columns<F>(lookup: &mut F) -> Result<Self, DrizzleError>
+    where
+        F: FnMut(&str) -> Result<Option<String>, DrizzleError>;
 }
 
 impl DeserializeStore for () {
@@ -83,6 +97,14 @@ impl DeserializeStore for () {
     fn from_json_columns<F>(_next: &mut F) -> Result<Self, DrizzleError>
     where
         F: FnMut() -> Result<Option<String>, DrizzleError>,
+    {
+        Ok(())
+    }
+
+    #[inline]
+    fn from_named_json_columns<F>(_lookup: &mut F) -> Result<Self, DrizzleError>
+    where
+        F: FnMut(&str) -> Result<Option<String>, DrizzleError>,
     {
         Ok(())
     }
@@ -125,6 +147,17 @@ where
         let data = Data::from_json_column(json.as_deref(), Rel::NAME)
             .map_err(|e| DrizzleError::Other(format!("relation '{}': {e}", Rel::NAME).into()))?;
         let rest = Rest::from_json_columns(next)?;
+        Ok(Self::new(data, rest))
+    }
+
+    fn from_named_json_columns<F>(lookup: &mut F) -> Result<Self, DrizzleError>
+    where
+        F: FnMut(&str) -> Result<Option<String>, DrizzleError>,
+    {
+        let json = lookup(Rel::NAME)?;
+        let data = Data::from_json_column(json.as_deref(), Rel::NAME)
+            .map_err(|e| DrizzleError::Other(format!("relation '{}': {e}", Rel::NAME).into()))?;
+        let rest = Rest::from_named_json_columns(lookup)?;
         Ok(Self::new(data, rest))
     }
 }
@@ -356,6 +389,100 @@ where
     }
 }
 
+// =============================================================================
+// JSON-text row transport
+// =============================================================================
+
+/// A relational query row transported entirely as JSON text columns.
+///
+/// Produced by [`build_query_sql`](super::build_query_sql) with
+/// `wrap_base_json = true`: the base model arrives as a single `"__base"`
+/// JSON text column (BLOBs hex-encoded in SQL) and each relation as a
+/// `"__rel_<name>"` JSON text column.
+///
+/// This is the row shape for drivers whose rows are column-keyed serde
+/// objects rather than positional columns (Cloudflare D1 and Durable
+/// Objects). For those transports JSON text is also the only lossless value
+/// carrier: raw values cross the JS boundary as `f64`, truncating 64-bit
+/// integers, and raw blob bytes don't match the hex contract of the
+/// generated model decoders.
+#[derive(Debug)]
+pub struct JsonQueryRow {
+    /// JSON text of the `"__base"` column.
+    base: String,
+    /// `(relation name, JSON text)` pairs; `None` marks SQL `NULL`.
+    rels: Vec<(String, Option<String>)>,
+}
+
+impl JsonQueryRow {
+    /// Parses the base model and every relation, assembling the public row.
+    ///
+    /// Relations resolve by name in whatever order `Rels` declares them, so
+    /// the transported column order is irrelevant.
+    ///
+    /// # Errors
+    /// Returns `DrizzleError` if the base or a relation's JSON fails to
+    /// decode.
+    pub fn into_row<Base, Rels>(mut self) -> Result<Rels::Row, DrizzleError>
+    where
+        Base: FromJsonObject,
+        Rels: BuildRow<Base>,
+        Rels::Store: DeserializeStore,
+    {
+        let base = Base::from_json_str(&self.base, "base")?;
+        let store = Rels::Store::from_named_json_columns(&mut |name| Ok(self.take_rel(name)))?;
+        Ok(Rels::assemble(base, store))
+    }
+
+    /// Removes and returns the JSON text for `name`, once.
+    fn take_rel(&mut self, name: &str) -> Option<String> {
+        self.rels
+            .iter_mut()
+            .find(|(rel, _)| rel == name)
+            .and_then(|(_, json)| json.take())
+    }
+}
+
+impl<'de> Deserialize<'de> for JsonQueryRow {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct RowVisitor;
+
+        impl<'de> Visitor<'de> for RowVisitor {
+            type Value = JsonQueryRow;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a relational query row object")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let mut base = None;
+                let mut rels = Vec::new();
+
+                while let Some(key) = map.next_key::<Cow<'de, str>>()? {
+                    if key == "__base" {
+                        base = Some(map.next_value()?);
+                    } else if let Some(name) = key.strip_prefix("__rel_") {
+                        rels.push((name.to_owned(), map.next_value()?));
+                    } else {
+                        map.next_value::<IgnoredAny>()?;
+                    }
+                }
+
+                let base = base.ok_or_else(|| de::Error::missing_field("__base"))?;
+                Ok(JsonQueryRow { base, rels })
+            }
+        }
+
+        deserializer.deserialize_map(RowVisitor)
+    }
+}
+
 /// Deserializes JSON booleans that may be represented as `0` or `1`.
 pub struct JsonBool(pub bool);
 
@@ -493,5 +620,53 @@ where
         }
 
         deserializer.deserialize_any(JsonVecVisitor::<T>(PhantomData))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_row(json: &str) -> JsonQueryRow {
+        serde_json::from_str(json).expect("row should deserialize")
+    }
+
+    #[test]
+    fn json_query_row_splits_base_and_relation_columns() {
+        let mut row = parse_row(
+            r#"{"__base":"{\"id\":1}","__rel_posts":"[]","__rel_author":null,"noise":42}"#,
+        );
+
+        assert_eq!(row.base, r#"{"id":1}"#);
+        assert_eq!(row.take_rel("posts").as_deref(), Some("[]"));
+        assert_eq!(row.take_rel("posts"), None, "each relation decodes once");
+        assert_eq!(row.take_rel("author"), None, "SQL NULL maps to None");
+        assert_eq!(row.take_rel("missing"), None);
+    }
+
+    #[test]
+    fn json_query_row_requires_base_column() {
+        let error = serde_json::from_str::<JsonQueryRow>(r#"{"__rel_posts":"[]"}"#)
+            .expect_err("a row without __base is malformed");
+        assert!(error.to_string().contains("__base"));
+    }
+
+    #[test]
+    fn into_row_parses_base_json() {
+        let row = parse_row(r#"{"__base":"{\"id\":7,\"name\":\"a\"}"}"#);
+        let value = row
+            .into_row::<serde_json::Value, ()>()
+            .expect("base JSON should parse");
+        assert_eq!(value["id"], 7);
+        assert_eq!(value["name"], "a");
+    }
+
+    #[test]
+    fn into_row_reports_invalid_base_json() {
+        let row = parse_row(r#"{"__base":"not json"}"#);
+        let error = row
+            .into_row::<serde_json::Value, ()>()
+            .expect_err("invalid base JSON should fail");
+        assert!(error.to_string().contains("base"));
     }
 }
