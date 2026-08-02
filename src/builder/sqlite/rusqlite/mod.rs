@@ -655,13 +655,93 @@ impl common::QueryRowFormat for Connection {
     const WRAP_BASE_JSON: bool = false;
 }
 
+/// Runs an `AllColumns` relational query on `conn` and decodes every row.
+///
+/// Shared by the `&Drizzle` and `&Transaction` runner impls (a
+/// `rusqlite::Transaction` derefs to `Connection`).
+#[cfg(feature = "query")]
+pub(crate) fn relational_find_many<'a, T, Rels, Cl>(
+    conn: &Connection,
+    builder: drizzle_core::query::QueryBuilder<
+        'a,
+        SQLiteValue<'a>,
+        T,
+        Rels,
+        drizzle_core::query::AllColumns,
+        Cl,
+    >,
+) -> drizzle_core::error::Result<
+    Vec<<Rels as drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::Select>>::Row>,
+>
+where
+    T: drizzle_core::query::QueryTable,
+    <T as drizzle_core::query::QueryTable>::Select: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
+    for<'r> <<T as drizzle_core::query::QueryTable>::Select as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
+        Into<drizzle_core::error::DrizzleError>,
+    Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::Select>
+        + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
+    <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
+{
+    let num_base_cols = T::COLUMN_NAMES.len();
+
+    let mut rendered = Vec::new();
+    builder.relations.render_into(&mut rendered);
+    let query_sql = drizzle_core::query::build_query_sql(
+        T::TABLE_NAME,
+        T::COLUMN_NAMES,
+        T::BLOB_COLUMNS,
+        rendered,
+        builder.where_sql,
+        builder.order_by_sql,
+        builder.limit,
+        builder.offset,
+        false,
+    );
+    let (sql, bind_params) = query_sql.build();
+
+    drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
+
+    let mut stmt = conn
+        .prepare(&sql)
+        .with_query(|| QueryContext::new(&sql, &bind_params))?;
+    let mut raw_rows = stmt
+        .query(params_from_iter(bind_params.iter().copied()))
+        .with_query(|| QueryContext::new(&sql, &bind_params))?;
+    let mut results = Vec::new();
+
+    while let Some(row) = raw_rows
+        .next()
+        .with_query(|| QueryContext::new(&sql, &bind_params))?
+    {
+        let base =
+            <T as drizzle_core::query::QueryTable>::Select::try_from(row).map_err(Into::into)?;
+
+        let mut rel_col = num_base_cols;
+        let mut next_rel = || {
+            let json: Option<String> = row
+                .get(rel_col)
+                .map_err(drizzle_core::error::DrizzleError::from)?;
+            rel_col += 1;
+            Ok(json)
+        };
+        let store =
+            <Rels as drizzle_core::query::BuildStore>::Store::from_json_columns(&mut next_rel)?;
+
+        results.push(<Rels as drizzle_core::query::BuildRow<_>>::assemble(
+            base, store,
+        ));
+    }
+
+    Ok(results)
+}
+
 // AllColumns: read base from individual row columns via TryFrom<Row>
 #[cfg(feature = "query")]
-impl<'a, Schema, T, Rels, Cl>
+impl<'db, 'a, Schema, T, Rels, Cl>
     common::DrizzleQueryBuilder<
-        '_,
+        'db,
         'a,
-        Connection,
+        &'db Drizzle<Schema>,
         Schema,
         T,
         Rels,
@@ -688,70 +768,17 @@ impl<'a, Schema, T, Rels, Cl>
             + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
-        let num_base_cols = T::COLUMN_NAMES.len();
-
-        let builder = self.builder;
-        let mut rendered = Vec::new();
-        builder.relations.render_into(&mut rendered);
-        let query_sql = drizzle_core::query::build_query_sql(
-            T::TABLE_NAME,
-            T::COLUMN_NAMES,
-            T::BLOB_COLUMNS,
-            rendered,
-            builder.where_sql,
-            builder.order_by_sql,
-            builder.limit,
-            builder.offset,
-            false,
-        );
-        let (sql, bind_params) = query_sql.build();
-
-        drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
-
-        let mut stmt = self
-            .runner
-            .conn
-            .prepare(&sql)
-            .with_query(|| QueryContext::new(&sql, &bind_params))?;
-        let mut raw_rows = stmt
-            .query(params_from_iter(bind_params.iter().copied()))
-            .with_query(|| QueryContext::new(&sql, &bind_params))?;
-        let mut results = Vec::new();
-
-        while let Some(row) = raw_rows
-            .next()
-            .with_query(|| QueryContext::new(&sql, &bind_params))?
-        {
-            let base = <T as drizzle_core::query::QueryTable>::Select::try_from(row)
-                .map_err(Into::into)?;
-
-            let mut rel_col = num_base_cols;
-            let mut next_rel = || {
-                let json: Option<String> = row
-                    .get(rel_col)
-                    .map_err(drizzle_core::error::DrizzleError::from)?;
-                rel_col += 1;
-                Ok(json)
-            };
-            let store =
-                <Rels as drizzle_core::query::BuildStore>::Store::from_json_columns(&mut next_rel)?;
-
-            results.push(<Rels as drizzle_core::query::BuildRow<_>>::assemble(
-                base, store,
-            ));
-        }
-
-        Ok(results)
+        relational_find_many(&self.runner.conn, self.builder)
     }
 }
 
 // AllColumns find_first: requires no LIMIT set yet (internally adds LIMIT 1)
 #[cfg(feature = "query")]
-impl<'a, Schema, T, Rels, W, Ord>
+impl<'db, 'a, Schema, T, Rels, W, Ord>
     common::DrizzleQueryBuilder<
-        '_,
+        'db,
         'a,
-        Connection,
+        &'db Drizzle<Schema>,
         Schema,
         T,
         Rels,
@@ -782,13 +809,98 @@ impl<'a, Schema, T, Rels, W, Ord>
     }
 }
 
+/// Runs a `PartialColumns` relational query on `conn` and decodes every row.
+///
+/// Shared by the `&Drizzle` and `&Transaction` runner impls. Base columns are
+/// deserialized from a JSON `"__base"` column.
+#[cfg(feature = "query")]
+pub(crate) fn relational_find_many_partial<'a, T, Rels, Cl>(
+    conn: &Connection,
+    builder: drizzle_core::query::QueryBuilder<
+        'a,
+        SQLiteValue<'a>,
+        T,
+        Rels,
+        drizzle_core::query::PartialColumns,
+        Cl,
+    >,
+) -> drizzle_core::error::Result<
+    Vec<
+        <Rels as drizzle_core::query::BuildRow<
+            <T as drizzle_core::query::QueryTable>::PartialSelect,
+        >>::Row,
+    >,
+>
+where
+    T: drizzle_core::query::QueryTable,
+    <T as drizzle_core::query::QueryTable>::PartialSelect: drizzle_core::query::FromJsonObject,
+    Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::PartialSelect>
+        + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
+    <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
+{
+    let column_names = &builder.cols.columns;
+    let col_refs: Vec<&str> = column_names.clone();
+    let mut rendered = Vec::new();
+    builder.relations.render_into(&mut rendered);
+    let query_sql = drizzle_core::query::build_query_sql(
+        T::TABLE_NAME,
+        &col_refs,
+        T::BLOB_COLUMNS,
+        rendered,
+        builder.where_sql,
+        builder.order_by_sql,
+        builder.limit,
+        builder.offset,
+        true,
+    );
+    let (sql, bind_params) = query_sql.build();
+
+    drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
+
+    let mut stmt = conn
+        .prepare(&sql)
+        .with_query(|| QueryContext::new(&sql, &bind_params))?;
+    let mut raw_rows = stmt
+        .query(params_from_iter(bind_params.iter().copied()))
+        .with_query(|| QueryContext::new(&sql, &bind_params))?;
+    let mut results = Vec::new();
+
+    while let Some(row) = raw_rows
+        .next()
+        .with_query(|| QueryContext::new(&sql, &bind_params))?
+    {
+        // Column 0 is the JSON "__base" object
+        let base_json: String = row.get(0)?;
+        let base = <T as drizzle_core::query::QueryTable>::PartialSelect::from_json_str(
+            &base_json, "base",
+        )?;
+
+        let mut rel_col = 1usize;
+        let mut next_rel = || {
+            let json: Option<String> = row
+                .get(rel_col)
+                .map_err(drizzle_core::error::DrizzleError::from)?;
+            rel_col += 1;
+            Ok(json)
+        };
+        let store =
+            <Rels as drizzle_core::query::BuildStore>::Store::from_json_columns(&mut next_rel)?;
+
+        results.push(<Rels as drizzle_core::query::BuildRow<_>>::assemble(
+            base, store,
+        ));
+    }
+
+    Ok(results)
+}
+
 // PartialColumns: read base from a single JSON "__base" column via FromJsonObject
 #[cfg(feature = "query")]
-impl<'a, Schema, T, Rels, Cl>
+impl<'db, 'a, Schema, T, Rels, Cl>
     common::DrizzleQueryBuilder<
-        '_,
+        'db,
         'a,
-        Connection,
+        &'db Drizzle<Schema>,
         Schema,
         T,
         Rels,
@@ -815,73 +927,17 @@ impl<'a, Schema, T, Rels, Cl>
             + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
-        let builder = self.builder;
-        let column_names = &builder.cols.columns;
-        let mut rendered = Vec::new();
-        builder.relations.render_into(&mut rendered);
-        let col_refs: Vec<&str> = column_names.clone();
-        let query_sql = drizzle_core::query::build_query_sql(
-            T::TABLE_NAME,
-            &col_refs,
-            T::BLOB_COLUMNS,
-            rendered,
-            builder.where_sql,
-            builder.order_by_sql,
-            builder.limit,
-            builder.offset,
-            true,
-        );
-        let (sql, bind_params) = query_sql.build();
-
-        drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
-
-        let mut stmt = self
-            .runner
-            .conn
-            .prepare(&sql)
-            .with_query(|| QueryContext::new(&sql, &bind_params))?;
-        let mut raw_rows = stmt
-            .query(params_from_iter(bind_params.iter().copied()))
-            .with_query(|| QueryContext::new(&sql, &bind_params))?;
-        let mut results = Vec::new();
-
-        while let Some(row) = raw_rows
-            .next()
-            .with_query(|| QueryContext::new(&sql, &bind_params))?
-        {
-            // Column 0 is the JSON "__base" object
-            let base_json: String = row.get(0)?;
-            let base = <T as drizzle_core::query::QueryTable>::PartialSelect::from_json_str(
-                &base_json, "base",
-            )?;
-
-            let mut rel_col = 1usize;
-            let mut next_rel = || {
-                let json: Option<String> = row
-                    .get(rel_col)
-                    .map_err(drizzle_core::error::DrizzleError::from)?;
-                rel_col += 1;
-                Ok(json)
-            };
-            let store =
-                <Rels as drizzle_core::query::BuildStore>::Store::from_json_columns(&mut next_rel)?;
-
-            results.push(<Rels as drizzle_core::query::BuildRow<_>>::assemble(
-                base, store,
-            ));
-        }
-
-        Ok(results)
+        relational_find_many_partial(&self.runner.conn, self.builder)
     }
 }
 
 // PartialColumns find_first: requires no LIMIT set yet
 #[cfg(feature = "query")]
-impl<'a, Schema, T, Rels, W, Ord>
+impl<'db, 'a, Schema, T, Rels, W, Ord>
     common::DrizzleQueryBuilder<
-        '_,
+        'db,
         'a,
-        Connection,
+        &'db Drizzle<Schema>,
         Schema,
         T,
         Rels,

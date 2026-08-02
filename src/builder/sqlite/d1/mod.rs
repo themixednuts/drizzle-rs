@@ -685,11 +685,11 @@ async fn query_json_rows(
 
 // AllColumns: base decoded from the JSON "__base" column
 #[cfg(feature = "query")]
-impl<'a, Schema, T, Rels, Cl>
+impl<'db, 'a, Schema, T, Rels, Cl>
     common::DrizzleQueryBuilder<
-        '_,
+        'db,
         'a,
-        D1Database,
+        &'db Drizzle<Schema>,
         Schema,
         T,
         Rels,
@@ -740,11 +740,11 @@ impl<'a, Schema, T, Rels, Cl>
 
 // AllColumns find_first: requires no LIMIT set yet (internally adds LIMIT 1)
 #[cfg(feature = "query")]
-impl<'a, Schema, T, Rels, W, Ord>
+impl<'db, 'a, Schema, T, Rels, W, Ord>
     common::DrizzleQueryBuilder<
-        '_,
+        'db,
         'a,
-        D1Database,
+        &'db Drizzle<Schema>,
         Schema,
         T,
         Rels,
@@ -775,11 +775,11 @@ impl<'a, Schema, T, Rels, W, Ord>
 
 // PartialColumns: base decoded from the JSON "__base" column of selected columns
 #[cfg(feature = "query")]
-impl<'a, Schema, T, Rels, Cl>
+impl<'db, 'a, Schema, T, Rels, Cl>
     common::DrizzleQueryBuilder<
-        '_,
+        'db,
         'a,
-        D1Database,
+        &'db Drizzle<Schema>,
         Schema,
         T,
         Rels,
@@ -833,11 +833,11 @@ impl<'a, Schema, T, Rels, Cl>
 
 // PartialColumns find_first: requires no LIMIT set yet
 #[cfg(feature = "query")]
-impl<'a, Schema, T, Rels, W, Ord>
+impl<'db, 'a, Schema, T, Rels, W, Ord>
     common::DrizzleQueryBuilder<
-        '_,
+        'db,
         'a,
-        D1Database,
+        &'db Drizzle<Schema>,
         Schema,
         T,
         Rels,

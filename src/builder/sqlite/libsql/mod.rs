@@ -706,11 +706,11 @@ impl common::QueryRowFormat for Connection {
 
 // AllColumns: read base from individual row columns via TryFrom<Row>
 #[cfg(feature = "query")]
-impl<'a, Schema, T, Rels, Cl>
+impl<'db, 'a, Schema, T, Rels, Cl>
     common::DrizzleQueryBuilder<
-        '_,
+        'db,
         'a,
-        Connection,
+        &'db Drizzle<Schema>,
         Schema,
         T,
         Rels,
@@ -806,11 +806,11 @@ impl<'a, Schema, T, Rels, Cl>
 
 // AllColumns find_first: requires no LIMIT set yet (internally adds LIMIT 1)
 #[cfg(feature = "query")]
-impl<'a, Schema, T, Rels, W, Ord>
+impl<'db, 'a, Schema, T, Rels, W, Ord>
     common::DrizzleQueryBuilder<
-        '_,
+        'db,
         'a,
-        Connection,
+        &'db Drizzle<Schema>,
         Schema,
         T,
         Rels,
@@ -843,11 +843,11 @@ impl<'a, Schema, T, Rels, W, Ord>
 
 // PartialColumns: read base from a single JSON "__base" column via FromJsonObject
 #[cfg(feature = "query")]
-impl<'a, Schema, T, Rels, Cl>
+impl<'db, 'a, Schema, T, Rels, Cl>
     common::DrizzleQueryBuilder<
-        '_,
+        'db,
         'a,
-        Connection,
+        &'db Drizzle<Schema>,
         Schema,
         T,
         Rels,
@@ -948,11 +948,11 @@ impl<'a, Schema, T, Rels, Cl>
 
 // PartialColumns find_first: requires no LIMIT set yet
 #[cfg(feature = "query")]
-impl<'a, Schema, T, Rels, W, Ord>
+impl<'db, 'a, Schema, T, Rels, W, Ord>
     common::DrizzleQueryBuilder<
-        '_,
+        'db,
         'a,
-        Connection,
+        &'db Drizzle<Schema>,
         Schema,
         T,
         Rels,
