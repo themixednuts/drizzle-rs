@@ -346,28 +346,30 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
 // Query API: DrizzleQueryBuilder
 // =============================================================================
 
-/// Wrapper around `drizzle_core::query::QueryBuilder` holding a connection reference.
+/// Wrapper around `drizzle_core::query::QueryBuilder` holding a query runner.
 ///
-/// Created by `Drizzle::query()`. Builder methods configure relations, filtering,
-/// and pagination. Terminal methods (`find_many`, `find_first`) execute the query
-/// and are added by each driver module.
+/// Created by `Drizzle::query()` or a transaction's `query()`. Builder methods
+/// configure relations, filtering, and pagination. Terminal methods
+/// (`find_many`, `find_first`) execute the query and are added by each driver
+/// module for its runner types (`&Drizzle<Conn, _>` and `&Transaction<..>`).
 ///
 /// Two lifetimes:
-/// - `'db` — connection reference
-/// - `'a` — expression/value lifetime (independent of connection)
+/// - `'db` — runner reference
+/// - `'a` — expression/value lifetime (independent of the runner)
 #[cfg(all(feature = "sqlite", feature = "query"))]
 pub struct DrizzleQueryBuilder<
     'db,
     'a,
-    Conn,
+    Runner,
     Schema,
     T,
     Rels = (),
     Cols = drizzle_core::query::AllColumns,
     Cl = drizzle_core::query::Clauses,
 > {
-    pub(crate) runner: &'db Drizzle<Conn, Schema>,
+    pub(crate) runner: Runner,
     pub(crate) builder: drizzle_core::query::QueryBuilder<'a, SQLiteValue<'a>, T, Rels, Cols, Cl>,
+    pub(crate) _schema: PhantomData<(&'db (), Schema)>,
 }
 
 /// Prepared relational query.
@@ -415,13 +417,14 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
     ///     .find_many()?;
     /// # "####;
     /// ```
-    pub fn query<'a, T>(&self, _table: T) -> DrizzleQueryBuilder<'_, 'a, Conn, Schema, T>
+    pub fn query<'a, T>(&self, _table: T) -> DrizzleQueryBuilder<'_, 'a, &Self, Schema, T>
     where
         T: drizzle_core::query::QueryTable,
     {
         DrizzleQueryBuilder {
             runner: self,
             builder: drizzle_core::query::QueryBuilder::new(),
+            _schema: PhantomData,
         }
     }
 }
@@ -457,22 +460,42 @@ pub(crate) mod private {
     pub trait Sealed {}
 }
 
+/// Maps a relational query runner to the detached prepared-query driver marker.
+///
+/// Implemented for `&Drizzle<Conn, _>` (mapping to `Conn`) and for each
+/// driver's transaction reference (mapping to that driver's connection type),
+/// so a query prepared inside a transaction produces the same
+/// [`DrizzlePreparedQuery`] — and therefore the same SQL shape and executors —
+/// as one prepared on the database handle.
 #[cfg(all(feature = "sqlite", feature = "query"))]
-impl<'db, 'a, Conn, Schema, T, Rels, Cl>
-    DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::AllColumns, Cl>
+pub trait RelationalPreparedDriver {
+    /// Connection type the prepared query will execute against.
+    type PreparedDriver;
+}
+
+#[cfg(all(feature = "sqlite", feature = "query"))]
+impl<Conn, Schema> RelationalPreparedDriver for &Drizzle<Conn, Schema> {
+    type PreparedDriver = Conn;
+}
+
+#[cfg(all(feature = "sqlite", feature = "query"))]
+impl<'db, 'a, Runner, Schema, T, Rels, Cl>
+    DrizzleQueryBuilder<'db, 'a, Runner, Schema, T, Rels, drizzle_core::query::AllColumns, Cl>
 where
-    Conn: QueryRowFormat,
+    Runner: RelationalPreparedDriver,
+    Runner::PreparedDriver: QueryRowFormat,
     T: drizzle_core::query::QueryTable,
     Rels: drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
 {
     /// Creates a prepared relational query.
     ///
-    /// The SQL shape follows the connection type's [`QueryRowFormat`], so the
-    /// statement matches what that driver's prepared `find_many` /
-    /// `find_first` executors decode.
+    /// The SQL shape follows the destination connection type's
+    /// [`QueryRowFormat`], so the statement matches what that driver's
+    /// prepared `find_many` / `find_first` executors decode.
     pub fn prepare(
         self,
-    ) -> DrizzlePreparedQuery<'a, Conn, T, Rels, drizzle_core::query::AllColumns> {
+    ) -> DrizzlePreparedQuery<'a, Runner::PreparedDriver, T, Rels, drizzle_core::query::AllColumns>
+    {
         let builder = self.builder;
         let mut rendered = Vec::new();
         builder.relations.render_into(&mut rendered);
@@ -485,7 +508,7 @@ where
             builder.order_by_sql,
             builder.limit,
             builder.offset,
-            Conn::WRAP_BASE_JSON,
+            <Runner::PreparedDriver as QueryRowFormat>::WRAP_BASE_JSON,
         );
         DrizzlePreparedQuery {
             inner: drizzle_core::prepared::prepare_render(&query_sql),
@@ -495,16 +518,23 @@ where
 }
 
 #[cfg(all(feature = "sqlite", feature = "query"))]
-impl<'db, 'a, Conn, Schema, T, Rels, Cl>
-    DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::PartialColumns, Cl>
+impl<'db, 'a, Runner, Schema, T, Rels, Cl>
+    DrizzleQueryBuilder<'db, 'a, Runner, Schema, T, Rels, drizzle_core::query::PartialColumns, Cl>
 where
+    Runner: RelationalPreparedDriver,
     T: drizzle_core::query::QueryTable,
     Rels: drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
 {
     /// Creates a prepared relational query.
     pub fn prepare(
         self,
-    ) -> DrizzlePreparedQuery<'a, Conn, T, Rels, drizzle_core::query::PartialColumns> {
+    ) -> DrizzlePreparedQuery<
+        'a,
+        Runner::PreparedDriver,
+        T,
+        Rels,
+        drizzle_core::query::PartialColumns,
+    > {
         let builder = self.builder;
         let mut rendered = Vec::new();
         builder.relations.render_into(&mut rendered);
@@ -528,8 +558,8 @@ where
 }
 
 #[cfg(all(feature = "sqlite", feature = "query"))]
-impl<'db, 'a, Conn, Schema, T, Rels, Cols, Cl>
-    DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, Cols, Cl>
+impl<'db, 'a, Runner, Schema, T, Rels, Cols, Cl>
+    DrizzleQueryBuilder<'db, 'a, Runner, Schema, T, Rels, Cols, Cl>
 {
     /// Includes a relation in the query results.
     #[allow(clippy::type_complexity)]
@@ -539,7 +569,7 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols, Cl>
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
-        Conn,
+        Runner,
         Schema,
         T,
         (
@@ -555,17 +585,18 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols, Cl>
         DrizzleQueryBuilder {
             runner: self.runner,
             builder: self.builder.with(handle),
+            _schema: PhantomData,
         }
     }
 }
 
 /// WHERE is only available when no WHERE clause has been set yet.
 #[cfg(all(feature = "sqlite", feature = "query"))]
-impl<'db, 'a, Conn, Schema, T, Rels, Cols, Ord, Lim>
+impl<'db, 'a, Runner, Schema, T, Rels, Cols, Ord, Lim>
     DrizzleQueryBuilder<
         'db,
         'a,
-        Conn,
+        Runner,
         Schema,
         T,
         Rels,
@@ -582,7 +613,7 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols, Ord, Lim>
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
-        Conn,
+        Runner,
         Schema,
         T,
         Rels,
@@ -596,17 +627,18 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols, Ord, Lim>
         DrizzleQueryBuilder {
             runner: self.runner,
             builder: self.builder.r#where(condition),
+            _schema: PhantomData,
         }
     }
 }
 
 /// ORDER BY is only available when no ORDER BY clause has been set yet.
 #[cfg(all(feature = "sqlite", feature = "query"))]
-impl<'db, 'a, Conn, Schema, T, Rels, Cols, W, Lim>
+impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Lim>
     DrizzleQueryBuilder<
         'db,
         'a,
-        Conn,
+        Runner,
         Schema,
         T,
         Rels,
@@ -623,7 +655,7 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols, W, Lim>
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
-        Conn,
+        Runner,
         Schema,
         T,
         Rels,
@@ -636,17 +668,18 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols, W, Lim>
         DrizzleQueryBuilder {
             runner: self.runner,
             builder: self.builder.order_by(expr),
+            _schema: PhantomData,
         }
     }
 }
 
 /// LIMIT is only available when no LIMIT has been set yet.
 #[cfg(all(feature = "sqlite", feature = "query"))]
-impl<'db, 'a, Conn, Schema, T, Rels, Cols, W, Ord>
+impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Ord>
     DrizzleQueryBuilder<
         'db,
         'a,
-        Conn,
+        Runner,
         Schema,
         T,
         Rels,
@@ -661,7 +694,7 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols, W, Ord>
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
-        Conn,
+        Runner,
         Schema,
         T,
         Rels,
@@ -674,17 +707,18 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols, W, Ord>
         DrizzleQueryBuilder {
             runner: self.runner,
             builder: self.builder.limit(n),
+            _schema: PhantomData,
         }
     }
 }
 
 /// OFFSET requires LIMIT to have been set first.
 #[cfg(all(feature = "sqlite", feature = "query"))]
-impl<'db, 'a, Conn, Schema, T, Rels, Cols, W, Ord>
+impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Ord>
     DrizzleQueryBuilder<
         'db,
         'a,
-        Conn,
+        Runner,
         Schema,
         T,
         Rels,
@@ -699,7 +733,7 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols, W, Ord>
     ) -> DrizzleQueryBuilder<
         'db,
         'a,
-        Conn,
+        Runner,
         Schema,
         T,
         Rels,
@@ -712,13 +746,14 @@ impl<'db, 'a, Conn, Schema, T, Rels, Cols, W, Ord>
         DrizzleQueryBuilder {
             runner: self.runner,
             builder: self.builder.offset(n),
+            _schema: PhantomData,
         }
     }
 }
 
 #[cfg(all(feature = "sqlite", feature = "query"))]
-impl<'db, 'a, Conn, Schema, T, Rels, Cl>
-    DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::AllColumns, Cl>
+impl<'db, 'a, Runner, Schema, T, Rels, Cl>
+    DrizzleQueryBuilder<'db, 'a, Runner, Schema, T, Rels, drizzle_core::query::AllColumns, Cl>
 where
     T: drizzle_core::query::QueryTable,
 {
@@ -726,11 +761,20 @@ where
     pub fn columns<S: drizzle_core::query::IntoColumnSelection>(
         self,
         selector: S,
-    ) -> DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::PartialColumns, Cl>
-    {
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        Runner,
+        Schema,
+        T,
+        Rels,
+        drizzle_core::query::PartialColumns,
+        Cl,
+    > {
         DrizzleQueryBuilder {
             runner: self.runner,
             builder: self.builder.columns(selector),
+            _schema: PhantomData,
         }
     }
 
@@ -738,11 +782,20 @@ where
     pub fn omit<S: drizzle_core::query::IntoColumnSelection>(
         self,
         selector: S,
-    ) -> DrizzleQueryBuilder<'db, 'a, Conn, Schema, T, Rels, drizzle_core::query::PartialColumns, Cl>
-    {
+    ) -> DrizzleQueryBuilder<
+        'db,
+        'a,
+        Runner,
+        Schema,
+        T,
+        Rels,
+        drizzle_core::query::PartialColumns,
+        Cl,
+    > {
         DrizzleQueryBuilder {
             runner: self.runner,
             builder: self.builder.omit(selector),
+            _schema: PhantomData,
         }
     }
 }

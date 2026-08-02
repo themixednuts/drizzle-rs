@@ -1595,3 +1595,112 @@ fn query_self_ref_reverse_disambiguated(db: &mut TestDb<ComplexPostQuerySchema>)
     let bob = users.iter().find(|u| u.name == "Bob").unwrap();
     assert_eq!(bob.invited_by_complexes.len(), 0);
 }
+
+// =============================================================================
+// Transaction-Scoped Queries
+// =============================================================================
+
+// -- tx.query() with relations, committed --
+#[drizzle::test]
+fn query_tx_find_many_with_relations(db: &mut TestDb<ComplexPostQuerySchema>) {
+    use drizzle::sqlite::connection::SQLiteTransactionType;
+
+    let ComplexPostQuerySchema { complex, post } = schema;
+
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
+    let alice_id = all_users[0].id;
+    db.insert(post)
+        .values([
+            InsertPost::new("A1", true).with_author_id(alice_id),
+            InsertPost::new("A2", true).with_author_id(alice_id),
+        ])
+        .execute();
+
+    let rows = result!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
+        // Rows written inside the transaction are visible to tx.query().
+        result!(
+            tx.insert(post)
+                .values([InsertPost::new("A3", true).with_author_id(alice_id)])
+                .execute()
+        )?;
+        result!(tx.query(complex).with(complex.posts()).find_many())
+    }))
+    .expect("transaction should commit");
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].name, "Alice");
+    assert_eq!(rows[0].posts.len(), 3);
+
+    // The insert made inside the transaction is committed.
+    let rows = db.query(complex).with(complex.posts()).find_many();
+    assert_eq!(rows[0].posts.len(), 3);
+}
+
+// -- tx.query() find_first with partial columns --
+#[drizzle::test]
+fn query_tx_find_first_partial_columns(db: &mut TestDb<ComplexPostQuerySchema>) {
+    use drizzle::sqlite::connection::SQLiteTransactionType;
+
+    let ComplexPostQuerySchema { complex, post: _ } = schema;
+
+    db.insert(complex)
+        .values([
+            InsertComplex::new("Alice", true, Role::User),
+            InsertComplex::new("Bob", true, Role::User),
+        ])
+        .execute();
+
+    let found = result!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
+        result!(
+            tx.query(complex)
+                .columns(complex.columns().id().name())
+                .r#where(eq(complex.name, "Bob"))
+                .find_first()
+        )
+    }))
+    .expect("transaction should commit");
+
+    let row = found.expect("Bob should be found");
+    assert_eq!(row.name.as_deref(), Some("Bob"));
+    assert!(row.id.is_some());
+}
+
+// -- tx.query() observes uncommitted rows; rollback discards them --
+#[drizzle::test]
+fn query_tx_rollback_discards_uncommitted_rows(db: &mut TestDb<ComplexPostQuerySchema>) {
+    use drizzle::error::DrizzleError;
+    use drizzle::sqlite::connection::SQLiteTransactionType;
+
+    let ComplexPostQuerySchema { complex, post } = schema;
+
+    db.insert(complex)
+        .values([InsertComplex::new("Alice", true, Role::User)])
+        .execute();
+    let all_users: Vec<SelectComplex> = db.select(()).from(complex).all();
+    let alice_id = all_users[0].id;
+
+    let result: Result<(), DrizzleError> =
+        result!(db.transaction(SQLiteTransactionType::Immediate, |tx| {
+            result!(
+                tx.insert(post)
+                    .values([InsertPost::new("Uncommitted", true).with_author_id(alice_id)])
+                    .execute()
+            )?;
+
+            let rows = result!(tx.query(complex).with(complex.posts()).find_many())?;
+            assert_eq!(
+                rows[0].posts.len(),
+                1,
+                "tx.query must observe uncommitted rows"
+            );
+
+            Err(DrizzleError::Other("roll back".into()))
+        }));
+    assert!(result.is_err());
+
+    let rows = db.query(complex).with(complex.posts()).find_many();
+    assert_eq!(rows[0].posts.len(), 0, "rollback must discard the insert");
+}
