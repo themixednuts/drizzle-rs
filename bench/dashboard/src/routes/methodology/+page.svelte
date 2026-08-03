@@ -35,7 +35,7 @@
 			rows: [
 				[
 					'peak throughput',
-					'the saturation suite\'s capacity figure: the highest concurrency step that held the latency objective and stayed inside the error limit. Always printed with the objective beside it ("at p99 < 50 ms") and never without it',
+					'the saturation suite\'s capacity figure: the fastest concurrency step that held the latency objective and stayed inside the error limit, ties going to the lower concurrency. Always printed with the objective beside it ("at p99 < 50 ms") and never without it',
 				],
 				[
 					'throughput at fixed load',
@@ -84,8 +84,12 @@
 					'declared worker count, pool size, database, schema, and contract version each target must match',
 				],
 				[
-					'family harness',
-					'the workers, pool size and tuning a whole database family ran under, recorded once per family in the manifest, plus whether within-family identity was verified. Shown as a strip above the ranking and on each row; a family with no declaration reads "harness not declared" rather than inheriting one',
+					'comparison group',
+					'the set of targets claiming to be directly comparable, declared per target as fair.family. Usually a database, and split where the harness cannot be equalised — sqlite (Rust) and sqlite-ts (Bun) are both SQLite and are two groups. Enforcement and the "vs …" delta are scoped to the group; the table and the database column are not, so a split never hides a row',
+				],
+				[
+					'group harness',
+					'the workers, pool size and tuning a whole comparison group ran under, recorded once per group in the manifest, plus whether within-group identity was verified and which targets if any were exempted from that check. Shown as a strip above the ranking and on each row; a group with no declaration reads "harness not declared" rather than inheriting one',
 				],
 			],
 		},
@@ -273,12 +277,17 @@
 					whatever the target can actually turn over.
 				</p>
 				<p class="mt-3">
-					The headline is the highest step whose steady-state
+					The headline is the fastest step whose steady-state
 					<code class="text-meta font-mono">p99</code> stayed under the latency objective
-					<em>and</em>
-					whose error rate stayed inside the run's limit. Both conditions matter: a step that returned
-					errors faster is not a faster step, so a step over the error limit is disqualified from being
-					the peak, and the disqualification is recorded and shown rather than quietly skipped.
+					<em>and</em> whose error rate stayed inside the run's limit. Both conditions matter: a step
+					that returned errors faster is not a faster step, so a step over the error limit is disqualified
+					from being the peak, and the disqualification is recorded and shown rather than quietly skipped.
+				</p>
+				<p class="mt-3">
+					Which of the three outcomes a run gets is decided separately, by whether its <em>last</em>
+					step still held the objective. That is deliberately not the same question as where the maximum
+					landed: a ramp can peak early, flatten, and still finish without breaching, and that is "knee
+					not reached" rather than a measured limit.
 				</p>
 				<p class="mt-3">
 					The whole ramp is published, not just the winning step — every step's concurrency,
@@ -301,21 +310,26 @@
 				<div>
 					<dt class="text-foreground font-medium">A peak, at a stated objective</dt>
 					<dd class="mt-1">
-						A step held the objective and a later step breached it. The number is reported with the
-						objective always beside it — "12.5k req/s at p99 &lt; 50 ms" — and with the concurrency
-						it was reached at. This is the only outcome that produces a comparable number, and the
-						only one given a rank when the table is sorted by peak throughput.
+						The ramp went far enough to break the target: its last step breached the objective. The
+						number reported is the <em>fastest</em> step that did hold it — ties going to the lower concurrency,
+						since the same throughput for less concurrency is the better result — with the objective always
+						beside it ("12.5k req/s at p99 &lt; 50 ms") and with the concurrency it was reached at. This
+						is the only outcome that produces a comparable number, and the only one given a rank when
+						the table is sorted by peak throughput.
 					</dd>
 				</div>
 				<div>
 					<dt class="text-foreground font-medium">"at least N req/s — knee not reached"</dt>
 					<dd class="mt-1">
-						Every step in the ramp held the objective, so the ramp stopped before the target did.
-						The top step is a <em>lower bound</em>, not a peak: this target sustains at least that
-						much and may sustain considerably more. It is shown with "at least", drawn faint, given
-						no rank, and sorted below every measured peak — a ramp that ended early is not evidence
-						of beating a target that was measured to its limit. It is also a finding about the
-						workload, and it is visible so the ramp gets extended.
+						The ramp's last step still held the objective, so it stopped before the target did. The
+						best qualifying throughput is a <em>lower bound</em>, not a peak: this target sustains
+						at least that much and may sustain considerably more. Note that this does not require
+						throughput to still be climbing — a curve can flatten, or even dip after the connection
+						pool saturates, and still end without breaching. A visible bend is not the same finding
+						as a measured limit. It is shown with "at least", drawn faint, given no rank, and sorted
+						below every measured peak, because a ramp that ended early is not evidence of beating a
+						target that was measured to its limit. It is also a finding about the workload, and it
+						is visible so the ramp gets extended.
 					</dd>
 				</div>
 				<div>
@@ -349,36 +363,47 @@
 
 			<section>
 				<h3 class="text-heading text-foreground mb-2 font-semibold">
-					Within a database — identical, and enforced.
+					Inside a comparison group — identical, and enforced.
 				</h3>
 				<p>
-					Every target measured against the same database runs the same worker count, the same
-					connection pool size and the same server tuning. That is what makes the gap between two of
-					its rows attributable to the library rather than to the setup. It is a hard requirement in
-					the runner: a family whose targets declare different harnesses fails the run rather than
-					publishing a quietly unequal comparison. The "vs drizzle-rs on <em>X</em>" figure inside a
-					ranking row is scoped to exactly this — the drizzle-rs row on that same database, under
+					A <em>comparison group</em> is the set of targets claiming to be directly comparable. Every
+					target in one runs the same worker count, the same connection pool size and the same server
+					tuning, which is what makes the gap between two of its rows attributable to the library rather
+					than to the setup. It is a hard requirement in the runner: a group whose targets declare different
+					harnesses fails the run rather than publishing a quietly unequal comparison. The "vs …" figure
+					inside a ranking row is scoped to exactly this — the drizzle target in that same group, under
 					that same harness.
+				</p>
+				<p class="mt-3">
+					A group is usually a database, but it is not the same thing, and it splits wherever the
+					harness genuinely cannot be equalised. <code class="text-meta font-mono">bun:sqlite</code>
+					is synchronous on a single-threaded runtime, so giving it the Rust stack's pool of eight would
+					be fiction rather than fairness. It therefore sits in its own SQLite group with drizzle-orm
+					— same runtime, same pool of one, same pragmas, a real library comparison — while the Rust stack
+					keeps its own. Both are still SQLite, and both still appear in the one table with SQLite in
+					the database column: the split changes what a row is
+					<em>measured against</em>, never whether it is shown.
 				</p>
 			</section>
 
 			<section>
 				<h3 class="text-heading text-foreground mb-2 font-semibold">
-					Across databases — different, and declared.
+					Across groups — different, and declared.
 				</h3>
 				<p>
 					An embedded engine and a client/server engine are not made comparable by forcing them into
-					one configuration; they are made <em>equally crippled</em>. So across families the harness
+					one configuration; they are made <em>equally crippled</em>. So across groups the harness
 					is deliberately allowed to differ, each stack running in the shape it is actually deployed
 					in. That difference is part of what the comparison shows — which means it has to be
 					visible, or a reader will read a stack difference as a library difference.
 				</p>
 				<p class="mt-3">
-					Each run records its harness per family, and the ranking prints them as a strip above the
-					table: one line per database, giving workers, pool size, tuning, and whether within-family
-					identity was verified. Two rows sharing a database share that whole line; two rows on
-					different databases share none of it. A family whose run declared no harness says "harness
-					not declared" rather than borrowing a neighbour's.
+					Each run records its harness per group, and the ranking prints them as a strip above the
+					table: one line per group, giving workers, pool size, tuning, and whether within-group
+					identity was verified. Two rows in one group share that whole line; two rows in different
+					groups share none of it. A group whose run declared no harness says "harness not declared"
+					rather than borrowing a neighbour's, and a group that verified identity while exempting
+					some targets says how many were exempted.
 				</p>
 			</section>
 		</div>

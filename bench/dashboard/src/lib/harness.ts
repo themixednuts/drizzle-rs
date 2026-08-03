@@ -46,11 +46,11 @@ export function harnessSummary(entry: HarnessFamily): string {
 	return parts.join(' / ');
 }
 
-/** One line of the harness strip: a database, and what every row on it ran under. */
+/** One line of the harness strip: a comparison group, and what every row in it ran under. */
 export interface HarnessRow {
-	/** `DbProfile` value, so the row can link to the ranking filtered to this database. */
-	db: DbProfile;
-	/** Short database name, matching the ranking's own `database` column. */
+	/** The comparison group's id — `fair.family`, e.g. `sqlite` or `sqlite-ts`. */
+	family: string;
+	/** Display name for the group. Two groups on one database are named apart, deliberately. */
 	label: string;
 	/** The harness, or `null` when this set's manifests never declared one for this family. */
 	summary: string | null;
@@ -59,47 +59,90 @@ export interface HarnessRow {
 	 * nothing was declared — which is not the same as "verified false" and must not read as it.
 	 */
 	identical: boolean | null;
+	/**
+	 * Targets excluded from the identity check, when the run named any.
+	 *
+	 * An empty array and a populated one are different claims: "every target matched" versus "every
+	 * target we looked at matched". The tick alone cannot carry that difference, so the exempted
+	 * names are printed beside it.
+	 */
+	exempt: string[];
 	/** Long form, for the row's tooltip. */
 	detail: string;
 }
 
 /**
- * Harness rows for exactly the databases a set actually produced.
+ * Harness rows for exactly the comparison groups a set actually produced.
  *
- * Driven by the databases present in the results rather than by what the manifest happens to list,
- * because the claim being made is about the rows on screen. A database with rows and no
- * declaration gets a row saying so — the alternative, omitting it, would let a reader assume the
- * families they can see are the families that were checked.
+ * Keyed on the group rather than the database, which is the whole point: one database can hold two
+ * groups (`sqlite` and `sqlite-ts`), and they run deliberately different harnesses. Looking the
+ * harness up by database would hand a Bun row the Rust stack's worker and pool numbers — a wrong
+ * claim, and precisely the "mistook a stack difference for a library difference" failure the strip
+ * exists to prevent.
+ *
+ * Driven by the groups present in the results rather than by what the manifest happens to list,
+ * because the claim being made is about the rows on screen. A group with rows and no declaration
+ * gets a row saying so — omitting it would let a reader assume the groups they can see are the
+ * groups that were checked.
  */
 export function harnessRows(
-	present: readonly DbProfile[],
+	present: readonly string[],
 	harness: readonly HarnessFamily[] | undefined,
-	label: (db: DbProfile) => string,
+	label: (family: string) => string,
 ): HarnessRow[] {
-	const seen = new Set(present);
-	return DB_PROFILE_ORDER.filter((db) => seen.has(db)).map((db) => {
-		const entry = harnessFor(harness, db);
-		const name = label(db);
+	// Canonical database order first, so the strip reads in the same order as the ranking's filter
+	// pills; groups that are not a bare database follow, alphabetically.
+	const seen = [...new Set(present)];
+	const ordered = [
+		...DB_PROFILE_ORDER.filter((db) => seen.includes(db)),
+		...seen.filter((family) => !DB_PROFILE_ORDER.includes(family as DbProfile)).sort(),
+	];
+
+	return ordered.map((family) => {
+		const entry = harnessFor(harness, family);
+		const name = label(family);
+		const engine = dbProfileDetail(dbProfileOf(family));
 		if (!entry) {
 			return {
-				db,
+				family,
 				label: name,
 				summary: null,
 				identical: null,
-				detail: `This set's manifests declare no harness for ${name}, so there is nothing recorded to confirm its rows ran under identical conditions. ${dbProfileDetail(db)}`,
+				exempt: [],
+				detail: `This set's manifests declare no harness for ${name}, so there is nothing recorded to confirm its rows ran under identical conditions. ${engine}`,
 			};
 		}
 		const summary = harnessSummary(entry);
+		const exempt = entry.exempt ?? [];
+		// An exemption weakens the claim the tick makes, so it is spelled into the tooltip rather
+		// than left for someone to find in the manifest.
+		const caveat = exempt.length
+			? ` ${exempt.length} target${exempt.length === 1 ? ' was' : 's were'} exempted from that check (${exempt.join(', ')}), so the guarantee covers only the rest.`
+			: '';
 		return {
-			db,
+			family,
 			label: name,
 			summary,
 			identical: entry.within_family_identical,
+			exempt,
 			detail: entry.within_family_identical
-				? `Every ${name} target ran under ${summary}, verified identical, so the difference between two ${name} rows is a difference between the libraries. Targets on other databases ran under their own harness. ${dbProfileDetail(db)}`
-				: `${name} targets did NOT all run under the same harness (${summary} is one of several), so a difference between two ${name} rows may be a harness difference rather than a library one. ${dbProfileDetail(db)}`,
+				? `Every ${name} target ran under ${summary}, verified identical, so the difference between two ${name} rows is a difference between the libraries.${caveat} Targets in other groups ran under their own harness. ${engine}`
+				: `${name} targets did NOT all run under the same harness (${summary} is one of several), so a difference between two ${name} rows may be a harness difference rather than a library one.${caveat} ${engine}`,
 		};
 	});
+}
+
+/**
+ * The engine behind a comparison group, for the group's own description.
+ *
+ * A group id is usually a `DbProfile`; when it is not, it is a database with a qualifier
+ * (`sqlite-ts`), and the leading segment is the engine. Nothing here is guessed from a target — it
+ * reads the group id and nothing else.
+ */
+function dbProfileOf(family: string): DbProfile {
+	if (DB_PROFILE_ORDER.includes(family as DbProfile)) return family as DbProfile;
+	const head = family.split('-')[0];
+	return DB_PROFILE_ORDER.includes(head as DbProfile) ? (head as DbProfile) : 'other';
 }
 
 /**

@@ -2,7 +2,7 @@ import { page } from '$app/state';
 import { rpsBox } from '#lib/boxplot';
 import { fmtCpu, fmtDate, fmtLatency, fmtPct, fmtRps, shortHash, suiteLabel } from '#lib/format';
 import {
-	baselinesByDb,
+	baselinesByFamily,
 	deltaDirection,
 	deltaSentence,
 	rowDelta,
@@ -13,9 +13,11 @@ import {
 	dbProfile,
 	dbProfileDetail,
 	dbShortLabel,
+	familyLabel,
 	isDrizzleRsTarget,
 	isInProcessCache,
 	targetDisplay,
+	targetFamily,
 	type DbProfile,
 } from '#lib/target-display';
 import { cohortSearchText } from '#lib/cohort-search';
@@ -204,7 +206,7 @@ export class RunsPageState {
 				barPct: this.#barPct(summary, view, { peak, peakLatency, peakCapacity }),
 				barKind: this.sort === 'capacity' && view.state === 'lower-bound' ? 'bound' : 'measured',
 				capacity: view,
-				...this.#delta(summary, baselines.get(dbProfile(summary)) ?? null),
+				...this.#delta(summary, baselines.get(targetFamily(summary)) ?? null),
 			};
 		});
 	}
@@ -278,10 +280,17 @@ export class RunsPageState {
 		return this.hasCapacity ? ['capacity', 'throughput', 'latency'] : ['throughput', 'latency'];
 	}
 
-	/** The harness each database on screen ran under, merged across the set's shards. */
+	/**
+	 * The harness each comparison group on screen ran under, merged across the set's shards.
+	 *
+	 * Grouped by `fair.family`, not by database. One database can hold two groups — `sqlite` for the
+	 * Rust stack and `sqlite-ts` for the Bun/TypeScript one — because a single-threaded runtime
+	 * cannot be given a pool of 8 without the number being fiction. They get a line each, since two
+	 * genuinely different harnesses cannot be described by one.
+	 */
 	get harnessRows(): HarnessRow[] {
-		const present = [...new Set(this.results.map((summary) => dbProfile(summary)))];
-		return harnessRows(present, this.latest?.harness, dbLabel);
+		const present = [...new Set(this.results.map((summary) => targetFamily(summary)))];
+		return harnessRows(present, this.latest?.harness, familyLabel);
 	}
 
 	/**
@@ -293,8 +302,8 @@ export class RunsPageState {
 	 * stack difference for a library one.
 	 */
 	harnessFor(summary: SummaryResult): HarnessRow | null {
-		const profile = dbProfile(summary);
-		return this.harnessRows.find((row) => row.db === profile) ?? null;
+		const family = targetFamily(summary);
+		return this.harnessRows.find((row) => row.family === family) ?? null;
 	}
 
 	/** True when the current `?db=` filter matched nothing at all. */
@@ -388,11 +397,15 @@ export class RunsPageState {
 	 *
 	 * Computed from the *whole* set, not the filtered view, so switching the `?db=` pills never
 	 * changes a single delta — the number on a row means the same thing whichever way the table is
-	 * currently sliced. Sorting first is what makes `pickBaseline` return the strongest drizzle-rs
-	 * result on each database rather than whichever one the artifact happened to list first.
+	 * currently sliced. Sorting first is what makes `pickBaseline` return the strongest drizzle
+	 * result in each group rather than whichever one the artifact happened to list first.
+	 *
+	 * Keyed on the comparison group, not the database: a TypeScript SQLite row is measured against
+	 * the drizzle target on its own runtime, because drizzle-rs-on-Rust and drizzle-orm-on-Bun
+	 * differ by language and concurrency model before they differ by library.
 	 */
-	get #baselines(): Map<DbProfile, SummaryResult> {
-		return baselinesByDb([...this.results].sort(compareLeaderboard));
+	get #baselines(): Map<string, SummaryResult> {
+		return baselinesByFamily([...this.results].sort(compareLeaderboard));
 	}
 
 	/**
@@ -464,38 +477,50 @@ export class RunsPageState {
 	}
 
 	/**
-	 * How this row compares to drizzle-rs *on this row's own database*.
+	 * How this row compares to the drizzle target *in this row's own comparison group*.
 	 *
-	 * One table now holds every database, so the reference has to be named rather than assumed: a
+	 * One table holds every database, so the reference has to be named rather than assumed: a
 	 * PostgreSQL row measured against a SQLite drizzle number would be comparing two engines and
-	 * calling it a library comparison. Where the set contains no drizzle row for a database, the
-	 * cell says so instead of quietly borrowing the nearest one.
+	 * calling it a library comparison. The scope is the comparison group rather than the database,
+	 * which is a finer cut wherever one database holds two — a Bun SQLite row is measured against
+	 * drizzle-orm on Bun, not against drizzle-rs on Rust, because those differ by runtime and
+	 * concurrency model before they differ by library. Where the set contains no drizzle row in a
+	 * group, the cell says so instead of quietly borrowing the nearest one.
 	 */
 	#delta(
 		summary: SummaryResult,
 		baseline: SummaryResult | null,
-	): { deltaText: string; deltaDirection: DeltaDirection; deltaTitle: string } {
-		const db = dbLabel(dbProfile(summary));
+	): {
+		deltaText: string;
+		deltaDirection: DeltaDirection;
+		deltaTitle: string;
+		deltaLabel: string;
+	} {
+		const group = familyLabel(targetFamily(summary));
 		if (baseline === null) {
 			return {
 				deltaText: '—',
 				deltaDirection: 'flat',
-				deltaTitle: `no drizzle-rs row on ${db} in this set, so there is nothing on this row's own database to compare against`,
+				deltaLabel: `vs drizzle on ${group}`,
+				deltaTitle: `no drizzle row in the ${group} group in this set, so there is nothing directly comparable to measure this row against`,
 			};
 		}
 
-		const reference = `${targetDisplay(baseline).name} on ${db}`;
+		const reference = `${targetDisplay(baseline).name} on ${group}`;
+		const deltaLabel = `vs ${targetDisplay(baseline).name} on ${group}`;
 		if (summary === baseline) {
 			return {
 				deltaText: 'baseline',
 				deltaDirection: 'flat',
-				deltaTitle: `the drizzle-rs baseline row for ${db}; every other ${db} row is measured against this one`,
+				deltaLabel,
+				deltaTitle: `the drizzle baseline row for ${group}; every other ${group} row is measured against this one, under the same harness`,
 			};
 		}
 		if (isInProcessCache(summary.target_meta)) {
 			return {
 				deltaText: '—',
 				deltaDirection: 'flat',
+				deltaLabel,
 				deltaTitle: `this target answers from an in-process cache and never crosses a database boundary, so it is not comparable to ${reference}`,
 			};
 		}
@@ -503,6 +528,7 @@ export class RunsPageState {
 			return {
 				deltaText: 'errored',
 				deltaDirection: 'flat',
+				deltaLabel,
 				deltaTitle: 'error rate above 0.5%: throughput is not comparable',
 			};
 		}
@@ -513,12 +539,14 @@ export class RunsPageState {
 			return {
 				deltaText: '—',
 				deltaDirection: 'flat',
+				deltaLabel,
 				deltaTitle: `not comparable to ${reference}`,
 			};
 		}
 		return {
 			deltaText: `${delta >= 0 ? '+' : ''}${(delta * 100).toFixed(1)}%`,
 			deltaDirection: deltaDirection(delta),
+			deltaLabel,
 			deltaTitle: deltaSentence(delta, 'This library', reference, {
 				better: 'faster',
 				worse: 'slower',

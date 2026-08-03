@@ -236,17 +236,13 @@
 			</div>
 			<div>
 				<!--
-					The scope is in the label, not only in the tooltip. One global table means the reference
-					has to be named on the row: "vs drizzle-rs" alone reads as a comparison against every
-					drizzle row in the set, which across databases would be a stack comparison wearing a
-					library comparison's name.
+					The scope is in the label, not only in the tooltip, and it names the row's own
+					comparison group rather than assuming drizzle-rs on this row's database. One database
+					can hold two groups — the Rust stack and the TypeScript one — and a Bun row measured
+					against the Rust row would be a stack comparison wearing a library comparison's name.
 				-->
 				<dt class="text-micro text-muted-foreground font-mono uppercase">
-					<Hint
-						hint="This library against drizzle-rs on {db}, on throughput at fixed load. Both rows ran under the same harness, so the difference is attributable to the library. Positive means this library is faster. A dash means this set has no drizzle-rs row on {db}."
-					>
-						vs drizzle-rs on {db}
-					</Hint>
+					<Hint hint={row.deltaTitle}>{row.deltaLabel}</Hint>
 				</dt>
 				<dd class="text-body mt-1.5">
 					<Delta text={row.deltaText} direction={row.deltaDirection} hint={row.deltaTitle} />
@@ -263,8 +259,13 @@
 							{#if harness.identical === false}
 								<span class="text-meta text-negative mt-1 block">not identical within family</span>
 							{:else}
+								<!--
+									Named by comparison group, not by database. "Shared by every SQLite row" is
+									false the moment SQLite holds both the Rust group and the TypeScript one,
+									and it is false in exactly the direction that matters.
+								-->
 								<span class="text-meta text-muted-foreground mt-1 block">
-									shared by every {db} row
+									shared by every {harness.label} row
 								</span>
 							{/if}
 						{:else}

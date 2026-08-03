@@ -98,6 +98,15 @@ export interface RankingRow {
 	deltaText: string;
 	deltaDirection: DeltaDirection;
 	deltaTitle: string;
+	/**
+	 * The visible scope of the delta, e.g. "vs drizzle-rs on SQLite" or "vs Drizzle ORM on
+	 * SQLite / TypeScript".
+	 *
+	 * In the label rather than only in the tooltip, and naming the actual baseline rather than
+	 * assuming drizzle-rs: one database can hold two comparison groups, and a Bun row measured
+	 * against the Rust row would be a stack comparison wearing a library comparison's name.
+	 */
+	deltaLabel: string;
 }
 
 /**

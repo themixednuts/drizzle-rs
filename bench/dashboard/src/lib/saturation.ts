@@ -244,13 +244,27 @@ export interface CurveView {
 	peakMissing: boolean;
 	/** How many steps carry a disqualification reason. */
 	disqualifiedCount: number;
+	/**
+	 * A step that beat the marked peak on throughput while also qualifying, when one exists.
+	 *
+	 * The peak is the qualifying step with the highest throughput, so on a well-formed artifact
+	 * this is always `null` — the marked point IS the tallest qualifying point. It is computed
+	 * anyway because artifacts selected under the earlier "highest qualifying concurrency" rule
+	 * exist and still render here: on a ramp that dips once the pool saturates, those name a peak
+	 * several percent below the tallest qualifying step, and a reader looking at the chart sees the
+	 * discrepancy immediately. Same class of disclosure as `peakMissing` — the artifact disagrees
+	 * with itself, and the UI says so instead of letting the mark quietly contradict the line.
+	 */
+	tallerThanPeak: { concurrency: number; rps: number } | null;
 }
 
 function verdictOf(step: SaturationStep, isPeak: boolean): { verdict: StepVerdict; text: string } {
 	if (step.disqualified !== null) {
 		return { verdict: 'disqualified', text: `disqualified — ${step.disqualified}` };
 	}
-	if (isPeak) return { verdict: 'peak', text: 'peak — highest step that held the objective' };
+	if (isPeak) {
+		return { verdict: 'peak', text: 'peak — fastest step that held the objective' };
+	}
 	if (step.slo_met) return { verdict: 'under', text: 'held the objective' };
 	return { verdict: 'over', text: 'breached the objective' };
 }
@@ -291,6 +305,18 @@ export function buildCurve(doc: SaturationDoc): CurveView {
 	const rpsCeiling = Math.max(1, ...points.map((point) => point.rps));
 	const latencyCeiling = Math.max(doc.slo.ms, ...points.map((point) => point.p99));
 
+	// Only a step that is eligible to be the peak counts here — one that held the objective and was
+	// not disqualified. A disqualified step being taller is already explained by its own strike and
+	// its reason; saying "this one was faster" about a step that blew the error budget would be
+	// pointing at the wrong thing.
+	const peakPoint = resolvedPeak === null ? null : points[resolvedPeak];
+	const tallest = points
+		.filter((point) => point.sloMet && point.disqualified === null)
+		.reduce<CurvePoint | null>(
+			(best, point) => (best === null || point.rps > best.rps ? point : best),
+			null,
+		);
+
 	return {
 		points,
 		slo: doc.slo,
@@ -300,5 +326,9 @@ export function buildCurve(doc: SaturationDoc): CurveView {
 		peakIndex: resolvedPeak,
 		peakMissing: peakConcurrency !== null && resolvedPeak === null,
 		disqualifiedCount: points.filter((point) => point.disqualified !== null).length,
+		tallerThanPeak:
+			peakPoint && tallest && tallest.rps > peakPoint.rps
+				? { concurrency: tallest.concurrency, rps: tallest.rps }
+				: null,
 	};
 }

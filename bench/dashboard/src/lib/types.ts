@@ -122,6 +122,16 @@ export interface HarnessFamily {
 	 * is a real finding and is shown as a warning, never hidden.
 	 */
 	within_family_identical: boolean;
+	/** The targets whose harness was compared. Optional in the schema; the runner emits it. */
+	targets?: string[];
+	/**
+	 * Targets deliberately left out of the identity check.
+	 *
+	 * Load-bearing: `within_family_identical: true` alongside a non-empty `exempt` means "identical
+	 * among the ones we checked", which is a weaker claim than it reads as. The UI names the
+	 * exempted targets rather than letting the tick stand unqualified.
+	 */
+	exempt?: string[];
 }
 
 /** How a target answers a request: a real database round trip, or an in-process cache. */
@@ -189,6 +199,21 @@ export interface FairMeta {
 	db: string;
 	schema: string;
 	contract: string;
+	/**
+	 * The comparison group this target claims membership of — the set of targets asserting they are
+	 * directly comparable to each other.
+	 *
+	 * Usually the database engine, but NOT the same thing. It splits wherever the harness genuinely
+	 * cannot be equalised: `bun-sqlite` is synchronous on a single-threaded runtime, so a pool of 8
+	 * there would be theatre and forcing one would cripple the target rather than make it fair. So
+	 * it sits in `sqlite-ts` with `drizzle-orm-sqlite` — same runtime, same pool of 1, same pragmas,
+	 * a real library comparison — while `sqlite` holds the Rust stack. drizzle-rs-on-rusqlite versus
+	 * drizzle-orm-on-Bun is a *stack* comparison however it is arranged.
+	 *
+	 * Absent on artifacts published before the field existed, where the database was the comparison
+	 * group; `targetFamily` treats it that way rather than guessing.
+	 */
+	family?: string;
 }
 
 export interface ContractMeta {

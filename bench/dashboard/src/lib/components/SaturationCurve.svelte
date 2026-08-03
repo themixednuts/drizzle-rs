@@ -49,6 +49,9 @@
 	const points = $derived(curve.points);
 	const ticks = $derived(points.map((point) => point.index));
 	const lastIndex = $derived(Math.max(1, points.length - 1));
+	const peakConcurrency = $derived(
+		curve.peakIndex === null ? null : points[curve.peakIndex].concurrency,
+	);
 
 	function concurrencyAt(index: number): string {
 		return String(points[index]?.concurrency ?? '');
@@ -237,7 +240,12 @@
 			</li>
 			{#if curve.peakIndex !== null}
 				<li class="flex items-center gap-1.5">
-					<span class="bg-primary size-2 rounded-full" aria-hidden="true"></span> peak
+					<span class="bg-primary size-2 rounded-full" aria-hidden="true"></span>
+					<Hint
+						hint="The fastest step whose steady state stayed within the objective and stayed inside the error limit. Ties go to the lower concurrency, since the same throughput for less concurrency is the better result."
+					>
+						peak
+					</Hint>
 				</li>
 			{/if}
 			{#if curve.disqualifiedCount > 0}
@@ -252,6 +260,24 @@
 				</li>
 			{/if}
 		</ul>
+
+		{#if curve.tallerThanPeak}
+			<!--
+				The artifact disagrees with its own curve. The peak is meant to be the fastest qualifying
+				step, so this should never fire — except on runs selected under the earlier "highest
+				qualifying concurrency" rule, which are still readable here and which name a peak several
+				percent below the tallest qualifying step on any ramp that dips once the pool saturates.
+				Same class of disclosure as `peakMissing`: state it rather than let the mark silently
+				contradict the line a reader is looking at.
+			-->
+			<p class="measure text-meta text-muted-foreground mt-3">
+				This run named its peak at {peakConcurrency} concurrent, but {curve.tallerThanPeak
+					.concurrency} concurrent reached
+				<span class="font-mono">{fmtRps(curve.tallerThanPeak.rps)}</span> and stayed within the objective
+				too. The headline is the figure the run published; the peak is meant to be the fastest qualifying
+				step, and on this artifact it is not.
+			</p>
+		{/if}
 
 		{#if curve.peakMissing}
 			<p class="text-meta text-negative mt-3">

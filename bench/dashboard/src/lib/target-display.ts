@@ -157,6 +157,41 @@ export function dbShortLabel(profile: DbProfile): string {
 	return DB_SHORT_LABELS[profile];
 }
 
+/**
+ * The comparison group a target belongs to: the set of targets claiming to be directly comparable.
+ *
+ * This is what "fair" is scoped to — harness identity is enforced inside it, and a row's
+ * "vs drizzle" delta is measured against the drizzle target inside it. It is deliberately NOT the
+ * database: `sqlite` and `sqlite-ts` are both SQLite and are two comparison groups, because a Bun
+ * target on a single-threaded runtime cannot be given the Rust harness without being crippled by
+ * it. Comparing across them is a stack comparison, and the UI has to be able to say so.
+ *
+ * Artifacts published before the field existed had one group per database, which is exactly what
+ * falling back to the database profile expresses — not a guess, the same grouping those artifacts
+ * were built under.
+ */
+export function targetFamily(input: TargetDisplayInput): string {
+	const declared = input.target_meta?.fair.family?.trim();
+	return declared ? declared.toLowerCase() : dbProfile(input);
+}
+
+/**
+ * Display name for a comparison group. Groups that are a database are named as that database;
+ * groups that split one carry what distinguishes them, because the whole point of the split is
+ * that they are not interchangeable.
+ */
+const FAMILY_LABELS: Record<string, string> = {
+	'sqlite-ts': 'SQLite / TypeScript',
+};
+
+export function familyLabel(family: string): string {
+	const known = FAMILY_LABELS[family];
+	if (known) return known;
+	return DB_PROFILE_ORDER.includes(family as DbProfile)
+		? DB_SHORT_LABELS[family as DbProfile]
+		: humanize(family);
+}
+
 /** The one-sentence description of what this database makes a request do. `null` when there is
  * nothing useful to say — `other` is a bucket, not a kind of engine. */
 export function dbProfileNote(profile: DbProfile): string | null {

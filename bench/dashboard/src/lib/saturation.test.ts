@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { harnessRows, mergeHarness } from './harness';
+import { baselinesByFamily } from './leaderboard';
 import { parseRankingSort } from './ranking';
+import { familyLabel, targetFamily } from './target-display';
 import { anyMeasured, buildCurve, capacity, compareCapacity, readSaturation } from './saturation';
-import type { HarnessFamily, SaturationDoc, SaturationStep, Summary } from './types';
+import type { HarnessFamily, SaturationDoc, SaturationStep, Summary, TargetMeta } from './types';
 
 /**
  * The rules that make the capacity number honest.
@@ -15,16 +17,25 @@ import type { HarnessFamily, SaturationDoc, SaturationStep, Summary } from './ty
 
 const SLO = { metric: 'p99', ms: 50 };
 
+/**
+ * `p99` is a shorthand: these tests are about which step wins, so spelling a whole percentile set
+ * per step would bury the one number that decides it. The rest of the set is derived from it so a
+ * step still looks like real data.
+ */
 function step(
-	over: Partial<SaturationStep> & { concurrency: number; rps: number },
+	over: Partial<SaturationStep> & { concurrency: number; rps: number; p99?: number },
 ): SaturationStep {
+	const { p99, ...rest } = over;
 	return {
-		latency: { p50: 1, p90: 2, p95: 3, p99: 9 },
+		latency:
+			p99 === undefined
+				? { p50: 1, p90: 2, p95: 3, p99: 9 }
+				: { p50: p99 * 0.12, p90: p99 * 0.4, p95: p99 * 0.6, p99 },
 		err: 0,
 		cpu: 40,
-		slo_met: true,
+		slo_met: p99 === undefined ? true : p99 < 50,
 		disqualified: null,
-		...over,
+		...rest,
 	};
 }
 
@@ -224,11 +235,105 @@ describe('the curve', () => {
 		expect(curve.points.some((point) => point.isPeak)).toBe(false);
 	});
 
+	it('names the taller step when the peak is not the highest point on the line', () => {
+		// The real shape this guards, measured: 25925@4, 31457@16, 28532@64, 28760@256 (peak),
+		// 25064@1024 (breach). Throughput dips once the pool saturates and then flattens, so the
+		// marked peak sits visibly below the tallest point — and every reader asks why.
+		const dipped: SaturationDoc = {
+			slo: SLO,
+			outcome: 'saturated',
+			peak: {
+				concurrency: 256,
+				rps: 28760,
+				latency: { p50: 8.6, p90: 10.6, p95: 11.3, p99: 12.6 },
+				cpu: 42.6,
+				err: 0,
+			},
+			curve: [
+				step({ concurrency: 4, rps: 25925, p99: 0.35 }),
+				step({ concurrency: 16, rps: 31457, p99: 1.16 }),
+				step({ concurrency: 64, rps: 28532, p99: 3.65 }),
+				step({ concurrency: 256, rps: 28760, p99: 12.63 }),
+				step({ concurrency: 1024, rps: 25064, p99: 60.3, slo_met: false }),
+			],
+		};
+		const curve = buildCurve(dipped);
+		expect(curve.peakIndex).toBe(3);
+		expect(curve.tallerThanPeak).toEqual({ concurrency: 16, rps: 31457 });
+	});
+
+	it('says nothing when the peak is also the highest point', () => {
+		expect(buildCurve(saturated).tallerThanPeak).toBeNull();
+	});
+
+	it('does not point at a disqualified step as the taller one', () => {
+		// The 512 step in this fixture is the fastest on the curve and is disqualified. Its strike
+		// and its reason already explain it; calling it out as "faster" would aim the note at the
+		// wrong row.
+		const curve = buildCurve(saturated);
+		expect(curve.tallerThanPeak).toBeNull();
+		expect(curve.points.at(-1)?.disqualified).not.toBeNull();
+	});
+
 	it('draws a curve even when there is no peak to mark', () => {
 		const curve = buildCurve(sloNeverMet);
 		expect(curve.points).toHaveLength(1);
 		expect(curve.peakIndex).toBeNull();
 		expect(curve.points[0].verdict).toBe('over');
+	});
+});
+
+describe('comparison groups', () => {
+	const target = (id: string, fam?: string, orm = 'none') => ({
+		target_id: id,
+		target_meta: {
+			id,
+			name: id,
+			lang: 'rust',
+			runtime: { name: 'rust', ver: '1.95.0' },
+			orm: { name: orm, ver: '1' },
+			driver: { name: 'unknown', ver: '' },
+			proc: { mode: 'single', workers: 1 },
+			pool: { max: 8 },
+			db: { profile: 'sqlite', hash: '' },
+			wire: { format: 'json' },
+			fair: { workers: 1, pool: 8, db: 'sqlite', schema: 'v1', contract: 'v1', family: fam },
+			contract: { ver: 'v1' },
+		} satisfies TargetMeta,
+	});
+
+	it('reads the declared group rather than inferring it from the engine', () => {
+		// Same engine, two groups. Getting this wrong scopes a Bun row's delta to the Rust stack.
+		expect(targetFamily(target('bun-sqlite', 'sqlite-ts'))).toBe('sqlite-ts');
+		expect(targetFamily(target('drizzle-rs-sqlite', 'sqlite'))).toBe('sqlite');
+	});
+
+	it('falls back to the database when the artifact predates the field', () => {
+		// Not a guess: artifacts without the field had exactly one group per database, which is what
+		// this expresses.
+		expect(targetFamily(target('drizzle-rs-sqlite'))).toBe('sqlite');
+	});
+
+	it('names a split group apart from the database it shares', () => {
+		expect(familyLabel('sqlite')).toBe('SQLite');
+		expect(familyLabel('sqlite-ts')).toBe('SQLite / TypeScript');
+	});
+
+	it('scopes the baseline to the group, not the engine', () => {
+		const rows = [
+			{ ...target('drizzle-rs-sqlite', 'sqlite', 'drizzle-rs'), run_id: 'r', runner_os: 'linux' },
+			{ ...target('bun-sqlite', 'sqlite-ts'), run_id: 'r', runner_os: 'linux' },
+			{
+				...target('drizzle-orm-sqlite', 'sqlite-ts', 'drizzle-orm'),
+				run_id: 'r',
+				runner_os: 'linux',
+			},
+		];
+		const baselines = baselinesByFamily(rows);
+		// The Bun group's reference is the drizzle target on its own runtime — not drizzle-rs, which
+		// differs by language and concurrency model before it differs by library.
+		expect(baselines.get('sqlite-ts')?.target_id).toBe('drizzle-orm-sqlite');
+		expect(baselines.get('sqlite')?.target_id).toBe('drizzle-rs-sqlite');
 	});
 });
 
@@ -264,10 +369,47 @@ describe('harness disclosure', () => {
 
 	it('states that a family declared nothing rather than borrowing a neighbour', () => {
 		const rows = harnessRows(['sqlite', 'postgres'], [family({ family: 'postgres' })], (db) => db);
-		const sqlite = rows.find((row) => row.db === 'sqlite');
+		const sqlite = rows.find((row) => row.family === 'sqlite');
 		expect(sqlite?.summary).toBeNull();
 		// Not `false`: "we did not record it" and "we checked and it differs" are different findings.
 		expect(sqlite?.identical).toBeNull();
+	});
+
+	it('surfaces exempted targets rather than letting the tick stand unqualified', () => {
+		// `within_family_identical: true` with an exemption means "identical among the ones we
+		// checked" — a weaker claim than a bare tick reads as.
+		const rows = harnessRows(
+			['sqlite'],
+			[family({ family: 'sqlite', exempt: ['bun-sqlite'] })],
+			(db) => db,
+		);
+		expect(rows[0].identical).toBe(true);
+		expect(rows[0].exempt).toEqual(['bun-sqlite']);
+		expect(rows[0].detail).toContain('exempted from that check');
+		expect(rows[0].detail).toContain('bun-sqlite');
+	});
+
+	it('gives two comparison groups on one engine their own harness lines', () => {
+		// `sqlite` and `sqlite-ts` are both SQLite and run deliberately different harnesses: a
+		// single-threaded Bun runtime cannot be given a pool of 8 without the number being fiction.
+		// Looking the harness up by database would hand the Bun row the Rust stack's numbers.
+		const rows = harnessRows(
+			['sqlite', 'sqlite-ts'],
+			[
+				family({ family: 'sqlite', pool: 8, tuning: 'rusqlite, WAL' }),
+				family({ family: 'sqlite-ts', pool: 1, tuning: 'bun:sqlite, WAL' }),
+			],
+			(f) => f,
+		);
+		expect(rows.map((row) => row.family)).toEqual(['sqlite', 'sqlite-ts']);
+		expect(rows[0].summary).toContain('pool 8');
+		expect(rows[1].summary).toContain('pool 1');
+	});
+
+	it('leaves exempt empty when the run named none', () => {
+		expect(harnessRows(['sqlite'], [family({ family: 'sqlite' })], (db) => db)[0].exempt).toEqual(
+			[],
+		);
 	});
 
 	it('matches families case-insensitively', () => {

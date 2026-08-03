@@ -26,10 +26,10 @@
 {#if rows.length > 0}
 	<section class="mt-6" aria-labelledby="harness-strip-label">
 		<h2 id="harness-strip-label" class="text-micro text-muted-foreground font-mono uppercase">
-			harness by database
+			harness by comparison group
 		</h2>
 		<ul class="mt-2 flex flex-wrap gap-2">
-			{#each rows as row (row.db)}
+			{#each rows as row (row.family)}
 				<li
 					title={row.detail}
 					class={cn(
@@ -45,6 +45,11 @@
 						<span class="text-meta text-foreground font-mono">{row.summary}</span>
 						{#if row.identical === false}
 							<span class="text-meta text-negative">not identical within family</span>
+						{:else if row.exempt.length > 0}
+							<!-- "Verified identical" alongside an exemption is a narrower claim than the tick
+							     reads as, so the exemption travels with it rather than living only in the
+							     manifest. -->
+							<span class="text-meta text-warning-foreground">{row.exempt.length} exempt</span>
 						{/if}
 					{:else}
 						<span class="text-meta text-muted-foreground italic">harness not declared</span>
@@ -55,22 +60,22 @@
 
 		<p class="text-meta text-muted-foreground mt-2">
 			<Hint
-				hint="Within a database the harness is enforced identical, so a difference between two of its rows is a difference between the libraries. Across databases the harness deliberately differs — each stack runs in the shape it is actually deployed in — so a difference between rows on different databases includes the stack, not just the library."
+				hint="A comparison group is the set of targets claiming to be directly comparable. Inside one the harness is enforced identical, so a difference between two of its rows is a difference between the libraries. Across groups the harness deliberately differs — each stack runs in the shape it is actually deployed in — so a difference between rows in different groups includes the stack, not just the library. A group is usually a database, and splits where the harness genuinely cannot be equalised: a single-threaded runtime cannot be given the same connection pool as a threaded one without the number becoming fiction."
 			>
-				rows on one database share this configuration; rows on different databases do not
+				rows in one group share this configuration; rows in different groups do not
 			</Hint>
 		</p>
 
 		{#if anyUnverified}
 			<p class="text-meta text-negative mt-1.5">
-				At least one database's targets did not all declare the same harness, so a comparison
-				between those rows is not a like-for-like library comparison.
+				At least one group's targets did not all declare the same harness, so a comparison between
+				those rows is not a like-for-like library comparison.
 			</p>
 		{/if}
 		{#if anyUndeclared}
 			<p class="text-meta text-muted-foreground mt-1.5">
-				Databases marked "harness not declared" come from runs published before the runner recorded
-				it; nothing here confirms their rows ran under identical conditions.
+				Groups marked "harness not declared" come from runs published before the runner recorded it;
+				nothing here confirms their rows ran under identical conditions.
 			</p>
 		{/if}
 	</section>

@@ -1,9 +1,9 @@
 import {
-	dbProfile,
-	dbShortLabel,
 	fallbackTargetMeta,
+	familyLabel,
 	isDrizzleRsTarget,
 	targetDisplay,
+	targetFamily,
 } from '#lib/target-display';
 import { summarizeAll, type QualitativeNote } from '#lib/qualitative';
 import { runTitle } from '#lib/run-name';
@@ -293,14 +293,14 @@ export class RunDetailState {
 		const present = [
 			...new Set(
 				this.summaries.map((summary) =>
-					dbProfile({
+					targetFamily({
 						target_id: summary.target_id,
 						target_meta: this.targetMeta(summary.target_id),
 					}),
 				),
 			),
 		];
-		return harnessRows(present, this.harness, dbShortLabel);
+		return harnessRows(present, this.harness, familyLabel);
 	}
 
 	/**
@@ -309,9 +309,12 @@ export class RunDetailState {
 	 */
 	harnessLine(summary: Summary): { text: string; identical: boolean } | null {
 		const meta = this.targetMeta(summary.target_id);
+		// Keyed on the comparison group, not the database: two groups can share an engine and run
+		// deliberately different harnesses, and handing a row the other group's numbers would be a
+		// false claim about the very thing this line exists to establish.
 		const entry = harnessFor(
 			this.harness,
-			dbProfile({ target_id: summary.target_id, target_meta: meta }),
+			targetFamily({ target_id: summary.target_id, target_meta: meta }),
 		);
 		if (!entry) return null;
 		return { text: harnessSummary(entry), identical: entry.within_family_identical };
