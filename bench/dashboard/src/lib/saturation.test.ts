@@ -319,6 +319,18 @@ describe('comparison groups', () => {
 		expect(familyLabel('sqlite-ts')).toBe('SQLite / TypeScript');
 	});
 
+	it('composes a label for a split it has never seen, rather than mangling the id', () => {
+		// Ids are the runner's to mint and labels are ours to write, so a new split must not need a
+		// dashboard change to read correctly. `humanize` alone would produce "Postgres Ts".
+		expect(familyLabel('postgres-ts')).toBe('PostgreSQL / TypeScript');
+		expect(familyLabel('postgres-go')).toBe('PostgreSQL / Go');
+		expect(familyLabel('turso-ts')).toBe('Turso / TypeScript');
+	});
+
+	it('passes an id it has no rule for through visibly rather than inventing a name', () => {
+		expect(familyLabel('sqlite-haskell')).toBe('SQLite Haskell');
+	});
+
 	it('scopes the baseline to the group, not the engine', () => {
 		const rows = [
 			{ ...target('drizzle-rs-sqlite', 'sqlite', 'drizzle-rs'), run_id: 'r', runner_os: 'linux' },
@@ -404,6 +416,28 @@ describe('harness disclosure', () => {
 		expect(rows.map((row) => row.family)).toEqual(['sqlite', 'sqlite-ts']);
 		expect(rows[0].summary).toContain('pool 8');
 		expect(rows[1].summary).toContain('pool 1');
+	});
+
+	it('places a split group beside the group it split from, not alphabetically', () => {
+		// The whole reason to read this strip is to compare two groups sharing an engine, so
+		// `postgres` and `postgres-ts` have to be adjacent — an alphabetical tail would put every
+		// split at the far end, away from what it should be read against.
+		const rows = harnessRows(
+			['postgres-ts', 'sqlite', 'postgres', 'sqlite-ts'],
+			[
+				family({ family: 'sqlite' }),
+				family({ family: 'sqlite-ts' }),
+				family({ family: 'postgres' }),
+				family({ family: 'postgres-ts' }),
+			],
+			(f) => f,
+		);
+		expect(rows.map((row) => row.family)).toEqual([
+			'sqlite',
+			'sqlite-ts',
+			'postgres',
+			'postgres-ts',
+		]);
 	});
 
 	it('leaves exempt empty when the run named none', () => {

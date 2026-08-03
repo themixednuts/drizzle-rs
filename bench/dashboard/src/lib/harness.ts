@@ -90,13 +90,20 @@ export function harnessRows(
 	harness: readonly HarnessFamily[] | undefined,
 	label: (family: string) => string,
 ): HarnessRow[] {
-	// Canonical database order first, so the strip reads in the same order as the ranking's filter
-	// pills; groups that are not a bare database follow, alphabetically.
+	// Grouped by engine, in the ranking's own database order, with a split group sitting directly
+	// under the group it split from — `postgres` then `postgres-ts`, not `postgres` at one end and
+	// `postgres-ts` alphabetically at the other. The whole reason a reader looks at this strip is to
+	// compare two groups that share an engine, so the two have to be adjacent.
 	const seen = [...new Set(present)];
-	const ordered = [
-		...DB_PROFILE_ORDER.filter((db) => seen.includes(db)),
-		...seen.filter((family) => !DB_PROFILE_ORDER.includes(family as DbProfile)).sort(),
-	];
+	const ordered = [...seen].sort((a, b) => {
+		const engineDelta =
+			DB_PROFILE_ORDER.indexOf(dbProfileOf(a)) - DB_PROFILE_ORDER.indexOf(dbProfileOf(b));
+		if (engineDelta !== 0) return engineDelta;
+		// The bare engine id leads its own splits; beyond that, stable and alphabetical.
+		if (a === dbProfileOf(a)) return -1;
+		if (b === dbProfileOf(b)) return 1;
+		return a.localeCompare(b);
+	});
 
 	return ordered.map((family) => {
 		const entry = harnessFor(harness, family);

@@ -176,20 +176,45 @@ export function targetFamily(input: TargetDisplayInput): string {
 }
 
 /**
- * Display name for a comparison group. Groups that are a database are named as that database;
- * groups that split one carry what distinguishes them, because the whole point of the split is
- * that they are not interchangeable.
+ * What a group id's suffix means, when a database splits into more than one comparison group.
+ *
+ * A split is always "same engine, different stack", so the suffix names the stack. Composing the
+ * label from the two halves rather than listing whole ids means a new split — `postgres-ts` after
+ * `sqlite-ts`, or a future `postgres-go` — is named correctly without a code change, which matters
+ * because the ids are the runner's to mint and the labels are ours to write.
  */
-const FAMILY_LABELS: Record<string, string> = {
-	'sqlite-ts': 'SQLite / TypeScript',
+const FAMILY_SUFFIX_LABELS: Record<string, string> = {
+	ts: 'TypeScript',
+	go: 'Go',
+	py: 'Python',
+	java: 'Java',
 };
 
+/**
+ * Display name for a comparison group.
+ *
+ * Labels live here and never in an artifact: a display string frozen into a published artifact can
+ * never be reworded, so the runner mints lowercase slug ids and the presentation layer names them.
+ * A group that is a whole database is named as that database; a group that splits one carries what
+ * distinguishes it, because the entire point of the split is that the two are not interchangeable.
+ */
 export function familyLabel(family: string): string {
-	const known = FAMILY_LABELS[family];
-	if (known) return known;
-	return DB_PROFILE_ORDER.includes(family as DbProfile)
-		? DB_SHORT_LABELS[family as DbProfile]
-		: humanize(family);
+	if (DB_PROFILE_ORDER.includes(family as DbProfile)) {
+		return DB_SHORT_LABELS[family as DbProfile];
+	}
+
+	const split = family.indexOf('-');
+	if (split > 0) {
+		const engine = family.slice(0, split);
+		const suffix = FAMILY_SUFFIX_LABELS[family.slice(split + 1)];
+		if (suffix && DB_PROFILE_ORDER.includes(engine as DbProfile)) {
+			return `${DB_SHORT_LABELS[engine as DbProfile]} / ${suffix}`;
+		}
+	}
+
+	// An id this build has no rule for is passed through humanised rather than guessed at. It will
+	// look slightly wrong, which is the point — it is visible that a label is missing.
+	return humanize(family);
 }
 
 /** The one-sentence description of what this database makes a request do. `null` when there is
