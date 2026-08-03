@@ -178,6 +178,15 @@ This replaced a `warn` event plus a `manifest.fairness` entry. A warning buried
 in an artifact is silent in every way that matters: it still let an unequal
 library comparison ship, and a silently unequal comparison is worse than none.
 
+**A family can span runs, so the specs are also checked as a set.** `postgres`
+covers both `targets.postgres.v1.json` and `targets.postgres-rust-orms.v1.json`,
+and outside the publish topology (§13.4) those execute as separate CI jobs
+producing separate artifacts. A per-run check would pass on each shard
+independently and the drift would surface only when a consumer merged them —
+after publish, in someone else's UI. A unit test therefore runs the same
+enforcement over the union of every checked-in `targets.*.json`, so a pool
+changed in one file fails CI at source.
+
 **Across families — declared and displayed.** Nothing is constrained. PostgreSQL
 over TCP with a pool of 8 and an embedded SQLite with a pool of 1 *should* differ;
 that difference is the stack comparison. `manifest.harness` records the verified

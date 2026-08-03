@@ -347,6 +347,66 @@ mod tests {
         assert_eq!(named.len(), targets.len());
     }
 
+    /// Within-family identity is enforced per *run*, but a family can span runs:
+    /// `targets.postgres.v1.json` and `targets.postgres-rust-orms.v1.json` both
+    /// declare `family: postgres`, and outside the publish topology they execute
+    /// as separate CI jobs producing separate artifacts. Each run would then
+    /// check only its own shard and pass, and the drift would not surface until
+    /// a consumer merged the two and marked the family unverified — after
+    /// publish, in someone else's UI.
+    ///
+    /// So check the union of every checked-in spec here, where a mismatch fails
+    /// CI at source instead.
+    #[test]
+    fn every_checked_in_spec_agrees_with_its_family_across_files() {
+        let spec_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("workspace root")
+            .join("bench")
+            .join("spec");
+
+        let mut all: Vec<Target> = Vec::new();
+        let mut files = 0;
+        for entry in std::fs::read_dir(&spec_dir).expect("read bench/spec") {
+            let path = entry.expect("dir entry").path();
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default();
+            if !name.starts_with("targets.") || !name.ends_with(".json") {
+                continue;
+            }
+            let body = std::fs::read_to_string(&path).expect("read target spec");
+            all.extend(
+                serde_json::from_str::<Vec<Target>>(&body)
+                    .unwrap_or_else(|err| panic!("{}: {err}", path.display())),
+            );
+            files += 1;
+        }
+        assert!(files >= 8, "expected every targets.*.json, found {files}");
+
+        let blocks = harness(&all).unwrap_or_else(|err| {
+            panic!(
+                "checked-in specs declare an unfair comparison, which would only \
+                 have surfaced after publish in the parallel CI topology: {}",
+                err.msg
+            )
+        });
+
+        // The case this exists for: one family, two spec files, one harness.
+        let postgres = blocks
+            .iter()
+            .find(|block| block.family == "postgres")
+            .expect("postgres family");
+        assert!(
+            postgres.targets.len() > 5,
+            "postgres should span both Rust spec files, found {:?}",
+            postgres.targets
+        );
+        assert!(postgres.within_family_identical);
+    }
+
     #[test]
     fn a_family_of_only_exempt_targets_claims_no_harness() {
         let mut cache = target("spacetime-sdk-rs", "spacetimedb", 1, 1, "cache");
