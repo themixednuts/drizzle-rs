@@ -88,13 +88,16 @@ they belong with the contract:
     qualified, so there is no peak and none is reported). Steps over
     `limits.err` are disqualified from being the peak, stay in the curve, and
     carry the reason.
-11. **Fairness means two different things.** Within a database family
+11. **Fairness means two different things.** Within a comparison group
     (`fair.family`) the declared harness — workers, pool, tuning — must be
     identical or the run fails, so a difference in the numbers is attributable to
-    the library. Across families the configurations are free to differ, because
+    the library. Across groups the configurations are free to differ, because
     that difference is the stack comparison; `manifest.harness` records the
-    verified configuration per family so the two are never confused. See
-    `runner.v1.md` §5a.
+    verified configuration per group so the two are never confused. A group is
+    usually one database engine but splits where the harness cannot honestly be
+    equalised (`sqlite-ts` runs a synchronous single-connection API, so it is not
+    ranked against the pooled Rust SQLite targets). Splitting affects enforcement
+    and delta scoping, not presentation. See `runner.v1.md` §5a.
 12. **A shared `cohort_id` is not a shared machine.** A cohort groups the runs
    that belong to one logical comparison; when the families ran on separate CI
    VMs the host fields in `manifest.runner` differ and the numbers are only

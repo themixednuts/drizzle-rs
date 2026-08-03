@@ -184,29 +184,45 @@ that difference is the stack comparison. `manifest.harness` records the verified
 configuration per family so a reader cannot mistake a stack difference for a
 library one.
 
+### `fair.family` is a comparison group, not an engine
+
+A family is **the set of targets claiming to be directly comparable**. It usually
+maps one-to-one onto the database engine, but it splits when the harness cannot
+honestly be equalised.
+
+`sqlite-ts` is the worked example. `bun-sqlite` and `drizzle-orm-sqlite` run
+`bun:sqlite` — a synchronous API on a single-threaded runtime — so a pool of 8
+there is theatre. Raising their pool to match `targets.sqlite.v1.json` would
+cripple them in the name of fairness, which is the opposite of what fairness is
+for. drizzle-rs on rusqlite versus drizzle-orm on Bun differs in language,
+runtime and concurrency model: that is a **stack** comparison, and stack
+comparisons are the across-family axis. Inside `sqlite-ts`, `drizzle-orm-sqlite`
+versus `bun-sqlite` is a real library comparison — same runtime, same pool of 1,
+same pragmas — which is exactly what a family is for.
+
+Two consequences:
+
+1. **Delta scoping follows `fair.family`.** A target's within-family delta is
+   against the drizzle target *in its own group*, so `bun-sqlite` reads "vs
+   drizzle-orm on SQLite/Bun", not "vs drizzle-rs on SQLite/Rust".
+2. **Presentation does not.** Both groups still appear in one global table with
+   `SQLite` in the database column. Only enforcement and delta scoping follow
+   `fair.family`; splitting a group does not hide a target.
+
 Family is **declared, not inferred**. `db.profile` separates configurations
-*inside* a family (prepared vs unprepared) and `fair.db` names the SQL dialect
+*inside* a group (prepared vs unprepared) and `fair.db` names the SQL dialect
 several engines share, so neither identifies the bracket a target competes in.
 It is also not taken from the spec file a target arrived in — publish-class runs
 already execute three PostgreSQL spec files back to back inside one job (§13.4).
 The vocabulary is a closed enum in `target.v1.schema.json`
-(`sqlite`, `libsql`, `turso`, `postgres`, `spacetimedb`) and must be extended in
-lockstep with the dashboard's family vocabulary.
+(`sqlite`, `sqlite-ts`, `libsql`, `turso`, `postgres`, `spacetimedb`) and must be
+extended in lockstep with the dashboard's family vocabulary.
 
 Targets declaring `data_access: "in-process-cache"` are excluded from the
 equality check — a replicated in-process cache has no connection pool to
 equalise — and are listed in `harness[].exempt` rather than dropped. A family
 whose members are all exempt reports `within_family_identical: false` with no
 workers/pool/tuning, meaning "nothing to enforce", never "drift was tolerated".
-
-> [!IMPORTANT]
-> `targets.sqlite.v1.json` (pool 8) and `targets.sqlite-ts.v1.json` (pool 1) both
-> declare `family: sqlite` and therefore cannot currently share a job — merging
-> them the way §13.4 merges the PostgreSQL families would fail the run. That is
-> the intended signal, not a bug in the check: the two files really do run
-> different harnesses today, so a combined table would rank a pool of 8 against a
-> pool of 1 and call the gap a library difference. Equalise the pools before
-> merging the jobs.
 
 Target lifecycle:
 
@@ -384,14 +400,15 @@ Across trials each step is the **median** of the per-trial step values, matching
 ### The headline and the three outcomes
 
 A step **qualifies** when its `slo.metric` percentile is at or under `slo.ms`
-*and* its error rate is within `limits.err`. The peak is the highest-concurrency
-qualifying step. Exactly one of three outcomes is recorded, and all three are
-first class:
+*and* its error rate is within `limits.err`. The peak is the qualifying step with
+the **highest throughput**; ties break toward the lower concurrency, since the
+same throughput for fewer in-flight requests is strictly better. Exactly one of
+three outcomes is recorded, and all three are first class:
 
 | `outcome` | when | what the artifact carries | how to say it |
 | --- | --- | --- | --- |
 | `saturated` | a qualifying step exists and it is not the last step | `peak` | "peak throughput N req/s at p99 < 25 ms" |
-| `did_not_saturate` | the last step still qualified | `lower_bound_rps`, no `peak` | "at least N req/s — knee not reached" |
+| `did_not_saturate` | the last step still qualified | `lower_bound_rps` (the best qualifying throughput), no `peak` | "at least N req/s — knee not reached" |
 | `slo_never_met` | no step qualified | neither | "never met the p99 target" |
 
 `did_not_saturate` is a finding about the *ramp*, not the target: the workload
@@ -405,11 +422,17 @@ A step over `limits.err` is **disqualified**: it can never be the peak, it stays
 in the curve, and it carries the reason string
 (`"error rate 3.20% exceeds limit 1.00%"`). It is never silently skipped.
 
-`peak.concurrency` is the highest VU count that still held the SLO. On a
-non-monotone curve — throughput can dip after the pool saturates and then flatten
-— that is not necessarily the step with the highest measured rps. The full curve
-is in the artifact precisely so that shape is visible rather than hidden behind
-one number.
+**Peak throughput means the most throughput, not the most concurrency.** A
+closed-loop curve is often non-monotone: throughput dips once the pool saturates
+and then flattens, so the *widest* step that held the SLO is frequently slower
+than an earlier one that also held it. A measured drizzle-rs SQLite ramp does
+31 457 rps at 16 VUs and 28 760 at 256, both inside a 25 ms p99 — reporting the
+latter as "peak throughput at p99 < 25 ms" would understate the target by 9% and
+point at a worse operating point on *both* axes. `peak.concurrency` is therefore
+where the maximum occurred, not the last step to survive the SLO, and it can sit
+mid-curve. Whether the ramp found the ceiling is a separate question, answered by
+`outcome`: a ramp whose last step still qualified is `did_not_saturate` however
+early its maximum landed.
 
 ### The curve
 

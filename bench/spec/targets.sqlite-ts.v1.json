@@ -39,7 +39,7 @@
       "format": "json"
     },
     "fair": {
-      "family": "sqlite",
+      "family": "sqlite-ts",
       "workers": 1,
       "pool": 1,
       "db": "sqlite",
@@ -114,7 +114,7 @@
       "format": "json"
     },
     "fair": {
-      "family": "sqlite",
+      "family": "sqlite-ts",
       "workers": 1,
       "pool": 1,
       "db": "sqlite",

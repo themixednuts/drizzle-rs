@@ -591,6 +591,77 @@ fn run_publish_flag_updates_the_index() {
     assert_eq!(runs[0]["run_id"], run_id);
 }
 
+/// `fair.family`, `target_meta[].fair.family` and `harness[].family` are one key
+/// space. Consumers key harness lookup on it, so drift between the schemas would
+/// silently render every affected row as "harness not declared" — a false
+/// negative on exactly the disclosure the block exists to provide.
+#[test]
+fn the_family_vocabulary_is_one_key_space() {
+    let root = workspace_root();
+    let target_schema =
+        read_json(&root.join("docs/benchmark-spec/jsonschema/target.v1.schema.json"));
+    let manifest_schema =
+        read_json(&root.join("docs/benchmark-spec/jsonschema/run-manifest.v1.schema.json"));
+
+    let vocabulary = |schema: &Value| -> Vec<String> {
+        schema["$defs"]["family"]["enum"]
+            .as_array()
+            .expect("family enum")
+            .iter()
+            .map(|value| value.as_str().expect("family id").to_string())
+            .collect()
+    };
+    let declared = vocabulary(&target_schema);
+    assert_eq!(
+        declared,
+        vocabulary(&manifest_schema),
+        "target.v1 and run-manifest.v1 family enums have drifted"
+    );
+
+    // Both manifest uses must resolve to that one definition rather than a
+    // parallel inline copy that could rot independently.
+    for pointer in [
+        "/properties/harness/items/properties/family",
+        "/$defs/fair/properties/family",
+    ] {
+        assert_eq!(
+            manifest_schema.pointer(pointer).expect(pointer)["$ref"],
+            "#/$defs/family",
+            "{pointer} must reference the shared family definition"
+        );
+    }
+
+    // Ids only. A human-readable label frozen into a published artifact can
+    // never be reworded, so naming stays with the presentation layer.
+    for id in &declared {
+        assert!(
+            id.chars()
+                .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-'),
+            "family id {id} looks like a display label"
+        );
+    }
+
+    // Every checked-in target declares a family from that vocabulary.
+    for path in [
+        "bench/spec/targets.sqlite.v1.json",
+        "bench/spec/targets.sqlite-ts.v1.json",
+        "bench/spec/targets.libsql.v1.json",
+        "bench/spec/targets.turso.v1.json",
+        "bench/spec/targets.postgres.v1.json",
+        "bench/spec/targets.postgres-rust-orms.v1.json",
+        "bench/spec/targets.postgres-ts.v1.json",
+        "bench/spec/targets.spacetimedb.v1.json",
+    ] {
+        for target in read_json(&root.join(path)).as_array().expect("targets") {
+            let family = target["fair"]["family"].as_str().expect("fair.family");
+            assert!(
+                declared.iter().any(|id| id == family),
+                "{path}: {family} is not in the family vocabulary"
+            );
+        }
+    }
+}
+
 /// A saturation workload must produce a schema-valid capacity artifact end to
 /// end: a real curve tagged with concurrency, a named outcome, and a peak that
 /// is one of the plotted steps.
@@ -719,6 +790,34 @@ fn a_saturation_run_writes_a_capacity_artifact() {
     assert!(harness[0]["tuning"].as_str().is_some());
     // The warning list it replaced is gone, not emitted alongside it.
     assert!(manifest.get("fairness").is_none());
+
+    // The emitted harness keys must be the same strings the targets declared:
+    // consumers join the two, and a drifted key reads as "harness not declared"
+    // on every affected row rather than failing loudly.
+    let declared: Vec<&str> = manifest["target_meta"]
+        .as_array()
+        .expect("target_meta")
+        .iter()
+        .map(|meta| meta["fair"]["family"].as_str().expect("fair.family"))
+        .collect();
+    for block in harness {
+        let family = block["family"].as_str().expect("harness family");
+        assert!(
+            declared.contains(&family),
+            "harness family {family} matches no target's fair.family {declared:?}"
+        );
+        for id in block["targets"].as_array().expect("targets") {
+            let id = id.as_str().expect("target id");
+            assert!(
+                manifest["targets"]
+                    .as_array()
+                    .expect("targets")
+                    .iter()
+                    .any(|t| t == id),
+                "harness names target {id}, which did not run"
+            );
+        }
+    }
 
     let validate = run_cmd(
         &["validate", "--run", run_dir.to_str().expect("run path")],
@@ -929,6 +1028,10 @@ fn validate_target_file(path: &Path, schema_path: &Path) {
             errors.join("; ")
         );
     }
+}
+
+fn read_json(path: &Path) -> Value {
+    serde_json::from_str(&fs::read_to_string(path).expect("read json")).expect("parse json")
 }
 
 fn workspace_root() -> PathBuf {

@@ -210,14 +210,8 @@
       "properties": {
         "family": {
           "type": "string",
-          "description": "Competition bracket this target is ranked inside. Declared, not inferred: `db.profile` separates configurations within a family (prepared vs unprepared) and `fair.db` names the SQL dialect several engines share, so neither identifies the bracket. Extend this enum and the dashboard's family vocabulary together — they must name the same buckets.",
-          "enum": [
-            "sqlite",
-            "libsql",
-            "turso",
-            "postgres",
-            "spacetimedb"
-          ]
+          "description": "Comparison group: the set of targets claiming to be directly comparable, within which the harness is enforced identical and within-group deltas are scoped. Usually one per database engine, but it splits when the harness genuinely cannot be equalised — `sqlite-ts` is separate from `sqlite`, and `postgres-ts` from `postgres`, because those runtimes are synchronous or single-threaded and matching the Rust pool there would be theatre rather than fairness. Conversely `postgres` deliberately spans two spec files: the builtin drizzle-rs/tokio-postgres targets and the sqlx/diesel/sea-orm/toasty file are all Rust on the same harness, and that is the most valuable library comparison in the suite. Grouping is declared per target precisely so it is not inferred from file layout, and `db.profile` (prepared vs unprepared) and `fair.db` (SQL dialect) identify neither. THIS ENUM IS ONE KEY SPACE with `harness[].family` and `target_meta[].fair.family` in run-manifest.v1; all three must be extended together, along with the dashboard's family vocabulary. Artifacts carry these ids only — display labels belong to the presentation layer, since a name frozen into a published artifact can never be reworded.",
+          "$ref": "#/$defs/family"
         },
         "workers": {
           "type": "integer",
@@ -291,6 +285,19 @@
     }
   },
   "$defs": {
+    "family": {
+      "type": "string",
+      "description": "Comparison-group vocabulary. Kept byte-identical to `harness[].family` and `target_meta[].fair.family` in run-manifest.v1 — the runner has a test that fails if the three drift, because a mismatch would silently render every affected row as \"harness not declared\".",
+      "enum": [
+        "sqlite",
+        "sqlite-ts",
+        "libsql",
+        "turso",
+        "postgres",
+        "postgres-ts",
+        "spacetimedb"
+      ]
+    },
     "exec": {
       "type": "object",
       "additionalProperties": false,

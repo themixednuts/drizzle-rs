@@ -20,11 +20,18 @@
 //!
 //! # Reading the result
 //!
-//! The peak is the highest-concurrency step that both met the SLO and stayed
-//! inside `limits.err`. When no step qualifies there is no peak and the artifact
-//! says so; when the *last* step still qualifies the ramp never found the knee
-//! and the top step is reported as a lower bound. Neither case is padded with a
-//! substitute number.
+//! A step *qualifies* when it met the SLO and stayed inside `limits.err`. The
+//! peak is the **fastest** qualifying step, not the widest one: a closed-loop
+//! curve dips once the pool saturates, so the last step to survive the SLO is
+//! frequently slower than an earlier one that also survived it, and reporting
+//! that under the name "peak throughput" would understate the target and point
+//! at a worse operating point on both axes. Ties go to the lower concurrency.
+//!
+//! Whether the ramp found the ceiling is a separate question from where the
+//! maximum landed, and `outcome` answers it: a ramp whose last step still
+//! qualified never reached the knee, so its best throughput is reported as a
+//! lower bound rather than a peak. When nothing qualifies there is no peak at
+//! all. No case is padded with a substitute number.
 
 use crate::code::{Code, Fail};
 use crate::model::{
@@ -58,14 +65,30 @@ pub fn measure(
         .map(|(idx, &concurrency)| step(spec, limits, concurrency, idx, trials))
         .collect::<Vec<_>>();
 
-    let peak_idx = curve.iter().rposition(CurveStepDoc::qualifies);
-    let (outcome, peak, lower_bound_rps) = match peak_idx {
+    // Peak throughput means the most throughput, not the most concurrency. A
+    // closed-loop curve can dip after the pool saturates and then flatten, so
+    // the highest-concurrency step that held the SLO is often slower than an
+    // earlier one that also held it — reporting the former under the name "peak
+    // throughput" would understate the target and point at a worse operating
+    // point on both axes. Ties go to the lower concurrency: the same throughput
+    // for fewer in-flight requests is strictly better.
+    let best = curve.iter().filter(|step| step.qualifies()).max_by(|a, b| {
+        a.rps
+            .total_cmp(&b.rps)
+            .then_with(|| b.concurrency.cmp(&a.concurrency))
+    });
+
+    // Whether the ramp ever found the ceiling is a separate question from where
+    // the best step was: a ramp whose last step still held the SLO never reached
+    // the knee, however early the maximum happened to land.
+    let ramp_ended_inside_slo = curve.last().is_some_and(|step| step.qualifies());
+
+    let (outcome, peak, lower_bound_rps) = match best {
         None => (Outcome::SloNeverMet, None, None),
-        Some(idx) if idx + 1 == curve.len() => {
-            (Outcome::DidNotSaturate, None, Some(curve[idx].rps))
-        }
-        Some(idx) => {
-            let step = &curve[idx];
+        // Known to reach at least this much while holding the SLO; the ceiling
+        // is somewhere above the ramp and was not measured.
+        Some(step) if ramp_ended_inside_slo => (Outcome::DidNotSaturate, None, Some(step.rps)),
+        Some(step) => {
             let peak = PeakDoc {
                 concurrency: step.concurrency,
                 rps: step.rps,
@@ -243,8 +266,69 @@ mod tests {
         measure("t", &spec(slo_ms), &limits(err_limit), &[steps]).expect("measure")
     }
 
+    /// The case that distinguishes "most throughput" from "most concurrency".
+    /// Throughput peaks at 16 VUs and sags afterwards while still holding the
+    /// SLO up to 64; the highest *qualifying concurrency* is 64, but the peak
+    /// *throughput* is at 16. Reporting 2 100 under the label "peak throughput"
+    /// when 3 100 was measured inside the same SLO would understate the target
+    /// and point at a worse operating point on both axes.
     #[test]
-    fn peak_is_the_last_qualifying_step_before_the_slo_breaks() {
+    fn peak_is_the_fastest_qualifying_step_not_the_widest() {
+        let steps = [
+            point(8, 2_400.0, 4.0, 0.0),
+            point(16, 3_100.0, 9.0, 0.0),
+            point(32, 2_600.0, 18.0, 0.0),
+            point(64, 2_100.0, 40.0, 0.0),
+            point(128, 1_900.0, 120.0, 0.0),
+        ];
+        let doc = measured(&steps, 50.0, 0.01);
+
+        assert_eq!(doc.outcome, Outcome::Saturated);
+        let peak = doc.peak.expect("peak");
+        assert_eq!(peak.rps, 3_100.0);
+        assert_eq!(peak.concurrency, 16);
+        assert_eq!(peak.latency.p99, 9.0);
+        // 64 held the SLO and is the widest qualifying step; it is not the peak.
+        assert!(doc.curve[3].qualifies());
+    }
+
+    /// Same throughput for fewer in-flight requests is strictly better.
+    #[test]
+    fn a_throughput_tie_breaks_toward_the_lower_concurrency() {
+        let steps = [
+            point(8, 1_000.0, 4.0, 0.0),
+            point(16, 2_500.0, 9.0, 0.0),
+            point(32, 2_500.0, 19.0, 0.0),
+            point(64, 2_500.0, 120.0, 0.0),
+        ];
+        let doc = measured(&steps, 50.0, 0.01);
+
+        let peak = doc.peak.expect("peak");
+        assert_eq!(peak.rps, 2_500.0);
+        assert_eq!(peak.concurrency, 16);
+    }
+
+    /// A ramp that never breaches reports its best qualifying throughput as a
+    /// lower bound — the maximum is still the maximum, the ceiling is what was
+    /// not found.
+    #[test]
+    fn a_lower_bound_is_the_best_qualifying_throughput() {
+        let steps = [
+            point(8, 1_000.0, 2.0, 0.0),
+            point(16, 3_000.0, 4.0, 0.0),
+            point(32, 2_400.0, 9.0, 0.0),
+        ];
+        let doc = measured(&steps, 50.0, 0.01);
+
+        assert_eq!(doc.outcome, Outcome::DidNotSaturate);
+        assert!(doc.peak.is_none());
+        assert_eq!(doc.lower_bound_rps, Some(3_000.0));
+    }
+
+    /// On a monotone ramp the fastest qualifying step *is* the widest one, so
+    /// the two readings coincide. This is the shape the method assumes.
+    #[test]
+    fn a_monotone_ramp_peaks_at_its_last_qualifying_step() {
         let steps = [
             point(8, 1_000.0, 9.0, 0.0),
             point(16, 1_900.0, 18.0, 0.0),
@@ -323,6 +407,21 @@ mod tests {
         assert_eq!(doc.outcome, Outcome::DidNotSaturate);
         assert!(doc.peak.is_none());
         assert_eq!(doc.lower_bound_rps, Some(4_000.0));
+    }
+
+    /// The ramp reaching its end inside the SLO is what makes an outcome
+    /// `did_not_saturate` — not where the maximum happened to land.
+    #[test]
+    fn an_early_maximum_does_not_by_itself_mean_saturated() {
+        let steps = [
+            point(8, 5_000.0, 2.0, 0.0),
+            point(16, 3_000.0, 4.0, 0.0),
+            point(32, 2_800.0, 9.0, 0.0),
+        ];
+        let doc = measured(&steps, 50.0, 0.01);
+
+        assert_eq!(doc.outcome, Outcome::DidNotSaturate);
+        assert_eq!(doc.lower_bound_rps, Some(5_000.0));
     }
 
     #[test]

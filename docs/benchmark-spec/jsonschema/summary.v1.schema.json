@@ -242,7 +242,7 @@
         },
         "outcome": {
           "type": "string",
-          "description": "saturated: a peak step was found and a later step failed to qualify. slo_never_met: no step qualified — every one either breached the SLO or was disqualified by its error rate — so there is NO peak and none is reported. did_not_saturate: the last step still qualified, so the ramp ended before the knee; the top step is a lower bound, not a peak.",
+          "description": "saturated: a qualifying step was found and the ramp's last step failed to qualify, so the ceiling was reached. slo_never_met: no step qualified — every one either breached the SLO or was disqualified by its error rate — so there is NO peak and none is reported. did_not_saturate: the last step still qualified, so the ramp ended before the knee and the best qualifying throughput is a lower bound, not a peak. The outcome depends only on whether the ramp ended inside the SLO, never on where the maximum landed.",
           "enum": [
             "saturated",
             "slo_never_met",
@@ -252,7 +252,7 @@
         "peak": {
           "type": "object",
           "additionalProperties": false,
-          "description": "The highest-concurrency step that met the SLO and stayed inside limits.err. Present if and only if outcome is `saturated`.",
+          "description": "The qualifying step (SLO met AND not disqualified) with the HIGHEST THROUGHPUT; ties break toward the lower concurrency. Not the widest qualifying step: a closed-loop curve dips once the pool saturates, so the last step to survive the SLO is often slower than an earlier one, and reporting it under the name \"peak throughput\" would understate the target. `concurrency` is therefore where the maximum occurred and may sit mid-curve. Present if and only if outcome is `saturated`.",
           "required": [
             "concurrency",
             "rps",
@@ -286,7 +286,7 @@
         "lower_bound_rps": {
           "type": "number",
           "minimum": 0,
-          "description": "Throughput of the top step, which still met the SLO. Present if and only if outcome is `did_not_saturate`. Read as \"at least N req/s — knee not reached\"; presenting it as a peak would claim a limit that was never found."
+          "description": "The best throughput measured while holding the SLO. Present if and only if outcome is `did_not_saturate`. Read as \"at least N req/s — knee not reached\"; presenting it as a peak would claim a limit that was never found."
         },
         "curve": {
           "type": "array",

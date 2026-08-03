@@ -277,10 +277,13 @@ pub struct Wire {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Fair {
-    /// Database family this target competes in, e.g. `sqlite`, `turso`,
-    /// `postgres`. Declared rather than inferred: `db.profile` distinguishes
-    /// configurations *within* a family (prepared vs unprepared) and `fair.db`
-    /// names the SQL dialect, so neither identifies the competition bracket.
+    /// Comparison group: the targets this one claims to be directly comparable
+    /// to. Usually one per engine, but it splits where the harness cannot
+    /// honestly be equalised — `sqlite-ts` is separate from `sqlite` because
+    /// `bun:sqlite` is synchronous on a single-threaded runtime, so matching the
+    /// Rust pool of 8 would cripple it rather than make it fair. Declared rather
+    /// than inferred: `db.profile` distinguishes configurations *within* a group
+    /// and `fair.db` names the SQL dialect, so neither identifies the bracket.
     pub family: String,
     pub workers: u32,
     pub pool: u32,
@@ -468,10 +471,10 @@ pub struct RangeDoc {
 pub struct SaturationDoc {
     pub slo: Slo,
     pub outcome: Outcome,
-    /// The peak step. Present only when `outcome == "saturated"`.
+    /// The fastest qualifying step. Present only when `outcome == "saturated"`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peak: Option<PeakDoc>,
-    /// Throughput of the top step, which still met the SLO. Present only when
+    /// Best throughput measured while holding the SLO. Present only when
     /// `outcome == "did_not_saturate"`: capacity is at *least* this, and the
     /// ramp ended before it found the knee.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -484,13 +487,15 @@ pub struct SaturationDoc {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
-    /// A peak step was found and a later step failed to qualify.
+    /// A qualifying step was found and the ramp's last step failed to qualify,
+    /// so the ceiling is inside the measured range.
     Saturated,
     /// No step qualified as a peak: every one either breached the SLO or was
     /// disqualified by its error rate. There is no peak, and none is reported.
     SloNeverMet,
-    /// Every step up to and including the last one qualified. The top step is a
-    /// lower bound, not a peak — the ramp was too short.
+    /// The ramp's last step still qualified, so the ceiling is somewhere above
+    /// the measured range. The best qualifying throughput is a lower bound, not
+    /// a peak — the ramp was too short.
     DidNotSaturate,
 }
 

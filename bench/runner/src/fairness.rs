@@ -15,8 +15,20 @@
 //!   is recorded per family so no reader mistakes it for a library difference,
 //!   which is what [`harness`] writes into the manifest.
 //!
+//! A "family" is a **comparison group**: the set of targets claiming to be
+//! directly comparable. It usually maps onto the database engine, but it splits
+//! where the harness cannot honestly be equalised. `sqlite-ts` is separate from
+//! `sqlite` because `bun:sqlite` is a synchronous API on a single-threaded
+//! runtime — a pool of 8 there is theatre, and forcing one to match the Rust
+//! targets would cripple it in the name of fairness. drizzle-rs on rusqlite
+//! versus drizzle-orm on Bun differs in language, runtime and concurrency model,
+//! which makes it a *stack* comparison and therefore the across-family axis;
+//! inside `sqlite-ts`, drizzle-orm versus bun:sqlite is a real library
+//! comparison. Splitting a group changes enforcement and delta scoping only —
+//! both groups still appear in one table.
+//!
 //! Families come from `fair.family`, which each target declares. It is not
-//! inferred: `db.profile` separates configurations *inside* a family (prepared
+//! inferred: `db.profile` separates configurations *inside* a group (prepared
 //! vs unprepared) and `fair.db` names the SQL dialect shared by several engines,
 //! so neither identifies the bracket a target competes in. It is also not taken
 //! from the spec file a target arrived in — publish-class runs already execute
@@ -297,6 +309,42 @@ mod tests {
         assert!(blocks[0].within_family_identical);
         assert_eq!(blocks[0].targets, ["spacetime-pgwire-rs"]);
         assert_eq!(blocks[0].exempt, ["spacetime-sdk-rs"]);
+    }
+
+    /// Consumers join `harness[].family` against each target's declared
+    /// `fair.family`, and `harness[].targets` against the run's target list.
+    /// Both keys are echoed, never re-derived, so the join cannot go stale.
+    #[test]
+    fn every_emitted_key_traces_back_to_a_declared_target() {
+        let mut cache = target("spacetime-sdk-rs", "spacetimedb", 1, 1, "cache");
+        cache.data_access = Some("in-process-cache".to_string());
+        let targets = [
+            target("drizzle-rs-sqlite", "sqlite", 1, 8, "WAL"),
+            target("drizzle-rs-pg", "postgres", 1, 8, "stock"),
+            target("spacetime-pgwire-rs", "spacetimedb", 1, 4, "stock"),
+            cache,
+        ];
+        let blocks = harness(&targets).expect("harness");
+
+        for block in &blocks {
+            assert!(
+                targets.iter().any(|t| t.fair.family == block.family),
+                "family {} matches no target",
+                block.family
+            );
+            for id in block.targets.iter().chain(&block.exempt) {
+                assert!(
+                    targets.iter().any(|t| &t.id == id),
+                    "harness names {id}, which is not in the run"
+                );
+            }
+        }
+        // Every target is accounted for exactly once, compared or exempt.
+        let named: Vec<&String> = blocks
+            .iter()
+            .flat_map(|b| b.targets.iter().chain(&b.exempt))
+            .collect();
+        assert_eq!(named.len(), targets.len());
     }
 
     #[test]

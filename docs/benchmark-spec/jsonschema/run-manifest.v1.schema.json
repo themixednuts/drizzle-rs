@@ -389,7 +389,7 @@
         "additionalProperties": false,
         "required": ["family", "within_family_identical"],
         "properties": {
-          "family": { "type": "string", "minLength": 1 },
+          "family": { "$ref": "#/$defs/family" },
           "targets": {
             "type": "array",
             "description": "Targets whose declared harness was compared for equality. The runner always emits it; it is optional here because the contract mandates only `family` and `within_family_identical`.",
@@ -448,6 +448,19 @@
     }
   },
   "$defs": {
+    "family": {
+      "type": "string",
+      "description": "Comparison-group vocabulary, ONE key space shared by `harness[].family`, `target_meta[].fair.family` and `fair.family` in target.v1. Consumers key harness lookup on it, so drift between the three would silently render every affected row as \"harness not declared\" — the runner has a test that fails if they diverge. Ids only: display labels belong to the presentation layer, because a name frozen into a published artifact can never be reworded.",
+      "enum": [
+        "sqlite",
+        "sqlite-ts",
+        "libsql",
+        "turso",
+        "postgres",
+        "postgres-ts",
+        "spacetimedb"
+      ]
+    },
     "name_ver": {
       "type": "object",
       "additionalProperties": false,
@@ -513,7 +526,7 @@
       "description": "The target's own declaration, copied verbatim from its spec. The per-family verified view is `harness`; this is what each target claimed.",
       "required": ["workers", "pool", "db", "schema", "contract"],
       "properties": {
-        "family": { "type": "string", "minLength": 1 },
+        "family": { "$ref": "#/$defs/family" },
         "workers": { "type": "integer", "minimum": 1 },
         "pool": { "type": "integer", "minimum": 1 },
         "db": { "type": "string", "minLength": 1 },
