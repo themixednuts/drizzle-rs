@@ -279,6 +279,40 @@
           "description": "Optional hard ceiling on peak mean-across-cores CPU. Absent: the headroom gate is informational (skip) — closed-loop ramps saturate colocated hosts by design. Set only where genuine headroom is expected (dedicated load/SUT hosts)."
         }
       }
+    },
+    "saturation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Declares this workload as a capacity measurement, producing `summary.saturation`. The steps are not listed here: they ARE the hold stages of `stages`, so the ramp has one definition and the spec cannot drift from what runs. The runner refuses the block unless `pacing.mode=none` (a paced run's throughput is capped by its own sleep timer, so it cannot measure capacity), `load.executor=ramping-vus` (each step must ramp in before it holds), `warmup_s` lands on a stage boundary (so no step is measured over part of its plateau), and the ramp has at least three steps whose concurrency strictly increases.",
+      "required": [
+        "slo"
+      ],
+      "properties": {
+        "slo": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The latency ceiling a step must stay under to be eligible as the peak. The headline is always quoted with it attached — a throughput number without a latency bound is not a capacity claim.",
+          "required": [
+            "metric",
+            "ms"
+          ],
+          "properties": {
+            "metric": {
+              "type": "string",
+              "enum": [
+                "p50",
+                "p90",
+                "p95",
+                "p99"
+              ]
+            },
+            "ms": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        }
+      }
     }
   }
 }

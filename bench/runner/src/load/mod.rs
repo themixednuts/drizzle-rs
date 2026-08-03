@@ -384,11 +384,14 @@ pub async fn run(args: Load) -> Result<Code, Fail> {
     shutdown?;
 
     jsonio::write(out, &measured.series, Code::RunFail)?;
-    // The trial aggregate is computed here, where the raw per-request samples
-    // still exist: exact hold-phase percentiles cannot be recovered from the
-    // per-bucket summaries alone.
+    // The trial aggregate and the per-step aggregates are computed here, where
+    // the raw per-request samples still exist: exact hold-phase percentiles
+    // cannot be recovered from the per-bucket summaries alone.
     if let Ok(point_out) = std::env::var("BENCH_POINT_OUT") {
         jsonio::write(PathBuf::from(point_out), &measured.aggregate, Code::RunFail)?;
+    }
+    if let Ok(steps_out) = std::env::var("BENCH_STEPS_OUT") {
+        jsonio::write(PathBuf::from(steps_out), &measured.steps, Code::RunFail)?;
     }
     Ok(Code::Success)
 }
@@ -519,20 +522,186 @@ impl QueryBucket {
         }
     }
 
-    fn merge(&mut self, other: QueryBucket) {
-        self.latencies.extend(other.latencies);
+    fn merge(&mut self, other: &QueryBucket) {
+        self.latencies.extend_from_slice(&other.latencies);
         self.errors += other.errors;
         self.total += other.total;
+    }
+}
+
+/// One second (or `sampling.bucket_s` seconds) of completed requests.
+struct Bucket {
+    time: String,
+    queries: Vec<QueryBucket>,
+    requests: u64,
+    errors: u64,
+    wall: f64,
+    cpu: Vec<f64>,
+    mem_mb: Option<f64>,
+}
+
+impl Bucket {
+    fn point(&self, keys: &[QueryKey], latencies: &[f64], trial: u32, plan: SecondPlan) -> Point {
+        Point {
+            time: self.time.clone(),
+            rps: self.requests as f64 / self.wall,
+            err: error_rate(self.errors, self.requests),
+            latency: summarize_latency(latencies),
+            cpu: self.cpu.clone(),
+            mem_mb: self.mem_mb,
+            trial: Some(trial),
+            stage: Some(plan.stage),
+            phase: Some(plan.phase),
+            vus: Some(plan.vus),
+            requests: Some(self.requests),
+            queries: query_points(keys, &self.queries, self.wall),
+        }
+    }
+}
+
+/// Running totals for one measurement window: either the whole trial, or a
+/// single hold plateau of a concurrency ramp.
+///
+/// Raw latency samples are retained until the window closes. A percentile
+/// recombined from per-bucket percentiles is not the window's percentile, and
+/// the step p99 that the saturation SLO is judged against has to be a real one.
+struct Window {
+    stage: Option<u32>,
+    phase: Option<Phase>,
+    vus: Option<u32>,
+    time: String,
+    queries: Vec<QueryBucket>,
+    requests: u64,
+    errors: u64,
+    wall: f64,
+    cpu: Vec<f64>,
+    cpu_samples: usize,
+    mem: Vec<f64>,
+}
+
+impl Window {
+    fn new(queries: usize, stage: Option<u32>, phase: Option<Phase>, vus: Option<u32>) -> Self {
+        Self {
+            stage,
+            phase,
+            vus,
+            time: String::new(),
+            queries: vec![QueryBucket::default(); queries],
+            requests: 0,
+            errors: 0,
+            wall: 0.0,
+            cpu: Vec::new(),
+            cpu_samples: 0,
+            mem: Vec::new(),
+        }
+    }
+
+    fn absorb(&mut self, bucket: &Bucket) {
+        self.time.clone_from(&bucket.time);
+        for (slot, counted) in self.queries.iter_mut().zip(&bucket.queries) {
+            slot.merge(counted);
+        }
+        self.requests += bucket.requests;
+        self.errors += bucket.errors;
+        self.wall += bucket.wall;
+        if self.cpu.len() < bucket.cpu.len() {
+            self.cpu.resize(bucket.cpu.len(), 0.0);
+        }
+        for (slot, value) in self.cpu.iter_mut().zip(&bucket.cpu) {
+            *slot += value;
+        }
+        self.cpu_samples += 1;
+        if let Some(mem) = bucket.mem_mb {
+            self.mem.push(mem);
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.cpu_samples == 0
+    }
+
+    /// Close the window. Percentiles come from every raw sample it collected.
+    fn finish(&self, keys: &[QueryKey], trial: u32) -> Point {
+        let mut merged: Vec<f64> =
+            Vec::with_capacity(self.queries.iter().map(|q| q.latencies.len()).sum());
+        for bucket in &self.queries {
+            merged.extend_from_slice(&bucket.latencies);
+        }
+
+        let wall = self.wall.max(0.001);
+        let mut cpu = self.cpu.clone();
+        if self.cpu_samples > 0 {
+            for slot in &mut cpu {
+                *slot /= self.cpu_samples as f64;
+            }
+        }
+        if cpu.is_empty() {
+            cpu.push(0.0);
+        }
+
+        Point {
+            time: if self.time.is_empty() {
+                now_rfc3339()
+            } else {
+                self.time.clone()
+            },
+            rps: self.requests as f64 / wall,
+            err: error_rate(self.errors, self.requests),
+            latency: summarize_latency(&merged),
+            cpu,
+            mem_mb: (!self.mem.is_empty()).then(|| avg(&self.mem)),
+            trial: Some(trial),
+            stage: self.stage,
+            phase: self.phase,
+            vus: self.vus,
+            requests: Some(self.requests),
+            queries: query_points(keys, &self.queries, wall),
+        }
+    }
+}
+
+fn error_rate(errors: u64, requests: u64) -> f64 {
+    if requests == 0 {
+        0.0
+    } else {
+        errors as f64 / requests as f64
     }
 }
 
 /// One second of the load profile, tagged with the stage it came from and the
 /// role that second plays in the measurement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct SecondPlan {
-    vus: u32,
-    stage: u32,
-    phase: Phase,
+pub(crate) struct SecondPlan {
+    pub(crate) vus: u32,
+    pub(crate) stage: u32,
+    pub(crate) phase: Phase,
+}
+
+/// The per-second plan a workload will actually run.
+///
+/// Exposed so spec validation can check the schedule the load generator builds
+/// rather than a second, drifting interpretation of the stage list.
+pub(crate) fn schedule_for(workload: &Workload) -> Vec<SecondPlan> {
+    build_schedule(
+        &workload.stages,
+        workload.load.executor.starts_with("ramping"),
+        workload.warmup_seconds(),
+    )
+}
+
+/// The hold plateaus a workload will measure, ascending in time, as
+/// `(stage index, concurrency)`. These are the steps of a saturation curve.
+pub(crate) fn hold_steps(workload: &Workload) -> Vec<(u32, u32)> {
+    let mut steps: Vec<(u32, u32)> = Vec::new();
+    for slot in schedule_for(workload)
+        .iter()
+        .filter(|slot| slot.phase == Phase::Hold)
+    {
+        if steps.last().is_none_or(|(stage, _)| *stage != slot.stage) {
+            steps.push((slot.stage, slot.vus));
+        }
+    }
+    steps
 }
 
 /// One completed request, handed from a VU task to the bucket collector.
@@ -542,11 +711,16 @@ struct Sample {
     latency_ms: f64,
 }
 
-/// Everything one trial produces: the per-bucket series for charts, plus the
-/// trial aggregate computed from the merged raw samples while they still exist.
+/// Everything one trial produces: the per-bucket series for charts, the trial
+/// aggregate, and one aggregate per hold plateau. The latter two are computed
+/// from merged raw samples while they still exist, which is the only place an
+/// exact percentile can come from.
 pub(crate) struct Measured {
     pub(crate) series: Vec<Point>,
     pub(crate) aggregate: Point,
+    /// One entry per hold plateau, ascending in time. Empty for a workload with
+    /// no steady state at all (a run shorter than its own warmup).
+    pub(crate) steps: Vec<Point>,
 }
 
 /// Requests are drawn `plans[(vu * PLAN_STRIDE + iter) % len]`. The pool is
@@ -595,13 +769,10 @@ async fn measure_vus_async(
     let mut workers: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     let mut series: Vec<Point> = Vec::new();
 
-    let mut agg_queries: Vec<QueryBucket> = vec![QueryBucket::default(); query_keys.len()];
-    let mut agg_requests = 0_u64;
-    let mut agg_errors = 0_u64;
-    let mut agg_wall = 0.0_f64;
-    let mut agg_cpu: Vec<f64> = Vec::new();
-    let mut agg_cpu_samples = 0_usize;
-    let mut agg_mem: Vec<f64> = Vec::new();
+    let mut aggregate = Window::new(query_keys.len(), None, None, None);
+    // One window per hold plateau, in the order the ramp visits them. These are
+    // the steps of the saturation curve; the aggregate spans all of them.
+    let mut steps: Vec<Window> = Vec::new();
 
     let mut idx = 0_usize;
     while idx < schedule.len() {
@@ -705,44 +876,38 @@ async fn measure_vus_async(
         }
 
         let snapshot = sampler.latest();
-        let point = Point {
+        let bucket = Bucket {
             time: now_rfc3339(),
-            rps: total as f64 / wall,
-            err: if total == 0 {
-                0.0
-            } else {
-                errors as f64 / total as f64
-            },
-            latency: summarize_latency(&latencies),
-            cpu: snapshot.cpu.clone(),
+            queries,
+            requests: total,
+            errors,
+            wall,
+            cpu: snapshot.cpu,
             mem_mb: snapshot.mem_mb,
-            trial: Some(trial),
-            stage: Some(plan.stage),
-            phase: Some(plan.phase),
-            requests: Some(total),
-            queries: query_points(&query_keys, &queries, wall),
         };
 
         if counts_toward_aggregate(plan.phase) {
-            agg_requests += total;
-            agg_errors += errors;
-            agg_wall += wall;
-            for (slot, bucket) in agg_queries.iter_mut().zip(queries) {
-                slot.merge(bucket);
-            }
-            if agg_cpu.len() < snapshot.cpu.len() {
-                agg_cpu.resize(snapshot.cpu.len(), 0.0);
-            }
-            for (slot, value) in agg_cpu.iter_mut().zip(&snapshot.cpu) {
-                *slot += value;
-            }
-            agg_cpu_samples += 1;
-            if let Some(mem) = snapshot.mem_mb {
-                agg_mem.push(mem);
-            }
+            aggregate.absorb(&bucket);
+        }
+        // A step is one hold plateau. Ramp and warmup buckets are charted but
+        // never measured: they describe the transition, not the steady state.
+        if plan.phase == Phase::Hold {
+            let step = match steps.last_mut() {
+                Some(step) if step.stage == Some(plan.stage) => step,
+                _ => {
+                    steps.push(Window::new(
+                        query_keys.len(),
+                        Some(plan.stage),
+                        Some(Phase::Hold),
+                        Some(plan.vus),
+                    ));
+                    steps.last_mut().expect("just pushed")
+                }
+            };
+            step.absorb(&bucket);
         }
 
-        series.push(point);
+        series.push(bucket.point(&query_keys, &latencies, trial, plan));
         idx = end;
     }
 
@@ -753,7 +918,7 @@ async fn measure_vus_async(
     }
     sampler.stop();
 
-    if agg_requests > 0 && agg_errors == agg_requests {
+    if aggregate.requests > 0 && aggregate.errors == aggregate.requests {
         let msg = first_err
             .lock()
             .ok()
@@ -762,51 +927,17 @@ async fn measure_vus_async(
         return Err(Fail::new(Code::RunFail, msg));
     }
 
-    // Exact percentiles over every steady-state sample of the trial. A median of
-    // per-second p95s is not the trial p95 — it systematically hides the tail.
-    let mut merged: Vec<f64> = Vec::with_capacity(
-        agg_queries
+    Ok(Measured {
+        series,
+        // Exact percentiles over every steady-state sample of the trial. A
+        // median of per-second p95s is not the trial p95 — it hides the tail.
+        aggregate: aggregate.finish(&query_keys, trial),
+        steps: steps
             .iter()
-            .map(|bucket| bucket.latencies.len())
-            .sum(),
-    );
-    for bucket in &agg_queries {
-        merged.extend_from_slice(&bucket.latencies);
-    }
-
-    let agg_wall = agg_wall.max(0.001);
-    if agg_cpu_samples > 0 {
-        for slot in &mut agg_cpu {
-            *slot /= agg_cpu_samples as f64;
-        }
-    }
-    if agg_cpu.is_empty() {
-        agg_cpu.push(0.0);
-    }
-
-    let aggregate = Point {
-        time: now_rfc3339(),
-        rps: agg_requests as f64 / agg_wall,
-        err: if agg_requests == 0 {
-            0.0
-        } else {
-            agg_errors as f64 / agg_requests as f64
-        },
-        latency: summarize_latency(&merged),
-        cpu: agg_cpu,
-        mem_mb: if agg_mem.is_empty() {
-            None
-        } else {
-            Some(avg(&agg_mem))
-        },
-        trial: Some(trial),
-        stage: None,
-        phase: None,
-        requests: Some(agg_requests),
-        queries: query_points(&query_keys, &agg_queries, agg_wall),
-    };
-
-    Ok(Measured { series, aggregate })
+            .filter(|step| !step.is_empty())
+            .map(|step| step.finish(&query_keys, trial))
+            .collect(),
+    })
 }
 
 fn plan_index(vu_id: u64, iter: u64, len: usize) -> usize {

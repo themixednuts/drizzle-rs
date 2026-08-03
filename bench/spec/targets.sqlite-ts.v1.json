@@ -39,11 +39,13 @@
       "format": "json"
     },
     "fair": {
+      "family": "sqlite",
       "workers": 1,
       "pool": 1,
       "db": "sqlite",
       "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
-      "contract": "v1"
+      "contract": "v1",
+      "tuning": "WAL journal, synchronous=NORMAL, temp_store=MEMORY, read-only connections (query_only=ON)"
     },
     "contract": {
       "ver": "v1"
@@ -112,11 +114,13 @@
       "format": "json"
     },
     "fair": {
+      "family": "sqlite",
       "workers": 1,
       "pool": 1,
       "db": "sqlite",
       "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
-      "contract": "v1"
+      "contract": "v1",
+      "tuning": "WAL journal, synchronous=NORMAL, temp_store=MEMORY, read-only connections (query_only=ON)"
     },
     "contract": {
       "ver": "v1"

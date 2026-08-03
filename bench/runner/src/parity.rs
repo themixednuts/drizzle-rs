@@ -894,11 +894,13 @@ mod tests {
             "db": { "profile": "sqlite", "hash": format!("sha256:{}", "1".repeat(64)) },
             "wire": { "format": "json" },
             "fair": {
+                "family": "sqlite",
                 "workers": 1,
                 "pool": 1,
                 "db": "sqlite",
                 "schema": format!("sha256:{}", "2".repeat(64)),
-                "contract": "v1"
+                "contract": "v1",
+                "tuning": "WAL journal, temp_store=MEMORY"
             },
             "contract": { "ver": "v1" },
             "parity": { "cmd": ["true"] },

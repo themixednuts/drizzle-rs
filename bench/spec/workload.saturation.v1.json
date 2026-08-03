@@ -1,0 +1,65 @@
+{
+  "version": "v1",
+  "suite": "throughput-http",
+  "name": "Saturation",
+  "load": {
+    "kind": "closed",
+    "executor": "ramping-vus",
+    "unit": "1s",
+    "concurrency": 1024
+  },
+  "data": {
+    "name": "bench",
+    "seed": 42,
+    "schema": "bench/schema.sql"
+  },
+  "shape": {
+    "mode": "single",
+    "endpoint": "/customer-by-id"
+  },
+  "stages": [
+    { "sec": 5, "vus": 4 },
+    { "sec": 15, "vus": 4 },
+
+    { "sec": 20, "vus": 4 },
+    { "sec": 5, "vus": 8 },
+    { "sec": 20, "vus": 8 },
+    { "sec": 5, "vus": 16 },
+    { "sec": 20, "vus": 16 },
+    { "sec": 5, "vus": 32 },
+    { "sec": 20, "vus": 32 },
+    { "sec": 5, "vus": 64 },
+    { "sec": 20, "vus": 64 },
+    { "sec": 5, "vus": 128 },
+    { "sec": 20, "vus": 128 },
+    { "sec": 5, "vus": 256 },
+    { "sec": 20, "vus": 256 },
+    { "sec": 5, "vus": 512 },
+    { "sec": 20, "vus": 512 },
+    { "sec": 5, "vus": 1024 },
+    { "sec": 20, "vus": 1024 }
+  ],
+  "warmup_s": 20,
+  "requests": {
+    "source": "generated",
+    "file": "bench/spec/requests.empty.v1.json",
+    "skip": []
+  },
+  "pacing": {
+    "mode": "none"
+  },
+  "sampling": {
+    "cpu_ms": 200,
+    "bucket_s": 1
+  },
+  "limits": {
+    "err": 0.01,
+    "p95": null
+  },
+  "saturation": {
+    "slo": {
+      "metric": "p99",
+      "ms": 25
+    }
+  }
+}

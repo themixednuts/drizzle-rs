@@ -103,6 +103,11 @@
             ],
             "description": "warmup = inside workload.warmup_s; ramp = VU count still interpolating; hold = sitting at the stage's declared VU count. Only hold buckets feed the primary aggregates."
           },
+          "vus": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Virtual users in flight during this bucket. Under pacing.mode=none there is no think time, so this is also the request concurrency — the x-axis of the saturation curve. Absent on aggregate points, which span several VU counts, and on artifacts written before it was recorded."
+          },
           "requests": {
             "type": "integer",
             "minimum": 0,

@@ -133,6 +133,7 @@ Runner steps:
      - `BENCH_REQUESTS_FILE`
      - `BENCH_POINT_OUT`
      - `BENCH_TIMESERIES_OUT`
+     - `BENCH_STEPS_OUT`
      - `BENCH_POOL_SIZE` (from `target.pool.max`)
      - `BENCH_WORKERS` (from `target.proc.workers`)
 6. aggregate results.
@@ -154,10 +155,58 @@ Runtime parity:
    sizes its tokio runtime to exactly that (default `1`). Without it a Rust
    target takes every core while the Bun targets it is ranked against take one,
    and `fair.workers: 1` is false for half the table.
-2. Targets ranked in the same run should agree on `fair.pool` and
-   `fair.workers`. Disagreements are recorded in `manifest.fairness` and emitted
-   as `warn` events rather than failing the run; targets declaring
-   `data_access: "in-process-cache"` are exempt, since they have no pool.
+2. Harness fairness is enforced per database family — see §5a.
+
+## 5a. Two-axis fairness
+
+"Fair" means two different things and blurring them produces a table that looks
+comparable and is not.
+
+**Within a database family — enforced identical.** Every target declares
+`fair.family`, `fair.workers`, `fair.pool` and `fair.tuning`. Two targets in the
+same family that disagree on workers, pool or tuning **fail the run** with exit
+`3`, before any load is generated:
+
+```text
+unfair sqlite comparison: target bun-sqlite declares fair.pool=1 but target
+drizzle-rs-sqlite declares fair.pool=8. Targets in the same database family must
+run an identical harness, otherwise the ranking compares configurations instead
+of libraries. Change one of them, or move it to its own family.
+```
+
+This replaced a `warn` event plus a `manifest.fairness` entry. A warning buried
+in an artifact is silent in every way that matters: it still let an unequal
+library comparison ship, and a silently unequal comparison is worse than none.
+
+**Across families — declared and displayed.** Nothing is constrained. PostgreSQL
+over TCP with a pool of 8 and an embedded SQLite with a pool of 1 *should* differ;
+that difference is the stack comparison. `manifest.harness` records the verified
+configuration per family so a reader cannot mistake a stack difference for a
+library one.
+
+Family is **declared, not inferred**. `db.profile` separates configurations
+*inside* a family (prepared vs unprepared) and `fair.db` names the SQL dialect
+several engines share, so neither identifies the bracket a target competes in.
+It is also not taken from the spec file a target arrived in — publish-class runs
+already execute three PostgreSQL spec files back to back inside one job (§13.4).
+The vocabulary is a closed enum in `target.v1.schema.json`
+(`sqlite`, `libsql`, `turso`, `postgres`, `spacetimedb`) and must be extended in
+lockstep with the dashboard's family vocabulary.
+
+Targets declaring `data_access: "in-process-cache"` are excluded from the
+equality check — a replicated in-process cache has no connection pool to
+equalise — and are listed in `harness[].exempt` rather than dropped. A family
+whose members are all exempt reports `within_family_identical: false` with no
+workers/pool/tuning, meaning "nothing to enforce", never "drift was tolerated".
+
+> [!IMPORTANT]
+> `targets.sqlite.v1.json` (pool 8) and `targets.sqlite-ts.v1.json` (pool 1) both
+> declare `family: sqlite` and therefore cannot currently share a job — merging
+> them the way §13.4 merges the PostgreSQL families would fail the run. That is
+> the intended signal, not a bug in the check: the two files really do run
+> different harnesses today, so a combined table would rank a pool of 8 against a
+> pool of 1 and call the gap a library difference. Equalise the pools before
+> merging the jobs.
 
 Target lifecycle:
 
@@ -192,11 +241,17 @@ Load output rules:
    the runner derives an aggregate from it: request-count-weighted `rps`/`err`
    over `phase=hold` buckets, with percentiles approximated as the median of the
    per-bucket percentiles.
-8. each emitted point should carry `trial`, `stage`, `phase`, and `requests`.
-   Points without a `phase` are treated as steady state for backwards
-   compatibility.
-9. a series is persisted under `targets/<target_id>/raw/trial/<n>.series.json`,
-   and the aggregate point under `targets/<target_id>/raw/trial/<n>.point.json`.
+8. each emitted point should carry `trial`, `stage`, `phase`, `vus`, and
+   `requests`. Points without a `phase` are treated as steady state for
+   backwards compatibility.
+9. `load.cmd` may emit one aggregate per hold plateau to `BENCH_STEPS_OUT`: the
+   same `Point` shape, one entry per step, ascending in time, each tagged with
+   its `vus`. This is **required** for a workload declaring `saturation` — the
+   per-step percentiles it carries exist only where the raw samples do, and the
+   runner refuses to approximate them from the bucket series.
+10. a series is persisted under `targets/<target_id>/raw/trial/<n>.series.json`,
+    the aggregate point under `targets/<target_id>/raw/trial/<n>.point.json`,
+    and the step list under `targets/<target_id>/raw/trial/<n>.steps.json`.
 
 Implementation note:
 
@@ -262,10 +317,157 @@ Output root:
 5. `spread.ci95` has been removed. A 512-resample bootstrap over 3-5 trials
    describes the resampling, not the target. Use `spread.rps`, `spread.p95`,
    `spread.variance`, and `spread.boxplot`.
-6. `saturation` is computed per trial and medianed. A bucket is degraded once
-   its p95 exceeds twice the median p95 of that trial's lowest-VU hold plateau;
-   the knee is the third consecutive degraded bucket, or the highest-throughput
-   hold bucket if none qualifies. It is never computed across a trial boundary.
+6. `saturation` is emitted only when the workload declares it — see §6c.
+
+**Breaking artifact change.** `summary.saturation` previously always carried
+`{knee_rps, knee_p95}`. Those keys are **removed**, not deprecated in place, and
+runs recorded before this change no longer validate against `summary.v1`. The
+heuristic ran on every workload including paced ones, where throughput is capped
+by the load generator's own sleep timer — so its "knee" described the sleep timer
+rather than the target — and it fell back to the highest-throughput bucket when
+no knee appeared, reporting "no knee found" as a knee. The `did_not_saturate`
+outcome is the honest expression of that situation. Keeping the old keys beside
+the new block would leave two things called "saturation" in one artifact, so the
+removal is deliberate: consumers discriminate on `saturation.outcome`, and an
+archived run without it reads as "not measured".
+
+## 6c. Saturation: peak throughput under an SLO
+
+### Two suites, two headlines
+
+| | paced suite | saturation suite |
+| --- | --- | --- |
+| `pacing.mode` | `drizzle-benchmark` | `none` |
+| what it answers | latency under a fixed offered load | how much load the stack can carry |
+| headline | **throughput at fixed load** | **peak throughput** (always quoted "at p99 < N ms") |
+| comparable to | drizzle-benchmarks' published TS numbers | nothing outside this suite |
+
+They are never averaged together. Each keeps its own number because they measure
+different things.
+
+**Why the paced suite cannot produce a capacity number.** Under
+`pacing.mode=drizzle-benchmark` every virtual user sleeps `(iteration % 6) * 75ms`
+after each request — a mean of 187.5 ms. Offered load is therefore capped near
+
+```text
+VUs / (mean think time + mean service time)
+```
+
+With think time two orders of magnitude larger than service time, that ceiling is
+essentially `VUs / 0.1875 s` for *every* target. A tenfold difference in service
+time moves the result by single-digit percent: every healthy target converges on
+the same throughput because the number describes the sleep timer, not the
+database. Capacity needs an unpaced measurement, which is why it lives in its own
+suite and why the runner refuses `saturation` on a paced workload.
+
+### Method
+
+Unpaced closed-loop, stepped concurrency ramp. Each step ramps its VU count in
+(`phase=ramp`, charted, not measured) and then holds it (`phase=hold`, measured).
+With no think time, N virtual users are N requests in flight, so concurrency is
+the x-axis and `rps ≈ N / service_time` until the stack runs out of capacity.
+
+The steps are not listed separately in the spec: they *are* the hold stages of
+`workload.stages`, so there is one definition of the ramp and no way for a
+declared ladder to drift from the one that runs.
+
+Each step's percentiles come from the merged raw samples of that plateau — the
+load command emits them to `$BENCH_STEPS_OUT`, where the samples still exist.
+A step aggregate is never derived from the bucket series: that would average
+per-second percentiles together, which understates the tail and misplaces the
+knee. A load command that does not write `$BENCH_STEPS_OUT` fails a saturation
+run rather than getting an approximation.
+
+Across trials each step is the **median** of the per-trial step values, matching
+`summary.primary`.
+
+### The headline and the three outcomes
+
+A step **qualifies** when its `slo.metric` percentile is at or under `slo.ms`
+*and* its error rate is within `limits.err`. The peak is the highest-concurrency
+qualifying step. Exactly one of three outcomes is recorded, and all three are
+first class:
+
+| `outcome` | when | what the artifact carries | how to say it |
+| --- | --- | --- | --- |
+| `saturated` | a qualifying step exists and it is not the last step | `peak` | "peak throughput N req/s at p99 < 25 ms" |
+| `did_not_saturate` | the last step still qualified | `lower_bound_rps`, no `peak` | "at least N req/s — knee not reached" |
+| `slo_never_met` | no step qualified | neither | "never met the p99 target" |
+
+`did_not_saturate` is a finding about the *ramp*, not the target: the workload
+ended before the knee and must be extended. The top step is a lower bound and is
+never presented as a peak. `slo_never_met` covers both "even the smallest step
+was too slow" and "every step was disqualified by errors"; the per-step
+`disqualified` reason distinguishes them, and there is no peak to report either
+way.
+
+A step over `limits.err` is **disqualified**: it can never be the peak, it stays
+in the curve, and it carries the reason string
+(`"error rate 3.20% exceeds limit 1.00%"`). It is never silently skipped.
+
+`peak.concurrency` is the highest VU count that still held the SLO. On a
+non-monotone curve — throughput can dip after the pool saturates and then flatten
+— that is not necessarily the step with the highest measured rps. The full curve
+is in the artifact precisely so that shape is visible rather than hidden behind
+one number.
+
+### The curve
+
+Every step records `concurrency`, `rps`, `latency` (p50/p90/p95/p99), `err`,
+`cpu`, `slo_met` and `disqualified`. rps-vs-concurrency and
+latency-vs-concurrency are the actual story; the headline is a single point read
+off them, and publishing both is what makes it checkable.
+
+### Spec rules the runner enforces
+
+A workload carrying a `saturation` block is rejected unless:
+
+1. `pacing.mode = none` — see the ceiling above.
+2. `load.executor = ramping-vus` — a step measured through its own thundering
+   herd is not a steady state.
+3. `warmup_s` lands on a cumulative stage boundary — otherwise one step is
+   measured over part of its plateau and is silently shorter than its neighbours.
+4. at least **3** measured steps — two points cannot distinguish a knee from
+   noise.
+5. step concurrency strictly increases — the curve is read left to right.
+
+### Why the shipped ramps look the way they do
+
+`workload.saturation.v1.json` holds 20 s at each of 4, 8, 16, 32, 64, 128, 256,
+512 and 1024 VUs, with a 5 s ramp into each and a 20 s warmup at the starting
+concurrency. `workload.saturation-preview.v1.json` keeps the same span with 4x
+spacing (4, 16, 64, 256, 1024) and 8 s holds, for PR-sized runs.
+
+- **Geometric spacing, not linear.** The knee's location is not known in advance
+  and moves by more than an order of magnitude between an in-process SQLite point
+  lookup and a PostgreSQL round trip. Doubling brackets the knee within a factor
+  of two anywhere across a 256x range in nine steps; linear spacing at the same
+  cost would cover a single octave and miss most of them. Because rps flattens at
+  the knee, coarse concurrency spacing costs little accuracy in the reported peak
+  rps.
+- **Starts at 4.** Below the largest declared pool (8), so the first step has SLO
+  headroom even for the slowest stack in the table — `slo_never_met` should mean
+  something is wrong, not that the ramp started too high.
+- **Ends at 1024.** A measured drizzle-rs SQLite ramp reaches p99 ≈ 27 ms at 512
+  VUs and ≈ 70 ms at 1024, so the fastest stack in the suite breaches a 25 ms SLO
+  inside the ramp. `did_not_saturate` should mean the ramp needs extending, not
+  that it was never long enough for anyone. 1024 is also well inside the
+  precedent set by `workload.throughput.v1.json`, which runs to 3000 VUs.
+- **20 s holds.** At 500 rps — a slow stack at low concurrency — that is 10 000
+  samples per step, so the p99 tail has ~100 observations. The preview's 8 s holds
+  are deliberately thinner; a preview answers "does this pipeline work and is the
+  shape sane", not "publish this number".
+- **`p99 < 25 ms`.** Loose enough that every stack has headroom at the smallest
+  step on a 4 vCPU runner, tight enough that the fastest stack breaches it before
+  1024 VUs. It is also an ordinary web service level, which is the point: the
+  headline is a capacity claim only because a latency bound is attached to it.
+- **Single endpoint (`/customer-by-id`).** A point lookup is where library
+  overhead is the largest share of service time, so the number is about the
+  library rather than the query planner. A mixed p99 SLO would in practice be a
+  threshold on whichever route is heaviest.
+
+The whole 9-step ramp is 240 s per trial per target, under the 300 s of the
+existing paced `workload.throughput.v1.json`. The preview is 58 s.
 
 ## 6b. Host and Topology
 
@@ -413,6 +615,15 @@ to every family job. Class resolution:
 | `full` | yes | `publish` | `workload.throughput.v1.json` |
 | `single` | no | `full` | `workload.single-throughput.v1.json` |
 | `single` | yes | `publish` | `workload.single-throughput.v1.json` |
+| `saturation` | no | `small` | `workload.saturation-preview.v1.json` |
+| `saturation` | yes | `publish` | `workload.saturation.v1.json` |
+
+The saturation rows are the intended wiring for the capacity suite; the specs and
+runner support exist, and `runners.yml` picks them up when the `saturation` size
+is added to the dispatch input. They are a second suite, not a replacement: they
+produce `summary.saturation` (peak throughput under an SLO, §6c) while the paced
+rows produce `summary.primary` (throughput at fixed load). A family needs both to
+be described completely, and their headlines are reported separately.
 
 A run is publish-class on pushes to `main` and tags, on the weekly schedule, and
 on a manual dispatch from `main` with `publish_to_r2` set.
