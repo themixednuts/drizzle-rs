@@ -151,9 +151,7 @@
 			{#if showCapacity}
 				<!-- Peak throughput always arrives with its objective attached; `CapacityFigure` is the
 				     only thing on the site that can draw it, so it cannot arrive without. -->
-				<span class={cn('block', sort === 'capacity' && 'lg:[&_.text-lead]:text-foreground')}>
-					<CapacityFigure capacity={row.capacity} align="right" />
-				</span>
+				<CapacityFigure capacity={row.capacity} align="right" active={sort === 'capacity'} />
 			{/if}
 			<span
 				class={cn(

@@ -168,8 +168,8 @@ export class RunDetailState {
 			{
 				label: 'rps median',
 				value: fmtRps(p.rps.avg),
-				detail: `peak ${fmtRps(p.rps.peak)}`,
-				hint: 'median requests/second across trials',
+				detail: `busiest second ${fmtRps(p.rps.peak)}`,
+				hint: "median requests/second across trials, at the paced suite's fixed offered load",
 			},
 			{
 				label: 'lat mean',

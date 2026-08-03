@@ -21,10 +21,18 @@
 		/** `lead` is the headline treatment on a detail page; `inline` fits a table cell. */
 		size = 'inline',
 		align = 'left',
+		active = false,
 	}: {
 		capacity: CapacityView;
 		size?: 'lead' | 'inline';
 		align?: 'left' | 'right';
+		/**
+		 * True when this is the column the table is currently sorted by, which lifts the number to
+		 * full-strength ink. An explicit prop rather than the caller reaching in with a descendant
+		 * selector: the emphasis rule has to survive this component changing its own type classes,
+		 * and a `[&_.text-lead]` from outside would silently stop matching the day it did.
+		 */
+		active?: boolean;
 	} = $props();
 
 	const figure = $derived(capacity.figure);
@@ -38,8 +46,13 @@
 				'block font-mono tabular-nums',
 				size === 'lead' ? 'text-metric font-medium' : 'text-lead font-medium',
 				// A lower bound is deliberately not given the full-strength ink a measurement gets. It is
-				// a floor, and it should not read as the same kind of fact as the row above it.
-				figure.lowerBound ? 'text-foreground-secondary' : 'text-foreground',
+				// a floor, and it should not read as the same kind of fact as the row above it — so the
+				// active-column emphasis lifts a measurement and deliberately leaves a bound where it is.
+				figure.lowerBound
+					? 'text-foreground-secondary'
+					: active || size === 'lead'
+						? 'text-foreground'
+						: 'text-foreground-secondary',
 			)}
 		>
 			<!--

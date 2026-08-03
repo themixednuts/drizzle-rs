@@ -136,8 +136,14 @@
 					<Table.Row class="border-0">
 						<Th>run</Th>
 						<Th>commit</Th>
-						<Th numeric hint="median requests/second across trials">rps median</Th>
-						<Th numeric>rps peak</Th>
+						<Th numeric hint="median requests/second across trials, at the paced suite's fixed load"
+							>rps median</Th
+						>
+						<Th
+							numeric
+							hint="highest single sample bucket within the paced run; not a capacity figure"
+							>busiest second</Th
+						>
 						<Th numeric>lat p95</Th>
 						<Th numeric>lat p99</Th>
 						<Th numeric hint="median across trials of mean-across-cores utilization">cpu median</Th>
