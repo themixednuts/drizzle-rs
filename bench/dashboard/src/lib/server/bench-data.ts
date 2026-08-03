@@ -19,11 +19,13 @@ import {
 } from '#lib/target-display';
 import { buildTargetChart, emptyTargetChart, type TargetChart } from '#lib/chart-series';
 import { buildOverlay, type OverlayTarget } from '#lib/overlay';
+import { mergeHarness } from '#lib/harness';
 import type { RepeatabilityGroup } from '#lib/repeatability';
 import { cohortSearchText } from '#lib/cohort-search';
 import type { MetricKey } from '#lib/metrics';
 import type {
 	CompareItem,
+	HarnessFamily,
 	Manifest,
 	RunCohort,
 	RunIndexEntry,
@@ -52,6 +54,14 @@ export interface LatestRunOverview {
 	cohort: RunCohort;
 	manifest: Manifest;
 	summaries: SummaryResult[];
+	/**
+	 * Harness declarations from every shard of the set, merged by database family.
+	 *
+	 * A set is several CI jobs, typically one per family, so the representative manifest alone
+	 * carries at most one family's block — and the ranking puts all of them in one table. Merging
+	 * here is what lets the page state, per database, what its rows ran under.
+	 */
+	harness: HarnessFamily[];
 }
 
 export interface CohortBuild {
@@ -258,7 +268,8 @@ function readCohortSnapshot(store: BenchStoreInterface, cohort: RunCohort) {
 			return yield* failHttp(404, `Benchmark set ${cohort.id} has no run manifests`);
 		}
 
-		return { cohort, manifest, summaries };
+		const merged = mergeHarness(manifests);
+		return { cohort, manifest, summaries, harness: merged.harness, warnings: merged.conflicts };
 	});
 }
 
@@ -330,7 +341,14 @@ export const overviewPageData = Effect.fn('BenchData.overviewPage')(function* (f
 		};
 	}
 
-	return { ...base, latest: snapshot.success as LatestRunOverview };
+	const { warnings, ...latest } = snapshot.success;
+	// A set whose shards disagree about a family's harness is reported at the top of the page, not
+	// only inside the harness strip: it invalidates the within-family comparison the table makes.
+	return {
+		...base,
+		warnings: [...base.warnings, ...warnings],
+		latest: latest as LatestRunOverview,
+	};
 });
 
 /**

@@ -12,6 +12,7 @@ import {
 	DB_PROFILE_ORDER,
 	dbProfile,
 	dbProfileDetail,
+	dbShortLabel,
 	isDrizzleRsTarget,
 	isInProcessCache,
 	targetDisplay,
@@ -19,22 +20,31 @@ import {
 } from '#lib/target-display';
 import { cohortSearchText } from '#lib/cohort-search';
 import { summarizeAll, type QualitativeNote } from '#lib/qualitative';
+import { anyMeasured, capacity, compareCapacity, type CapacityView } from '#lib/saturation';
+import { harnessRows, type HarnessRow } from '#lib/harness';
 import type { FilterOption } from '#lib/components/FilterPills.svelte';
 import {
 	ordinal,
 	parseRankingSort,
+	SORT_LABELS,
 	type DbVerdict,
 	type RankingRow,
 	type RankingSort,
 } from '#lib/ranking';
-import type { Manifest, RunCohort, RunIndexEntry, SummaryResult } from '#lib/types';
+import type { HarnessFamily, Manifest, RunCohort, RunIndexEntry, SummaryResult } from '#lib/types';
 
 interface RunsPageData {
 	runs: RunIndexEntry[];
 	q?: string;
 	cohorts: RunCohort[];
 	warnings: string[];
-	latest?: { cohort: RunCohort; manifest: Manifest; summaries: SummaryResult[] } | null;
+	latest?: {
+		cohort: RunCohort;
+		manifest: Manifest;
+		summaries: SummaryResult[];
+		/** Merged across every shard of the set — see `mergeHarness`. */
+		harness: HarnessFamily[];
+	} | null;
 	totalRuns: number;
 	totalCohorts: number;
 	totalResults: number;
@@ -49,17 +59,8 @@ function hasMaterialErrors(summary: SummaryResult): boolean {
 }
 
 /** Short names for the ranking's database column — the long forms are in `dbProfileLabel`. */
-const DB_NAMES: Record<DbProfile, string> = {
-	sqlite: 'SQLite',
-	libsql: 'libSQL',
-	turso: 'Turso',
-	postgres: 'PostgreSQL',
-	spacetimedb: 'SpacetimeDB',
-	other: 'other',
-};
-
 function dbLabel(profile: DbProfile): string {
-	return DB_NAMES[profile];
+	return dbShortLabel(profile);
 }
 
 function compareLeaderboard(a: SummaryResult, b: SummaryResult): number {
@@ -82,7 +83,9 @@ export class RunsPageState {
 	status = $derived(page.url.searchParams.get('status'));
 	/** Ranking view state, both in the URL so a filtered ranking is a shareable address. */
 	db = $derived(page.url.searchParams.get('db'));
-	sort = $derived(parseRankingSort(page.url.searchParams.get('sort')));
+	sort = $derived(
+		parseRankingSort(page.url.searchParams.get('sort'), this.defaultSort, this.availableSorts),
+	);
 
 	constructor(data: () => RunsPageData, basePath = '/') {
 		this.#data = data;
@@ -169,11 +172,7 @@ export class RunsPageState {
 	 */
 	get rankingRows(): RankingRow[] {
 		const rows = this.results.filter((summary) => !this.db || dbProfile(summary) === this.db);
-		const ordered = [...rows].sort(
-			this.sort === 'latency'
-				? (a, b) => this.#byErrorsThen(a, b, a.primary.latency.p95 - b.primary.latency.p95)
-				: (a, b) => this.#byErrorsThen(a, b, b.primary.rps.avg - a.primary.rps.avg),
-		);
+		const ordered = [...rows].sort(this.#comparator);
 
 		// Scaled to the rows on screen, not to every row that exists. With "all databases" selected
 		// the in-memory-cache target is several times faster than anything doing real per-request
@@ -183,23 +182,119 @@ export class RunsPageState {
 		const baselines = this.#baselines;
 		const peak = Math.max(1, ...ordered.map((summary) => summary.primary.rps.avg));
 		const peakLatency = Math.max(1, ...ordered.map((summary) => summary.primary.latency.p95));
+		const peakCapacity = Math.max(1, ...ordered.map((summary) => this.capacity(summary).tierValue));
 
-		return ordered.map((summary, index) => {
-			const fraction =
-				this.sort === 'latency'
-					? summary.primary.latency.p95 / peakLatency
-					: summary.primary.rps.avg / peak;
+		// Ranks are handed out only to rows the sorted column actually measured, and they run
+		// 01..N over those. Under `sort=capacity` that means the unmeasured rows carry no number
+		// at all rather than a number that would read as a placement.
+		let rank = 0;
+
+		return ordered.map((summary) => {
+			const view = this.capacity(summary);
+			const ranked = this.sort !== 'capacity' || view.rankable;
+			if (ranked) rank += 1;
+
 			return {
 				id: `${summary.run_id}:${summary.target_key}`,
 				summary,
-				rank: index + 1,
+				rank: ranked ? rank : null,
 				// Identity, not baseline-hood: every drizzle-rs row is "us", including the second and
 				// third API variants that are not the row the delta is measured against.
 				isOurs: isDrizzleRsTarget(summary),
-				barPct: `${Math.max(1.5, fraction * 100).toFixed(1)}%`,
+				barPct: this.#barPct(summary, view, { peak, peakLatency, peakCapacity }),
+				barKind: this.sort === 'capacity' && view.state === 'lower-bound' ? 'bound' : 'measured',
+				capacity: view,
 				...this.#delta(summary, baselines.get(dbProfile(summary)) ?? null),
 			};
 		});
+	}
+
+	/**
+	 * How the table is ordered, per sort mode.
+	 *
+	 * Capacity is the one that needs its own rule. A row with no measured peak never outranks a row
+	 * that has one, whatever number it happens to carry: a lower bound of 40k is evidence the ramp
+	 * stopped early, not evidence of beating a measured 12k, and letting the two sort together
+	 * would turn "we did not find out" into a placement. Errored rows still sink to the bottom in
+	 * every mode, because their numbers are not comparable at all.
+	 */
+	get #comparator(): (a: SummaryResult, b: SummaryResult) => number {
+		if (this.sort === 'capacity') {
+			return (a, b) =>
+				this.#byErrorsThen(a, b, compareCapacity(this.capacity(a), this.capacity(b)));
+		}
+		if (this.sort === 'latency') {
+			return (a, b) => this.#byErrorsThen(a, b, a.primary.latency.p95 - b.primary.latency.p95);
+		}
+		return (a, b) => this.#byErrorsThen(a, b, b.primary.rps.avg - a.primary.rps.avg);
+	}
+
+	#barPct(
+		summary: SummaryResult,
+		view: CapacityView,
+		scale: { peak: number; peakLatency: number; peakCapacity: number },
+	): string | null {
+		if (this.sort === 'capacity') {
+			// No number, no bar. An empty track is the honest drawing of "not measured"; a zero-width
+			// bar reads as a measured zero and a full-width one would be a fabrication.
+			if (!view.figure) return null;
+			return `${Math.max(1.5, (view.tierValue / scale.peakCapacity) * 100).toFixed(1)}%`;
+		}
+		const fraction =
+			this.sort === 'latency'
+				? summary.primary.latency.p95 / scale.peakLatency
+				: summary.primary.rps.avg / scale.peak;
+		return `${Math.max(1.5, fraction * 100).toFixed(1)}%`;
+	}
+
+	/** Peak throughput for one row, in whichever of its four states it is. */
+	capacity(summary: SummaryResult): CapacityView {
+		return capacity(summary);
+	}
+
+	/**
+	 * Whether this set measured capacity at all.
+	 *
+	 * Computed over the whole set rather than the filtered view, so switching the `?db=` pills never
+	 * makes the peak-throughput column appear and disappear. When it is false the column is left off
+	 * and a note says why — twenty rows all reading "not measured" is technically honest and
+	 * practically unreadable, and the fact is a property of the run, not of each row.
+	 */
+	get hasCapacity(): boolean {
+		return anyMeasured(this.results);
+	}
+
+	/** Capacity is the primary number wherever it exists, and nothing pretends it does when it does not. */
+	get defaultSort(): RankingSort {
+		return this.hasCapacity ? 'capacity' : 'throughput';
+	}
+
+	/**
+	 * The orders this set can genuinely be put in. A cohort with no saturation measurement cannot be
+	 * ordered by peak throughput, so `?sort=capacity` resolves to its default rather than producing
+	 * a table of unranked rows in an order that means nothing.
+	 */
+	get availableSorts(): RankingSort[] {
+		return this.hasCapacity ? ['capacity', 'throughput', 'latency'] : ['throughput', 'latency'];
+	}
+
+	/** The harness each database on screen ran under, merged across the set's shards. */
+	get harnessRows(): HarnessRow[] {
+		const present = [...new Set(this.results.map((summary) => dbProfile(summary)))];
+		return harnessRows(present, this.latest?.harness, dbLabel);
+	}
+
+	/**
+	 * The harness governing one row, printed inside that row's expanded detail.
+	 *
+	 * The same fact appears twice on purpose. On the strip it is a per-database legend, which is
+	 * where a reader checks that a family is internally consistent; on the row it is the scope of
+	 * that row's own "vs drizzle-rs" delta, which is where a reader is most likely to mistake a
+	 * stack difference for a library one.
+	 */
+	harnessFor(summary: SummaryResult): HarnessRow | null {
+		const profile = dbProfile(summary);
+		return this.harnessRows.find((row) => row.db === profile) ?? null;
 	}
 
 	/** True when the current `?db=` filter matched nothing at all. */
@@ -326,9 +421,17 @@ export class RunsPageState {
 		];
 	}
 
+	/**
+	 * The sort pills, named in the same words as the columns they order.
+	 *
+	 * "peak throughput" only appears when this set has one, because a sort mode is a promise that
+	 * the table can be put in that order — offering it over a table of "not measured" would be a
+	 * control that does nothing.
+	 */
 	get sortOptions(): FilterOption[] {
-		return (['throughput', 'latency'] as RankingSort[]).map((sort) => ({
-			label: sort,
+		return this.availableSorts.map((sort) => ({
+			label: SORT_LABELS[sort].label,
+			title: SORT_LABELS[sort].title,
 			href: this.rankingUrl(this.db, sort),
 			active: this.sort === sort,
 		}));
@@ -339,7 +442,9 @@ export class RunsPageState {
 		if (this.suite) params.set('suite', this.suite);
 		if (this.status) params.set('status', this.status);
 		if (db) params.set('db', db);
-		if (sort !== 'throughput') params.set('sort', sort);
+		// Omitted only when it is already the effective default, so the shortest URL and the
+		// rendered order always agree.
+		if (sort !== this.defaultSort) params.set('sort', sort);
 		const query = params.toString();
 		return this.#basePath + (query ? '?' + query : '');
 	}

@@ -48,6 +48,11 @@ export interface Manifest {
 	target_meta?: TargetMeta[];
 	/** Absent on artifacts published before the runner recorded the query catalog. */
 	queries?: QueryDoc[];
+	/**
+	 * The harness each database family ran under. Absent on artifacts published before the runner
+	 * declared it — which the UI states as "not declared", never as an assumed default.
+	 */
+	harness?: HarnessFamily[];
 	start: string;
 	end: string;
 	status: string;
@@ -95,6 +100,28 @@ export interface Manifest {
 		};
 	};
 	trials: { count: number; aggregate: string };
+}
+
+/**
+ * The harness one database family ran under.
+ *
+ * Two distinct meanings of "fair" live here and must never be blurred. *Within* a family the
+ * harness is enforced identical, which is what makes a row-to-row difference attributable to the
+ * library. *Across* families the harness deliberately differs — that difference IS the stack
+ * comparison — so it is recorded and displayed rather than constrained.
+ */
+export interface HarnessFamily {
+	/** Database family, in the same vocabulary as `DbProfile`. */
+	family: string;
+	workers: number;
+	pool: number;
+	/** Free-text summary of the database-side tuning, e.g. "stock postgres:18-alpine". */
+	tuning: string;
+	/**
+	 * Whether the runner verified every target in this family declared the same harness. A `false`
+	 * is a real finding and is shown as a warning, never hidden.
+	 */
+	within_family_identical: boolean;
 }
 
 /** How a target answers a request: a real database round trip, or an in-process cache. */
@@ -191,7 +218,12 @@ export interface Summary {
 	group?: string;
 	primary: Primary;
 	spread: Spread;
-	saturation: Saturation;
+	/**
+	 * Either the saturation suite's result, or the legacy knee heuristic that shipped under the same
+	 * key, or nothing at all. `#lib/saturation` is the only place allowed to tell them apart — see
+	 * `readSaturation`, which treats everything but a real `outcome` as "not measured".
+	 */
+	saturation?: SaturationDoc | LegacySaturation;
 }
 
 export interface SummaryResult extends Summary {
@@ -281,9 +313,89 @@ export interface BoxMetric {
 	samples: number;
 }
 
-export interface Saturation {
+/**
+ * What shipped under `summary.saturation` before the saturation suite existed.
+ *
+ * It is a p95-doubling heuristic over the *paced* run's hold buckets, and when it finds no knee it
+ * falls back to the highest-throughput bucket — so a number is always produced whether or not
+ * anything was measured. It is not a capacity figure and this dashboard never renders it: a paced
+ * number wearing the word "saturation" is exactly the confusion the new vocabulary exists to end.
+ * The type is kept so the discriminator below is exhaustive rather than a cast.
+ */
+export interface LegacySaturation {
 	knee_rps: number;
 	knee_p95: number;
+}
+
+/**
+ * The saturation suite's result for one target.
+ *
+ * Unpaced closed loop, stepped concurrency: with no think time, N virtual users are N in-flight
+ * requests, so the ramp is over concurrency and the headline is the highest step that held the SLO.
+ * Every "we could not measure it" is a named outcome carrying no number, never a degraded value.
+ */
+export type SaturationDoc = SaturatedDoc | DidNotSaturateDoc | SloNeverMetDoc;
+
+export interface SaturationSlo {
+	/** Which percentile the objective is stated on, e.g. `p99`. */
+	metric: string;
+	ms: number;
+}
+
+interface SaturationBase {
+	slo: SaturationSlo;
+	/** Every measured step, including the ones that breached the SLO or were disqualified. */
+	curve: SaturationStep[];
+}
+
+/** A peak was found: a step held the SLO and a later step breached it. The normal case. */
+export interface SaturatedDoc extends SaturationBase {
+	outcome: 'saturated';
+	peak: SaturationPeak;
+}
+
+/**
+ * Every step held the SLO, so the ramp never found the knee. The top step is a LOWER BOUND and is
+ * never presented as a peak — the artifact deliberately carries no `peak` object.
+ */
+export interface DidNotSaturateDoc extends SaturationBase {
+	outcome: 'did_not_saturate';
+	lower_bound_rps: number;
+}
+
+/** Even the smallest step breached the SLO. There is no peak and no substitute for one. */
+export interface SloNeverMetDoc extends SaturationBase {
+	outcome: 'slo_never_met';
+}
+
+export interface SaturationPeak {
+	concurrency: number;
+	rps: number;
+	latency: StepLatency;
+	cpu: number;
+	err: number;
+}
+
+export interface StepLatency {
+	p50: number;
+	p90: number;
+	p95: number;
+	p99: number;
+}
+
+export interface SaturationStep {
+	concurrency: number;
+	rps: number;
+	latency: StepLatency;
+	err: number;
+	cpu: number;
+	slo_met: boolean;
+	/**
+	 * Why this step cannot be the peak, or `null` when nothing disqualified it. A disqualified step
+	 * is real data with a reason attached: it is still drawn, still hoverable, and still in the
+	 * step table — it simply can never become the headline.
+	 */
+	disqualified: string | null;
 }
 
 export interface Timeseries {

@@ -1,11 +1,26 @@
-import { fallbackTargetMeta, isDrizzleRsTarget, targetDisplay } from '#lib/target-display';
+import {
+	dbProfile,
+	dbShortLabel,
+	fallbackTargetMeta,
+	isDrizzleRsTarget,
+	targetDisplay,
+} from '#lib/target-display';
 import { summarizeAll, type QualitativeNote } from '#lib/qualitative';
 import { runTitle } from '#lib/run-name';
 import { fmtCpu, fmtLatency, fmtPct, fmtRps } from '#lib/format';
 import { CHART_METRIC_KEYS, METRICS, type MetricKey } from '#lib/metrics';
 import { loadTargetChart } from '#lib/api.remote';
+import {
+	buildCurve,
+	capacity,
+	compareCapacity,
+	readSaturation,
+	type CapacityView,
+	type CurveView,
+} from '#lib/saturation';
+import { harnessFor, harnessRows, harnessSummary, type HarnessRow } from '#lib/harness';
 import type { TargetChart } from '#lib/chart-series';
-import type { QueryDoc, Summary, TargetMeta } from '#lib/types';
+import type { HarnessFamily, QueryDoc, Summary, TargetMeta } from '#lib/types';
 import type { PageData } from './$types';
 
 /** Metrics a target's chart column can show. `err` is reported but never charted. */
@@ -100,8 +115,17 @@ export class RunDetailState {
 		return this.#data().summaries;
 	}
 
+	/**
+	 * Section order. Capacity leads when the run measured it, with the paced rate as the tiebreak so
+	 * the targets that share a capacity state still come out in a stable, meaningful order.
+	 */
 	get sortedSummaries() {
-		return [...this.summaries].sort((a, b) => b.primary.rps.avg - a.primary.rps.avg);
+		if (!this.hasCapacity) {
+			return [...this.summaries].sort((a, b) => b.primary.rps.avg - a.primary.rps.avg);
+		}
+		return [...this.summaries].sort(
+			(a, b) => compareCapacity(capacity(a), capacity(b)) || b.primary.rps.avg - a.primary.rps.avg,
+		);
 	}
 
 	/**
@@ -225,6 +249,72 @@ export class RunDetailState {
 		const spread = summary.spread.p95;
 		if (!Number.isFinite(spread.min) || !Number.isFinite(spread.max)) return 'not recorded';
 		return `${fmtLatency(spread.min)}–${fmtLatency(spread.max)}`;
+	}
+
+	/**
+	 * Peak throughput for one target, in whichever of its four states it is: measured, bounded from
+	 * below, never reached, or never measured at all.
+	 */
+	capacity(summary: Summary): CapacityView {
+		return capacity(summary);
+	}
+
+	/**
+	 * The ramp behind the headline, or `null` when this target has no saturation measurement.
+	 *
+	 * Every outcome that has a curve gets one drawn — including `slo_never_met`, where the curve is
+	 * the most useful thing on the page: it shows exactly how far over the objective even the
+	 * smallest step landed, which a headline of "never met the p99 target" cannot.
+	 */
+	curve(summary: Summary): CurveView | null {
+		const doc = readSaturation(summary);
+		return doc ? buildCurve(doc) : null;
+	}
+
+	/** True when at least one target in this run was measured for capacity. */
+	get hasCapacity(): boolean {
+		return this.summaries.some((summary) => readSaturation(summary) !== null);
+	}
+
+	/** This run's declared harness blocks. Empty on manifests published before the runner had them. */
+	get harness(): HarnessFamily[] {
+		return this.manifest.harness ?? [];
+	}
+
+	/**
+	 * The harness legend for this run, one line per database it actually measured.
+	 *
+	 * Most runs are a single family and this is one line — which is still worth printing, because a
+	 * reader arriving from the ranking needs to see that the line exists and what it says. A
+	 * publish-class PostgreSQL job runs three families back to back in one shard, and there this is
+	 * the only place their differing configurations are visible together.
+	 */
+	get harnessRows(): HarnessRow[] {
+		const present = [
+			...new Set(
+				this.summaries.map((summary) =>
+					dbProfile({
+						target_id: summary.target_id,
+						target_meta: this.targetMeta(summary.target_id),
+					}),
+				),
+			),
+		];
+		return harnessRows(present, this.harness, dbShortLabel);
+	}
+
+	/**
+	 * The harness governing a target, as one line, or `null` when this manifest declared none for
+	 * its family. Never inherited from a neighbouring family: not declared is its own answer.
+	 */
+	harnessLine(summary: Summary): { text: string; identical: boolean } | null {
+		const meta = this.targetMeta(summary.target_id);
+		const entry = harnessFor(
+			this.harness,
+			dbProfile({ target_id: summary.target_id, target_meta: meta }),
+		);
+		if (!entry) return null;
+		return { text: harnessSummary(entry), identical: entry.within_family_identical };
 	}
 
 	/** The chart on screen for a target: the hydrated swap if there is one, else the server's. */

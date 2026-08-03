@@ -139,6 +139,24 @@ export function dbProfileLabel(profile: DbProfile): string {
 	return DB_PROFILE_LABELS[profile];
 }
 
+/**
+ * Short database names, as printed in the ranking's `database` column and in the harness strip.
+ * Lives here rather than beside the ranking because run detail names the same families and the two
+ * must not be able to drift into calling one database two things.
+ */
+const DB_SHORT_LABELS: Record<DbProfile, string> = {
+	sqlite: 'SQLite',
+	libsql: 'libSQL',
+	turso: 'Turso',
+	postgres: 'PostgreSQL',
+	spacetimedb: 'SpacetimeDB',
+	other: 'other',
+};
+
+export function dbShortLabel(profile: DbProfile): string {
+	return DB_SHORT_LABELS[profile];
+}
+
 /** The one-sentence description of what this database makes a request do. `null` when there is
  * nothing useful to say — `other` is a bucket, not a kind of engine. */
 export function dbProfileNote(profile: DbProfile): string | null {
