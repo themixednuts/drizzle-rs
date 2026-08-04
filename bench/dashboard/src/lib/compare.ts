@@ -11,7 +11,7 @@ export const compareCategoryOptions = [
 
 export const compareMetricOptions = [
 	{ value: 'rps.avg', label: 'RPS (median across trials)' },
-	{ value: 'rps.peak', label: 'RPS (peak bucket)' },
+	{ value: 'rps.peak', label: 'RPS (busiest second)' },
 	{ value: 'latency.avg', label: 'Latency (mean)' },
 	{ value: 'latency.p50', label: 'Latency (p50)' },
 	{ value: 'latency.p90', label: 'Latency (p90)' },
@@ -67,8 +67,19 @@ const CROSS_TRIAL_MEDIAN = 'median across trials (summary aggregate)';
  */
 export const compareCategoryColumns: Record<CompareCategory, CompareCategoryColumn[]> = {
 	rps: [
-		{ key: 'avg', label: 'median', hint: `requests/second, ${CROSS_TRIAL_MEDIAN}` },
-		{ key: 'peak', label: 'peak', hint: 'highest single sample bucket across trials' },
+		{
+			key: 'avg',
+			label: 'median',
+			hint: `requests/second at the paced suite's fixed offered load, ${CROSS_TRIAL_MEDIAN}. Not a capacity figure — see "peak throughput" on the ranking for that.`,
+		},
+		// Named "busiest second" rather than "peak" everywhere it appears. "Peak throughput" is now
+		// the saturation suite's capacity figure, and this is a momentary rate inside a fixed-load
+		// run — the two must not share a word.
+		{
+			key: 'peak',
+			label: 'busiest second',
+			hint: 'highest single sample bucket across trials, within the paced run',
+		},
 	],
 	latency: [
 		{ key: 'avg', label: 'mean', hint: `mean latency per trial, ${CROSS_TRIAL_MEDIAN}` },

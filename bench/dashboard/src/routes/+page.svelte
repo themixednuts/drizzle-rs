@@ -9,7 +9,9 @@
 	import Note from '#lib/components/Note.svelte';
 	import RankRow from '#lib/components/RankRow.svelte';
 	import VerdictStrip from '#lib/components/VerdictStrip.svelte';
+	import HarnessStrip from '#lib/components/HarnessStrip.svelte';
 	import RunList from '#lib/components/RunList.svelte';
+	import { cn } from '#lib/utils.js';
 	import { RunsPageState } from './home.svelte';
 	import type { PageData } from './$types';
 
@@ -63,24 +65,40 @@
 			</div>
 		{:else}
 			<VerdictStrip verdicts={view.verdicts} />
+			<HarnessStrip rows={view.harnessRows} />
 
 			<!--
 				One table, one order, every database. The column header is sticky, so the meaning of a
 				column survives scrolling; rank runs 01..N across the whole list and the bar is scaled to
 				the fastest row on screen. Which database a row ran against, and on which machine, are
 				columns rather than section headings.
+
+				When the set measured capacity, the peak-throughput column leads and the paced number
+				keeps its own column headed "at fixed load", so the two throughput readings are never
+				one column whose meaning changed.
 			-->
 			<div class="bg-card border-border mt-4 border">
 				<div
-					class="bg-surface-raised border-border text-micro text-muted-foreground sticky top-0 z-10 grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 border-b px-5 py-3 font-mono uppercase sm:top-[3.875rem] lg:grid-cols-[2rem_minmax(9rem,1.05fr)_6.5rem_3.25rem_minmax(5rem,1.3fr)_6.5rem_5.125rem] lg:gap-x-5 lg:px-6 lg:py-3.5"
+					class={cn(
+						'bg-surface-raised border-border text-micro text-muted-foreground sticky top-0 z-10 grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 border-b px-5 py-3 font-mono uppercase sm:top-[3.875rem] lg:gap-x-5 lg:px-6 lg:py-3.5',
+						view.hasCapacity
+							? 'lg:grid-cols-[2rem_minmax(8rem,1fr)_5.5rem_3.25rem_minmax(4rem,0.9fr)_8.5rem_6rem_4.5rem]'
+							: 'lg:grid-cols-[2rem_minmax(9rem,1.05fr)_6.5rem_3.25rem_minmax(5rem,1.3fr)_6.5rem_5.125rem]',
+					)}
 				>
 					<span><span class="sr-only">rank</span></span>
 					<span>library</span>
 					<span class="max-lg:hidden">database</span>
 					<span class="max-lg:hidden">os</span>
 					<span class="max-lg:hidden"><span class="sr-only">relative throughput</span></span>
-					<span class="text-right max-lg:hidden">requests/sec</span>
-					<span class="text-right lg:hidden">rps / p95</span>
+					{#if view.hasCapacity}
+						<span class="text-right max-lg:hidden">peak throughput</span>
+						<span class="text-right max-lg:hidden">at fixed load</span>
+						<span class="text-right lg:hidden">peak / rps / p95</span>
+					{:else}
+						<span class="text-right max-lg:hidden">requests/sec</span>
+						<span class="text-right lg:hidden">rps / p95</span>
+					{/if}
 					<span class="text-right max-lg:hidden">p95</span>
 				</div>
 
@@ -93,12 +111,36 @@
 						spread={view.throughputSummaryLabel(row.summary)}
 						spreadDetail={view.throughputLabel(row.summary)}
 						variant={view.variantNote(row.summary)}
+						harness={view.harnessFor(row.summary)}
 						sort={view.sort}
+						showCapacity={view.hasCapacity}
 					/>
 				{/each}
 			</div>
 
-			<div class="mt-4">
+			<div class="mt-4 space-y-3">
+				{#if view.hasCapacity}
+					<Note>
+						<strong class="text-foreground-secondary font-medium">Two throughput numbers.</strong>
+						<em>Peak throughput</em> is the highest request rate a target sustained while still
+						meeting the latency objective, found by ramping concurrency with no think time — it is a
+						capacity figure and always carries the objective it was measured at.
+						<em>At fixed load</em>
+						is the paced suite's rate, where the generator offers a set amount of work; a healthy target
+						reports the pacing ceiling rather than its capacity. Sorting by peak throughput puts every
+						row without a measured peak below every row that has one, and those rows carry no rank number,
+						because "we did not find out" is not a placement.
+					</Note>
+				{:else}
+					<Note>
+						<strong class="text-foreground-secondary font-medium">No peak throughput here.</strong>
+						This set predates the saturation suite, so no target in it has a measured capacity figure
+						and the peak-throughput column is left off rather than filled with a paced number wearing
+						its name. The throughput below is the paced suite's rate at a fixed offered load — see
+						<a class="text-link underline" href="/methodology">the method</a> for why that cannot be read
+						as capacity.
+					</Note>
+				{/if}
 				<Note>
 					One table, every database. Rows on different databases did different amounts of work per
 					request, and rows carrying different <abbr title="operating system">OS</abbr> badges came

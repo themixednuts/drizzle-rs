@@ -1,6 +1,9 @@
 <script lang="ts">
+	import CapacityFigure from '#lib/components/CapacityFigure.svelte';
+	import HarnessStrip from '#lib/components/HarnessStrip.svelte';
 	import LatencyBars from '#lib/components/LatencyBars.svelte';
 	import OverlayChart from '#lib/components/OverlayChart.svelte';
+	import SaturationCurve from '#lib/components/SaturationCurve.svelte';
 	import QueryMetricBars from '#lib/components/QueryMetricBars.svelte';
 	import SparkLine from '#lib/components/SparkLine.svelte';
 	import Page from '#lib/components/Page.svelte';
@@ -74,6 +77,13 @@
 		{#if classLabel(runner.class)}<span>{classLabel(runner.class)}</span>{/if}
 	</div>
 
+	<!--
+		The harness legend, above the targets it governs. Most runs are one family and this is one
+		line, which is still worth stating: a reader arriving from the ranking's per-database strip
+		should find the same three facts here, attached to the run that produced them.
+	-->
+	<HarnessStrip rows={view.harnessRows} />
+
 	<Section>
 		<OverlayChart chart={view.overlays.rps} height={190} />
 	</Section>
@@ -110,14 +120,49 @@
 				</p>
 			{/if}
 
+			<!--
+				The headline pair, and the whole point of the layout: peak throughput is the capacity
+				claim and the paced rate is not, so they sit side by side, at the same size, each
+				carrying the words that say which one it is. `CapacityFigure` is the only thing that can
+				draw the left-hand number and it always prints the objective under it, so there is no
+				arrangement of this page where a bare rps figure could be mistaken for the other.
+			-->
+			{#if view.hasCapacity}
+				<div class="border-border-soft mt-5 grid gap-6 border-b pb-5 sm:grid-cols-2">
+					<div>
+						<div class="text-micro text-muted-foreground font-mono uppercase">peak throughput</div>
+						<div class="mt-2">
+							<CapacityFigure capacity={view.capacity(summary)} size="lead" />
+						</div>
+					</div>
+					<div>
+						<div class="text-micro text-muted-foreground font-mono uppercase">
+							<Hint
+								hint="The paced suite's request rate: the generator offers a fixed load with per-request think time, so this measures latency at a known rate and cannot exceed VUs / think time. It is not a capacity figure."
+							>
+								throughput at fixed load
+							</Hint>
+						</div>
+						<div class="text-metric mt-2 font-mono font-medium tabular-nums">
+							{fmtRps(p.rps.avg)}
+						</div>
+						<div class="text-body text-muted-foreground mt-1">
+							median across trials · busiest second {fmtRps(p.rps.peak)}
+						</div>
+					</div>
+				</div>
+			{/if}
+
 			<div class="mt-5">
 				<MetricGrid>
-					<MetricTile
-						label="requests/sec"
-						value={fmtRps(p.rps.avg)}
-						detail="peak {fmtRps(p.rps.peak)}"
-						hint="median requests/second across trials"
-					/>
+					{#if !view.hasCapacity}
+						<MetricTile
+							label="requests/sec"
+							value={fmtRps(p.rps.avg)}
+							detail="busiest second {fmtRps(p.rps.peak)}"
+							hint="median requests/second across trials, under the paced suite's fixed offered load"
+						/>
+					{/if}
 					<MetricTile
 						label="typical latency"
 						value={fmtLatency(p.latency.avg)}
@@ -162,6 +207,20 @@
 					{:else}
 						{variant.short}
 					{/if}
+				</p>
+			{/if}
+
+			<!--
+				The evidence for the headline, immediately under it. A peak is a claim about a shape —
+				throughput flattening while latency turns up — and the shape is the thing a reader can
+				check for themselves.
+			-->
+			{#if view.curve(summary)}
+				<SaturationCurve curve={view.curve(summary)!} targetName={display.name} />
+			{:else if view.hasCapacity}
+				<p class="measure text-meta text-muted-foreground mt-6">
+					Other targets in this run were measured for peak throughput; this one was not, so there is
+					no ramp to draw for it.
 				</p>
 			{/if}
 
@@ -261,11 +320,42 @@
 								<Td tone="muted">spread p95</Td>
 								<Td>{view.latencyRangeText(summary)}</Td>
 							</Tr>
+							<!--
+								The harness this target's whole database family ran under, beside the target's own
+								declared worker/pool numbers above. Two rows on one database share this line; two
+								rows on different databases do not, and that difference is the stack rather than
+								the library.
+
+								This replaced two rows headed "saturation rps" and "saturation p95". Those carried
+								the runner's old knee heuristic — computed off the paced run, and falling back to
+								its busiest bucket whenever it found no knee — under a name that now means the
+								measured capacity figure at the top of this section. A paced number wearing that
+								word is exactly what the saturation suite exists to stop, so it is gone rather
+								than renamed.
+							-->
 							<Tr>
-								<Td tone="muted">saturation rps</Td>
-								<Td>{fmtRps(summary.saturation.knee_rps)}</Td>
-								<Td tone="muted">saturation p95</Td>
-								<Td>{fmtLatency(summary.saturation.knee_p95)}</Td>
+								<Td tone="muted">
+									<Hint
+										hint="Workers, pool size and database tuning, enforced identical for every target on this database. Targets on other databases run their own harness by design — that difference is the stack comparison."
+									>
+										family harness
+									</Hint>
+								</Td>
+								<Td colspan={3}>
+									{#if view.harnessLine(summary)}
+										{@const harness = view.harnessLine(summary)!}
+										<span class="font-mono">{harness.text}</span>
+										{#if harness.identical}
+											<span class="text-muted-foreground ml-2"
+												>verified identical within family</span
+											>
+										{:else}
+											<span class="text-negative ml-2">not identical within family</span>
+										{/if}
+									{:else}
+										<span class="text-muted-foreground italic">not declared by this run</span>
+									{/if}
+								</Td>
 							</Tr>
 							<Tr>
 								<Td tone="muted">group</Td>

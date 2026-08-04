@@ -22,7 +22,7 @@
 				],
 				[
 					'summary.json',
-					'per-target primary metrics, trial spread, confidence intervals when present, and saturation point',
+					'per-target primary metrics, trial spread, confidence intervals when present, and — on runs that measured it — the saturation block: the objective, the outcome, the peak or lower bound, and the full concurrency curve',
 				],
 				[
 					'timeseries.json',
@@ -33,7 +33,18 @@
 		{
 			title: 'reported metrics',
 			rows: [
-				['throughput', 'median requests per second across trials, plus the peak sampled bucket'],
+				[
+					'peak throughput',
+					'the saturation suite\'s capacity figure: the fastest concurrency step that held the latency objective and stayed inside the error limit, ties going to the lower concurrency. Always printed with the objective beside it ("at p99 < 50 ms") and never without it',
+				],
+				[
+					'throughput at fixed load',
+					"the paced suite's median requests per second across trials. A latency-at-a-known-rate reading, bounded above by the load profile, and not a capacity figure",
+				],
+				[
+					'busiest second',
+					'the fastest single sample bucket of a paced run. A momentary rate inside a fixed-load run; it was previously labelled "peak throughput", which now means the capacity figure above',
+				],
 				[
 					'latency',
 					'mean, p50, p90, p95, p99, and p999 in milliseconds; p50 and p90 only when the artifact measured them',
@@ -72,6 +83,14 @@
 					'fair block',
 					'declared worker count, pool size, database, schema, and contract version each target must match',
 				],
+				[
+					'comparison group',
+					'the set of targets claiming to be directly comparable, declared per target as fair.family. Usually a database, and split where the harness cannot be equalised — sqlite (Rust) and sqlite-ts (Bun) are both SQLite and are two groups. Enforcement and the "vs …" delta are scoped to the group; the table and the database column are not, so a split never hides a row',
+				],
+				[
+					'group harness',
+					'the workers, pool size and tuning a whole comparison group ran under, recorded once per group in the manifest, plus whether within-group identity was verified and which targets if any were exempted from that check. Shown as a strip above the ranking and on each row; a group with no declaration reads "harness not declared" rather than inheriting one',
+				],
 			],
 		},
 		{
@@ -98,7 +117,7 @@
 		{
 			title: 'interpretation',
 			rows: [
-				['higher is better', 'rps median and rps peak'],
+				['higher is better', 'peak throughput, throughput at fixed load, and busiest second'],
 				['lower is better', 'latency, cpu, memory, and error rate'],
 				[
 					'direction',
@@ -109,8 +128,16 @@
 					'drawn only from recorded quartiles. When an artifact records min/max but no quartiles, the bar shows the range and the median tick with no box; when it records neither, a single tick is shown',
 				],
 				[
-					'saturation',
-					'knee rps and knee p95 show the point where extra load starts trading throughput for latency',
+					'saturation outcome',
+					'one of four states, never a substituted number: a measured peak; "at least N req/s — knee not reached" for a ramp that ended before the target did; "never met the p99 target" when even the smallest step breached the objective; and "not measured" for runs that did not run the suite',
+				],
+				[
+					'disqualified step',
+					"a step of the ramp whose error rate exceeded the run's limit. It is measured, drawn on the curve struck through, and listed in the step table with its reason — and it can never be chosen as the peak",
+				],
+				[
+					'rank',
+					'01..N across every database in one table. Under the peak-throughput order only rows with a measured peak are numbered; a lower bound or an unmeasured row shows a dash and sorts below every measured one, because position on a ranked table reads as a claim',
 				],
 				[
 					'caveat',
@@ -192,7 +219,13 @@
 					<code class="text-meta font-mono">VUs / (mean think time + mean service time)</code>. A
 					target fast enough to sit under that ceiling reports the ceiling, not its capacity; a
 					throughput number close to that bound is a statement about the load profile, not about the
-					target. The unpaced throughput suite exists for saturation measurements.
+					target.
+				</p>
+				<p class="mt-3">
+					This is not a small effect. Under the paced suite every healthy target lands within a few
+					percent of the same number, because the number is mostly the generator's sleep timer: a
+					tenfold difference in service time moves it by well under a tenth. That is why capacity
+					has its own suite, described below, and why the two are never averaged into one figure.
 				</p>
 			</section>
 
@@ -207,6 +240,170 @@
 					work" spelled out under the name and a dash instead of a comparison against drizzle-rs, because
 					a cache hit and a query are not the same measurement. On
 					<a class="text-link underline" href="/compare">compare</a> they keep their own unranked section.
+				</p>
+			</section>
+		</div>
+	</Section>
+
+	<Section title="two suites, two headlines">
+		<div class="measure text-prose text-foreground-secondary space-y-7">
+			<p>
+				Every target is measured twice, by two load profiles that answer two different questions.
+				Their numbers are never averaged together and never share a column, because a reader who
+				confuses them draws exactly the wrong conclusion.
+			</p>
+
+			<section>
+				<h3 class="text-heading text-foreground mb-2 font-semibold">
+					Throughput at fixed load — the paced suite.
+				</h3>
+				<p>
+					Virtual users send a request, wait a think time, and send the next. The generator offers a
+					fixed amount of work and the measurement is how well the target keeps up with it: latency
+					at a known rate. This is the profile drizzle-benchmarks publishes its TypeScript numbers
+					under, so it is what makes those numbers comparable to these. It is a good latency
+					measurement and, for the reason above, it cannot be a capacity measurement.
+				</p>
+			</section>
+
+			<section>
+				<h3 class="text-heading text-foreground mb-2 font-semibold">
+					Peak throughput — the saturation suite.
+				</h3>
+				<p>
+					The same workload with the think time removed, run as a stepped ramp: hold a fixed number
+					of concurrent requests, measure steady state, step up, repeat. With no think time, N
+					virtual users are N requests in flight, so the ramp is over concurrency and throughput is
+					whatever the target can actually turn over.
+				</p>
+				<p class="mt-3">
+					The headline is the fastest step whose steady-state
+					<code class="text-meta font-mono">p99</code> stayed under the latency objective
+					<em>and</em> whose error rate stayed inside the run's limit. Both conditions matter: a step
+					that returned errors faster is not a faster step, so a step over the error limit is disqualified
+					from being the peak, and the disqualification is recorded and shown rather than quietly skipped.
+				</p>
+				<p class="mt-3">
+					Which of the three outcomes a run gets is decided separately, by whether its <em>last</em>
+					step still held the objective. That is deliberately not the same question as where the maximum
+					landed: a ramp can peak early, flatten, and still finish without breaching, and that is "knee
+					not reached" rather than a measured limit.
+				</p>
+				<p class="mt-3">
+					The whole ramp is published, not just the winning step — every step's concurrency,
+					throughput, percentiles, error rate and CPU. That curve is on each target's section of a
+					run page, and it is the evidence the headline rests on: throughput flattening while
+					latency turns upward is what "peak" means, drawn.
+				</p>
+			</section>
+		</div>
+	</Section>
+
+	<Section title="the three ways a target can have no peak">
+		<div class="measure text-prose text-foreground-secondary space-y-5">
+			<p>
+				A capacity measurement can fail to produce a number, and when it does this site says so in
+				words. Nothing is substituted: not a zero, not the top of the ramp, and never the paced
+				number wearing the other one's name.
+			</p>
+			<dl class="space-y-4">
+				<div>
+					<dt class="text-foreground font-medium">A peak, at a stated objective</dt>
+					<dd class="mt-1">
+						The ramp went far enough to break the target: its last step breached the objective. The
+						number reported is the <em>fastest</em> step that did hold it — ties going to the lower concurrency,
+						since the same throughput for less concurrency is the better result — with the objective always
+						beside it ("12.5k req/s at p99 &lt; 50 ms") and with the concurrency it was reached at. This
+						is the only outcome that produces a comparable number, and the only one given a rank when
+						the table is sorted by peak throughput.
+					</dd>
+				</div>
+				<div>
+					<dt class="text-foreground font-medium">"at least N req/s — knee not reached"</dt>
+					<dd class="mt-1">
+						The ramp's last step still held the objective, so it stopped before the target did. The
+						best qualifying throughput is a <em>lower bound</em>, not a peak: this target sustains
+						at least that much and may sustain considerably more. Note that this does not require
+						throughput to still be climbing — a curve can flatten, or even dip after the connection
+						pool saturates, and still end without breaching. A visible bend is not the same finding
+						as a measured limit. It is shown with "at least", drawn faint, given no rank, and sorted
+						below every measured peak, because a ramp that ended early is not evidence of beating a
+						target that was measured to its limit. It is also a finding about the workload, and it
+						is visible so the ramp gets extended.
+					</dd>
+				</div>
+				<div>
+					<dt class="text-foreground font-medium">"never met the p99 target"</dt>
+					<dd class="mt-1">
+						Even the smallest step breached the objective. There is no peak and no number is
+						reported in place of one. The curve is still drawn, because how far over the objective
+						the first step landed is the useful part.
+					</dd>
+				</div>
+				<div>
+					<dt class="text-foreground font-medium">"not measured"</dt>
+					<dd class="mt-1">
+						The run predates the saturation suite, or did not run it for that target. Runs published
+						before the suite existed carry an older field also called "saturation" — a knee
+						heuristic computed off the <em>paced</em> run, which produced a number whether or not it found
+						a knee. This dashboard does not read it. A target with no saturation measurement says "not
+						measured", which is the true statement.
+					</dd>
+				</div>
+			</dl>
+		</div>
+	</Section>
+
+	<Section title="fair means two different things">
+		<div class="measure text-prose text-foreground-secondary space-y-7">
+			<p>
+				Fairness on this site has two meanings, and they pull in opposite directions. Keeping them
+				apart is what makes the tables readable; blurring them is the easiest way to mislead.
+			</p>
+
+			<section>
+				<h3 class="text-heading text-foreground mb-2 font-semibold">
+					Inside a comparison group — identical, and enforced.
+				</h3>
+				<p>
+					A <em>comparison group</em> is the set of targets claiming to be directly comparable. Every
+					target in one runs the same worker count, the same connection pool size and the same server
+					tuning, which is what makes the gap between two of its rows attributable to the library rather
+					than to the setup. It is a hard requirement in the runner: a group whose targets declare different
+					harnesses fails the run rather than publishing a quietly unequal comparison. The "vs …" figure
+					inside a ranking row is scoped to exactly this — the drizzle target in that same group, under
+					that same harness.
+				</p>
+				<p class="mt-3">
+					A group is usually a database, but it is not the same thing, and it splits wherever the
+					harness genuinely cannot be equalised. <code class="text-meta font-mono">bun:sqlite</code>
+					is synchronous on a single-threaded runtime, so giving it the Rust stack's pool of eight would
+					be fiction rather than fairness. It therefore sits in its own SQLite group with drizzle-orm
+					— same runtime, same pool of one, same pragmas, a real library comparison — while the Rust stack
+					keeps its own. Both are still SQLite, and both still appear in the one table with SQLite in
+					the database column: the split changes what a row is
+					<em>measured against</em>, never whether it is shown.
+				</p>
+			</section>
+
+			<section>
+				<h3 class="text-heading text-foreground mb-2 font-semibold">
+					Across groups — different, and declared.
+				</h3>
+				<p>
+					An embedded engine and a client/server engine are not made comparable by forcing them into
+					one configuration; they are made <em>equally crippled</em>. So across groups the harness
+					is deliberately allowed to differ, each stack running in the shape it is actually deployed
+					in. That difference is part of what the comparison shows — which means it has to be
+					visible, or a reader will read a stack difference as a library difference.
+				</p>
+				<p class="mt-3">
+					Each run records its harness per group, and the ranking prints them as a strip above the
+					table: one line per group, giving workers, pool size, tuning, and whether within-group
+					identity was verified. Two rows in one group share that whole line; two rows in different
+					groups share none of it. A group whose run declared no harness says "harness not declared"
+					rather than borrowing a neighbour's, and a group that verified identity while exempting
+					some targets says how many were exempted.
 				</p>
 			</section>
 		</div>

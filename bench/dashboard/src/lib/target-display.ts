@@ -139,6 +139,84 @@ export function dbProfileLabel(profile: DbProfile): string {
 	return DB_PROFILE_LABELS[profile];
 }
 
+/**
+ * Short database names, as printed in the ranking's `database` column and in the harness strip.
+ * Lives here rather than beside the ranking because run detail names the same families and the two
+ * must not be able to drift into calling one database two things.
+ */
+const DB_SHORT_LABELS: Record<DbProfile, string> = {
+	sqlite: 'SQLite',
+	libsql: 'libSQL',
+	turso: 'Turso',
+	postgres: 'PostgreSQL',
+	spacetimedb: 'SpacetimeDB',
+	other: 'other',
+};
+
+export function dbShortLabel(profile: DbProfile): string {
+	return DB_SHORT_LABELS[profile];
+}
+
+/**
+ * The comparison group a target belongs to: the set of targets claiming to be directly comparable.
+ *
+ * This is what "fair" is scoped to — harness identity is enforced inside it, and a row's
+ * "vs drizzle" delta is measured against the drizzle target inside it. It is deliberately NOT the
+ * database: `sqlite` and `sqlite-ts` are both SQLite and are two comparison groups, because a Bun
+ * target on a single-threaded runtime cannot be given the Rust harness without being crippled by
+ * it. Comparing across them is a stack comparison, and the UI has to be able to say so.
+ *
+ * Artifacts published before the field existed had one group per database, which is exactly what
+ * falling back to the database profile expresses — not a guess, the same grouping those artifacts
+ * were built under.
+ */
+export function targetFamily(input: TargetDisplayInput): string {
+	const declared = input.target_meta?.fair.family?.trim();
+	return declared ? declared.toLowerCase() : dbProfile(input);
+}
+
+/**
+ * What a group id's suffix means, when a database splits into more than one comparison group.
+ *
+ * A split is always "same engine, different stack", so the suffix names the stack. Composing the
+ * label from the two halves rather than listing whole ids means a new split — `postgres-ts` after
+ * `sqlite-ts`, or a future `postgres-go` — is named correctly without a code change, which matters
+ * because the ids are the runner's to mint and the labels are ours to write.
+ */
+const FAMILY_SUFFIX_LABELS: Record<string, string> = {
+	ts: 'TypeScript',
+	go: 'Go',
+	py: 'Python',
+	java: 'Java',
+};
+
+/**
+ * Display name for a comparison group.
+ *
+ * Labels live here and never in an artifact: a display string frozen into a published artifact can
+ * never be reworded, so the runner mints lowercase slug ids and the presentation layer names them.
+ * A group that is a whole database is named as that database; a group that splits one carries what
+ * distinguishes it, because the entire point of the split is that the two are not interchangeable.
+ */
+export function familyLabel(family: string): string {
+	if (DB_PROFILE_ORDER.includes(family as DbProfile)) {
+		return DB_SHORT_LABELS[family as DbProfile];
+	}
+
+	const split = family.indexOf('-');
+	if (split > 0) {
+		const engine = family.slice(0, split);
+		const suffix = FAMILY_SUFFIX_LABELS[family.slice(split + 1)];
+		if (suffix && DB_PROFILE_ORDER.includes(engine as DbProfile)) {
+			return `${DB_SHORT_LABELS[engine as DbProfile]} / ${suffix}`;
+		}
+	}
+
+	// An id this build has no rule for is passed through humanised rather than guessed at. It will
+	// look slightly wrong, which is the point — it is visible that a label is missing.
+	return humanize(family);
+}
+
 /** The one-sentence description of what this database makes a request do. `null` when there is
  * nothing useful to say — `other` is a bucket, not a kind of engine. */
 export function dbProfileNote(profile: DbProfile): string | null {

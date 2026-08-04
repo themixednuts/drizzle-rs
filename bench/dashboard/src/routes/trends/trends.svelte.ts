@@ -126,10 +126,12 @@ export class TrendsPageState {
 				delta: move(latest.rps_avg, previous?.rps_avg, false),
 			},
 			{
-				label: 'rps peak',
+				// Not "rps peak": "peak throughput" now names the saturation suite's capacity figure,
+				// and this is the busiest sample bucket inside a paced run.
+				label: 'busiest second',
 				value: fmtRps(latest.rps_peak),
-				hint: 'highest single sample bucket',
-				detail: 'peak bucket',
+				hint: 'highest single sample bucket within the paced run; not a capacity figure',
+				detail: 'one bucket',
 			},
 			{
 				label: 'lat p95',

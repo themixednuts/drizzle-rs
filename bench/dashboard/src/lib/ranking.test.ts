@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { baselinesByDb, type RankableTarget } from './leaderboard';
+import { baselinesByFamily, type RankableTarget } from './leaderboard';
 import { osBadge, shardProvenance } from './os';
 import { targetApi } from './target-display';
 import type { TargetMeta } from './types';
@@ -38,7 +38,7 @@ function row(id: string, over: Partial<TargetMeta> = {}): RankableTarget {
 const drizzleRs = (id: string, over: Partial<TargetMeta> = {}) =>
 	row(id, { group: 'drizzle-rs', orm: { name: 'drizzle-rs', ver: '0.1.15' }, ...over });
 
-describe('baselinesByDb', () => {
+describe('baselinesByFamily', () => {
 	it('gives each database its own drizzle baseline', () => {
 		const rows = [
 			drizzleRs('drizzle-rs-sqlite', { fair: meta({ id: 'x' }).fair }),
@@ -47,7 +47,7 @@ describe('baselinesByDb', () => {
 			row('tokio-postgres-prepared'),
 		];
 
-		const baselines = baselinesByDb(rows);
+		const baselines = baselinesByFamily(rows);
 		expect(baselines.get('sqlite')?.target_id).toBe('drizzle-rs-sqlite');
 		expect(baselines.get('postgres')?.target_id).toBe('drizzle-rs-pg');
 	});
@@ -56,7 +56,7 @@ describe('baselinesByDb', () => {
 		// The regression this prevents: one global table plus one global baseline would have measured
 		// every Turso row against a SQLite drizzle number and called it a library comparison.
 		const rows = [drizzleRs('drizzle-rs-sqlite'), row('turso-sqlite-prepared', { group: 'turso' })];
-		const baselines = baselinesByDb(rows);
+		const baselines = baselinesByFamily(rows);
 		expect(baselines.get('sqlite')?.target_id).toBe('drizzle-rs-sqlite');
 		expect(baselines.has('turso')).toBe(false);
 	});
@@ -67,7 +67,7 @@ describe('baselinesByDb', () => {
 			drizzleRs('drizzle-rs-sqlite'),
 			row('rusqlite-sqlite-prepared'),
 		];
-		expect(baselinesByDb(rows).get('sqlite')?.target_id).toBe('drizzle-rs-sqlite-query');
+		expect(baselinesByFamily(rows).get('sqlite')?.target_id).toBe('drizzle-rs-sqlite-query');
 	});
 
 	it('falls back to a non-rust drizzle row when that is all the database has', () => {
@@ -75,7 +75,7 @@ describe('baselinesByDb', () => {
 			row('drizzle-ts-pg', { group: 'drizzle-orm', orm: { name: 'drizzle-orm', ver: '0.44' } }),
 			row('prisma-pg', { group: 'prisma', orm: { name: 'prisma', ver: '6' } }),
 		];
-		expect(baselinesByDb(rows).get('postgres')?.target_id).toBe('drizzle-ts-pg');
+		expect(baselinesByFamily(rows).get('postgres')?.target_id).toBe('drizzle-ts-pg');
 	});
 });
 

@@ -6,6 +6,7 @@ import {
 	isDrizzleRsTarget,
 	isDrizzleTarget,
 	isInProcessCache,
+	targetFamily,
 	type DbProfile,
 } from './target-display';
 import type { TargetMeta } from './types';
@@ -110,30 +111,34 @@ export function pickBaseline<T extends RankableTarget>(rows: readonly T[]): T | 
 }
 
 /**
- * The drizzle baseline for each database present in `rows`, keyed by database.
+ * The drizzle baseline for each comparison group present in `rows`, keyed by group.
  *
- * The ranking is one global table now, but "vs drizzle-rs" is still a within-database question:
- * comparing a PostgreSQL row against a SQLite drizzle number would be measuring the two engines,
- * not the two libraries. So the table is global and the baseline is local, and a database with no
- * drizzle target in the set simply has no entry here — its rows say so rather than borrowing
+ * The ranking is one global table, but "vs drizzle" is a within-group question: comparing a
+ * PostgreSQL row against a SQLite drizzle number would measure the two engines rather than the two
+ * libraries. The scope is the *comparison group* rather than the database, which matters wherever
+ * one database holds two groups — a `sqlite-ts` row is measured against the drizzle target on its
+ * own runtime, not against drizzle-rs on Rust, because those two differ by language and concurrency
+ * model before they differ by library.
+ *
+ * A group with no drizzle target simply has no entry here; its rows say so rather than borrowing
  * someone else's reference.
  *
  * `rows` must be pre-sorted by whatever "best" means to the caller: `pickBaseline` takes the first
  * drizzle row it finds, so a sorted input yields the strongest drizzle result as the baseline.
  */
-export function baselinesByDb<T extends RankableTarget>(rows: readonly T[]): Map<DbProfile, T> {
-	const byDb = new Map<DbProfile, T[]>();
+export function baselinesByFamily<T extends RankableTarget>(rows: readonly T[]): Map<string, T> {
+	const byFamily = new Map<string, T[]>();
 	for (const row of rows) {
-		const profile = dbProfile(row);
-		const bucket = byDb.get(profile);
+		const family = targetFamily(row);
+		const bucket = byFamily.get(family);
 		if (bucket) bucket.push(row);
-		else byDb.set(profile, [row]);
+		else byFamily.set(family, [row]);
 	}
 
-	const out = new Map<DbProfile, T>();
-	for (const [profile, bucket] of byDb) {
+	const out = new Map<string, T>();
+	for (const [family, bucket] of byFamily) {
 		const baseline = pickBaseline(bucket);
-		if (baseline) out.set(profile, baseline);
+		if (baseline) out.set(family, baseline);
 	}
 	return out;
 }
