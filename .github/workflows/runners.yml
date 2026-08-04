@@ -20,6 +20,7 @@ on:
           - full
           - preview
           - single
+          - saturation
         default: full
       publish_to_r2:
         description: Publish manual main runs to Cloudflare R2
@@ -70,6 +71,16 @@ jobs:
             workload="bench/spec/workload.preview.v1.json"
           elif [[ "$size" == "single" ]]; then
             workload="bench/spec/workload.single-throughput.v1.json"
+            if [[ "$publish" == "true" ]]; then
+              class="publish"
+            fi
+          elif [[ "$size" == "saturation" ]]; then
+            # Capacity, not latency-at-fixed-load: an unpaced ramp until p99
+            # breaches the workload's SLO. This is the only suite that can
+            # produce a throughput number at all — the paced suites cap every
+            # target at `VUs / think_time`, so their rps describes the load
+            # generator rather than the target.
+            workload="bench/spec/workload.saturation.v1.json"
             if [[ "$publish" == "true" ]]; then
               class="publish"
             fi
