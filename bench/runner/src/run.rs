@@ -3,11 +3,11 @@ use crate::clock::now_rfc3339;
 use crate::code::{Code, Fail};
 use crate::jsonio;
 use crate::model::{
-    Artifacts, AvgPeakDoc, BoxMetricDoc, BoxPlotDoc, DatasetSummary, Event, Exec, FairnessWarning,
-    Gate, Gates, Headroom, LatencyDoc, Limits, LoadSummary, ManifestDoc, ManifestSummary, Point,
+    Artifacts, AvgPeakDoc, BoxMetricDoc, BoxPlotDoc, DatasetSummary, Event, Exec, Gate, Gates,
+    HarnessDoc, Headroom, LatencyDoc, Limits, LoadSummary, ManifestDoc, ManifestSummary, Point,
     PrimaryDoc, QueryDoc, QueryShapeDoc, RangeDoc, RequestDoc, ResultDoc, Runner, RunnerMetrics,
-    SaturationDoc, SpreadDoc, Status, SummaryDoc, Target, TargetMetaDoc, TimeseriesDoc, Topology,
-    TrialMeta, VarianceDoc, VarianceMetricDoc, Workload,
+    SaturationDoc, SaturationSpec, SpreadDoc, Status, SummaryDoc, Target, TargetMetaDoc,
+    TimeseriesDoc, Topology, TrialMeta, VarianceDoc, VarianceMetricDoc, Workload,
 };
 use crate::stats::{avg, max, median, median_sorted, min, peak, sample_variance};
 use crate::workload_terms::{CUSTOMER_SEARCH_TERMS, PRODUCT_SEARCH_TERMS};
@@ -68,8 +68,14 @@ fn run(args: Run) -> Result<Code, Fail> {
     let mut events = new_events_writer(&events_path)?;
 
     emit(&mut events, args.json, "info", "validate", "start")?;
-    for warning in &input.fairness {
-        emit(&mut events, args.json, "warn", "validate", &warning.msg)?;
+    for block in &input.harness {
+        emit(
+            &mut events,
+            args.json,
+            "info",
+            "validate",
+            harness_summary(block),
+        )?;
     }
     emit(&mut events, args.json, "info", "validate", "ok")?;
 
@@ -221,7 +227,12 @@ struct RunInput {
     request_count_hint: usize,
     limits: Limits,
     bucket_s: u32,
-    fairness: Vec<FairnessWarning>,
+    /// One entry per database family in this run. Built before any measurement
+    /// so an unfair comparison fails in seconds instead of after an hour.
+    harness: Vec<HarnessDoc>,
+    /// Declared only by the stepped unpaced ramp; absent for the paced suite,
+    /// which cannot measure capacity.
+    saturation: Option<SaturationSpec>,
 }
 
 struct TrialContext<'a> {
@@ -266,13 +277,27 @@ struct TargetArtifacts<'a> {
     measurements: &'a [TrialMeasurement],
     summary: &'a PrimaryDoc,
     spread: &'a SpreadDoc,
-    saturation: &'a SaturationDoc,
+    saturation: Option<&'a SaturationDoc>,
 }
 
 #[derive(Debug, Clone)]
 struct TrialMeasurement {
     aggregate: Point,
     series: Vec<Point>,
+    /// One aggregate per hold plateau, ascending in time. Empty when the load
+    /// command emitted no per-step artifact.
+    steps: Vec<Point>,
+}
+
+#[cfg(test)]
+impl TrialMeasurement {
+    fn new(aggregate: Point, series: Vec<Point>) -> Self {
+        Self {
+            aggregate,
+            series,
+            steps: Vec::new(),
+        }
+    }
 }
 
 struct Baseline {
@@ -347,7 +372,7 @@ fn load_input(args: &Run) -> Result<RunInput, Fail> {
     let trials = args.trials.unwrap_or_else(|| args.class.default_trials());
     let bucket_s = workload.sampling.bucket_s.max(1);
     let limits = workload.limits;
-    let fairness = check_cross_target_fairness(&targets);
+    let harness = crate::fairness::harness(&targets)?;
     Ok(RunInput {
         suite,
         seed: workload.data.seed,
@@ -361,52 +386,9 @@ fn load_input(args: &Run) -> Result<RunInput, Fail> {
         request_count_hint,
         limits,
         bucket_s,
-        fairness,
+        harness,
+        saturation: workload.saturation,
     })
-}
-
-/// Targets ranked against each other in one run must agree on their declared
-/// fairness knobs, otherwise the leaderboard is comparing configurations rather
-/// than implementations. Mismatches warn instead of failing: some are legitimate
-/// (an in-process cache has no connection pool) and blocking the run would just
-/// push people to delete the metadata.
-fn check_cross_target_fairness(targets: &[Target]) -> Vec<FairnessWarning> {
-    let mut warnings = Vec::new();
-    let comparable: Vec<&Target> = targets
-        .iter()
-        .filter(|target| !is_fairness_exempt(target))
-        .collect();
-    let Some(reference) = comparable.first() else {
-        return warnings;
-    };
-
-    for target in comparable.iter().skip(1) {
-        if target.fair.pool != reference.fair.pool {
-            warnings.push(FairnessWarning {
-                kind: "fair.pool".to_string(),
-                msg: format!(
-                    "target {} declares fair.pool={} but {} declares {}; \
-                     ranked comparisons assume an identical pool size",
-                    target.id, target.fair.pool, reference.id, reference.fair.pool
-                ),
-            });
-        }
-        if target.fair.workers != reference.fair.workers {
-            warnings.push(FairnessWarning {
-                kind: "fair.workers".to_string(),
-                msg: format!(
-                    "target {} declares fair.workers={} but {} declares {}; \
-                     ranked comparisons assume an identical worker count",
-                    target.id, target.fair.workers, reference.id, reference.fair.workers
-                ),
-            });
-        }
-    }
-    warnings
-}
-
-fn is_fairness_exempt(target: &Target) -> bool {
-    matches!(target.data_access.as_deref(), Some("in-process-cache"))
 }
 
 /// A requests-file entry: either a bare path string or an explicit request.
@@ -905,7 +887,17 @@ fn run_aggregate(
             .ok_or_else(|| Fail::new(Code::AggregateFail, "missing target trial points"))?;
         let summary = compute_primary(values);
         let spread = compute_spread(values, input.trials);
-        let saturation = compute_saturation(values);
+        let saturation = match &input.saturation {
+            Some(spec) => Some(measure_saturation(
+                &target.id,
+                spec,
+                &input.limits,
+                values,
+                events,
+                json,
+            )?),
+            None => None,
+        };
         summary_map.insert(target.id.clone(), summary.clone());
         write_target_artifacts(
             run_dir,
@@ -918,7 +910,7 @@ fn run_aggregate(
                 measurements: values,
                 summary: &summary,
                 spread: &spread,
-                saturation: &saturation,
+                saturation: saturation.as_ref(),
             },
         )?;
     }
@@ -949,7 +941,7 @@ fn write_target_artifacts(run_dir: &Path, doc: TargetArtifacts<'_>) -> Result<()
         group: doc.group.map(str::to_string),
         primary: doc.summary.clone(),
         spread: doc.spread.clone(),
-        saturation: doc.saturation.clone(),
+        saturation: doc.saturation.cloned(),
     };
     jsonio::write(
         target_dir.join("summary.json"),
@@ -1272,8 +1264,10 @@ fn run_target_load(
         "{}-{trial}-{idx}.series.json",
         sanitize(&target.id)
     ));
+    let steps_path = scratch.join(format!("{}-{trial}-{idx}.steps.json", sanitize(&target.id)));
     let _ = fs::remove_file(&point_path);
     let _ = fs::remove_file(&series_path);
+    let _ = fs::remove_file(&steps_path);
 
     let mut env = BTreeMap::new();
     env.insert(
@@ -1283,6 +1277,10 @@ fn run_target_load(
     env.insert(
         "BENCH_TIMESERIES_OUT".to_string(),
         series_path.to_string_lossy().to_string(),
+    );
+    env.insert(
+        "BENCH_STEPS_OUT".to_string(),
+        steps_path.to_string_lossy().to_string(),
     );
     env.insert("BENCH_RUN_DIR".to_string(), run_dir.display().to_string());
     env.insert("BENCH_SUITE".to_string(), suite.to_string());
@@ -1317,6 +1315,22 @@ fn run_target_load(
         )
     })?;
 
+    // Per-step aggregates carry exact percentiles for one hold plateau. They can
+    // only be produced where the raw samples live, so a missing file means "not
+    // measured" — never "derive it from the buckets", which would average
+    // percentiles together and misplace the knee.
+    let steps = if steps_path.exists() {
+        let mut steps = load_points(&steps_path)?;
+        for point in &mut steps {
+            validate_point(&target.id, point)?;
+        }
+        let trial_path = raw_dir.join(format!("{trial}.steps.json"));
+        let _ = fs::copy(&steps_path, &trial_path);
+        steps
+    } else {
+        Vec::new()
+    };
+
     let measurement = if series_path.exists() {
         let mut series = load_points(&series_path)?;
         if series.is_empty() {
@@ -1349,7 +1363,11 @@ fn run_target_load(
         } else {
             point_from_series(&series)
         };
-        TrialMeasurement { aggregate, series }
+        TrialMeasurement {
+            aggregate,
+            series,
+            steps,
+        }
     } else if point_path.exists() {
         let trial_path = raw_dir.join(format!("{trial}.point.json"));
         fs::copy(&point_path, &trial_path).map_err(|err| {
@@ -1366,6 +1384,7 @@ fn run_target_load(
         TrialMeasurement {
             aggregate: point.clone(),
             series: vec![point],
+            steps,
         }
     } else {
         return Err(Fail::new(
@@ -1378,6 +1397,7 @@ fn run_target_load(
     };
     let _ = fs::remove_file(&point_path);
     let _ = fs::remove_file(&series_path);
+    let _ = fs::remove_file(&steps_path);
     let mut measurement = measurement;
     validate_point(&target.id, &mut measurement.aggregate)?;
     Ok(measurement)
@@ -1649,6 +1669,7 @@ fn point_from_series(points: &[Point]) -> Point {
         trial: counted.first().and_then(|point| point.trial),
         stage: None,
         phase: None,
+        vus: None,
         requests: counted
             .iter()
             .filter_map(|point| point.requests)
@@ -2245,12 +2266,17 @@ fn write_manifest(
             count: input.trials,
             aggregate: "median",
         },
-        fairness: input
-            .fairness
+        harness: input
+            .harness
             .iter()
-            .map(|warning| FairnessWarning {
-                kind: warning.kind.clone(),
-                msg: warning.msg.clone(),
+            .map(|block| HarnessDoc {
+                family: block.family.clone(),
+                targets: block.targets.clone(),
+                workers: block.workers,
+                pool: block.pool,
+                tuning: block.tuning.clone(),
+                within_family_identical: block.within_family_identical,
+                exempt: block.exempt.clone(),
             })
             .collect(),
     };
@@ -2454,78 +2480,78 @@ fn compute_spread(measurements: &[TrialMeasurement], trials: u32) -> SpreadDoc {
     }
 }
 
-/// Consecutive degraded buckets required before calling a knee. One slow bucket
-/// is noise; three in a row is a trend.
-const SATURATION_RUN_LENGTH: usize = 3;
-/// A bucket counts as degraded once its p95 exceeds this multiple of the
-/// lowest-VU plateau's p95.
-const SATURATION_P95_FACTOR: f64 = 2.0;
-
-/// Locate the saturation knee per trial, then report the median across trials.
+/// Read one target's peak throughput off its concurrency ramp.
 ///
-/// Scanning a series concatenated across trials made `windows(2)` compare the
-/// last bucket of one trial with the first bucket of the next, and an absolute
-/// `slope > 0.02` threshold has no meaning across targets with different
-/// baseline latencies. This uses a relative criterion anchored on the trial's
-/// own lowest-VU plateau.
-fn compute_saturation(measurements: &[TrialMeasurement]) -> SaturationDoc {
-    let mut knee_rps = Vec::new();
-    let mut knee_p95 = Vec::new();
-
-    for measurement in measurements {
-        let points: Vec<&Point> = measurement
-            .series
-            .iter()
-            .filter(|point| point.is_hold())
-            .collect();
-        if points.is_empty() {
-            continue;
-        }
-
-        let Some(baseline_stage) = points.iter().filter_map(|point| point.stage).min() else {
-            // No stage tags: fall back to the highest-throughput bucket.
-            if let Some(best) = points.iter().max_by(|a, b| a.rps.total_cmp(&b.rps)) {
-                knee_rps.push(best.rps);
-                knee_p95.push(best.latency.p95);
-            }
-            continue;
-        };
-        let plateau: Vec<f64> = points
-            .iter()
-            .filter(|point| point.stage == Some(baseline_stage))
-            .map(|point| point.latency.p95)
-            .collect();
-        let threshold = median(&plateau) * SATURATION_P95_FACTOR;
-
-        let mut streak = 0_usize;
-        let mut found = None;
-        for point in &points {
-            if threshold > 0.0 && point.latency.p95 > threshold {
-                streak += 1;
-                if streak >= SATURATION_RUN_LENGTH {
-                    found = Some(*point);
-                    break;
-                }
-            } else {
-                streak = 0;
-            }
-        }
-
-        let knee = found.or_else(|| {
-            points
-                .iter()
-                .max_by(|a, b| a.rps.total_cmp(&b.rps))
-                .copied()
-        });
-        if let Some(knee) = knee {
-            knee_rps.push(knee.rps);
-            knee_p95.push(knee.latency.p95);
-        }
+/// This replaced a per-trial p95-doubling heuristic that reported
+/// `{knee_rps, knee_p95}` for *every* workload, paced or not, and fell back to
+/// the highest-throughput bucket whenever no knee appeared. Both halves were
+/// wrong: a paced run's throughput is capped by its own sleep timer, so the
+/// number it produced was not capacity, and the fallback meant "we did not find
+/// a knee" was reported as a knee. There is now one saturation concept in the
+/// artifact, it is only emitted when the workload declares the measurement, and
+/// each way of failing to find a peak has its own name.
+fn measure_saturation(
+    target_id: &str,
+    spec: &SaturationSpec,
+    limits: &Limits,
+    measurements: &[TrialMeasurement],
+    events: &mut BufWriter<File>,
+    json: bool,
+) -> Result<SaturationDoc, Fail> {
+    let steps: Vec<&[Point]> = measurements
+        .iter()
+        .map(|measurement| measurement.steps.as_slice())
+        .collect();
+    if steps.iter().any(|trial| trial.is_empty()) {
+        return Err(Fail::new(
+            Code::AggregateFail,
+            format!(
+                "target {target_id} produced no per-step measurements, so its capacity \
+                 cannot be computed. A saturation workload requires a load command that \
+                 writes $BENCH_STEPS_OUT; per-step percentiles cannot be recovered from \
+                 the bucket series without averaging percentiles together."
+            ),
+        ));
     }
 
-    SaturationDoc {
-        knee_rps: median(&knee_rps),
-        knee_p95: median(&knee_p95),
+    let doc = crate::saturation::measure(target_id, spec, limits, &steps)?;
+    emit(
+        events,
+        json,
+        "info",
+        "aggregate",
+        saturation_summary(target_id, &doc),
+    )?;
+    Ok(doc)
+}
+
+/// Plain-language one-liner for the events stream, using the same words the
+/// dashboard shows so the log and the UI cannot disagree.
+fn saturation_summary(target_id: &str, doc: &SaturationDoc) -> String {
+    let slo = format!("{} < {} ms", doc.slo.metric.as_str(), doc.slo.ms);
+    match (&doc.outcome, &doc.peak, doc.lower_bound_rps) {
+        (_, Some(peak), _) => format!(
+            "{target_id} peak throughput {:.0} req/s at {slo} (concurrency {})",
+            peak.rps, peak.concurrency
+        ),
+        (_, _, Some(rps)) => format!(
+            "{target_id} at least {rps:.0} req/s at {slo} — knee not reached, extend the ramp"
+        ),
+        _ => format!("{target_id} never met the {slo} target at any concurrency"),
+    }
+}
+
+fn harness_summary(block: &HarnessDoc) -> String {
+    match (block.workers, block.pool, &block.tuning) {
+        (Some(workers), Some(pool), Some(tuning)) => format!(
+            "family {} harness verified identical across {} target(s): workers={workers} pool={pool} tuning={tuning}",
+            block.family,
+            block.targets.len()
+        ),
+        _ => format!(
+            "family {} declares no enforceable harness: every target is exempt from the check",
+            block.family
+        ),
     }
 }
 
@@ -3018,6 +3044,90 @@ fn validate_workload(workload: &Workload) -> Result<(), Fail> {
             "workload.limits.p95 must be > 0 when provided",
         ));
     }
+    if workload.saturation.is_some() {
+        validate_saturation(workload)?;
+    }
+    Ok(())
+}
+
+/// The smallest ramp that can distinguish a knee from noise: two points to
+/// establish the linear region and at least one beyond it.
+const MIN_SATURATION_STEPS: usize = 3;
+
+/// A saturation workload has to be able to produce the number it claims.
+///
+/// Every check here exists because the alternative is a plausible-looking
+/// artifact built on a measurement that was never taken.
+fn validate_saturation(workload: &Workload) -> Result<(), Fail> {
+    let Some(spec) = &workload.saturation else {
+        return Ok(());
+    };
+    let invalid = |msg: String| Fail::new(Code::InvalidInput, msg);
+
+    if workload.pacing.mode != crate::model::PacingMode::None {
+        return Err(invalid(format!(
+            "workload.saturation requires pacing.mode=none, found {:?}. A paced run \
+             sleeps a mean 187.5 ms per virtual user between requests, so its offered \
+             load is capped near VUs / (think time + service time) no matter how fast \
+             the target is — every healthy target converges on the same rps and the \
+             number describes the sleep timer, not capacity.",
+            workload.pacing.mode
+        )));
+    }
+    if workload.load.executor != "ramping-vus" {
+        return Err(invalid(format!(
+            "workload.saturation requires load.executor=ramping-vus, found {}. \
+             Each step must ramp its concurrency in before holding, otherwise the \
+             plateau is measured through its own thundering herd.",
+            workload.load.executor
+        )));
+    }
+    if spec.slo.ms <= 0.0 {
+        return Err(invalid(
+            "workload.saturation.slo.ms must be > 0".to_string(),
+        ));
+    }
+
+    // A stage split down the middle by the warmup window would contribute a
+    // step measured over only part of its plateau, silently shorter than its
+    // neighbours.
+    let schedule = crate::load::schedule_for(workload);
+    for (stage, _) in workload.stages.iter().enumerate() {
+        let stage = stage as u32;
+        let mut phases = schedule
+            .iter()
+            .filter(|slot| slot.stage == stage)
+            .map(|slot| slot.phase);
+        let Some(first) = phases.next() else { continue };
+        if phases.any(|phase| phase != first) {
+            return Err(invalid(format!(
+                "workload.warmup_s={} ends inside stages[{stage}]. Set it to a \
+                 cumulative stage boundary so every measured step covers a whole \
+                 plateau.",
+                workload.warmup_seconds()
+            )));
+        }
+    }
+
+    let steps = crate::load::hold_steps(workload);
+    if steps.len() < MIN_SATURATION_STEPS {
+        return Err(invalid(format!(
+            "workload.saturation needs at least {MIN_SATURATION_STEPS} measured steps, \
+             found {}. A step is a stage that holds its concurrency and is not inside \
+             the warmup window; a shorter ramp cannot tell a knee from noise.",
+            steps.len()
+        )));
+    }
+    for pair in steps.windows(2) {
+        let ((_, lower), (_, higher)) = (pair[0], pair[1]);
+        if higher <= lower {
+            return Err(invalid(format!(
+                "workload.saturation steps must climb in concurrency, but a step at \
+                 {higher} VUs follows one at {lower}. The curve is read left to right \
+                 and the peak is the highest qualifying step."
+            )));
+        }
+    }
     Ok(())
 }
 
@@ -3273,9 +3383,9 @@ fn variance_metric(values: &[f64]) -> VarianceMetricDoc {
 mod tests {
     use super::{
         Gate, MIX_CUSTOMER_BY_ID, MIX_SEARCH_CUSTOMER, MIX_SEARCH_PRODUCT, TrialMeasurement,
-        box_metric, combined_series, compute_headroom, compute_primary, compute_saturation,
-        compute_spread, headroom_gate, materialize_requests, point_from_series,
-        query_catalog_total_mix, request_path_skipped, resolve_seed, sample_variance,
+        box_metric, combined_series, compute_headroom, compute_primary, compute_spread,
+        headroom_gate, materialize_requests, point_from_series, query_catalog_total_mix,
+        request_path_skipped, resolve_seed, sample_variance, validate_workload,
     };
     use crate::cli::Class;
     use crate::model::{Latency, Phase, Point};
@@ -3320,10 +3430,10 @@ mod tests {
 
     #[test]
     fn summary_uses_sample_peak_and_full_series() {
-        let measurements = vec![TrialMeasurement {
-            aggregate: point(150.0, 10.0),
-            series: vec![point(100.0, 20.0), point(250.0, 80.0)],
-        }];
+        let measurements = vec![TrialMeasurement::new(
+            point(150.0, 10.0),
+            vec![point(100.0, 20.0), point(250.0, 80.0)],
+        )];
 
         let primary = compute_primary(&measurements);
         assert_eq!(primary.rps.avg, 150.0);
@@ -3335,15 +3445,15 @@ mod tests {
     #[test]
     fn primary_ignores_warmup_and_ramp_buckets_for_peaks() {
         // A cold-start bucket must not be able to set the published peak.
-        let measurements = vec![TrialMeasurement {
-            aggregate: point(100.0, 10.0),
-            series: vec![
+        let measurements = vec![TrialMeasurement::new(
+            point(100.0, 10.0),
+            vec![
                 tagged(9_000.0, 95.0, Phase::Warmup, 0),
                 tagged(8_000.0, 90.0, Phase::Ramp, 0),
                 tagged(100.0, 20.0, Phase::Hold, 1),
                 tagged(120.0, 25.0, Phase::Hold, 1),
             ],
-        }];
+        )];
 
         let primary = compute_primary(&measurements);
         assert_eq!(primary.rps.peak, 120.0);
@@ -3361,10 +3471,10 @@ mod tests {
             p99: 12.0,
             p999: Some(20.0),
         };
-        let measurements = vec![TrialMeasurement {
+        let measurements = vec![TrialMeasurement::new(
             aggregate,
-            series: vec![tagged(100.0, 10.0, Phase::Hold, 0)],
-        }];
+            vec![tagged(100.0, 10.0, Phase::Hold, 0)],
+        )];
 
         let primary = compute_primary(&measurements);
         assert_eq!(primary.latency.p50, Some(0.8));
@@ -3403,10 +3513,10 @@ mod tests {
         let mut measurements = BTreeMap::new();
         measurements.insert(
             "t".to_string(),
-            vec![TrialMeasurement {
-                aggregate: point(100.0, 25.0),
-                series: vec![series_point],
-            }],
+            vec![TrialMeasurement::new(
+                point(100.0, 25.0),
+                vec![series_point],
+            )],
         );
 
         let headroom = compute_headroom(&measurements);
@@ -3414,27 +3524,88 @@ mod tests {
         assert_eq!(headroom.cpu_mean_peak, Some(25.0));
     }
 
+    /// A saturation workload must be able to produce the number it claims, so
+    /// every way of asking for an unmeasurable one is refused up front rather
+    /// than after an hour of load.
     #[test]
-    fn saturation_knee_is_relative_and_per_trial() {
-        // Stage 0 plateaus at p95 = 2ms; the knee is the third consecutive
-        // bucket above 2x that.
-        let plateau = |rps: f64| latency_point(rps, 2.0, 0);
-        let degraded = |rps: f64| latency_point(rps, 9.0, 1);
-        let measurements = vec![TrialMeasurement {
-            aggregate: point(100.0, 10.0),
-            series: vec![
-                plateau(100.0),
-                plateau(110.0),
-                degraded(200.0),
-                degraded(210.0),
-                degraded(220.0),
-                degraded(230.0),
-            ],
-        }];
+    fn a_paced_saturation_workload_is_refused() {
+        let spec = saturation_workload(FOUR_STEP_RAMP, 6)
+            .replace(r#""mode": "none""#, r#""mode": "drizzle-benchmark""#);
+        let err = validate_workload(&parse_workload(&spec)).expect_err("paced ramp");
+        assert!(err.msg.contains("requires pacing.mode=none"), "{}", err.msg);
+        // The reason, not just the rule.
+        assert!(err.msg.contains("sleep timer"), "{}", err.msg);
+    }
 
-        let saturation = compute_saturation(&measurements);
-        assert_eq!(saturation.knee_rps, 220.0);
-        assert_eq!(saturation.knee_p95, 9.0);
+    #[test]
+    fn a_saturation_ramp_needs_enough_steps_to_show_a_knee() {
+        // Warmup at 8 (stages 0-1), then only two measured steps: 8 and 16.
+        let two_steps = r#"
+            { "sec": 2, "vus": 8 }, { "sec": 4, "vus": 8 },
+            { "sec": 4, "vus": 8 },
+            { "sec": 2, "vus": 16 }, { "sec": 4, "vus": 16 }
+        "#;
+        let err = validate_workload(&parse_workload(&saturation_workload(two_steps, 6)))
+            .expect_err("two steps");
+        assert!(err.msg.contains("at least 3 measured steps"), "{}", err.msg);
+    }
+
+    #[test]
+    fn a_saturation_ramp_must_climb() {
+        // Steps become 8, 16, 8, 64 — the third one goes backwards.
+        let spec = saturation_workload(FOUR_STEP_RAMP, 6).replace(
+            r#""vus": 32 }, { "sec": 4, "vus": 32 }"#,
+            r#""vus": 8 }, { "sec": 4, "vus": 8 }"#,
+        );
+        let err = validate_workload(&parse_workload(&spec)).expect_err("ramp that dips");
+        assert!(err.msg.contains("must climb in concurrency"), "{}", err.msg);
+    }
+
+    #[test]
+    fn a_warmup_that_ends_mid_stage_is_refused() {
+        // 4 s of warmup cuts the 4 s stage 1 in half.
+        let err = validate_workload(&parse_workload(&saturation_workload(FOUR_STEP_RAMP, 4)))
+            .expect_err("split stage");
+        assert!(err.msg.contains("ends inside stages["), "{}", err.msg);
+    }
+
+    #[test]
+    fn a_well_formed_saturation_ramp_validates() {
+        validate_workload(&parse_workload(&saturation_workload(FOUR_STEP_RAMP, 6)))
+            .expect("valid ramp");
+    }
+
+    fn parse_workload(body: &str) -> crate::model::Workload {
+        serde_json::from_str(body).expect("workload json")
+    }
+
+    /// Warmup covers stages 0-1 (2 + 4 s); steps then hold at 8, 16, 32 and 64.
+    const FOUR_STEP_RAMP: &str = r#"
+        { "sec": 2, "vus": 8 }, { "sec": 4, "vus": 8 },
+        { "sec": 4, "vus": 8 },
+        { "sec": 2, "vus": 16 }, { "sec": 4, "vus": 16 },
+        { "sec": 2, "vus": 32 }, { "sec": 4, "vus": 32 },
+        { "sec": 2, "vus": 64 }, { "sec": 4, "vus": 64 }
+    "#;
+
+    fn saturation_workload(stages: &str, warmup_s: u32) -> String {
+        format!(
+            r#"{{
+          "version": "v1",
+          "suite": "throughput-http",
+          "name": "Ramp",
+          "load": {{ "kind": "closed", "executor": "ramping-vus", "unit": "1s", "concurrency": 64 }},
+          "data": {{ "name": "b", "seed": 42, "schema": "s.sql" }},
+          "shape": {{ "mode": "single", "endpoint": "/customer-by-id" }},
+          "stages": [{stages}],
+          "warmup_s": {warmup_s},
+          "requests": {{ "source": "generated", "file": "r.json", "skip": [] }},
+          "pacing": {{ "mode": "none" }},
+          "sampling": {{ "cpu_ms": 200, "bucket_s": 1 }},
+          "limits": {{ "err": 0.01, "p95": null }},
+          "saturation": {{ "slo": {{ "metric": "p99", "ms": 50 }} }}
+        }}"#
+        )
     }
 
     fn tagged(rps: f64, cpu: f64, phase: Phase, stage: u32) -> Point {
@@ -3445,27 +3616,12 @@ mod tests {
         point
     }
 
-    fn latency_point(rps: f64, p95: f64, stage: u32) -> Point {
-        let mut point = tagged(rps, 10.0, Phase::Hold, stage);
-        point.latency.p95 = p95;
-        point
-    }
-
     #[test]
     fn spread_reports_sample_variance() {
         let measurements = vec![
-            TrialMeasurement {
-                aggregate: point(100.0, 10.0),
-                series: vec![point(100.0, 10.0)],
-            },
-            TrialMeasurement {
-                aggregate: point(200.0, 20.0),
-                series: vec![point(200.0, 20.0)],
-            },
-            TrialMeasurement {
-                aggregate: point(300.0, 30.0),
-                series: vec![point(300.0, 30.0)],
-            },
+            TrialMeasurement::new(point(100.0, 10.0), vec![point(100.0, 10.0)]),
+            TrialMeasurement::new(point(200.0, 20.0), vec![point(200.0, 20.0)]),
+            TrialMeasurement::new(point(300.0, 30.0), vec![point(300.0, 30.0)]),
         ];
 
         let spread = compute_spread(&measurements, 3);
@@ -3602,6 +3758,7 @@ mod tests {
             trial: None,
             stage: None,
             phase: None,
+            vus: None,
             requests: None,
             queries: Vec::new(),
         }

@@ -19,6 +19,14 @@ fn checked_in_benchmark_specs_validate() {
         &root.join("bench/spec/workload.single-throughput.v1.json"),
         &root.join("docs/benchmark-spec/jsonschema/workload.v1.schema.json"),
     );
+    validate_json_file(
+        &root.join("bench/spec/workload.saturation.v1.json"),
+        &root.join("docs/benchmark-spec/jsonschema/workload.v1.schema.json"),
+    );
+    validate_json_file(
+        &root.join("bench/spec/workload.saturation-preview.v1.json"),
+        &root.join("docs/benchmark-spec/jsonschema/workload.v1.schema.json"),
+    );
 
     for path in [
         "bench/spec/targets.sqlite.v1.json",
@@ -101,7 +109,8 @@ fn run_writes_contract_artifacts() {
     )
     .expect("summary json");
     assert!(summary.get("spread").is_some());
-    assert!(summary.get("saturation").is_some());
+    // This workload declares no capacity measurement, so it reports none.
+    assert!(summary.get("saturation").is_none());
     // The n=5 bootstrap only ever measured its own resampling noise.
     assert!(
         summary["spread"].get("ci95").is_none(),
@@ -582,6 +591,377 @@ fn run_publish_flag_updates_the_index() {
     assert_eq!(runs[0]["run_id"], run_id);
 }
 
+/// `fair.family`, `target_meta[].fair.family` and `harness[].family` are one key
+/// space. Consumers key harness lookup on it, so drift between the schemas would
+/// silently render every affected row as "harness not declared" — a false
+/// negative on exactly the disclosure the block exists to provide.
+#[test]
+fn the_family_vocabulary_is_one_key_space() {
+    let root = workspace_root();
+    let target_schema =
+        read_json(&root.join("docs/benchmark-spec/jsonschema/target.v1.schema.json"));
+    let manifest_schema =
+        read_json(&root.join("docs/benchmark-spec/jsonschema/run-manifest.v1.schema.json"));
+
+    let vocabulary = |schema: &Value| -> Vec<String> {
+        schema["$defs"]["family"]["enum"]
+            .as_array()
+            .expect("family enum")
+            .iter()
+            .map(|value| value.as_str().expect("family id").to_string())
+            .collect()
+    };
+    let declared = vocabulary(&target_schema);
+    assert_eq!(
+        declared,
+        vocabulary(&manifest_schema),
+        "target.v1 and run-manifest.v1 family enums have drifted"
+    );
+
+    // Both manifest uses must resolve to that one definition rather than a
+    // parallel inline copy that could rot independently.
+    for pointer in [
+        "/properties/harness/items/properties/family",
+        "/$defs/fair/properties/family",
+    ] {
+        assert_eq!(
+            manifest_schema.pointer(pointer).expect(pointer)["$ref"],
+            "#/$defs/family",
+            "{pointer} must reference the shared family definition"
+        );
+    }
+
+    // Ids only. A human-readable label frozen into a published artifact can
+    // never be reworded, so naming stays with the presentation layer.
+    for id in &declared {
+        assert!(
+            id.chars()
+                .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-'),
+            "family id {id} looks like a display label"
+        );
+    }
+
+    // Every checked-in target declares a family from that vocabulary.
+    for path in [
+        "bench/spec/targets.sqlite.v1.json",
+        "bench/spec/targets.sqlite-ts.v1.json",
+        "bench/spec/targets.libsql.v1.json",
+        "bench/spec/targets.turso.v1.json",
+        "bench/spec/targets.postgres.v1.json",
+        "bench/spec/targets.postgres-rust-orms.v1.json",
+        "bench/spec/targets.postgres-ts.v1.json",
+        "bench/spec/targets.spacetimedb.v1.json",
+    ] {
+        for target in read_json(&root.join(path)).as_array().expect("targets") {
+            let family = target["fair"]["family"].as_str().expect("fair.family");
+            assert!(
+                declared.iter().any(|id| id == family),
+                "{path}: {family} is not in the family vocabulary"
+            );
+        }
+    }
+}
+
+/// A saturation workload must produce a schema-valid capacity artifact end to
+/// end: a real curve tagged with concurrency, a named outcome, and a peak that
+/// is one of the plotted steps.
+#[test]
+fn a_saturation_run_writes_a_capacity_artifact() {
+    let tmp = TempDir::new().expect("tmp");
+    let root = tmp.path();
+    let input = root.join("input");
+    let out = root.join("out");
+    fs::create_dir_all(&input).expect("mkdir input");
+    fs::create_dir_all(&out).expect("mkdir out");
+
+    write_json(input.join("workload.json"), &saturation_workload_json());
+    write_json(input.join("targets.json"), &targets_json());
+    write_json(
+        input.join("requests.json"),
+        r#"[{"method":"GET","path":"/customer-by-id"}]"#,
+    );
+
+    let output = run_cmd(
+        &[
+            "run",
+            "--suite",
+            "throughput-http",
+            "--workload",
+            input.join("workload.json").to_str().expect("workload path"),
+            "--targets",
+            input.join("targets.json").to_str().expect("targets path"),
+            "--requests",
+            input.join("requests.json").to_str().expect("requests path"),
+            "--out",
+            out.to_str().expect("out path"),
+            "--trials",
+            "2",
+            "--seed",
+            "42",
+        ],
+        true,
+    );
+    let run_dir = out.join("runs").join(extract_run_id(&output));
+
+    let summary: Value = serde_json::from_str(
+        &fs::read_to_string(
+            run_dir
+                .join("targets")
+                .join("drizzle-rs-sqlite")
+                .join("summary.json"),
+        )
+        .expect("summary read"),
+    )
+    .expect("summary json");
+
+    let saturation = &summary["saturation"];
+    assert_eq!(saturation["slo"]["metric"], "p99");
+    let outcome = saturation["outcome"].as_str().expect("outcome is required");
+    assert!(
+        ["saturated", "slo_never_met", "did_not_saturate"].contains(&outcome),
+        "unexpected outcome {outcome}"
+    );
+
+    // The curve is the whole ramp: one entry per declared step, ascending, each
+    // carrying the keys consumers rely on being present.
+    let curve = saturation["curve"].as_array().expect("curve array");
+    assert_eq!(
+        curve
+            .iter()
+            .map(|step| step["concurrency"].as_u64().expect("concurrency"))
+            .collect::<Vec<_>>(),
+        vec![2, 4, 8]
+    );
+    for step in curve {
+        assert!(step["slo_met"].is_boolean(), "slo_met must be present");
+        // `null`, never omitted — consumers key off the field existing.
+        assert!(
+            step.get("disqualified").is_some(),
+            "disqualified must be present on every step"
+        );
+        assert!(step["latency"]["p99"].as_f64().is_some());
+        assert!(step["rps"].as_f64().is_some());
+    }
+
+    // Exactly one of peak / lower_bound_rps, decided by the outcome.
+    match outcome {
+        "saturated" => {
+            let concurrency = saturation["peak"]["concurrency"]
+                .as_u64()
+                .expect("a saturated run carries a peak");
+            assert!(saturation.get("lower_bound_rps").is_none());
+            assert!(
+                curve
+                    .iter()
+                    .any(|step| step["concurrency"].as_u64() == Some(concurrency)),
+                "peak concurrency must be one of the plotted steps"
+            );
+        }
+        "did_not_saturate" => {
+            assert!(saturation.get("peak").is_none());
+            assert!(saturation["lower_bound_rps"].as_f64().is_some());
+        }
+        _ => {
+            assert!(saturation.get("peak").is_none());
+            assert!(saturation.get("lower_bound_rps").is_none());
+        }
+    }
+
+    // Per-step raw artifacts are kept: the curve has to be re-derivable.
+    assert!(
+        run_dir
+            .join("targets")
+            .join("drizzle-rs-sqlite")
+            .join("raw")
+            .join("trial")
+            .join("0.steps.json")
+            .exists()
+    );
+
+    let manifest: Value = serde_json::from_str(
+        &fs::read_to_string(run_dir.join("manifest.json")).expect("read manifest"),
+    )
+    .expect("manifest json");
+    let harness = manifest["harness"].as_array().expect("harness array");
+    assert_eq!(harness.len(), 1);
+    assert_eq!(harness[0]["family"], "sqlite");
+    assert_eq!(harness[0]["pool"], 1);
+    assert_eq!(harness[0]["within_family_identical"], true);
+    assert!(harness[0]["tuning"].as_str().is_some());
+    // The warning list it replaced is gone, not emitted alongside it.
+    assert!(manifest.get("fairness").is_none());
+
+    // The emitted harness keys must be the same strings the targets declared:
+    // consumers join the two, and a drifted key reads as "harness not declared"
+    // on every affected row rather than failing loudly.
+    let declared: Vec<&str> = manifest["target_meta"]
+        .as_array()
+        .expect("target_meta")
+        .iter()
+        .map(|meta| meta["fair"]["family"].as_str().expect("fair.family"))
+        .collect();
+    for block in harness {
+        let family = block["family"].as_str().expect("harness family");
+        assert!(
+            declared.contains(&family),
+            "harness family {family} matches no target's fair.family {declared:?}"
+        );
+        for id in block["targets"].as_array().expect("targets") {
+            let id = id.as_str().expect("target id");
+            assert!(
+                manifest["targets"]
+                    .as_array()
+                    .expect("targets")
+                    .iter()
+                    .any(|t| t == id),
+                "harness names target {id}, which did not run"
+            );
+        }
+    }
+
+    let validate = run_cmd(
+        &["validate", "--run", run_dir.to_str().expect("run path")],
+        true,
+    );
+    assert_eq!(validate.status.code(), Some(0));
+}
+
+/// A workload that declared no capacity measurement must not report one. The
+/// removed heuristic emitted `saturation` unconditionally, which is how a
+/// number bounded by the load generator's own sleep timer ended up published
+/// under a capacity name.
+#[test]
+fn a_run_without_a_saturation_spec_emits_no_saturation_block() {
+    let tmp = TempDir::new().expect("tmp");
+    let root = tmp.path();
+    let input = root.join("input");
+    let out = root.join("out");
+    fs::create_dir_all(&input).expect("mkdir input");
+    fs::create_dir_all(&out).expect("mkdir out");
+
+    write_json(input.join("workload.json"), &workload_json(17));
+    write_json(input.join("targets.json"), &targets_json());
+    write_json(input.join("requests.json"), r#"[]"#);
+
+    let output = run_cmd(
+        &[
+            "run",
+            "--suite",
+            "throughput-http",
+            "--workload",
+            input.join("workload.json").to_str().expect("workload path"),
+            "--targets",
+            input.join("targets.json").to_str().expect("targets path"),
+            "--requests",
+            input.join("requests.json").to_str().expect("requests path"),
+            "--out",
+            out.to_str().expect("out path"),
+            "--trials",
+            "1",
+            "--seed",
+            "42",
+        ],
+        true,
+    );
+
+    let summary: Value = serde_json::from_str(
+        &fs::read_to_string(
+            out.join("runs")
+                .join(extract_run_id(&output))
+                .join("targets")
+                .join("drizzle-rs-sqlite")
+                .join("summary.json"),
+        )
+        .expect("summary read"),
+    )
+    .expect("summary json");
+    assert!(
+        summary.get("saturation").is_none(),
+        "a workload that declared no capacity measurement must not report one"
+    );
+}
+
+/// Within a family the harness must be identical, and the failure has to name
+/// both targets and the field so the fix is obvious.
+#[test]
+fn within_family_harness_drift_fails_the_run_before_any_load() {
+    let tmp = TempDir::new().expect("tmp");
+    let root = tmp.path();
+    let input = root.join("input");
+    let out = root.join("out");
+    fs::create_dir_all(&input).expect("mkdir input");
+    fs::create_dir_all(&out).expect("mkdir out");
+
+    // Same family, different pool: exactly the comparison the check exists for.
+    let drifted =
+        targets_json().replace(r#""id": "drizzle-rs-sqlite","#, r#""id": "other-sqlite","#);
+    let drifted = drifted.replace(r#""pool": 1,"#, r#""pool": 4,"#);
+    let drifted = drifted.replace(r#""max": 1 }"#, r#""max": 4 }"#);
+    let mut both: Vec<Value> = serde_json::from_str(&targets_json()).expect("targets");
+    both.extend(serde_json::from_str::<Vec<Value>>(&drifted).expect("drifted"));
+    write_json(
+        input.join("targets.json"),
+        &serde_json::to_string(&both).expect("targets json"),
+    );
+    write_json(input.join("workload.json"), &workload_json(17));
+    write_json(input.join("requests.json"), r#"[]"#);
+
+    let output = run_cmd(
+        &[
+            "run",
+            "--suite",
+            "throughput-http",
+            "--workload",
+            input.join("workload.json").to_str().expect("workload path"),
+            "--targets",
+            input.join("targets.json").to_str().expect("targets path"),
+            "--requests",
+            input.join("requests.json").to_str().expect("requests path"),
+            "--out",
+            out.to_str().expect("out path"),
+        ],
+        false,
+    );
+
+    assert_eq!(output.status.code(), Some(3), "invalid_input");
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    assert!(stderr.contains("unfair sqlite comparison"), "{stderr}");
+    assert!(stderr.contains("other-sqlite"), "{stderr}");
+    assert!(stderr.contains("drizzle-rs-sqlite"), "{stderr}");
+    assert!(stderr.contains("fair.pool=4"), "{stderr}");
+    assert!(stderr.contains("fair.pool=1"), "{stderr}");
+    // It fails before spending an hour producing an unusable comparison.
+    assert!(!out.join("runs").exists() || stderr.contains("fair.pool"));
+}
+
+/// Warmup at 2 VUs (stages 0-1), then steps at 2, 4 and 8.
+fn saturation_workload_json() -> String {
+    r#"{
+  "version": "v1",
+  "suite": "throughput-http",
+  "name": "Saturation",
+  "load": { "kind": "closed", "executor": "ramping-vus", "unit": "1s", "concurrency": 8 },
+  "data": { "name": "base", "seed": 42, "schema": "bench/schema.sql" },
+  "shape": { "mode": "single", "endpoint": "/customer-by-id" },
+  "stages": [
+    { "sec": 1, "vus": 2 },
+    { "sec": 1, "vus": 2 },
+    { "sec": 2, "vus": 2 },
+    { "sec": 1, "vus": 4 },
+    { "sec": 2, "vus": 4 },
+    { "sec": 1, "vus": 8 },
+    { "sec": 2, "vus": 8 }
+  ],
+  "warmup_s": 2,
+  "requests": { "source": "generated", "file": "requests.json", "skip": [] },
+  "pacing": { "mode": "none" },
+  "sampling": { "cpu_ms": 100, "bucket_s": 1 },
+  "limits": { "err": 0.01 },
+  "saturation": { "slo": { "metric": "p99", "ms": 250 } }
+}"#
+    .to_string()
+}
+
 fn run_cmd(args: &[&str], expect_success: bool) -> std::process::Output {
     let mut cmd = cargo_bin_cmd!("bench-runner");
     if matches!(args.first(), Some(&"run")) && !args.contains(&"--class") {
@@ -648,6 +1028,10 @@ fn validate_target_file(path: &Path, schema_path: &Path) {
             errors.join("; ")
         );
     }
+}
+
+fn read_json(path: &Path) -> Value {
+    serde_json::from_str(&fs::read_to_string(path).expect("read json")).expect("parse json")
 }
 
 fn workspace_root() -> PathBuf {
@@ -1120,11 +1504,13 @@ fn targets_json() -> String {
     "db": { "profile": "sqlite", "hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111" },
     "wire": { "format": "json" },
     "fair": {
+      "family": "sqlite",
       "workers": 1,
       "pool": 1,
       "db": "sqlite",
       "schema": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
-      "contract": "v1"
+      "contract": "v1",
+      "tuning": "WAL journal, temp_store=MEMORY"
     },
     "contract": { "ver": "v1" },
     "parity": {

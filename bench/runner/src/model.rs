@@ -24,11 +24,64 @@ pub struct Workload {
     pub pacing: Pacing,
     pub sampling: Sampling,
     pub limits: Limits,
+    /// Declares this workload as a capacity measurement. Present only on the
+    /// stepped unpaced ramp; a paced workload cannot produce a capacity number
+    /// (see [`Pacing`]) and the runner refuses the combination.
+    #[serde(default)]
+    pub saturation: Option<SaturationSpec>,
 }
 
 impl Workload {
     pub fn warmup_seconds(&self) -> u32 {
         self.warmup_s.unwrap_or(DEFAULT_WARMUP_S)
+    }
+}
+
+/// A capacity measurement declared by the workload.
+///
+/// The steps are not listed here: they *are* the hold stages of
+/// [`Workload::stages`], so the ramp has exactly one definition and the spec
+/// cannot drift from what the load generator runs.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SaturationSpec {
+    pub slo: Slo,
+}
+
+/// The latency ceiling a step must stay under to be eligible as the peak.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Slo {
+    pub metric: SloMetric,
+    pub ms: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SloMetric {
+    P50,
+    P90,
+    P95,
+    P99,
+}
+
+impl SloMetric {
+    pub fn of(self, latency: &StepLatencyDoc) -> f64 {
+        match self {
+            Self::P50 => latency.p50,
+            Self::P90 => latency.p90,
+            Self::P95 => latency.p95,
+            Self::P99 => latency.p99,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::P50 => "p50",
+            Self::P90 => "p90",
+            Self::P95 => "p95",
+            Self::P99 => "p99",
+        }
     }
 }
 
@@ -92,7 +145,7 @@ pub struct Sampling {
     pub bucket_s: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Limits {
     pub err: f64,
@@ -214,14 +267,32 @@ pub struct Wire {
     pub format: String,
 }
 
+/// The harness knobs a target declares, and the family it competes in.
+///
+/// Within a family these must be identical or the run fails: a ranked
+/// library-vs-library table is only meaningful when every entry ran the same
+/// harness. Across families they are free to differ — that difference *is* the
+/// stack comparison — and the manifest records it per family so a reader cannot
+/// mistake a stack difference for a library one.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Fair {
+    /// Comparison group: the targets this one claims to be directly comparable
+    /// to. Usually one per engine, but it splits where the harness cannot
+    /// honestly be equalised — `sqlite-ts` is separate from `sqlite` because
+    /// `bun:sqlite` is synchronous on a single-threaded runtime, so matching the
+    /// Rust pool of 8 would cripple it rather than make it fair. Declared rather
+    /// than inferred: `db.profile` distinguishes configurations *within* a group
+    /// and `fair.db` names the SQL dialect, so neither identifies the bracket.
+    pub family: String,
     pub workers: u32,
     pub pool: u32,
     pub db: String,
     pub schema: String,
     pub contract: String,
+    /// One-line summary of the engine tuning this target runs under (pragmas,
+    /// server image, cache settings). Compared for equality within a family.
+    pub tuning: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -300,7 +371,11 @@ pub struct SummaryDoc {
     pub group: Option<String>,
     pub primary: PrimaryDoc,
     pub spread: SpreadDoc,
-    pub saturation: SaturationDoc,
+    /// Present only when the workload declared a capacity measurement. A paced
+    /// run has no capacity number, and absent is the honest answer — consumers
+    /// render it as "not measured", never as zero.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub saturation: Option<SaturationDoc>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -384,10 +459,82 @@ pub struct RangeDoc {
     pub max: f64,
 }
 
+/// Peak throughput under a declared latency SLO, plus the curve it was read off.
+///
+/// Replaces the pre-contract `{knee_rps, knee_p95}` heuristic, which inferred a
+/// knee from a p95-doubling rule over a *paced* run and fell back to the
+/// highest-throughput bucket when no knee appeared. That fallback reported a
+/// capacity-shaped number for a run whose throughput was capped by its own sleep
+/// timer. The three outcomes below exist so "we could not measure it" is always
+/// said out loud instead.
 #[derive(Debug, Serialize, Clone)]
 pub struct SaturationDoc {
-    pub knee_rps: f64,
-    pub knee_p95: f64,
+    pub slo: Slo,
+    pub outcome: Outcome,
+    /// The fastest qualifying step. Present only when `outcome == "saturated"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peak: Option<PeakDoc>,
+    /// Best throughput measured while holding the SLO. Present only when
+    /// `outcome == "did_not_saturate"`: capacity is at *least* this, and the
+    /// ramp ended before it found the knee.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lower_bound_rps: Option<f64>,
+    /// Every measured step, ascending by concurrency. The shape of
+    /// rps-vs-concurrency is what makes the headline checkable.
+    pub curve: Vec<CurveStepDoc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Outcome {
+    /// A qualifying step was found and the ramp's last step failed to qualify,
+    /// so the ceiling is inside the measured range.
+    Saturated,
+    /// No step qualified as a peak: every one either breached the SLO or was
+    /// disqualified by its error rate. There is no peak, and none is reported.
+    SloNeverMet,
+    /// The ramp's last step still qualified, so the ceiling is somewhere above
+    /// the measured range. The best qualifying throughput is a lower bound, not
+    /// a peak — the ramp was too short.
+    DidNotSaturate,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct PeakDoc {
+    pub concurrency: u32,
+    pub rps: f64,
+    pub latency: StepLatencyDoc,
+    pub cpu: f64,
+    pub err: f64,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct CurveStepDoc {
+    pub concurrency: u32,
+    pub rps: f64,
+    pub latency: StepLatencyDoc,
+    pub err: f64,
+    pub cpu: f64,
+    pub slo_met: bool,
+    /// Why this step can never be the peak, or `null`. Always serialized so a
+    /// consumer can rely on the key being present.
+    pub disqualified: Option<String>,
+}
+
+impl CurveStepDoc {
+    /// A step is eligible to be the peak only when it met the SLO *and* stayed
+    /// within the error limit.
+    pub fn qualifies(&self) -> bool {
+        self.slo_met && self.disqualified.is_none()
+    }
+}
+
+#[derive(Debug, Serialize, Clone, Copy)]
+pub struct StepLatencyDoc {
+    pub p50: f64,
+    pub p90: f64,
+    pub p95: f64,
+    pub p99: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -437,6 +584,11 @@ pub struct Point {
     pub stage: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phase: Option<Phase>,
+    /// Virtual users in flight. With `pacing.mode = none` there is no think
+    /// time, so this is also the request concurrency — the x-axis of the
+    /// saturation curve. Absent on aggregates, which span several VU counts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vus: Option<u32>,
     /// Completed requests counted in this bucket (the aggregation weight).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requests: Option<u64>,
@@ -509,16 +661,32 @@ pub struct ManifestDoc {
     pub artifacts: Artifacts,
     pub runner: Runner,
     pub trials: TrialMeta,
-    /// Cross-target fairness findings for this run. Empty when every target
-    /// declares the same `fair` block (or is exempt).
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub fairness: Vec<FairnessWarning>,
+    /// The harness each database family ran under, one entry per family present
+    /// in this run. Within-family drift is a hard error, so every block here
+    /// records a verified fact rather than an aspiration.
+    pub harness: Vec<HarnessDoc>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct FairnessWarning {
-    pub kind: String,
-    pub msg: String,
+pub struct HarnessDoc {
+    pub family: String,
+    /// Targets whose declared harness was compared for equality.
+    pub targets: Vec<String>,
+    /// Absent only when every target in the family is exempt from the check.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workers: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pool: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tuning: Option<String>,
+    /// True when at least one target was compared and they all agreed. False
+    /// only when there was nothing to compare, in which case `workers`, `pool`
+    /// and `tuning` are absent — never a claim that drift was tolerated.
+    pub within_family_identical: bool,
+    /// Targets excluded from the equality check because their configuration is
+    /// not comparable by design (an in-process cache has no connection pool).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub exempt: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]

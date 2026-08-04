@@ -10,8 +10,7 @@
     "suite",
     "target_id",
     "primary",
-    "spread",
-    "saturation"
+    "spread"
   ],
   "properties": {
     "version": {
@@ -203,26 +202,170 @@
       }
     },
     "saturation": {
+      "$ref": "#/$defs/saturation",
+      "description": "Peak throughput under the workload's declared latency SLO. Emitted ONLY when the workload declared `saturation`; a paced run has no capacity number and the key is then absent, which consumers must render as \"not measured\" and never as zero. BREAKING: runs recorded before the saturation suite carry a `{knee_rps, knee_p95}` object here instead and no longer validate — that heuristic ran on paced workloads, where throughput is capped by the load generator's own sleep timer, so its \"knee\" described the sleep timer rather than the target. Those keys are gone rather than deprecated in place, so there is exactly one saturation concept in this artifact."
+    }
+  },
+  "$defs": {
+    "saturation": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Knee of the throughput/latency curve, computed per trial and medianed. A bucket counts as degraded once its p95 exceeds 2x the median p95 of that trial's lowest-VU hold plateau; the knee is the third consecutive degraded bucket, or the highest-throughput hold bucket if none qualifies.",
       "required": [
-        "knee_rps",
-        "knee_p95"
+        "slo",
+        "outcome",
+        "curve"
       ],
       "properties": {
-        "knee_rps": {
+        "slo": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Copied from the workload. The headline is only meaningful quoted with it: \"peak throughput at p99 < 50 ms\".",
+          "required": [
+            "metric",
+            "ms"
+          ],
+          "properties": {
+            "metric": {
+              "type": "string",
+              "enum": [
+                "p50",
+                "p90",
+                "p95",
+                "p99"
+              ]
+            },
+            "ms": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        "outcome": {
+          "type": "string",
+          "description": "saturated: a qualifying step was found and the ramp's last step failed to qualify, so the ceiling was reached. slo_never_met: no step qualified — every one either breached the SLO or was disqualified by its error rate — so there is NO peak and none is reported. did_not_saturate: the last step still qualified, so the ramp ended before the knee and the best qualifying throughput is a lower bound, not a peak. The outcome depends only on whether the ramp ended inside the SLO, never on where the maximum landed.",
+          "enum": [
+            "saturated",
+            "slo_never_met",
+            "did_not_saturate"
+          ]
+        },
+        "peak": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The qualifying step (SLO met AND not disqualified) with the HIGHEST THROUGHPUT; ties break toward the lower concurrency. Not the widest qualifying step: a closed-loop curve dips once the pool saturates, so the last step to survive the SLO is often slower than an earlier one, and reporting it under the name \"peak throughput\" would understate the target. `concurrency` is therefore where the maximum occurred and may sit mid-curve. Present if and only if outcome is `saturated`.",
+          "required": [
+            "concurrency",
+            "rps",
+            "latency",
+            "cpu",
+            "err"
+          ],
+          "properties": {
+            "concurrency": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "rps": {
+              "type": "number",
+              "minimum": 0
+            },
+            "latency": {
+              "$ref": "#/$defs/step_latency"
+            },
+            "cpu": {
+              "type": "number",
+              "minimum": 0
+            },
+            "err": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "lower_bound_rps": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The best throughput measured while holding the SLO. Present if and only if outcome is `did_not_saturate`. Read as \"at least N req/s — knee not reached\"; presenting it as a peak would claim a limit that was never found."
+        },
+        "curve": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Every measured step, ascending by concurrency, breaches and disqualifications included. This is the throughput-vs-concurrency curve and it is what makes the headline checkable.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "concurrency",
+              "rps",
+              "latency",
+              "err",
+              "cpu",
+              "slo_met",
+              "disqualified"
+            ],
+            "properties": {
+              "concurrency": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "rps": {
+                "type": "number",
+                "minimum": 0
+              },
+              "latency": {
+                "$ref": "#/$defs/step_latency"
+              },
+              "err": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "cpu": {
+                "type": "number",
+                "minimum": 0
+              },
+              "slo_met": {
+                "type": "boolean"
+              },
+              "disqualified": {
+                "type": ["string", "null"],
+                "description": "Why this step can never be the peak, e.g. \"error rate 3.20% exceeds limit 1.00%\", or null. Always present so consumers can rely on the key; a disqualified step is still charted, never silently dropped."
+              }
+            }
+          }
+        }
+      }
+    },
+    "step_latency": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Percentiles over the merged raw samples of that step's hold plateau, medianed across trials. Not a percentile of per-bucket percentiles.",
+      "required": [
+        "p50",
+        "p90",
+        "p95",
+        "p99"
+      ],
+      "properties": {
+        "p50": {
           "type": "number",
           "minimum": 0
         },
-        "knee_p95": {
+        "p90": {
+          "type": "number",
+          "minimum": 0
+        },
+        "p95": {
+          "type": "number",
+          "minimum": 0
+        },
+        "p99": {
           "type": "number",
           "minimum": 0
         }
       }
-    }
-  },
-  "$defs": {
+    },
     "avg_peak": {
       "type": "object",
       "additionalProperties": false,

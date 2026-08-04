@@ -381,9 +381,39 @@
         }
       }
     },
-    "fairness": {
+    "harness": {
       "type": "array",
-      "description": "Cross-target fairness findings. Non-fatal: targets ranked against each other should declare identical fair.pool / fair.workers, and each entry records a place where they did not.",
+      "description": "The harness each database family ran under, one entry per family in this run, sorted by family. Within a family the declared harness must be identical or the run fails, so every entry records a verified fact. Across families the values are free to differ — that difference IS the stack comparison — and they are recorded here so a reader cannot mistake a stack difference for a library one.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["family", "within_family_identical"],
+        "properties": {
+          "family": { "$ref": "#/$defs/family" },
+          "targets": {
+            "type": "array",
+            "description": "Targets whose declared harness was compared for equality. The runner always emits it; it is optional here because the contract mandates only `family` and `within_family_identical`.",
+            "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" }
+          },
+          "workers": { "type": "integer", "minimum": 1 },
+          "pool": { "type": "integer", "minimum": 1 },
+          "tuning": { "type": "string", "minLength": 1 },
+          "within_family_identical": {
+            "type": "boolean",
+            "description": "True when at least one target was compared and they all agreed. False only when there was nothing to compare (every target in the family is exempt), in which case workers/pool/tuning are absent. It is never false because drift was tolerated — drift fails the run."
+          },
+          "exempt": {
+            "type": "array",
+            "description": "Targets excluded from the equality check because their configuration is not comparable by design, e.g. an in-process cache with no connection pool. Listed rather than dropped.",
+            "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" }
+          }
+        }
+      }
+    },
+    "fairness": {
+      "deprecated": true,
+      "description": "Removed. Recorded within-run fairness mismatches as non-fatal warnings, which is silent in every way that matters: a warning buried in the manifest still let an unequal library comparison ship. Within-family drift is now a hard error and `harness` records the verified configuration instead. Kept so runs recorded before that change still validate.",
+      "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -418,6 +448,19 @@
     }
   },
   "$defs": {
+    "family": {
+      "type": "string",
+      "description": "Comparison-group vocabulary, ONE key space shared by `harness[].family`, `target_meta[].fair.family` and `fair.family` in target.v1. Consumers key harness lookup on it, so drift between the three would silently render every affected row as \"harness not declared\" — the runner has a test that fails if they diverge. Ids only: display labels belong to the presentation layer, because a name frozen into a published artifact can never be reworded.",
+      "enum": [
+        "sqlite",
+        "sqlite-ts",
+        "libsql",
+        "turso",
+        "postgres",
+        "postgres-ts",
+        "spacetimedb"
+      ]
+    },
     "name_ver": {
       "type": "object",
       "additionalProperties": false,
@@ -480,13 +523,16 @@
     "fair": {
       "type": "object",
       "additionalProperties": false,
+      "description": "The target's own declaration, copied verbatim from its spec. The per-family verified view is `harness`; this is what each target claimed.",
       "required": ["workers", "pool", "db", "schema", "contract"],
       "properties": {
+        "family": { "$ref": "#/$defs/family" },
         "workers": { "type": "integer", "minimum": 1 },
         "pool": { "type": "integer", "minimum": 1 },
         "db": { "type": "string", "minLength": 1 },
         "schema": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-        "contract": { "type": "string", "minLength": 1 }
+        "contract": { "type": "string", "minLength": 1 },
+        "tuning": { "type": "string", "minLength": 1 }
       }
     },
     "contract": {

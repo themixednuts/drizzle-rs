@@ -1,0 +1,57 @@
+{
+  "version": "v1",
+  "suite": "throughput-http",
+  "name": "Saturation Preview",
+  "load": {
+    "kind": "closed",
+    "executor": "ramping-vus",
+    "unit": "1s",
+    "concurrency": 1024
+  },
+  "data": {
+    "name": "bench",
+    "seed": 42,
+    "schema": "bench/schema.sql"
+  },
+  "shape": {
+    "mode": "single",
+    "endpoint": "/customer-by-id"
+  },
+  "stages": [
+    { "sec": 2, "vus": 4 },
+    { "sec": 8, "vus": 4 },
+
+    { "sec": 8, "vus": 4 },
+    { "sec": 2, "vus": 16 },
+    { "sec": 8, "vus": 16 },
+    { "sec": 2, "vus": 64 },
+    { "sec": 8, "vus": 64 },
+    { "sec": 2, "vus": 256 },
+    { "sec": 8, "vus": 256 },
+    { "sec": 2, "vus": 1024 },
+    { "sec": 8, "vus": 1024 }
+  ],
+  "warmup_s": 10,
+  "requests": {
+    "source": "generated",
+    "file": "bench/spec/requests.empty.v1.json",
+    "skip": []
+  },
+  "pacing": {
+    "mode": "none"
+  },
+  "sampling": {
+    "cpu_ms": 200,
+    "bucket_s": 1
+  },
+  "limits": {
+    "err": 0.01,
+    "p95": null
+  },
+  "saturation": {
+    "slo": {
+      "metric": "p99",
+      "ms": 25
+    }
+  }
+}

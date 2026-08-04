@@ -73,7 +73,32 @@ they belong with the contract:
 8. **Timeseries are concatenated across trials.** `points` is every trial's
    buckets end to end; segment on `point.trial` rather than assuming one
    continuous timeline.
-9. **A shared `cohort_id` is not a shared machine.** A cohort groups the runs
+9. **Capacity is a separate suite with a separate headline.** `summary.saturation`
+   is written only by an unpaced stepped ramp that declares
+   `workload.saturation`, and it answers "how much load can this stack carry
+   while holding a latency SLO". The paced suite answers "what is the latency at
+   a fixed offered load" and, because of (7), *cannot* answer the first question:
+   its ceiling is the sleep timer, so every healthy target converges on the same
+   throughput. The two headlines — **peak throughput** and **throughput at fixed
+   load** — are never averaged together. A summary with no `saturation` key was
+   not measured for capacity; that is not zero. See `runner.v1.md` §6c.
+10. **The saturation outcome is always named.** Exactly one of `saturated`
+    (peak found), `did_not_saturate` (ramp ended while still inside the SLO — the
+    top step is a lower bound, not a peak), or `slo_never_met` (no step
+    qualified, so there is no peak and none is reported). Steps over
+    `limits.err` are disqualified from being the peak, stay in the curve, and
+    carry the reason.
+11. **Fairness means two different things.** Within a comparison group
+    (`fair.family`) the declared harness — workers, pool, tuning — must be
+    identical or the run fails, so a difference in the numbers is attributable to
+    the library. Across groups the configurations are free to differ, because
+    that difference is the stack comparison; `manifest.harness` records the
+    verified configuration per group so the two are never confused. A group is
+    usually one database engine but splits where the harness cannot honestly be
+    equalised (`sqlite-ts` runs a synchronous single-connection API, so it is not
+    ranked against the pooled Rust SQLite targets). Splitting affects enforcement
+    and delta scoping, not presentation. See `runner.v1.md` §5a.
+12. **A shared `cohort_id` is not a shared machine.** A cohort groups the runs
    that belong to one logical comparison; when the families ran on separate CI
    VMs the host fields in `manifest.runner` differ and the numbers are only
    comparable within a family. Publish-class schedule and dispatch runs put the
