@@ -19,13 +19,19 @@ impl MigrationDir {
 
     /// Discover all migrations in this directory.
     ///
+    /// Subdirectories with neither `migration.sql` nor `snapshot.json`
+    /// (editor artifacts, backup folders, staging leftovers) are not
+    /// migrations and are skipped, the same way build-time discovery skips
+    /// them. A folder with a snapshot but no SQL is a torn migration and
+    /// fails closed.
+    ///
     /// # Errors
     ///
     /// Returns [`MigratorError::JournalError`] if a legacy `meta/_journal.json`
-    /// is found (legacy drizzle-kit format is unsupported), or
+    /// is found (run `drizzle upgrade` to convert the folder layout),
     /// [`MigratorError::IoError`] if reading the directory fails, or
-    /// [`MigratorError::MissingMigration`] if a migration folder lacks a
-    /// `migration.sql` file.
+    /// [`MigratorError::MissingMigration`] if a migration folder has a
+    /// `snapshot.json` but lacks its `migration.sql`.
     pub fn discover(&self) -> Result<Vec<Migration>, MigratorError> {
         if !self.path.exists() {
             return Ok(Vec::new());
@@ -56,9 +62,15 @@ impl MigrationDir {
             }
 
             let tag = entry.file_name().to_string_lossy().to_string();
-            let sql_path = entry.path().join("migration.sql");
+            let path = entry.path();
+            let sql_path = path.join("migration.sql");
             if !sql_path.is_file() {
-                return Err(MigratorError::MissingMigration(tag));
+                // A folder with a snapshot but no SQL is a torn migration —
+                // fail closed. Anything else is not a migration folder.
+                if path.join("snapshot.json").is_file() {
+                    return Err(MigratorError::MissingMigration(tag));
+                }
+                continue;
             }
             entries.push((tag, sql_path));
         }

@@ -121,7 +121,12 @@ impl Journal {
             std::fs::create_dir_all(parent)?;
         }
 
-        std::fs::write(path, json)
+        // Write-then-rename so a crash mid-write never corrupts the journal.
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, json)?;
+        std::fs::rename(&tmp, path).inspect_err(|_| {
+            let _ = std::fs::remove_file(&tmp);
+        })
     }
 }
 
