@@ -8,15 +8,25 @@ use crate::output;
 
 #[derive(clap::Args, Debug, Clone, Copy, Default)]
 pub struct MigrateOptions {
-    /// Verify migration consistency without applying changes
+    /// Check migration integrity without applying changes; exits non-zero on
+    /// any finding
+    ///
+    /// Beyond the pending summary, this compares the tracking table against
+    /// the local migration files: hash drift (an applied migration whose file
+    /// was edited afterwards), applied rows with no local migration,
+    /// duplicate tracking rows, and interrupted (dirty) migrations.
     #[arg(long)]
     pub verify: bool,
 
-    /// Print pending migration plan without applying changes
-    #[arg(long)]
+    /// Show what `migrate` would do without applying changes
+    ///
+    /// Prints the applied/pending summary and pending tags. Integrity
+    /// findings are shown as warnings but do not fail the command — use
+    /// `--verify` for a hard integrity gate.
+    #[arg(long, visible_alias = "dry-run")]
     pub plan: bool,
 
-    /// Verify first, then apply if checks pass
+    /// Run the `--verify` integrity checks first, then apply only if they pass
     #[arg(long)]
     pub safe: bool,
 
@@ -74,7 +84,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Resu
     };
 
     let plan = if opts.verify || opts.plan || opts.safe {
-        Some(crate::db::verify_migrations(
+        Some(crate::db::plan_migrations(
             &credentials,
             db.dialect,
             out_dir,
@@ -86,7 +96,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Resu
     };
 
     if let Some(plan) = &plan
-        && handle_plan_short_circuit(plan, opts)
+        && handle_plan_short_circuit(plan, opts)?
     {
         return Ok(());
     }
@@ -176,8 +186,14 @@ fn print_missing_credentials_help() {
     println!("  {}", output::muted("url = { env = \"DATABASE_URL\" }"));
 }
 
-/// Print plan summary and return `true` if the caller should return early.
-fn handle_plan_short_circuit(plan: &crate::db::MigrationPlan, opts: MigrateOptions) -> bool {
+/// Print plan summary and return `Ok(true)` if the caller should return early.
+///
+/// Integrity findings are warnings under `--plan`, and failures under
+/// `--verify` and `--safe`.
+fn handle_plan_short_circuit(
+    plan: &crate::db::MigrationPlan,
+    opts: MigrateOptions,
+) -> Result<bool, CliError> {
     println!(
         "  {} {}",
         output::label("Applied migrations:"),
@@ -196,26 +212,56 @@ fn handle_plan_short_circuit(plan: &crate::db::MigrationPlan, opts: MigrateOptio
             println!("    {} {}", output::label("->"), tag);
         }
     }
+
+    if !plan.findings.is_empty() {
+        println!();
+        println!("  {}", output::label("Integrity findings:"));
+        for finding in &plan.findings {
+            println!("    {} {}", output::warning("!"), finding);
+        }
+    }
     println!();
 
-    if opts.verify {
-        println!("{}", output::success("Migration verification passed."));
-        return true;
+    if opts.verify || opts.safe {
+        if !plan.findings.is_empty() {
+            let mode = if opts.verify {
+                "verification"
+            } else {
+                "--safe"
+            };
+            return Err(CliError::MigrationError(format!(
+                "{} failed with {} integrity finding(s):\n  - {}",
+                mode,
+                plan.findings.len(),
+                plan.findings.join("\n  - ")
+            )));
+        }
+        if opts.verify {
+            println!(
+                "{}",
+                output::success(&format!(
+                    "Migration verification passed: {} applied migration(s) match their \
+                     local files; no drift, no interrupted rows.",
+                    plan.applied_count
+                ))
+            );
+            return Ok(true);
+        }
     }
 
     if opts.plan {
         println!("{}", output::success("Migration plan complete."));
-        return true;
+        return Ok(true);
     }
 
     if opts.safe && plan.pending_count == 0 {
         println!("  {}", output::success("No pending migrations."));
         println!();
         println!("{}", output::success("Safe migration complete!"));
-        return true;
+        return Ok(true);
     }
 
-    false
+    Ok(false)
 }
 
 fn print_migration_result(result: &crate::db::MigrationResult, safe: bool) {

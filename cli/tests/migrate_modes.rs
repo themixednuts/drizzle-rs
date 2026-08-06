@@ -144,7 +144,50 @@ fn migrate_verify_detects_hash_drift() {
         .args(["migrate", "--verify"])
         .assert()
         .failure()
-        .stderr(contains("Migration failed: Migration hash mismatch"));
+        .stderr(contains("verification failed with 1 integrity finding(s)"))
+        .stderr(contains("has drifted"));
+}
+
+#[test]
+fn migrate_plan_warns_on_drift_but_succeeds() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let db_path = root.join("dev.db");
+    let migrations_dir = root.join("migrations");
+
+    write_config(root, &db_path, &migrations_dir);
+
+    let tag = generate_custom_migration(root, &migrations_dir, "plan_drift");
+    let migration_sql = migrations_dir.join(&tag).join("migration.sql");
+
+    fs::write(
+        &migration_sql,
+        "CREATE TABLE drift_original (id INTEGER PRIMARY KEY);\n",
+    )
+    .expect("write initial migration.sql");
+
+    cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .args(["migrate"])
+        .assert()
+        .success();
+
+    fs::write(
+        &migration_sql,
+        "CREATE TABLE drift_changed (id INTEGER PRIMARY KEY);\n",
+    )
+    .expect("rewrite migration.sql");
+
+    // --plan (and its --dry-run alias) reports drift as a warning but is not
+    // an integrity gate; only --verify/--safe fail on findings.
+    cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .args(["migrate", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(contains("Integrity findings:"))
+        .stdout(contains("has drifted"))
+        .stdout(contains("Migration plan complete."));
 }
 
 #[test]

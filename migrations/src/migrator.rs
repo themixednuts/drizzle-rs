@@ -623,6 +623,27 @@ impl Migrations {
         }
     }
 
+    /// Get the SQL to query full applied-migration records: `hash`, `name`,
+    /// and a `dirty` flag (`applied_at IS NULL` — started but never finished).
+    ///
+    /// Unlike [`Migrations::applied_names_sql`] this returns interrupted rows
+    /// too, so integrity checks can report drift, missing-local, and
+    /// interrupted migrations from a single query.
+    #[must_use]
+    pub fn applied_records_sql(&self) -> String {
+        let table = self.table_ident();
+        match self.dialect {
+            Dialect::MySQL => {
+                format!(
+                    "SELECT `hash`, `name`, (`applied_at` IS NULL) AS dirty FROM {table} WHERE `name` IS NOT NULL ORDER BY id;"
+                )
+            }
+            _ => format!(
+                r#"SELECT "hash", "name", ("applied_at" IS NULL) AS dirty FROM {table} WHERE "name" IS NOT NULL ORDER BY id;"#
+            ),
+        }
+    }
+
     /// Get the SQL to query interrupted ("dirty") migration names.
     ///
     /// These are rows whose `name` is known but whose `applied_at` is `NULL` —
@@ -1726,6 +1747,22 @@ mod tests {
         assert!(sql.contains("ORDER BY id"));
         // PostgreSQL sets use schema-qualified identifiers by default.
         assert!(sql.contains("\"drizzle\".\"__drizzle_migrations\""));
+    }
+
+    #[test]
+    fn applied_records_sql_exposes_hash_and_dirty_flag() {
+        let set = Migrations::new(Vec::new(), Dialect::PostgreSQL);
+        let sql = set.applied_records_sql();
+        assert!(sql.contains("\"hash\""));
+        assert!(sql.contains("(\"applied_at\" IS NULL) AS dirty"));
+        // Unlike applied_names_sql, dirty rows are included so integrity
+        // checks can report them.
+        assert!(!sql.contains("\"applied_at\" IS NOT NULL"));
+
+        let mysql = Migrations::new(Vec::new(), Dialect::MySQL);
+        let sql = mysql.applied_records_sql();
+        assert!(sql.contains("`hash`"));
+        assert!(sql.contains("(`applied_at` IS NULL) AS dirty"));
     }
 
     fn sample_migration() -> super::Migration {
