@@ -108,36 +108,40 @@ impl Default for MigrationTracking {
     }
 }
 
-/// A value that's either a literal string or an env-var reference.
+/// A config value that is either inline or an env-var reference.
 ///
 /// In TOML this deserializes from `"literal"` or `{ env = "VAR_NAME" }` — the
 /// same shape `drizzle-kit` and the CLI accept for `dbCredentials.url`. Used
 /// anywhere a config value can be either inline or pulled from the
 /// environment at runtime.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EnvOr {
-    /// Literal value taken from the config file.
-    Value(String),
+pub enum ConfigValue {
+    /// Value written inline in the config file.
+    Inline(String),
     /// Name of the environment variable to resolve.
     Env(String),
 }
 
 #[cfg(feature = "std")]
-impl EnvOr {
+impl ConfigValue {
     /// Resolve to a concrete string, reading the environment if needed.
     ///
     /// # Errors
     ///
-    /// Returns [`EnvOrError::NotPresent`] if this is an [`EnvOr::Env`] pointing
-    /// to a variable that is not set, or [`EnvOrError::NotUnicode`] if the
+    /// Returns [`ConfigValueError::NotPresent`] if this is a [`ConfigValue::Env`] pointing
+    /// to a variable that is not set, or [`ConfigValueError::NotUnicode`] if the
     /// variable is set but contains invalid UTF-8.
-    pub fn resolve(&self) -> Result<String, EnvOrError> {
+    pub fn resolve(&self) -> Result<String, ConfigValueError> {
         match self {
-            Self::Value(v) => Ok(v.clone()),
+            Self::Inline(v) => Ok(v.clone()),
             Self::Env(var) => match std::env::var(var) {
                 Ok(v) => Ok(v),
-                Err(std::env::VarError::NotPresent) => Err(EnvOrError::NotPresent(var.clone())),
-                Err(std::env::VarError::NotUnicode(_)) => Err(EnvOrError::NotUnicode(var.clone())),
+                Err(std::env::VarError::NotPresent) => {
+                    Err(ConfigValueError::NotPresent(var.clone()))
+                }
+                Err(std::env::VarError::NotUnicode(_)) => {
+                    Err(ConfigValueError::NotUnicode(var.clone()))
+                }
             },
         }
     }
@@ -146,24 +150,26 @@ impl EnvOr {
     ///
     /// # Errors
     ///
-    /// Returns [`EnvOrError::NotUnicode`] if the env var is set but contains
+    /// Returns [`ConfigValueError::NotUnicode`] if the env var is set but contains
     /// invalid UTF-8. Missing env vars resolve to `Ok(None)`.
-    pub fn resolve_optional(&self) -> Result<Option<String>, EnvOrError> {
+    pub fn resolve_optional(&self) -> Result<Option<String>, ConfigValueError> {
         match self {
-            Self::Value(v) => Ok(Some(v.clone())),
+            Self::Inline(v) => Ok(Some(v.clone())),
             Self::Env(var) => match std::env::var(var) {
                 Ok(v) => Ok(Some(v)),
                 Err(std::env::VarError::NotPresent) => Ok(None),
-                Err(std::env::VarError::NotUnicode(_)) => Err(EnvOrError::NotUnicode(var.clone())),
+                Err(std::env::VarError::NotUnicode(_)) => {
+                    Err(ConfigValueError::NotUnicode(var.clone()))
+                }
             },
         }
     }
 }
 
-/// Failure resolving an [`EnvOr::Env`] reference.
+/// Failure resolving a [`ConfigValue::Env`] reference.
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EnvOrError {
+pub enum ConfigValueError {
     /// The named environment variable is not set in the process.
     NotPresent(String),
     /// The named environment variable is set but contains non-UTF-8 bytes.
@@ -171,7 +177,7 @@ pub enum EnvOrError {
 }
 
 #[cfg(feature = "std")]
-impl core::fmt::Display for EnvOrError {
+impl core::fmt::Display for ConfigValueError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::NotPresent(var) => write!(f, "env var `{var}` not set"),
@@ -181,20 +187,20 @@ impl core::fmt::Display for EnvOrError {
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for EnvOrError {}
+impl std::error::Error for ConfigValueError {}
 
 #[cfg(feature = "serde")]
-impl<'de> serde::Deserialize<'de> for EnvOr {
+impl<'de> serde::Deserialize<'de> for ConfigValue {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         use serde::de::{self, MapAccess, Visitor};
 
-        struct EnvOrVisitor;
+        struct ConfigValueVisitor;
 
-        impl<'de> Visitor<'de> for EnvOrVisitor {
-            type Value = EnvOr;
+        impl<'de> Visitor<'de> for ConfigValueVisitor {
+            type Value = ConfigValue;
 
             fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
                 formatter.write_str("a string or { env = \"VAR_NAME\" }")
@@ -204,7 +210,7 @@ impl<'de> serde::Deserialize<'de> for EnvOr {
             where
                 E: de::Error,
             {
-                Ok(EnvOr::Value(value.to_string()))
+                Ok(ConfigValue::Inline(value.to_string()))
             }
 
             fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
@@ -222,25 +228,25 @@ impl<'de> serde::Deserialize<'de> for EnvOr {
                 }
 
                 env_var
-                    .map(EnvOr::Env)
+                    .map(ConfigValue::Env)
                     .ok_or_else(|| de::Error::missing_field("env"))
             }
         }
 
-        deserializer.deserialize_any(EnvOrVisitor)
+        deserializer.deserialize_any(ConfigValueVisitor)
     }
 }
 
 #[cfg(feature = "schemars")]
-impl schemars::JsonSchema for EnvOr {
+impl schemars::JsonSchema for ConfigValue {
     fn schema_name() -> Cow<'static, str> {
-        "EnvOr".into()
+        "ConfigValue".into()
     }
 
     fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
         use schemars::json_schema;
 
-        // EnvOr accepts either a plain string or { env: "VAR_NAME" }
+        // ConfigValue accepts either a plain string or { env: "VAR_NAME" }
         json_schema!({
             "oneOf": [
                 generator.subschema_for::<String>(),

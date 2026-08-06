@@ -5,6 +5,7 @@
 //! - runtime tracking config (`Tracking`)
 //! - pure diff APIs (`diff`, `diff_schemas_with`)
 //! - build-time migration generation (`build::run`)
+//! - interrupted-migration reconciliation (`repair::plan`)
 //!
 //! # Recommended No-CLI Flow
 //!
@@ -69,7 +70,7 @@
 //! ## Schema-to-schema with rename hints
 //!
 //! ```rust,no_run
-//! use drizzle_migrations::{Options, Schema, Snapshot, diff_schemas_with};
+//! use drizzle_migrations::{DiffOptions, Schema, Snapshot, diff_schemas_with};
 //! use drizzle_types::Dialect;
 //!
 //! # #[derive(Default)]
@@ -87,7 +88,7 @@
 //! let migration = diff_schemas_with(
 //!     &AppSchemaV1,
 //!     &AppSchemaV2,
-//!     &Options::new()
+//!     &DiffOptions::new()
 //!         .rename_table("users_old", "users")
 //!         .rename_column("users", "full_name", "name")
 //!         .strict_renames(true),
@@ -121,8 +122,10 @@ pub mod dir;
 pub mod generate;
 pub mod journal;
 pub mod migrator;
+pub mod naming;
 pub mod parser;
 pub mod postgres;
+pub mod repair;
 pub mod schema;
 pub mod snapshot;
 mod snapshot_builder;
@@ -131,7 +134,6 @@ pub mod traits;
 pub mod upgrade;
 pub mod utils;
 pub mod version;
-pub mod words;
 pub mod writer;
 
 // Core migration types
@@ -142,7 +144,7 @@ pub use migrator::{
     AppliedMigrationMetadata, MatchedMigrationMetadata, MigrateOutcome, Migration, Migrations,
     MigratorError, is_postgres_concurrent_index_statement, match_applied_migration_metadata,
 };
-pub use words::{PrefixMode, generate_migration_tag};
+pub use naming::{PrefixMode, generate_migration_tag};
 pub use writer::{MigrationError, Writer};
 
 // Version constants
@@ -157,7 +159,7 @@ pub use upgrade::{latest_version_for_dialect, needs_upgrade_for_dialect, upgrade
 
 // Core traits and dialect markers
 pub use traits::{
-    CanUpgrade, Dialect as DialectTrait, DiffType, Entity, EntityKey, EntityKind, MigrationResult,
+    CanUpgrade, Dialect as DialectTrait, DiffResult, DiffType, Entity, EntityKey, EntityKind,
     Mysql, Postgres, Sqlite, Upgradable, V5, V6, V7, V8, Version, Versioned, assert_can_upgrade,
 };
 
@@ -173,10 +175,9 @@ pub use schema::{Schema, Snapshot};
 
 // Programmatic migration generation
 pub use generate::{
-    ColumnRenameHint, Options, Plan, RenameHints, SchemaRenameHint, TableRenameHint, diff,
+    ColumnRenameHint, DiffOptions, Plan, RenameHints, SchemaRenameHint, TableRenameHint, diff,
     diff_schemas, diff_schemas_with, diff_with,
 };
-pub use snapshot_builder::parse_result_to_snapshot;
 
 // Build-time generation helpers (no CLI)
 pub use build::{BuildError, Casing, Config, Output, run};
