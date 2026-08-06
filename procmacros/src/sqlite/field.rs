@@ -1299,9 +1299,12 @@ impl FieldInfo<'_> {
         if let Some(default_sql) = &self.default_sql {
             col = col.default_value(default_sql.clone());
         } else if let Some(default) = self.default_to_json_value() {
-            // Convert serde_json::Value to String for DDL storage
+            // Convert serde_json::Value to a SQL literal for DDL storage.
+            // Strings are SQL-quoted (with '' doubling) and booleans become
+            // 1/0 to match the rendered DDL in table/ddl.rs.
             let default_str = match &default {
-                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::String(s) => format!("'{}'", s.replace('\'', "''")),
+                serde_json::Value::Bool(b) => if *b { "1" } else { "0" }.to_string(),
                 other => serde_json::to_string(other).unwrap_or_default(),
             };
             col = col.default_value(default_str);
@@ -1366,15 +1369,19 @@ impl FieldInfo<'_> {
 pub fn generate_table_meta_json(
     table_name: &str,
     field_infos: &[FieldInfo],
-    is_composite_pk: bool,
+    strict: bool,
+    without_rowid: bool,
 ) -> String {
     use drizzle_types::sqlite::ddl::{PrimaryKey, SqliteEntity, Table};
 
     // Collect all entities
     let mut entities: Vec<SqliteEntity> = Vec::new();
 
-    // Add Table entity
-    entities.push(SqliteEntity::Table(Table::new(table_name.to_string())));
+    // Add Table entity (carrying the table options)
+    let mut table = Table::new(table_name.to_string());
+    table.strict = strict;
+    table.without_rowid = without_rowid;
+    entities.push(SqliteEntity::Table(table));
 
     // Add columns
     for field in field_infos {
@@ -1388,19 +1395,17 @@ pub fn generate_table_meta_json(
         }
     }
 
-    // Add composite primary key if applicable
-    if is_composite_pk {
-        let pk_columns: Vec<String> = field_infos
-            .iter()
-            .filter(|f| f.is_primary())
-            .map(|f| f.column_name.clone())
-            .collect();
-
-        if pk_columns.len() > 1 {
-            let pk_name = format!("{table_name}_pk");
-            let pk = PrimaryKey::from_strings(table_name.to_string(), pk_name, pk_columns);
-            entities.push(SqliteEntity::PrimaryKey(pk));
-        }
+    // Add a single PrimaryKey entity covering all PK columns (single-column
+    // PKs included — the column meta intentionally does not carry a PK flag).
+    let pk_columns: Vec<String> = field_infos
+        .iter()
+        .filter(|f| f.is_primary())
+        .map(|f| f.column_name.clone())
+        .collect();
+    if !pk_columns.is_empty() {
+        let pk_name = format!("{table_name}_pk");
+        let pk = PrimaryKey::from_strings(table_name.to_string(), pk_name, pk_columns);
+        entities.push(SqliteEntity::PrimaryKey(pk));
     }
 
     serde_json::to_string(&entities).unwrap_or_else(|_| "[]".to_string())

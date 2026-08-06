@@ -5,7 +5,7 @@
 
 use super::collection::SQLiteDDL;
 use super::ddl::SqliteEntity;
-use super::snapshot::{SQLiteSnapshot, SQLiteSnapshotV6};
+use super::snapshot::SQLiteSnapshot;
 use std::path::Path;
 
 /// Error type for serialization operations
@@ -48,7 +48,8 @@ pub struct PreparedSnapshots {
 /// # Errors
 ///
 /// Returns a [`SerializerError`] if the file cannot be read or the contents
-/// cannot be parsed as either a v6 or v7 [`SQLiteSnapshot`].
+/// cannot be parsed as a v7 [`SQLiteSnapshot`], either directly or after
+/// running the legacy (v5/v6) structural upgrade chain.
 pub fn load_snapshot(path: &Path) -> SerializerResult<SQLiteSnapshot> {
     let contents = std::fs::read_to_string(path).map_err(|e| SerializerError {
         message: format!("Failed to read snapshot file: {e}"),
@@ -60,13 +61,19 @@ pub fn load_snapshot(path: &Path) -> SerializerResult<SQLiteSnapshot> {
         return Ok(snapshot);
     }
 
-    // Try parsing as v6 and upgrading
-    if let Ok(v6) = serde_json::from_str::<SQLiteSnapshotV6>(&contents) {
-        return Ok(upgrade_v6_to_v7(v6));
+    // Legacy object-format snapshot (v5/v6): run the structural upgrade
+    // chain and parse the result.
+    if let Ok(legacy) = serde_json::from_str::<serde_json::Value>(&contents) {
+        let upgraded = crate::upgrade::upgrade_to_latest(legacy, drizzle_types::Dialect::SQLite);
+        if let Ok(snapshot) = serde_json::from_value::<SQLiteSnapshot>(upgraded) {
+            return Ok(snapshot);
+        }
     }
 
     Err(SerializerError {
-        message: "Failed to parse snapshot as v6 or v7 format".to_string(),
+        message:
+            "Failed to parse snapshot as a v7 document or upgrade it from the legacy v5/v6 format"
+                .to_string(),
         path: Some(path.display().to_string()),
     })
 }
@@ -97,15 +104,6 @@ pub fn save_snapshot(snapshot: &SQLiteSnapshot, path: &Path) -> SerializerResult
     })?;
 
     Ok(())
-}
-
-/// Upgrade a v6 snapshot to v7 format
-fn upgrade_v6_to_v7(v6: SQLiteSnapshotV6) -> SQLiteSnapshot {
-    let mut snapshot = SQLiteSnapshot::with_prev_ids(vec![v6.prev_id]);
-    snapshot.id = v6.id;
-    // Note: v6 entities are in a different format; this would need conversion
-    // For now, we just create an empty snapshot with the correct IDs
-    snapshot
 }
 
 /// Load the latest snapshot from a drizzle folder.

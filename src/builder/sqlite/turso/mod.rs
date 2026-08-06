@@ -372,11 +372,60 @@ where
 impl<Schema> common::Drizzle<Connection, Schema> {
     /// Apply pending migrations from an embedded migration slice.
     ///
-    /// Creates the migrations table if needed and runs pending migrations in a transaction.
+    /// # Two-phase tracking
+    ///
+    /// turso is beta and its crash-recovery guarantees around in-transaction
+    /// DDL are not something to bet a production schema on (0.7 also stopped
+    /// auto-rolling-back on `Drop`, which is why [`Self::transaction`]
+    /// compensates with an explicit rollback). So this path does **not** assume
+    /// that wrapping statements and the tracking insert in one transaction
+    /// makes them atomic. Each pending migration runs as:
+    ///
+    /// 1. insert the tracking row with `applied_at` NULL (autocommit — the
+    ///    migration is now marked **dirty**);
+    /// 2. run the migration's statements inside an immediate transaction
+    ///    (still worth having: when turso's recovery does work, a crash here
+    ///    rolls the statements back);
+    /// 3. update the row to set `applied_at` (autocommit — the migration is
+    ///    now **applied**).
+    ///
+    /// A process killed between 1 and 3 therefore leaves a dirty row rather
+    /// than an untracked partial schema, and the next `migrate()` reports
+    /// exactly which migration was interrupted instead of blindly re-running
+    /// its DDL. Use [`Self::migrate_with_repair`] to reconcile it.
+    ///
+    /// If step 2 fails on its *first* statement nothing can have been applied,
+    /// so the dirty marker is dropped and the original error is returned
+    /// unchanged.
     pub async fn migrate(
         &mut self,
         migrations: &[drizzle_migrations::Migration],
         tracking: drizzle_migrations::Tracking,
+    ) -> drizzle_core::error::Result<drizzle_migrations::MigrateOutcome> {
+        self.migrate_inner(migrations, tracking, false).await
+    }
+
+    /// Apply pending migrations, first reconciling any interrupted migration.
+    ///
+    /// For each migration marked dirty by the two-phase flow in
+    /// [`Self::migrate`], this introspects `sqlite_master` and classifies every
+    /// statement: `CREATE TABLE` / `CREATE [UNIQUE] INDEX` / `CREATE VIEW`
+    /// statements whose object already exists with a matching definition are
+    /// skipped, and the rest are executed. Anything that cannot be proven
+    /// either way aborts with a list of what needs manual resolution.
+    pub async fn migrate_with_repair(
+        &mut self,
+        migrations: &[drizzle_migrations::Migration],
+        tracking: drizzle_migrations::Tracking,
+    ) -> drizzle_core::error::Result<drizzle_migrations::MigrateOutcome> {
+        self.migrate_inner(migrations, tracking, true).await
+    }
+
+    async fn migrate_inner(
+        &mut self,
+        migrations: &[drizzle_migrations::Migration],
+        tracking: drizzle_migrations::Tracking,
+        repair: bool,
     ) -> drizzle_core::error::Result<drizzle_migrations::MigrateOutcome> {
         let set = drizzle_migrations::Migrations::with_tracking(
             migrations.to_vec(),
@@ -385,52 +434,167 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         );
 
         ensure_sqlite_migration_table(&mut self.conn, &set).await?;
+        let mut applied = repair_dirty_migrations(&self.conn, &set, repair).await?;
+
         let applied_names = load_applied_migration_names(&self.conn, &set).await?;
-        if set.pending(&applied_names).next().is_none() {
-            return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
-        }
-
-        // Re-read the applied set while holding the write transaction. Another
-        // migrator may have completed after the read-only fast path above.
-        let tx = self
-            .conn
-            .transaction_with_behavior(turso::transaction::TransactionBehavior::Immediate)
-            .await
-            .map_err(DrizzleError::from)?;
-        let mut rows = tx
-            .query(&set.applied_names_sql(), ())
-            .await
-            .map_err(DrizzleError::from)?;
-
-        let mut applied_names: Vec<String> = Vec::new();
-        while let Some(row) = rows.next().await.map_err(DrizzleError::from)? {
-            applied_names.push(row.get::<String>(0).map_err(DrizzleError::from)?);
-        }
-
-        let pending: Vec<_> = set.pending(&applied_names).collect();
-
+        let pending: Vec<_> = set
+            .pending(&applied_names)
+            .map(drizzle_migrations::Migration::clone)
+            .collect();
         if pending.is_empty() {
-            tx.commit().await.map_err(DrizzleError::from)?;
-            return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
+            if applied.is_empty() {
+                return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
+            }
+            return Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied });
         }
 
-        let mut applied = Vec::with_capacity(pending.len());
         for migration in &pending {
-            for stmt in migration.statements() {
-                if !stmt.trim().is_empty() {
-                    tx.execute(stmt, ()).await.map_err(DrizzleError::from)?;
+            // Phase 1: mark dirty before touching the schema.
+            self.conn
+                .execute(&set.record_migration_started_sql(migration), ())
+                .await
+                .map_err(DrizzleError::from)?;
+
+            // Phase 2: run the statements. The inner transaction is a best
+            // effort — the dirty marker is what makes recovery possible.
+            if let Err(error) = run_migration_statements(&mut self.conn, migration).await {
+                // Failing on the first statement means nothing was applied, so
+                // the marker would only demand a pointless repair.
+                if error.failed_first_statement {
+                    let _ = self
+                        .conn
+                        .execute(&set.clear_migration_started_sql(migration), ())
+                        .await;
                 }
+                return Err(error.error);
             }
-            tx.execute(&set.record_migration_sql(migration), ())
+
+            // Phase 3: the migration is complete.
+            self.conn
+                .execute(&set.record_migration_finished_sql(migration), ())
                 .await
                 .map_err(DrizzleError::from)?;
             applied.push(migration.tag().to_string());
         }
 
-        tx.commit().await.map_err(DrizzleError::from)?;
-
         Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
     }
+}
+
+/// A failed statement run, plus whether it failed before anything could have
+/// been applied.
+struct StatementRunError {
+    error: DrizzleError,
+    failed_first_statement: bool,
+}
+
+/// Run one migration's statements inside an immediate transaction.
+async fn run_migration_statements(
+    conn: &mut turso::Connection,
+    migration: &drizzle_migrations::Migration,
+) -> Result<(), StatementRunError> {
+    let tx = conn
+        .transaction_with_behavior(turso::transaction::TransactionBehavior::Immediate)
+        .await
+        .map_err(|error| StatementRunError {
+            error: DrizzleError::from(error),
+            failed_first_statement: true,
+        })?;
+
+    let mut executed = 0usize;
+    for stmt in migration.statements() {
+        if stmt.trim().is_empty() {
+            continue;
+        }
+        if let Err(error) = tx.execute(stmt, ()).await {
+            let _ = tx.rollback().await;
+            return Err(StatementRunError {
+                error: DrizzleError::from(error),
+                failed_first_statement: executed == 0,
+            });
+        }
+        executed += 1;
+    }
+
+    tx.commit().await.map_err(|error| StatementRunError {
+        error: DrizzleError::from(error),
+        // The statements ran; only the commit failed. Whether they landed is
+        // exactly the thing turso's recovery does not promise, so keep the
+        // dirty marker.
+        failed_first_statement: false,
+    })
+}
+
+/// Read `sqlite_master` into a repair [`Catalog`](drizzle_migrations::repair::Catalog).
+async fn introspect_catalog(
+    conn: &turso::Connection,
+) -> drizzle_core::error::Result<drizzle_migrations::repair::Catalog> {
+    let mut rows = conn
+        .query(drizzle_migrations::repair::sqlite::OBJECTS_QUERY, ())
+        .await
+        .map_err(DrizzleError::from)?;
+
+    let mut master_rows = Vec::new();
+    while let Some(row) = rows.next().await.map_err(DrizzleError::from)? {
+        master_rows.push((
+            row.get::<String>(0).map_err(DrizzleError::from)?,
+            row.get::<String>(1).map_err(DrizzleError::from)?,
+            row.get::<Option<String>>(2).ok().flatten(),
+        ));
+    }
+    Ok(drizzle_migrations::repair::sqlite::catalog(&master_rows))
+}
+
+/// Reject or reconcile interrupted migrations. Returns the repaired tags.
+async fn repair_dirty_migrations(
+    conn: &turso::Connection,
+    set: &drizzle_migrations::Migrations,
+    repair: bool,
+) -> drizzle_core::error::Result<Vec<String>> {
+    let mut rows = conn
+        .query(&set.dirty_names_sql(), ())
+        .await
+        .map_err(DrizzleError::from)?;
+    let mut dirty: Vec<String> = Vec::new();
+    while let Some(row) = rows.next().await.map_err(DrizzleError::from)? {
+        dirty.push(row.get::<String>(0).map_err(DrizzleError::from)?);
+    }
+
+    if dirty.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let migrator_error =
+        |error: drizzle_migrations::MigratorError| DrizzleError::Other(error.to_string().into());
+
+    if !repair {
+        return Err(migrator_error(
+            set.interrupted_migration_error(&dirty)
+                .expect("dirty list is non-empty"),
+        ));
+    }
+
+    let table_ident = set.table_ident_sql();
+    let mut repaired = Vec::new();
+    for migration in set
+        .resolve_dirty_migrations(&dirty)
+        .map_err(migrator_error)?
+    {
+        let catalog = introspect_catalog(conn).await?;
+        let plan =
+            drizzle_migrations::repair::plan(drizzle_types::Dialect::SQLite, migration, &catalog);
+        for statement in plan.into_executable(&table_ident).map_err(migrator_error)? {
+            conn.execute(&statement, ())
+                .await
+                .map_err(DrizzleError::from)?;
+        }
+        conn.execute(&set.record_migration_finished_sql(migration), ())
+            .await
+            .map_err(DrizzleError::from)?;
+        repaired.push(migration.tag().to_string());
+    }
+
+    Ok(repaired)
 }
 
 async fn load_applied_migration_names(
@@ -533,27 +697,9 @@ async fn backfill_migration_name_column(
     .map_err(DrizzleError::from)?;
 
     for row in matched {
-        let escaped_name = row.name.replace('\'', "''");
-        let where_clause = if let Some(id) = row.id {
-            format!("\"id\" = {id}")
-        } else {
-            format!(
-                "\"created_at\" = {} AND \"hash\" = '{}'",
-                row.created_at,
-                row.hash.replace('\'', "''")
-            )
-        };
-        tx.execute(
-            &format!(
-                "UPDATE {} SET \"name\" = '{}', \"applied_at\" = NULL WHERE {}",
-                set.table_ident_sql(),
-                escaped_name,
-                where_clause
-            ),
-            (),
-        )
-        .await
-        .map_err(DrizzleError::from)?;
+        tx.execute(&set.backfill_migration_metadata_sql(&row), ())
+            .await
+            .map_err(DrizzleError::from)?;
     }
 
     tx.commit().await.map_err(DrizzleError::from)?;
@@ -700,6 +846,25 @@ async fn turso_introspect_query_views(
     Ok(all_views)
 }
 
+async fn turso_introspect_query_index_sql(
+    conn: &turso::Connection,
+) -> drizzle_core::error::Result<Vec<(String, String)>> {
+    use drizzle_migrations::sqlite::introspect::queries;
+
+    let mut index_sql = Vec::new();
+    let err = DrizzleError::from;
+    let mut rows = conn
+        .query(queries::INDEX_SQL_QUERY, ())
+        .await
+        .map_err(err)?;
+    while let Some(row) = rows.next().await.map_err(err)? {
+        let name: String = row.get(0).map_err(err)?;
+        let sql: String = row.get(1).map_err(err)?;
+        index_sql.push((name, sql));
+    }
+    Ok(index_sql)
+}
+
 impl<Schema> common::Drizzle<Connection, Schema> {
     /// Introspect the live database and return a [`Snapshot`] of its current schema.
     pub async fn introspect(
@@ -710,6 +875,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         let (all_indexes, all_index_columns, all_fks) =
             turso_introspect_query_indexes_and_fks(&self.conn).await?;
         let all_views = turso_introspect_query_views(&self.conn).await?;
+        let index_sql = turso_introspect_query_index_sql(&self.conn).await?;
 
         let ddl = drizzle_migrations::sqlite::introspect::assemble_ddl(
             drizzle_migrations::sqlite::introspect::RawIntrospection {
@@ -719,6 +885,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                 index_columns: all_index_columns,
                 foreign_keys: all_fks,
                 views: all_views,
+                index_sql,
             },
         );
 

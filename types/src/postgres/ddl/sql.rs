@@ -32,6 +32,28 @@ fn qualified_name(schema: &str, name: &str) -> String {
     format!("{}{}", schema_prefix(schema), quote_ident(name))
 }
 
+/// Quote a possibly schema-qualified name (`parent`, `app.parent`) by
+/// splitting on `.` and quoting each part.
+fn quote_qualified_name(name: &str) -> String {
+    name.split('.')
+        .map(quote_ident)
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+/// Whether a custom type name needs identifier quoting to survive.
+///
+/// Lowercase single-token names (`status`, `vector`) resolve identically
+/// with or without quotes, and multi-word built-ins (`double precision`)
+/// must never be quoted — only case-sensitive or otherwise unusual
+/// single-token names require quotes.
+fn type_name_needs_quoting(base: &str) -> bool {
+    !base.contains(' ')
+        && !base
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
 fn index_column_sql(column: &IndexColumn) -> String {
     let mut sql = if column.is_expression {
         format!("({})", column.value)
@@ -202,7 +224,7 @@ impl<'a> TableSql<'a> {
         sql.push(')');
 
         if let Some(inherits) = self.table.inherits.as_ref() {
-            let _ = write!(sql, " INHERITS ({})", quote_ident(inherits));
+            let _ = write!(sql, " INHERITS ({})", quote_qualified_name(inherits));
         }
 
         if let Some(tablespace) = self.table.tablespace.as_ref() {
@@ -288,10 +310,40 @@ impl<'a> TableSql<'a> {
 // =============================================================================
 
 impl Column {
-    /// Generate the column definition SQL (without leading/trailing punctuation)
+    /// Render this column's full type reference.
+    ///
+    /// Built-in types render verbatim (`integer`, `varchar(255)`). When
+    /// `type_schema` names a non-`public` schema, the custom/enum type name
+    /// is quoted and schema-qualified (`"app"."status"`). For `public` the
+    /// schema is elided and the name is only quoted when it needs it (mixed
+    /// case or other non-lowercase characters), so ordinary lowercase enum
+    /// names keep rendering exactly as before. Parenthesized type parameters
+    /// stay outside the quotes; array dimensions are appended.
     #[must_use]
-    pub fn to_column_sql(&self) -> String {
-        let mut sql = format!("{} {}", quote_ident(self.name()), self.sql_type());
+    pub fn type_sql(&self) -> String {
+        let mut sql = match self.type_schema.as_deref() {
+            Some(type_schema) => {
+                let raw = self.sql_type();
+                let (base, params) = raw
+                    .find('(')
+                    .map_or((raw, ""), |idx| (raw[..idx].trim_end(), &raw[idx..]));
+                if type_schema == "public" {
+                    if type_name_needs_quoting(base) {
+                        format!("{}{}", quote_ident(base), params)
+                    } else {
+                        raw.to_string()
+                    }
+                } else {
+                    format!(
+                        "{}.{}{}",
+                        quote_ident(type_schema),
+                        quote_ident(base),
+                        params
+                    )
+                }
+            }
+            None => self.sql_type().to_string(),
+        };
 
         if let Some(dimensions) = self.dimensions
             && dimensions > 0
@@ -300,6 +352,14 @@ impl Column {
                 sql.push_str("[]");
             }
         }
+
+        sql
+    }
+
+    /// Generate the column definition SQL (without leading/trailing punctuation)
+    #[must_use]
+    pub fn to_column_sql(&self) -> String {
+        let mut sql = format!("{} {}", quote_ident(self.name()), self.type_sql());
 
         // COLLATE follows the type in the PostgreSQL grammar. Collation
         // names are double-quoted identifiers (`COLLATE "en_US"`,
@@ -972,9 +1032,16 @@ impl UniqueConstraint {
             .join(", ");
 
         let separator = if space_before_columns { " " } else { "" };
+        let nulls_not_distinct = if self.nulls_not_distinct {
+            // `UNIQUE NULLS NOT DISTINCT ("email")` — PostgreSQL 15+.
+            " NULLS NOT DISTINCT"
+        } else {
+            ""
+        };
         let mut sql = format!(
-            "CONSTRAINT {} UNIQUE{}({})",
+            "CONSTRAINT {} UNIQUE{}{}({})",
             quote_ident(self.name()),
+            nulls_not_distinct,
             separator,
             cols
         );

@@ -36,6 +36,7 @@ pub struct CompositeForeignKeyAttr {
 pub struct UniqueConstraintAttr {
     pub(crate) columns: Vec<Ident>,
     pub(crate) name: Option<String>,
+    pub(crate) nulls_not_distinct: bool,
     pub(crate) deferrable: bool,
     pub(crate) initially_deferred: bool,
 }
@@ -182,6 +183,7 @@ impl Parse for UniqueConstraintAttr {
         let mut columns_from_list: Option<Vec<Ident>> = None;
         let mut direct_columns = Vec::new();
         let mut name = None;
+        let mut nulls_not_distinct = false;
         let mut deferrable = false;
         let mut initially_deferred = false;
 
@@ -213,6 +215,9 @@ impl Parse for UniqueConstraintAttr {
                         return Err(syn::Error::new(nv.span(), "name must be a string literal"));
                     }
                 }
+                Meta::Path(path) if path.is_ident("nulls_not_distinct") => {
+                    nulls_not_distinct = true;
+                }
                 Meta::Path(path) if path.is_ident("deferrable") => {
                     deferrable = true;
                 }
@@ -233,7 +238,7 @@ impl Parse for UniqueConstraintAttr {
                 _ => {
                     return Err(syn::Error::new(
                         meta.span(),
-                        "unrecognized UNIQUE argument; expected columns(...), name = \"...\", direct column identifiers, deferrable, or initially_deferred",
+                        "unrecognized UNIQUE argument; expected columns(...), name = \"...\", direct column identifiers, nulls_not_distinct, deferrable, or initially_deferred",
                     ));
                 }
             }
@@ -250,6 +255,7 @@ impl Parse for UniqueConstraintAttr {
         Ok(Self {
             columns,
             name,
+            nulls_not_distinct,
             deferrable,
             initially_deferred,
         })
@@ -467,5 +473,29 @@ impl crate::common::constraints::CompositeForeignKeyRef for CompositeForeignKeyA
     }
     fn target_columns(&self) -> &[Ident] {
         &self.target_columns
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TableAttributes;
+
+    #[test]
+    fn unique_attr_parses_nulls_not_distinct() {
+        let attrs: TableAttributes =
+            syn::parse_str("unique(columns(email), nulls_not_distinct)").expect("parse");
+        assert_eq!(attrs.unique_constraints.len(), 1);
+        let unique = &attrs.unique_constraints[0];
+        assert!(unique.nulls_not_distinct);
+        assert!(!unique.deferrable);
+        assert_eq!(unique.columns.len(), 1);
+    }
+
+    #[test]
+    fn unique_attr_defaults_nulls_distinct() {
+        let attrs: TableAttributes =
+            syn::parse_str("unique(columns(email, tenant_id), deferrable)").expect("parse");
+        assert!(!attrs.unique_constraints[0].nulls_not_distinct);
+        assert!(attrs.unique_constraints[0].deferrable);
     }
 }

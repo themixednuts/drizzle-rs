@@ -12,9 +12,11 @@ use std::marker::PhantomData;
 
 // Import dialect-specific types for associated type definitions
 use crate::postgres::{
-    PostgresDDL, PostgresSnapshot, ddl::PostgresEntity, statements::PostgresGenerator,
+    PostgresDDL, PostgresSnapshot, ddl::PostgresEntity, statements::Generator as PostgresGenerator,
 };
-use crate::sqlite::{SQLiteDDL, SQLiteSnapshot, ddl::SqliteEntity, statements::SqliteGenerator};
+use crate::sqlite::{
+    SQLiteDDL, SQLiteSnapshot, ddl::SqliteEntity, statements::Generator as SqliteGenerator,
+};
 
 // =============================================================================
 // Version System
@@ -380,7 +382,7 @@ pub trait Dialect: Sized + 'static {
         prev: &Self::Snapshot,
         cur: &Self::Snapshot,
         breakpoints: bool,
-    ) -> MigrationResult;
+    ) -> DiffResult;
 }
 
 /// Marker trait for compile-time upgrade path validation.
@@ -415,14 +417,14 @@ pub trait CanUpgrade<From: Version, To: Version>: Dialect {}
 
 /// Migration result from diffing two snapshots
 #[derive(Debug, Clone)]
-pub struct MigrationResult {
+pub struct DiffResult {
     /// Generated SQL statements
     pub sql_statements: Vec<String>,
     /// Whether there are any changes
     pub has_changes: bool,
 }
 
-impl MigrationResult {
+impl DiffResult {
     /// Create an empty result (no changes)
     #[must_use]
     pub const fn empty() -> Self {
@@ -467,14 +469,14 @@ impl Dialect for Sqlite {
         prev: &Self::Snapshot,
         cur: &Self::Snapshot,
         breakpoints: bool,
-    ) -> MigrationResult {
+    ) -> DiffResult {
         let diff = crate::sqlite::diff_snapshots(prev, cur);
         if !diff.has_changes() {
-            return MigrationResult::empty();
+            return DiffResult::empty();
         }
         let generator = SqliteGenerator::new().with_breakpoints(breakpoints);
         let sql = generator.generate_migration(&diff);
-        MigrationResult::with_changes(sql)
+        DiffResult::with_changes(sql)
     }
 }
 
@@ -508,14 +510,14 @@ impl Dialect for Postgres {
         prev: &Self::Snapshot,
         cur: &Self::Snapshot,
         breakpoints: bool,
-    ) -> MigrationResult {
+    ) -> DiffResult {
         let diff = crate::postgres::diff_snapshots(&prev.ddl, &cur.ddl);
         if !diff.has_changes() {
-            return MigrationResult::empty();
+            return DiffResult::empty();
         }
         let generator = PostgresGenerator::new().with_breakpoints(breakpoints);
         let sql = generator.generate(&diff.diffs);
-        MigrationResult::with_changes(sql)
+        DiffResult::with_changes(sql)
     }
 }
 
@@ -553,7 +555,7 @@ impl Dialect for Mysql {
         _prev: &Self::Snapshot,
         _cur: &Self::Snapshot,
         _breakpoints: bool,
-    ) -> MigrationResult {
+    ) -> DiffResult {
         unimplemented!("MySQL migrations not yet supported")
     }
 }

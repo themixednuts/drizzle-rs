@@ -86,20 +86,14 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
     let mig_pg_entity = mig_paths::postgres::entity();
     let mig_pg_schema_entity = mig_paths::postgres::schema_entity();
     let mig_pg_table = mig_paths::postgres::table();
-    let mig_pg_column = mig_paths::postgres::column();
-    let mig_pg_identity = mig_paths::postgres::identity();
-    let mig_pg_generated = quote! { drizzle::migrations::postgres::Generated };
-    let mig_pg_generated_type = quote! { drizzle::migrations::postgres::GeneratedType };
-    let mig_pg_sequence = mig_paths::postgres::sequence();
     let mig_pg_index = mig_paths::postgres::index();
     let mig_pg_index_column = mig_paths::postgres::index_column();
-    let mig_pg_primary_key = mig_paths::postgres::primary_key();
     let mig_pg_foreign_key = mig_paths::postgres::foreign_key();
-    let mig_pg_unique_constraint = mig_paths::postgres::unique_constraint();
     let mig_pg_check_constraint = mig_paths::postgres::check_constraint();
     let mig_pg_policy = mig_paths::postgres::policy();
     let mig_pg_enum = mig_paths::postgres::enum_type();
     let mig_pg_view = mig_paths::postgres::view();
+    let postgres_item_ddl = crate::paths::ddl::postgres::postgres_item_ddl();
 
     let schema_table_refs_method = generate_schema_table_refs_method(&all_fields);
     let schema_has_table_impls = generate_schema_has_table_impls(struct_name, &all_fields);
@@ -176,18 +170,13 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                 type MigEntity = #mig_pg_entity;
                 type MigSchema = #mig_pg_schema_entity;
                 type MigTable = #mig_pg_table;
-                type MigColumn = #mig_pg_column;
-                type MigIdentity = #mig_pg_identity;
                 type MigIndex = #mig_pg_index;
                 type MigIndexColumn = #mig_pg_index_column;
-                type MigPrimaryKey = #mig_pg_primary_key;
                 type MigForeignKey = #mig_pg_foreign_key;
-                type MigUniqueConstraint = #mig_pg_unique_constraint;
                 type MigCheckConstraint = #mig_pg_check_constraint;
                 type MigPolicy = #mig_pg_policy;
                 type MigEnum = #mig_pg_enum;
                 type MigView = #mig_pg_view;
-                type MigSequence = #mig_pg_sequence;
 
                 let mut snapshot = MigSnapshot::new();
                 let mut seen_schemas = ::std::collections::HashSet::new();
@@ -235,119 +224,29 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                             }
                             snapshot.add_entity(MigEntity::Table(table));
 
-                            // Add column entities from TABLE_REF
-                            for col in table_ref.columns {
-                                let (
-                                    pg_type,
-                                    is_generated_identity,
-                                    is_identity_always,
-                                    default,
-                                    generated_expression,
-                                    generated_stored,
-                                    collate,
-                                    dimensions,
-                                    comment,
-                                ) = match col.dialect {
-                                    drizzle::core::ColumnDialect::PostgreSQL {
-                                        postgres_type,
-                                        is_generated_identity,
-                                        is_identity_always,
-                                        default,
-                                        generated_expression,
-                                        generated_stored,
-                                        collate,
-                                        dimensions,
-                                        comment,
-                                        ..
-                                    } => (
-                                        postgres_type,
-                                        is_generated_identity,
-                                        is_identity_always,
-                                        default,
-                                        generated_expression,
-                                        generated_stored,
-                                        collate,
-                                        dimensions,
-                                        comment,
-                                    ),
-                                    _ => (col.sql_type, false, false, ::core::option::Option::None, ::core::option::Option::None, false, ::core::option::Option::None, ::core::option::Option::None, ::core::option::Option::None),
-                                };
+                            // Column entities come from the compile-time DDL
+                            // consts (the same source `create_table_sql()`
+                            // renders from), so identity sequence options and
+                            // custom-type schemas survive into the snapshot.
+                            for column_def in <#field_types_for_snapshot as #postgres_item_ddl>::SNAPSHOT_COLUMNS {
+                                snapshot.add_entity(MigEntity::Column(column_def.into_column()));
+                            }
 
-                                let mut column = MigColumn::new(
-                                    table_schema,
-                                    table_name,
-                                    col.name,
-                                    pg_type,
-                                );
+                            // ONE PrimaryKey entity per table, covering all PK
+                            // columns in declaration order (single-column and
+                            // composite alike) — matches the compile-time
+                            // `DDL_PRIMARY_KEY` shape.
+                            if let ::core::option::Option::Some(pk) =
+                                <#field_types_for_snapshot as #postgres_item_ddl>::SNAPSHOT_PRIMARY_KEY
+                            {
+                                snapshot.add_entity(MigEntity::PrimaryKey(pk.into_primary_key()));
+                            }
 
-                                if matches!(
-                                    drizzle::migrations::postgres::PgTypeCategory::from_sql_type(pg_type),
-                                    drizzle::migrations::postgres::PgTypeCategory::Custom
-                                ) {
-                                    column.type_schema = ::core::option::Option::Some(::std::borrow::Cow::Borrowed(table_schema));
-                                }
-
-                                if col.not_null() {
-                                    column = column.not_null();
-                                }
-                                if let ::core::option::Option::Some(default) = default {
-                                    column = column.default_value(default);
-                                }
-
-                                // Handle identity columns (NOT serial — serial uses
-                                // the SERIAL pseudo-type which implies its own sequence
-                                // via DEFAULT nextval(...); combining it with GENERATED
-                                // AS IDENTITY is invalid in PostgreSQL).
-                                if is_generated_identity {
-                                    let seq_name = ::std::format!("{}_{}_seq", table_name, col.name);
-                                    let identity = if is_identity_always {
-                                        MigIdentity::always(seq_name)
-                                    } else {
-                                        MigIdentity::by_default(seq_name)
-                                    }.schema(table_schema);
-                                    column = column.identity(identity);
-                                }
-
-                                if let ::core::option::Option::Some(expression) = generated_expression {
-                                    column.generated = ::core::option::Option::Some(#mig_pg_generated {
-                                        expression: ::std::borrow::Cow::Borrowed(expression),
-                                        gen_type: if generated_stored {
-                                            #mig_pg_generated_type::Stored
-                                        } else {
-                                            #mig_pg_generated_type::Virtual
-                                        },
-                                    });
-                                }
-
-                                if let ::core::option::Option::Some(collate) = collate {
-                                    column.collate = ::core::option::Option::Some(::std::borrow::Cow::Borrowed(collate));
-                                }
-                                column.dimensions = dimensions;
-                                if let ::core::option::Option::Some(comment) = comment {
-                                    column.comment = ::core::option::Option::Some(::std::borrow::Cow::Borrowed(comment));
-                                }
-
-                                snapshot.add_entity(MigEntity::Column(column));
-
-                                // Add primary key entity if this is a primary key column
-                                if col.primary_key() {
-                                    snapshot.add_entity(MigEntity::PrimaryKey(MigPrimaryKey::from_strings(
-                                        table_schema.to_string(),
-                                        table_name.to_string(),
-                                        ::std::format!("{}_pkey", table_name),
-                                        ::std::vec![col.name.to_string()],
-                                    )));
-                                }
-
-                                // Add unique constraint entity if this column is unique
-                                if col.unique() {
-                                    snapshot.add_entity(MigEntity::UniqueConstraint(MigUniqueConstraint::from_strings(
-                                        table_schema.to_string(),
-                                        table_name.to_string(),
-                                        ::std::format!("{}_{}_key", table_name, col.name),
-                                        ::std::vec![col.name.to_string()],
-                                    )));
-                                }
+                            // Unique constraints (column-level and table-level)
+                            // from the DDL consts, preserving NULLS NOT
+                            // DISTINCT / DEFERRABLE and explicit names.
+                            for unique_def in <#field_types_for_snapshot as #postgres_item_ddl>::SNAPSHOT_UNIQUE_CONSTRAINTS {
+                                snapshot.add_entity(MigEntity::UniqueConstraint(unique_def.into_unique_constraint()));
                             }
 
                             for fk in table_ref.foreign_keys {
@@ -378,23 +277,10 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
 
                             for constraint in table_ref.constraints {
                                 match constraint.kind {
-                                    drizzle::core::SQLConstraintKind::Unique => {
-                                        let unique_name = constraint.name.unwrap_or("unique");
-                                        let mut unique = MigUniqueConstraint::from_strings(
-                                            table_schema.to_string(),
-                                            table_name.to_string(),
-                                            unique_name.to_string(),
-                                            constraint.columns.iter().map(|col| col.to_string()).collect(),
-                                        );
-                                        unique.name_explicit = constraint.name_explicit;
-                                        if constraint.deferrable {
-                                            unique = unique.deferrable();
-                                        }
-                                        if constraint.initially_deferred {
-                                            unique = unique.initially_deferred();
-                                        }
-                                        snapshot.add_entity(MigEntity::UniqueConstraint(unique));
-                                    }
+                                    // Unique constraints are emitted from the
+                                    // DDL consts above (which carry NULLS NOT
+                                    // DISTINCT; ConstraintRef does not).
+                                    drizzle::core::SQLConstraintKind::Unique => {}
                                     drizzle::core::SQLConstraintKind::Check => {
                                         if let ::core::option::Option::Some(check_expression) = constraint.check_expression {
                                             let check_name = constraint.name.unwrap_or("check");
@@ -411,33 +297,53 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                             }
                         }
                         #postgres_schema_type::Index(index_info) => {
-                            // Add index entity
-                            let table_ref = #sql_index_info::table(index_info);
-                            let table_schema = table_ref.schema.unwrap_or("public");
-                            let mut index = MigIndex::new(
-                                table_schema,
-                                table_ref.name,
-                                #sql_index_info::name(index_info),
-                                #sql_index_info::columns(index_info)
-                                    .iter()
-                                    .map(|c| MigIndexColumn::new(*c))
-                                    .collect::<::std::vec::Vec<_>>(),
-                            );
-                            if #sql_index_info::is_unique(index_info) {
-                                index = index.unique();
+                            // Prefer the compile-time DDL definition, which
+                            // carries method / where / concurrently. The
+                            // SQLIndexInfo-based path stays as a fallback for
+                            // index items without const DDL.
+                            if let ::core::option::Option::Some(index_def) =
+                                <#field_types_for_snapshot as #postgres_item_ddl>::SNAPSHOT_INDEX
+                            {
+                                snapshot.add_entity(MigEntity::Index(index_def.into_index()));
+                            } else {
+                                let table_ref = #sql_index_info::table(index_info);
+                                let table_schema = table_ref.schema.unwrap_or("public");
+                                let mut index = MigIndex::new(
+                                    table_schema,
+                                    table_ref.name,
+                                    #sql_index_info::name(index_info),
+                                    #sql_index_info::columns(index_info)
+                                        .iter()
+                                        .map(|c| MigIndexColumn::new(*c))
+                                        .collect::<::std::vec::Vec<_>>(),
+                                );
+                                if #sql_index_info::is_unique(index_info) {
+                                    index = index.unique();
+                                }
+                                snapshot.add_entity(MigEntity::Index(index));
                             }
-                            snapshot.add_entity(MigEntity::Index(index));
                         }
                         #postgres_schema_type::Enum(enum_info) => {
-                            // Add enum entity
+                            // Add enum entity; the schema comes from the
+                            // derive's `#[postgres_enum(schema = "...")]`
+                            // (default `public`). Register the schema itself
+                            // too — an enum may be the schema's only occupant
+                            // and CREATE TYPE needs CREATE SCHEMA first.
+                            let enum_schema = <#field_types_for_snapshot as #postgres_item_ddl>::ENUM_SCHEMA;
+                            if seen_schemas.insert(enum_schema) {
+                                snapshot.add_entity(MigEntity::Schema(MigSchema::new(enum_schema)));
+                            }
                             snapshot.add_entity(MigEntity::Enum(MigEnum::from_strings(
-                                "public".to_string(),
+                                enum_schema.to_string(),
                                 enum_info.name().to_string(),
                                 enum_info.variants().iter().map(|v| v.to_string()).collect(),
                             )));
                         }
                         #postgres_schema_type::View(view_info) => {
                             let view_schema = #sql_table_info::schema(view_info).unwrap_or("public");
+                            if seen_schemas.insert(view_schema) {
+                                snapshot.add_entity(MigEntity::Schema(MigSchema::new(view_schema)));
+                            }
                             let mut view = MigView::new(view_schema, #sql_table_info::name(view_info));
                             let definition = view_info.definition_sql();
                             if !definition.is_empty() {

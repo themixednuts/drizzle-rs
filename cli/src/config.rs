@@ -6,7 +6,7 @@
 //! This configuration format is designed to be compatible with drizzle-kit
 //! so TypeScript users can use the same config expectations.
 
-pub use drizzle_types::{Casing, EnvOr, EnvOrError};
+pub use drizzle_types::{Casing, ConfigValue, ConfigValueError};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -712,10 +712,10 @@ enum RawCreds {
     /// the first that deserializes cleanly.)
     D1 {
         #[serde(rename = "accountId")]
-        account_id: EnvOr,
+        account_id: ConfigValue,
         #[serde(rename = "databaseId")]
-        database_id: EnvOr,
-        token: EnvOr,
+        database_id: ConfigValue,
+        token: ConfigValue,
     },
     /// AWS RDS Data API credentials — `{ database, secretArn, resourceArn }`.
     ///
@@ -724,26 +724,26 @@ enum RawCreds {
     /// shape, but the combination with `secretArn` + `resourceArn` uniquely
     /// identifies this variant.
     AwsDataApi {
-        database: EnvOr,
+        database: ConfigValue,
         #[serde(rename = "secretArn")]
-        secret_arn: EnvOr,
+        secret_arn: ConfigValue,
         #[serde(rename = "resourceArn")]
-        resource_arn: EnvOr,
+        resource_arn: ConfigValue,
     },
     Url {
-        url: EnvOr,
+        url: ConfigValue,
         #[serde(default, rename = "authToken")]
-        auth_token: Option<EnvOr>,
+        auth_token: Option<ConfigValue>,
     },
     Host {
-        host: EnvOr,
+        host: ConfigValue,
         #[serde(default)]
         port: Option<u16>,
         #[serde(default)]
-        user: Option<EnvOr>,
+        user: Option<ConfigValue>,
         #[serde(default)]
-        password: Option<EnvOr>,
-        database: EnvOr,
+        password: Option<ConfigValue>,
+        database: ConfigValue,
         #[serde(default)]
         ssl: Option<SslVal>,
     },
@@ -990,7 +990,7 @@ impl DatabaseConfig {
             (
                 Dialect::Sqlite,
                 RawCreds::Url {
-                    url: EnvOr::Value(url),
+                    url: ConfigValue::Inline(url),
                     ..
                 },
             ) if url.starts_with("libsql://") => Err(err(
@@ -999,7 +999,7 @@ impl DatabaseConfig {
             (
                 Dialect::Sqlite,
                 RawCreds::Url {
-                    url: EnvOr::Value(url),
+                    url: ConfigValue::Inline(url),
                     ..
                 },
             ) if url.starts_with("http://")
@@ -1014,7 +1014,7 @@ impl DatabaseConfig {
             (
                 Dialect::Turso,
                 RawCreds::Url {
-                    url: EnvOr::Value(url),
+                    url: ConfigValue::Inline(url),
                     ..
                 },
             ) if !url.starts_with("libsql://") && !url.starts_with("http") => {
@@ -1023,7 +1023,7 @@ impl DatabaseConfig {
             (
                 Dialect::Postgresql,
                 RawCreds::Url {
-                    url: EnvOr::Value(url),
+                    url: ConfigValue::Inline(url),
                     ..
                 },
             ) if !url.starts_with("postgres") => {
@@ -1045,8 +1045,8 @@ impl DatabaseConfig {
             return Ok(None);
         };
 
-        // Helper to resolve an optional EnvOr
-        let resolve_opt = |opt: &Option<EnvOr>| -> Result<Option<Box<str>>, Error> {
+        // Helper to resolve an optional ConfigValue
+        let resolve_opt = |opt: &Option<ConfigValue>| -> Result<Option<Box<str>>, Error> {
             match opt.as_ref() {
                 None => Ok(None),
                 Some(e) => Ok(Some(e.resolve()?.into_boxed_str())),
@@ -1577,11 +1577,13 @@ pub enum Error {
     DatabaseRequired(Vec<String>),
 }
 
-impl From<EnvOrError> for Error {
-    fn from(err: EnvOrError) -> Self {
+impl From<ConfigValueError> for Error {
+    fn from(err: ConfigValueError) -> Self {
         match err {
-            EnvOrError::NotPresent(var) => Self::EnvNotFound(var),
-            EnvOrError::NotUnicode(var) => Self::EnvInvalid(var, "contains invalid unicode".into()),
+            ConfigValueError::NotPresent(var) => Self::EnvNotFound(var),
+            ConfigValueError::NotUnicode(var) => {
+                Self::EnvInvalid(var, "contains invalid unicode".into())
+            }
         }
     }
 }

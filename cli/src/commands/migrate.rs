@@ -19,6 +19,16 @@ pub struct MigrateOptions {
     /// Verify first, then apply if checks pass
     #[arg(long)]
     pub safe: bool,
+
+    /// Reconcile a migration that was interrupted mid-apply, then continue
+    ///
+    /// Statements of the interrupted migration are classified against the live
+    /// schema: CREATE TABLE / CREATE [UNIQUE] INDEX / CREATE VIEW /
+    /// CREATE TYPE ... AS ENUM statements whose object already exists with a
+    /// matching definition are skipped, the rest are executed. Anything that
+    /// cannot be proven either way aborts with a manual-resolution list.
+    #[arg(long)]
+    pub repair: bool,
 }
 
 /// Run the migrate command.
@@ -88,6 +98,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Resu
         out_dir,
         db.migrations_table(),
         db.migrations_schema(),
+        opts.repair,
     )?;
 
     print_migration_result(&result, opts.safe);
@@ -105,6 +116,17 @@ fn validate_mutex_opts(opts: MigrateOptions) -> Result<(), CliError> {
             "--safe can't be combined with --plan".to_string(),
         ));
     }
+    // --repair applies statements; the read-only modes would silently ignore it.
+    if opts.repair && opts.verify {
+        return Err(CliError::Other(
+            "--repair can't be combined with --verify".to_string(),
+        ));
+    }
+    if opts.repair && opts.plan {
+        return Err(CliError::Other(
+            "--repair can't be combined with --plan".to_string(),
+        ));
+    }
     Ok(())
 }
 
@@ -115,6 +137,8 @@ const fn migrate_heading(opts: MigrateOptions) -> &'static str {
         "Planning migrations..."
     } else if opts.safe {
         "Running safe migration flow..."
+    } else if opts.repair {
+        "Repairing and running migrations..."
     } else {
         "Running migrations..."
     }
@@ -195,6 +219,18 @@ fn handle_plan_short_circuit(plan: &crate::db::MigrationPlan, opts: MigrateOptio
 }
 
 fn print_migration_result(result: &crate::db::MigrationResult, safe: bool) {
+    if !result.repaired_migrations.is_empty() {
+        println!(
+            "  {} {} interrupted migration(s):",
+            output::success("Repaired"),
+            result.repaired_migrations.len()
+        );
+        for tag in &result.repaired_migrations {
+            println!("    {} {}", output::label("->"), tag);
+        }
+        println!();
+    }
+
     if result.applied_count == 0 {
         println!("  {}", output::success("No pending migrations."));
     } else {

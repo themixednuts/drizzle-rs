@@ -20,7 +20,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 impl SnapshotEntity for PostgresEntity {
-    const DIALECT: &'static str = "postgres";
+    // drizzle-kit PG snapshots (and this repo's journal Dialect serde /
+    // upgrade path) use "postgresql", not "postgres". Nothing validates the
+    // string on load, so snapshots written with the old value still
+    // deserialize fine.
+    const DIALECT: &'static str = "postgresql";
     const SNAPSHOT_VERSION: &'static str = POSTGRES_SNAPSHOT_VERSION;
 }
 
@@ -131,7 +135,20 @@ impl Snapshot<PostgresEntity> {
     /// Serial columns auto-create sequences in `PostgreSQL`. These should not
     /// appear in snapshots used for diffing, otherwise the diff engine will
     /// try to DROP them (breaking the serial column) or CREATE duplicates.
+    ///
+    /// Superseded: introspection now drops auto-owned sequences at the source
+    /// using `pg_depend` ownership (see `process_sequences`), which — unlike
+    /// this name-pattern heuristic — cannot misclassify a hand-managed
+    /// sequence that happens to be named `*_seq`. Kept for callers holding
+    /// snapshots from other origins.
     pub fn filter_serial_sequences(&mut self) {
+        self.filter_serial_sequences_except(&HashSet::new());
+    }
+
+    /// Like [`Self::filter_serial_sequences`], but sequences in `keep` are
+    /// exempt from the name-pattern heuristic — a sequence the desired schema
+    /// explicitly declares is hand-managed, no matter what it's named.
+    pub fn filter_serial_sequences_except(&mut self, keep: &HashSet<(String, String)>) {
         // Collect (schema, seq_name) pairs referenced by serial column defaults
         let serial_seqs: HashSet<(String, String)> = self
             .ddl
@@ -151,7 +168,8 @@ impl Snapshot<PostgresEntity> {
         if !serial_seqs.is_empty() {
             self.ddl.retain(|e| {
                 if let PostgresEntity::Sequence(s) = e {
-                    !serial_seqs.contains(&(s.schema.to_string(), s.name.to_string()))
+                    let key = (s.schema.to_string(), s.name.to_string());
+                    keep.contains(&key) || !serial_seqs.contains(&key)
                 } else {
                     true
                 }
@@ -167,6 +185,12 @@ impl Snapshot<PostgresEntity> {
     /// - Strips `ordinal_position` from all columns (desired snapshots don't
     ///   have it but introspected ones do).
     pub fn normalize_columns_for_push(&mut self) {
+        // Sequences still present as entities are real standalone sequences
+        // (introspection already dropped serial/identity-owned ones); a
+        // column defaulting to nextval() on one of them is NOT a serial
+        // column and must keep its explicit default.
+        let standalone_seqs = self.sequence_names();
+
         for entity in &mut self.ddl {
             if let PostgresEntity::Column(c) = entity {
                 // Strip fields that only appear in introspection
@@ -178,6 +202,8 @@ impl Snapshot<PostgresEntity> {
                 // Detect serial pattern: integer type + nextval() default
                 if let Some(ref default) = c.default
                     && is_serial_expression(default, &c.schema)
+                    && !extract_nextval_sequence(default)
+                        .is_some_and(|seq| standalone_seqs.contains(&(c.schema.to_string(), seq)))
                 {
                     let serial_type = match c.sql_type.as_ref() {
                         "int4" | "integer" => Some("SERIAL"),
@@ -192,6 +218,37 @@ impl Snapshot<PostgresEntity> {
                 }
             }
         }
+    }
+
+    /// Extract the set of `(schema, name)` pairs for sequence entities in
+    /// this snapshot.
+    #[must_use]
+    pub fn sequence_names(&self) -> HashSet<(String, String)> {
+        self.ddl
+            .iter()
+            .filter_map(|e| {
+                if let PostgresEntity::Sequence(s) = e {
+                    Some((s.schema.to_string(), s.name.to_string()))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Keep only sequence entities whose `(schema, name)` is in `managed`.
+    ///
+    /// Push uses this to leave hand-managed sequences alone: a live sequence
+    /// the desired schema doesn't declare is unmanaged — dropping it would be
+    /// destructive, and it must not produce a diff at all.
+    pub fn retain_sequences(&mut self, managed: &HashSet<(String, String)>) {
+        self.ddl.retain(|e| {
+            if let PostgresEntity::Sequence(s) = e {
+                managed.contains(&(s.schema.to_string(), s.name.to_string()))
+            } else {
+                true
+            }
+        });
     }
 
     /// Extract the set of `(schema, table_name)` pairs in this snapshot.
@@ -222,16 +279,26 @@ impl Snapshot<PostgresEntity> {
 
     /// Prepare a live (introspected) snapshot for push comparison against `desired`.
     ///
-    /// Combines three normalization steps into a single call:
+    /// Combines four normalization steps into a single call:
     /// 1. Scope to only tables present in `desired` (avoids DROP for unmanaged tables)
-    /// 2. Filter serial-owned sequences (they're auto-managed by `PostgreSQL`)
-    /// 3. Normalize columns (int4+nextval→SERIAL, strip `ordinal_position`)
+    /// 2. Drop serial-pattern sequences NOT declared by `desired`. Live
+    ///    introspection already excludes serial/identity-owned sequences via
+    ///    `pg_depend`, but snapshots from other origins may still carry them;
+    ///    a sequence `desired` declares is hand-managed and must survive so
+    ///    the serial detection below leaves its column's default alone.
+    /// 3. Normalize columns (int4+nextval→SERIAL, strip `ordinal_position`) —
+    ///    a nextval() default on a sequence that survives step 2 (a real
+    ///    standalone sequence) is not mistaken for a serial column
+    /// 4. Scope sequences to the ones `desired` declares (unmanaged
+    ///    standalone sequences must be left alone, not dropped)
     #[must_use]
     pub fn prepare_for_push(&self, desired: &Self) -> Self {
         let tables = desired.table_names();
+        let managed = desired.sequence_names();
         let mut scoped = self.scoped_to_tables(&tables);
-        scoped.filter_serial_sequences();
+        scoped.filter_serial_sequences_except(&managed);
         scoped.normalize_columns_for_push();
+        scoped.retain_sequences(&managed);
         scoped
     }
 }
@@ -254,7 +321,7 @@ pub struct Meta {
 /// Legacy V7 Snapshot for reading compatibility
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct PostgresSnapshotV7 {
+pub struct SnapshotV7 {
     pub version: String,
     pub dialect: String,
     pub id: String,
@@ -315,7 +382,7 @@ mod tests {
     fn test_new_snapshot() {
         let snapshot = PostgresSnapshot::new();
         assert_eq!(snapshot.version, "8");
-        assert_eq!(snapshot.dialect, "postgres");
+        assert_eq!(snapshot.dialect, "postgresql");
         assert_eq!(snapshot.prev_ids, vec![ORIGIN_UUID]);
         assert!(snapshot.ddl.is_empty());
         assert!(snapshot.renames.is_empty());
@@ -496,6 +563,83 @@ mod tests {
         assert!(col.default.is_none());
         assert!(col.ordinal_position.is_none());
         assert!(col.type_schema.is_none());
+    }
+
+    #[test]
+    fn test_prepare_for_push_keeps_declared_hand_managed_sequence() {
+        // A standalone sequence with a serial-shaped name, used as an
+        // explicit column default. Because `desired` declares it, the
+        // name-pattern heuristic must not eat it and the column must NOT be
+        // rewritten to SERIAL.
+        let mut live = PostgresSnapshot::new();
+        live.add_entity(PostgresEntity::Schema(Schema::new("public")));
+        live.add_entity(make_table("public", "invoices"));
+        let mut col = make_column("public", "invoices", "number", "int8");
+        col.default = Some("nextval('invoices_number_seq'::regclass)".into());
+        live.add_entity(PostgresEntity::Column(col));
+        live.add_entity(make_sequence("public", "invoices_number_seq"));
+
+        let mut desired = PostgresSnapshot::new();
+        desired.add_entity(make_table("public", "invoices"));
+        desired.add_entity(make_sequence("public", "invoices_number_seq"));
+
+        let result = live.prepare_for_push(&desired);
+
+        let seq_count = result
+            .ddl
+            .iter()
+            .filter(|e| matches!(e, PostgresEntity::Sequence(_)))
+            .count();
+        assert_eq!(seq_count, 1, "declared hand-managed sequence must survive");
+
+        let col = result
+            .ddl
+            .iter()
+            .find_map(|e| {
+                if let PostgresEntity::Column(c) = e {
+                    Some(c)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        assert_eq!(
+            col.sql_type.as_ref(),
+            "int8",
+            "column on a hand-managed sequence must not become BIGSERIAL"
+        );
+        assert!(
+            col.default.is_some(),
+            "explicit nextval default must remain"
+        );
+    }
+
+    #[test]
+    fn test_prepare_for_push_drops_unmanaged_standalone_sequence() {
+        // A live standalone sequence the desired schema does not declare is
+        // unmanaged: it must vanish from the comparison entirely (no DROP
+        // SEQUENCE diff), and since introspection guarantees it is not
+        // serial-owned, its referencing column keeps its default only if the
+        // sequence was declared — here it is not, so serial detection applies.
+        let mut live = PostgresSnapshot::new();
+        live.add_entity(PostgresEntity::Schema(Schema::new("public")));
+        live.add_entity(make_table("public", "users"));
+        live.add_entity(make_sequence("public", "audit_seq"));
+
+        let mut desired = PostgresSnapshot::new();
+        desired.add_entity(make_table("public", "users"));
+
+        let result = live.prepare_for_push(&desired);
+
+        let seq_count = result
+            .ddl
+            .iter()
+            .filter(|e| matches!(e, PostgresEntity::Sequence(_)))
+            .count();
+        assert_eq!(
+            seq_count, 0,
+            "unmanaged sequence must not enter the diff at all"
+        );
     }
 
     #[test]

@@ -11,10 +11,10 @@
 //!
 //! No journal file is used - migrations are discovered by scanning folders.
 
-use crate::sqlite::statements::SqliteGenerator;
+use crate::naming::{PrefixMode, generate_migration_tag, validate_migration_name};
+use crate::sqlite::statements::Generator as SqliteGenerator;
 use crate::sqlite::{SQLiteSnapshot, SchemaDiff as SqliteSchemaDiff};
 use crate::version::ORIGIN_UUID;
-use crate::words::{PrefixMode, generate_migration_tag, validate_migration_name};
 use drizzle_types::Dialect;
 
 use std::fs;
@@ -190,8 +190,9 @@ impl Writer {
             .filter(|entry| entry.file_type().is_ok_and(|t| t.is_dir()))
             .filter_map(|entry| {
                 let name = entry.file_name().to_string_lossy().to_string();
-                // Check if it has a snapshot.json (indicates it's a migration folder)
-                if entry.path().join("snapshot.json").exists() {
+                // migration.sql marks a migration folder; custom migrations
+                // have no snapshot.json but still occupy an index slot.
+                if entry.path().join("migration.sql").exists() {
                     Some(name)
                 } else {
                     None
@@ -212,16 +213,16 @@ impl Writer {
     pub fn load_previous_snapshot(&self) -> io::Result<SQLiteSnapshot> {
         let migrations = self.discover_migrations()?;
 
-        let Some(last_tag) = migrations.last() else {
-            return Ok(SQLiteSnapshot::new());
-        };
-        let snapshot_path = self.snapshot_path(last_tag);
-
-        if snapshot_path.exists() {
-            SQLiteSnapshot::load(&snapshot_path)
-        } else {
-            Ok(SQLiteSnapshot::new())
+        // The newest folder with a snapshot is the baseline; snapshot-less
+        // custom migrations in between must not reset it to empty.
+        for tag in migrations.iter().rev() {
+            let snapshot_path = self.snapshot_path(tag);
+            if snapshot_path.exists() {
+                return SQLiteSnapshot::load(&snapshot_path);
+            }
         }
+
+        Ok(SQLiteSnapshot::new())
     }
 
     /// Write a `SQLite` migration in V3 folder format.
@@ -249,7 +250,7 @@ impl Writer {
         // Generate tag
         let tag = match self.prefix_mode {
             PrefixMode::Timestamp => generate_migration_tag(self.custom_name.as_deref()),
-            _ => crate::words::generate_migration_tag_with_mode(
+            _ => crate::naming::generate_migration_tag_with_mode(
                 self.prefix_mode,
                 idx,
                 self.custom_name.as_deref(),
@@ -331,7 +332,7 @@ impl Writer {
         // Generate tag
         let tag = match self.prefix_mode {
             PrefixMode::Timestamp => generate_migration_tag(self.custom_name.as_deref()),
-            _ => crate::words::generate_migration_tag_with_mode(
+            _ => crate::naming::generate_migration_tag_with_mode(
                 self.prefix_mode,
                 idx,
                 self.custom_name.as_deref(),

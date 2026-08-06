@@ -217,9 +217,9 @@ fn postgres_sync_runtime_migrate_upgrades_legacy_tracking_table() {
     let name: String = row.get(0);
     let applied_at: Option<String> = row.get(1);
     assert_eq!(name, "20230331141203_runtime_first");
-    assert_eq!(
-        applied_at, None,
-        "backfilled legacy rows keep NULL applied_at"
+    assert!(
+        applied_at.is_some(),
+        "legacy rows get applied_at backfilled so they cannot read as interrupted"
     );
 
     let migrated_table_exists = crate::common::helpers::postgres_sync_setup::table_exists(
@@ -406,9 +406,9 @@ async fn tokio_postgres_runtime_migrate_upgrades_legacy_tracking_table() {
     let name: String = row.get(0);
     let applied_at: Option<String> = row.get(1);
     assert_eq!(name, "20230331141203_runtime_first");
-    assert_eq!(
-        applied_at, None,
-        "backfilled legacy rows keep NULL applied_at"
+    assert!(
+        applied_at.is_some(),
+        "legacy rows get applied_at backfilled so they cannot read as interrupted"
     );
 
     let migrated_table_exists = crate::common::helpers::tokio_postgres_setup::table_exists(
@@ -612,4 +612,267 @@ async fn tokio_postgres_push_table_is_usable() {
         .expect("select from pushed table")
         .get(0);
     assert_eq!(label, "hello");
+}
+
+// ============================================================================
+// Partial-migration recovery (CONCURRENTLY path)
+// ============================================================================
+//
+// A migration containing CREATE INDEX CONCURRENTLY cannot run in a
+// transaction, so its statements execute autocommit. Two-phase tracking marks
+// the migration dirty before the first statement and stamps `applied_at` only
+// after the last one, so a crash in between leaves a recoverable dirty row
+// instead of an untracked partial schema.
+
+#[cfg(feature = "postgres-sync")]
+#[test]
+fn postgres_sync_concurrent_migration_uses_two_phase_tracking() {
+    let mut db =
+        crate::common::helpers::postgres_sync_setup::setup_empty_named("two_phase_sync_test");
+    let schema_name = db.schema_name().to_string();
+    let tracking = Tracking::POSTGRES.schema(schema_name.clone());
+
+    let migration = Migration::new(
+        "20260801000000_concurrent",
+        &format!(
+            "CREATE TABLE \"{schema_name}\".two_phase_items (id INTEGER PRIMARY KEY, label TEXT);\n\
+             --> statement-breakpoint\n\
+             CREATE INDEX CONCURRENTLY two_phase_items_label_idx \
+             ON \"{schema_name}\".two_phase_items (label);"
+        ),
+    );
+
+    let outcome = db
+        .migrate(std::slice::from_ref(&migration), tracking.clone())
+        .expect("concurrent migration");
+    assert_eq!(outcome.applied_tags(), ["20260801000000_concurrent"]);
+
+    // Phase 3 ran: the row is complete, not dirty.
+    let dirty: i64 = db
+        .conn_mut()
+        .query_one(
+            &format!(
+                "SELECT COUNT(*) FROM \"{schema_name}\".\"__drizzle_migrations\" \
+                 WHERE applied_at IS NULL"
+            ),
+            &[],
+        )
+        .expect("count dirty rows")
+        .get(0);
+    assert_eq!(dirty, 0, "a completed migration must not stay dirty");
+
+    let outcome = db.migrate(&[migration], tracking).expect("second migrate");
+    assert!(outcome.is_up_to_date());
+}
+
+#[cfg(feature = "postgres-sync")]
+#[test]
+fn postgres_sync_repair_finishes_an_interrupted_concurrent_migration() {
+    let mut db = crate::common::helpers::postgres_sync_setup::setup_empty_named("repair_sync_test");
+    let schema_name = db.schema_name().to_string();
+    let tracking = Tracking::POSTGRES.schema(schema_name.clone());
+
+    let migration = Migration::new(
+        "20260801000001_interrupted",
+        &format!(
+            "CREATE TABLE \"{schema_name}\".repair_items (id INTEGER PRIMARY KEY, label TEXT);\n\
+             --> statement-breakpoint\n\
+             CREATE INDEX CONCURRENTLY repair_items_label_idx \
+             ON \"{schema_name}\".repair_items (label);"
+        ),
+    );
+    let set = drizzle_migrations::Migrations::with_tracking(
+        vec![migration.clone()],
+        drizzle_types::Dialect::PostgreSQL,
+        tracking.clone(),
+    );
+
+    // Reproduce the incident: schema + tracking table, phase-1 dirty marker,
+    // first statement applied, then "crash" before phase 3.
+    if let Some(schema_sql) = set.create_schema_sql() {
+        db.conn_mut()
+            .execute(schema_sql.as_str(), &[])
+            .expect("create tracking schema");
+    }
+    db.conn_mut()
+        .execute(set.create_table_sql().as_str(), &[])
+        .expect("create tracking table");
+    db.conn_mut()
+        .execute(set.record_migration_started_sql(&migration).as_str(), &[])
+        .expect("record migration started");
+    db.conn_mut()
+        .execute(migration.statements()[0].as_str(), &[])
+        .expect("apply first statement");
+
+    // Plain migrate() refuses and names the interrupted migration.
+    let error = db
+        .migrate(std::slice::from_ref(&migration), tracking.clone())
+        .expect_err("a dirty tracking row must block migration");
+    let text = error.to_string();
+    assert!(text.contains("20260801000001_interrupted"), "{text}");
+    assert!(text.contains("interrupted mid-apply"), "{text}");
+    assert!(text.contains("--repair"), "{text}");
+
+    // Repair proves statement 1 already landed, runs statement 2, clears the
+    // marker.
+    let outcome = db
+        .migrate_with_repair(std::slice::from_ref(&migration), tracking.clone())
+        .expect("repair should reconcile the interrupted migration");
+    assert_eq!(outcome.applied_tags(), ["20260801000001_interrupted"]);
+
+    let index_exists: i64 = db
+        .conn_mut()
+        .query_one(
+            "SELECT COUNT(*) FROM pg_indexes WHERE schemaname = $1 AND indexname = $2",
+            &[&schema_name, &"repair_items_label_idx"],
+        )
+        .expect("count index")
+        .get(0);
+    assert_eq!(
+        index_exists, 1,
+        "repair must run the statement that never landed"
+    );
+
+    let outcome = db.migrate(&[migration], tracking).expect("second migrate");
+    assert!(
+        outcome.is_up_to_date(),
+        "repaired migration must count as applied: {outcome:?}"
+    );
+}
+
+#[cfg(feature = "postgres-sync")]
+#[test]
+fn postgres_sync_repair_refuses_statements_it_cannot_prove() {
+    let mut db =
+        crate::common::helpers::postgres_sync_setup::setup_empty_named("repair_refuse_sync_test");
+    let schema_name = db.schema_name().to_string();
+    let tracking = Tracking::POSTGRES.schema(schema_name.clone());
+
+    db.conn_mut()
+        .execute(
+            &format!("CREATE TABLE \"{schema_name}\".refuse_items (id INTEGER PRIMARY KEY)"),
+            &[],
+        )
+        .expect("seed table");
+
+    // The interrupted migration leads with an ALTER: repair cannot tell
+    // whether it ran, so it must refuse instead of guessing.
+    let migration = Migration::new(
+        "20260801000002_unprovable",
+        &format!(
+            "ALTER TABLE \"{schema_name}\".refuse_items ADD COLUMN note TEXT;\n\
+             --> statement-breakpoint\n\
+             CREATE INDEX CONCURRENTLY refuse_items_note_idx \
+             ON \"{schema_name}\".refuse_items (note);"
+        ),
+    );
+    let set = drizzle_migrations::Migrations::with_tracking(
+        vec![migration.clone()],
+        drizzle_types::Dialect::PostgreSQL,
+        tracking.clone(),
+    );
+
+    if let Some(schema_sql) = set.create_schema_sql() {
+        db.conn_mut()
+            .execute(schema_sql.as_str(), &[])
+            .expect("create tracking schema");
+    }
+    db.conn_mut()
+        .execute(set.create_table_sql().as_str(), &[])
+        .expect("create tracking table");
+    db.conn_mut()
+        .execute(set.record_migration_started_sql(&migration).as_str(), &[])
+        .expect("record migration started");
+
+    let error = db
+        .migrate_with_repair(&[migration], tracking)
+        .expect_err("an unprovable statement must not be silently skipped or re-run");
+    let text = error.to_string();
+    assert!(text.contains("cannot repair"), "{text}");
+    assert!(text.contains("statement 1"), "{text}");
+    assert!(text.contains("UPDATE"), "manual completion SQL: {text}");
+
+    let index_exists: i64 = db
+        .conn_mut()
+        .query_one(
+            "SELECT COUNT(*) FROM pg_indexes WHERE schemaname = $1 AND indexname = $2",
+            &[&schema_name, &"refuse_items_note_idx"],
+        )
+        .expect("count index")
+        .get(0);
+    assert_eq!(index_exists, 0, "a refused repair must not apply anything");
+}
+
+#[cfg(feature = "tokio-postgres")]
+#[tokio::test]
+async fn tokio_postgres_repair_finishes_an_interrupted_concurrent_migration() {
+    let mut db =
+        crate::common::helpers::tokio_postgres_setup::setup_empty_named("repair_tokio_test").await;
+    let schema_name = db.schema_name().to_string();
+    let tracking = Tracking::POSTGRES.schema(schema_name.clone());
+
+    let migration = Migration::new(
+        "20260801000003_interrupted",
+        &format!(
+            "CREATE TABLE \"{schema_name}\".repair_async_items (id INTEGER PRIMARY KEY, label TEXT);\n\
+             --> statement-breakpoint\n\
+             CREATE INDEX CONCURRENTLY repair_async_items_label_idx \
+             ON \"{schema_name}\".repair_async_items (label);"
+        ),
+    );
+    let set = drizzle_migrations::Migrations::with_tracking(
+        vec![migration.clone()],
+        drizzle_types::Dialect::PostgreSQL,
+        tracking.clone(),
+    );
+
+    if let Some(schema_sql) = set.create_schema_sql() {
+        db.conn()
+            .execute(schema_sql.as_str(), &[])
+            .await
+            .expect("create tracking schema");
+    }
+    db.conn()
+        .execute(set.create_table_sql().as_str(), &[])
+        .await
+        .expect("create tracking table");
+    db.conn()
+        .execute(set.record_migration_started_sql(&migration).as_str(), &[])
+        .await
+        .expect("record migration started");
+    db.conn()
+        .execute(migration.statements()[0].as_str(), &[])
+        .await
+        .expect("apply first statement");
+
+    let error = db
+        .migrate(std::slice::from_ref(&migration), tracking.clone())
+        .await
+        .expect_err("a dirty tracking row must block migration");
+    let text = error.to_string();
+    assert!(text.contains("20260801000003_interrupted"), "{text}");
+    assert!(text.contains("interrupted mid-apply"), "{text}");
+
+    let outcome = db
+        .migrate_with_repair(std::slice::from_ref(&migration), tracking.clone())
+        .await
+        .expect("repair should reconcile the interrupted migration");
+    assert_eq!(outcome.applied_tags(), ["20260801000003_interrupted"]);
+
+    let index_exists: i64 = db
+        .conn()
+        .query_one(
+            "SELECT COUNT(*) FROM pg_indexes WHERE schemaname = $1 AND indexname = $2",
+            &[&schema_name, &"repair_async_items_label_idx"],
+        )
+        .await
+        .expect("count index")
+        .get(0);
+    assert_eq!(index_exists, 1);
+
+    let outcome = db
+        .migrate(&[migration], tracking)
+        .await
+        .expect("second migrate");
+    assert!(outcome.is_up_to_date());
 }

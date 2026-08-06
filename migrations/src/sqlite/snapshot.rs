@@ -70,7 +70,7 @@ pub struct ColumnInternal {
 /// Legacy `SQLite` schema snapshot - v6 format (for reading old snapshots)
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct SQLiteSnapshotV6 {
+pub struct SnapshotV6 {
     /// Schema version ("6")
     pub version: String,
     /// Dialect identifier

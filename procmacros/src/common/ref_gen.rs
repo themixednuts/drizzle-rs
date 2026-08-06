@@ -45,8 +45,8 @@ pub struct ColumnRefInput {
 
 /// Foreign key metadata for `TABLE_REF` generation.
 pub struct ForeignKeyRefInput {
-    /// Constraint name.
-    pub name: String,
+    /// Constraint name expression (may concatenate referenced-table consts).
+    pub name: TokenStream,
     /// Whether the constraint name was explicit.
     pub name_explicit: bool,
     /// Source columns in this table.
@@ -55,8 +55,10 @@ pub struct ForeignKeyRefInput {
     pub target_schema: TokenStream,
     /// Target table name expression (may use associated const).
     pub target_table: TokenStream,
-    /// Target columns in the referenced table.
-    pub target_columns: Vec<String>,
+    /// Target column name expressions in the referenced table (may use the
+    /// referenced column's `SQLSchema::NAME` const so explicit
+    /// `#[column(name = "...")]` renames resolve correctly).
+    pub target_columns: Vec<TokenStream>,
     /// ON DELETE action.
     pub on_delete: Option<String>,
     /// ON UPDATE action.

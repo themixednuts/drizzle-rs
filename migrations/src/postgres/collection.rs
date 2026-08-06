@@ -349,13 +349,14 @@ fn diff_top_level_entities(left: &PostgresDDL, right: &PostgresDDL, diffs: &mut 
         EntityKind::Enum,
         diffs,
     );
-    diff_entity_type(
+    diff_entity_type_with(
         left.sequences.list(),
         right.sequences.list(),
         |e| format!("{}.{}", e.schema, e.name),
         |e| PostgresEntity::Sequence(e.clone()),
         EntityKind::Sequence,
         diffs,
+        sequences_equivalent,
     );
     diff_entity_type(
         left.roles.list(),
@@ -374,13 +375,14 @@ fn diff_top_level_entities(left: &PostgresDDL, right: &PostgresDDL, diffs: &mut 
         diffs,
         tables_equivalent,
     );
-    diff_entity_type(
+    diff_entity_type_with(
         left.views.list(),
         right.views.list(),
         |e| format!("{}.{}", e.schema, e.name),
         |e| PostgresEntity::View(e.clone()),
         EntityKind::View,
         diffs,
+        views_equivalent,
     );
 }
 
@@ -394,13 +396,14 @@ fn diff_table_entities(left: &PostgresDDL, right: &PostgresDDL, diffs: &mut Vec<
         diffs,
         columns_equivalent,
     );
-    diff_entity_type(
+    diff_entity_type_with(
         left.indexes.list(),
         right.indexes.list(),
         |e| format!("{}.{}", e.schema, e.name),
         |e| PostgresEntity::Index(e.clone()),
         EntityKind::Index,
         diffs,
+        indexes_equivalent,
     );
     diff_entity_type_with(
         left.fks.list(),
@@ -411,29 +414,32 @@ fn diff_table_entities(left: &PostgresDDL, right: &PostgresDDL, diffs: &mut Vec<
         diffs,
         foreign_keys_equivalent,
     );
-    diff_entity_type(
+    diff_entity_type_with(
         left.pks.list(),
         right.pks.list(),
         |e| format!("{}.{}", e.schema, e.name),
         |e| PostgresEntity::PrimaryKey(e.clone()),
         EntityKind::PrimaryKey,
         diffs,
+        pks_equivalent,
     );
-    diff_entity_type(
+    diff_entity_type_with(
         left.uniques.list(),
         right.uniques.list(),
         |e| format!("{}.{}", e.schema, e.name),
         |e| PostgresEntity::UniqueConstraint(e.clone()),
         EntityKind::UniqueConstraint,
         diffs,
+        uniques_equivalent,
     );
-    diff_entity_type(
+    diff_entity_type_with(
         left.checks.list(),
         right.checks.list(),
         |e| format!("{}.{}", e.schema, e.name),
         |e| PostgresEntity::CheckConstraint(e.clone()),
         EntityKind::CheckConstraint,
         diffs,
+        checks_equivalent,
     );
     diff_entity_type_with(
         left.policies.list(),
@@ -539,7 +545,7 @@ fn tables_equivalent(left: &Table, right: &Table) -> bool {
     left == right
 }
 
-fn columns_equivalent(left: &Column, right: &Column) -> bool {
+pub(crate) fn columns_equivalent(left: &Column, right: &Column) -> bool {
     let mut left = left.clone();
     let mut right = right.clone();
     left.sql_type = Cow::Owned(normalize_column_type_for_compare(&left));
@@ -548,6 +554,206 @@ fn columns_equivalent(left: &Column, right: &Column) -> bool {
     right.dimensions = None;
     left.ordinal_position = None;
     right.ordinal_position = None;
+    left.default = left
+        .default
+        .as_deref()
+        .map(|default| Cow::Owned(normalize_default_for_compare(default)));
+    right.default = right
+        .default
+        .as_deref()
+        .map(|default| Cow::Owned(normalize_default_for_compare(default)));
+    normalize_identity_for_compare(&mut left);
+    normalize_identity_for_compare(&mut right);
+    left == right
+}
+
+/// Fill unset identity sequence options with `PostgreSQL`'s defaults so a
+/// schema-defined identity (options omitted) compares equal to the same
+/// column introspected from the database (options materialized).
+fn normalize_identity_for_compare(column: &mut Column) {
+    use super::grammar::IdentityDefaults;
+
+    let sql_type = normalize_type_for_compare(&column.sql_type);
+    if let Some(identity) = column.identity.as_mut() {
+        if identity.increment.is_none() {
+            identity.increment = Some(Cow::Borrowed(IdentityDefaults::INCREMENT));
+        }
+        if identity.start_with.is_none() {
+            identity.start_with = Some(Cow::Borrowed(IdentityDefaults::START_WITH));
+        }
+        if identity.min_value.is_none() {
+            // Ascending identity sequences default to MINVALUE 1 (not the
+            // type minimum).
+            identity.min_value = Some(Cow::Borrowed(IdentityDefaults::MIN));
+        }
+        if identity.max_value.is_none() {
+            identity.max_value = Some(Cow::Borrowed(IdentityDefaults::max_for(&sql_type)));
+        }
+        if identity.cache.is_none() {
+            identity.cache = Some(IdentityDefaults::CACHE);
+        }
+        identity.cycle = Some(identity.cycle.unwrap_or(IdentityDefaults::CYCLE));
+    }
+}
+
+/// Normalize a column default for comparison: strip trailing `::type` casts
+/// that `PostgreSQL` appends when it stores the expression, so
+/// `'active'::text` compares equal to `'active'` and `'{}'::jsonb` to
+/// `'{}'`. Non-cast defaults compare exactly.
+pub(crate) fn normalize_default_for_compare(default: &str) -> String {
+    let mut value = default.trim();
+    while let Some(stripped) = strip_trailing_cast(value) {
+        value = stripped;
+    }
+    value.to_string()
+}
+
+/// Strip one trailing `::type` cast if — and only if — the `::` sits outside
+/// any single-quoted literal and everything after it is a plain type name
+/// (identifier characters, spaces, digits, parentheses, and `[]`).
+fn strip_trailing_cast(value: &str) -> Option<&str> {
+    let bytes = value.as_bytes();
+    let mut in_quotes = false;
+    let mut cast_pos = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\'' => in_quotes = !in_quotes,
+            b':' if !in_quotes && i + 1 < bytes.len() && bytes[i + 1] == b':' => {
+                cast_pos = Some(i);
+                i += 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    let cast_pos = cast_pos?;
+    let suffix = &value[cast_pos + 2..];
+    let is_type_name = !suffix.is_empty()
+        && suffix.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '_' | ' ' | '(' | ')' | ',' | '[' | ']' | '"')
+        });
+    if is_type_name {
+        Some(value[..cast_pos].trim_end())
+    } else {
+        None
+    }
+}
+
+/// Compare check constraints with normalized expressions, so the introspected
+/// `CHECK ((age > 18))` form compares equal to the schema's `age > 18`.
+fn checks_equivalent(left: &CheckConstraint, right: &CheckConstraint) -> bool {
+    left.schema == right.schema
+        && left.table == right.table
+        && left.name == right.name
+        && normalize_check_expression(&left.value) == normalize_check_expression(&right.value)
+}
+
+pub(crate) fn normalize_check_expression(value: &str) -> String {
+    let value = super::grammar::parse_check_definition(value);
+    let mut value = collapse_sql_whitespace(&value);
+    while let Some(stripped) = strip_outer_parens(&value) {
+        value = stripped.to_string();
+    }
+    value
+}
+
+/// Strip one pair of outer parentheses when they wrap the entire expression.
+fn strip_outer_parens(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    let inner = trimmed.strip_prefix('(')?.strip_suffix(')')?;
+    // Ensure the leading paren matches the trailing one — `(a) AND (b)`
+    // must not become `a) AND (b`.
+    let mut depth = 0_i32;
+    for ch in inner.chars() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth < 0 {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+    Some(inner.trim())
+}
+
+/// Compare views with normalized definitions (whitespace collapsed, trailing
+/// semicolon removed) so cosmetic formatting differences don't trigger a
+/// drop-and-recreate.
+///
+/// Note: `pg_get_viewdef` re-qualifies column references, so an introspected
+/// definition can still differ textually from the schema's definition even
+/// when semantically identical. drizzle-kit handles this by skipping the
+/// definition comparison entirely in *push* mode; our diff engine has no
+/// push/generate distinction yet, so we keep comparing (a definition edit in
+/// the schema must still produce a migration) and only normalize
+/// conservatively.
+fn views_equivalent(left: &View, right: &View) -> bool {
+    let mut left = left.clone();
+    let mut right = right.clone();
+    left.definition = left
+        .definition
+        .as_deref()
+        .map(|definition| Cow::Owned(super::grammar::parse_view_definition(definition)));
+    right.definition = right
+        .definition
+        .as_deref()
+        .map(|definition| Cow::Owned(super::grammar::parse_view_definition(definition)));
+    left == right
+}
+
+/// Compare indexes with NULLS ordering normalized to `PostgreSQL`'s
+/// defaults: `DESC` implies `NULLS FIRST`, `ASC` implies `NULLS LAST`. A
+/// schema-side `col DESC` (with `nulls_first` unset/false) must compare
+/// equal to the introspected column, which records the effective
+/// `nulls_first = true`.
+fn indexes_equivalent(left: &Index, right: &Index) -> bool {
+    let mut left = left.clone();
+    let mut right = right.clone();
+    for index in [&mut left, &mut right] {
+        for column in &mut index.columns {
+            if !column.asc && !column.nulls_first {
+                // DESC without explicit NULLS LAST defaults to NULLS FIRST;
+                // both spellings behave identically, so compare them equal.
+                column.nulls_first = true;
+            }
+        }
+        if index.method.is_none() {
+            index.method = Some(Cow::Borrowed("btree"));
+        }
+    }
+    left == right
+}
+
+/// Compare sequences with unset options normalized to `PostgreSQL`'s
+/// defaults, so a schema-defined `CREATE SEQUENCE` with no options compares
+/// equal to its introspected counterpart (which materializes every option).
+fn sequences_equivalent(left: &Sequence, right: &Sequence) -> bool {
+    let mut left = left.clone();
+    let mut right = right.clone();
+    for sequence in [&mut left, &mut right] {
+        if sequence.increment_by.is_none() {
+            sequence.increment_by = Some(Cow::Borrowed("1"));
+        }
+        if sequence.start_with.is_none() {
+            sequence.start_with = Some(Cow::Borrowed("1"));
+        }
+        if sequence.min_value.is_none() {
+            sequence.min_value = Some(Cow::Borrowed("1"));
+        }
+        if sequence.max_value.is_none() {
+            // Sequences default to bigint range.
+            sequence.max_value = Some(Cow::Borrowed("9223372036854775807"));
+        }
+        if sequence.cache_size.is_none() {
+            sequence.cache_size = Some(1);
+        }
+        sequence.cycle = Some(sequence.cycle.unwrap_or(false));
+    }
     left == right
 }
 
@@ -558,6 +764,28 @@ fn foreign_keys_equivalent(left: &ForeignKey, right: &ForeignKey) -> bool {
     left.on_update = normalize_fk_action(left.on_update.as_deref());
     right.on_delete = normalize_fk_action(right.on_delete.as_deref());
     right.on_update = normalize_fk_action(right.on_update.as_deref());
+    // `name_explicit` is provenance metadata (introspection always says true,
+    // macros say false for default names), not DDL semantics.
+    left.name_explicit = false;
+    right.name_explicit = false;
+    left == right
+}
+
+fn pks_equivalent(left: &PrimaryKey, right: &PrimaryKey) -> bool {
+    let mut left = left.clone();
+    let mut right = right.clone();
+    // See foreign_keys_equivalent: name_explicit is provenance, not DDL.
+    left.name_explicit = false;
+    right.name_explicit = false;
+    left == right
+}
+
+fn uniques_equivalent(left: &UniqueConstraint, right: &UniqueConstraint) -> bool {
+    let mut left = left.clone();
+    let mut right = right.clone();
+    // See foreign_keys_equivalent: name_explicit is provenance, not DDL.
+    left.name_explicit = false;
+    right.name_explicit = false;
     left == right
 }
 
@@ -605,7 +833,7 @@ fn collapse_sql_whitespace(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn normalize_pg_type_for_compare(sql_type: &str) -> String {
+fn normalize_type_for_compare(sql_type: &str) -> String {
     let mut ty = collapse_sql_whitespace(&sql_type.trim().to_ascii_lowercase());
     let mut dimensions = String::new();
 
@@ -636,6 +864,11 @@ fn normalize_pg_type_for_compare(sql_type: &str) -> String {
         _ if ty.starts_with("varchar") || ty.starts_with("character varying") => {
             format!("character varying{params}")
         }
+        // `character varying` was handled above, so any remaining
+        // char-family spelling (char, character, bpchar) is fixed-width.
+        _ if ty.starts_with("bpchar") || ty.starts_with("character") || ty.starts_with("char") => {
+            format!("character{params}")
+        }
         _ => match super::grammar::PgTypeCategory::from_sql_type(&ty) {
             super::grammar::PgTypeCategory::SmallInt => "smallint".to_string(),
             super::grammar::PgTypeCategory::Integer => "integer".to_string(),
@@ -643,6 +876,7 @@ fn normalize_pg_type_for_compare(sql_type: &str) -> String {
             super::grammar::PgTypeCategory::Boolean => "boolean".to_string(),
             super::grammar::PgTypeCategory::Text => "text".to_string(),
             super::grammar::PgTypeCategory::Varchar => format!("character varying{params}"),
+            super::grammar::PgTypeCategory::Numeric => format!("numeric{params}"),
             super::grammar::PgTypeCategory::TimestampTz => "timestamp with time zone".to_string(),
             super::grammar::PgTypeCategory::Timestamp => "timestamp".to_string(),
             super::grammar::PgTypeCategory::TimeTz => "time with time zone".to_string(),
@@ -654,7 +888,7 @@ fn normalize_pg_type_for_compare(sql_type: &str) -> String {
     format!("{canonical}{dimensions}")
 }
 
-fn normalize_column_type_for_compare(column: &Column) -> String {
+pub(crate) fn normalize_column_type_for_compare(column: &Column) -> String {
     let mut sql_type = column.sql_type.to_string();
     if let Some(dimensions) = column.dimensions
         && dimensions > 0
@@ -663,7 +897,7 @@ fn normalize_column_type_for_compare(column: &Column) -> String {
             sql_type.push_str("[]");
         }
     }
-    normalize_pg_type_for_compare(&sql_type)
+    normalize_type_for_compare(&sql_type)
 }
 
 #[cfg(test)]
@@ -699,6 +933,130 @@ mod tests {
                 "expected {left_type:?} and {right_type:?} to compare equal, got {diffs:?}"
             );
         }
+    }
+
+    #[test]
+    fn column_defaults_compare_equal_across_introspected_casts() {
+        let cases = [
+            ("'active'::text", "'active'"),
+            ("'{}'::jsonb", "'{}'"),
+            ("'2020-01-01'::date", "'2020-01-01'"),
+            ("'a''::b'::text", "'a''::b'"),
+            ("'x'::character varying", "'x'"),
+        ];
+
+        for (introspected, schema_side) in cases {
+            let mut left = column_with_type("text");
+            left.default = Some(introspected.into());
+            let mut right = column_with_type("text");
+            right.default = Some(schema_side.into());
+            assert!(
+                columns_equivalent(&left, &right),
+                "expected default {introspected:?} to compare equal to {schema_side:?}"
+            );
+        }
+
+        // Different literals must still differ.
+        let mut left = column_with_type("text");
+        left.default = Some("'active'::text".into());
+        let mut right = column_with_type("text");
+        right.default = Some("'archived'".into());
+        assert!(!columns_equivalent(&left, &right));
+    }
+
+    #[test]
+    fn identity_options_compare_equal_to_defaults() {
+        use drizzle_types::postgres::ddl::{Identity, IdentityType};
+
+        let mut left = column_with_type("int4");
+        left.identity = Some(Identity {
+            name: "users_value_seq".into(),
+            schema: Some("public".into()),
+            type_: IdentityType::Always,
+            increment: Some("1".into()),
+            min_value: Some("1".into()),
+            max_value: Some("2147483647".into()),
+            start_with: Some("1".into()),
+            cache: Some(1),
+            cycle: Some(false),
+        });
+
+        let mut right = column_with_type("integer");
+        right.identity = Some(Identity {
+            name: "users_value_seq".into(),
+            schema: Some("public".into()),
+            type_: IdentityType::Always,
+            increment: None,
+            min_value: None,
+            max_value: None,
+            start_with: None,
+            cache: None,
+            cycle: None,
+        });
+
+        assert!(columns_equivalent(&left, &right));
+    }
+
+    #[test]
+    fn check_expressions_compare_equal_across_paren_spellings() {
+        let make = |value: &str| CheckConstraint {
+            schema: Cow::Borrowed("public"),
+            table: Cow::Borrowed("users"),
+            name: Cow::Borrowed("users_age_check"),
+            value: Cow::Owned(value.to_string()),
+        };
+
+        assert!(checks_equivalent(&make("(age > 18)"), &make("age > 18")));
+        assert!(checks_equivalent(
+            &make("CHECK ((age > 18))"),
+            &make("age  >  18")
+        ));
+        assert!(checks_equivalent(
+            &make("((a > 1) AND (b > 2))"),
+            &make("(a > 1) AND (b > 2)")
+        ));
+        assert!(!checks_equivalent(&make("(age > 18)"), &make("age > 21")));
+    }
+
+    #[test]
+    fn view_definitions_compare_equal_across_whitespace_and_semicolon() {
+        let make = |definition: &str| View {
+            schema: Cow::Borrowed("public"),
+            name: Cow::Borrowed("v"),
+            definition: Some(Cow::Owned(definition.to_string())),
+            ..View::default()
+        };
+
+        assert!(views_equivalent(
+            &make(" SELECT id,\n   name\n  FROM users;"),
+            &make("SELECT id, name FROM users")
+        ));
+        assert!(!views_equivalent(
+            &make("SELECT id FROM users"),
+            &make("SELECT id, name FROM users")
+        ));
+    }
+
+    #[test]
+    fn varchar_typmod_survives_comparison() {
+        // Introspected `varchar(255)` (typmod reconstructed by
+        // COLUMNS_QUERY) vs schema-side `character varying(255)`.
+        assert!(columns_equivalent(
+            &column_with_type("varchar(255)"),
+            &column_with_type("character varying(255)")
+        ));
+        assert!(!columns_equivalent(
+            &column_with_type("varchar(255)"),
+            &column_with_type("character varying(64)")
+        ));
+        assert!(columns_equivalent(
+            &column_with_type("numeric(10,2)"),
+            &column_with_type("decimal(10,2)")
+        ));
+        assert!(columns_equivalent(
+            &column_with_type("bpchar(10)"),
+            &column_with_type("character(10)")
+        ));
     }
 
     #[test]

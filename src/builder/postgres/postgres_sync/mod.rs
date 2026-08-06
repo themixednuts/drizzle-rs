@@ -495,10 +495,54 @@ impl<Schema> Drizzle<Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the underlying migration fails.
+    /// # Two-phase tracking on the CONCURRENTLY path
+    ///
+    /// A migration containing `CREATE/DROP INDEX CONCURRENTLY` cannot run
+    /// inside a transaction, so it executes autocommit statement-by-statement.
+    /// That path uses two-phase tracking: the tracking row is inserted with
+    /// `applied_at` NULL *before* the statements run (marking the migration
+    /// **dirty**) and updated to set `applied_at` after they succeed. A crash
+    /// in between leaves a dirty row instead of an untracked partial schema,
+    /// and the next `migrate()` says which migration was interrupted rather
+    /// than re-running its DDL. See [`Self::migrate_with_repair`].
+    ///
+    /// Non-concurrent migrations keep the single-transaction flow (statements
+    /// and tracking insert commit together), which is already atomic.
     pub fn migrate(
         &mut self,
         migrations: &[drizzle_migrations::Migration],
         tracking: drizzle_migrations::Tracking,
+    ) -> drizzle_core::error::Result<drizzle_migrations::MigrateOutcome> {
+        self.migrate_inner(migrations, tracking, false)
+    }
+
+    /// Apply pending migrations, first reconciling any interrupted migration.
+    ///
+    /// For each migration marked dirty by the two-phase CONCURRENTLY flow in
+    /// [`Self::migrate`], this introspects the live catalogs and classifies
+    /// every statement: `CREATE TABLE`, `CREATE [UNIQUE] INDEX [CONCURRENTLY]`,
+    /// `CREATE VIEW` and `CREATE TYPE ... AS ENUM` statements whose object
+    /// already exists with a matching definition are skipped, and the rest are
+    /// executed. Anything that cannot be proven either way aborts with a list
+    /// of what needs manual resolution.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if repair cannot reconcile every statement, or
+    /// if any remaining statement fails.
+    pub fn migrate_with_repair(
+        &mut self,
+        migrations: &[drizzle_migrations::Migration],
+        tracking: drizzle_migrations::Tracking,
+    ) -> drizzle_core::error::Result<drizzle_migrations::MigrateOutcome> {
+        self.migrate_inner(migrations, tracking, true)
+    }
+
+    fn migrate_inner(
+        &mut self,
+        migrations: &[drizzle_migrations::Migration],
+        tracking: drizzle_migrations::Tracking,
+        repair: bool,
     ) -> drizzle_core::error::Result<drizzle_migrations::MigrateOutcome> {
         let set = drizzle_migrations::Migrations::with_tracking(
             migrations.to_vec(),
@@ -515,6 +559,8 @@ impl<Schema> Drizzle<Schema> {
 
         let result = (|| {
             ensure_postgres_migration_table(&mut self.client, &set)?;
+            let mut applied = repair_dirty_migrations(&mut self.client, &set, repair)?;
+
             let rows = self.client.query(&set.applied_names_sql(), &[])?;
             let applied_names = rows
                 .iter()
@@ -523,33 +569,51 @@ impl<Schema> Drizzle<Schema> {
             let pending: Vec<_> = set.pending(&applied_names).collect();
 
             if pending.is_empty() {
-                return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
+                if applied.is_empty() {
+                    return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
+                }
+                return Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied });
             }
 
-            let mut applied = Vec::with_capacity(pending.len());
-            if set.has_postgres_concurrent_index() {
-                for migration in &pending {
-                    for statement in migration.statements() {
-                        if !statement.trim().is_empty() {
-                            self.client.execute(statement, &[])?;
-                        }
-                    }
+            for migration in &pending {
+                if migration.has_postgres_concurrent_index() {
+                    // CREATE/DROP INDEX CONCURRENTLY cannot run inside a
+                    // transaction; only this migration runs autocommit, so it
+                    // needs the dirty marker to stay recoverable.
                     self.client
-                        .execute(&set.record_migration_sql(migration), &[])?;
-                    applied.push(migration.tag().to_string());
-                }
-            } else {
-                let mut tx = self.client.transaction()?;
-                for migration in &pending {
+                        .execute(&set.record_migration_started_sql(migration), &[])?;
+
+                    let mut executed = 0usize;
+                    for statement in migration.statements() {
+                        if statement.trim().is_empty() {
+                            continue;
+                        }
+                        if let Err(error) = self.client.execute(statement, &[]) {
+                            // Nothing can have been applied yet, so drop the
+                            // marker rather than demand a pointless repair.
+                            if executed == 0 {
+                                let _ = self
+                                    .client
+                                    .execute(&set.clear_migration_started_sql(migration), &[]);
+                            }
+                            return Err(error.into());
+                        }
+                        executed += 1;
+                    }
+
+                    self.client
+                        .execute(&set.record_migration_finished_sql(migration), &[])?;
+                } else {
+                    let mut tx = self.client.transaction()?;
                     for statement in migration.statements() {
                         if !statement.trim().is_empty() {
                             tx.execute(statement, &[])?;
                         }
                     }
                     tx.execute(&set.record_migration_sql(migration), &[])?;
-                    applied.push(migration.tag().to_string());
+                    tx.commit()?;
                 }
-                tx.commit()?;
+                applied.push(migration.tag().to_string());
             }
 
             Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
@@ -624,25 +688,121 @@ fn ensure_postgres_migration_table(
     )?;
 
     for row in matched {
-        let where_clause = if let Some(id) = row.id {
-            format!("\"id\" = {id}")
-        } else {
-            format!(
-                "\"created_at\" = {} AND \"hash\" = '{}'",
-                row.created_at,
-                row.hash.replace('\'', "''")
-            )
-        };
-        let update_sql = format!(
-            "UPDATE {} SET \"name\" = '{}', \"applied_at\" = NULL WHERE {}",
-            set.table_ident_sql(),
-            row.name.replace('\'', "''"),
-            where_clause
-        );
-        client.execute(&update_sql, &[])?;
+        client.execute(&set.backfill_migration_metadata_sql(&row), &[])?;
     }
 
     Ok(())
+}
+
+/// Read the live PostgreSQL catalogs into a repair [`Catalog`](drizzle_migrations::repair::Catalog).
+fn introspect_catalog(
+    client: &mut postgres::Client,
+) -> drizzle_core::error::Result<drizzle_migrations::repair::Catalog> {
+    use drizzle_migrations::repair::postgres as pg;
+
+    let two = |client: &mut postgres::Client,
+               sql: &str|
+     -> Result<Vec<(String, String)>, postgres::Error> {
+        Ok(client
+            .query(sql, &[])?
+            .iter()
+            .map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
+            .collect())
+    };
+    let three = |client: &mut postgres::Client,
+                 sql: &str|
+     -> Result<Vec<(String, String, String)>, postgres::Error> {
+        Ok(client
+            .query(sql, &[])?
+            .iter()
+            .map(|row| {
+                (
+                    row.get::<_, String>(0),
+                    row.get::<_, String>(1),
+                    row.get::<_, String>(2),
+                )
+            })
+            .collect())
+    };
+
+    let indexes = client
+        .query(pg::INDEXES_QUERY, &[])?
+        .iter()
+        .map(|row| {
+            (
+                row.get::<_, String>(0),
+                row.get::<_, String>(1),
+                row.get::<_, bool>(2),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let tables = two(client, pg::TABLES_QUERY)?;
+    let columns = three(client, pg::COLUMNS_QUERY)?;
+    let views = two(client, pg::VIEWS_QUERY)?;
+    let index_columns = three(client, pg::INDEX_COLUMNS_QUERY)?;
+    let enums = three(client, pg::ENUMS_QUERY)?;
+
+    Ok(pg::catalog(
+        &tables,
+        &columns,
+        &views,
+        &indexes,
+        &index_columns,
+        &enums,
+    ))
+}
+
+/// Reject or reconcile interrupted migrations. Returns the repaired tags.
+fn repair_dirty_migrations(
+    client: &mut postgres::Client,
+    set: &drizzle_migrations::Migrations,
+    repair: bool,
+) -> drizzle_core::error::Result<Vec<String>> {
+    let dirty = client
+        .query(&set.dirty_names_sql(), &[])?
+        .iter()
+        .map(|row| row.try_get::<_, String>(0))
+        .collect::<Result<Vec<_>, postgres::Error>>()?;
+
+    if dirty.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let migrator_error =
+        |error: drizzle_migrations::MigratorError| DrizzleError::Other(error.to_string().into());
+
+    if !repair {
+        return Err(migrator_error(
+            set.interrupted_migration_error(&dirty)
+                .expect("dirty list is non-empty"),
+        ));
+    }
+
+    let table_ident = set.table_ident_sql();
+    let dirty_migrations = set
+        .resolve_dirty_migrations(&dirty)
+        .map_err(migrator_error)?
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let mut repaired = Vec::new();
+    for migration in &dirty_migrations {
+        let catalog = introspect_catalog(client)?;
+        let plan = drizzle_migrations::repair::plan(
+            drizzle_types::Dialect::PostgreSQL,
+            migration,
+            &catalog,
+        );
+        for statement in plan.into_executable(&table_ident).map_err(migrator_error)? {
+            client.execute(statement.as_str(), &[])?;
+        }
+        client.execute(&set.record_migration_finished_sql(migration), &[])?;
+        repaired.push(migration.tag().to_string());
+    }
+
+    Ok(repaired)
 }
 
 fn pg_sync_err(msg: &str, e: &postgres::Error) -> DrizzleError {
@@ -754,6 +914,7 @@ fn pg_sync_query_sequences(
             increment: row.get(6),
             cycle: row.get(7),
             cache_value: row.get(8),
+            owned_by: row.get(9),
         })
         .collect())
 }
@@ -812,7 +973,7 @@ fn pg_sync_query_foreign_keys(
     client: &mut postgres::Client,
 ) -> drizzle_core::error::Result<Vec<drizzle_migrations::postgres::introspect::RawForeignKeyInfo>> {
     use drizzle_migrations::postgres::introspect::{
-        RawForeignKeyInfo, pg_action_code_to_string, queries,
+        RawForeignKeyInfo, action_code_to_string, queries,
     };
 
     Ok(client
@@ -827,8 +988,8 @@ fn pg_sync_query_foreign_keys(
             schema_to: row.get(4),
             table_to: row.get(5),
             columns_to: row.get(6),
-            on_update: pg_action_code_to_string(&row.get::<_, String>(7)),
-            on_delete: pg_action_code_to_string(&row.get::<_, String>(8)),
+            on_update: action_code_to_string(&row.get::<_, String>(7)),
+            on_delete: action_code_to_string(&row.get::<_, String>(8)),
             deferrable: row.get(9),
             initially_deferred: row.get(10),
         })

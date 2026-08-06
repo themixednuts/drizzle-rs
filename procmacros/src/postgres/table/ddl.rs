@@ -77,6 +77,18 @@ fn table_check_name(ctx: &MacroContext, idx: usize, explicit: &Option<String>) -
     })
 }
 
+/// Resolve a target column's SQL name at compile time via its `NAME` const,
+/// so explicit `#[column(name = "...")]` renames on the referenced table are
+/// honored in FK clauses.
+fn ref_column_name_expr(table: &Ident, column: &Ident) -> TokenStream {
+    let dt = crate::common::constraints::DialectTypes {
+        sql_schema: core_paths::sql_schema(),
+        schema_type: postgres_paths::postgres_schema_type(),
+        value_type: postgres_paths::postgres_value(),
+    };
+    crate::common::constraints::cross_table_column_name_const(table, column, &dt)
+}
+
 /// Generate a compile-time `const SQL: &'static str` value for `SQLSchema`.
 ///
 /// Output mirrors `TableSql::create_table_sql()`: double-quoted identifiers,
@@ -146,14 +158,16 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
     for field in field_infos {
         if let Some(ref fk) = field.foreign_key {
             let fk_name = format!("{}_{}_fkey", table_name, field.column_name);
-            let ref_column = fk.column.to_string();
+            let ref_column_expr = ref_column_name_expr(&fk.table, &fk.column);
             let mut line = Vec::new();
             line.push(DdlPiece::Literal(format!(
                 "\tCONSTRAINT \"{}\" FOREIGN KEY (\"{}\") REFERENCES \"",
                 fk_name, field.column_name
             )));
             line.push(DdlPiece::TableNameOf(fk.table.clone()));
-            let mut suffix = format!("\"(\"{ref_column}\")");
+            line.push(DdlPiece::Literal("\"(\"".to_string()));
+            line.push(DdlPiece::Expr(ref_column_expr));
+            let mut suffix = "\")".to_string();
             if let Some(ref on_delete) = fk.on_delete {
                 let action = on_delete.to_uppercase();
                 if action != "NO ACTION" {
@@ -189,19 +203,14 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
                     .map_or_else(|| src.to_string(), |f| f.column_name.clone())
             })
             .collect();
-        let target_cols: Vec<String> = fk
+        let target_col_exprs: Vec<TokenStream> = fk
             .target_columns
             .iter()
-            .map(std::string::ToString::to_string)
+            .map(|col| ref_column_name_expr(&fk.target_table, col))
             .collect();
 
         let fk_name = format!("{}_{}_fkey", table_name, source_cols[0]);
         let src_str = source_cols
-            .iter()
-            .map(|c| format!("\"{c}\""))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let tgt_str = target_cols
             .iter()
             .map(|c| format!("\"{c}\""))
             .collect::<Vec<_>>()
@@ -212,7 +221,15 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
             "\tCONSTRAINT \"{fk_name}\" FOREIGN KEY ({src_str}) REFERENCES \""
         )));
         line.push(DdlPiece::TableNameOf(fk.target_table.clone()));
-        let mut suffix = format!("\"({tgt_str})");
+        line.push(DdlPiece::Literal("\"(".to_string()));
+        for (idx, expr) in target_col_exprs.iter().enumerate() {
+            line.push(DdlPiece::Literal(
+                if idx == 0 { "\"" } else { ", \"" }.to_string(),
+            ));
+            line.push(DdlPiece::Expr(expr.clone()));
+            line.push(DdlPiece::Literal("\"".to_string()));
+        }
+        let mut suffix = ")".to_string();
         if let Some(ref on_delete) = fk.on_delete {
             let action = on_delete.to_uppercase();
             if action != "NO ACTION" {
@@ -252,7 +269,15 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
             .map(|c| quote_ident(c))
             .collect::<Vec<_>>()
             .join(", ");
-        let mut sql = format!("\tCONSTRAINT {} UNIQUE({cols})", quote_ident(&unique_name));
+        let nulls_not_distinct = if unique.nulls_not_distinct {
+            " NULLS NOT DISTINCT"
+        } else {
+            ""
+        };
+        let mut sql = format!(
+            "\tCONSTRAINT {} UNIQUE{nulls_not_distinct}({cols})",
+            quote_ident(&unique_name)
+        );
         if unique.deferrable || unique.initially_deferred {
             sql.push_str(" DEFERRABLE");
             if unique.initially_deferred {
@@ -298,7 +323,13 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
 
     let mut table_suffix = String::new();
     if let Some(inherits) = ctx.attrs.inherits.as_ref() {
-        let _ = write!(table_suffix, " INHERITS ({})", quote_ident(inherits));
+        // INHERITS may be schema-qualified ("app.parent") — quote each part.
+        let quoted = inherits
+            .split('.')
+            .map(quote_ident)
+            .collect::<Vec<_>>()
+            .join(".");
+        let _ = write!(table_suffix, " INHERITS ({quoted})");
     }
     if let Some(tablespace) = ctx.attrs.tablespace.as_ref() {
         let _ = write!(table_suffix, " TABLESPACE {}", quote_ident(tablespace));
@@ -339,6 +370,7 @@ fn column_to_sql(field: &FieldInfo) -> String {
             "ALWAYS"
         };
         let _ = write!(sql, " GENERATED {identity_type} AS IDENTITY");
+        sql.push_str(&field.identity_options.to_sql_suffix());
     }
 
     if let Some(ref generated) = field.generated_column {
@@ -434,6 +466,7 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
     let identity_def = ddl_paths::identity_def();
     let table_sql = ddl_paths::table_sql();
     let referential_action = ddl_paths::referential_action();
+    let postgres_item_ddl = ddl_paths::postgres_item_ddl();
 
     // Generate column definitions
     let column_defs: Vec<TokenStream> = ctx
@@ -471,7 +504,16 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
                 modifiers.push(quote! { .default_value(#default_str) });
             }
             if field.is_pgenum || field.is_custom_type {
-                modifiers.push(quote! { .type_schema(#schema_name) });
+                // Custom/enum types carry their OWN schema, not the table's:
+                // the `PostgresEnum` derive exposes it as
+                // `DrizzlePostgresColumn::SCHEMA` (default `public`, set via
+                // `#[postgres_enum(schema = "...")]`), which is a const
+                // expression and therefore fine inside the const DDL.
+                let base_type = &field.base_type;
+                let drizzle_postgres_column = postgres_paths::drizzle_postgres_column();
+                modifiers.push(quote! {
+                    .type_schema(<#base_type as #drizzle_postgres_column>::SCHEMA)
+                });
             }
             if let Some(ref collate_name) = field.collate {
                 modifiers.push(quote! { .collate(#collate_name) });
@@ -500,8 +542,32 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
                 } else {
                     quote! { drizzle::ddl::postgres::ddl::IdentityType::Always }
                 };
+                let mut identity_modifiers = Vec::new();
+                let options = &field.identity_options;
+                if let Some(increment) = &options.increment {
+                    identity_modifiers.push(quote! { .increment(#increment) });
+                }
+                if let Some(min) = &options.min_value {
+                    identity_modifiers.push(quote! { .min_value(#min) });
+                }
+                if let Some(max) = &options.max_value {
+                    identity_modifiers.push(quote! { .max_value(#max) });
+                }
+                if let Some(start) = &options.start {
+                    identity_modifiers.push(quote! { .start_with(#start) });
+                }
+                if let Some(cache) = options.cache {
+                    identity_modifiers.push(quote! { .cache(#cache) });
+                }
+                if options.cycle {
+                    identity_modifiers.push(quote! { .cycle() });
+                }
                 modifiers.push(quote! {
-                    .identity(#identity_def::new(#seq_name, #identity_type).schema(#schema_name))
+                    .identity(
+                        #identity_def::new(#seq_name, #identity_type)
+                            .schema(#schema_name)
+                            #(#identity_modifiers)*
+                    )
                 });
             }
 
@@ -548,7 +614,7 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
         .filter_map(|field| {
             field.foreign_key.as_ref().map(|fk_ref| {
                 let ref_table_ident = &fk_ref.table;
-                let ref_column = fk_ref.column.to_string();
+                let ref_column_expr = ref_column_name_expr(&fk_ref.table, &fk_ref.column);
                 let fk_name = format!(
                     "{}_{}_fkey",
                     table_name, field.column_name
@@ -574,7 +640,7 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
                 quote! {
                     {
                         const FK_COLS: &[::std::borrow::Cow<'static, str>] = &[::std::borrow::Cow::Borrowed(#column_name)];
-                        const FK_REF_COLS: &[::std::borrow::Cow<'static, str>] = &[::std::borrow::Cow::Borrowed(#ref_column)];
+                        const FK_REF_COLS: &[::std::borrow::Cow<'static, str>] = &[::std::borrow::Cow::Borrowed(#ref_column_expr)];
                         #foreign_key_def::new(#schema_name, #table_name, #fk_name)
                             .columns(FK_COLS)
                             .references(<#ref_table_ident>::DDL_TABLE.schema, <#ref_table_ident>::TABLE_NAME, FK_REF_COLS)
@@ -597,10 +663,10 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
                     .map_or_else(|| src.to_string(), |f| f.column_name.clone())
             })
             .collect();
-        let target_columns: Vec<String> = fk
+        let target_col_exprs: Vec<TokenStream> = fk
             .target_columns
             .iter()
-            .map(std::string::ToString::to_string)
+            .map(|col| ref_column_name_expr(&fk.target_table, col))
             .collect();
 
         let fk_name = format!("{}_{}_fkey", table_name, source_columns[0]);
@@ -608,7 +674,7 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
             .iter()
             .map(|c| quote! { ::std::borrow::Cow::Borrowed(#c) })
             .collect();
-        let fk_ref_cols: Vec<TokenStream> = target_columns
+        let fk_ref_cols: Vec<TokenStream> = target_col_exprs
             .iter()
             .map(|c| quote! { ::std::borrow::Cow::Borrowed(#c) })
             .collect();
@@ -669,6 +735,9 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
         let mut modifiers = Vec::new();
         if unique.name.is_some() {
             modifiers.push(quote! { .explicit_name() });
+        }
+        if unique.nulls_not_distinct {
+            modifiers.push(quote! { .nulls_not_distinct() });
         }
         if unique.deferrable {
             modifiers.push(quote! { .deferrable() });
@@ -783,6 +852,17 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
                 <Self as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL
             }
         }
+
+        // Snapshot DDL channel: `PostgresSchema::to_snapshot()` reads these
+        // consts so the runtime snapshot matches the compile-time DDL
+        // (identity options, NULLS NOT DISTINCT, single composite PK entity).
+        impl #postgres_item_ddl for #struct_ident {
+            const SNAPSHOT_COLUMNS: &'static [#column_def] = Self::DDL_COLUMNS;
+            const SNAPSHOT_PRIMARY_KEY: ::std::option::Option<#primary_key_def> =
+                Self::DDL_PRIMARY_KEY;
+            const SNAPSHOT_UNIQUE_CONSTRAINTS: &'static [#unique_constraint_def] =
+                Self::DDL_UNIQUE_CONSTRAINTS;
+        }
     }
 }
 
@@ -820,6 +900,7 @@ mod tests {
             is_custom_type: false,
             is_generated_identity: false,
             identity_mode: None,
+            identity_options: Default::default(),
             generated_column: None,
             default: None,
             default_fn: None,
@@ -861,6 +942,7 @@ mod tests {
             is_custom_type: false,
             is_generated_identity: false,
             identity_mode: None,
+            identity_options: Default::default(),
             generated_column: None,
             default: None,
             default_fn: None,
@@ -954,6 +1036,99 @@ mod tests {
         assert_eq!(
             super::column_to_sql(&collated),
             "\"sortable\" TEXT COLLATE \"C\" NOT NULL"
+        );
+    }
+
+    #[test]
+    fn identity_options_render_in_column_sql_and_const_ddl() {
+        use crate::postgres::field::IdentitySequenceOptions;
+
+        let struct_ident: syn::Ident = syn::parse_str("Users").expect("valid ident");
+        let struct_vis: syn::Visibility = syn::parse_str("pub").expect("valid visibility");
+
+        let mut identity = base_field("id", PostgreSQLType::Integer);
+        identity.is_generated_identity = true;
+        identity.identity_mode = Some(IdentityMode::Always);
+        identity.identity_options = IdentitySequenceOptions {
+            start: Some("100".to_string()),
+            increment: Some("10".to_string()),
+            min_value: None,
+            max_value: Some("1000".to_string()),
+            cache: Some(5),
+            cycle: true,
+        };
+
+        assert_eq!(
+            super::column_to_sql(&identity),
+            "\"id\" INTEGER GENERATED ALWAYS AS IDENTITY (INCREMENT BY 10 MAXVALUE 1000 START WITH 100 CACHE 5 CYCLE) NOT NULL"
+        );
+
+        let fields = vec![identity];
+        let attrs = TableAttributes::default();
+        let ctx = MacroContext {
+            struct_ident: &struct_ident,
+            struct_vis: &struct_vis,
+            table_name: "users".to_string(),
+            table_comment: None,
+            field_infos: &fields,
+            select_model_ident: syn::parse_str("UsersSelect").expect("valid ident"),
+            select_model_partial_ident: syn::parse_str("UsersPartial").expect("valid ident"),
+            insert_model_ident: syn::parse_str("UsersInsert").expect("valid ident"),
+            update_model_ident: syn::parse_str("UsersUpdate").expect("valid ident"),
+            is_composite_pk: false,
+            attrs: &attrs,
+        };
+
+        let tokens = generate_const_ddl(&ctx, &[]).to_string();
+        assert!(tokens.contains(". increment (\"10\")"), "{tokens}");
+        assert!(tokens.contains(". max_value (\"1000\")"), "{tokens}");
+        assert!(tokens.contains(". start_with (\"100\")"), "{tokens}");
+        assert!(tokens.contains(". cache (5i32)"), "{tokens}");
+        assert!(tokens.contains(". cycle ()"), "{tokens}");
+    }
+
+    #[test]
+    fn table_unique_nulls_not_distinct_renders_in_create_sql() {
+        use crate::postgres::table::attributes::UniqueConstraintAttr;
+
+        let struct_ident: syn::Ident = syn::parse_str("Users").expect("valid ident");
+        let struct_vis: syn::Visibility = syn::parse_str("pub").expect("valid visibility");
+
+        let email = base_field("email", PostgreSQLType::Text);
+        let fields = vec![email];
+        let mut attrs = TableAttributes::default();
+        attrs.unique_constraints.push(UniqueConstraintAttr {
+            columns: vec![syn::parse_str("email").expect("valid ident")],
+            name: None,
+            nulls_not_distinct: true,
+            deferrable: false,
+            initially_deferred: false,
+        });
+
+        let ctx = MacroContext {
+            struct_ident: &struct_ident,
+            struct_vis: &struct_vis,
+            table_name: "users".to_string(),
+            table_comment: None,
+            field_infos: &fields,
+            select_model_ident: syn::parse_str("UsersSelect").expect("valid ident"),
+            select_model_partial_ident: syn::parse_str("UsersPartial").expect("valid ident"),
+            insert_model_ident: syn::parse_str("UsersInsert").expect("valid ident"),
+            update_model_ident: syn::parse_str("UsersUpdate").expect("valid ident"),
+            is_composite_pk: false,
+            attrs: &attrs,
+        };
+
+        let sql_tokens = super::generate_schema_sql_const(&ctx).to_string();
+        assert!(
+            sql_tokens.contains("UNIQUE NULLS NOT DISTINCT"),
+            "{sql_tokens}"
+        );
+
+        let ddl_tokens = generate_const_ddl(&ctx, &[]).to_string();
+        assert!(
+            ddl_tokens.contains(". nulls_not_distinct ()"),
+            "{ddl_tokens}"
         );
     }
 

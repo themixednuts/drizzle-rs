@@ -314,6 +314,24 @@ where
 
         ensure_durable_migration_table(&self.conn, &set)?;
 
+        // Durable Object storage runs this whole flow in one transaction, so
+        // this path never writes a dirty marker itself. It can still inherit
+        // one from a non-transactional runner against the same SQLite file, and
+        // stacking migrations on an unfinished one is exactly what we refuse.
+        let dirty_cursor = self
+            .conn
+            .exec(&set.dirty_names_sql(), None)
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let dirty_names: Vec<String> = dirty_cursor
+            .to_array::<AppliedName>()
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?
+            .into_iter()
+            .map(|r| r.name)
+            .collect();
+        if let Some(error) = set.interrupted_migration_error(&dirty_names) {
+            return Err(DrizzleError::Other(error.to_string().into()));
+        }
+
         // Read already-applied migration names
         let applied_sql = set.applied_names_sql();
         let applied_cursor = self
@@ -431,26 +449,8 @@ fn ensure_durable_migration_table(
     )
     .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
     for row in matched {
-        let escaped_name = row.name.replace('\'', "''");
-        let where_clause = if let Some(id) = row.id {
-            format!("\"id\" = {id}")
-        } else {
-            format!(
-                "\"created_at\" = {} AND \"hash\" = '{}'",
-                row.created_at,
-                row.hash.replace('\'', "''")
-            )
-        };
-        conn.exec(
-            &format!(
-                "UPDATE {} SET \"name\" = '{}', \"applied_at\" = NULL WHERE {}",
-                set.table_ident_sql(),
-                escaped_name,
-                where_clause
-            ),
-            None,
-        )
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        conn.exec(&set.backfill_migration_metadata_sql(&row), None)
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
     }
     Ok(())
 }

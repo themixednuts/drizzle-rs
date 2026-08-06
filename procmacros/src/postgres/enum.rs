@@ -4,6 +4,35 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Attribute, DataEnum, Ident};
 
+/// Parse the optional `#[postgres_enum(schema = "...")]` helper attribute.
+///
+/// Returns `None` when the attribute (or its `schema` key) is absent — the
+/// enum type is then created in the default `public` schema.
+fn parse_enum_schema(attrs: &[Attribute]) -> syn::Result<Option<String>> {
+    let mut schema = None;
+    for attr in attrs {
+        if !attr.path().is_ident("postgres_enum") {
+            continue;
+        }
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("schema") {
+                let lit: syn::LitStr = meta.value()?.parse()?;
+                let value = lit.value();
+                if value.is_empty() {
+                    return Err(meta.error("schema name must not be empty"));
+                }
+                schema = Some(value);
+                Ok(())
+            } else {
+                Err(meta.error(
+                    "unrecognized #[postgres_enum(...)] attribute; supported: schema = \"...\"",
+                ))
+            }
+        })?;
+    }
+    Ok(schema)
+}
+
 // Generate implementation for PostgreSQL enum representation following SQLite pattern
 pub fn generate_enum_impl(
     name: &Ident,
@@ -36,13 +65,25 @@ pub fn generate_enum_impl(
     };
     let variant_idents: Vec<_> = data.variants.iter().map(|v| &v.ident).collect();
 
-    // Build the CREATE TYPE SQL at macro time as a string literal
+    // Optional `#[postgres_enum(schema = "...")]` — where the type is created.
+    let enum_schema = parse_enum_schema(attrs)?;
+    let type_schema = enum_schema.as_deref().unwrap_or("public");
+
+    // Build the CREATE TYPE SQL at macro time as a string literal. The type
+    // reference is schema-qualified when the enum lives outside `public`
+    // (identifier quoting style matches the rest of this const: unquoted, so
+    // PostgreSQL's case folding stays consistent with column type references).
     let variants_sql = variant_idents
         .iter()
         .map(|v| format!("'{}'", v.to_string().replace('\'', "''")))
         .collect::<Vec<_>>()
         .join(", ");
-    let create_type_sql = format!("CREATE TYPE {name} AS ENUM ({variants_sql})");
+    let qualified_type_name = if type_schema == "public" {
+        name.to_string()
+    } else {
+        format!("{type_schema}.{name}")
+    };
+    let create_type_sql = format!("CREATE TYPE {qualified_type_name} AS ENUM ({variants_sql})");
     let create_type_sql_literal = create_type_sql.as_str();
 
     let display_variants = data.variants.iter().map(|variant| {
@@ -219,7 +260,16 @@ pub fn generate_enum_impl(
 
     // Detect storage format: INTEGER if has #[repr(iN)]
     let is_integer_storage = has_integer_repr(attrs);
+    if is_integer_storage && enum_schema.is_some() {
+        return Err(syn::Error::new_spanned(
+            name,
+            "#[postgres_enum(schema = \"...\")] requires a native PostgreSQL enum; \
+             integer-repr enums (#[repr(iN)]) are stored as plain integer columns \
+             and create no type",
+        ));
+    }
     let drizzle_postgres_column = postgres_paths::drizzle_postgres_column();
+    let postgres_item_ddl = crate::paths::ddl::postgres::postgres_item_ddl();
 
     // Common base: integer and string conversions, Display, FromStr, etc.
     let common_impls = quote! {
@@ -451,6 +501,7 @@ pub fn generate_enum_impl(
                 type SQLType = #postgres_types::Enum;
                 const SQL_TYPE: &'static str = stringify!(#name);
                 const NEEDS_CREATE_TYPE: bool = true;
+                const SCHEMA: &'static str = #type_schema;
 
                 fn decode(row: &drizzle::postgres::Row, idx: usize) -> ::std::result::Result<Self, #drizzle_error> {
                     let v: #name = row.get::<_, #name>(idx);
@@ -472,6 +523,7 @@ pub fn generate_enum_impl(
                 type SQLType = #postgres_types::Enum;
                 const SQL_TYPE: &'static str = stringify!(#name);
                 const NEEDS_CREATE_TYPE: bool = true;
+                const SCHEMA: &'static str = #type_schema;
 
                 fn encode(&self) -> #postgres_value<'_> {
                     #postgres_value::Enum(::std::boxed::Box::new(self.clone()))
@@ -505,6 +557,9 @@ pub fn generate_enum_impl(
                     #name::#first_variant
                 }
             }
+
+            // Snapshot DDL channel (integer-repr enums create no type).
+            impl #postgres_item_ddl for #name {}
 
             // Implement Expr trait for type-safe comparisons — integer type
             impl<'a> #core_expr::Expr<'a, #postgres_value<'a>> for #name {
@@ -593,6 +648,12 @@ pub fn generate_enum_impl(
                     #postgres_schema_type::Enum(&ENUM_INSTANCE)
                 };
                 const SQL: &'static str = #create_type_sql_literal;
+            }
+
+            // Snapshot DDL channel: carries the enum's schema into
+            // `PostgresSchema::to_snapshot()`.
+            impl #postgres_item_ddl for #name {
+                const ENUM_SCHEMA: &'static str = #type_schema;
             }
 
             // Implement new() for schema integration - returns the default variant

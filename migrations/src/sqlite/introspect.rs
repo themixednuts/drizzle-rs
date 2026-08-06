@@ -9,7 +9,7 @@ use super::ddl::{
 };
 use super::ddl::{GeneratedType, ParsedGenerated};
 use super::snapshot::SQLiteSnapshot;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Error type for introspection operations
 #[derive(Debug, Clone)]
@@ -102,6 +102,10 @@ pub struct RawIntrospection {
     pub index_columns: Vec<RawIndexColumn>,
     pub foreign_keys: Vec<RawForeignKey>,
     pub views: Vec<RawViewInfo>,
+    /// `(index name, CREATE INDEX sql)` rows from [`queries::INDEX_SQL_QUERY`].
+    /// Recovers partial-index `WHERE` clauses and expression columns that the
+    /// index PRAGMAs cannot express.
+    pub index_sql: Vec<(String, String)>,
 }
 
 /// Assemble transport-decoded SQLite metadata into the canonical DDL model.
@@ -126,7 +130,8 @@ pub fn assemble_ddl(raw: RawIntrospection) -> super::SQLiteDDL {
 
     let (columns, primary_keys) =
         process_columns(&raw.columns, &generated_columns, &primary_key_columns);
-    let indexes = process_indexes(&raw.indexes, &raw.index_columns, &table_sql_map);
+    let index_sql_map: HashMap<String, String> = raw.index_sql.iter().cloned().collect();
+    let indexes = process_indexes_with_sql(&raw.indexes, &raw.index_columns, &index_sql_map);
     let foreign_keys = process_foreign_keys(&raw.foreign_keys);
     let unique_constraints =
         process_unique_constraints_from_indexes(&raw.indexes, &raw.index_columns);
@@ -135,9 +140,9 @@ pub fn assemble_ddl(raw: RawIntrospection) -> super::SQLiteDDL {
     for (table_name, table_sql) in raw.tables {
         let mut table = Table::new(table_name);
         if let Some(sql) = table_sql {
-            let sql_upper = sql.to_uppercase();
-            table.strict = sql_upper.contains(" STRICT");
-            table.without_rowid = sql_upper.contains("WITHOUT ROWID");
+            let (strict, without_rowid) = parse_table_options(&sql);
+            table.strict = strict;
+            table.without_rowid = without_rowid;
         }
         ddl.tables.push(table);
     }
@@ -265,7 +270,11 @@ pub fn process_columns<S1: std::hash::BuildHasher, S2: std::hash::BuildHasher>(
 
     let columns: Vec<Column> = raw_columns
         .iter()
-        .filter(|c| c.hidden != 2 && c.hidden != 3) // Filter out hidden columns
+        // pragma_table_xinfo hidden values: 0 = normal, 1 = hidden (virtual
+        // table implementation columns), 2 = VIRTUAL generated, 3 = STORED
+        // generated. Generated columns are real schema and must be kept —
+        // their Generated info is attached from the parsed CREATE TABLE SQL.
+        .filter(|c| c.hidden != 1)
         .map(|c| {
             let key = format!("{}:{}", c.table, c.name);
             let generated = generated_columns.get(&key).map(|g| super::ddl::Generated {
@@ -297,26 +306,30 @@ pub fn process_columns<S1: std::hash::BuildHasher, S2: std::hash::BuildHasher>(
         })
         .collect();
 
-    // Extract primary keys from raw columns
-    let mut pk_map: std::collections::HashMap<String, Vec<String>> =
-        std::collections::HashMap::new();
+    // Extract primary keys from raw columns. BTreeMap keeps the emitted PK
+    // entity order deterministic; the `pk` value from pragma_table_xinfo is
+    // the column's 1-based position within the PRIMARY KEY, so sorting by it
+    // preserves the declared PK column order (which can differ from cid order
+    // for composite keys like PRIMARY KEY(b, a)).
+    let mut pk_map: BTreeMap<String, Vec<(i32, String)>> = BTreeMap::new();
 
     for c in raw_columns.iter().filter(|c| c.pk > 0) {
         pk_map
             .entry(c.table.clone())
             .or_default()
-            .push(c.name.clone());
+            .push((c.pk, c.name.clone()));
     }
 
     let primary_keys: Vec<PrimaryKey> = pk_map
         .into_iter()
-        .map(|(table, cols)| {
+        .map(|(table, mut cols)| {
+            cols.sort_by_key(|(pk_pos, _)| *pk_pos);
             let name = super::ddl::name_for_pk(&table);
             PrimaryKey {
                 table: table.into(),
                 name: name.into(),
                 name_explicit: false,
-                columns: cols.into_iter().map(std::convert::Into::into).collect(),
+                columns: cols.into_iter().map(|(_, name)| name.into()).collect(),
             }
         })
         .collect();
@@ -353,6 +366,50 @@ fn extract_table_body(sql: &str) -> Option<&str> {
         }
     }
     Some(&sql[start + 1..end?])
+}
+
+/// Returns the text AFTER the balanced closing paren of the table body.
+///
+/// This is where table options (`STRICT`, `WITHOUT ROWID`) legally appear;
+/// scanning the whole statement would false-positive on columns named
+/// `strict` or string content inside the body.
+fn table_options_tail(sql: &str) -> Option<&str> {
+    let start = sql.find('(')?;
+    let mut depth = 0i32;
+    for (i, ch) in sql.char_indices().skip(start) {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&sql[i + ch.len_utf8()..]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Parse `(strict, without_rowid)` table options from a CREATE TABLE statement.
+///
+/// Only the text after the balanced closing paren of the table body is
+/// scanned, using word-token matching.
+#[must_use]
+pub fn parse_table_options(sql: &str) -> (bool, bool) {
+    let Some(tail) = table_options_tail(sql) else {
+        return (false, false);
+    };
+    let upper = tail.to_uppercase();
+    let tokens: Vec<&str> = upper
+        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .filter(|t| !t.is_empty())
+        .collect();
+    let strict = tokens.contains(&"STRICT");
+    let without_rowid = tokens
+        .windows(2)
+        .any(|w| w[0] == "WITHOUT" && w[1] == "ROWID");
+    (strict, without_rowid)
 }
 
 /// Split a string on top-level commas (commas not inside parentheses).
@@ -443,34 +500,237 @@ fn parse_autoincrement_columns_from_table_sql(sql: &str) -> std::collections::Ha
     out
 }
 
-/// Process raw index info into Index entities
+/// Metadata recovered from a `CREATE INDEX` statement's verbatim SQL.
+#[derive(Debug, Clone, Default)]
+pub struct ParsedIndexSql {
+    /// Index columns (including expression columns, in declaration order)
+    pub columns: Vec<IndexColumn>,
+    /// Partial-index WHERE clause (verbatim, without the `WHERE` keyword)
+    pub where_clause: Option<String>,
+}
+
+/// Returns true if `s` is a bare identifier (letters/digits/underscore).
+fn is_bare_identifier(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+/// Parse a single item of a CREATE INDEX column list into an [`IndexColumn`].
+///
+/// Named columns may carry `ASC`/`DESC`/`COLLATE <name>` modifiers, which are
+/// currently dropped — `IndexColumn` cannot represent per-column direction or
+/// collation yet.
+// TODO: extend `IndexColumn` with `desc`/`collate` so introspected indexes
+// round-trip those modifiers. Until then, comparison cannot churn on them
+// because no producer stores them.
+fn parse_index_item(item: &str) -> IndexColumn {
+    let expression = || IndexColumn {
+        value: item.trim().to_string().into(),
+        is_expression: true,
+    };
+
+    let Some((name, rest)) = take_column_name(item) else {
+        return expression();
+    };
+
+    // Quoted identifiers were unwrapped by take_column_name; a bare token has
+    // to look like an identifier (e.g. `lower(email)` must stay an expression).
+    let quoted = matches!(item.trim_start().chars().next(), Some('"' | '`' | '['));
+    if !quoted && !is_bare_identifier(&name) {
+        return expression();
+    }
+
+    // Only ASC/DESC/COLLATE <collation> may follow a plain column reference.
+    let mut tokens = rest.split_whitespace();
+    loop {
+        match tokens.next().map(str::to_ascii_uppercase) {
+            None => break,
+            Some(t) if t == "ASC" || t == "DESC" => {}
+            Some(t) if t == "COLLATE" => {
+                if tokens.next().is_none() {
+                    return expression();
+                }
+            }
+            Some(_) => return expression(),
+        }
+    }
+
+    IndexColumn {
+        value: name.into(),
+        is_expression: false,
+    }
+}
+
+/// Parse a `CREATE INDEX` statement (from `sqlite_master.sql`) to recover the
+/// column list (including expression columns) and any partial-index WHERE
+/// clause. This is a tolerant parser, not a full SQL parser.
+#[must_use]
+pub fn parse_index_sql(sql: &str) -> ParsedIndexSql {
+    let mut parsed = ParsedIndexSql::default();
+
+    // Find the first '(' outside quoted identifiers/strings, then its
+    // balanced closing paren.
+    let mut in_quote: Option<char> = None;
+    let mut open: Option<usize> = None;
+    for (i, ch) in sql.char_indices() {
+        match (in_quote, ch) {
+            (Some(q), _) if quote_closer(q) == ch => in_quote = None,
+            (Some(_), _) => {}
+            (None, '\'' | '"' | '`' | '[') => in_quote = Some(ch),
+            (None, '(') => {
+                open = Some(i);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let Some(open) = open else {
+        return parsed;
+    };
+
+    let mut depth = 0i32;
+    let mut close: Option<usize> = None;
+    let mut in_quote: Option<char> = None;
+    for (i, ch) in sql.char_indices().skip(open) {
+        match (in_quote, ch) {
+            (Some(q), _) if quote_closer(q) == ch => in_quote = None,
+            (Some(_), _) => {}
+            (None, '\'' | '"' | '`' | '[') => in_quote = Some(ch),
+            (None, '(') => depth += 1,
+            (None, ')') => {
+                depth -= 1;
+                if depth == 0 {
+                    close = Some(i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let Some(close) = close else {
+        return parsed;
+    };
+
+    let body = &sql[open + 1..close];
+    parsed.columns = split_top_level_commas(body)
+        .into_iter()
+        .filter(|item| !item.is_empty())
+        .map(parse_index_item)
+        .collect();
+
+    // Scan the tail (quote-aware) for the WHERE keyword.
+    let tail = &sql[close + 1..];
+    let mut in_quote: Option<char> = None;
+    let bytes = tail.as_bytes();
+    for (i, ch) in tail.char_indices() {
+        match (in_quote, ch) {
+            (Some(q), _) if quote_closer(q) == ch => in_quote = None,
+            (Some(_), _) => {}
+            (None, '\'' | '"' | '`' | '[') => in_quote = Some(ch),
+            (None, 'w' | 'W') => {
+                let end = i + 5;
+                if end <= tail.len()
+                    && tail[i..end].eq_ignore_ascii_case("where")
+                    && (i == 0 || !is_ident_byte(bytes[i - 1]))
+                    && (end == tail.len() || !is_ident_byte(bytes[end]))
+                {
+                    let clause = tail[end..].trim().trim_end_matches(';').trim();
+                    if !clause.is_empty() {
+                        parsed.where_clause = Some(clause.to_string());
+                    }
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    parsed
+}
+
+const fn quote_closer(open: char) -> char {
+    match open {
+        '[' => ']',
+        other => other,
+    }
+}
+
+const fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Process raw index info into Index entities.
+///
+/// This variant cannot recover partial-index WHERE clauses or expression
+/// columns; prefer [`process_indexes_with_sql`] when the indexes' CREATE SQL
+/// (from `sqlite_master`) is available.
 #[must_use]
 pub fn process_indexes<S: std::hash::BuildHasher>(
     raw_indexes: &[RawIndexInfo],
     index_columns: &[RawIndexColumn],
     _table_sql_map: &std::collections::HashMap<String, String, S>,
 ) -> Vec<Index> {
+    let empty: HashMap<String, String> = HashMap::new();
+    process_indexes_with_sql(raw_indexes, index_columns, &empty)
+}
+
+/// Process raw index info into Index entities, using each index's own CREATE
+/// SQL (keyed by index name) to recover what PRAGMA cannot express:
+///
+/// - partial-index WHERE clauses (`pragma_index_list` only reports a flag)
+/// - expression columns (`pragma_index_xinfo` returns NULL names for them)
+#[must_use]
+pub fn process_indexes_with_sql<S: std::hash::BuildHasher>(
+    raw_indexes: &[RawIndexInfo],
+    index_columns: &[RawIndexColumn],
+    index_sql_map: &std::collections::HashMap<String, String, S>,
+) -> Vec<Index> {
     raw_indexes
         .iter()
         .filter(|idx| idx.origin == "c") // Only CREATE INDEX indexes
         .map(|idx| {
-            let columns: Vec<IndexColumn> = index_columns
+            let parsed = index_sql_map.get(&idx.name).map(|sql| parse_index_sql(sql));
+
+            let mut key_columns: Vec<&RawIndexColumn> = index_columns
                 .iter()
                 .filter(|c| c.index_name == idx.name && c.key)
-                .filter_map(|c| {
-                    c.name.clone().map(|name| IndexColumn {
-                        value: name.into(),
-                        is_expression: false,
-                    })
-                })
                 .collect();
+            key_columns.sort_by_key(|c| c.seqno);
+
+            let has_expression = key_columns.iter().any(|c| c.name.is_none());
+            let columns: Vec<IndexColumn> = match &parsed {
+                // Expression columns (or missing xinfo rows): the parsed SQL
+                // has the verbatim column list, including expression text.
+                Some(parsed)
+                    if (has_expression || key_columns.is_empty()) && !parsed.columns.is_empty() =>
+                {
+                    parsed.columns.clone()
+                }
+                _ => key_columns
+                    .iter()
+                    .filter_map(|c| {
+                        c.name.clone().map(|name| IndexColumn {
+                            value: name.into(),
+                            is_expression: false,
+                        })
+                    })
+                    .collect(),
+            };
+
+            let where_clause = if idx.partial {
+                parsed
+                    .as_ref()
+                    .and_then(|p| p.where_clause.clone())
+                    .map(std::convert::Into::into)
+            } else {
+                None
+            };
 
             Index {
                 table: idx.table.clone().into(),
                 name: idx.name.clone().into(),
                 columns,
                 is_unique: idx.unique,
-                where_clause: None,
+                where_clause,
                 origin: IndexOrigin::Manual,
             }
         })
@@ -527,9 +787,9 @@ pub fn process_unique_constraints_from_indexes(
 pub fn process_foreign_keys(raw_fks: &[RawForeignKey]) -> Vec<ForeignKey> {
     use std::borrow::Cow;
 
-    // Group by table and id
-    let mut grouped: std::collections::HashMap<(String, i32), Vec<&RawForeignKey>> =
-        std::collections::HashMap::new();
+    // Group by table and id. BTreeMap keeps the emitted FK order (and thus
+    // snapshot JSON and generated SQL) deterministic.
+    let mut grouped: BTreeMap<(String, i32), Vec<&RawForeignKey>> = BTreeMap::new();
 
     for fk in raw_fks {
         grouped
@@ -750,6 +1010,26 @@ pub mod queries {
         ORDER BY m.name COLLATE NOCASE, p.seq
     "#;
 
+    /// Query the verbatim CREATE INDEX SQL for every user-created index.
+    ///
+    /// Feed the resulting `(name, sql)` rows into
+    /// [`super::process_indexes_with_sql`] to recover partial-index WHERE
+    /// clauses and expression columns, which PRAGMA cannot express. Auto
+    /// indexes (`sqlite_autoindex_*`) have NULL sql and are excluded.
+    pub const INDEX_SQL_QUERY: &str = r"
+        SELECT name, sql
+        FROM sqlite_master
+        WHERE type = 'index'
+          AND sql IS NOT NULL
+          AND tbl_name != '__drizzle_migrations'
+          AND tbl_name NOT LIKE '\_cf\_%' ESCAPE '\'
+          AND tbl_name NOT LIKE '\_litestream\_%' ESCAPE '\'
+          AND tbl_name NOT LIKE 'libsql\_%' ESCAPE '\'
+          AND tbl_name NOT LIKE 'sqlite\_%' ESCAPE '\'
+          AND tbl_name NOT LIKE 'd1\_%' ESCAPE '\'
+        ORDER BY name COLLATE NOCASE
+    ";
+
     /// Query all indexed columns in one round trip.
     pub const INDEX_COLUMNS_QUERY: &str = r#"
         SELECT
@@ -798,19 +1078,42 @@ pub mod queries {
     "#;
 }
 
-/// Parse a view SQL to extract the definition
+/// Parse a view SQL to extract the definition.
+///
+/// Finds the top-level `AS` keyword — quote-aware (so a view named
+/// `"my as view"` doesn't split early) and paren-aware (so a column-name list
+/// `CREATE VIEW v(a, b) AS ...` is skipped over).
 #[must_use]
 pub fn parse_view_sql(sql: &str) -> Option<String> {
-    // Extract the SELECT part from CREATE VIEW statement
-    let upper = sql.to_uppercase();
-    upper.find(" AS ").map(|as_pos| {
-        // Remove trailing semicolon if present
-        sql[as_pos + 4..]
-            .trim()
-            .trim_end_matches(';')
-            .trim()
-            .to_string()
-    })
+    let bytes = sql.as_bytes();
+    let mut in_quote: Option<char> = None;
+    let mut depth = 0i32;
+
+    for (i, ch) in sql.char_indices() {
+        match (in_quote, ch) {
+            (Some(q), _) if quote_closer(q) == ch => in_quote = None,
+            (Some(_), _) => {}
+            (None, '\'' | '"' | '`' | '[') => in_quote = Some(ch),
+            (None, '(') => depth += 1,
+            (None, ')') => depth -= 1,
+            (None, 'a' | 'A') if depth == 0 => {
+                let end = i + 2;
+                if end <= sql.len()
+                    && sql[i..end].eq_ignore_ascii_case("as")
+                    && (i == 0 || !is_ident_byte(bytes[i - 1]))
+                    && (end == sql.len() || !is_ident_byte(bytes[end]))
+                {
+                    let definition = sql[end..].trim().trim_end_matches(';').trim();
+                    if definition.is_empty() {
+                        return None;
+                    }
+                    return Some(definition.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Parse the `AS (expr) [STORED|VIRTUAL]` tail of a column definition.
@@ -948,6 +1251,165 @@ CREATE TABLE users (
         let total = map.get("users:total").expect("total generated");
         assert_eq!(total.gen_type, GeneratedType::Stored);
         assert!(total.expression.contains("id"));
+    }
+
+    #[test]
+    fn test_parse_table_options_ignores_body_content() {
+        // Column named `strict` must not trigger the STRICT option.
+        let sql = "CREATE TABLE t (strict TEXT, without_rowid INTEGER)";
+        assert_eq!(parse_table_options(sql), (false, false));
+
+        // String content in the body must not trigger options either.
+        let sql = "CREATE TABLE t (note TEXT DEFAULT 'WITHOUT ROWID STRICT')";
+        assert_eq!(parse_table_options(sql), (false, false));
+
+        let sql = "CREATE TABLE t (id INTEGER) STRICT";
+        assert_eq!(parse_table_options(sql), (true, false));
+
+        let sql = "CREATE TABLE t (id INTEGER) WITHOUT ROWID";
+        assert_eq!(parse_table_options(sql), (false, true));
+
+        let sql = "CREATE TABLE t (id INTEGER) STRICT, WITHOUT ROWID;";
+        assert_eq!(parse_table_options(sql), (true, true));
+
+        let sql = "CREATE TABLE t (id INTEGER) WITHOUT ROWID, STRICT;";
+        assert_eq!(parse_table_options(sql), (true, true));
+    }
+
+    #[test]
+    fn test_parse_index_sql_recovers_where_and_expressions() {
+        let parsed =
+            parse_index_sql("CREATE INDEX idx_c_positive ON multi_indexed(col_c) WHERE col_c > 0");
+        assert_eq!(parsed.columns.len(), 1);
+        assert_eq!(parsed.columns[0].value, "col_c");
+        assert!(!parsed.columns[0].is_expression);
+        assert_eq!(parsed.where_clause.as_deref(), Some("col_c > 0"));
+
+        let parsed = parse_index_sql("CREATE UNIQUE INDEX i ON t(lower(email), name)");
+        assert_eq!(parsed.columns.len(), 2);
+        assert_eq!(parsed.columns[0].value, "lower(email)");
+        assert!(parsed.columns[0].is_expression);
+        assert_eq!(parsed.columns[1].value, "name");
+        assert!(!parsed.columns[1].is_expression);
+        assert!(parsed.where_clause.is_none());
+
+        // Quoted identifiers and ASC/DESC/COLLATE modifiers stay named columns.
+        let parsed =
+            parse_index_sql("CREATE INDEX i ON t(`email` DESC, \"name\" COLLATE NOCASE ASC)");
+        assert_eq!(parsed.columns.len(), 2);
+        assert_eq!(parsed.columns[0].value, "email");
+        assert!(!parsed.columns[0].is_expression);
+        assert_eq!(parsed.columns[1].value, "name");
+        assert!(!parsed.columns[1].is_expression);
+
+        // WHERE inside a string literal in an expression must not be picked up.
+        let parsed = parse_index_sql("CREATE INDEX i ON t(coalesce(kind, 'WHERE x'))");
+        assert!(parsed.where_clause.is_none());
+        assert_eq!(parsed.columns.len(), 1);
+        assert!(parsed.columns[0].is_expression);
+    }
+
+    #[test]
+    fn test_process_columns_keeps_generated_columns() {
+        let table_sql = "CREATE TABLE g (id INTEGER PRIMARY KEY, v TEXT GENERATED ALWAYS AS (id + 1) VIRTUAL, s TEXT GENERATED ALWAYS AS (id + 2) STORED)";
+        let raw = vec![
+            RawColumnInfo {
+                table: "g".to_string(),
+                cid: 0,
+                name: "id".to_string(),
+                column_type: "INTEGER".to_string(),
+                not_null: false,
+                default_value: None,
+                pk: 1,
+                hidden: 0,
+                sql: Some(table_sql.to_string()),
+            },
+            RawColumnInfo {
+                table: "g".to_string(),
+                cid: 1,
+                name: "v".to_string(),
+                column_type: "TEXT".to_string(),
+                not_null: false,
+                default_value: None,
+                pk: 0,
+                hidden: 2, // VIRTUAL generated
+                sql: Some(table_sql.to_string()),
+            },
+            RawColumnInfo {
+                table: "g".to_string(),
+                cid: 2,
+                name: "s".to_string(),
+                column_type: "TEXT".to_string(),
+                not_null: false,
+                default_value: None,
+                pk: 0,
+                hidden: 3, // STORED generated
+                sql: Some(table_sql.to_string()),
+            },
+        ];
+
+        let generated = parse_generated_columns_from_table_sql("g", table_sql);
+        let pk_columns: HashSet<(String, String)> = HashSet::new();
+        let (columns, _pks) = process_columns(&raw, &generated, &pk_columns);
+
+        assert_eq!(columns.len(), 3, "generated columns must be kept");
+        let v = columns.iter().find(|c| c.name == "v").expect("v column");
+        let v_generated = v.generated.as_ref().expect("v generated info");
+        assert_eq!(v_generated.gen_type, GeneratedType::Virtual);
+        assert_eq!(v_generated.expression, "id + 1");
+        let s = columns.iter().find(|c| c.name == "s").expect("s column");
+        let s_generated = s.generated.as_ref().expect("s generated info");
+        assert_eq!(s_generated.gen_type, GeneratedType::Stored);
+        assert_eq!(s_generated.expression, "id + 2");
+    }
+
+    #[test]
+    fn test_composite_pk_columns_ordered_by_pk_position() {
+        // PRIMARY KEY (b, a): cid order is a, b but pk positions are b=1, a=2.
+        let raw = vec![
+            RawColumnInfo {
+                table: "t".to_string(),
+                cid: 0,
+                name: "a".to_string(),
+                column_type: "INTEGER".to_string(),
+                not_null: true,
+                default_value: None,
+                pk: 2,
+                hidden: 0,
+                sql: None,
+            },
+            RawColumnInfo {
+                table: "t".to_string(),
+                cid: 1,
+                name: "b".to_string(),
+                column_type: "INTEGER".to_string(),
+                not_null: true,
+                default_value: None,
+                pk: 1,
+                hidden: 0,
+                sql: None,
+            },
+        ];
+        let generated = HashMap::new();
+        let pk_columns: HashSet<(String, String)> = HashSet::new();
+        let (_cols, pks) = process_columns(&raw, &generated, &pk_columns);
+        assert_eq!(pks.len(), 1);
+        let cols: Vec<&str> = pks[0].columns.iter().map(AsRef::as_ref).collect();
+        assert_eq!(cols, vec!["b", "a"]);
+    }
+
+    #[test]
+    fn test_parse_view_sql_is_quote_aware() {
+        let sql = r#"CREATE VIEW "my as view" AS SELECT * FROM users"#;
+        assert_eq!(parse_view_sql(sql), Some("SELECT * FROM users".to_string()));
+
+        // Column-name list before AS is skipped over.
+        let sql = "CREATE VIEW v(a, b) AS SELECT 1, 2";
+        assert_eq!(parse_view_sql(sql), Some("SELECT 1, 2".to_string()));
+
+        // `AS` must be a word, not a substring.
+        let sql = "CREATE VIEW basics AS SELECT 1";
+        assert_eq!(parse_view_sql(sql), Some("SELECT 1".to_string()));
     }
 
     #[test]

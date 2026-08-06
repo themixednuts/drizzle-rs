@@ -336,6 +336,7 @@ pub struct ViewWithOption {
     #[cfg_attr(
         feature = "serde",
         serde(
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "cow_option_from_string"
         )
@@ -370,6 +371,7 @@ pub struct ViewWithOption {
     #[cfg_attr(
         feature = "serde",
         serde(
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "cow_option_from_string"
         )
@@ -625,6 +627,7 @@ pub struct View {
     #[cfg_attr(
         feature = "serde",
         serde(
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "cow_option_from_string"
         )
@@ -635,6 +638,7 @@ pub struct View {
     #[cfg_attr(
         feature = "serde",
         serde(
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "cow_option_from_string"
         )
@@ -697,6 +701,37 @@ mod tests {
 
         assert_eq!(VIEW.name, "active_users");
         assert_eq!(VIEW.schema, "public");
+    }
+
+    /// Optional fields are skipped when serializing; deserialization must
+    /// treat the missing keys as `None` instead of erroring.
+    #[cfg(feature = "serde")]
+    #[test]
+    fn test_serde_roundtrip_with_all_none_optionals() {
+        let view = View {
+            schema: Cow::Borrowed("public"),
+            name: Cow::Borrowed("plain_view"),
+            definition: Some(Cow::Borrowed("SELECT 1")),
+            ..View::default()
+        };
+        assert!(view.using.is_none());
+        assert!(view.tablespace.is_none());
+
+        let json = serde_json::to_string(&view).expect("serialize");
+        let parsed: View = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed, view);
+
+        // ViewWithOption's own optionals must round-trip the same way.
+        let with_options = View {
+            with: Some(ViewWithOption {
+                security_barrier: Some(true),
+                ..ViewWithOption::default()
+            }),
+            ..view
+        };
+        let json = serde_json::to_string(&with_options).expect("serialize");
+        let parsed: View = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed, with_options);
     }
 
     #[test]

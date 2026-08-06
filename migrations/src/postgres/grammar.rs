@@ -40,13 +40,13 @@ pub fn default_name_for_fk(
 /// Generate default name for a unique constraint
 #[must_use]
 pub fn default_name_for_unique(table: &str, columns: &[String]) -> String {
-    format!("{}_{}_key", table, columns.join("_"))
+    truncate_identifier(&format!("{}_{}_key", table, columns.join("_")), "_key")
 }
 
 /// Generate default name for an index
 #[must_use]
 pub fn default_name_for_index(table: &str, columns: &[String]) -> String {
-    format!("{}_{}_idx", table, columns.join("_"))
+    truncate_identifier(&format!("{}_{}_idx", table, columns.join("_")), "_idx")
 }
 
 /// Generate default name for an identity sequence
@@ -55,20 +55,52 @@ pub fn default_name_for_identity_sequence(table: &str, column: &str) -> String {
     format!("{table}_{column}_seq")
 }
 
-/// Generate default name for a check constraint
+/// Generate default name for a check constraint.
+///
+/// Naming convention (matches the `#[PostgresTable]` macro): table-level
+/// checks are numbered 1-based — `{table}_check1`, `{table}_check2`, ...
+/// (the macro collapses a *single* table-level check to `{table}_check`;
+/// callers with that context should special-case it). Column-level checks
+/// use `{table}_{column}_check` and are not produced by this helper.
 #[must_use]
 pub fn default_name_for_check(table: &str, index: usize) -> String {
-    format!("{table}_check_{index}")
+    format!("{table}_check{}", index + 1)
 }
 
-/// Simple hash function for constraint naming
+/// Stable hash for constraint/index naming.
+///
+/// Uses SHA-256 (first 12 hex chars) so generated names are identical
+/// across runs, processes, and Rust versions — `DefaultHasher` output is
+/// explicitly not stable and would rename constraints between invocations.
 fn hash_string(s: &str) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+    use sha2::{Digest, Sha256};
 
-    let mut hasher = DefaultHasher::new();
-    s.hash(&mut hasher);
-    format!("{:x}", hasher.finish())[..12].to_string()
+    let digest = Sha256::digest(s.as_bytes());
+    let mut out = String::with_capacity(12);
+    for byte in digest.iter().take(6) {
+        use std::fmt::Write;
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+/// Enforce `PostgreSQL`'s 63-byte identifier limit: names longer than that
+/// are truncated and disambiguated with a stable hash, preserving `suffix`
+/// (e.g. `_key`, `_idx`) so the object kind stays recognizable.
+fn truncate_identifier(name: &str, suffix: &str) -> String {
+    const MAX_IDENTIFIER_LEN: usize = 63;
+    if name.len() <= MAX_IDENTIFIER_LEN {
+        return name.to_string();
+    }
+
+    let hash = hash_string(name);
+    // Reserve room for `_<hash>` + suffix.
+    let budget = MAX_IDENTIFIER_LEN - hash.len() - 1 - suffix.len();
+    let mut cutoff = budget.min(name.len());
+    while !name.is_char_boundary(cutoff) {
+        cutoff -= 1;
+    }
+    format!("{}_{hash}{suffix}", &name[..cutoff])
 }
 
 // =============================================================================
@@ -351,28 +383,6 @@ pub fn parse_type_params(sql_type: &str) -> Option<(String, Option<String>)> {
     }
 }
 
-/// Split SQL type into base type and options
-#[must_use]
-pub fn split_sql_type(sql_type: &str) -> (String, Option<String>) {
-    let normalized = sql_type.replace("[]", "");
-
-    if let Some(start) = normalized.find('(')
-        && let Some(end) = normalized.find(')')
-    {
-        let base = normalized[..start].trim().to_string();
-        let options = normalized[start + 1..end].replace(", ", ",");
-        return (base, Some(options));
-    }
-
-    (normalized.trim().to_string(), None)
-}
-
-/// Trim a character from both ends of a string
-#[must_use]
-pub fn trim_char(s: &str, c: char) -> &str {
-    s.trim_start_matches(c).trim_end_matches(c)
-}
-
 /// Check if a string is a serial expression
 #[must_use]
 pub fn is_serial_expression(expr: &str, schema: &str) -> bool {
@@ -470,12 +480,6 @@ pub fn is_system_role(name: &str) -> bool {
     name == "postgres" || name.starts_with("pg_")
 }
 
-/// Check if an action is the default (NO ACTION)
-#[must_use]
-pub const fn is_default_action(action: &str) -> bool {
-    action.eq_ignore_ascii_case("no action")
-}
-
 // =============================================================================
 // Default Values
 // =============================================================================
@@ -516,13 +520,18 @@ pub const VECTOR_OPS: &[&str] = &[
 // Parsing Helpers
 // =============================================================================
 
-/// Parse a CHECK constraint definition
+/// Parse a CHECK constraint definition: strip a leading `CHECK` keyword,
+/// leaving the (possibly parenthesized) expression intact. Balanced outer
+/// parentheses are the caller's concern — naive suffix trimming corrupts
+/// expressions like `((a) AND (b))`.
 #[must_use]
 pub fn parse_check_definition(value: &str) -> String {
-    value
-        .trim_start_matches("CHECK ((")
-        .trim_end_matches("))")
-        .to_string()
+    let trimmed = value.trim();
+    let rest = trimmed
+        .strip_prefix("CHECK")
+        .or_else(|| trimmed.strip_prefix("check"))
+        .map_or(trimmed, str::trim_start);
+    rest.to_string()
 }
 
 /// Parse a VIEW definition.
@@ -536,21 +545,6 @@ pub fn parse_view_definition(value: &str) -> String {
         .join(" ")
         .trim_end_matches(';')
         .to_string()
-}
-
-/// Parse ON DELETE/UPDATE action from `PostgreSQL` code.
-///
-/// Unknown codes and the canonical `"a"` (no action) both map to `"NO ACTION"`.
-#[must_use]
-pub fn parse_on_type(code: &str) -> &'static str {
-    match code {
-        "r" => "RESTRICT",
-        "n" => "SET NULL",
-        "c" => "CASCADE",
-        "d" => "SET DEFAULT",
-        // "a" and any unknown code default to "NO ACTION"
-        _ => "NO ACTION",
-    }
 }
 
 #[cfg(test)]

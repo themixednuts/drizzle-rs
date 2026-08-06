@@ -128,6 +128,32 @@ mod table;
 pub use table::{Table, TableDef};
 
 // =============================================================================
+// Snapshot DDL channel for schema items
+// =============================================================================
+
+/// Const DDL metadata channel from `#[Postgres*]` schema items to the
+/// `PostgresSchema` derive's runtime `to_snapshot()`.
+///
+/// Every `PostgreSQL` schema-item macro (table, index, enum, view, policy)
+/// implements this trait; the defaults mean "no metadata of that kind". The
+/// schema derive reads these consts so the runtime snapshot carries the same
+/// fidelity as the compile-time DDL consts (identity sequence options, index
+/// `method`/`where`/`concurrently`, `NULLS NOT DISTINCT`, enum schemas, one
+/// composite `PrimaryKey` entity per table) without re-deriving any of it.
+pub trait PostgresItemDdl {
+    /// Column definitions in declaration order (tables only).
+    const SNAPSHOT_COLUMNS: &'static [ColumnDef] = &[];
+    /// The table's single (possibly composite) primary-key entity.
+    const SNAPSHOT_PRIMARY_KEY: Option<PrimaryKeyDef> = None;
+    /// Unique constraints (column-level and table-level) in declaration order.
+    const SNAPSHOT_UNIQUE_CONSTRAINTS: &'static [UniqueConstraintDef] = &[];
+    /// The index definition (index items only).
+    const SNAPSHOT_INDEX: Option<IndexDef> = None;
+    /// Schema the enum type is created in (enum items only).
+    const ENUM_SCHEMA: &'static str = "public";
+}
+
+// =============================================================================
 // Unified Entity Enum
 // =============================================================================
 

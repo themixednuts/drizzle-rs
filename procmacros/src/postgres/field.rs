@@ -635,6 +635,59 @@ pub enum IdentityMode {
     ByDefault,
 }
 
+/// Optional sequence options parsed from
+/// `#[column(identity(always, start = 100, increment = 10, min_value = 1,
+/// max_value = 1000, cache = 5, cycle))]` — the exact syntax the
+/// introspection codegen (`format_identity_attr`) emits.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IdentitySequenceOptions {
+    /// START WITH value
+    pub start: Option<String>,
+    /// INCREMENT BY value
+    pub increment: Option<String>,
+    /// MINVALUE
+    pub min_value: Option<String>,
+    /// MAXVALUE
+    pub max_value: Option<String>,
+    /// CACHE size
+    pub cache: Option<i32>,
+    /// CYCLE flag
+    pub cycle: bool,
+}
+
+impl IdentitySequenceOptions {
+    /// Render the parenthesized sequence-options clause (` (INCREMENT BY n
+    /// MINVALUE n MAXVALUE n START WITH n CACHE n CYCLE)`), matching
+    /// `drizzle_types::postgres::ddl::Identity::to_sql` option order.
+    /// Returns an empty string when no option is set.
+    pub fn to_sql_suffix(&self) -> String {
+        let mut options = Vec::new();
+        if let Some(increment) = &self.increment {
+            options.push(format!("INCREMENT BY {increment}"));
+        }
+        if let Some(min) = &self.min_value {
+            options.push(format!("MINVALUE {min}"));
+        }
+        if let Some(max) = &self.max_value {
+            options.push(format!("MAXVALUE {max}"));
+        }
+        if let Some(start) = &self.start {
+            options.push(format!("START WITH {start}"));
+        }
+        if let Some(cache) = self.cache {
+            options.push(format!("CACHE {cache}"));
+        }
+        if self.cycle {
+            options.push("CYCLE".to_string());
+        }
+        if options.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", options.join(" "))
+        }
+    }
+}
+
 /// Generated column specification (GENERATED AS expression)
 #[derive(Debug, Clone)]
 pub struct GeneratedColumn {
@@ -676,6 +729,8 @@ pub struct FieldInfo {
     pub is_generated_identity: bool,
     /// Identity mode for GENERATED IDENTITY columns (`always/by_default`)
     pub identity_mode: Option<IdentityMode>,
+    /// Sequence options for GENERATED IDENTITY columns.
+    pub identity_options: IdentitySequenceOptions,
     /// Generated column specification (GENERATED AS expression STORED/VIRTUAL)
     pub generated_column: Option<GeneratedColumn>,
     pub default: Option<PostgreSQLDefault>,
@@ -800,6 +855,7 @@ impl FieldInfo {
         let mut is_bigserial = false;
         let mut is_generated_identity = false;
         let mut identity_mode = None;
+        let mut identity_options = IdentitySequenceOptions::default();
         let mut generated_column = None;
         let mut is_pgenum = false;
         let mut marker_exprs = Vec::new();
@@ -827,6 +883,7 @@ impl FieldInfo {
                 is_bigserial = column_info.is_bigserial;
                 is_generated_identity = column_info.is_generated_identity;
                 identity_mode = column_info.identity_mode;
+                identity_options = column_info.identity_options;
                 generated_column = column_info.generated_column;
                 is_pgenum = column_info.is_pgenum;
                 is_explicit_json = column_info.is_json;
@@ -925,6 +982,7 @@ impl FieldInfo {
             is_unique,
             is_serial: is_serial_type,
             identity_mode: identity_mode.as_ref(),
+            identity_options: Some(&identity_options),
             generated_column: generated_column.as_ref(),
             default: default.as_ref(),
             check_constraint: check_constraint.as_deref(),
@@ -950,6 +1008,7 @@ impl FieldInfo {
             is_serial: is_serial_type,
             is_generated_identity,
             identity_mode,
+            identity_options,
             generated_column,
             default,
             default_fn,
@@ -1002,6 +1061,7 @@ impl FieldInfo {
         let mut is_bigserial = false;
         let mut is_generated_identity = false;
         let mut identity_mode: Option<IdentityMode> = None;
+        let mut identity_options = IdentitySequenceOptions::default();
         let mut generated_column: Option<GeneratedColumn> = None;
         let mut is_pgenum = false;
         let mut is_json = false;
@@ -1065,11 +1125,14 @@ impl FieldInfo {
                         marker_exprs.push(make_uppercase_path(path_ident, "UNIQUE"));
                     }
                     "IDENTITY" => {
-                        // identity(always) or identity(by_default) syntax
+                        // identity(always) / identity(by_default), optionally
+                        // followed by sequence options:
+                        // identity(always, start = 100, increment = 10,
+                        //          min_value = 1, max_value = 1000,
+                        //          cache = 5, cycle)
                         is_generated_identity = true;
                         flags.insert(PostgreSQLFlag::Identity);
 
-                        // Parse the parenthesized content: identity(always) or identity(by_default)
                         if meta.input.peek(syn::token::Paren) {
                             let content;
                             syn::parenthesized!(content in meta.input);
@@ -1091,8 +1154,54 @@ impl FieldInfo {
                                 }
                             }
 
-                            // TODO: Parse optional sequence options after a comma
-                            // e.g., identity(always, start = 100, increment = 10)
+                            while content.peek(Token![,]) {
+                                content.parse::<Token![,]>()?;
+                                if content.is_empty() {
+                                    break;
+                                }
+                                let key: Ident = content.parse()?;
+                                let key_str = key.to_string().to_ascii_lowercase();
+                                match key_str.as_str() {
+                                    "cycle" => identity_options.cycle = true,
+                                    "start" | "start_with" => {
+                                        content.parse::<Token![=]>()?;
+                                        identity_options.start =
+                                            Some(parse_signed_integer_literal(&content)?);
+                                    }
+                                    "increment" | "increment_by" => {
+                                        content.parse::<Token![=]>()?;
+                                        identity_options.increment =
+                                            Some(parse_signed_integer_literal(&content)?);
+                                    }
+                                    "min" | "min_value" | "minvalue" => {
+                                        content.parse::<Token![=]>()?;
+                                        identity_options.min_value =
+                                            Some(parse_signed_integer_literal(&content)?);
+                                    }
+                                    "max" | "max_value" | "maxvalue" => {
+                                        content.parse::<Token![=]>()?;
+                                        identity_options.max_value =
+                                            Some(parse_signed_integer_literal(&content)?);
+                                    }
+                                    "cache" => {
+                                        content.parse::<Token![=]>()?;
+                                        let value = parse_signed_integer_literal(&content)?;
+                                        identity_options.cache =
+                                            Some(value.parse::<i32>().map_err(|_| {
+                                                syn::Error::new_spanned(
+                                                    &key,
+                                                    "identity cache must fit in i32",
+                                                )
+                                            })?);
+                                    }
+                                    _ => {
+                                        return Err(syn::Error::new_spanned(
+                                            &key,
+                                            "unrecognized identity option; expected start, increment, min_value, max_value, cache, or cycle",
+                                        ));
+                                    }
+                                }
+                            }
                         } else {
                             // Default to ALWAYS if no argument
                             identity_mode = Some(IdentityMode::Always);
@@ -1420,6 +1529,7 @@ impl FieldInfo {
             is_bigserial,
             is_generated_identity,
             identity_mode,
+            identity_options,
             generated_column,
             is_pgenum,
             is_json,
@@ -1607,7 +1717,9 @@ impl FieldInfo {
             col = col.default_value(default);
         }
         if self.is_pgenum || self.is_custom_type {
-            col.type_schema = Some(std::borrow::Cow::Owned(schema.to_string()));
+            // Enum/custom types are created unqualified by their derives, so
+            // they live in the default (`public`) schema — not the table's.
+            col.type_schema = Some(std::borrow::Cow::Borrowed("public"));
         }
         col.dimensions = self.dimensions;
         col.comment = self
@@ -1631,6 +1743,7 @@ impl FieldInfo {
 
         if !self.is_serial && self.is_generated_identity {
             let seq_name = format!("{table_name}_{}_seq", self.column_name);
+            let options = &self.identity_options;
             col.identity = Some(drizzle_types::postgres::ddl::Identity {
                 name: std::borrow::Cow::Owned(seq_name),
                 schema: Some(std::borrow::Cow::Owned(schema.to_string())),
@@ -1639,12 +1752,12 @@ impl FieldInfo {
                 } else {
                     drizzle_types::postgres::ddl::IdentityType::Always
                 },
-                increment: None,
-                min_value: None,
-                max_value: None,
-                start_with: None,
-                cache: None,
-                cycle: None,
+                increment: options.increment.clone().map(std::borrow::Cow::Owned),
+                min_value: options.min_value.clone().map(std::borrow::Cow::Owned),
+                max_value: options.max_value.clone().map(std::borrow::Cow::Owned),
+                start_with: options.start.clone().map(std::borrow::Cow::Owned),
+                cache: options.cache,
+                cycle: if options.cycle { Some(true) } else { None },
             });
         }
 
@@ -1758,6 +1871,7 @@ struct SqlDefinitionContext<'a> {
     is_unique: bool,
     is_serial: bool,
     identity_mode: Option<&'a IdentityMode>,
+    identity_options: Option<&'a IdentitySequenceOptions>,
     generated_column: Option<&'a GeneratedColumn>,
     default: Option<&'a PostgreSQLDefault>,
     check_constraint: Option<&'a str>,
@@ -1783,6 +1897,9 @@ fn build_sql_definition(ctx: &SqlDefinitionContext<'_>) -> String {
             IdentityMode::ByDefault => "BY DEFAULT",
         };
         let _ = write!(sql, " GENERATED {identity_type} AS IDENTITY");
+        if let Some(options) = ctx.identity_options {
+            sql.push_str(&options.to_sql_suffix());
+        }
     }
 
     if let Some(generated) = ctx.generated_column {
@@ -1839,6 +1956,19 @@ fn build_sql_definition(ctx: &SqlDefinitionContext<'_>) -> String {
     sql
 }
 
+/// Parse an integer literal with an optional leading minus sign, returning
+/// its base-10 string form (identity/sequence options are carried as strings).
+fn parse_signed_integer_literal(input: syn::parse::ParseStream) -> Result<String> {
+    let negative = input.parse::<Option<Token![-]>>()?.is_some();
+    let lit: syn::LitInt = input.parse()?;
+    let digits = lit.base10_digits();
+    Ok(if negative {
+        format!("-{digits}")
+    } else {
+        digits.to_string()
+    })
+}
+
 fn sql_type_with_dimensions(sql_type: &str, dimensions: Option<i32>) -> String {
     let mut rendered = sql_type.to_string();
     if let Some(dimensions) = dimensions
@@ -1870,6 +2000,7 @@ struct ColumnInfo {
     is_bigserial: bool,
     is_generated_identity: bool,
     identity_mode: Option<IdentityMode>,
+    identity_options: IdentitySequenceOptions,
     generated_column: Option<GeneratedColumn>,
     is_pgenum: bool,
     is_json: bool,
@@ -1933,6 +2064,58 @@ impl crate::common::constraints::ConstraintFieldInfo for FieldInfo {
 mod tests {
     use super::*;
 
+    #[test]
+    fn identity_options_parse_from_column_attribute() {
+        let item: syn::ItemStruct = syn::parse_str(
+            "struct T { #[column(identity(by_default, start = 100, increment = 10, min_value = -5, max_value = 1000, cache = 5, cycle))] id: i64 }",
+        )
+        .expect("valid struct");
+        let field = item.fields.iter().next().expect("field");
+        let info = FieldInfo::from_field(field, false).expect("parse");
+
+        assert_eq!(info.identity_mode, Some(IdentityMode::ByDefault));
+        assert_eq!(info.identity_options.start.as_deref(), Some("100"));
+        assert_eq!(info.identity_options.increment.as_deref(), Some("10"));
+        assert_eq!(info.identity_options.min_value.as_deref(), Some("-5"));
+        assert_eq!(info.identity_options.max_value.as_deref(), Some("1000"));
+        assert_eq!(info.identity_options.cache, Some(5));
+        assert!(info.identity_options.cycle);
+        assert!(
+            info.sql_definition.contains(
+                "GENERATED BY DEFAULT AS IDENTITY (INCREMENT BY 10 MINVALUE -5 MAXVALUE 1000 START WITH 100 CACHE 5 CYCLE)"
+            ),
+            "unexpected sql definition: {}",
+            info.sql_definition
+        );
+    }
+
+    #[test]
+    fn identity_without_options_parses_as_before() {
+        let item: syn::ItemStruct =
+            syn::parse_str("struct T { #[column(identity(always))] id: i64 }")
+                .expect("valid struct");
+        let field = item.fields.iter().next().expect("field");
+        let info = FieldInfo::from_field(field, false).expect("parse");
+
+        assert_eq!(info.identity_mode, Some(IdentityMode::Always));
+        assert_eq!(info.identity_options, IdentitySequenceOptions::default());
+        assert!(
+            info.sql_definition
+                .ends_with("GENERATED ALWAYS AS IDENTITY NOT NULL"),
+            "unexpected sql definition: {}",
+            info.sql_definition
+        );
+    }
+
+    #[test]
+    fn identity_rejects_unknown_option() {
+        let item: syn::ItemStruct =
+            syn::parse_str("struct T { #[column(identity(always, bogus = 1))] id: i64 }")
+                .expect("valid struct");
+        let field = item.fields.iter().next().expect("field");
+        assert!(FieldInfo::from_field(field, false).is_err());
+    }
+
     fn base_context<'a>(
         column_name: &'a str,
         column_type: &'a PostgreSQLType,
@@ -1945,6 +2128,7 @@ mod tests {
             is_unique: false,
             is_serial: false,
             identity_mode: None,
+            identity_options: None,
             generated_column: None,
             default: None,
             check_constraint: None,

@@ -65,7 +65,7 @@ pub const fn is_latest_version(dialect: Dialect, version: &str) -> bool {
 /// Supported version ranges (matching drizzle-kit beta):
 /// - `SQLite`: 5-7 (v4 and below need upgrade)
 /// - `PostgreSQL`: 5-8 (v4 and below need upgrade)
-/// - `MySQL`: 5 (no older versions)
+/// - `MySQL`: 5-6
 #[must_use]
 pub fn is_supported_version(dialect: Dialect, version: &str) -> bool {
     let Ok(v) = version.parse::<u32>() else {

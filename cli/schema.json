@@ -4,7 +4,7 @@
   "title": "Drizzle Configuration",
   "description": "Configuration schema for drizzle-rs CLI tool (compatible with drizzle-kit)",
   "definitions": {
-    "envOr": {
+    "configValue": {
       "description": "A value that can be a direct string or an environment variable reference",
       "oneOf": [
         { "type": "string" },
@@ -139,9 +139,9 @@
       "description": "URL-based credentials (SQLite file path, Turso/LibSQL URL, PostgreSQL connection string)",
       "required": ["url"],
       "properties": {
-        "url": { "$ref": "#/definitions/envOr" },
+        "url": { "$ref": "#/definitions/configValue" },
         "authToken": {
-          "$ref": "#/definitions/envOr",
+          "$ref": "#/definitions/configValue",
           "description": "Auth token for Turso/LibSQL connections"
         }
       },
@@ -152,11 +152,11 @@
       "description": "Host-based credentials for PostgreSQL",
       "required": ["host", "database"],
       "properties": {
-        "host": { "$ref": "#/definitions/envOr" },
+        "host": { "$ref": "#/definitions/configValue" },
         "port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 5432 },
-        "user": { "$ref": "#/definitions/envOr" },
-        "password": { "$ref": "#/definitions/envOr" },
-        "database": { "$ref": "#/definitions/envOr" },
+        "user": { "$ref": "#/definitions/configValue" },
+        "password": { "$ref": "#/definitions/configValue" },
+        "database": { "$ref": "#/definitions/configValue" },
         "ssl": {
           "oneOf": [
             { "type": "boolean" },

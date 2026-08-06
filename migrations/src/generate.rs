@@ -16,7 +16,7 @@
 //! # Schema-to-schema example (recommended for runtime generation)
 //!
 //! ```rust,no_run
-//! use drizzle_migrations::{Options, diff_schemas_with};
+//! use drizzle_migrations::{DiffOptions, diff_schemas_with};
 //! use drizzle_migrations::{Schema, Snapshot};
 //! use drizzle_types::Dialect;
 //!
@@ -36,7 +36,7 @@
 //! let generated = diff_schemas_with(
 //!     &V1,
 //!     &V2,
-//!     &Options::new()
+//!     &DiffOptions::new()
 //!         .rename_table("users_old", "users")
 //!         .rename_column("users", "full_name", "name")
 //!         .strict_renames(true),
@@ -51,6 +51,7 @@
 use crate::postgres::collection::PostgresDDL;
 use crate::schema::{Schema, Snapshot};
 use crate::sqlite::collection::SQLiteDDL;
+use crate::version::ORIGIN_UUID;
 use crate::writer::MigrationError;
 use std::borrow::Cow;
 use std::io::{self, Write};
@@ -214,14 +215,14 @@ pub struct ColumnRenameHint {
 
 /// Generation options for [`diff_with`] and [`diff_schemas_with`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Options {
+pub struct DiffOptions {
     /// Explicit rename hints applied before heuristic diffing.
     pub renames: RenameHints,
     /// If true, every hint must apply; otherwise generation fails.
     pub strict_renames: bool,
 }
 
-impl Options {
+impl DiffOptions {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -302,7 +303,7 @@ impl Options {
 /// different dialects, or a [`MigrationError::ConfigError`] if applying
 /// rename hints fails under strict mode.
 pub fn diff(prev: &Snapshot, current: &Snapshot) -> Result<Plan, MigrationError> {
-    diff_with(prev, current, &Options::default())
+    diff_with(prev, current, &DiffOptions::default())
 }
 
 /// Diff two snapshots with explicit generation options.
@@ -318,7 +319,7 @@ pub fn diff(prev: &Snapshot, current: &Snapshot) -> Result<Plan, MigrationError>
 pub fn diff_with(
     prev: &Snapshot,
     current: &Snapshot,
-    options: &Options,
+    options: &DiffOptions,
 ) -> Result<Plan, MigrationError> {
     let (statements, warnings) = match (prev, current) {
         (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => {
@@ -340,10 +341,22 @@ pub fn diff_with(
         _ => return Err(MigrationError::DialectMismatch),
     };
 
+    // Link the produced snapshot into the chain: it succeeds `prev`. A fresh
+    // empty baseline (no entities, still pointing at the origin) keeps the
+    // origin marker instead of adopting the baseline's throwaway id.
+    let mut snapshot = current.clone();
+    let prev_is_origin_baseline =
+        prev.is_empty() && matches!(prev.prev_ids(), [only] if only == ORIGIN_UUID);
+    if prev_is_origin_baseline {
+        snapshot.set_prev_ids(vec![ORIGIN_UUID.to_string()]);
+    } else {
+        snapshot.set_prev_ids(vec![prev.id().to_string()]);
+    }
+
     Ok(Plan {
         statements,
         warnings,
-        snapshot: current.clone(),
+        snapshot,
     })
 }
 
@@ -369,7 +382,7 @@ pub fn diff_schemas<From: Schema, To: Schema>(
 /// # Example
 ///
 /// ```rust,no_run
-/// use drizzle_migrations::{Options, Schema, Snapshot, diff_schemas_with};
+/// use drizzle_migrations::{DiffOptions, Schema, Snapshot, diff_schemas_with};
 /// use drizzle_types::Dialect;
 ///
 /// # #[derive(Default)]
@@ -387,7 +400,7 @@ pub fn diff_schemas<From: Schema, To: Schema>(
 /// let migration = diff_schemas_with(
 ///     &FromSchema,
 ///     &ToSchema,
-///     &Options::new().rename_column("users", "displayName", "display_name"),
+///     &DiffOptions::new().rename_column("users", "displayName", "display_name"),
 /// )?;
 /// # let _ = migration;
 /// # Ok::<(), drizzle_migrations::MigrationError>(())
@@ -401,7 +414,7 @@ pub fn diff_schemas<From: Schema, To: Schema>(
 pub fn diff_schemas_with<From: Schema, To: Schema>(
     prev: &From,
     current: &To,
-    options: &Options,
+    options: &DiffOptions,
 ) -> Result<Plan, MigrationError> {
     let prev = prev.to_snapshot();
     let current = current.to_snapshot();
@@ -411,7 +424,7 @@ pub fn diff_schemas_with<From: Schema, To: Schema>(
 fn apply_sqlite_rename_hints(
     prev: &mut SQLiteDDL,
     cur: &SQLiteDDL,
-    options: &Options,
+    options: &DiffOptions,
 ) -> Result<Vec<String>, MigrationError> {
     let mut statements = Vec::new();
 
@@ -513,7 +526,7 @@ fn apply_sqlite_rename_hints(
 fn apply_postgres_rename_hints(
     prev: &mut PostgresDDL,
     cur: &PostgresDDL,
-    options: &Options,
+    options: &DiffOptions,
 ) -> Result<Vec<String>, MigrationError> {
     let mut statements = Vec::new();
 
@@ -1096,7 +1109,7 @@ mod tests {
         let prev = Snapshot::Sqlite(prev_snap);
         let cur = Snapshot::Sqlite(cur_snap);
 
-        let options = Options::new()
+        let options = DiffOptions::new()
             .rename_table("users", "accounts")
             .rename_column("accounts", "full_name", "display_name");
 
@@ -1130,7 +1143,7 @@ mod tests {
         let migration = diff_with(
             &Snapshot::Sqlite(prev_snap),
             &Snapshot::Sqlite(cur_snap),
-            &Options::new().rename_table("users", "accounts"),
+            &DiffOptions::new().rename_table("users", "accounts"),
         )
         .unwrap();
 
@@ -1165,7 +1178,7 @@ mod tests {
         let migration = diff_with(
             &Snapshot::Postgres(prev_snap),
             &Snapshot::Postgres(cur_snap),
-            &Options::new().rename_table("users", "accounts"),
+            &DiffOptions::new().rename_table("users", "accounts"),
         )
         .unwrap();
 
@@ -1182,7 +1195,7 @@ mod tests {
     fn test_diff_with_strict_rename_hints_errors() {
         let prev = Snapshot::empty(drizzle_types::Dialect::SQLite);
         let cur = Snapshot::empty(drizzle_types::Dialect::SQLite);
-        let options = Options::new()
+        let options = DiffOptions::new()
             .strict_renames(true)
             .rename_table("missing_table", "users");
 
@@ -1191,7 +1204,7 @@ mod tests {
 
         let prev = Snapshot::empty(drizzle_types::Dialect::PostgreSQL);
         let cur = Snapshot::empty(drizzle_types::Dialect::PostgreSQL);
-        let options = Options::new()
+        let options = DiffOptions::new()
             .strict_renames(true)
             .rename_schema("missing_schema", "app");
 

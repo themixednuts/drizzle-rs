@@ -1,7 +1,8 @@
-//! Random word lists for migration names (matches drizzle-kit)
+//! Migration folder naming: prefixes, tags, and validation (matches drizzle-kit).
 //!
-//! This module provides adjectives and heroes lists that match the drizzle-kit
-//! naming convention for migration folders.
+//! Holds the [`PrefixMode`] strategies, the tag generators built on them, the
+//! adjective/hero word lists drizzle-kit draws random names from, and
+//! [`validate_migration_name`] for user-supplied names.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -1437,12 +1438,13 @@ pub fn generate_timestamp_prefix() -> String {
     format!("{year:04}{month:02}{day:02}{hours:02}{minutes:02}{seconds:02}")
 }
 
-/// Generate a Supabase-style prefix
+/// Generate a Supabase-style prefix.
+///
+/// Supabase migrations use the same `YYYYMMDDHHMMSS` timestamp format as the
+/// `timestamp` prefix (drizzle-kit parity); sharing the format keeps folder
+/// ordering stable when prefix modes are mixed.
 fn generate_supabase_prefix() -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    format!("{}", now.as_millis())
+    generate_timestamp_prefix()
 }
 
 /// Generate a Unix timestamp prefix

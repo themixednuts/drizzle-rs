@@ -393,6 +393,18 @@ impl<Schema> Drizzle<Schema> {
                     .as_str(),
                 )
                 .await?;
+                // A migration left half-applied by a non-transactional runner
+                // is recorded with a NULL `applied_at`; stacking more DDL on
+                // top of it would re-run statements that already landed.
+                let dirty_rows = tx.run_statement(&set.dirty_names_sql(), Vec::new()).await?;
+                let dirty_names = decode_rows(dirty_rows)
+                    .into_iter()
+                    .map(|row| row.try_get::<String>(0))
+                    .collect::<drizzle_core::error::Result<Vec<_>>>()?;
+                if let Some(error) = set.interrupted_migration_error(&dirty_names) {
+                    return Err(DrizzleError::Other(error.to_string().into()));
+                }
+
                 let applied_rows = tx
                     .run_statement(&set.applied_names_sql(), Vec::new())
                     .await?;

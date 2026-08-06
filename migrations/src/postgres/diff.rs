@@ -4,7 +4,7 @@
 //! generates migration statements from schema changes.
 
 use super::collection::{DiffType, EntityDiff, PostgresDDL, diff_ddl};
-use super::statements::{JsonStatement, PostgresGenerator};
+use super::statements::{Generator, JsonStatement};
 use crate::postgres::ddl::PostgresEntity;
 use crate::postgres::snapshot::PostgresSnapshot;
 use crate::traits::EntityKind;
@@ -175,14 +175,14 @@ pub fn compute_migration(prev: &PostgresDDL, cur: &PostgresDDL) -> MigrationDiff
     let mut rename_statements: Vec<JsonStatement> = Vec::new();
     let mut warnings = Vec::new();
 
-    detect_and_apply_postgres_schema_renames(
+    detect_and_apply_schema_renames(
         &mut prev_normalized,
         cur,
         &mut schema_renames,
         &mut rename_statements,
         &mut warnings,
     );
-    detect_and_apply_postgres_table_renames(
+    detect_and_apply_table_renames(
         &mut prev_normalized,
         cur,
         &mut table_renames,
@@ -190,7 +190,7 @@ pub fn compute_migration(prev: &PostgresDDL, cur: &PostgresDDL) -> MigrationDiff
         &mut warnings,
     );
 
-    detect_and_apply_postgres_column_renames(
+    detect_and_apply_column_renames(
         &mut prev_normalized,
         cur,
         &mut column_renames,
@@ -198,12 +198,12 @@ pub fn compute_migration(prev: &PostgresDDL, cur: &PostgresDDL) -> MigrationDiff
     );
 
     let schema_diff = diff_collections(&prev_normalized, cur);
-    let generator = PostgresGenerator::new();
+    let generator = Generator::new();
     let mut sql_statements = rename_statements
         .into_iter()
-        .map(PostgresGenerator::statement_to_sql)
+        .flat_map(Generator::statement_to_sqls)
         .collect::<Vec<_>>();
-    sql_statements.extend(generator.generate(&schema_diff.diffs));
+    sql_statements.extend(generator.generate_with_ddl(&schema_diff.diffs, Some(cur)));
     collect_enum_removal_warnings(&mut warnings, &schema_diff);
     collect_generated_recreate_warnings(&mut warnings, &schema_diff);
     collect_table_storage_warnings(&mut warnings, &schema_diff);
@@ -245,7 +245,7 @@ fn collect_enum_removal_warnings(warnings: &mut Vec<String>, schema_diff: &Schem
             .filter(|old_value| !new.values.iter().any(|new_value| new_value == *old_value))
         {
             warnings.push(format!(
-                "PostgreSQL cannot drop enum value '{}.{}.{value}'; write a manual migration to rebuild dependent data safely.",
+                "PostgreSQL cannot drop enum value '{}.{}.{value}' in place; the migration recreates the enum type, and rows still holding the removed value will fail the conversion. Rewrite dependent data first.",
                 old.schema, old.name
             ));
         }
@@ -326,14 +326,17 @@ struct SchemaFingerprint {
     tables: Vec<SchemaTableFingerprint>,
 }
 
-fn postgres_table_fingerprint(schema: &str, table: &str, ddl: &PostgresDDL) -> TableFingerprint {
+fn table_fingerprint(schema: &str, table: &str, ddl: &PostgresDDL) -> TableFingerprint {
     let mut columns: Vec<_> = ddl
         .columns
         .for_table(schema, table)
         .into_iter()
         .map(|c| TableColumnFingerprint {
             name: c.name.to_string(),
-            sql_type: c.sql_type.to_string(),
+            // Use the diff engine's normalization so `int4` vs `INTEGER`
+            // spellings fingerprint identically and renames are detected
+            // instead of degrading to DROP + CREATE.
+            sql_type: crate::postgres::collection::normalize_column_type_for_compare(c),
             not_null: c.not_null,
         })
         .collect();
@@ -352,7 +355,7 @@ fn postgres_table_fingerprint(schema: &str, table: &str, ddl: &PostgresDDL) -> T
     }
 }
 
-fn postgres_schema_fingerprint(schema: &str, ddl: &PostgresDDL) -> SchemaFingerprint {
+fn schema_fingerprint(schema: &str, ddl: &PostgresDDL) -> SchemaFingerprint {
     let mut tables: Vec<_> = ddl
         .tables
         .list()
@@ -360,7 +363,7 @@ fn postgres_schema_fingerprint(schema: &str, ddl: &PostgresDDL) -> SchemaFingerp
         .filter(|table| table.schema.as_ref() == schema)
         .map(|table| SchemaTableFingerprint {
             name: table.name.to_string(),
-            table: postgres_table_fingerprint(schema, &table.name, ddl),
+            table: table_fingerprint(schema, &table.name, ddl),
         })
         .collect();
     tables.sort();
@@ -368,7 +371,7 @@ fn postgres_schema_fingerprint(schema: &str, ddl: &PostgresDDL) -> SchemaFingerp
     SchemaFingerprint { tables }
 }
 
-fn detect_and_apply_postgres_schema_renames(
+fn detect_and_apply_schema_renames(
     prev: &mut PostgresDDL,
     cur: &PostgresDDL,
     schema_renames: &mut Vec<SchemaRename>,
@@ -402,14 +405,14 @@ fn detect_and_apply_postgres_schema_renames(
     let mut candidates: BTreeMap<SchemaFingerprint, (Vec<String>, Vec<String>)> = BTreeMap::new();
     for from in dropped {
         candidates
-            .entry(postgres_schema_fingerprint(&from, prev))
+            .entry(schema_fingerprint(&from, prev))
             .or_default()
             .0
             .push(from);
     }
     for to in created {
         candidates
-            .entry(postgres_schema_fingerprint(&to, cur))
+            .entry(schema_fingerprint(&to, cur))
             .or_default()
             .1
             .push(to);
@@ -441,10 +444,10 @@ fn detect_and_apply_postgres_schema_renames(
                 from: from_schema,
                 to: to_schema,
             });
-            apply_postgres_schema_rename(prev, from, to);
+            apply_schema_rename(prev, from, to);
         } else {
             warnings.push(format!(
-                "Ambiguous PostgreSQL schema rename candidates between dropped schemas [{}] and created schemas [{}]; no rename was inferred. Use Options::rename_schema(...) with diff_with or diff_schemas_with to provide an explicit rename hint.",
+                "Ambiguous PostgreSQL schema rename candidates between dropped schemas [{}] and created schemas [{}]; no rename was inferred. Use DiffOptions::rename_schema(...) with diff_with or diff_schemas_with to provide an explicit rename hint.",
                 dropped.join(", "),
                 created.join(", ")
             ));
@@ -452,7 +455,7 @@ fn detect_and_apply_postgres_schema_renames(
     }
 }
 
-fn detect_and_apply_postgres_table_renames(
+fn detect_and_apply_table_renames(
     prev: &mut PostgresDDL,
     cur: &PostgresDDL,
     table_renames: &mut Vec<TableRename>,
@@ -487,20 +490,14 @@ fn detect_and_apply_postgres_table_renames(
         BTreeMap::new();
     for (schema, from) in dropped {
         candidates
-            .entry((
-                schema.clone(),
-                postgres_table_fingerprint(&schema, &from, prev),
-            ))
+            .entry((schema.clone(), table_fingerprint(&schema, &from, prev)))
             .or_default()
             .0
             .push(from);
     }
     for (schema, to) in created {
         candidates
-            .entry((
-                schema.clone(),
-                postgres_table_fingerprint(&schema, &to, cur),
-            ))
+            .entry((schema.clone(), table_fingerprint(&schema, &to, cur)))
             .or_default()
             .1
             .push(to);
@@ -527,10 +524,10 @@ fn detect_and_apply_postgres_table_renames(
                 from: from.clone(),
                 to: to.clone(),
             });
-            apply_postgres_table_rename(prev, &schema, from, to);
+            apply_table_rename(prev, &schema, from, to);
         } else {
             warnings.push(format!(
-                "Ambiguous PostgreSQL table rename candidates in schema '{}' between dropped tables [{}] and created tables [{}]; no rename was inferred. Use Options::rename_table_in(...) with diff_with or diff_schemas_with to provide an explicit rename hint.",
+                "Ambiguous PostgreSQL table rename candidates in schema '{}' between dropped tables [{}] and created tables [{}]; no rename was inferred. Use DiffOptions::rename_table_in(...) with diff_with or diff_schemas_with to provide an explicit rename hint.",
                 schema,
                 dropped.join(", "),
                 created.join(", ")
@@ -539,7 +536,7 @@ fn detect_and_apply_postgres_table_renames(
     }
 }
 
-fn detect_and_apply_postgres_column_renames(
+fn detect_and_apply_column_renames(
     prev: &mut PostgresDDL,
     cur: &PostgresDDL,
     out: &mut Vec<ColumnRename>,
@@ -575,7 +572,10 @@ fn detect_and_apply_postgres_column_renames(
         if let (Some(prev_col), Some(cur_col)) = (prev_col, cur_col) {
             let mut prev_cmp = prev_col.clone();
             prev_cmp.name.clone_from(&cur_col.name);
-            if prev_cmp == *cur_col {
+            // Use the diff engine's equivalence (type aliases, default-cast
+            // stripping) so `int4` vs `INTEGER` or `'x'::text` vs `'x'`
+            // spellings still register as a rename.
+            if crate::postgres::collection::columns_equivalent(&prev_cmp, cur_col) {
                 out.push(ColumnRename {
                     schema: schema.clone(),
                     table: table.clone(),
@@ -586,7 +586,7 @@ fn detect_and_apply_postgres_column_renames(
                     from: Box::new(prev_col.clone()),
                     to: Box::new(cur_col.clone()),
                 });
-                apply_postgres_column_rename(prev, &schema, &table, from, to);
+                apply_column_rename(prev, &schema, &table, from, to);
             }
         }
     }
@@ -617,7 +617,7 @@ fn rewrite_schema_qualified_value(value: &mut Option<Cow<'static, str>>, from: &
     *value = Some(format!("{to}.{rest}").into());
 }
 
-fn apply_postgres_schema_rename(ddl: &mut PostgresDDL, from: &str, to: &str) {
+fn apply_schema_rename(ddl: &mut PostgresDDL, from: &str, to: &str) {
     for schema in ddl.schemas.list_mut() {
         rewrite_cow(&mut schema.name, from, to);
     }
@@ -673,7 +673,7 @@ fn apply_postgres_schema_rename(ddl: &mut PostgresDDL, from: &str, to: &str) {
     }
 }
 
-fn apply_postgres_table_rename(ddl: &mut PostgresDDL, schema: &str, from: &str, to: &str) {
+fn apply_table_rename(ddl: &mut PostgresDDL, schema: &str, from: &str, to: &str) {
     for table in ddl.tables.list_mut() {
         if table.schema.as_ref() == schema && table.name.as_ref() == from {
             table.name = to.to_string().into();
@@ -754,13 +754,7 @@ fn apply_postgres_table_rename(ddl: &mut PostgresDDL, schema: &str, from: &str, 
     }
 }
 
-fn apply_postgres_column_rename(
-    ddl: &mut PostgresDDL,
-    schema: &str,
-    table: &str,
-    from: &str,
-    to: &str,
-) {
+fn apply_column_rename(ddl: &mut PostgresDDL, schema: &str, table: &str, from: &str, to: &str) {
     let to = to.to_string();
     // Columns
     for c in ddl.columns.list_mut().iter_mut() {
@@ -1071,6 +1065,55 @@ mod tests {
     }
 
     #[test]
+    fn column_rename_detected_across_type_and_default_spellings() {
+        // Introspected side: udt names + cast defaults. Schema side:
+        // canonical spellings. The rename must still be detected instead of
+        // degrading to DROP + ADD.
+        let mut prev = PostgresDDL::new();
+        prev.tables.push(Table::new("public", "users"));
+        let mut old_col = Column::new("public", "users", "full_name", "varchar(255)");
+        old_col.default = Some("'anon'::character varying".into());
+        prev.columns.push(old_col);
+
+        let mut cur = PostgresDDL::new();
+        cur.tables.push(Table::new("public", "users"));
+        let mut new_col = Column::new("public", "users", "display_name", "character varying(255)");
+        new_col.default = Some("'anon'".into());
+        cur.columns.push(new_col);
+
+        let migration = compute_migration(&prev, &cur);
+        assert_eq!(
+            migration.sql_statements,
+            vec![
+                "ALTER TABLE \"users\" RENAME COLUMN \"full_name\" TO \"display_name\";"
+                    .to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn table_rename_detected_across_type_alias_fingerprints() {
+        // int4 vs INTEGER fingerprints must match for rename detection.
+        let mut prev = PostgresDDL::new();
+        prev.schemas.push(Schema::new("public"));
+        prev.tables.push(Table::new("public", "users"));
+        prev.columns
+            .push(Column::new("public", "users", "id", "int4").not_null());
+
+        let mut cur = PostgresDDL::new();
+        cur.schemas.push(Schema::new("public"));
+        cur.tables.push(Table::new("public", "accounts"));
+        cur.columns
+            .push(Column::new("public", "accounts", "id", "INTEGER").not_null());
+
+        let migration = compute_migration(&prev, &cur);
+        assert_eq!(
+            migration.sql_statements,
+            vec!["ALTER TABLE \"users\" RENAME TO \"accounts\";".to_string()]
+        );
+    }
+
+    #[test]
     fn test_column_not_null_change_generates_sql() {
         // Test that changing nullable to not null generates ALTER COLUMN SQL
         let mut prev_ddl = PostgresDDL::new();
@@ -1314,6 +1357,27 @@ mod tests {
             "expected enum removal warning, got {:?}",
             migration.warnings
         );
+        // The removal is handled by recreating the type; each command is its
+        // own statement so drivers can run them through prepared statements.
+        let drop_pos = migration
+            .sql_statements
+            .iter()
+            .position(|statement| statement == "DROP TYPE \"status\";");
+        let create_pos = migration
+            .sql_statements
+            .iter()
+            .position(|statement| statement == "CREATE TYPE \"status\" AS ENUM ('active');");
+        match (drop_pos, create_pos) {
+            (Some(drop), Some(create)) => assert!(
+                drop < create,
+                "DROP TYPE must precede CREATE TYPE, got {:?}",
+                migration.sql_statements
+            ),
+            _ => panic!(
+                "expected enum recreate statements, got {:?}",
+                migration.sql_statements
+            ),
+        }
     }
 
     #[test]

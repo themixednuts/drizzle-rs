@@ -43,6 +43,71 @@ pub fn validate_strict_affinity(field_infos: &[FieldInfo], strict: bool) -> syn:
     Ok(())
 }
 
+/// Validates AUTOINCREMENT usage at macro-expansion time.
+///
+/// `SQLite` only allows `AUTOINCREMENT` on the single `INTEGER PRIMARY KEY`
+/// column of a rowid table:
+/// - non-INTEGER columns (or non-PK columns) cannot be AUTOINCREMENT
+/// - `WITHOUT ROWID` tables cannot use AUTOINCREMENT at all
+/// - composite primary keys cannot carry AUTOINCREMENT
+pub fn validate_autoincrement(field_infos: &[FieldInfo], without_rowid: bool) -> syn::Result<()> {
+    let mut errors: Vec<syn::Error> = Vec::new();
+
+    for info in field_infos {
+        if !info.is_autoincrement {
+            continue;
+        }
+
+        if without_rowid {
+            errors.push(syn::Error::new_spanned(
+                info.ident,
+                format!(
+                    "column `{}` uses AUTOINCREMENT, which is not allowed on WITHOUT ROWID tables",
+                    info.column_name
+                ),
+            ));
+        }
+
+        if !info.is_custom_type && !matches!(info.column_type, SQLiteType::Integer) {
+            errors.push(syn::Error::new_spanned(
+                info.ident,
+                format!(
+                    "column `{}` uses AUTOINCREMENT but has `{}` affinity; AUTOINCREMENT requires an INTEGER PRIMARY KEY column",
+                    info.column_name, info.column_type
+                ),
+            ));
+        }
+
+        if !info.is_primary() {
+            errors.push(syn::Error::new_spanned(
+                info.ident,
+                format!(
+                    "column `{}` uses AUTOINCREMENT but is not the primary key; add `primary` to the column attributes",
+                    info.column_name
+                ),
+            ));
+        } else if !info.constraint.is_inline_primary() {
+            errors.push(syn::Error::new_spanned(
+                info.ident,
+                format!(
+                    "column `{}` uses AUTOINCREMENT inside a composite primary key; AUTOINCREMENT requires a single-column INTEGER PRIMARY KEY",
+                    info.column_name
+                ),
+            ));
+        }
+    }
+
+    let mut iter = errors.into_iter();
+    if let Some(mut first) = iter.next() {
+        for err in iter {
+            first.combine(err);
+        }
+        return Err(first);
+    }
+
+    Ok(())
+}
+
 /// Generates compile-time validation blocks for default literals
 pub fn generate_default_validations(field_infos: &[FieldInfo]) -> TokenStream {
     let validations: Vec<TokenStream> = field_infos
@@ -78,5 +143,101 @@ pub fn generate_default_validations(field_infos: &[FieldInfo]) -> TokenStream {
             // Default literal validations - these blocks ensure type compatibility at compile time
             #(#validations)*
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::Constraint;
+
+    fn autoincrement_field<'a>(
+        ident: &'a syn::Ident,
+        ty: &'a syn::Type,
+        column_type: SQLiteType,
+        constraint: Constraint,
+    ) -> FieldInfo<'a> {
+        FieldInfo {
+            ident,
+            field_type: ty,
+            base_type: ty,
+            column_name: ident.to_string(),
+            sql_definition: String::new(),
+            is_nullable: false,
+            has_default: false,
+            is_autoincrement: true,
+            is_json: false,
+            is_enum: false,
+            is_uuid: false,
+            is_custom_type: false,
+            column_type,
+            foreign_key: None,
+            relation_name: None,
+            constraint,
+            collate: None,
+            default_value: None,
+            default_sql: None,
+            default_fn: None,
+            generated_column: None,
+            check_constraint: None,
+            marker_exprs: Vec::new(),
+            select_type: None,
+            update_type: None,
+        }
+    }
+
+    #[test]
+    fn autoincrement_on_integer_pk_is_valid() {
+        let ident: syn::Ident = syn::parse_str("id").expect("ident");
+        let ty: syn::Type = syn::parse_str("i64").expect("type");
+        let field = autoincrement_field(
+            &ident,
+            &ty,
+            SQLiteType::Integer,
+            Constraint::StandalonePrimaryKey,
+        );
+        assert!(validate_autoincrement(&[field], false).is_ok());
+    }
+
+    #[test]
+    fn autoincrement_on_text_pk_is_rejected() {
+        let ident: syn::Ident = syn::parse_str("id").expect("ident");
+        let ty: syn::Type = syn::parse_str("String").expect("type");
+        let field = autoincrement_field(
+            &ident,
+            &ty,
+            SQLiteType::Text,
+            Constraint::StandalonePrimaryKey,
+        );
+        let err = validate_autoincrement(&[field], false).expect_err("must reject");
+        assert!(err.to_string().contains("AUTOINCREMENT"), "got: {err}");
+    }
+
+    #[test]
+    fn autoincrement_on_without_rowid_table_is_rejected() {
+        let ident: syn::Ident = syn::parse_str("id").expect("ident");
+        let ty: syn::Type = syn::parse_str("i64").expect("type");
+        let field = autoincrement_field(
+            &ident,
+            &ty,
+            SQLiteType::Integer,
+            Constraint::StandalonePrimaryKey,
+        );
+        let err = validate_autoincrement(&[field], true).expect_err("must reject");
+        assert!(err.to_string().contains("WITHOUT ROWID"), "got: {err}");
+    }
+
+    #[test]
+    fn autoincrement_in_composite_pk_is_rejected() {
+        let ident: syn::Ident = syn::parse_str("id").expect("ident");
+        let ty: syn::Type = syn::parse_str("i64").expect("type");
+        let field = autoincrement_field(
+            &ident,
+            &ty,
+            SQLiteType::Integer,
+            Constraint::CompositePrimaryKey,
+        );
+        let err = validate_autoincrement(&[field], false).expect_err("must reject");
+        assert!(err.to_string().contains("composite"), "got: {err}");
     }
 }

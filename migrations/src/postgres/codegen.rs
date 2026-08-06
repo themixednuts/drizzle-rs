@@ -422,6 +422,9 @@ fn format_table_unique_attr(unique: &UniqueConstraint, field_casing: FieldCasing
             escape_for_rust_literal(&unique.name)
         ));
     }
+    if unique.nulls_not_distinct {
+        args.push("nulls_not_distinct".to_string());
+    }
     if unique.deferrable {
         args.push("deferrable".to_string());
     }
@@ -506,32 +509,49 @@ fn column_check_for<'a>(column: &Column, ctx: &TableGenContext<'a>) -> Option<&'
 }
 
 /// Format a column's IDENTITY metadata as a `#[column(identity(...))]` fragment.
-fn format_identity_attr(identity: &super::ddl::Identity) -> String {
+///
+/// `sql_type` is used to suppress options equal to `PostgreSQL`'s defaults
+/// for the column's type — introspection materializes every option, and
+/// re-emitting the defaults would clutter every identity column with
+/// `min_value = 1, max_value = 2147483647`.
+fn format_identity_attr(identity: &super::ddl::Identity, sql_type: &str) -> String {
     use super::ddl::IdentityType;
+    use super::grammar::{IdentityDefaults, PgTypeCategory};
+
     let identity_type = match identity.type_ {
         IdentityType::Always => "always",
         IdentityType::ByDefault => "by_default",
     };
 
+    let default_range_type = match PgTypeCategory::from_sql_type(sql_type) {
+        PgTypeCategory::SmallInt => "smallint",
+        PgTypeCategory::BigInt => "bigint",
+        _ => "integer",
+    };
+
     let mut seq_opts: Vec<String> = Vec::new();
     if let Some(increment) = &identity.increment
-        && increment != "1"
+        && increment != IdentityDefaults::INCREMENT
     {
         seq_opts.push(format!("increment = {increment}"));
     }
     if let Some(start) = &identity.start_with
-        && start != "1"
+        && start != IdentityDefaults::START_WITH
     {
         seq_opts.push(format!("start = {start}"));
     }
-    if let Some(min) = &identity.min_value {
+    if let Some(min) = &identity.min_value
+        && min != IdentityDefaults::MIN
+    {
         seq_opts.push(format!("min_value = {min}"));
     }
-    if let Some(max) = &identity.max_value {
+    if let Some(max) = &identity.max_value
+        && max != IdentityDefaults::max_for(default_range_type)
+    {
         seq_opts.push(format!("max_value = {max}"));
     }
     if let Some(cache) = &identity.cache
-        && *cache != 1
+        && *cache != IdentityDefaults::CACHE
     {
         seq_opts.push(format!("cache = {cache}"));
     }
@@ -622,7 +642,7 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
     // For GENERATED IDENTITY columns, use identity(always) or identity(by_default)
     // with optional sequence options
     if let Some(identity) = &column.identity {
-        attrs.push(format_identity_attr(identity));
+        attrs.push(format_identity_attr(identity, &column.sql_type));
     }
 
     if should_add_primary {

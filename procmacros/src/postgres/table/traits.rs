@@ -269,13 +269,21 @@ pub(super) fn generate_table_impls(
                         ::core::option::Option::None => "public",
                     }
                 };
+                // Target column resolves through the referenced column's
+                // `SQLSchema::NAME` const so explicit `name = "..."` renames
+                // on the target table are honored.
+                let target_column_expr = crate::common::constraints::cross_table_column_name_const(
+                    &fk.table,
+                    &fk.column,
+                    &dialect_types,
+                );
                 ForeignKeyRefInput {
-                    name: fk_name,
+                    name: quote! { #fk_name },
                     name_explicit: false,
                     source_columns: vec![f.column_name.clone()],
                     target_schema,
                     target_table: quote! { <#target_table as drizzle::core::DrizzleTable>::NAME },
-                    target_columns: vec![fk.column.to_string()],
+                    target_columns: vec![target_column_expr],
                     on_delete: fk.on_delete.clone(),
                     on_update: fk.on_update.clone(),
                     deferrable: fk.deferrable,
@@ -304,7 +312,7 @@ pub(super) fn generate_table_impls(
             }
         };
         table_ref_fks.push(ForeignKeyRefInput {
-            name: fk_name,
+            name: quote! { #fk_name },
             name_explicit: false,
             source_columns,
             target_schema,
@@ -312,7 +320,13 @@ pub(super) fn generate_table_impls(
             target_columns: cfk
                 .target_columns
                 .iter()
-                .map(std::string::ToString::to_string)
+                .map(|col| {
+                    crate::common::constraints::cross_table_column_name_const(
+                        &cfk.target_table,
+                        col,
+                        &dialect_types,
+                    )
+                })
                 .collect(),
             on_delete: cfk.on_delete.clone(),
             on_update: cfk.on_update.clone(),

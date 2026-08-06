@@ -31,12 +31,11 @@
 
 use crate::config::Tracking;
 use crate::generate::diff;
+use crate::naming::{PrefixMode, generate_migration_tag_with_mode};
 use crate::parser::SchemaParser;
 use crate::schema::Snapshot;
-use crate::snapshot_builder::parse_result_to_snapshot;
-use crate::words::{PrefixMode, generate_migration_tag_with_mode};
 pub use drizzle_types::Casing;
-use drizzle_types::{Dialect, EnvOr, EnvOrError};
+use drizzle_types::{ConfigValue, ConfigValueError, Dialect};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -50,7 +49,7 @@ pub struct Config {
     breakpoints: bool,
     prefix_mode: PrefixMode,
     custom_name: Option<String>,
-    url: Option<EnvOr>,
+    url: Option<ConfigValue>,
     tracking: Tracking,
     /// Path of the TOML config this was loaded from (if any). Watched by
     /// [`Config::watch`] alongside the schema files.
@@ -58,6 +57,21 @@ pub struct Config {
     /// Names of env vars referenced by `dbCredentials.url`. Emitted as
     /// `cargo:rerun-if-env-changed=` by [`Config::watch`].
     watched_env_vars: Vec<String>,
+    /// Optional last-mile rewrite of the generated statements.
+    transform: Option<StatementTransform>,
+}
+
+/// Boxed statement-transform callback.
+///
+/// Wrapped in a newtype so [`Config`] keeps its derived `Debug` and `Clone`
+/// (a bare `Box<dyn Fn>` has neither).
+#[derive(Clone)]
+struct StatementTransform(std::sync::Arc<dyn Fn(Vec<String>) -> Vec<String> + Send + Sync>);
+
+impl std::fmt::Debug for StatementTransform {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("<statement transform>")
+    }
 }
 
 impl Config {
@@ -80,6 +94,7 @@ impl Config {
             tracking: default_tracking(dialect),
             config_path: None,
             watched_env_vars: Vec::new(),
+            transform: None,
         }
     }
 
@@ -131,7 +146,7 @@ impl Config {
             cfg.casing = Some(c);
         }
         if let Some(creds) = raw.db_credentials {
-            if let EnvOr::Env(ref var) = creds.url {
+            if let ConfigValue::Env(ref var) = creds.url {
                 cfg.watched_env_vars.push(var.clone());
             }
             cfg.url = Some(creds.url);
@@ -191,6 +206,64 @@ impl Config {
         self
     }
 
+    /// Rewrite the generated statements before they are written to
+    /// `migration.sql`.
+    ///
+    /// This is the supported place for app-level DDL policy — ephemeral
+    /// tables, engine-specific pragmas, `IF NOT EXISTS` conventions, dropping
+    /// statements for objects the app manages itself. Encoding the policy here
+    /// keeps it in version control and re-applies it to every future
+    /// migration; hand-editing generated SQL does neither.
+    ///
+    /// The callback receives the statements in execution order and returns the
+    /// list to write. Returning an empty list makes the run report
+    /// [`Output::NoChanges`] and write nothing.
+    ///
+    /// The snapshot is **not** transformed: it records the schema the diff was
+    /// computed from, and rewriting it would desynchronize the next diff.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use drizzle_migrations::build::{Config, run};
+    /// use drizzle_types::Dialect;
+    ///
+    /// let cfg = Config::new(Dialect::SQLite)
+    ///     .file("src/schema.rs")
+    ///     .out("./drizzle")
+    ///     // Session-scoped scratch tables are created by the app at startup,
+    ///     // so migrations must not manage them.
+    ///     .transform_statements(|statements| {
+    ///         statements
+    ///             .into_iter()
+    ///             .filter(|sql| !sql.contains("\"scratch_\""))
+    ///             .collect()
+    ///     });
+    ///
+    /// run(&cfg)?;
+    /// # Ok::<(), drizzle_migrations::BuildError>(())
+    /// ```
+    ///
+    /// Runtime-generation callers do not need this hook: [`crate::Plan`]
+    /// exposes `statements` as a public `Vec<String>`, so they can rewrite the
+    /// plan directly before executing or writing it.
+    #[must_use]
+    pub fn transform_statements(
+        mut self,
+        transform: impl Fn(Vec<String>) -> Vec<String> + Send + Sync + 'static,
+    ) -> Self {
+        self.transform = Some(StatementTransform(std::sync::Arc::new(transform)));
+        self
+    }
+
+    /// Apply the configured statement transform, if any.
+    fn apply_transform(&self, statements: Vec<String>) -> Vec<String> {
+        match &self.transform {
+            Some(StatementTransform(transform)) => transform(statements),
+            None => statements,
+        }
+    }
+
     /// Emit `cargo:rerun-if-changed=` for schema files (and the TOML config,
     /// if loaded via [`Config::from_toml`]), and `cargo:rerun-if-env-changed=`
     /// for any env vars referenced by `dbCredentials.url`.
@@ -235,8 +308,8 @@ impl Config {
     pub fn url(&self) -> Result<String, BuildError> {
         let cred = self.url.as_ref().ok_or(BuildError::MissingUrl)?;
         cred.resolve().map_err(|e| match e {
-            EnvOrError::NotPresent(var) => BuildError::EnvVarNotSet(var),
-            EnvOrError::NotUnicode(var) => BuildError::EnvVarNotUnicode(var),
+            ConfigValueError::NotPresent(var) => BuildError::EnvVarNotSet(var),
+            ConfigValueError::NotUnicode(var) => BuildError::EnvVarNotUnicode(var),
         })
     }
 
@@ -295,7 +368,7 @@ enum SchemaPaths {
 
 #[derive(Debug, Deserialize)]
 struct RawCreds {
-    url: EnvOr,
+    url: ConfigValue,
 }
 
 #[derive(Debug, Deserialize)]
@@ -344,6 +417,9 @@ pub enum BuildError {
         #[source]
         source: std::io::Error,
     },
+
+    #[error("schema source failed to parse:\n{0}")]
+    SchemaParse(String),
 
     #[error("failed to parse or write migration metadata: {0}")]
     Io(#[from] std::io::Error),
@@ -411,13 +487,28 @@ pub fn run(config: &Config) -> Result<Output, BuildError> {
     }
 
     let parse_result = parse_files(&config.files)?;
+    for warning in &parse_result.warnings {
+        println!("cargo:warning=schema parse: {warning}");
+    }
+    // Entities are emitted best-effort even when parsing hit hard errors;
+    // diffing a half-understood schema produces destructive DDL, so fail
+    // loudly instead of quietly reporting "no changes".
+    if !parse_result.errors.is_empty() {
+        return Err(BuildError::SchemaParse(parse_result.errors.join("\n")));
+    }
     if parse_result.tables.is_empty() && parse_result.indexes.is_empty() {
         return Ok(Output::NoChanges);
     }
 
-    let current_snapshot = parse_result_to_snapshot(&parse_result, config.dialect, config.casing);
+    let current_snapshot =
+        Snapshot::from_parse_result(&parse_result, config.dialect, config.casing);
     let previous_snapshot = load_previous_snapshot(&config.out_dir, config.dialect)?;
-    let generated = diff(&previous_snapshot, &current_snapshot)?;
+    let mut generated = diff(&previous_snapshot, &current_snapshot)?;
+
+    // App-level statement policy runs before the emptiness check, so a
+    // transform that filters everything out reports NoChanges instead of
+    // writing an empty migration.
+    generated.statements = config.apply_transform(generated.statements);
 
     if generated.is_empty() {
         return Ok(Output::NoChanges);
@@ -427,7 +518,6 @@ pub fn run(config: &Config) -> Result<Output, BuildError> {
         println!("cargo:warning={warning}");
     }
 
-    std::fs::create_dir_all(&config.out_dir)?;
     let next_idx = next_migration_index(&config.out_dir)?;
     let tag = generate_migration_tag_with_mode(
         config.prefix_mode,
@@ -435,19 +525,24 @@ pub fn run(config: &Config) -> Result<Output, BuildError> {
         config.custom_name.as_deref(),
     );
 
-    let migration_dir = config.out_dir.join(&tag);
-    std::fs::create_dir_all(&migration_dir)?;
-
     let sql = if config.breakpoints {
         generated.to_sql()
     } else {
         generated.statements.join("\n\n")
     };
-    std::fs::write(migration_dir.join("migration.sql"), sql)?;
 
-    generated
-        .snapshot
-        .save(&migration_dir.join("snapshot.json"))?;
+    // Stage-and-rename so a crash never leaves a torn folder, and an existing
+    // tag is refused instead of silently overwritten.
+    let migration_dir =
+        crate::writer::publish_migration_directory(&config.out_dir, &tag, |staging| {
+            std::fs::write(staging.join("migration.sql"), &sql)
+                .map_err(|error| crate::writer::MigrationError::IoError(error.to_string()))?;
+            generated
+                .snapshot
+                .save(&staging.join("snapshot.json"))
+                .map_err(|error| crate::writer::MigrationError::SnapshotError(error.to_string()))?;
+            Ok(())
+        })?;
 
     Ok(Output::Generated {
         tag,
@@ -471,7 +566,10 @@ fn parse_files(files: &[PathBuf]) -> Result<crate::parser::ParseResult, BuildErr
 
 fn load_previous_snapshot(out_dir: &Path, dialect: Dialect) -> Result<Snapshot, BuildError> {
     let v3_entries = collect_v3_migration_dirs(out_dir)?;
-    if let Some((_, migration_dir)) = v3_entries.last() {
+    // Take the newest folder that actually has a snapshot; custom migrations
+    // (`generate --custom`) publish migration.sql without snapshot.json and
+    // must not reset the diff baseline to an empty schema.
+    for (_, migration_dir) in v3_entries.iter().rev() {
         let snapshot_path = migration_dir.join("snapshot.json");
         if snapshot_path.exists() {
             return Snapshot::load(&snapshot_path, dialect).map_err(BuildError::from);
@@ -490,7 +588,9 @@ fn next_migration_index(out_dir: &Path) -> Result<u32, BuildError> {
             continue;
         };
 
-        if prefix.len() > 10 || !prefix.chars().all(|c| c.is_ascii_digit()) {
+        // Index prefixes are short (`0000`); longer digit runs are timestamp
+        // (14), unix (10), or millisecond (13) prefixes, not indexes.
+        if prefix.len() > 5 || !prefix.chars().all(|c| c.is_ascii_digit()) {
             continue;
         }
 
@@ -570,6 +670,40 @@ pub struct Users {
     }
 
     #[test]
+    fn run_fails_loudly_on_parse_errors() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let schema_path = dir.path().join("schema.rs");
+        let out_dir = dir.path().join("drizzle");
+
+        // Unbalanced brace: syn cannot parse the file. Before the errors
+        // channel was wired up this quietly produced `NoChanges`.
+        std::fs::write(
+            &schema_path,
+            r#"
+#[SQLiteTable]
+pub struct Users {
+    #[column(primary)]
+    pub id: i64,
+"#,
+        )
+        .expect("write schema");
+
+        let cfg = Config::new(Dialect::SQLite)
+            .file(&schema_path)
+            .out(&out_dir);
+
+        let error = run(&cfg).expect_err("parse failure must not be silent");
+        assert!(
+            matches!(error, BuildError::SchemaParse(_)),
+            "expected SchemaParse, got {error:?}"
+        );
+        assert!(
+            !out_dir.exists(),
+            "no migration output should be written on parse failure"
+        );
+    }
+
+    #[test]
     fn run_accepts_multiple_files() {
         let dir = tempfile::tempdir().expect("tempdir");
         let users_path = dir.path().join("users.rs");
@@ -643,12 +777,138 @@ pub struct Schema {
         statements.sort();
 
         let mut expected = vec![
-            "CREATE TABLE `posts` (\n\t`id` INTEGER PRIMARY KEY,\n\t`author_id` INTEGER NOT NULL,\n\tCONSTRAINT `posts_author_id_users_id_fk` FOREIGN KEY (`author_id`) REFERENCES `users`(`id`)\n);".to_string(),
+            "CREATE TABLE `posts` (\n\t`id` INTEGER PRIMARY KEY,\n\t`author_id` INTEGER NOT NULL,\n\tCONSTRAINT `fk_posts_author_id_users_id_fk` FOREIGN KEY (`author_id`) REFERENCES `users`(`id`)\n);".to_string(),
             "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY,\n\t`name` TEXT NOT NULL\n);".to_string(),
         ];
         expected.sort();
 
         assert_eq!(statements, expected, "unexpected generated migration SQL");
+    }
+
+    /// Write a one-table schema plus its root schema struct, returning
+    /// `(schema_file, out_dir)`.
+    fn two_table_schema(dir: &Path) -> (PathBuf, PathBuf) {
+        let schema_path = dir.join("schema.rs");
+        std::fs::write(
+            &schema_path,
+            r#"
+#[SQLiteTable]
+pub struct Users {
+    #[column(primary)]
+    pub id: i64,
+    pub name: String,
+}
+
+#[SQLiteTable]
+pub struct ScratchCache {
+    #[column(primary)]
+    pub id: i64,
+}
+
+#[derive(SQLiteSchema)]
+pub struct Schema {
+    pub users: Users,
+    pub scratch_cache: ScratchCache,
+}
+"#,
+        )
+        .expect("write schema");
+        (schema_path, dir.join("drizzle"))
+    }
+
+    #[test]
+    fn transform_statements_rewrites_generated_sql() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (schema_path, out_dir) = two_table_schema(dir.path());
+
+        let cfg = Config::new(Dialect::SQLite)
+            .file(&schema_path)
+            .out(&out_dir)
+            // App-level policy: scratch tables are provisioned at runtime, so
+            // migrations must not own them.
+            .transform_statements(|statements| {
+                statements
+                    .into_iter()
+                    .filter(|sql| !sql.contains("scratch_cache"))
+                    .collect()
+            });
+
+        let Output::Generated {
+            path,
+            statement_count,
+            ..
+        } = run(&cfg).expect("generation should succeed")
+        else {
+            panic!("expected a migration to be generated");
+        };
+
+        assert_eq!(statement_count, 1, "transform dropped one statement");
+        let sql = std::fs::read_to_string(path.join("migration.sql")).expect("read migration.sql");
+        assert!(sql.contains("`users`"), "{sql}");
+        assert!(
+            !sql.contains("scratch_cache"),
+            "filtered statement leaked into migration.sql: {sql}"
+        );
+        assert!(
+            path.join("snapshot.json").exists(),
+            "the snapshot still records the untransformed schema"
+        );
+    }
+
+    #[test]
+    fn transform_statements_can_append_statements() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (schema_path, out_dir) = two_table_schema(dir.path());
+
+        let cfg = Config::new(Dialect::SQLite)
+            .file(&schema_path)
+            .out(&out_dir)
+            .transform_statements(|mut statements| {
+                statements.push("CREATE INDEX `users_name_idx` ON `users` (`name`);".to_string());
+                statements
+            });
+
+        let Output::Generated {
+            path,
+            statement_count,
+            ..
+        } = run(&cfg).expect("generation should succeed")
+        else {
+            panic!("expected a migration to be generated");
+        };
+
+        assert_eq!(statement_count, 3);
+        let sql = std::fs::read_to_string(path.join("migration.sql")).expect("read migration.sql");
+        assert!(sql.contains("users_name_idx"), "{sql}");
+    }
+
+    #[test]
+    fn transform_statements_emptying_the_plan_reports_no_changes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (schema_path, out_dir) = two_table_schema(dir.path());
+
+        let cfg = Config::new(Dialect::SQLite)
+            .file(&schema_path)
+            .out(&out_dir)
+            .transform_statements(|_| Vec::new());
+
+        assert_eq!(run(&cfg).expect("run"), Output::NoChanges);
+        assert!(
+            !out_dir.exists(),
+            "an emptied plan must not write a migration folder"
+        );
+    }
+
+    #[test]
+    fn config_without_transform_is_unchanged() {
+        let cfg = Config::new(Dialect::SQLite);
+        assert_eq!(
+            cfg.apply_transform(vec!["SELECT 1".to_string()]),
+            vec!["SELECT 1".to_string()]
+        );
+        // The boxed callback must not break Config's derived Debug/Clone.
+        let cloned = cfg.clone().transform_statements(|s| s);
+        assert!(format!("{cloned:?}").contains("statement transform"));
     }
 
     #[test]

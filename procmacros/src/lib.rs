@@ -2607,7 +2607,7 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 /// - `From<EnumType>` for `PostgresValue` - Database conversion
 /// - `TryFrom<PostgresValue>` for `EnumType` - Database conversion
 #[cfg(feature = "postgres")]
-#[proc_macro_derive(PostgresEnum)]
+#[proc_macro_derive(PostgresEnum, attributes(postgres_enum))]
 pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
     use quote::quote;
     use syn::{Data, DeriveInput, parse_macro_input};

@@ -15,6 +15,32 @@ fn quote_ident(ident: &str) -> String {
     format!("`{}`", ident.replace('`', "``"))
 }
 
+/// Returns `true` when `expr` is fully wrapped in a single pair of balanced
+/// parentheses, e.g. `(a + b)` but not `(a) + (b)`.
+///
+/// This is a tolerant scanner (it does not understand string literals), which
+/// matches the tolerance level of the rest of this module.
+fn is_wrapped_in_parens(expr: &str) -> bool {
+    let bytes = expr.as_bytes();
+    if bytes.len() < 2 || bytes[0] != b'(' || bytes[bytes.len() - 1] != b')' {
+        return false;
+    }
+    let mut depth = 0i32;
+    for (i, ch) in expr.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return i == expr.len() - 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 // =============================================================================
 // Table SQL Generation
 // =============================================================================
@@ -86,13 +112,32 @@ impl<'a> TableSql<'a> {
 
         let mut lines = Vec::new();
 
+        // Columns whose `primary_key` flag is set but which no PrimaryKey
+        // entity covers still need a PRIMARY KEY clause (e.g. columns built via
+        // `ColumnDef::new(..).primary_key()` without a PrimaryKey entity).
+        let flag_pk_columns: Vec<&str> = self
+            .columns
+            .iter()
+            .filter(|c| {
+                c.is_primary_key()
+                    && !self
+                        .primary_key
+                        .as_ref()
+                        .is_some_and(|pk| pk.columns.iter().any(|pc| *pc == c.name()))
+            })
+            .map(Column::name)
+            .collect();
+
         // Column definitions
         for column in self.columns {
-            let is_inline_pk = self.primary_key.as_ref().is_some_and(|pk| {
+            let is_entity_inline_pk = self.primary_key.as_ref().is_some_and(|pk| {
                 pk.columns.len() == 1
                     && pk.columns.iter().any(|c| *c == column.name())
                     && !pk.name_explicit
             });
+            let is_flag_inline_pk =
+                flag_pk_columns.len() == 1 && flag_pk_columns[0] == column.name();
+            let is_inline_pk = is_entity_inline_pk || is_flag_inline_pk;
 
             let is_inline_unique = self.unique_constraints.iter().any(|u| {
                 u.columns.len() == 1
@@ -121,6 +166,18 @@ impl<'a> TableSql<'a> {
                 quote_ident(pk.name()),
                 cols
             ));
+        }
+
+        // Composite primary key declared only through column flags (no entity):
+        // rendering each column with an inline PRIMARY KEY would be invalid SQL,
+        // so emit a single table-level PRIMARY KEY clause instead.
+        if self.primary_key.is_none() && flag_pk_columns.len() > 1 {
+            let cols = flag_pk_columns
+                .iter()
+                .map(|c| quote_ident(c))
+                .collect::<Vec<_>>()
+                .join(", ");
+            lines.push(format!("\tPRIMARY KEY({cols})"));
         }
 
         // Foreign keys
@@ -198,11 +255,12 @@ impl Column {
 
         if inline_pk {
             sql.push_str(" PRIMARY KEY");
+            // AUTOINCREMENT is only valid immediately after an inline
+            // `PRIMARY KEY`; emitting it anywhere else is a syntax error, so it
+            // is intentionally dropped when this column is not the inline PK.
             if self.autoincrement.unwrap_or(false) {
                 sql.push_str(" AUTOINCREMENT");
             }
-        } else if self.autoincrement.unwrap_or(false) {
-            sql.push_str(" AUTOINCREMENT");
         }
 
         if let Some(default) = self.default.as_ref() {
@@ -258,13 +316,23 @@ impl Column {
 
 impl Generated {
     /// Generate the GENERATED clause SQL
+    ///
+    /// `SQLite` requires the generation expression to be parenthesized
+    /// (`GENERATED ALWAYS AS (expr)`), so the expression is wrapped in parens
+    /// unless it is already fully parenthesized (the table macros store
+    /// pre-parenthesized expressions; introspection stores bare expressions).
     #[must_use]
     pub fn to_sql(&self) -> String {
         let gen_type = match self.gen_type {
             GeneratedType::Stored => "STORED",
             GeneratedType::Virtual => "VIRTUAL",
         };
-        format!(" GENERATED ALWAYS AS {} {}", self.expression, gen_type)
+        let expression = self.expression.trim();
+        if is_wrapped_in_parens(expression) {
+            format!(" GENERATED ALWAYS AS {expression} {gen_type}")
+        } else {
+            format!(" GENERATED ALWAYS AS ({expression}) {gen_type}")
+        }
     }
 }
 
@@ -574,6 +642,88 @@ mod tests {
             sql,
             "CREATE UNIQUE INDEX `users_email_idx` ON `users`(`email`);"
         );
+    }
+
+    #[test]
+    fn test_column_flag_primary_key_renders_inline_without_entity() {
+        // A column built via ColumnDef::primary_key().autoincrement() must
+        // render an inline PRIMARY KEY AUTOINCREMENT even when no PrimaryKey
+        // entity exists.
+        let table = TableDef::new("users").into_table();
+        let columns = [
+            ColumnDef::new("users", "id", "INTEGER")
+                .primary_key()
+                .autoincrement()
+                .into_column(),
+            ColumnDef::new("users", "name", "TEXT")
+                .not_null()
+                .into_column(),
+        ];
+
+        let sql = TableSql::new(&table).columns(&columns).create_table_sql();
+
+        assert!(
+            sql.contains("`id` INTEGER PRIMARY KEY AUTOINCREMENT"),
+            "expected inline PRIMARY KEY AUTOINCREMENT, got: {sql}"
+        );
+        assert!(
+            !sql.contains("INTEGER AUTOINCREMENT"),
+            "orphan AUTOINCREMENT without PRIMARY KEY: {sql}"
+        );
+    }
+
+    #[test]
+    fn test_column_flag_composite_primary_key_renders_table_constraint() {
+        let table = TableDef::new("pair").into_table();
+        let columns = [
+            ColumnDef::new("pair", "a", "INTEGER")
+                .primary_key()
+                .into_column(),
+            ColumnDef::new("pair", "b", "INTEGER")
+                .primary_key()
+                .into_column(),
+        ];
+
+        let sql = TableSql::new(&table).columns(&columns).create_table_sql();
+
+        assert!(
+            sql.contains("PRIMARY KEY(`a`, `b`)"),
+            "expected composite PRIMARY KEY clause, got: {sql}"
+        );
+        assert_eq!(
+            sql.matches("PRIMARY KEY").count(),
+            1,
+            "composite flag PK must render exactly one PRIMARY KEY clause: {sql}"
+        );
+    }
+
+    #[test]
+    fn test_generated_expression_is_parenthesized() {
+        use crate::sqlite::ddl::{Generated, GeneratedType};
+
+        let bare = Generated {
+            expression: Cow::Borrowed("length(name)"),
+            gen_type: GeneratedType::Stored,
+        };
+        assert_eq!(bare.to_sql(), " GENERATED ALWAYS AS (length(name)) STORED");
+
+        // Already-parenthesized expressions (macro canonical form) must not be
+        // double-wrapped.
+        let wrapped = Generated {
+            expression: Cow::Borrowed("(length(name))"),
+            gen_type: GeneratedType::Virtual,
+        };
+        assert_eq!(
+            wrapped.to_sql(),
+            " GENERATED ALWAYS AS (length(name)) VIRTUAL"
+        );
+
+        // `(a) + (b)` starts and ends with parens but is NOT fully wrapped.
+        let tricky = Generated {
+            expression: Cow::Borrowed("(a) + (b)"),
+            gen_type: GeneratedType::Virtual,
+        };
+        assert_eq!(tricky.to_sql(), " GENERATED ALWAYS AS ((a) + (b)) VIRTUAL");
     }
 
     #[test]

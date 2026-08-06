@@ -9,7 +9,7 @@ use crate::config::Config;
 use crate::config::Dialect;
 use crate::error::CliError;
 use crate::output;
-use crate::snapshot::parse_result_to_snapshot;
+use drizzle_migrations::schema::Snapshot;
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct ExportOptions {
@@ -74,6 +74,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: ExportOptions) -> Resul
     }
 
     let parse_result = SchemaParser::parse(&combined_code);
+    crate::snapshot::surface_parse_diagnostics(&parse_result)?;
 
     if parse_result.tables.is_empty() && parse_result.indexes.is_empty() {
         println!(
@@ -92,7 +93,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: ExportOptions) -> Resul
 
     // Build snapshot from parsed schema (use config dialect)
     let dialect = effective_dialect.to_base();
-    let snapshot = parse_result_to_snapshot(&parse_result, dialect, db.casing);
+    let snapshot = Snapshot::from_parse_result(&parse_result, dialect, db.casing);
 
     // Generate SQL from snapshot (create statements for all entities)
     let sql_statements = generate_create_sql(&snapshot, db.breakpoints);
@@ -134,13 +135,11 @@ fn generate_create_sql(
     snapshot: &drizzle_migrations::schema::Snapshot,
     breakpoints: bool,
 ) -> Vec<String> {
-    use drizzle_migrations::schema::Snapshot;
-
     match snapshot {
         Snapshot::Sqlite(snap) => {
             use drizzle_migrations::sqlite::SQLiteSnapshot;
             use drizzle_migrations::sqlite::diff_snapshots;
-            use drizzle_migrations::sqlite::statements::SqliteGenerator;
+            use drizzle_migrations::sqlite::statements::Generator as SqliteGenerator;
 
             // Diff against empty snapshot to get all CREATE statements
             let empty = SQLiteSnapshot::new();
@@ -151,7 +150,7 @@ fn generate_create_sql(
         Snapshot::Postgres(snap) => {
             use drizzle_migrations::postgres::PostgresSnapshot;
             use drizzle_migrations::postgres::diff_full_snapshots;
-            use drizzle_migrations::postgres::statements::PostgresGenerator;
+            use drizzle_migrations::postgres::statements::Generator as PostgresGenerator;
 
             // Diff against empty snapshot to get all CREATE statements
             let empty = PostgresSnapshot::new();

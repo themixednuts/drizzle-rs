@@ -15,7 +15,12 @@ uuid = { workspace = true, features = ["v4", "serde"] }
 thiserror = { workspace = true }
 regex = { workspace = true, optional = true }
 heck = { workspace = true }
-nom = { workspace = true }
+# Schema-file parsing: the parser walks real Rust syntax with syn instead of
+# re-implementing a lexer. `span-locations` lets us slice original source text
+# for the string-compat surface of `ParsedTable` / `ParsedField`.
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+proc-macro2 = { version = "1.0", features = ["span-locations"] }
+quote = { version = "1.0" }
 drizzle-types = { workspace = true, features = ["serde", "std", "uuid"] }
 sha2 = { workspace = true }
 toml = { workspace = true }

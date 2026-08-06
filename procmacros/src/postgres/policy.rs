@@ -195,6 +195,7 @@ pub fn postgres_policy_attr_macro(
     let postgres_value = postgres_paths::postgres_value();
     let postgres_schema_type = postgres_paths::postgres_schema_type();
     let policy_def = ddl_paths::policy_def();
+    let postgres_item_ddl = ddl_paths::postgres_item_ddl();
 
     let as_clause = attr
         .as_clause
@@ -368,5 +369,8 @@ pub fn postgres_policy_attr_macro(
         impl #schema_item_tables for #struct_ident {
             type Tables = #type_set_nil;
         }
+
+        // Snapshot DDL channel (policies carry no const DDL metadata).
+        impl #postgres_item_ddl for #struct_ident {}
     })
 }

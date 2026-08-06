@@ -610,6 +610,10 @@ pub mod ddl {
         pub fn view_with_option_def() -> TokenStream {
             quote!(drizzle::ddl::postgres::ddl::ViewWithOptionDef)
         }
+
+        pub fn postgres_item_ddl() -> TokenStream {
+            quote!(drizzle::ddl::postgres::ddl::PostgresItemDdl)
+        }
     }
 }
 

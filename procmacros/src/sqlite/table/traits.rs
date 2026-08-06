@@ -7,7 +7,7 @@ use crate::paths::sqlite as sqlite_paths;
 use crate::sqlite::generators::{
     SQLTableConfig, generate_sql_schema, generate_sql_table, generate_sqlite_table, generate_to_sql,
 };
-use heck::{ToSnakeCase, ToUpperCamelCase};
+use heck::ToUpperCamelCase;
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use std::collections::HashSet;
@@ -213,24 +213,38 @@ pub fn generate_table_impls(
         .filter(|f| f.is_primary())
         .map(|f| f.column_name.clone())
         .collect();
+    let const_format = crate::common::paths::const_format();
     let mut table_ref_fks: Vec<ForeignKeyRefInput> = ctx
         .field_infos
         .iter()
         .filter_map(|f| {
             f.foreign_key.as_ref().map(|fk| {
                 let target_table = &fk.table_ident;
-                let target_table_name = fk.table_ident.to_string().to_snake_case();
-                let target_column = fk.column_ident.to_string().to_snake_case();
+                let target_column_expr = crate::common::constraints::cross_table_column_name_const(
+                    &fk.table_ident,
+                    &fk.column_ident,
+                    &dialect_types,
+                );
+                // FK name derives from the *resolved* names: the target
+                // table's `DrizzleTable::NAME` and the target column's
+                // `SQLSchema::NAME`, concatenated at compile time.
+                let name_prefix = format!("fk_{}_{}_", ctx.table_name, f.column_name);
+                let name_expr = quote! {
+                    #const_format::concatcp!(
+                        #name_prefix,
+                        <#target_table as drizzle::core::DrizzleTable>::NAME,
+                        "_",
+                        #target_column_expr,
+                        "_fk"
+                    )
+                };
                 ForeignKeyRefInput {
-                    name: format!(
-                        "fk_{}_{}_{}_{}_fk",
-                        ctx.table_name, f.column_name, target_table_name, target_column
-                    ),
+                    name: name_expr,
                     name_explicit: false,
                     source_columns: vec![f.column_name.clone()],
                     target_schema: quote! { "" },
                     target_table: quote! { <#target_table as drizzle::core::DrizzleTable>::NAME },
-                    target_columns: vec![target_column],
+                    target_columns: vec![target_column_expr],
                     on_delete: fk.on_delete.clone(),
                     on_update: fk.on_update.clone(),
                     deferrable: false,
@@ -241,31 +255,48 @@ pub fn generate_table_impls(
         .collect();
     for cfk in &ctx.attrs.composite_foreign_keys {
         let target_table = &cfk.target_table;
+        // Source columns resolve through this table's own field metadata so
+        // explicit `#[column(name = "...")]` renames are honored (matches the
+        // const-SQL emitter in `ddl.rs`).
         let source_columns: Vec<String> = cfk
             .source_columns
             .iter()
-            .map(std::string::ToString::to_string)
+            .map(|src| {
+                ctx.field_infos
+                    .iter()
+                    .find(|f| f.ident == src)
+                    .map_or_else(|| src.to_string(), |f| f.column_name.clone())
+            })
             .collect();
-        let target_table_name = cfk.target_table.to_string().to_snake_case();
-        let target_columns: Vec<String> = cfk
+        let target_column_exprs: Vec<TokenStream> = cfk
             .target_columns
             .iter()
-            .map(|col| col.to_string().to_snake_case())
+            .map(|col| {
+                crate::common::constraints::cross_table_column_name_const(
+                    &cfk.target_table,
+                    col,
+                    &dialect_types,
+                )
+            })
             .collect();
-        let fk_name = format!(
-            "fk_{}_{}_{}_{}_fk",
-            ctx.table_name,
-            source_columns.join("_"),
-            target_table_name,
-            target_columns.join("_")
-        );
+        let name_prefix = format!("fk_{}_{}_", ctx.table_name, source_columns.join("_"));
+        let mut name_pieces: Vec<TokenStream> = vec![
+            quote! { #name_prefix },
+            quote! { <#target_table as drizzle::core::DrizzleTable>::NAME },
+        ];
+        for expr in &target_column_exprs {
+            name_pieces.push(quote! { "_" });
+            name_pieces.push(expr.clone());
+        }
+        name_pieces.push(quote! { "_fk" });
+        let name_expr = quote! { #const_format::concatcp!(#(#name_pieces),*) };
         table_ref_fks.push(ForeignKeyRefInput {
-            name: fk_name,
+            name: name_expr,
             name_explicit: false,
             source_columns,
             target_schema: quote! { "" },
             target_table: quote! { <#target_table as drizzle::core::DrizzleTable>::NAME },
-            target_columns,
+            target_columns: target_column_exprs,
             on_delete: cfk.on_delete.clone(),
             on_update: cfk.on_update.clone(),
             deferrable: false,
