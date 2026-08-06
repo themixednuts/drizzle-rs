@@ -15,8 +15,8 @@ use drizzle_migrations::{
         },
         introspect::{
             IntrospectionResult, RawColumnInfo, RawForeignKey, RawIndexColumn, RawIndexInfo,
-            process_columns, process_foreign_keys, process_indexes,
-            process_unique_constraints_from_indexes,
+            parse_generated_columns_from_table_sql, process_columns, process_foreign_keys,
+            process_indexes_with_sql, process_unique_constraints_from_indexes,
         },
     },
 };
@@ -143,8 +143,12 @@ fn introspect_database(conn: &Connection) -> IntrospectionResult {
         raw_columns.extend(cols);
     }
 
-    // Process columns and primary keys
-    let generated_columns = HashMap::new();
+    // Process columns and primary keys, attaching generated-column info parsed
+    // from the CREATE TABLE SQL (PRAGMA cannot express the expressions).
+    let mut generated_columns = HashMap::new();
+    for (table_name, sql) in &table_sql_map {
+        generated_columns.extend(parse_generated_columns_from_table_sql(table_name, sql));
+    }
     let pk_columns_set: HashSet<(String, String)> = HashSet::new();
     let (columns, primary_keys) =
         process_columns(&raw_columns, &generated_columns, &pk_columns_set);
@@ -207,7 +211,22 @@ fn introspect_database(conn: &Connection) -> IntrospectionResult {
         raw_indexes.extend(idxs);
     }
 
-    result.indexes = process_indexes(&raw_indexes, &raw_index_columns, &table_sql_map);
+    // Fetch each index's verbatim CREATE SQL so partial-index WHERE clauses
+    // and expression columns can be recovered.
+    let mut index_sql_map: HashMap<String, String> = HashMap::new();
+    let mut index_sql_stmt = conn
+        .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL")
+        .unwrap();
+    let index_sql_rows: Vec<(String, String)> = index_sql_stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect();
+    for (name, sql) in index_sql_rows {
+        index_sql_map.insert(name, sql);
+    }
+
+    result.indexes = process_indexes_with_sql(&raw_indexes, &raw_index_columns, &index_sql_map);
 
     // Get foreign keys for each table
     let mut raw_fks: Vec<RawForeignKey> = Vec::new();
@@ -1436,6 +1455,8 @@ fn test_integer_primary_key_not_null() {
 
 #[test]
 fn test_generated_columns() {
+    use drizzle_migrations::sqlite::ddl::GeneratedType;
+
     let conn = Connection::open_in_memory().unwrap();
 
     conn.execute_batch(
@@ -1443,7 +1464,8 @@ fn test_generated_columns() {
         CREATE TABLE with_generated (
             first_name TEXT NOT NULL,
             last_name TEXT NOT NULL,
-            full_name TEXT GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED
+            full_name TEXT GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED,
+            initials TEXT GENERATED ALWAYS AS (substr(first_name, 1, 1) || substr(last_name, 1, 1)) VIRTUAL
         );
     "#,
     )
@@ -1460,27 +1482,45 @@ fn test_generated_columns() {
         "Should have with_generated table"
     );
 
-    // Verify columns are present
-    // Note: Generated columns may be filtered out depending on their hidden status
-    // pragma_table_xinfo returns hidden=2 for STORED generated columns and hidden=3 for VIRTUAL
-    // The process_columns function may filter these out based on hidden values
+    // Both VIRTUAL (hidden=2) and STORED (hidden=3) generated columns must be
+    // introspected with their expressions and generation type.
     let cols: Vec<_> = introspection
         .columns
         .iter()
         .filter(|c| c.table == "with_generated")
         .collect();
-
-    // At minimum we should have the 2 regular columns
-    assert!(
-        cols.len() >= 2,
-        "Should have at least 2 columns (first_name, last_name), got {}",
-        cols.len()
+    assert_eq!(
+        cols.len(),
+        4,
+        "generated columns must be included, got: {cols:#?}"
     );
 
-    // If generated columns are included, we'd have 3
-    println!(
-        "Generated columns test: found {} columns for with_generated table",
-        cols.len()
+    let full_name = cols
+        .iter()
+        .find(|c| c.name == "full_name")
+        .expect("full_name column");
+    let full_name_generated = full_name
+        .generated
+        .as_ref()
+        .expect("full_name generated info");
+    assert_eq!(full_name_generated.gen_type, GeneratedType::Stored);
+    assert_eq!(
+        full_name_generated.expression,
+        "first_name || ' ' || last_name"
+    );
+
+    let initials = cols
+        .iter()
+        .find(|c| c.name == "initials")
+        .expect("initials column");
+    let initials_generated = initials
+        .generated
+        .as_ref()
+        .expect("initials generated info");
+    assert_eq!(initials_generated.gen_type, GeneratedType::Virtual);
+    assert_eq!(
+        initials_generated.expression,
+        "substr(first_name, 1, 1) || substr(last_name, 1, 1)"
     );
 }
 
@@ -1508,6 +1548,9 @@ fn test_various_index_types() {
 
         -- Partial index (WHERE clause)
         CREATE INDEX idx_c_positive ON multi_indexed(col_c) WHERE col_c > 0;
+
+        -- Expression index
+        CREATE INDEX idx_a_lower ON multi_indexed(lower(col_a));
     "#,
     )
     .unwrap();
@@ -1516,11 +1559,30 @@ fn test_various_index_types() {
     let snapshot = introspection.to_snapshot();
     let ddl = SQLiteDDL::from_entities(snapshot.ddl.clone());
 
-    // Note: partial indexes might be filtered out or handled specially
-    assert!(
-        introspection.indexes.len() >= 3,
-        "Should have at least 3 indexes"
+    assert_eq!(introspection.indexes.len(), 5, "Should have 5 indexes");
+
+    // Partial index: the WHERE clause must be recovered from the stored SQL.
+    let partial = introspection
+        .indexes
+        .iter()
+        .find(|i| i.name == "idx_c_positive")
+        .expect("partial index");
+    assert_eq!(
+        partial.where_clause.as_deref(),
+        Some("col_c > 0"),
+        "partial index WHERE clause must survive introspection"
     );
+
+    // Expression index: pragma_index_xinfo reports NULL names for expression
+    // columns; the expression text must be recovered from the stored SQL.
+    let expr_idx = introspection
+        .indexes
+        .iter()
+        .find(|i| i.name == "idx_a_lower")
+        .expect("expression index");
+    assert_eq!(expr_idx.columns.len(), 1);
+    assert!(expr_idx.columns[0].is_expression);
+    assert_eq!(expr_idx.columns[0].value, "lower(col_a)");
 
     let options = CodegenOptions::default();
     let generated = generate_rust_schema(&ddl, &options);

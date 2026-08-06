@@ -12,7 +12,7 @@ use super::statements::{
     RecreateTableStatement, RenameColumnStatement, RenameTableStatement, TableFull, from_json,
 };
 use crate::traits::EntityKind;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 // Re-export diff types from collection
 pub use super::collection::{DiffType as SchemaDiffType, EntityDiff as SchemaEntityDiff};
@@ -178,8 +178,22 @@ fn collect_tables_to_recreate(
     schema_diff: &SchemaDiff,
     created: &HashSet<String>,
     dropped: &HashSet<String>,
-) -> HashSet<String> {
-    let mut out: HashSet<String> = HashSet::new();
+) -> BTreeSet<String> {
+    // BTreeSet: iteration order reaches the emitted SQL, so it must be
+    // deterministic.
+    let mut out: BTreeSet<String> = BTreeSet::new();
+
+    // Table-level option changes (STRICT / WITHOUT ROWID) can only be applied
+    // by recreating the table.
+    for table_diff in schema_diff.by_kind(EntityKind::Table) {
+        if table_diff.diff_type == DiffType::Alter
+            && let Some(SqliteEntity::Table(table)) = &table_diff.right
+            && !created.contains(table.name.as_ref())
+            && !dropped.contains(table.name.as_ref())
+        {
+            out.insert(table.name.to_string());
+        }
+    }
 
     // Column alterations trigger recreation (SQLite has no ALTER COLUMN).
     for col_diff in schema_diff.by_kind(EntityKind::Column) {
@@ -255,7 +269,7 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
     let mut column_renames: Vec<ColumnRename> = Vec::new();
     let mut warnings = Vec::new();
 
-    detect_and_apply_sqlite_renames(
+    detect_and_apply_renames(
         &mut prev_normalized,
         cur,
         &mut rename_statements,
@@ -329,7 +343,7 @@ fn append_table_create_recreate_stmts(
     schema_diff: &SchemaDiff,
     prev: &SQLiteDDL,
     cur: &SQLiteDDL,
-    tables_to_recreate: &HashSet<String>,
+    tables_to_recreate: &BTreeSet<String>,
 ) {
     // 1. Create tables
     for table_diff in schema_diff.created_tables() {
@@ -357,7 +371,7 @@ fn append_add_column_stmts(
     schema_diff: &SchemaDiff,
     cur: &SQLiteDDL,
     created_table_names: &HashSet<String>,
-    tables_to_recreate: &HashSet<String>,
+    tables_to_recreate: &BTreeSet<String>,
 ) {
     // 3. Add columns (for existing tables only, skip tables being recreated)
     for col_diff in schema_diff.by_kind(EntityKind::Column) {
@@ -388,7 +402,7 @@ fn append_index_stmts(
     statements: &mut Vec<JsonStatement>,
     schema_diff: &SchemaDiff,
     cur: &SQLiteDDL,
-    tables_to_recreate: &HashSet<String>,
+    tables_to_recreate: &BTreeSet<String>,
 ) {
     // 4. Drop indexes (skip tables being recreated - indexes will be recreated with table)
     for idx_diff in schema_diff.by_kind(EntityKind::Index) {
@@ -449,7 +463,7 @@ fn append_drop_column_and_view_stmts(
     statements: &mut Vec<JsonStatement>,
     schema_diff: &SchemaDiff,
     dropped_table_names: &HashSet<String>,
-    tables_to_recreate: &HashSet<String>,
+    tables_to_recreate: &BTreeSet<String>,
 ) {
     // 7. Drop columns (for non-dropped tables, skip tables being recreated)
     for col_diff in schema_diff.by_kind(EntityKind::Column) {
@@ -547,7 +561,7 @@ struct TableFingerprint {
     pk_columns: Vec<String>,
 }
 
-fn sqlite_table_fingerprint(table_name: &str, ddl: &SQLiteDDL) -> TableFingerprint {
+fn table_fingerprint(table_name: &str, ddl: &SQLiteDDL) -> TableFingerprint {
     let mut columns: Vec<_> = ddl
         .columns
         .for_table(table_name)
@@ -583,7 +597,7 @@ fn sqlite_table_fingerprint(table_name: &str, ddl: &SQLiteDDL) -> TableFingerpri
     }
 }
 
-fn detect_and_apply_sqlite_renames(
+fn detect_and_apply_renames(
     prev: &mut SQLiteDDL,
     cur: &SQLiteDDL,
     rename_statements: &mut Vec<JsonStatement>,
@@ -619,14 +633,14 @@ fn detect_and_apply_sqlite_renames(
     let mut candidates: BTreeMap<TableFingerprint, (Vec<String>, Vec<String>)> = BTreeMap::new();
     for from in dropped {
         candidates
-            .entry(sqlite_table_fingerprint(&from, prev))
+            .entry(table_fingerprint(&from, prev))
             .or_default()
             .0
             .push(from);
     }
     for to in created {
         candidates
-            .entry(sqlite_table_fingerprint(&to, cur))
+            .entry(table_fingerprint(&to, cur))
             .or_default()
             .1
             .push(to);
@@ -651,10 +665,10 @@ fn detect_and_apply_sqlite_renames(
                 from: from.clone(),
                 to: to.clone(),
             }));
-            apply_sqlite_table_rename(prev, from, to);
+            apply_table_rename(prev, from, to);
         } else {
             warnings.push(format!(
-                "Ambiguous SQLite table rename candidates between dropped tables [{}] and created tables [{}]; no rename was inferred. Use Options::rename_table(...) with diff_with or diff_schemas_with to provide an explicit rename hint.",
+                "Ambiguous SQLite table rename candidates between dropped tables [{}] and created tables [{}]; no rename was inferred. Use DiffOptions::rename_table(...) with diff_with or diff_schemas_with to provide an explicit rename hint.",
                 dropped.join(", "),
                 created.join(", ")
             ));
@@ -711,13 +725,13 @@ fn detect_and_apply_sqlite_renames(
                     from: from.clone(),
                     to: to.clone(),
                 }));
-                apply_sqlite_column_rename(prev, &table, from, to);
+                apply_column_rename(prev, &table, from, to);
             }
         }
     }
 }
 
-fn apply_sqlite_table_rename(ddl: &mut SQLiteDDL, from: &str, to: &str) {
+fn apply_table_rename(ddl: &mut SQLiteDDL, from: &str, to: &str) {
     let to = to.to_string();
     // Tables
     if let Some(t) = ddl
@@ -784,7 +798,7 @@ fn apply_sqlite_table_rename(ddl: &mut SQLiteDDL, from: &str, to: &str) {
     }
 }
 
-fn apply_sqlite_column_rename(ddl: &mut SQLiteDDL, table: &str, from: &str, to: &str) {
+fn apply_column_rename(ddl: &mut SQLiteDDL, table: &str, from: &str, to: &str) {
     let to = to.to_string();
     // Columns
     if let Some(c) = ddl
@@ -1132,6 +1146,91 @@ mod tests {
             "ALTER TABLE `__new_users` RENAME TO `users`;"
         );
         assert_eq!(migration.sql_statements[5], "PRAGMA foreign_keys=ON;");
+    }
+
+    #[test]
+    fn strict_toggle_generates_table_recreate() {
+        let mut prev = SQLiteDDL::new();
+        prev.tables.push(Table::new("users"));
+        prev.columns
+            .push(Column::new("users", "id", "integer").not_null());
+
+        let mut cur = SQLiteDDL::new();
+        cur.tables.push(Table::new("users").strict());
+        cur.columns
+            .push(Column::new("users", "id", "integer").not_null());
+
+        let migration = compute_migration(&prev, &cur);
+
+        let has_recreate = migration
+            .statements
+            .iter()
+            .any(|s| matches!(s, JsonStatement::RecreateTable(_)));
+        assert!(
+            has_recreate,
+            "toggling STRICT must recreate the table, got: {:?}",
+            migration.statements
+        );
+        assert!(
+            migration.sql_statements.iter().any(|sql| sql
+                .starts_with("CREATE TABLE `__new_users`")
+                && sql.ends_with("STRICT;")),
+            "recreated table must carry STRICT: {:?}",
+            migration.sql_statements
+        );
+    }
+
+    #[test]
+    fn without_rowid_toggle_generates_table_recreate() {
+        let mut prev = SQLiteDDL::new();
+        prev.tables.push(Table::new("kv"));
+        prev.columns
+            .push(Column::new("kv", "key", "text").not_null());
+
+        let mut cur = SQLiteDDL::new();
+        cur.tables.push(Table::new("kv").without_rowid());
+        cur.columns
+            .push(Column::new("kv", "key", "text").not_null());
+
+        let migration = compute_migration(&prev, &cur);
+
+        assert!(
+            migration
+                .statements
+                .iter()
+                .any(|s| matches!(s, JsonStatement::RecreateTable(_))),
+            "toggling WITHOUT ROWID must recreate the table, got: {:?}",
+            migration.statements
+        );
+    }
+
+    #[test]
+    fn multi_table_recreation_order_is_deterministic() {
+        let make = |not_null: bool| {
+            let mut ddl = SQLiteDDL::new();
+            for table in ["zeta", "alpha", "midway"] {
+                ddl.tables.push(Table::new(table.to_string()));
+                let col = Column::new(table.to_string(), "name", "text");
+                ddl.columns
+                    .push(if not_null { col.not_null() } else { col });
+            }
+            ddl
+        };
+
+        let migration = compute_migration(&make(false), &make(true));
+        let recreate_order: Vec<String> = migration
+            .statements
+            .iter()
+            .filter_map(|s| match s {
+                JsonStatement::RecreateTable(st) => Some(st.to.name.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            recreate_order,
+            vec!["alpha", "midway", "zeta"],
+            "table recreation must be emitted in sorted order"
+        );
     }
 
     #[test]

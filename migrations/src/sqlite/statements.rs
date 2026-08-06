@@ -219,7 +219,7 @@ pub fn convert_statement(statement: &JsonStatement) -> Vec<String> {
         JsonStatement::DropIndex(st) => vec![convert_drop_index(st)],
         JsonStatement::CreateView(st) => vec![convert_create_view(st)],
         JsonStatement::DropView(st) => vec![convert_drop_view(st)],
-        JsonStatement::RenameView(st) => vec![convert_rename_view(st)],
+        JsonStatement::RenameView(st) => convert_rename_view(st),
     }
 }
 
@@ -400,9 +400,31 @@ fn convert_recreate_table(st: &RecreateTableStatement) -> Vec<String> {
         table: tmp_table,
     }));
 
-    // 3. Copy data
+    // 3. Copy data. If the new table has NOT NULL columns without a default
+    // that the old table can't provide, the copy will fail on non-empty
+    // tables — keep generating (matching drizzle-kit) but flag it.
+    let missing_not_null: Vec<&str> = st
+        .to
+        .columns
+        .iter()
+        .filter(|col| {
+            col.not_null
+                && col.default.is_none()
+                && col.generated.is_none()
+                && !st.from.columns.iter().any(|from| from.name == col.name)
+        })
+        .map(|col| col.name.as_ref())
+        .collect();
+    let warning = if missing_not_null.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "-- WARNING: new NOT NULL column(s) without a default: {} — the copy below fails if `{name}` has rows\n",
+            missing_not_null.join(", ")
+        )
+    };
     statements.push(format!(
-        "INSERT INTO {}({cols_str}) SELECT {cols_str} FROM {};",
+        "{warning}INSERT INTO {}({cols_str}) SELECT {cols_str} FROM {};",
         quote_ident(&new_table_name),
         quote_ident(name)
     ));
@@ -439,13 +461,13 @@ fn convert_drop_view(st: &DropViewStatement) -> String {
     format!("DROP VIEW {};", quote_ident(&st.view.name))
 }
 
-fn convert_rename_view(st: &RenameViewStatement) -> String {
-    // SQLite doesn't support RENAME VIEW, so we drop and recreate
-    format!(
-        "DROP VIEW IF EXISTS {};\n{}",
-        quote_ident(&st.from.name),
-        st.to.create_view_sql()
-    )
+fn convert_rename_view(st: &RenameViewStatement) -> Vec<String> {
+    // SQLite doesn't support RENAME VIEW, so we drop and recreate.
+    // Two separate statements: executors run one statement per string.
+    vec![
+        format!("DROP VIEW IF EXISTS {};", quote_ident(&st.from.name)),
+        st.to.create_view_sql(),
+    ]
 }
 
 // =============================================================================
@@ -533,6 +555,8 @@ fn topological_sort_tables_for_create<'a>(
     }
 
     // Tables with no dependencies come first, then tables that depend on them, etc.
+    // Ready-sets and the circular-dependency fallback are sorted so the emitted
+    // SQL order is deterministic.
     let mut result = Vec::new();
     let mut remaining: HashSet<String> = table_map.keys().cloned().collect();
     let mut satisfied: HashSet<String> = HashSet::new();
@@ -540,7 +564,7 @@ fn topological_sort_tables_for_create<'a>(
 
     while !remaining.is_empty() {
         // Find tables whose dependencies are all satisfied
-        let ready: Vec<String> = remaining
+        let mut ready: Vec<String> = remaining
             .iter()
             .filter(|t| {
                 dependencies
@@ -549,11 +573,14 @@ fn topological_sort_tables_for_create<'a>(
             })
             .cloned()
             .collect();
+        ready.sort_unstable();
 
         if ready.is_empty() {
-            // Circular dependency detected - add remaining in any order
+            // Circular dependency detected - add remaining in sorted order
             has_circular_deps = true;
-            for t in &remaining {
+            let mut leftover: Vec<&String> = remaining.iter().collect();
+            leftover.sort_unstable();
+            for t in leftover {
                 if let Some(entity) = table_map.get(t) {
                     result.push(*entity);
                 }
@@ -778,18 +805,18 @@ fn append_index_stmts(statements: &mut Vec<String>, diff: &SchemaDiff) {
 /// 2. Table creates (dependency order - referenced tables first)
 /// 3. Column additions for existing tables
 /// 4. Index operations
-pub struct SqliteGenerator {
+pub struct Generator {
     /// Whether to include statement breakpoints
     pub breakpoints: bool,
 }
 
-impl Default for SqliteGenerator {
+impl Default for Generator {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl SqliteGenerator {
+impl Generator {
     #[must_use]
     pub const fn new() -> Self {
         Self { breakpoints: true }
@@ -910,6 +937,61 @@ mod tests {
         assert_eq!(
             sql,
             "CREATE UNIQUE INDEX `idx_users_email` ON `users`(`email`);"
+        );
+    }
+
+    #[test]
+    fn test_rename_view_returns_two_statements() {
+        let mut from = View::new("old_view");
+        from.definition = Some("SELECT 1".into());
+        let mut to = View::new("new_view");
+        to.definition = Some("SELECT 1".into());
+
+        let statements =
+            convert_statement(&JsonStatement::RenameView(RenameViewStatement { from, to }));
+        assert_eq!(
+            statements,
+            vec![
+                "DROP VIEW IF EXISTS `old_view`;".to_string(),
+                "CREATE VIEW `new_view` AS SELECT 1;".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_recreate_warns_on_new_not_null_column_without_default() {
+        let from = TableFull {
+            name: "users".to_string(),
+            columns: vec![Column::new("users", "id", "integer").not_null()],
+            pk: None,
+            fks: Vec::new(),
+            uniques: Vec::new(),
+            checks: Vec::new(),
+            strict: false,
+            without_rowid: false,
+        };
+        let to = TableFull {
+            name: "users".to_string(),
+            columns: vec![
+                Column::new("users", "id", "integer").not_null(),
+                Column::new("users", "email", "text").not_null(),
+            ],
+            pk: None,
+            fks: Vec::new(),
+            uniques: Vec::new(),
+            checks: Vec::new(),
+            strict: false,
+            without_rowid: false,
+        };
+
+        let statements = convert_recreate_table(&RecreateTableStatement { from, to });
+        let insert = statements
+            .iter()
+            .find(|s| s.contains("INSERT INTO"))
+            .expect("insert statement");
+        assert!(
+            insert.starts_with("-- WARNING:") && insert.contains("email"),
+            "expected warning comment ahead of the INSERT, got: {insert}"
         );
     }
 

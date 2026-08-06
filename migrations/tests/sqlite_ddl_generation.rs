@@ -12,7 +12,7 @@ use drizzle_migrations::sqlite::{
         ColumnDef, ForeignKeyDef, IndexColumnDef, IndexDef, PrimaryKeyDef, ReferentialAction,
         TableDef,
     },
-    statements::SqliteGenerator,
+    statements::Generator as SqliteGenerator,
 };
 
 // =============================================================================
@@ -73,7 +73,9 @@ fn test_create_table_basic() {
 }
 
 /// Test #2: Table with primary key and autoincrement
-/// Note: The generator outputs AUTOINCREMENT NOT NULL (without PRIMARY KEY keyword inline)
+/// The column-level `primary_key` flag renders an inline PRIMARY KEY, and
+/// AUTOINCREMENT is only valid directly after it. NOT NULL is skipped for
+/// INTEGER PRIMARY KEY (SQLite rowid-alias quirk).
 #[test]
 fn test_create_table_with_primary_key_autoincrement() {
     let mut to = SQLiteDDL::default();
@@ -90,7 +92,7 @@ fn test_create_table_with_primary_key_autoincrement() {
 
     assert_eq!(sql.len(), 1);
     assert_eq!(
-        sql[0], "CREATE TABLE `users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL\n);",
+        sql[0], "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY AUTOINCREMENT\n);",
         "Unexpected CREATE TABLE with PRIMARY KEY AUTOINCREMENT"
     );
 }
@@ -261,7 +263,7 @@ fn test_create_table_self_referencing_fk() {
     assert_eq!(
         normalize_create_table(&sql[0]),
         normalize_create_table(
-            "CREATE TABLE `users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`reportee_id` INTEGER,\n\tCONSTRAINT `fk_users_reportee_id_users_id_fk` FOREIGN KEY (`reportee_id`) REFERENCES `users`(`id`)\n);"
+            "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY AUTOINCREMENT,\n\t`reportee_id` INTEGER,\n\tCONSTRAINT `fk_users_reportee_id_users_id_fk` FOREIGN KEY (`reportee_id`) REFERENCES `users`(`id`)\n);"
         ),
     );
 }
@@ -303,7 +305,7 @@ fn test_create_table_with_index() {
     assert_eq!(
         normalize_create_table(create_table),
         normalize_create_table(
-            "CREATE TABLE `users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`reportee_id` INTEGER\n);"
+            "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY AUTOINCREMENT,\n\t`reportee_id` INTEGER\n);"
         ),
     );
     assert_eq!(
@@ -390,7 +392,7 @@ fn test_unique_column() {
     assert_eq!(
         normalize_create_table(&sql[0]),
         normalize_create_table(
-            "CREATE TABLE `users` (\n\t`id` INTEGER NOT NULL,\n\t`email` TEXT NOT NULL\n);"
+            "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY,\n\t`email` TEXT NOT NULL\n);"
         ),
     );
 }
@@ -479,7 +481,7 @@ fn test_unique_index() {
     assert_eq!(
         normalize_create_table(create_table),
         normalize_create_table(
-            "CREATE TABLE `users` (\n\t`id` INTEGER NOT NULL,\n\t`email` TEXT\n);"
+            "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY,\n\t`email` TEXT\n);"
         ),
     );
     assert_eq!(
@@ -542,12 +544,12 @@ fn test_foreign_key_on_delete_cascade() {
 
     assert_eq!(
         *users_sql,
-        "CREATE TABLE `users` (\n\t`id` INTEGER NOT NULL\n);",
+        "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY\n);",
     );
     assert_eq!(
         normalize_create_table(posts_sql),
         normalize_create_table(
-            "CREATE TABLE `posts` (\n\t`id` INTEGER NOT NULL,\n\t`author_id` INTEGER NOT NULL,\n\tCONSTRAINT `fk_posts_author` FOREIGN KEY (`author_id`) REFERENCES `users`(`id`) ON DELETE CASCADE\n);"
+            "CREATE TABLE `posts` (\n\t`id` INTEGER PRIMARY KEY,\n\t`author_id` INTEGER NOT NULL,\n\tCONSTRAINT `fk_posts_author` FOREIGN KEY (`author_id`) REFERENCES `users`(`id`) ON DELETE CASCADE\n);"
         ),
     );
 }
@@ -655,9 +657,9 @@ fn test_strict_table() {
     let sql = diff_to_sql(&SQLiteDDL::default(), &to);
 
     assert_eq!(sql.len(), 1);
-    // primary_key() renders as NOT NULL for column def
+    // primary_key() renders an inline PRIMARY KEY (NOT NULL skipped for INTEGER PK)
     assert_eq!(
-        sql[0], "CREATE TABLE `settings` (\n\t`id` INTEGER NOT NULL\n) STRICT;",
+        sql[0], "CREATE TABLE `settings` (\n\t`id` INTEGER PRIMARY KEY\n) STRICT;",
         "Unexpected STRICT table SQL"
     );
 }
@@ -678,9 +680,9 @@ fn test_without_rowid_table() {
     let sql = diff_to_sql(&SQLiteDDL::default(), &to);
 
     assert_eq!(sql.len(), 1);
-    // primary_key() renders as NOT NULL for column def
+    // primary_key() renders an inline PRIMARY KEY (NOT NULL skipped for INTEGER PK)
     assert_eq!(
-        sql[0], "CREATE TABLE `settings` (\n\t`id` INTEGER NOT NULL\n) WITHOUT ROWID;",
+        sql[0], "CREATE TABLE `settings` (\n\t`id` INTEGER PRIMARY KEY\n) WITHOUT ROWID;",
         "Unexpected WITHOUT ROWID table SQL"
     );
 }
@@ -756,13 +758,13 @@ fn test_circular_fk_dependencies() {
     assert_eq!(
         normalize_create_table(create_a),
         normalize_create_table(
-            "CREATE TABLE `table_a` (\n\t`id` INTEGER NOT NULL,\n\t`b_id` INTEGER,\n\tCONSTRAINT `fk_a_to_b` FOREIGN KEY (`b_id`) REFERENCES `table_b`(`id`)\n);"
+            "CREATE TABLE `table_a` (\n\t`id` INTEGER PRIMARY KEY,\n\t`b_id` INTEGER,\n\tCONSTRAINT `fk_a_to_b` FOREIGN KEY (`b_id`) REFERENCES `table_b`(`id`)\n);"
         ),
     );
     assert_eq!(
         normalize_create_table(create_b),
         normalize_create_table(
-            "CREATE TABLE `table_b` (\n\t`id` INTEGER NOT NULL,\n\t`a_id` INTEGER,\n\tCONSTRAINT `fk_b_to_a` FOREIGN KEY (`a_id`) REFERENCES `table_a`(`id`)\n);"
+            "CREATE TABLE `table_b` (\n\t`id` INTEGER PRIMARY KEY,\n\t`a_id` INTEGER,\n\tCONSTRAINT `fk_b_to_a` FOREIGN KEY (`a_id`) REFERENCES `table_a`(`id`)\n);"
         ),
     );
 

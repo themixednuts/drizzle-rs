@@ -13,7 +13,7 @@ use super::ddl::{
 use crate::collection::EntityCollection;
 use crate::traits::EntityKind;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // =============================================================================
 // Per-entity-type lookup helpers
@@ -307,7 +307,14 @@ pub fn diff_ddl(left: &SQLiteDDL, right: &SQLiteDDL) -> Vec<EntityDiff> {
         &mut diffs,
     );
 
-    // Diff columns - extract table name from column
+    // Diff columns - extract table name from column.
+    // Inline INTEGER PRIMARY KEY columns need context for the NOT NULL
+    // reconciliation (emitters skip NOT NULL, PRAGMA reports 0, snapshots say
+    // true), so collect them from both sides first.
+    let integer_pks: HashSet<(String, String)> = inline_integer_pk_columns(left)
+        .into_iter()
+        .chain(inline_integer_pk_columns(right))
+        .collect();
     diff_entity_type_with(
         left.columns.list(),
         right.columns.list(),
@@ -315,7 +322,7 @@ pub fn diff_ddl(left: &SQLiteDDL, right: &SQLiteDDL) -> Vec<EntityDiff> {
         |c| SqliteEntity::Column(c.clone()),
         Some(&|c: &Column| c.table.to_string()),
         EntityKind::Column,
-        columns_equivalent,
+        |l, r| columns_equivalent(l, r, &integer_pks),
         &mut diffs,
     );
 
@@ -330,11 +337,14 @@ pub fn diff_ddl(left: &SQLiteDDL, right: &SQLiteDDL) -> Vec<EntityDiff> {
         &mut diffs,
     );
 
-    // Diff foreign keys - extract table name from FK
+    // Diff foreign keys - keyed structurally (table/columns/target), NOT by
+    // name: PRAGMA foreign_key_list cannot recover real FK names, so keying or
+    // comparing by name would guarantee drop/create churn on every push.
+    // Names are still carried on the entities and used for rendering.
     diff_entity_type_with(
         left.fks.list(),
         right.fks.list(),
-        |f| f.name.to_string(),
+        fk_structural_key,
         |f| SqliteEntity::ForeignKey(f.clone()),
         Some(&|f: &ForeignKey| f.table.to_string()),
         EntityKind::ForeignKey,
@@ -342,14 +352,16 @@ pub fn diff_ddl(left: &SQLiteDDL, right: &SQLiteDDL) -> Vec<EntityDiff> {
         &mut diffs,
     );
 
-    // Diff primary keys - extract table name from PK
-    diff_entity_type(
+    // Diff primary keys - keyed by table, compared by column set (names are
+    // synthesized during introspection and irrelevant for equivalence).
+    diff_entity_type_with(
         left.pks.list(),
         right.pks.list(),
         |p| p.table.to_string(),
         |p| SqliteEntity::PrimaryKey(p.clone()),
         Some(&|p: &PrimaryKey| p.table.to_string()),
         EntityKind::PrimaryKey,
+        primary_keys_equivalent,
         &mut diffs,
     );
 
@@ -476,12 +488,148 @@ fn diff_entity_type_with<T: Clone>(
     }
 }
 
-fn columns_equivalent(left: &Column, right: &Column) -> bool {
-    let mut left = left.clone();
-    let mut right = right.clone();
-    left.sql_type = Cow::Owned(left.sql_type.to_ascii_lowercase());
-    right.sql_type = Cow::Owned(right.sql_type.to_ascii_lowercase());
-    left == right
+// =============================================================================
+// Equivalence normalization
+//
+// Introspected DDL and macro/snapshot DDL systematically differ in ways that
+// don't change the rendered schema (ordinal positions, literal quoting styles,
+// synthesized constraint names, ...). These helpers normalize both sides
+// before comparing so that a push round-trip is a no-op. Rendering always
+// uses the original, un-normalized entities.
+// =============================================================================
+
+/// Strips one layer of outer balanced parentheses, if fully wrapped.
+fn strip_outer_parens(expr: &str) -> &str {
+    let expr = expr.trim();
+    let bytes = expr.as_bytes();
+    if bytes.len() < 2 || bytes[0] != b'(' || bytes[bytes.len() - 1] != b')' {
+        return expr;
+    }
+    let mut depth = 0i32;
+    for (i, ch) in expr.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    if i == expr.len() - 1 {
+                        return expr[1..expr.len() - 1].trim();
+                    }
+                    return expr;
+                }
+            }
+            _ => {}
+        }
+    }
+    expr
+}
+
+/// Normalizes a DEFAULT literal for comparison: strips one paren layer, then
+/// one layer of matching quotes (`'x'` ≡ `"x"` ≡ `x`, with doubled-quote
+/// unescaping), then canonicalizes numeric literals (`0.0` ≡ `0`).
+fn normalize_default_literal(default: &str) -> String {
+    let s = strip_outer_parens(default);
+    let bytes = s.as_bytes();
+    let unquoted = if bytes.len() >= 2 && bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\'' {
+        s[1..s.len() - 1].replace("''", "'")
+    } else if bytes.len() >= 2 && bytes[0] == b'"' && bytes[bytes.len() - 1] == b'"' {
+        s[1..s.len() - 1].replace("\"\"", "\"")
+    } else {
+        s.to_string()
+    };
+
+    if let Ok(int) = unquoted.parse::<i128>() {
+        return int.to_string();
+    }
+    if let Ok(float) = unquoted.parse::<f64>()
+        && float.is_finite()
+    {
+        return float.to_string();
+    }
+    unquoted
+}
+
+/// Collects `(table, column)` pairs that render as inline `INTEGER PRIMARY
+/// KEY` (single-column PK entity, or a lone column-level PK flag).
+fn inline_integer_pk_columns(ddl: &SQLiteDDL) -> HashSet<(String, String)> {
+    let mut out = HashSet::new();
+
+    let mut candidates: Vec<(String, String)> = ddl
+        .pks
+        .list()
+        .iter()
+        .filter(|pk| pk.columns.len() == 1)
+        .map(|pk| (pk.table.to_string(), pk.columns[0].to_string()))
+        .collect();
+
+    // Column-level flags: only a single flag column per table renders inline.
+    let mut flag_pks: HashMap<String, Vec<String>> = HashMap::new();
+    for c in ddl.columns.list() {
+        if c.primary_key == Some(true) {
+            flag_pks
+                .entry(c.table.to_string())
+                .or_default()
+                .push(c.name.to_string());
+        }
+    }
+    for (table, cols) in flag_pks {
+        if let [col] = cols.as_slice() {
+            candidates.push((table, col.clone()));
+        }
+    }
+
+    for (table, col) in candidates {
+        let is_integer = ddl
+            .columns
+            .one(&table, &col)
+            .is_some_and(|c| c.sql_type.to_ascii_lowercase().starts_with("int"));
+        if is_integer {
+            out.insert((table, col));
+        }
+    }
+    out
+}
+
+fn columns_equivalent(
+    left: &Column,
+    right: &Column,
+    integer_pks: &HashSet<(String, String)>,
+) -> bool {
+    let normalize = |column: &Column| -> Column {
+        let mut c = column.clone();
+        c.sql_type = Cow::Owned(c.sql_type.to_ascii_lowercase());
+        // (a) ordinal position is introspection metadata, not schema shape
+        c.ordinal_position = None;
+        // Explicit `Some(false)` flags are equivalent to omitted flags
+        if c.primary_key == Some(false) {
+            c.primary_key = None;
+        }
+        if c.unique == Some(false) {
+            c.unique = None;
+        }
+        if c.autoincrement == Some(false) {
+            c.autoincrement = None;
+        }
+        // (b) inline INTEGER PRIMARY KEY: emitters skip NOT NULL and PRAGMA
+        // reports 0 while snapshots say true — both render identically, so
+        // pin not_null for comparison purposes.
+        if integer_pks.contains(&(c.table.to_string(), c.name.to_string())) {
+            c.not_null = true;
+        }
+        // (c) default literal quoting/numeric normalization
+        if let Some(default) = c.default.as_ref() {
+            c.default = Some(Cow::Owned(normalize_default_literal(default)));
+        }
+        // Generated expressions: macro producers store `(expr)`, introspection
+        // stores bare `expr` — strip one paren layer from both sides.
+        if let Some(generated) = c.generated.as_mut() {
+            generated.expression =
+                Cow::Owned(strip_outer_parens(&generated.expression).to_string());
+        }
+        c
+    };
+
+    normalize(left) == normalize(right)
 }
 
 fn normalize_fk_action(action: &Option<Cow<'static, str>>) -> Option<Cow<'static, str>> {
@@ -492,6 +640,21 @@ fn normalize_fk_action(action: &Option<Cow<'static, str>>) -> Option<Cow<'static
     }
 }
 
+/// Structural identity for a foreign key (used as the diff key): PRAGMA cannot
+/// recover FK constraint names, so identity is the (table, columns, target
+/// table, target columns) shape.
+fn fk_structural_key(fk: &ForeignKey) -> String {
+    let cols: Vec<&str> = fk.columns.iter().map(AsRef::as_ref).collect();
+    let cols_to: Vec<&str> = fk.columns_to.iter().map(AsRef::as_ref).collect();
+    format!(
+        "{}({})->{}({})",
+        fk.table,
+        cols.join(","),
+        fk.table_to,
+        cols_to.join(",")
+    )
+}
+
 fn foreign_keys_equivalent(left: &ForeignKey, right: &ForeignKey) -> bool {
     let mut left = left.clone();
     let mut right = right.clone();
@@ -499,7 +662,24 @@ fn foreign_keys_equivalent(left: &ForeignKey, right: &ForeignKey) -> bool {
     left.on_update = normalize_fk_action(&left.on_update);
     right.on_delete = normalize_fk_action(&right.on_delete);
     right.on_update = normalize_fk_action(&right.on_update);
+    // (e) names cannot be recovered from PRAGMA — equivalence is structural
+    left.name = Cow::Borrowed("");
+    right.name = Cow::Borrowed("");
+    left.name_explicit = false;
+    right.name_explicit = false;
     left == right
+}
+
+/// (d) primary keys compare by column set (order-insensitive), not name.
+fn primary_keys_equivalent(left: &PrimaryKey, right: &PrimaryKey) -> bool {
+    if left.table != right.table {
+        return false;
+    }
+    let mut left_cols: Vec<&str> = left.columns.iter().map(AsRef::as_ref).collect();
+    let mut right_cols: Vec<&str> = right.columns.iter().map(AsRef::as_ref).collect();
+    left_cols.sort_unstable();
+    right_cols.sort_unstable();
+    left_cols == right_cols
 }
 
 #[cfg(test)]
@@ -551,6 +731,186 @@ mod tests {
         let diffs = diff_ddl(&left, &right);
         assert_eq!(diffs.len(), 1);
         assert_eq!(diffs[0].diff_type, DiffType::Drop);
+    }
+
+    #[test]
+    fn ordinal_position_is_ignored_in_column_equivalence() {
+        let mut introspected = SQLiteDDL::new();
+        introspected.tables.push(Table::new("t"));
+        let mut col = Column::new("t", "name", "text").not_null();
+        col.ordinal_position = Some(3);
+        introspected.columns.push(col);
+
+        let mut snapshot = SQLiteDDL::new();
+        snapshot.tables.push(Table::new("t"));
+        snapshot
+            .columns
+            .push(Column::new("t", "name", "TEXT").not_null());
+
+        let diffs = diff_ddl(&introspected, &snapshot);
+        assert!(diffs.is_empty(), "unexpected diffs: {diffs:#?}");
+    }
+
+    #[test]
+    fn integer_pk_not_null_mismatch_is_reconciled() {
+        use crate::sqlite::ddl::PrimaryKey;
+
+        // Introspected: PRAGMA reports notnull = 0 for INTEGER PRIMARY KEY
+        let mut introspected = SQLiteDDL::new();
+        introspected.tables.push(Table::new("t"));
+        introspected.columns.push(Column::new("t", "id", "integer"));
+        introspected.pks.push(PrimaryKey::from_strings(
+            "t".to_string(),
+            "t_pk".to_string(),
+            vec!["id".to_string()],
+        ));
+
+        // Snapshot: macro marks PK fields NOT NULL
+        let mut snapshot = SQLiteDDL::new();
+        snapshot.tables.push(Table::new("t"));
+        snapshot
+            .columns
+            .push(Column::new("t", "id", "INTEGER").not_null());
+        snapshot.pks.push(PrimaryKey::from_strings(
+            "t".to_string(),
+            "t_pk".to_string(),
+            vec!["id".to_string()],
+        ));
+
+        let diffs = diff_ddl(&introspected, &snapshot);
+        assert!(diffs.is_empty(), "unexpected diffs: {diffs:#?}");
+    }
+
+    #[test]
+    fn default_literal_quoting_is_normalized() {
+        for (left_default, right_default) in [
+            ("'hello'", "hello"),
+            ("\"hello\"", "'hello'"),
+            ("'it''s'", "it's"),
+            ("0.0", "0"),
+            ("(42)", "42"),
+        ] {
+            let mut left = SQLiteDDL::new();
+            left.tables.push(Table::new("t"));
+            left.columns
+                .push(Column::new("t", "c", "text").default_value(left_default.to_string()));
+
+            let mut right = SQLiteDDL::new();
+            right.tables.push(Table::new("t"));
+            right
+                .columns
+                .push(Column::new("t", "c", "text").default_value(right_default.to_string()));
+
+            let diffs = diff_ddl(&left, &right);
+            assert!(
+                diffs.is_empty(),
+                "{left_default:?} vs {right_default:?} should be equivalent: {diffs:#?}"
+            );
+        }
+
+        // Different values must still diff.
+        let mut left = SQLiteDDL::new();
+        left.tables.push(Table::new("t"));
+        left.columns
+            .push(Column::new("t", "c", "text").default_value("'a'"));
+        let mut right = SQLiteDDL::new();
+        right.tables.push(Table::new("t"));
+        right
+            .columns
+            .push(Column::new("t", "c", "text").default_value("'b'"));
+        assert_eq!(diff_ddl(&left, &right).len(), 1);
+    }
+
+    #[test]
+    fn generated_expression_parens_are_normalized() {
+        use crate::sqlite::ddl::{Generated, GeneratedType};
+
+        let make = |expr: &str| {
+            let mut ddl = SQLiteDDL::new();
+            ddl.tables.push(Table::new("t"));
+            let mut col = Column::new("t", "g", "text");
+            col.generated = Some(Generated {
+                expression: expr.to_string().into(),
+                gen_type: GeneratedType::Virtual,
+            });
+            ddl.columns.push(col);
+            ddl
+        };
+
+        // Macro-produced `(expr)` vs introspected `expr`
+        let diffs = diff_ddl(&make("(length(name))"), &make("length(name)"));
+        assert!(diffs.is_empty(), "unexpected diffs: {diffs:#?}");
+
+        // Different expressions still diff
+        assert_eq!(
+            diff_ddl(&make("(length(name))"), &make("length(other)")).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn primary_keys_compare_by_column_set_not_name() {
+        use crate::sqlite::ddl::PrimaryKey;
+
+        let make = |name: &str, cols: Vec<&str>| {
+            let mut ddl = SQLiteDDL::new();
+            ddl.tables.push(Table::new("t"));
+            ddl.columns
+                .push(Column::new("t", "a", "integer").not_null());
+            ddl.columns
+                .push(Column::new("t", "b", "integer").not_null());
+            ddl.pks.push(PrimaryKey::from_strings(
+                "t".to_string(),
+                name.to_string(),
+                cols.into_iter().map(str::to_string).collect(),
+            ));
+            ddl
+        };
+
+        // Same column set, different name and order: equivalent
+        let diffs = diff_ddl(
+            &make("t_pk", vec!["a", "b"]),
+            &make("custom", vec!["b", "a"]),
+        );
+        assert!(diffs.is_empty(), "unexpected diffs: {diffs:#?}");
+
+        // Different column set: alter
+        assert_eq!(
+            diff_ddl(&make("t_pk", vec!["a", "b"]), &make("t_pk", vec!["a"])).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn foreign_keys_compare_structurally_not_by_name() {
+        let make = |name: &str| {
+            let mut ddl = SQLiteDDL::new();
+            ddl.tables.push(Table::new("child"));
+            ddl.tables.push(Table::new("parent"));
+            ddl.columns
+                .push(Column::new("child", "parent_id", "integer").not_null());
+            ddl.fks.push(ForeignKey::from_strings(
+                "child".to_string(),
+                name.to_string(),
+                vec!["parent_id".to_string()],
+                "parent".to_string(),
+                vec!["id".to_string()],
+            ));
+            ddl
+        };
+
+        // Same structure, different names (introspected names are synthesized):
+        // no churn — neither drop/create (structural key) nor alter (structural
+        // equivalence).
+        let diffs = diff_ddl(&make("fk_child_parent_id_parent_id_fk"), &make("my_fk"));
+        assert!(diffs.is_empty(), "unexpected diffs: {diffs:#?}");
+
+        // Different action: alter (single diff, not drop+create)
+        let mut with_cascade = make("a");
+        with_cascade.fks.list_mut()[0].on_delete = Some("CASCADE".into());
+        let diffs = diff_ddl(&make("b"), &with_cascade);
+        assert_eq!(diffs.len(), 1);
+        assert_eq!(diffs[0].diff_type, DiffType::Alter);
     }
 
     #[test]

@@ -87,7 +87,10 @@ struct SchemaMaps<'a> {
     single_unique_columns: HashMap<String, HashSet<String>>,
     table_uniques: HashMap<String, Vec<&'a UniqueConstraint>>,
     table_checks: HashMap<String, Vec<&'a CheckConstraint>>,
+    /// Single-column FKs, attached to their column as `references = ...`
     fk_map: HashMap<(String, String), (&'a ForeignKey, usize)>,
+    /// Composite FKs, emitted as table-level `foreign_key(...)` attributes
+    composite_fks: HashMap<String, Vec<&'a ForeignKey>>,
 }
 
 fn build_schema_maps(ddl: &SQLiteDDL) -> SchemaMaps<'_> {
@@ -133,9 +136,17 @@ fn build_schema_maps(ddl: &SQLiteDDL) -> SchemaMaps<'_> {
     }
 
     let mut fk_map: HashMap<(String, String), (&ForeignKey, usize)> = HashMap::new();
+    let mut composite_fks: HashMap<String, Vec<&ForeignKey>> = HashMap::new();
     for fk in ddl.fks.list() {
-        for (idx, col) in fk.columns.iter().enumerate() {
-            fk_map.insert((fk.table.to_string(), col.to_string()), (fk, idx));
+        if fk.columns.len() == 1 {
+            fk_map.insert((fk.table.to_string(), fk.columns[0].to_string()), (fk, 0));
+        } else {
+            // A composite FK is one constraint — mapping it onto N per-column
+            // `references = ...` attrs would generate N single-column FKs.
+            composite_fks
+                .entry(fk.table.to_string())
+                .or_default()
+                .push(fk);
         }
     }
 
@@ -146,6 +157,7 @@ fn build_schema_maps(ddl: &SQLiteDDL) -> SchemaMaps<'_> {
         table_uniques,
         table_checks,
         fk_map,
+        composite_fks,
     }
 }
 
@@ -178,6 +190,7 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
         table_uniques,
         table_checks,
         fk_map,
+        composite_fks,
     } = build_schema_maps(ddl);
 
     // Generate table structs
@@ -213,6 +226,9 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
             check_constraints,
             is_composite_pk,
             fk_map: &fk_map,
+            composite_fks: composite_fks
+                .get(&table_name)
+                .map_or(&[][..], std::vec::Vec::as_slice),
             use_pub: options.use_pub,
             field_casing: options.field_casing,
         };
@@ -226,6 +242,31 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
 
     // Generate index structs
     for index in ddl.indexes.list() {
+        if index.columns.iter().any(|c| c.is_expression) {
+            // #[SQLiteIndex] tuple structs only accept `Table::column` paths;
+            // expression columns cannot be expressed. Emit a TODO comment so
+            // the user can recreate the index manually.
+            // TODO: support expression columns once the index macro can
+            // represent them.
+            let expressions: Vec<&str> = index
+                .columns
+                .iter()
+                .filter(|c| c.is_expression)
+                .map(|c| c.value.as_ref())
+                .collect();
+            let _ = writeln!(
+                code,
+                "// TODO: index `{}` on `{}` uses expression column(s) ({}) which\n// #[SQLiteIndex] cannot express yet; recreate it manually.\n",
+                index.name,
+                index.table,
+                expressions.join(", ")
+            );
+            result.warnings.push(format!(
+                "index `{}` uses expression columns and was emitted as a TODO comment",
+                index.name
+            ));
+            continue;
+        }
         let index_code = generate_index_struct(index, options.use_pub, options.field_casing);
         code.push_str(&index_code);
         code.push('\n');
@@ -274,6 +315,7 @@ struct TableGenContext<'a> {
     check_constraints: &'a [&'a CheckConstraint],
     is_composite_pk: bool,
     fk_map: &'a HashMap<(String, String), (&'a ForeignKey, usize)>,
+    composite_fks: &'a [&'a ForeignKey],
     use_pub: bool,
     field_casing: FieldCasing,
 }
@@ -309,6 +351,9 @@ fn generate_table_struct(ctx: &TableGenContext<'_>) -> String {
         if check_column_target(check, ctx).is_none() {
             table_attrs.push(format_table_check_attr(check, ctx, idx));
         }
+    }
+    for fk in ctx.composite_fks {
+        table_attrs.push(format_composite_fk_attr(fk, ctx.field_casing));
     }
 
     // Table attribute
@@ -362,6 +407,42 @@ fn format_table_unique_attr(unique: &UniqueConstraint, field_casing: FieldCasing
         ));
     }
     format!("unique({})", args.join(", "))
+}
+
+/// Format a composite FK as a table-level attribute:
+/// `foreign_key(columns(a, b), references(Parent, x, y), on_delete = "cascade")`
+fn format_composite_fk_attr(fk: &ForeignKey, field_casing: FieldCasing) -> String {
+    let columns: Vec<String> = fk
+        .columns
+        .iter()
+        .map(|col| apply_field_casing(col.as_ref(), field_casing))
+        .collect();
+    let target_struct = fk.table_to.to_pascal_case();
+    let target_columns: Vec<String> = fk
+        .columns_to
+        .iter()
+        .map(|col| apply_field_casing(col.as_ref(), field_casing))
+        .collect();
+
+    let mut args = vec![
+        format!("columns({})", columns.join(", ")),
+        format!(
+            "references({}, {})",
+            target_struct,
+            target_columns.join(", ")
+        ),
+    ];
+    if let Some(on_delete) = &fk.on_delete
+        && !on_delete.eq_ignore_ascii_case("NO ACTION")
+    {
+        args.push(format!("on_delete = \"{}\"", on_delete.to_lowercase()));
+    }
+    if let Some(on_update) = &fk.on_update
+        && !on_update.eq_ignore_ascii_case("NO ACTION")
+    {
+        args.push(format!("on_update = \"{}\"", on_update.to_lowercase()));
+    }
+    format!("foreign_key({})", args.join(", "))
 }
 
 fn format_table_check_attr(
@@ -558,6 +639,19 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
     format!("{attr_str}    {vis}{field_name}: {rust_type},\n")
 }
 
+/// Strip exactly one layer of matching SQL quotes and un-double the escaped
+/// quote characters (`'it''s'` → `it's`). Returns `None` when not quoted.
+fn unquote_sql_string(default: &str) -> Option<String> {
+    let bytes = default.as_bytes();
+    if bytes.len() >= 2 && bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\'' {
+        Some(default[1..default.len() - 1].replace("''", "'"))
+    } else if bytes.len() >= 2 && bytes[0] == b'"' && bytes[bytes.len() - 1] == b'"' {
+        Some(default[1..default.len() - 1].replace("\"\"", "\""))
+    } else {
+        None
+    }
+}
+
 /// Format a default value for Rust syntax
 fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
     let default = default.trim();
@@ -567,8 +661,11 @@ fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
         return None;
     }
 
+    let unquoted = unquote_sql_string(default);
+
     // Skip function calls or complex expressions; these use default_sql.
-    if default.contains('(') && default.contains(')') {
+    // Quoted string literals are exempt — `'a(b)'` is a plain string default.
+    if unquoted.is_none() && default.contains('(') && default.contains(')') {
         return None;
     }
 
@@ -583,14 +680,7 @@ fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
         }
         SQLTypeCategory::Real => default.parse::<f64>().ok().map(|v| v.to_string()),
         SQLTypeCategory::Text | SQLTypeCategory::Blob => {
-            let quoted = (default.starts_with('\'') && default.ends_with('\''))
-                || (default.starts_with('"') && default.ends_with('"'));
-            if quoted {
-                let trimmed = default.trim_matches(|c| c == '\'' || c == '"');
-                Some(format!("\"{}\"", escape_for_rust_literal(trimmed)))
-            } else {
-                None
-            }
+            unquoted.map(|inner| format!("\"{}\"", escape_for_rust_literal(&inner)))
         }
         SQLTypeCategory::Numeric => default
             .parse::<i64>()
@@ -964,6 +1054,99 @@ pub struct AppSchema {
     pub posts: Posts,
 }
 "
+        );
+    }
+
+    #[test]
+    fn test_format_default_value_unquotes_one_layer() {
+        // Exactly one quote layer stripped, doubled quotes un-escaped.
+        assert_eq!(
+            format_default_value("'it''s'", "text"),
+            Some("\"it's\"".to_string())
+        );
+        // Quoted strings containing parens are still plain string defaults.
+        assert_eq!(
+            format_default_value("'a(b)'", "text"),
+            Some("\"a(b)\"".to_string())
+        );
+        // Unquoted expressions with parens fall through to default_sql.
+        assert_eq!(format_default_value("abs(-1)", "text"), None);
+        // Double-quoted works too.
+        assert_eq!(
+            format_default_value("\"he said \"\"hi\"\"\"", "text"),
+            Some("\"he said \\\"hi\\\"\"".to_string())
+        );
+    }
+
+    #[test]
+    fn test_composite_fk_emitted_as_table_level_attr() {
+        let mut ddl = SQLiteDDL::new();
+        ddl.tables.push(Table::new("child"));
+        ddl.columns
+            .push(Column::new("child", "tenant_id", "integer").not_null());
+        ddl.columns
+            .push(Column::new("child", "parent_id", "integer").not_null());
+        let fk = ForeignKey::from_strings(
+            "child".to_string(),
+            "fk_child_parent".to_string(),
+            vec!["tenant_id".to_string(), "parent_id".to_string()],
+            "parent".to_string(),
+            vec!["tenant_id".to_string(), "id".to_string()],
+        )
+        .on_delete("CASCADE");
+        ddl.fks.push(fk);
+
+        let result = generate_rust_schema(&ddl, &CodegenOptions::default());
+
+        assert!(
+            result.code.contains(
+                "#[SQLiteTable(foreign_key(columns(tenant_id, parent_id), references(Parent, tenant_id, id), on_delete = \"cascade\"))]"
+            ),
+            "composite FK should be a table-level attribute, got:\n{}",
+            result.code
+        );
+        assert!(
+            !result.code.contains("references = Parent::"),
+            "composite FK must not be split into per-column references:\n{}",
+            result.code
+        );
+    }
+
+    #[test]
+    fn test_expression_index_emits_todo_not_invalid_rust() {
+        let mut ddl = SQLiteDDL::new();
+        ddl.tables.push(Table::new("users"));
+        ddl.columns
+            .push(Column::new("users", "email", "text").not_null());
+        ddl.indexes.push(Index::new(
+            "users",
+            "users_email_lower_idx",
+            vec![IndexColumn {
+                value: "lower(email)".into(),
+                is_expression: true,
+            }],
+        ));
+
+        let result = generate_rust_schema(&ddl, &CodegenOptions::default());
+
+        assert!(
+            result
+                .code
+                .contains("// TODO: index `users_email_lower_idx`"),
+            "expected TODO comment for expression index, got:\n{}",
+            result.code
+        );
+        assert!(
+            !result.code.contains("Users::lower(email)"),
+            "must not emit invalid Rust for expression columns:\n{}",
+            result.code
+        );
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains("users_email_lower_idx")),
+            "expected a warning for the skipped index"
         );
     }
 

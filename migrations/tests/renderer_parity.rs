@@ -42,6 +42,122 @@ fn sqlite_table_conversion_for_options_collate_and_named_unique() {
     );
 }
 
+/// Parity with the compile-time emitter (`procmacros/src/sqlite/table/ddl.rs`):
+/// for the same logical schema, the runtime renderer must produce byte-for-byte
+/// the SQL that the `#[SQLiteTable]` macro stores in its `SQLSchema::SQL`
+/// const. The macro emits, for a table with an INTEGER PK AUTOINCREMENT
+/// column, a generated column, and a single-column FK:
+///
+/// - backtick-quoted identifiers
+/// - inline `PRIMARY KEY AUTOINCREMENT` on the PK column, no `NOT NULL`
+///   (INTEGER PK aliases rowid)
+/// - `GENERATED ALWAYS AS (expr) VIRTUAL|STORED` with exactly one paren layer
+/// - `CONSTRAINT `fk_{table}_{col}_{ref_table}_{ref_col}_fk` FOREIGN KEY ...`
+///   with `NO ACTION` omitted
+#[test]
+fn sqlite_runtime_renderer_matches_macro_const_sql_format() {
+    let mut cur = SQLiteDDL::default();
+    cur.tables.push(sqlite::Table::new("users"));
+    // Columns shaped like the macro's runtime to_snapshot: no PK flags on the
+    // column, one PrimaryKey entity, generated expression pre-parenthesized.
+    cur.columns.push(
+        sqlite::Column::new("users", "id", "integer")
+            .not_null()
+            .autoincrement(),
+    );
+    cur.columns
+        .push(sqlite::Column::new("users", "name", "text").not_null());
+    let mut name_len = sqlite::Column::new("users", "name_len", "integer");
+    name_len.generated = Some(sqlite::Generated {
+        expression: Cow::Borrowed("(length(name))"),
+        gen_type: sqlite::GeneratedType::Virtual,
+    });
+    cur.columns.push(name_len);
+    cur.columns
+        .push(sqlite::Column::new("users", "group_id", "integer").not_null());
+    cur.pks.push(sqlite::PrimaryKey::from_strings(
+        "users".to_string(),
+        "users_pk".to_string(),
+        vec!["id".to_string()],
+    ));
+    cur.fks.push(
+        sqlite::ForeignKey::from_strings(
+            "users".to_string(),
+            "fk_users_group_id_groups_id_fk".to_string(),
+            vec!["group_id".to_string()],
+            "groups".to_string(),
+            vec!["id".to_string()],
+        )
+        .on_delete("CASCADE")
+        .on_update("NO ACTION"),
+    );
+
+    let migration_sql =
+        compute_sqlite_migration(&SQLiteDDL::default(), &cur).sql_statements[0].clone();
+
+    assert_eq!(
+        migration_sql,
+        "CREATE TABLE `users` (\n\
+         \t`id` INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+         \t`name` TEXT NOT NULL,\n\
+         \t`name_len` INTEGER GENERATED ALWAYS AS (length(name)) VIRTUAL,\n\
+         \t`group_id` INTEGER NOT NULL,\n\
+         \tCONSTRAINT `fk_users_group_id_groups_id_fk` FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE\n\
+         );"
+    );
+}
+
+/// Same parity contract for column-flag-only DDL (`ColumnDef::primary_key()
+/// .autoincrement()` without a PrimaryKey entity): the flag must render an
+/// inline PRIMARY KEY exactly like the macro emitter does.
+#[test]
+fn sqlite_column_flag_pk_matches_macro_const_sql_format() {
+    let mut cur = SQLiteDDL::default();
+    cur.tables
+        .push(sqlite::TableDef::new("flagged").into_table());
+    cur.columns.push(
+        sqlite::ColumnDef::new("flagged", "id", "INTEGER")
+            .primary_key()
+            .autoincrement()
+            .into_column(),
+    );
+    cur.columns.push(
+        sqlite::ColumnDef::new("flagged", "name", "TEXT")
+            .not_null()
+            .into_column(),
+    );
+
+    let migration_sql =
+        compute_sqlite_migration(&SQLiteDDL::default(), &cur).sql_statements[0].clone();
+
+    assert_eq!(
+        migration_sql,
+        "CREATE TABLE `flagged` (\n\t`id` INTEGER PRIMARY KEY AUTOINCREMENT,\n\t`name` TEXT NOT NULL\n);"
+    );
+}
+
+/// Generated STORED columns must be parenthesized identically whether the
+/// expression arrives bare (introspection) or pre-parenthesized (macro).
+#[test]
+fn sqlite_generated_column_paren_parity() {
+    let render = |expression: &str| {
+        let mut cur = SQLiteDDL::default();
+        cur.tables.push(sqlite::Table::new("g"));
+        let mut col = sqlite::Column::new("g", "value", "integer").not_null();
+        col.generated = Some(sqlite::Generated {
+            expression: expression.to_string().into(),
+            gen_type: sqlite::GeneratedType::Stored,
+        });
+        cur.columns.push(col);
+        compute_sqlite_migration(&SQLiteDDL::default(), &cur).sql_statements[0].clone()
+    };
+
+    let expected =
+        "CREATE TABLE `g` (\n\t`value` INTEGER GENERATED ALWAYS AS (length(x)) STORED NOT NULL\n);";
+    assert_eq!(render("length(x)"), expected);
+    assert_eq!(render("(length(x))"), expected);
+}
+
 #[test]
 fn postgres_index_conversion_for_concurrently_where_and_opclass() {
     let table = pg::Table::new("public", "users");

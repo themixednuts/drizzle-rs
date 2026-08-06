@@ -541,7 +541,7 @@ fn test_drop_autoincrement() {
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[1],
-        "CREATE TABLE `__new_companies` (\n\t`id` INTEGER NOT NULL\n);"
+        "CREATE TABLE `__new_companies` (\n\t`id` INTEGER PRIMARY KEY\n);"
     );
     assert_eq!(
         sql[2],
@@ -601,7 +601,7 @@ fn test_add_foreign_key() {
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[1],
-        "CREATE TABLE `__new_users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`report_to` INTEGER,\n\tCONSTRAINT `fk_users_report_to_users_id_fk` FOREIGN KEY (`report_to`) REFERENCES `users`(`id`)\n);"
+        "CREATE TABLE `__new_users` (\n\t`id` INTEGER PRIMARY KEY AUTOINCREMENT,\n\t`report_to` INTEGER,\n\tCONSTRAINT `fk_users_report_to_users_id_fk` FOREIGN KEY (`report_to`) REFERENCES `users`(`id`)\n);"
     );
     assert_eq!(
         sql[2],
@@ -686,7 +686,7 @@ fn test_add_generated_stored_column() {
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[1],
-        "CREATE TABLE `__new_users` (\n\t`id` INTEGER,\n\t`gen_name` TEXT GENERATED ALWAYS AS 123 STORED\n);"
+        "CREATE TABLE `__new_users` (\n\t`id` INTEGER,\n\t`gen_name` TEXT GENERATED ALWAYS AS (123) STORED\n);"
     );
     assert_eq!(
         sql[2],
@@ -724,7 +724,7 @@ fn test_add_generated_virtual_column() {
     );
     assert_eq!(
         sql[0],
-        "ALTER TABLE `users` ADD `gen_name` TEXT GENERATED ALWAYS AS 123 VIRTUAL;"
+        "ALTER TABLE `users` ADD `gen_name` TEXT GENERATED ALWAYS AS (123) VIRTUAL;"
     );
 }
 
@@ -791,54 +791,28 @@ fn test_alter_column_multiple_tables() {
 
     let sql = diff_sql(&from, &to);
 
-    // Both tables are recreated: 6 statements per table = 12 total
-    assert_eq!(sql.len(), 12, "Expected 12 SQL statements, got: {:?}", sql);
-
-    // Table order between posts/users is non-deterministic; find each group by content
-    let posts_start = sql
-        .iter()
-        .position(|s| s.contains("__new_posts"))
-        .expect("Should contain __new_posts recreation")
-        - 1; // PRAGMA OFF is one before the CREATE TABLE
-    let users_start = sql
-        .iter()
-        .position(|s| s.contains("__new_users"))
-        .expect("Should contain __new_users recreation")
-        - 1;
-
-    // Posts recreation
-    assert_eq!(sql[posts_start], "PRAGMA foreign_keys=OFF;");
+    // Both tables are recreated: 6 statements per table = 12 total.
+    // Recreations are emitted in sorted table order (posts before users), so
+    // the whole sequence is deterministic and asserted exactly.
     assert_eq!(
-        sql[posts_start + 1],
-        "CREATE TABLE `__new_posts` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`name` TEXT NOT NULL,\n\t`user_id` INTEGER\n);"
+        sql,
+        vec![
+            // posts recreation
+            "PRAGMA foreign_keys=OFF;",
+            "CREATE TABLE `__new_posts` (\n\t`id` INTEGER PRIMARY KEY AUTOINCREMENT,\n\t`name` TEXT NOT NULL,\n\t`user_id` INTEGER\n);",
+            "INSERT INTO `__new_posts`(`id`, `name`, `user_id`) SELECT `id`, `name`, `user_id` FROM `posts`;",
+            "DROP TABLE `posts`;",
+            "ALTER TABLE `__new_posts` RENAME TO `posts`;",
+            "PRAGMA foreign_keys=ON;",
+            // users recreation
+            "PRAGMA foreign_keys=OFF;",
+            "CREATE TABLE `__new_users` (\n\t`id` INTEGER PRIMARY KEY AUTOINCREMENT,\n\t`name` TEXT\n);",
+            "INSERT INTO `__new_users`(`id`, `name`) SELECT `id`, `name` FROM `users`;",
+            "DROP TABLE `users`;",
+            "ALTER TABLE `__new_users` RENAME TO `users`;",
+            "PRAGMA foreign_keys=ON;",
+        ]
     );
-    assert_eq!(
-        sql[posts_start + 2],
-        "INSERT INTO `__new_posts`(`id`, `name`, `user_id`) SELECT `id`, `name`, `user_id` FROM `posts`;"
-    );
-    assert_eq!(sql[posts_start + 3], "DROP TABLE `posts`;");
-    assert_eq!(
-        sql[posts_start + 4],
-        "ALTER TABLE `__new_posts` RENAME TO `posts`;"
-    );
-    assert_eq!(sql[posts_start + 5], "PRAGMA foreign_keys=ON;");
-
-    // Users recreation
-    assert_eq!(sql[users_start], "PRAGMA foreign_keys=OFF;");
-    assert_eq!(
-        sql[users_start + 1],
-        "CREATE TABLE `__new_users` (\n\t`id` INTEGER AUTOINCREMENT NOT NULL,\n\t`name` TEXT\n);"
-    );
-    assert_eq!(
-        sql[users_start + 2],
-        "INSERT INTO `__new_users`(`id`, `name`) SELECT `id`, `name` FROM `users`;"
-    );
-    assert_eq!(sql[users_start + 3], "DROP TABLE `users`;");
-    assert_eq!(
-        sql[users_start + 4],
-        "ALTER TABLE `__new_users` RENAME TO `users`;"
-    );
-    assert_eq!(sql[users_start + 5], "PRAGMA foreign_keys=ON;");
 }
 
 // =============================================================================
@@ -1053,7 +1027,7 @@ fn test_recreate_table_with_nested_references() {
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[1],
-        "CREATE TABLE `__new_users` (\n\t`id` INTEGER NOT NULL,\n\t`name` TEXT,\n\t`age` INTEGER\n);"
+        "CREATE TABLE `__new_users` (\n\t`id` INTEGER PRIMARY KEY,\n\t`name` TEXT,\n\t`age` INTEGER\n);"
     );
     assert_eq!(
         sql[2],

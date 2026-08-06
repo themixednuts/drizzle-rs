@@ -24,10 +24,10 @@ pub struct ParsedTable {
 /// For full constraint parsing, use the more complete introspection methods.
 #[must_use]
 pub fn parse_table_ddl(sql: &str) -> ParsedTable {
-    let sql_upper = sql.to_uppercase();
+    let (strict, without_rowid) = crate::sqlite::introspect::parse_table_options(sql);
     ParsedTable {
-        strict: sql_upper.contains(" STRICT"),
-        without_rowid: sql_upper.contains("WITHOUT ROWID"),
+        strict,
+        without_rowid,
         uniques: Vec::new(), // Unique constraints are parsed separately via pragma
     }
 }
