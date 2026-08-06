@@ -243,6 +243,7 @@ pub struct Identity {
     #[cfg_attr(
         feature = "serde",
         serde(
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "cow_option_from_string"
         )
@@ -257,6 +258,7 @@ pub struct Identity {
     #[cfg_attr(
         feature = "serde",
         serde(
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "cow_option_from_string"
         )
@@ -267,6 +269,7 @@ pub struct Identity {
     #[cfg_attr(
         feature = "serde",
         serde(
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "cow_option_from_string"
         )
@@ -277,6 +280,7 @@ pub struct Identity {
     #[cfg_attr(
         feature = "serde",
         serde(
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "cow_option_from_string"
         )
@@ -287,6 +291,7 @@ pub struct Identity {
     #[cfg_attr(
         feature = "serde",
         serde(
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "cow_option_from_string"
         )

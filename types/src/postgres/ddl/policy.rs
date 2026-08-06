@@ -139,6 +139,7 @@ pub struct Policy {
         feature = "serde",
         serde(
             rename = "as",
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "cow_option_from_string"
         )
@@ -150,6 +151,7 @@ pub struct Policy {
         feature = "serde",
         serde(
             rename = "for",
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "cow_option_from_string"
         )
@@ -171,6 +173,7 @@ pub struct Policy {
     #[cfg_attr(
         feature = "serde",
         serde(
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "cow_option_from_string"
         )
@@ -181,6 +184,7 @@ pub struct Policy {
     #[cfg_attr(
         feature = "serde",
         serde(
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "cow_option_from_string"
         )
@@ -249,6 +253,20 @@ mod tests {
         assert_eq!(POLICY.schema, "public");
         assert_eq!(POLICY.table, "users");
         assert_eq!(POLICY.name, "users_policy");
+    }
+
+    /// Optional fields are skipped when serializing; deserialization must
+    /// treat the missing keys as `None` instead of erroring.
+    #[cfg(feature = "serde")]
+    #[test]
+    fn test_serde_roundtrip_with_all_none_optionals() {
+        let policy = Policy::new("public", "users", "users_policy");
+        assert!(policy.as_clause.is_none());
+        assert!(policy.using.is_none());
+
+        let json = serde_json::to_string(&policy).expect("serialize");
+        let parsed: Policy = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed, policy);
     }
 
     #[test]
