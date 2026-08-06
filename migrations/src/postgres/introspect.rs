@@ -7,11 +7,8 @@ use super::ddl::{
     CheckConstraint, Column, Enum, ForeignKey, Index, IndexColumn, Policy, PostgresEntity,
     PrimaryKey, Role, Schema, Sequence, Table, UniqueConstraint, View,
 };
-use super::grammar::{
-    extract_nextval_sequence, is_serial_expression, is_system_namespace, is_system_role,
-};
+use super::grammar::{is_system_namespace, is_system_role};
 use super::snapshot::PostgresSnapshot;
-use std::collections::HashSet;
 
 /// Error type for introspection operations
 #[derive(Debug, Clone)]
@@ -98,6 +95,10 @@ pub struct RawSequenceInfo {
     pub increment: Option<String>,
     pub cycle: Option<bool>,
     pub cache_value: Option<String>,
+    /// `schema.table` of the owning column when `pg_depend` records this
+    /// sequence as auto-owned (serial or identity, deptype `a`/`i`);
+    /// `None` for standalone, hand-managed sequences.
+    pub owned_by: Option<String>,
 }
 
 /// Raw index info
@@ -289,28 +290,10 @@ pub struct IntrospectionResult {
 }
 
 impl IntrospectionResult {
-    /// Collect (schema, name) pairs for sequences owned by serial/bigserial columns.
-    ///
-    /// These sequences are auto-managed by `PostgreSQL` and should not appear in the
-    /// snapshot used for diffing — otherwise `push()` would try to DROP them.
-    fn serial_owned_sequences(&self) -> HashSet<(String, String)> {
-        let mut owned = HashSet::new();
-        for col in &self.columns {
-            if let Some(ref default) = col.default
-                && is_serial_expression(default, &col.schema)
-                && let Some(seq_name) = extract_nextval_sequence(default)
-            {
-                owned.insert((col.schema.to_string(), seq_name));
-            }
-        }
-        owned
-    }
-
     /// Convert to a snapshot
     #[must_use]
     pub fn to_snapshot(&self) -> PostgresSnapshot {
         let mut snapshot = PostgresSnapshot::new();
-        let serial_seqs = self.serial_owned_sequences();
 
         for schema in &self.schemas {
             snapshot.add_entity(PostgresEntity::Schema(schema.clone()));
@@ -319,11 +302,9 @@ impl IntrospectionResult {
             snapshot.add_entity(PostgresEntity::Enum(e.clone()));
         }
         for seq in &self.sequences {
-            // Skip sequences owned by serial/bigserial columns — they are
-            // auto-managed by PostgreSQL and must not appear in the diff.
-            if serial_seqs.contains(&(seq.schema.to_string(), seq.name.to_string())) {
-                continue;
-            }
+            // Serial/identity-owned sequences were already dropped by
+            // `process_sequences` (pg_depend ownership); everything left is a
+            // real standalone sequence.
             snapshot.add_entity(PostgresEntity::Sequence(seq.clone()));
         }
         for role in &self.roles {
@@ -438,6 +419,43 @@ pub fn process_tables(raw_tables: &[RawTableInfo]) -> Vec<Table> {
         .collect()
 }
 
+/// Identity sequence options decoded from the packed `identity_type` column.
+#[derive(Debug, Clone, Default)]
+struct IdentityOptions {
+    start: Option<String>,
+    increment: Option<String>,
+    min: Option<String>,
+    max: Option<String>,
+    cycle: Option<bool>,
+}
+
+/// Decode the `identity_type` column: either the JSON object emitted by
+/// [`queries::COLUMNS_QUERY`] or a legacy plain `ALWAYS` / `BY DEFAULT`
+/// string. Returns the identity type string plus any sequence options.
+fn parse_identity_type(raw: &str) -> (String, IdentityOptions) {
+    let trimmed = raw.trim();
+    if trimmed.starts_with('{')
+        && let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed)
+    {
+        let get = |key: &str| {
+            value
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .map(ToString::to_string)
+        };
+        let type_str = get("type").unwrap_or_else(|| "ALWAYS".to_string());
+        let options = IdentityOptions {
+            start: get("start"),
+            increment: get("increment"),
+            min: get("min"),
+            max: get("max"),
+            cycle: value.get("cycle").and_then(serde_json::Value::as_bool),
+        };
+        return (type_str, options);
+    }
+    (trimmed.to_string(), IdentityOptions::default())
+}
+
 /// Process raw column info into Column entities
 #[must_use]
 pub fn process_columns(raw_columns: &[RawColumnInfo]) -> Vec<Column> {
@@ -464,7 +482,12 @@ pub fn process_columns(raw_columns: &[RawColumnInfo]) -> Vec<Column> {
 
             let identity = if c.is_identity {
                 c.identity_type.as_ref().map(|t| {
-                    let identity_type = if t.eq_ignore_ascii_case("always") {
+                    // `identity_type` is either the packed JSON object built
+                    // by COLUMNS_QUERY ({type, start, increment, min, max,
+                    // cycle}) or a legacy plain `ALWAYS` / `BY DEFAULT`
+                    // string from hand-built rows.
+                    let (type_str, options) = parse_identity_type(t);
+                    let identity_type = if type_str.eq_ignore_ascii_case("always") {
                         IdentityType::Always
                     } else {
                         IdentityType::ByDefault
@@ -473,12 +496,12 @@ pub fn process_columns(raw_columns: &[RawColumnInfo]) -> Vec<Column> {
                         name: format!("{}_{}_seq", c.table, c.name).into(),
                         schema: Some(c.schema.clone().into()),
                         type_: identity_type,
-                        increment: None,
-                        min_value: None,
-                        max_value: None,
-                        start_with: None,
+                        increment: options.increment.map(Into::into),
+                        min_value: options.min.map(Into::into),
+                        max_value: options.max.map(Into::into),
+                        start_with: options.start.map(Into::into),
                         cache: None,
-                        cycle: None,
+                        cycle: options.cycle,
                     }
                 })
             } else {
@@ -538,12 +561,17 @@ pub fn process_enums(raw_enums: &[RawEnumInfo]) -> Vec<Enum> {
         .collect()
 }
 
-/// Process raw sequence info into Sequence entities
+/// Process raw sequence info into Sequence entities.
+///
+/// Sequences auto-owned by a serial/identity column (per `pg_depend`) are
+/// dropped here — PostgreSQL manages them, and surfacing them would make the
+/// diff engine DROP them or CREATE duplicates. Hand-managed sequences are kept
+/// even when their name matches the `{table}_{column}_seq` pattern.
 #[must_use]
 pub fn process_sequences(raw_sequences: &[RawSequenceInfo]) -> Vec<Sequence> {
     raw_sequences
         .iter()
-        .filter(|s| !is_system_namespace(&s.schema))
+        .filter(|s| !is_system_namespace(&s.schema) && s.owned_by.is_none())
         .map(|s| Sequence {
             schema: s.schema.clone().into(),
             name: s.name.clone().into(),
@@ -771,18 +799,50 @@ pub mod queries {
         ORDER BY n.nspname, c.relname
     ";
 
-    /// Query to get all columns
+    /// Query to get all columns.
+    ///
+    /// Result-column positions are load-bearing: every driver decodes rows
+    /// by index. Two derived columns pack extra detail without changing the
+    /// shape:
+    ///
+    /// - `column_type` appends the type modifier reconstructed from
+    ///   `character_maximum_length` / `numeric_precision+scale`, so
+    ///   `varchar(255)` and `numeric(10,2)` survive introspection instead of
+    ///   degrading to bare `varchar` / `numeric`.
+    /// - `identity_type` is a JSON object
+    ///   `{type, start, increment, min, max, cycle}` built from
+    ///   `information_schema.columns` identity metadata (the legacy plain
+    ///   `ALWAYS` / `BY DEFAULT` strings are still accepted by
+    ///   `process_columns` for hand-built rows).
     pub const COLUMNS_QUERY: &str = r"
-        SELECT 
+        SELECT
             c.table_schema AS schema,
             c.table_name AS table,
             c.column_name AS name,
-            c.udt_name AS column_type,
+            c.udt_name || CASE
+                WHEN c.data_type != 'ARRAY' AND c.character_maximum_length IS NOT NULL
+                    THEN '(' || c.character_maximum_length || ')'
+                WHEN c.udt_name IN ('numeric', 'decimal')
+                     AND c.numeric_precision IS NOT NULL
+                     AND c.numeric_scale IS NOT NULL
+                    THEN '(' || c.numeric_precision || ',' || c.numeric_scale || ')'
+                ELSE ''
+            END AS column_type,
             c.udt_schema AS type_schema,
             c.is_nullable = 'NO' AS not_null,
             c.column_default AS default_value,
             c.is_identity = 'YES' AS is_identity,
-            c.identity_generation AS identity_type,
+            CASE
+                WHEN c.is_identity = 'YES' THEN json_build_object(
+                    'type', c.identity_generation,
+                    'start', c.identity_start,
+                    'increment', c.identity_increment,
+                    'min', c.identity_minimum,
+                    'max', c.identity_maximum,
+                    'cycle', c.identity_cycle = 'YES'
+                )::text
+                ELSE NULL
+            END AS identity_type,
             c.is_generated = 'ALWAYS' AS is_generated,
             c.generation_expression AS generated_expression,
             COALESCE(a.attgenerated = 's', false) AS generated_stored,
@@ -804,7 +864,41 @@ pub mod queries {
           AND c.table_schema != 'information_schema'
           AND n.oid IS NOT NULL
           AND has_schema_privilege(current_user, n.oid, 'USAGE')
-        ORDER BY c.table_schema, c.table_name, c.ordinal_position
+        UNION ALL
+        -- Materialized-view columns: information_schema.columns excludes
+        -- matviews entirely, so read them straight from pg_attribute.
+        SELECT
+            mn.nspname AS schema,
+            mc.relname AS table,
+            ma.attname AS name,
+            mt.typname || COALESCE(
+                substring(format_type(ma.atttypid, ma.atttypmod) from '\(.*\)'),
+                ''
+            ) AS column_type,
+            mtn.nspname AS type_schema,
+            ma.attnotnull AS not_null,
+            NULL::text AS default_value,
+            FALSE AS is_identity,
+            NULL::text AS identity_type,
+            FALSE AS is_generated,
+            NULL::text AS generated_expression,
+            FALSE AS generated_stored,
+            NULLIF(ma.attndims::int4, 0) AS dimensions,
+            col_description(mc.oid, ma.attnum) AS comment,
+            ma.attnum::int4 AS ordinal_position
+        FROM pg_class mc
+        JOIN pg_namespace mn ON mn.oid = mc.relnamespace
+        JOIN pg_attribute ma ON ma.attrelid = mc.oid
+        JOIN pg_type mt ON mt.oid = ma.atttypid
+        JOIN pg_namespace mtn ON mtn.oid = mt.typnamespace
+        WHERE mc.relkind = 'm'
+          AND ma.attnum > 0
+          AND NOT ma.attisdropped
+          AND mn.nspname NOT LIKE 'pg_%'
+          AND mn.nspname != 'information_schema'
+          AND has_schema_privilege(current_user, mn.oid, 'USAGE')
+          AND has_table_privilege(current_user, mc.oid, 'SELECT')
+        ORDER BY 1, 2, 15
     ";
 
     /// Query to get all enums
@@ -843,7 +937,22 @@ pub mod queries {
             s.seqmax::text AS max_value,
             s.seqincrement::text AS increment,
             s.seqcycle AS cycle,
-            s.seqcache::text AS cache_value
+            s.seqcache::text AS cache_value,
+            -- Owning column's schema.table when the sequence is auto-owned by
+            -- a serial (deptype 'a') or identity (deptype 'i') column; NULL
+            -- for standalone, hand-managed sequences.
+            (
+                SELECT format('%s.%s', dn.nspname, dc.relname)
+                FROM pg_depend d
+                JOIN pg_class dc ON dc.oid = d.refobjid
+                JOIN pg_namespace dn ON dn.oid = dc.relnamespace
+                WHERE d.objid = s.seqrelid
+                  AND d.classid = 'pg_class'::regclass
+                  AND d.refclassid = 'pg_class'::regclass
+                  AND d.refobjsubid > 0
+                  AND d.deptype IN ('a', 'i')
+                LIMIT 1
+            )::text AS owned_by
         FROM pg_sequence s
         JOIN pg_class c ON c.oid = s.seqrelid
         JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -1009,14 +1118,24 @@ GROUP BY ns.nspname, tbl.relname, con.conname
 ORDER BY ns.nspname, tbl.relname, con.conname
 ";
 
-    /// Query to get all unique constraints
+    /// Query to get all unique constraints.
+    ///
+    /// `nulls_not_distinct` reads `pg_index.indnullsnotdistinct` through the
+    /// constraint's `conindid`. The column only exists on PostgreSQL 15+,
+    /// so it is accessed through `to_jsonb(...) ->> 'indnullsnotdistinct'` —
+    /// on older servers the key is simply absent and the value defaults to
+    /// FALSE, keeping the query parseable on every supported version.
     pub const UNIQUES_QUERY: &str = r"
 SELECT
     ns.nspname AS schema,
     tbl.relname AS table,
     con.conname AS name,
     array_agg(att.attname ORDER BY s.ord) AS columns,
-    FALSE AS nulls_not_distinct,
+    COALESCE((
+        SELECT (to_jsonb(ix) ->> 'indnullsnotdistinct')::bool
+        FROM pg_index ix
+        WHERE ix.indexrelid = con.conindid
+    ), FALSE) AS nulls_not_distinct,
     con.condeferrable AS deferrable,
     con.condeferred AS initially_deferred
 FROM pg_constraint con
@@ -1029,7 +1148,7 @@ WHERE con.contype = 'u'
   AND ns.nspname <> 'information_schema'
   AND has_schema_privilege(current_user, ns.oid, 'USAGE')
   AND has_table_privilege(current_user, tbl.oid, 'SELECT')
-GROUP BY ns.nspname, tbl.relname, con.conname, con.condeferrable, con.condeferred
+GROUP BY ns.nspname, tbl.relname, con.conname, con.conindid, con.condeferrable, con.condeferred
 ORDER BY ns.nspname, tbl.relname, con.conname
 ";
 
@@ -1131,7 +1250,7 @@ ORDER BY n.nspname, c.relname, p.polname
 ///
 /// `PostgreSQL` stores FK actions as single-character codes in `pg_constraint`.
 #[must_use]
-pub fn pg_action_code_to_string(code: &str) -> String {
+pub fn action_code_to_string(code: &str) -> String {
     match code {
         "r" => "RESTRICT",
         "c" => "CASCADE",
@@ -1143,47 +1262,127 @@ pub fn pg_action_code_to_string(code: &str) -> String {
     .to_string()
 }
 
+/// Strip one trailing directive token (case-insensitive) from `value`,
+/// returning the remainder when the directive was present at the end.
+fn strip_trailing_directive<'a>(value: &'a str, directive: &str) -> Option<&'a str> {
+    let value = value.trim_end();
+    if value.len() <= directive.len() {
+        return None;
+    }
+    let split = value.len() - directive.len();
+    if !value.is_char_boundary(split) {
+        return None;
+    }
+    let (head, tail) = value.split_at(split);
+    if tail.eq_ignore_ascii_case(directive) && head.ends_with(char::is_whitespace) {
+        Some(head.trim_end())
+    } else {
+        None
+    }
+}
+
+/// Check whether a string is a plain (unquoted) SQL identifier.
+fn is_plain_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+        && value
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+}
+
+/// Check whether every parenthesis in `value` is balanced and none of them
+/// sit inside quotes we'd mis-parse. (Quotes are not tracked — good enough
+/// for `pg_get_indexdef` output, which quotes identifiers, not parens.)
+fn parens_balanced(value: &str) -> bool {
+    let mut depth = 0_i32;
+    for ch in value.chars() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth < 0 {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    depth == 0
+}
+
+/// Unquote a double-quoted identifier, unescaping doubled quotes
+/// (`"userName"` → `userName`, `"say""hi"""` → `say"hi"`).
+fn unquote_identifier(value: &str) -> Option<String> {
+    let inner = value.strip_prefix('"')?.strip_suffix('"')?;
+    Some(inner.replace("\"\"", "\""))
+}
+
 /// Parse raw index column strings from `pg_get_indexdef` into `RawIndexColumnInfo`.
 ///
-/// Each string is a single column expression like `"name"`, `"name DESC"`,
-/// `"lower(name)"`, or `"name text_pattern_ops"`.
+/// Each string is a single column element like `"name"`, `"\"userName\" DESC"`,
+/// `"lower(email) varchar_pattern_ops"`, `"(price * quantity)"`, or
+/// `"col DESC NULLS LAST"`.
 #[must_use]
 pub fn parse_index_columns(cols: Vec<String>) -> Vec<RawIndexColumnInfo> {
     cols.into_iter()
         .map(|c| {
-            let trimmed = c.trim().to_string();
-            let upper = trimmed.to_uppercase();
+            let mut core = c.trim().to_string();
 
-            let asc = !upper.contains(" DESC");
-            let nulls_first = upper.contains(" NULLS FIRST");
-
-            // Strip sort/nulls directives for opclass parsing / expression detection.
-            let mut core = trimmed;
-            for token in [" ASC", " DESC", " NULLS FIRST", " NULLS LAST"] {
-                if let Some(pos) = core.to_uppercase().find(token) {
-                    core.truncate(pos);
-                    break;
-                }
+            // Strip trailing ordering directives only — never tokens inside
+            // the expression itself. `NULLS FIRST`/`NULLS LAST` come after
+            // `ASC`/`DESC` in pg_get_indexdef output.
+            let mut nulls_first: Option<bool> = None;
+            if let Some(rest) = strip_trailing_directive(&core, "NULLS FIRST") {
+                nulls_first = Some(true);
+                core = rest.to_string();
+            } else if let Some(rest) = strip_trailing_directive(&core, "NULLS LAST") {
+                nulls_first = Some(false);
+                core = rest.to_string();
             }
-            let core = core.trim().to_string();
+            let asc = if let Some(rest) = strip_trailing_directive(&core, "DESC") {
+                core = rest.to_string();
+                false
+            } else {
+                if let Some(rest) = strip_trailing_directive(&core, "ASC") {
+                    core = rest.to_string();
+                }
+                true
+            };
+            // In PostgreSQL, DESC implies NULLS FIRST unless NULLS LAST was
+            // given explicitly; ASC implies NULLS LAST.
+            let nulls_first = nulls_first.unwrap_or(!asc);
 
-            // Heuristic: treat as expression if it contains parentheses or spaces.
-            let is_expression = core.contains('(')
-                || core.contains(')')
-                || core.contains(' ')
-                || core.contains("::");
-
-            // Heuristic opclass parsing: split whitespace and take second token if it looks like opclass.
+            // Split off a trailing operator class token, but only when the
+            // remainder is still well-formed: the opclass must be a plain
+            // identifier and the rest must have balanced parentheses.
+            // Expressions like `(price * quantity)` stay verbatim.
             let mut opclass: Option<String> = None;
-            let mut name = core.clone();
-            let parts: Vec<&str> = core.split_whitespace().collect();
-            if parts.len() >= 2 {
-                let second = parts[1];
-                if !matches!(second.to_uppercase().as_str(), "ASC" | "DESC" | "NULLS") {
-                    opclass = Some(second.to_string());
-                    name = parts[0].to_string();
+            if let Some(idx) = core.rfind(char::is_whitespace) {
+                let candidate = core[idx..].trim();
+                let rest = core[..idx].trim_end();
+                if is_plain_identifier(candidate)
+                    && (candidate.ends_with("_ops")
+                        || super::grammar::VECTOR_OPS.contains(&candidate))
+                    && !rest.is_empty()
+                    && parens_balanced(rest)
+                {
+                    opclass = Some(candidate.to_string());
+                    core = rest.to_string();
                 }
             }
+
+            // Plain quoted identifiers are unquoted (re-rendering quotes them
+            // again); anything with expression syntax is stored verbatim.
+            let (name, is_expression) = if let Some(unquoted) = unquote_identifier(&core) {
+                (unquoted, false)
+            } else if is_plain_identifier(&core) {
+                (core, false)
+            } else {
+                (core, true)
+            };
 
             RawIndexColumnInfo {
                 name,
@@ -1245,6 +1444,115 @@ mod tests {
 
         let snapshot = result.to_snapshot();
         assert_eq!(snapshot.ddl.len(), 2);
+    }
+
+    #[test]
+    fn parse_index_columns_handles_realistic_indexdef_output() {
+        let cols = parse_index_columns(vec![
+            "(price * quantity)".to_string(),
+            "\"userName\" DESC".to_string(),
+            "lower(email) varchar_pattern_ops".to_string(),
+            "col DESC NULLS LAST".to_string(),
+            "\"say\"\"hi\"\"\"".to_string(),
+            "plain_col".to_string(),
+            "name text_pattern_ops".to_string(),
+        ]);
+
+        // Expression stays verbatim — no opclass split of `*` / `quantity)`.
+        assert_eq!(cols[0].name, "(price * quantity)");
+        assert!(cols[0].is_expression);
+        assert_eq!(cols[0].opclass, None);
+        assert!(cols[0].asc);
+        assert!(!cols[0].nulls_first);
+
+        // Quoted identifier is unquoted; DESC implies NULLS FIRST.
+        assert_eq!(cols[1].name, "userName");
+        assert!(!cols[1].is_expression);
+        assert!(!cols[1].asc);
+        assert!(cols[1].nulls_first);
+
+        // Expression + trailing opclass token.
+        assert_eq!(cols[2].name, "lower(email)");
+        assert!(cols[2].is_expression);
+        assert_eq!(cols[2].opclass.as_deref(), Some("varchar_pattern_ops"));
+
+        // Explicit NULLS LAST wins over the DESC default.
+        assert_eq!(cols[3].name, "col");
+        assert!(!cols[3].asc);
+        assert!(!cols[3].nulls_first);
+
+        // Doubled quotes are unescaped.
+        assert_eq!(cols[4].name, "say\"hi\"");
+        assert!(!cols[4].is_expression);
+
+        // Plain identifier, defaults.
+        assert_eq!(cols[5].name, "plain_col");
+        assert!(!cols[5].is_expression);
+        assert!(cols[5].asc);
+        assert!(!cols[5].nulls_first);
+
+        // Identifier + opclass.
+        assert_eq!(cols[6].name, "name");
+        assert!(!cols[6].is_expression);
+        assert_eq!(cols[6].opclass.as_deref(), Some("text_pattern_ops"));
+    }
+
+    #[test]
+    fn process_columns_populates_identity_options_from_packed_json() {
+        let raw = RawColumnInfo {
+            schema: "public".to_string(),
+            table: "users".to_string(),
+            name: "id".to_string(),
+            column_type: "int4".to_string(),
+            type_schema: Some("pg_catalog".to_string()),
+            not_null: true,
+            default_value: None,
+            is_identity: true,
+            identity_type: Some(
+                r#"{"type":"ALWAYS","start":"100","increment":"5","min":"1","max":"1000","cycle":true}"#
+                    .to_string(),
+            ),
+            is_generated: false,
+            generated_expression: None,
+            generated_stored: false,
+            dimensions: None,
+            comment: None,
+            ordinal_position: 1,
+        };
+
+        let columns = process_columns(&[raw]);
+        let identity = columns[0].identity.as_ref().expect("identity");
+        assert_eq!(identity.start_with.as_deref(), Some("100"));
+        assert_eq!(identity.increment.as_deref(), Some("5"));
+        assert_eq!(identity.min_value.as_deref(), Some("1"));
+        assert_eq!(identity.max_value.as_deref(), Some("1000"));
+        assert_eq!(identity.cycle, Some(true));
+    }
+
+    #[test]
+    fn process_columns_accepts_legacy_plain_identity_type() {
+        let raw = RawColumnInfo {
+            schema: "public".to_string(),
+            table: "users".to_string(),
+            name: "id".to_string(),
+            column_type: "int4".to_string(),
+            type_schema: Some("pg_catalog".to_string()),
+            not_null: true,
+            default_value: None,
+            is_identity: true,
+            identity_type: Some("BY DEFAULT".to_string()),
+            is_generated: false,
+            generated_expression: None,
+            generated_stored: false,
+            dimensions: None,
+            comment: None,
+            ordinal_position: 1,
+        };
+
+        let columns = process_columns(&[raw]);
+        let identity = columns[0].identity.as_ref().expect("identity");
+        assert_eq!(identity.type_, super::super::ddl::IdentityType::ByDefault);
+        assert_eq!(identity.increment, None);
     }
 
     #[test]

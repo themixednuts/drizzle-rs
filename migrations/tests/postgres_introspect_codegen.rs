@@ -1468,6 +1468,7 @@ fn test_process_sequences() {
     use drizzle_migrations::postgres::introspect::{RawSequenceInfo, process_sequences};
 
     let raw = vec![
+        // Serial-owned per pg_depend: must not surface as an entity.
         RawSequenceInfo {
             schema: "public".into(),
             name: "users_id_seq".into(),
@@ -1478,6 +1479,7 @@ fn test_process_sequences() {
             increment: Some("1".into()),
             cycle: Some(false),
             cache_value: Some("1".into()),
+            owned_by: Some("public.users".into()),
         },
         RawSequenceInfo {
             schema: "public".into(),
@@ -1489,15 +1491,32 @@ fn test_process_sequences() {
             increment: Some("1".into()),
             cycle: Some(true),
             cache_value: Some("10".into()),
+            owned_by: None,
+        },
+        // Hand-managed but serial-shaped name: ownership (not the name
+        // pattern) decides, so this one must be kept.
+        RawSequenceInfo {
+            schema: "public".into(),
+            name: "invoices_number_seq".into(),
+            data_type: Some("bigint".into()),
+            start_value: Some("1".into()),
+            min_value: Some("1".into()),
+            max_value: Some("9223372036854775807".into()),
+            increment: Some("1".into()),
+            cycle: Some(false),
+            cache_value: Some("1".into()),
+            owned_by: None,
         },
     ];
 
     let sequences = process_sequences(&raw);
-    assert_eq!(sequences.len(), 2);
-
-    let users_seq = sequences.iter().find(|s| s.name == "users_id_seq").unwrap();
-    assert_eq!(users_seq.start_with, Some("1".into()));
-    assert_eq!(users_seq.cycle, Some(false));
+    assert_eq!(
+        sequences.len(),
+        2,
+        "owned sequence must be dropped, standalone ones kept"
+    );
+    assert!(!sequences.iter().any(|s| s.name == "users_id_seq"));
+    assert!(sequences.iter().any(|s| s.name == "invoices_number_seq"));
 
     let order_seq = sequences
         .iter()

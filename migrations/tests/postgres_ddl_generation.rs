@@ -8,10 +8,10 @@ use drizzle_migrations::postgres::{
     PostgresDDL,
     collection::diff_ddl,
     ddl::{
-        Column, Enum, ForeignKey, Generated, GeneratedType, Index, IndexColumn, Opclass, Policy,
-        PrimaryKey, Table, UniqueConstraint,
+        CheckConstraint, Column, Enum, ForeignKey, Generated, GeneratedType, Index, IndexColumn,
+        Opclass, Policy, PrimaryKey, Role, Schema, Sequence, Table, UniqueConstraint, View,
     },
-    statements::PostgresGenerator,
+    statements::Generator as PostgresGenerator,
 };
 use std::borrow::Cow;
 
@@ -1014,14 +1014,14 @@ fn test_add_generated_column_expression() {
 
     let sql = diff_to_sql(&from, &to);
 
-    // DROP + ADD combined into one statement with newlines
-    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    // DROP + ADD come back as separate single-command statements.
+    assert_eq!(sql.len(), 2, "Expected 2 SQL statements, got: {:?}", sql);
+    assert_eq!(sql[0], "ALTER TABLE \"users\" DROP COLUMN \"full_name\";");
     assert_eq!(
-        sql[0],
-        "ALTER TABLE \"users\" DROP COLUMN \"full_name\";\n\
-         ALTER TABLE \"users\" ADD COLUMN \"full_name\" text GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED;",
+        sql[1],
+        "ALTER TABLE \"users\" ADD COLUMN \"full_name\" text GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED;",
         "Unexpected generated column recreation SQL: {}",
-        sql[0]
+        sql[1]
     );
 }
 
@@ -1051,13 +1051,13 @@ fn test_add_virtual_generated_column_expression() {
 
     let sql = diff_to_sql(&from, &to);
 
-    assert_eq!(sql.len(), 1, "Expected 1 SQL statement, got: {:?}", sql);
+    assert_eq!(sql.len(), 2, "Expected 2 SQL statements, got: {:?}", sql);
+    assert_eq!(sql[0], "ALTER TABLE \"users\" DROP COLUMN \"name_len\";");
     assert_eq!(
-        sql[0],
-        "ALTER TABLE \"users\" DROP COLUMN \"name_len\";\n\
-         ALTER TABLE \"users\" ADD COLUMN \"name_len\" integer GENERATED ALWAYS AS (length(name)) VIRTUAL;",
+        sql[1],
+        "ALTER TABLE \"users\" ADD COLUMN \"name_len\" integer GENERATED ALWAYS AS (length(name)) VIRTUAL;",
         "Unexpected virtual generated column recreation SQL: {}",
-        sql[0]
+        sql[1]
     );
 }
 
@@ -1299,4 +1299,505 @@ fn test_circular_created_foreign_keys_are_deferred() {
         "second deferred FK missing: {}",
         sql[3]
     );
+}
+
+// =============================================================================
+// Alter statements for previously-silent entity kinds (Index, PK, Check,
+// Policy, Sequence, Role)
+// =============================================================================
+
+#[test]
+fn test_alter_index_recreates() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    from.columns.push(column("users", "email", "text"));
+    from.indexes
+        .push(index("users", "users_email_idx", vec!["email"]));
+
+    let mut to = PostgresDDL::new();
+    to.tables.push(table("users"));
+    to.columns.push(column("users", "email", "text"));
+    to.indexes
+        .push(unique_index("users", "users_email_idx", vec!["email"]));
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(
+        sql,
+        vec![
+            "DROP INDEX \"users_email_idx\";".to_string(),
+            "CREATE UNIQUE INDEX \"users_email_idx\" ON \"users\"(\"email\");".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_alter_index_respects_concurrently() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    from.columns.push(column("users", "email", "text"));
+    let mut old_index = index("users", "users_email_idx", vec!["email"]);
+    old_index.concurrently = true;
+    from.indexes.push(old_index);
+
+    let mut to = PostgresDDL::new();
+    to.tables.push(table("users"));
+    to.columns.push(column("users", "email", "text"));
+    let mut new_index = unique_index("users", "users_email_idx", vec!["email"]);
+    new_index.concurrently = true;
+    to.indexes.push(new_index);
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(
+        sql,
+        vec![
+            "DROP INDEX CONCURRENTLY \"users_email_idx\";".to_string(),
+            "CREATE UNIQUE INDEX CONCURRENTLY \"users_email_idx\" ON \"users\"(\"email\");"
+                .to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_alter_primary_key_recreates_constraint() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    from.columns.push(column_not_null("users", "id", "integer"));
+    from.columns
+        .push(column_not_null("users", "tenant_id", "integer"));
+    from.pks.push(primary_key("users", vec!["id"]));
+
+    let mut to = PostgresDDL::new();
+    to.tables.push(table("users"));
+    to.columns.push(column_not_null("users", "id", "integer"));
+    to.columns
+        .push(column_not_null("users", "tenant_id", "integer"));
+    to.pks.push(primary_key("users", vec!["id", "tenant_id"]));
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(
+        sql,
+        vec![
+            "ALTER TABLE \"users\" DROP CONSTRAINT \"users_pkey\";".to_string(),
+            "ALTER TABLE \"users\" ADD CONSTRAINT \"users_pkey\" PRIMARY KEY(\"id\", \"tenant_id\");"
+                .to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_alter_check_constraint_recreates() {
+    let make_check = |value: &str| CheckConstraint {
+        schema: Cow::Borrowed("public"),
+        table: Cow::Borrowed("users"),
+        name: Cow::Borrowed("users_age_check"),
+        value: Cow::Owned(value.to_string()),
+    };
+
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    from.columns.push(column("users", "age", "integer"));
+    from.checks.push(make_check("age > 18"));
+
+    let mut to = PostgresDDL::new();
+    to.tables.push(table("users"));
+    to.columns.push(column("users", "age", "integer"));
+    to.checks.push(make_check("age > 21"));
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(
+        sql,
+        vec![
+            "ALTER TABLE \"users\" DROP CONSTRAINT \"users_age_check\";".to_string(),
+            "ALTER TABLE \"users\" ADD CONSTRAINT \"users_age_check\" CHECK (age > 21);"
+                .to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_alter_policy_recreates() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    from.columns.push(column("users", "id", "integer"));
+    let mut old_policy = Policy::new("public", "users", "users_policy");
+    old_policy.using = Some(Cow::Borrowed("true"));
+    from.policies.push(old_policy);
+
+    let mut to = PostgresDDL::new();
+    to.tables.push(table("users"));
+    to.columns.push(column("users", "id", "integer"));
+    let mut new_policy = Policy::new("public", "users", "users_policy");
+    new_policy.using = Some(Cow::Borrowed("id > 0"));
+    to.policies.push(new_policy);
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(
+        sql,
+        vec![
+            "DROP POLICY \"users_policy\" ON \"users\";".to_string(),
+            "CREATE POLICY \"users_policy\" ON \"users\" AS PERMISSIVE USING (id > 0);".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_alter_sequence_emits_changed_options() {
+    let make_sequence = |increment: Option<&str>, cycle: Option<bool>| Sequence {
+        schema: Cow::Borrowed("public"),
+        name: Cow::Borrowed("order_seq"),
+        increment_by: increment.map(|value| Cow::Owned(value.to_string())),
+        min_value: None,
+        max_value: None,
+        start_with: None,
+        cache_size: None,
+        cycle,
+    };
+
+    let mut from = PostgresDDL::new();
+    from.sequences.push(make_sequence(None, None));
+
+    let mut to = PostgresDDL::new();
+    to.sequences.push(make_sequence(Some("5"), Some(true)));
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(
+        sql,
+        vec!["ALTER SEQUENCE \"order_seq\" INCREMENT BY 5 CYCLE;".to_string()]
+    );
+}
+
+#[test]
+fn test_alter_role_emits_changed_flags() {
+    let make_role = |create_db: bool| Role {
+        name: Cow::Borrowed("app_role"),
+        superuser: None,
+        create_db: Some(create_db),
+        create_role: None,
+        inherit: None,
+        can_login: None,
+        replication: None,
+        bypass_rls: None,
+        conn_limit: None,
+        password: None,
+        valid_until: None,
+    };
+
+    let mut from = PostgresDDL::new();
+    from.roles.push(make_role(false));
+
+    let mut to = PostgresDDL::new();
+    to.roles.push(make_role(true));
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(
+        sql,
+        vec!["ALTER ROLE \"app_role\" WITH CREATEDB;".to_string()]
+    );
+}
+
+// =============================================================================
+// Dependency-phased statement ordering
+// =============================================================================
+
+fn statement_position(sql: &[String], needle: &str) -> usize {
+    sql.iter()
+        .position(|statement| statement.contains(needle))
+        .unwrap_or_else(|| panic!("no statement containing {needle:?} in {sql:?}"))
+}
+
+#[test]
+fn test_drop_schema_with_tables_drops_tables_first() {
+    let mut from = PostgresDDL::new();
+    from.schemas.push(Schema::new("app"));
+    let mut users = table("users");
+    users.schema = Cow::Borrowed("app");
+    from.tables.push(users);
+    let mut id = column_not_null("users", "id", "integer");
+    id.schema = Cow::Borrowed("app");
+    from.columns.push(id);
+
+    let to = PostgresDDL::new();
+
+    let sql = diff_to_sql(&from, &to);
+    let drop_table = statement_position(&sql, "DROP TABLE \"app\".\"users\";");
+    let drop_schema = statement_position(&sql, "DROP SCHEMA \"app\";");
+    assert!(
+        drop_table < drop_schema,
+        "DROP TABLE must precede DROP SCHEMA: {sql:?}"
+    );
+}
+
+#[test]
+fn test_drop_enum_and_table_using_it_drops_table_first() {
+    let mut from = PostgresDDL::new();
+    from.enums.push(Enum::from_strings(
+        "public".to_string(),
+        "status".to_string(),
+        vec!["active".to_string()],
+    ));
+    from.tables.push(table("users"));
+    let mut status_col = column("users", "status", "status");
+    status_col.type_schema = Some(Cow::Borrowed("public"));
+    from.columns.push(status_col);
+
+    let to = PostgresDDL::new();
+
+    let sql = diff_to_sql(&from, &to);
+    let drop_table = statement_position(&sql, "DROP TABLE \"users\";");
+    let drop_type = statement_position(&sql, "DROP TYPE \"status\";");
+    assert!(
+        drop_table < drop_type,
+        "DROP TABLE must precede DROP TYPE: {sql:?}"
+    );
+}
+
+#[test]
+fn test_drop_enum_while_converting_column_to_text_alters_first() {
+    let mut from = PostgresDDL::new();
+    from.enums.push(Enum::from_strings(
+        "public".to_string(),
+        "status".to_string(),
+        vec!["active".to_string()],
+    ));
+    from.tables.push(table("users"));
+    let mut status_col = column("users", "status", "status");
+    status_col.type_schema = Some(Cow::Borrowed("public"));
+    from.columns.push(status_col);
+
+    let mut to = PostgresDDL::new();
+    to.tables.push(table("users"));
+    to.columns.push(column("users", "status", "text"));
+
+    let sql = diff_to_sql(&from, &to);
+    let alter_column = statement_position(&sql, "ALTER COLUMN \"status\" SET DATA TYPE text");
+    let drop_type = statement_position(&sql, "DROP TYPE \"status\";");
+    assert!(
+        alter_column < drop_type,
+        "ALTER COLUMN ... USING must precede DROP TYPE: {sql:?}"
+    );
+}
+
+#[test]
+fn test_drop_table_with_dependent_view_drops_view_first() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    from.columns.push(column_not_null("users", "id", "integer"));
+    from.views.push(View {
+        schema: Cow::Borrowed("public"),
+        name: Cow::Borrowed("user_ids"),
+        definition: Some(Cow::Borrowed("SELECT id FROM users")),
+        ..View::default()
+    });
+
+    let to = PostgresDDL::new();
+
+    let sql = diff_to_sql(&from, &to);
+    let drop_view = statement_position(&sql, "DROP VIEW \"user_ids\";");
+    let drop_table = statement_position(&sql, "DROP TABLE \"users\";");
+    assert!(
+        drop_view < drop_table,
+        "DROP VIEW must precede DROP TABLE: {sql:?}"
+    );
+}
+
+#[test]
+fn test_drop_fk_column_drops_constraint_and_index_first() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    from.columns.push(column_not_null("users", "id", "integer"));
+    from.tables.push(table("posts"));
+    from.columns.push(column_not_null("posts", "id", "integer"));
+    from.columns.push(column("posts", "user_id", "integer"));
+    from.fks.push(foreign_key(
+        "posts",
+        "posts_user_id_fkey",
+        vec!["user_id"],
+        "users",
+        vec!["id"],
+    ));
+    from.indexes
+        .push(index("posts", "posts_user_id_idx", vec!["user_id"]));
+
+    let mut to = PostgresDDL::new();
+    to.tables.push(table("users"));
+    to.columns.push(column_not_null("users", "id", "integer"));
+    to.tables.push(table("posts"));
+    to.columns.push(column_not_null("posts", "id", "integer"));
+
+    let sql = diff_to_sql(&from, &to);
+    let drop_fk = statement_position(&sql, "DROP CONSTRAINT \"posts_user_id_fkey\";");
+    let drop_index = statement_position(&sql, "DROP INDEX \"posts_user_id_idx\";");
+    let drop_column = statement_position(&sql, "DROP COLUMN \"user_id\";");
+    assert!(
+        drop_fk < drop_column && drop_index < drop_column,
+        "FK and index drops must precede the column drop: {sql:?}"
+    );
+}
+
+// =============================================================================
+// Adding a PK column to an existing table (no double PRIMARY KEY)
+// =============================================================================
+
+#[test]
+fn test_add_pk_column_to_existing_table_uses_constraint_only() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    from.columns.push(column_not_null("users", "name", "text"));
+
+    let mut to = PostgresDDL::new();
+    to.tables.push(table("users"));
+    to.columns.push(column_not_null("users", "name", "text"));
+    to.columns.push(column_not_null("users", "id", "integer"));
+    to.pks.push(primary_key("users", vec!["id"]));
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(
+        sql,
+        vec![
+            "ALTER TABLE \"users\" ADD COLUMN \"id\" integer NOT NULL;".to_string(),
+            "ALTER TABLE \"users\" ADD CONSTRAINT \"users_pkey\" PRIMARY KEY(\"id\");".to_string(),
+        ],
+        "existing tables must not render an inline PRIMARY KEY on ADD COLUMN"
+    );
+}
+
+// =============================================================================
+// Enum / custom type rendering
+// =============================================================================
+
+#[test]
+fn test_enum_in_non_public_schema_renders_qualified() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    from.columns.push(column("users", "status", "text"));
+
+    let mut to = PostgresDDL::new();
+    to.tables.push(table("users"));
+    let mut status_col = column("users", "status", "status");
+    status_col.type_schema = Some(Cow::Borrowed("app"));
+    to.columns.push(status_col);
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(
+        sql,
+        vec![
+            "ALTER TABLE \"users\" ALTER COLUMN \"status\" SET DATA TYPE \"app\".\"status\" USING \"status\"::\"app\".\"status\";"
+                .to_string()
+        ]
+    );
+}
+
+#[test]
+fn test_added_enum_in_non_public_schema_creates_qualified_type() {
+    // An enum declared with `#[postgres_enum(schema = "auth")]` lands in the
+    // snapshot with `schema: "auth"`; the diff must render the CREATE TYPE
+    // schema-qualified.
+    let from = PostgresDDL::new();
+    let mut to = PostgresDDL::new();
+    to.enums.push(Enum::from_strings(
+        "auth".to_string(),
+        "AuthRole".to_string(),
+        vec!["Member".to_string(), "Admin".to_string()],
+    ));
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(
+        sql,
+        vec!["CREATE TYPE \"auth\".\"AuthRole\" AS ENUM ('Member', 'Admin');".to_string()]
+    );
+}
+
+#[test]
+fn test_enum_to_enum_change_casts_through_text() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    let mut old_col = column("users", "status", "old_status");
+    old_col.type_schema = Some(Cow::Borrowed("public"));
+    from.columns.push(old_col);
+
+    let mut to = PostgresDDL::new();
+    to.tables.push(table("users"));
+    let mut new_col = column("users", "status", "new_status");
+    new_col.type_schema = Some(Cow::Borrowed("public"));
+    to.columns.push(new_col);
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(
+        sql,
+        vec![
+            "ALTER TABLE \"users\" ALTER COLUMN \"status\" SET DATA TYPE new_status USING \"status\"::text::new_status;"
+                .to_string()
+        ]
+    );
+}
+
+// =============================================================================
+// UNIQUE NULLS NOT DISTINCT rendering
+// =============================================================================
+
+#[test]
+fn test_unique_nulls_not_distinct_renders() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("users"));
+    from.columns.push(column("users", "email", "text"));
+
+    let mut to = PostgresDDL::new();
+    to.tables.push(table("users"));
+    to.columns.push(column("users", "email", "text"));
+    let mut unique = unique_constraint("users", "users_email_key", vec!["email"]);
+    unique.nulls_not_distinct = true;
+    to.uniques.push(unique);
+
+    let sql = diff_to_sql(&from, &to);
+    assert_eq!(
+        sql,
+        vec![
+            "ALTER TABLE \"users\" ADD CONSTRAINT \"users_email_key\" UNIQUE NULLS NOT DISTINCT (\"email\");"
+                .to_string()
+        ]
+    );
+}
+
+// =============================================================================
+// Enum value removal / reorder recreates the type
+// =============================================================================
+
+#[test]
+fn test_enum_reorder_recreates_type_with_column_round_trip() {
+    let mut from = PostgresDDL::new();
+    from.enums.push(Enum::from_strings(
+        "public".to_string(),
+        "status".to_string(),
+        vec!["active".to_string(), "archived".to_string()],
+    ));
+    from.tables.push(table("users"));
+    let mut status_col = column("users", "status", "status");
+    status_col.type_schema = Some(Cow::Borrowed("public"));
+    status_col.default = Some(Cow::Borrowed("'active'"));
+    from.columns.push(status_col.clone());
+
+    let mut to = PostgresDDL::new();
+    to.enums.push(Enum::from_strings(
+        "public".to_string(),
+        "status".to_string(),
+        vec!["archived".to_string(), "active".to_string()],
+    ));
+    to.tables.push(table("users"));
+    to.columns.push(status_col);
+
+    let diffs = diff_ddl(&from, &to);
+    let generator = PostgresGenerator::new().with_breakpoints(false);
+    let sql = generator.generate_with_ddl(&diffs, Some(&to));
+
+    let expected = vec![
+        "ALTER TABLE \"users\" ALTER COLUMN \"status\" DROP DEFAULT;".to_string(),
+        "ALTER TABLE \"users\" ALTER COLUMN \"status\" SET DATA TYPE text USING \"status\"::text;"
+            .to_string(),
+        "DROP TYPE \"status\";".to_string(),
+        "CREATE TYPE \"status\" AS ENUM ('archived', 'active');".to_string(),
+        "ALTER TABLE \"users\" ALTER COLUMN \"status\" SET DATA TYPE \"status\" USING \"status\"::text::\"status\";"
+            .to_string(),
+        "ALTER TABLE \"users\" ALTER COLUMN \"status\" SET DEFAULT 'active';".to_string(),
+    ];
+    assert_eq!(sql, expected);
 }
