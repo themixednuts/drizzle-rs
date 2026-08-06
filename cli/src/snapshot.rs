@@ -1,12 +1,42 @@
 //! Snapshot conversion helpers reused from `drizzle-migrations`.
 
-pub use drizzle_migrations::parse_result_to_snapshot;
+use crate::error::CliError;
+use crate::output;
+use drizzle_migrations::parser::ParseResult;
+
+/// Print parser warnings and fail on parser errors.
+///
+/// The parser emits entities best-effort even for source it could not fully
+/// interpret; generating migrations from a half-understood schema turns
+/// parser confusion into destructive DDL, so hard errors must stop the
+/// command.
+pub fn surface_parse_diagnostics(result: &ParseResult) -> Result<(), CliError> {
+    for warning in &result.warnings {
+        println!("{}", output::warning(&format!("schema parse: {warning}")));
+    }
+
+    if result.errors.is_empty() {
+        Ok(())
+    } else {
+        Err(CliError::SchemaParse(result.errors.join("\n  ")))
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use drizzle_migrations::schema::Snapshot;
     use drizzle_types::{Casing, Dialect};
+
+    #[test]
+    fn surface_parse_diagnostics_errors_on_broken_source() {
+        use drizzle_migrations::parser::SchemaParser;
+
+        let result = SchemaParser::parse("#[SQLiteTable]\npub struct Broken {");
+        let error = surface_parse_diagnostics(&result)
+            .expect_err("hard parse failures must stop the command");
+        assert!(matches!(error, CliError::SchemaParse(_)));
+    }
 
     /// Test that changing a column from Option<String> to String generates table recreation
     #[test]
@@ -38,8 +68,8 @@ pub struct User {
         let prev_result = SchemaParser::parse(prev_code);
         let cur_result = SchemaParser::parse(cur_code);
 
-        let prev_snapshot = parse_result_to_snapshot(&prev_result, Dialect::SQLite, None);
-        let cur_snapshot = parse_result_to_snapshot(&cur_result, Dialect::SQLite, None);
+        let prev_snapshot = Snapshot::from_parse_result(&prev_result, Dialect::SQLite, None);
+        let cur_snapshot = Snapshot::from_parse_result(&cur_result, Dialect::SQLite, None);
 
         let (prev_ddl, cur_ddl) = match (&prev_snapshot, &cur_snapshot) {
             (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => (
@@ -118,8 +148,8 @@ pub struct User {
         let prev_result = SchemaParser::parse(prev_code);
         let cur_result = SchemaParser::parse(cur_code);
 
-        let prev_snapshot = parse_result_to_snapshot(&prev_result, Dialect::SQLite, None);
-        let cur_snapshot = parse_result_to_snapshot(&cur_result, Dialect::SQLite, None);
+        let prev_snapshot = Snapshot::from_parse_result(&prev_result, Dialect::SQLite, None);
+        let cur_snapshot = Snapshot::from_parse_result(&cur_result, Dialect::SQLite, None);
 
         let (prev_ddl, cur_ddl) = match (&prev_snapshot, &cur_snapshot) {
             (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => (
@@ -175,7 +205,7 @@ pub struct SessionsUserIdx(Sessions::user_id);
 "#;
 
         let result = SchemaParser::parse(code);
-        let snapshot = parse_result_to_snapshot(&result, Dialect::PostgreSQL, None);
+        let snapshot = Snapshot::from_parse_result(&result, Dialect::PostgreSQL, None);
 
         let snap = match snapshot {
             Snapshot::Postgres(s) => s,
@@ -232,7 +262,7 @@ pub struct Accounts {
 "#;
 
         let result = SchemaParser::parse(code);
-        let snapshot = parse_result_to_snapshot(&result, Dialect::SQLite, None);
+        let snapshot = Snapshot::from_parse_result(&result, Dialect::SQLite, None);
         let snap = match snapshot {
             Snapshot::Sqlite(s) => s,
             _ => panic!("Expected SQLite snapshot"),
@@ -257,7 +287,8 @@ pub struct Accounts {
             }
         });
         let pk = pk.expect("expected sqlite primary key");
-        assert_eq!(pk.name.as_ref(), "accounts_pkey");
+        // Canonical macro/introspection name (`types::sqlite::ddl::name_for_pk`).
+        assert_eq!(pk.name.as_ref(), "accounts_pk");
     }
 
     #[test]
@@ -278,7 +309,8 @@ pub struct UsersEmailIdx(UsersTable::emailAddress);
 "#;
 
         let result = SchemaParser::parse(code);
-        let snapshot = parse_result_to_snapshot(&result, Dialect::SQLite, Some(Casing::SnakeCase));
+        let snapshot =
+            Snapshot::from_parse_result(&result, Dialect::SQLite, Some(Casing::SnakeCase));
         let snap = match snapshot {
             Snapshot::Sqlite(s) => s,
             _ => panic!("Expected SQLite snapshot"),
@@ -349,7 +381,7 @@ pub struct UsersCreatedIdx(UsersTable::createdAt);
 
         let result = SchemaParser::parse(code);
         let snapshot =
-            parse_result_to_snapshot(&result, Dialect::PostgreSQL, Some(Casing::SnakeCase));
+            Snapshot::from_parse_result(&result, Dialect::PostgreSQL, Some(Casing::SnakeCase));
         let snap = match snapshot {
             Snapshot::Postgres(s) => s,
             _ => panic!("Expected Postgres snapshot"),

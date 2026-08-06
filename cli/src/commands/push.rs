@@ -8,7 +8,7 @@ use crate::commands::overrides::{self, ConnectionOverrides, FilterArgs};
 use crate::config::{Casing, Config, Dialect};
 use crate::error::CliError;
 use crate::output;
-use crate::snapshot::parse_result_to_snapshot;
+use drizzle_migrations::schema::Snapshot;
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct PushOptions {
@@ -100,7 +100,8 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: &PushOptions) -> Result
 
     // Build snapshot from parsed schema (use config dialect)
     let dialect = effective_dialect.to_base();
-    let mut desired_snapshot = parse_result_to_snapshot(&parse_result, dialect, effective_casing);
+    let mut desired_snapshot =
+        Snapshot::from_parse_result(&parse_result, dialect, effective_casing);
 
     let filters = crate::db::SnapshotFilters {
         tables: overrides::resolve_filter_list(
@@ -262,5 +263,7 @@ fn parse_schema_files(
         combined_code.push('\n');
     }
 
-    Ok(SchemaParser::parse(&combined_code))
+    let parse_result = SchemaParser::parse(&combined_code);
+    crate::snapshot::surface_parse_diagnostics(&parse_result)?;
+    Ok(parse_result)
 }

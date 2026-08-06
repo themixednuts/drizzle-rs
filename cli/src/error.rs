@@ -19,6 +19,10 @@ pub enum CliError {
     #[error("No schema files found matching: {0}")]
     NoSchemaFiles(String),
 
+    /// Schema source failed to parse or used attributes the macros reject
+    #[error("Schema parse failed:\n  {0}")]
+    SchemaParse(String),
+
     /// Dialect mismatch between snapshots
     #[error("Dialect mismatch between previous and current snapshots")]
     DialectMismatch,

@@ -5,965 +5,973 @@
 //!
 //! It is shared by runtime/build-time migration generation flows that do not
 //! rely on the CLI.
+//!
+//! # Producer parity
+//!
+//! The entities built here mirror what the derive macros' runtime
+//! `Schema::to_snapshot()` produces for the same source (see
+//! `procmacros/src/{sqlite,postgres}/schema.rs` and `table/traits.rs`): the
+//! same SQL type spellings, the same default rendering, and the same
+//! constraint-name derivations (`{table}_pk` / `fk_..._fk` for `SQLite`,
+//! `{table}_pkey` / `{table}_{col}_fkey` / `{table}_{col}_key` for
+//! `PostgreSQL`). Foreign-key targets resolve through the referenced table's
+//! metadata (explicit `name = "..."` renames included), primary keys are ONE
+//! entity per table, `PostgreSQL` identity sequence options / index
+//! `method`-`where`-`concurrently` / `NULLS NOT DISTINCT` are preserved, and
+//! enum types carry their declared `#[postgres_enum(schema = "...")]` schema
+//! — all matching the runtime producer. Remaining deliberate divergence:
+//!
+//! * Custom (non-enum) column types resolve `type_schema` to `public`; the
+//!   runtime reads `DrizzlePostgresColumn::SCHEMA`, whose default is
+//!   `public` but which a hand-written trait impl could override — the
+//!   parser cannot evaluate user trait impls.
 
-use crate::parser::{ParseResult, ParsedField, ParsedIndex, ParsedTable};
+use crate::parser::{
+    ColumnSpec, ParseResult, ParsedDefault, ParsedField, ParsedIndex, ParsedTable,
+};
 use crate::postgres::PostgresSnapshot;
 use crate::schema::Snapshot;
 use crate::sqlite::SQLiteSnapshot;
-use drizzle_types::postgres::{PostgreSQLType, TypeCategory as PgTypeCategory};
-use drizzle_types::sqlite::{SQLiteType, TypeCategory as SQLiteTypeCategory};
 use drizzle_types::{Casing, Dialect};
-use heck::{ToLowerCamelCase, ToSnakeCase};
+use heck::ToSnakeCase;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
-/// Convert a `ParseResult` into a `Snapshot` for migration diffing
+impl Snapshot {
+    /// Build a snapshot from a parsed schema file, for migration diffing.
+    ///
+    /// Uses the provided `dialect` from config rather than the parser-detected
+    /// dialect, allowing users to have multi-dialect schema files and select
+    /// which to use via config.
+    ///
+    /// `casing` is accepted for API compatibility but is ignored for name
+    /// derivation: the table macros unconditionally snake-case inferred names
+    /// (`procmacros/src/common/table_pipeline.rs`), so honoring a camelCase
+    /// casing here would produce names the runtime never uses. The casing
+    /// config still affects introspection codegen (field naming), which is a
+    /// separate flow.
+    ///
+    /// # Panics
+    ///
+    /// Panics for [`Dialect::MySQL`], which has no snapshot representation yet
+    /// (same contract as [`Snapshot::empty`]). All upstream flows guard the
+    /// dialect before calling (`build::run`, CLI dialect validation).
+    #[must_use]
+    pub fn from_parse_result(
+        result: &ParseResult,
+        dialect: Dialect,
+        casing: Option<Casing>,
+    ) -> Self {
+        let _ = casing;
+        match dialect {
+            Dialect::SQLite => Self::Sqlite(build_sqlite_snapshot(result)),
+            Dialect::PostgreSQL => Self::Postgres(build_postgres_snapshot(result)),
+            Dialect::MySQL => {
+                panic!("MySQL snapshot generation is not supported yet")
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Shared name resolution
+// =============================================================================
+
+fn resolve_table_name(table: &ParsedTable) -> String {
+    table
+        .spec
+        .explicit_name
+        .clone()
+        .unwrap_or_else(|| table.name.to_snake_case())
+}
+
+fn resolve_field_name(field: &ParsedField) -> String {
+    field
+        .spec
+        .explicit_name
+        .clone()
+        .unwrap_or_else(|| field.name.to_snake_case())
+}
+
+/// Name maps built once per snapshot: struct ident -> resolved table name and
+/// (struct ident, field ident) -> resolved column name.
+struct NameMaps {
+    tables: HashMap<String, String>,
+    fields: HashMap<(String, String), String>,
+}
+
+impl NameMaps {
+    fn build(tables: &[&ParsedTable]) -> Self {
+        let mut table_map = HashMap::new();
+        let mut field_map = HashMap::new();
+        for table in tables {
+            table_map.insert(table.name.clone(), resolve_table_name(table));
+            for field in &table.fields {
+                field_map.insert(
+                    (table.name.clone(), field.name.clone()),
+                    resolve_field_name(field),
+                );
+            }
+        }
+        Self {
+            tables: table_map,
+            fields: field_map,
+        }
+    }
+
+    fn table(&self, struct_name: &str) -> String {
+        self.tables
+            .get(struct_name)
+            .cloned()
+            .unwrap_or_else(|| struct_name.to_snake_case())
+    }
+
+    fn field(&self, struct_name: &str, field_name: &str) -> String {
+        self.fields
+            .get(&(struct_name.to_string(), field_name.to_string()))
+            .cloned()
+            .unwrap_or_else(|| field_name.to_snake_case())
+    }
+}
+
+/// Member-type filter when a schema struct of the matching dialect exists.
 ///
-/// Uses the provided `dialect` from config rather than the parser-detected dialect,
-/// allowing users to have multi-dialect schema files and select which to use via config.
-#[must_use]
-pub fn parse_result_to_snapshot(
-    result: &ParseResult,
+/// Mirrors runtime semantics: only schema members end up in
+/// `Schema::to_snapshot()`. Applied to tables (and transitively to the
+/// indexes/policies that target them); views and enums always pass through
+/// because the introspection codegen intentionally omits them from generated
+/// schema structs.
+fn schema_members(result: &ParseResult, dialect: Dialect) -> Option<HashSet<&str>> {
+    result
+        .schema
+        .as_ref()
+        .filter(|schema| schema.dialect == dialect)
+        .map(|schema| schema.member_types.iter().map(String::as_str).collect())
+}
+
+fn tables_for(result: &ParseResult, dialect: Dialect) -> Vec<&ParsedTable> {
+    let members = schema_members(result, dialect);
+    let mut tables: Vec<&ParsedTable> = result
+        .tables
+        .values()
+        .filter(|t| t.dialect == dialect)
+        .filter(|t| {
+            members
+                .as_ref()
+                .is_none_or(|members| members.contains(t.name.as_str()))
+        })
+        .collect();
+    tables.sort_by_key(|t| t.order);
+    tables
+}
+
+fn indexes_for<'a>(
+    result: &'a ParseResult,
     dialect: Dialect,
-    casing: Option<Casing>,
-) -> Snapshot {
-    match dialect {
-        Dialect::SQLite => Snapshot::Sqlite(build_sqlite_snapshot(result, casing)),
-        Dialect::PostgreSQL => Snapshot::Postgres(build_postgres_snapshot(result, casing)),
-        Dialect::MySQL => {
-            unreachable!("Unsupported dialect for snapshot generation: {dialect:?}")
-        }
-    }
+    kept_tables: &HashSet<&str>,
+) -> Vec<&'a ParsedIndex> {
+    let mut indexes: Vec<&ParsedIndex> = result
+        .indexes
+        .values()
+        .filter(|i| i.dialect == dialect)
+        .filter(|i| {
+            i.table_name()
+                .is_none_or(|table| kept_tables.contains(table))
+        })
+        .collect();
+    indexes.sort_by_key(|i| i.order);
+    indexes
 }
 
-fn apply_casing(name: &str, casing: Casing) -> String {
-    match casing {
-        Casing::SnakeCase => name.to_snake_case(),
-        Casing::CamelCase => name.to_lower_camel_case(),
-    }
-}
+// =============================================================================
+// SQLite
+// =============================================================================
 
-fn trim_wrapping_quotes(s: &str) -> String {
-    s.trim().trim_matches('"').trim_matches('\'').to_string()
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-struct ParsedIndexAttrs {
-    name: Option<String>,
-}
-
-impl ParsedIndexAttrs {
-    fn parse(attr: &str) -> Self {
-        let Some(start) = attr.find('(') else {
-            return Self::default();
-        };
-        let Some(end) = attr.rfind(')') else {
-            return Self::default();
-        };
-
-        let mut parsed = Self::default();
-        let content = &attr[start + 1..end];
-        for part in content.split(',') {
-            let part = part.trim();
-            if let Some((k, v)) = part.split_once('=')
-                && k.trim() == "name"
-            {
-                parsed.name = Some(trim_wrapping_quotes(v));
-            }
-        }
-
-        parsed
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct MemberRef<'a> {
-    table: &'a str,
-    field: &'a str,
-}
-
-impl<'a> MemberRef<'a> {
-    fn parse(raw: &'a str) -> Option<Self> {
-        let (table, field) = raw.split_once("::")?;
-        if table.is_empty() || field.is_empty() || field.contains("::") {
-            return None;
-        }
-
-        Some(Self { table, field })
-    }
-}
-
-fn sqlite_type_sql(ty: SQLiteType) -> String {
-    ty.to_sql_type().to_ascii_lowercase()
-}
-
-fn postgres_type_sql(ty: &PostgreSQLType) -> String {
-    ty.to_sql_type().to_ascii_lowercase()
-}
-
-fn resolve_table_name(table: &ParsedTable, casing: Casing) -> String {
-    table.attr_value("name").map_or_else(
-        || apply_casing(&table.name, casing),
-        |v| trim_wrapping_quotes(&v),
-    )
-}
-
-fn resolve_field_name(field: &ParsedField, casing: Casing) -> String {
-    field.attr_value("name").map_or_else(
-        || apply_casing(&field.name, casing),
-        |v| trim_wrapping_quotes(&v),
-    )
-}
-
-fn resolve_sqlite_type(field: &ParsedField) -> SQLiteType {
-    explicit_sqlite_type(field).unwrap_or_else(|| infer_sqlite_type(&field.ty))
-}
-
-fn explicit_sqlite_type(field: &ParsedField) -> Option<SQLiteType> {
-    for attr in &field.attrs {
-        let Some(name) = attr_name(attr) else {
-            continue;
-        };
-
-        if let Some(ty) = sqlite_type_marker(name) {
-            return Some(ty);
-        }
-
-        if !name.eq_ignore_ascii_case("column") {
-            continue;
-        }
-
-        let Some(args) = attr_args(attr) else {
-            continue;
-        };
-
-        for part in split_attr_parts(args) {
-            let marker = marker_key(part);
-            if let Some(ty) = sqlite_type_marker(marker) {
-                return Some(ty);
-            }
-        }
-    }
-
-    None
-}
-
-fn sqlite_type_marker(marker: &str) -> Option<SQLiteType> {
-    if marker.eq_ignore_ascii_case("json") {
-        Some(SQLiteType::Text)
-    } else if marker.eq_ignore_ascii_case("jsonb") {
-        Some(SQLiteType::Blob)
+/// `sqlite::field::parenthesized_sql_expression`.
+fn parenthesized_sql_expression(expression: &str) -> String {
+    let trimmed = expression.trim();
+    if trimmed.starts_with('(') && trimmed.ends_with(')') {
+        trimmed.to_string()
     } else {
-        SQLiteType::from_attribute_name(marker)
+        format!("({trimmed})")
     }
 }
 
-fn attr_name(attr: &str) -> Option<&str> {
-    let rest = attr.trim().strip_prefix("#[")?;
-    let end = rest.find(['(', ']'])?;
-    Some(rest[..end].trim())
-}
-
-fn attr_args(attr: &str) -> Option<&str> {
-    let start = attr.find('(')?;
-    let end = attr.rfind(')')?;
-    (start < end).then_some(&attr[start + 1..end])
-}
-
-fn marker_key(part: &str) -> &str {
-    let part = part.trim();
-    let end = part.find(['=', '(']).unwrap_or(part.len());
-    part[..end].trim()
-}
-
-fn marker_args(part: &str) -> Option<&str> {
-    let start = part.find('(')?;
-    let end = part.rfind(')')?;
-    (start < end).then_some(&part[start + 1..end])
-}
-
-fn marker_value(part: &str) -> Option<&str> {
-    part.split_once('=')
-        .map(|(_, value)| value.trim())
-        .or_else(|| marker_args(part).map(str::trim))
-}
-
-fn field_marker_part<'a>(field: &'a ParsedField, marker: &str) -> Option<&'a str> {
-    for attr in &field.attrs {
-        let Some(name) = attr_name(attr) else {
-            continue;
-        };
-
-        if name.eq_ignore_ascii_case(marker) {
-            return Some(attr);
-        }
-
-        if !name.eq_ignore_ascii_case("column") {
-            continue;
-        }
-
-        let Some(args) = attr_args(attr) else {
-            continue;
-        };
-
-        for part in split_attr_parts(args) {
-            if marker_key(part).eq_ignore_ascii_case(marker) {
-                return Some(part);
-            }
-        }
-    }
-
-    None
-}
-
-fn field_has_marker(field: &ParsedField, marker: &str) -> bool {
-    field_marker_part(field, marker).is_some()
-}
-
-fn field_marker_args<'a>(field: &'a ParsedField, marker: &str) -> Option<&'a str> {
-    let part = field_marker_part(field, marker)?;
-    if part.trim_start().starts_with("#[") {
-        attr_args(part)
-    } else {
-        marker_args(part)
+/// `sqlite::field::normalize_default_sql` — bare `CURRENT_*` keywords stay
+/// verbatim, everything else gets parenthesized.
+fn normalize_sqlite_default_sql(expression: &str) -> String {
+    let trimmed = expression.trim();
+    match trimmed.to_ascii_uppercase().as_str() {
+        "CURRENT_TIME" | "CURRENT_DATE" | "CURRENT_TIMESTAMP" => trimmed.to_string(),
+        _ => parenthesized_sql_expression(trimmed),
     }
 }
 
-fn field_marker_value(field: &ParsedField, marker: &str) -> Option<String> {
-    let part = field_marker_part(field, marker)?;
-    let raw_value = if part.trim_start().starts_with("#[") {
-        attr_args(part)?
-    } else {
-        marker_value(part)?
-    };
-    Some(trim_wrapping_quotes(raw_value))
-}
-
-fn split_attr_parts(content: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut depth = 0usize;
-    let mut start = 0usize;
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut escaped = false;
-
-    for (i, c) in content.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-
-        match c {
-            '\\' if in_single || in_double => escaped = true,
-            '\'' if !in_double => in_single = !in_single,
-            '"' if !in_single => in_double = !in_double,
-            '(' | '<' | '[' | '{' if !in_single && !in_double => depth += 1,
-            ')' | '>' | ']' | '}' if !in_single && !in_double => {
-                depth = depth.saturating_sub(1);
-            }
-            ',' if depth == 0 && !in_single && !in_double => {
-                parts.push(content[start..i].trim());
-                start = i + 1;
-            }
-            _ => {}
-        }
+/// SQL default string for a `SQLite` column, matching
+/// `sqlite::table::traits::sqlite_default_sql` (string defaults become
+/// SQL-quoted `'...'` with `''` doubling; booleans become `1`/`0`).
+fn sqlite_default(spec: &ColumnSpec) -> Option<String> {
+    if spec.generated.is_some() {
+        // The macro rejects generated + default combinations at compile time.
+        return None;
     }
-
-    if start < content.len() {
-        parts.push(content[start..].trim());
+    if let Some(default_sql) = &spec.default_sql {
+        return Some(normalize_sqlite_default_sql(default_sql));
     }
-
-    parts
+    match spec.default.as_ref()? {
+        ParsedDefault::Int(token) | ParsedDefault::Float(token) => Some(token.clone()),
+        ParsedDefault::Bool(b) => Some(if *b { "1" } else { "0" }.to_string()),
+        ParsedDefault::Str(s) => Some(format!("'{}'", s.replace('\'', "''"))),
+        // Non-literal defaults are dropped by the macros.
+        ParsedDefault::Unsupported(_) => None,
+    }
 }
 
 /// Build an `SQLite` snapshot from parsed schema
-fn build_sqlite_snapshot(result: &ParseResult, casing: Option<Casing>) -> SQLiteSnapshot {
-    use crate::sqlite::{PrimaryKey, SqliteEntity, Table, UniqueConstraint};
+#[allow(clippy::too_many_lines)]
+fn build_sqlite_snapshot(result: &ParseResult) -> SQLiteSnapshot {
+    use crate::sqlite::{
+        CheckConstraint, ForeignKey, Generated, GeneratedType, Index, IndexColumn, IndexOrigin,
+        PrimaryKey, SqliteEntity, Table, UniqueConstraint, View,
+    };
 
     let mut snapshot = SQLiteSnapshot::new();
-    let name_casing = casing.unwrap_or(Casing::SnakeCase);
 
-    let sqlite_tables: Vec<_> = result
-        .tables
-        .values()
-        .filter(|t| t.dialect == Dialect::SQLite)
-        .collect();
+    let tables = tables_for(result, Dialect::SQLite);
+    let kept: HashSet<&str> = tables.iter().map(|t| t.name.as_str()).collect();
+    let maps = NameMaps::build(&tables);
 
-    let mut table_name_map: HashMap<String, String> = HashMap::new();
-    let mut field_name_map: HashMap<(String, String), String> = HashMap::new();
-    for table in &sqlite_tables {
-        let table_name = resolve_table_name(table, name_casing);
-        table_name_map.insert(table.name.clone(), table_name);
-        for field in &table.fields {
-            field_name_map.insert(
-                (table.name.clone(), field.name.clone()),
-                resolve_field_name(field, name_casing),
-            );
-        }
-    }
+    for table in &tables {
+        let table_name = maps.table(&table.name);
 
-    // Process tables (only those matching SQLite dialect)
-    for table in sqlite_tables {
-        let table_name = table_name_map
-            .get(&table.name)
-            .cloned()
-            .unwrap_or_else(|| resolve_table_name(table, name_casing));
-
-        // Add table entity
         let mut sqlite_table = Table::new(table_name.clone());
-        sqlite_table.strict = table.is_strict();
-        sqlite_table.without_rowid = table.is_without_rowid();
+        sqlite_table.strict = table.spec.strict;
+        sqlite_table.without_rowid = table.spec.without_rowid;
         snapshot.add_entity(SqliteEntity::Table(sqlite_table));
 
-        // Process columns
         let mut pk_columns = Vec::new();
 
         for field in &table.fields {
-            let col_name = field_name_map
-                .get(&(table.name.clone(), field.name.clone()))
-                .cloned()
-                .unwrap_or_else(|| resolve_field_name(field, name_casing));
-            let col = build_sqlite_column(&table_name, field, &col_name);
+            let col_name = maps.field(&table.name, &field.name);
+            let spec = &field.spec;
+
+            let mut col = crate::sqlite::Column::new(
+                table_name.clone(),
+                col_name.clone(),
+                spec.sqlite_type.clone().unwrap_or_default(),
+            );
+            if !spec.nullable {
+                col = col.not_null();
+            }
+            if spec.autoincrement {
+                col = col.autoincrement();
+            }
+            if let Some(default) = sqlite_default(spec) {
+                col = col.default_value(default);
+            }
+            if let Some(generated) = &spec.generated {
+                col.generated = Some(Generated {
+                    expression: Cow::Owned(parenthesized_sql_expression(&generated.expression)),
+                    gen_type: if generated.stored {
+                        GeneratedType::Stored
+                    } else {
+                        GeneratedType::Virtual
+                    },
+                });
+            }
+            if let Some(collate) = &spec.collate {
+                col.collate = Some(Cow::Owned(collate.clone()));
+            }
             snapshot.add_entity(SqliteEntity::Column(col));
 
-            // Track primary key columns
-            if field.is_primary_key() {
+            if spec.primary {
                 pk_columns.push(col_name.clone());
             }
 
-            // Add unique constraint if column is unique (not primary)
-            if field.is_unique() && !field.is_primary_key() {
-                let constraint_name = format!("{table_name}_{col_name}_unique");
+            // Column-level UNIQUE (macro: only when not also primary).
+            if spec.unique && !spec.primary {
                 snapshot.add_entity(SqliteEntity::UniqueConstraint(
                     UniqueConstraint::from_strings(
                         table_name.clone(),
-                        constraint_name,
+                        format!("{table_name}_{col_name}_unique"),
                         vec![col_name.clone()],
                     ),
                 ));
             }
 
-            // Add foreign key if references exist
-            if let Some(ref_target) = field.references()
-                && let Some(fk) = build_sqlite_foreign_key(
-                    &table_name,
-                    &col_name,
-                    field,
-                    &ref_target,
-                    &table_name_map,
-                    &field_name_map,
-                    name_casing,
-                )
-            {
+            // Column-level CHECK, named like the macro's constraint refs.
+            if let Some(check) = &spec.check {
+                snapshot.add_entity(SqliteEntity::CheckConstraint(CheckConstraint::new(
+                    table_name.clone(),
+                    format!("{table_name}_{col_name}_check"),
+                    check.clone(),
+                )));
+            }
+
+            // Column-level foreign key. Name, target table, and target
+            // column all resolve through the referenced table's actual
+            // names (the macro resolves them via the target's `NAME`
+            // consts, honoring explicit `name = "..."` renames).
+            if let Some(reference) = &spec.references {
+                let target_table = maps.table(&reference.table);
+                let target_column = maps.field(&reference.table, &reference.column);
+                let mut fk = ForeignKey::from_strings(
+                    table_name.clone(),
+                    format!("fk_{table_name}_{col_name}_{target_table}_{target_column}_fk"),
+                    vec![col_name.clone()],
+                    target_table,
+                    vec![target_column],
+                );
+                fk.on_delete = spec.on_delete.clone().map(Cow::Owned);
+                fk.on_update = spec.on_update.clone().map(Cow::Owned);
                 snapshot.add_entity(SqliteEntity::ForeignKey(fk));
             }
         }
 
-        // Add primary key entity
+        // ONE PrimaryKey entity, canonical `{table}_pk` name.
         if !pk_columns.is_empty() {
-            let pk_name = format!("{table_name}_pkey");
             snapshot.add_entity(SqliteEntity::PrimaryKey(PrimaryKey::from_strings(
-                table_name, pk_name, pk_columns,
+                table_name.clone(),
+                format!("{table_name}_pk"),
+                pk_columns,
+            )));
+        }
+
+        // Composite FOREIGN_KEY(...) attributes. Source and target columns
+        // resolve through the respective tables' field metadata (matching
+        // the macro, which honors explicit `name = "..."` renames on both
+        // sides); actions pass through verbatim.
+        for cfk in &table.spec.composite_fks {
+            let source_columns: Vec<String> = cfk
+                .source_columns
+                .iter()
+                .map(|field| maps.field(&table.name, field))
+                .collect();
+            let target_table = maps.table(&cfk.target_table);
+            let target_columns: Vec<String> = cfk
+                .target_columns
+                .iter()
+                .map(|c| maps.field(&cfk.target_table, c))
+                .collect();
+            let fk_name = format!(
+                "fk_{table_name}_{}_{}_{}_fk",
+                source_columns.join("_"),
+                target_table,
+                target_columns.join("_")
+            );
+            let mut fk = ForeignKey::from_strings(
+                table_name.clone(),
+                fk_name,
+                source_columns,
+                target_table,
+                target_columns,
+            );
+            fk.on_delete = cfk.on_delete.clone().map(Cow::Owned);
+            fk.on_update = cfk.on_update.clone().map(Cow::Owned);
+            snapshot.add_entity(SqliteEntity::ForeignKey(fk));
+        }
+
+        // Table-level UNIQUE(...) attributes (columns resolve through field
+        // names, like the macro's constraint refs).
+        for unique in &table.spec.unique_constraints {
+            let columns: Vec<String> = unique
+                .columns
+                .iter()
+                .map(|field| maps.field(&table.name, field))
+                .collect();
+            let name = unique
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("{table_name}_{}_unique", columns.join("_")));
+            let mut constraint = UniqueConstraint::from_strings(table_name.clone(), name, columns);
+            constraint.name_explicit = unique.name.is_some();
+            snapshot.add_entity(SqliteEntity::UniqueConstraint(constraint));
+        }
+
+        // Table-level CHECK(...) attributes with the macro's naming: a single
+        // check is `{table}_check`, several are `{table}_check{N}`.
+        let check_count = table.spec.check_constraints.len();
+        for (idx, check) in table.spec.check_constraints.iter().enumerate() {
+            let name = check.name.clone().unwrap_or_else(|| {
+                if check_count == 1 {
+                    format!("{table_name}_check")
+                } else {
+                    format!("{table_name}_check{}", idx + 1)
+                }
+            });
+            snapshot.add_entity(SqliteEntity::CheckConstraint(CheckConstraint::new(
+                table_name.clone(),
+                name,
+                check.expr.clone(),
             )));
         }
     }
 
-    // Process indexes (only those matching SQLite dialect)
-    for index in result
-        .indexes
+    // Indexes targeting kept tables. Index names derive from the struct
+    // ident with the macro's fold; an explicit `name = "..."` (parser
+    // extension) wins.
+    for index in indexes_for(result, Dialect::SQLite, &kept) {
+        let table_struct = index.table_name().unwrap_or_default();
+        let index_name = index
+            .spec
+            .explicit_name
+            .clone()
+            .unwrap_or_else(|| crate::parser::sqlite_index_name(&index.name));
+        let columns: Vec<IndexColumn> = index
+            .spec
+            .column_refs
+            .iter()
+            .map(|(table, field)| IndexColumn::new(maps.field(table, field)))
+            .collect();
+
+        snapshot.add_entity(SqliteEntity::Index(Index {
+            table: maps.table(table_struct).into(),
+            name: index_name.into(),
+            columns,
+            is_unique: index.spec.unique,
+            where_clause: None,
+            origin: IndexOrigin::Manual,
+        }));
+    }
+
+    // Views (never scoped by schema membership; see `schema_members`).
+    let mut views: Vec<_> = result
+        .views
         .values()
-        .filter(|i| i.dialect == Dialect::SQLite)
-    {
-        let idx = build_sqlite_index(index, &table_name_map, &field_name_map, name_casing);
-        snapshot.add_entity(SqliteEntity::Index(idx));
+        .filter(|v| v.dialect == Dialect::SQLite)
+        .collect();
+    views.sort_by_key(|v| v.order);
+    for parsed in views {
+        let name = parsed
+            .explicit_name
+            .clone()
+            .unwrap_or_else(|| parsed.name.to_snake_case());
+        let mut view = View::new(name);
+        view.definition = parsed.definition.clone().map(Cow::Owned);
+        view.is_existing = parsed.existing;
+        snapshot.add_entity(SqliteEntity::View(view));
     }
 
     snapshot
 }
 
-/// Name/schema maps for `PostgreSQL` snapshot building, built once up front
-/// and reused for column/FK/index resolution.
-struct PgNameMaps {
-    /// Parsed struct name -> resolved SQL table name.
-    table_name_map: HashMap<String, String>,
-    /// (parsed struct name, parsed field name) -> resolved SQL column name.
-    field_name_map: HashMap<(String, String), String>,
-    /// Parsed struct name -> `PostgreSQL` schema ("public" by default).
-    table_schemas: HashMap<String, String>,
-    /// All distinct schemas discovered in the schema set.
-    schema_list: Vec<String>,
-}
+// =============================================================================
+// PostgreSQL
+// =============================================================================
 
-fn build_pg_name_maps(pg_tables: &[&ParsedTable], casing: Casing) -> PgNameMaps {
-    let mut table_name_map: HashMap<String, String> = HashMap::new();
-    let mut field_name_map: HashMap<(String, String), String> = HashMap::new();
-    for table in pg_tables {
-        table_name_map.insert(table.name.clone(), resolve_table_name(table, casing));
-        for field in &table.fields {
-            field_name_map.insert(
-                (table.name.clone(), field.name.clone()),
-                resolve_field_name(field, casing),
-            );
-        }
+/// SQL default string for a `PostgreSQL` column, matching
+/// `postgres::field::parse_column_attribute` / `default_to_string` (string
+/// defaults become `'...'` with `''` doubling; booleans stay `true`/`false`;
+/// `default_sql` passes through verbatim; serial/identity/generated columns
+/// have no default).
+fn postgres_default(spec: &ColumnSpec) -> Option<String> {
+    if spec.serial.is_some() || spec.identity.is_some() || spec.generated.is_some() {
+        return None;
     }
-
-    let mut table_schemas: HashMap<String, String> = HashMap::new();
-    let mut schemas: HashSet<String> = HashSet::new();
-    for table in pg_tables {
-        let schema_name = table.schema_name().unwrap_or_else(|| "public".to_string());
-        table_schemas.insert(table.name.clone(), schema_name.clone());
-        schemas.insert(schema_name);
+    if let Some(default_sql) = &spec.default_sql {
+        return Some(default_sql.clone());
     }
-    if schemas.is_empty() {
-        schemas.insert("public".to_string());
-    }
-
-    let mut schema_list: Vec<String> = schemas.into_iter().collect();
-    schema_list.sort();
-
-    PgNameMaps {
-        table_name_map,
-        field_name_map,
-        table_schemas,
-        schema_list,
-    }
-}
-
-/// Add table, column, unique, primary-key and FK entities for a single
-/// parsed `PostgreSQL` table.
-fn add_postgres_table_entities(
-    snapshot: &mut PostgresSnapshot,
-    table: &ParsedTable,
-    maps: &PgNameMaps,
-    casing: Casing,
-) {
-    use crate::postgres::{PostgresEntity, PrimaryKey, Table, UniqueConstraint};
-
-    let table_name = maps
-        .table_name_map
-        .get(&table.name)
-        .cloned()
-        .unwrap_or_else(|| resolve_table_name(table, casing));
-    let schema_name = table.schema_name().unwrap_or_else(|| "public".to_string());
-
-    snapshot.add_entity(PostgresEntity::Table(Table {
-        schema: schema_name.clone().into(),
-        name: table_name.clone().into(),
-        is_unlogged: None,
-        is_temporary: None,
-        inherits: None,
-        tablespace: None,
-        is_rls_enabled: None,
-        comment: None,
-    }));
-
-    let mut pk_columns = Vec::new();
-
-    for field in &table.fields {
-        let col_name = maps
-            .field_name_map
-            .get(&(table.name.clone(), field.name.clone()))
-            .cloned()
-            .unwrap_or_else(|| resolve_field_name(field, casing));
-        let col = build_postgres_column(&schema_name, &table_name, field, &col_name);
-        snapshot.add_entity(PostgresEntity::Column(col));
-
-        if field.is_primary_key() {
-            pk_columns.push(col_name.clone());
-        }
-
-        if field.is_unique() && !field.is_primary_key() {
-            snapshot.add_entity(PostgresEntity::UniqueConstraint(
-                UniqueConstraint::from_strings(
-                    schema_name.clone(),
-                    table_name.clone(),
-                    format!("{table_name}_{col_name}_key"),
-                    vec![col_name.clone()],
-                ),
-            ));
-        }
-
-        if let Some(ref_target) = field.references()
-            && let Some(fk) = build_postgres_foreign_key(
-                &schema_name,
-                &table_name,
-                &col_name,
-                field,
-                &ref_target,
-                &maps.table_name_map,
-                &maps.field_name_map,
-                &maps.table_schemas,
-                casing,
-            )
-        {
-            snapshot.add_entity(PostgresEntity::ForeignKey(fk));
-        }
-    }
-
-    if !pk_columns.is_empty() {
-        snapshot.add_entity(PostgresEntity::PrimaryKey(PrimaryKey::from_strings(
-            schema_name,
-            table_name.clone(),
-            format!("{table_name}_pkey"),
-            pk_columns,
-        )));
+    match spec.default.as_ref()? {
+        ParsedDefault::Int(token) | ParsedDefault::Float(token) => Some(token.clone()),
+        ParsedDefault::Bool(b) => Some(b.to_string()),
+        ParsedDefault::Str(s) => Some(format!("'{}'", s.replace('\'', "''"))),
+        ParsedDefault::Unsupported(_) => None,
     }
 }
 
 /// Build a `PostgreSQL` snapshot from parsed schema
-fn build_postgres_snapshot(result: &ParseResult, casing: Option<Casing>) -> PostgresSnapshot {
-    use crate::postgres::{PostgresEntity, Schema as PgSchema};
+#[allow(clippy::too_many_lines)]
+fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
+    use crate::postgres::ddl::{GeneratedType, IdentityType};
+    use crate::postgres::{
+        CheckConstraint, Column, Enum as PgEnum, ForeignKey, Generated, Identity, Index,
+        IndexColumn, Policy, PostgresEntity, PrimaryKey, Schema as PgSchema, Table,
+        UniqueConstraint, View,
+    };
 
     let mut snapshot = PostgresSnapshot::new();
-    let name_casing = casing.unwrap_or(Casing::SnakeCase);
 
-    let pg_tables: Vec<_> = result
-        .tables
+    let tables = tables_for(result, Dialect::PostgreSQL);
+    let kept: HashSet<&str> = tables.iter().map(|t| t.name.as_str()).collect();
+    let maps = NameMaps::build(&tables);
+
+    let mut table_schemas: HashMap<String, String> = HashMap::new();
+    for table in &tables {
+        let schema = table
+            .spec
+            .schema
+            .clone()
+            .unwrap_or_else(|| "public".to_string());
+        table_schemas.insert(table.name.clone(), schema);
+    }
+    let schema_of = |struct_name: &str| -> String {
+        table_schemas
+            .get(struct_name)
+            .cloned()
+            .unwrap_or_else(|| "public".to_string())
+    };
+
+    // Enum ident -> declared schema (`#[postgres_enum(schema = "...")]`),
+    // used to resolve `type_schema` on custom/enum columns the way the
+    // macros do (`DrizzlePostgresColumn::SCHEMA`, default `public`).
+    let enum_schemas: HashMap<&str, &str> = result
+        .enums
         .values()
-        .filter(|t| t.dialect == Dialect::PostgreSQL)
+        .filter(|e| e.dialect == Dialect::PostgreSQL)
+        .map(|e| (e.name.as_str(), e.schema.as_deref().unwrap_or("public")))
         .collect();
+    let type_schema_of = |sql_type: &str| -> String {
+        enum_schemas
+            .get(sql_type)
+            .map_or("public", |schema| *schema)
+            .to_string()
+    };
 
-    let maps = build_pg_name_maps(&pg_tables, name_casing);
-
-    for schema in &maps.schema_list {
-        snapshot.add_entity(PostgresEntity::Schema(PgSchema::new(schema.clone())));
+    // Schema entities appear when the first table, policy target, enum, or
+    // view in that schema appears, mirroring the runtime producer — an enum
+    // or view may be a schema's only occupant, and its CREATE needs the
+    // CREATE SCHEMA first.
+    let mut seen_schemas: HashSet<String> = HashSet::new();
+    let mut schema_entities: Vec<String> = Vec::new();
+    for table in &tables {
+        let schema = schema_of(&table.name);
+        if seen_schemas.insert(schema.clone()) {
+            schema_entities.push(schema);
+        }
     }
-
-    for table in pg_tables {
-        add_postgres_table_entities(&mut snapshot, table, &maps, name_casing);
-    }
-
-    // Process indexes (only those matching PostgreSQL dialect)
-    for index in result
-        .indexes
+    let mut policies: Vec<_> = result
+        .policies
         .values()
-        .filter(|i| i.dialect == Dialect::PostgreSQL)
-    {
-        let idx = build_postgres_index(
-            index,
-            &maps.table_name_map,
-            &maps.field_name_map,
-            &maps.table_schemas,
-            name_casing,
-        );
-        snapshot.add_entity(PostgresEntity::Index(idx));
+        .filter(|p| p.dialect == Dialect::PostgreSQL)
+        .filter(|p| kept.contains(p.table.as_str()) || !table_schemas.contains_key(&p.table))
+        .collect();
+    policies.sort_by_key(|p| p.order);
+    for policy in &policies {
+        let schema = schema_of(&policy.table);
+        if seen_schemas.insert(schema.clone()) {
+            schema_entities.push(schema);
+        }
+    }
+    let mut enum_decls: Vec<_> = result
+        .enums
+        .values()
+        .filter(|e| e.dialect == Dialect::PostgreSQL)
+        .collect();
+    enum_decls.sort_by_key(|e| e.order);
+    for parsed in enum_decls {
+        let schema = parsed
+            .schema
+            .clone()
+            .unwrap_or_else(|| "public".to_string());
+        if seen_schemas.insert(schema.clone()) {
+            schema_entities.push(schema);
+        }
+    }
+    let mut view_decls: Vec<_> = result
+        .views
+        .values()
+        .filter(|v| v.dialect == Dialect::PostgreSQL)
+        .collect();
+    view_decls.sort_by_key(|v| v.order);
+    for parsed in view_decls {
+        let schema = parsed
+            .schema
+            .clone()
+            .unwrap_or_else(|| "public".to_string());
+        if seen_schemas.insert(schema.clone()) {
+            schema_entities.push(schema);
+        }
+    }
+    for schema in schema_entities {
+        snapshot.add_entity(PostgresEntity::Schema(PgSchema::new(schema)));
+    }
+
+    for table in &tables {
+        let table_name = maps.table(&table.name);
+        let schema_name = schema_of(&table.name);
+
+        let mut pg_table = Table::new(schema_name.clone(), table_name.clone());
+        // Mirror the builder interplay in the DDL type: TEMPORARY and
+        // UNLOGGED are mutually exclusive; temporary wins when both are set.
+        if table.spec.temporary {
+            pg_table = pg_table.temporary();
+        } else if table.spec.unlogged {
+            pg_table = pg_table.unlogged();
+        }
+        if let Some(inherits) = &table.spec.inherits {
+            pg_table = pg_table.inherits(inherits.clone());
+        }
+        if let Some(tablespace) = &table.spec.tablespace {
+            pg_table = pg_table.tablespace(tablespace.clone());
+        }
+        if table.spec.rls {
+            pg_table = pg_table.rls_enabled();
+        }
+        if let Some(comment) = &table.spec.comment {
+            pg_table = pg_table.comment(comment.clone());
+        }
+        snapshot.add_entity(PostgresEntity::Table(pg_table));
+
+        let mut pk_columns = Vec::new();
+
+        for field in &table.fields {
+            let col_name = maps.field(&table.name, &field.name);
+            let spec = &field.spec;
+            let sql_type = spec.pg_type.clone().unwrap_or_default();
+
+            let identity = if spec.serial.is_none() {
+                spec.identity.as_ref().map(|parsed| Identity {
+                    name: Cow::Owned(format!("{table_name}_{col_name}_seq")),
+                    schema: Some(Cow::Owned(schema_name.clone())),
+                    type_: if parsed.always {
+                        IdentityType::Always
+                    } else {
+                        IdentityType::ByDefault
+                    },
+                    increment: parsed.increment.clone().map(Cow::Owned),
+                    min_value: parsed.min_value.clone().map(Cow::Owned),
+                    max_value: parsed.max_value.clone().map(Cow::Owned),
+                    start_with: parsed.start.clone().map(Cow::Owned),
+                    cache: parsed.cache,
+                    cycle: if parsed.cycle { Some(true) } else { None },
+                })
+            } else {
+                None
+            };
+
+            let generated = spec.generated.as_ref().map(|parsed| Generated {
+                expression: Cow::Owned(parsed.expression.clone()),
+                gen_type: if parsed.stored {
+                    GeneratedType::Stored
+                } else {
+                    GeneratedType::Virtual
+                },
+            });
+
+            // Enum/custom types carry the TYPE's own schema: for enums the
+            // declared `#[postgres_enum(schema = "...")]`, otherwise the
+            // `DrizzlePostgresColumn::SCHEMA` default of `public` (the
+            // parser cannot evaluate user trait impls, so custom non-enum
+            // types resolve to `public` like the trait default).
+            let type_schema = if matches!(
+                crate::postgres::grammar::PgTypeCategory::from_sql_type(&sql_type),
+                crate::postgres::grammar::PgTypeCategory::Custom
+            ) {
+                Some(Cow::Owned(type_schema_of(&sql_type)))
+            } else {
+                None
+            };
+
+            let column = Column {
+                schema: schema_name.clone().into(),
+                table: table_name.clone().into(),
+                name: col_name.clone().into(),
+                sql_type: sql_type.into(),
+                type_schema,
+                not_null: !spec.nullable,
+                default: postgres_default(spec).map(Cow::Owned),
+                generated,
+                identity,
+                dimensions: spec.pg_dimensions,
+                comment: spec.comment.clone().map(Cow::Owned),
+                collate: spec.collate.clone().map(Cow::Owned),
+                ordinal_position: None,
+            };
+            snapshot.add_entity(PostgresEntity::Column(column));
+
+            if spec.primary {
+                pk_columns.push(col_name.clone());
+            }
+
+            if spec.unique && !spec.primary {
+                snapshot.add_entity(PostgresEntity::UniqueConstraint(
+                    UniqueConstraint::from_strings(
+                        schema_name.clone(),
+                        table_name.clone(),
+                        format!("{table_name}_{col_name}_key"),
+                        vec![col_name.clone()],
+                    ),
+                ));
+            }
+
+            if let Some(check) = &spec.check {
+                snapshot.add_entity(PostgresEntity::CheckConstraint(CheckConstraint::new(
+                    schema_name.clone(),
+                    table_name.clone(),
+                    format!("{table_name}_{col_name}_check"),
+                    check.clone(),
+                )));
+            }
+
+            // Column-level foreign key: `{table}_{col}_fkey` naming; target
+            // schema/table/column resolve through the referenced table's
+            // metadata (the macro resolves the target column via its `NAME`
+            // const, honoring explicit `name = "..."` renames).
+            if let Some(reference) = &spec.references {
+                let mut fk = ForeignKey::from_strings(
+                    schema_name.clone(),
+                    table_name.clone(),
+                    format!("{table_name}_{col_name}_fkey"),
+                    vec![col_name.clone()],
+                    schema_of(&reference.table),
+                    maps.table(&reference.table),
+                    vec![maps.field(&reference.table, &reference.column)],
+                );
+                if let Some(on_delete) = &spec.on_delete {
+                    fk = fk.on_delete(on_delete.clone());
+                }
+                if let Some(on_update) = &spec.on_update {
+                    fk = fk.on_update(on_update.clone());
+                }
+                if spec.deferrable {
+                    fk = fk.deferrable();
+                }
+                if spec.initially_deferred {
+                    fk = fk.initially_deferred();
+                }
+                snapshot.add_entity(PostgresEntity::ForeignKey(fk));
+            }
+        }
+
+        // ONE PrimaryKey entity covering all PK columns. (The runtime
+        // producer emits one per column for composite PKs; single entity is
+        // the spec-correct shape and matches the macro's compile-time
+        // metadata.)
+        if !pk_columns.is_empty() {
+            snapshot.add_entity(PostgresEntity::PrimaryKey(PrimaryKey::from_strings(
+                schema_name.clone(),
+                table_name.clone(),
+                format!("{table_name}_pkey"),
+                pk_columns,
+            )));
+        }
+
+        // Composite FOREIGN_KEY(...) attributes: `{table}_{first_col}_fkey`
+        // naming with source columns resolved through field names (Postgres
+        // macro behavior); actions pass through verbatim.
+        for cfk in &table.spec.composite_fks {
+            let source_columns: Vec<String> = cfk
+                .source_columns
+                .iter()
+                .map(|field| maps.field(&table.name, field))
+                .collect();
+            let fk_name = format!(
+                "{table_name}_{}_fkey",
+                source_columns.first().cloned().unwrap_or_default()
+            );
+            let mut fk = ForeignKey::from_strings(
+                schema_name.clone(),
+                table_name.clone(),
+                fk_name,
+                source_columns,
+                schema_of(&cfk.target_table),
+                maps.table(&cfk.target_table),
+                cfk.target_columns
+                    .iter()
+                    .map(|c| maps.field(&cfk.target_table, c))
+                    .collect(),
+            );
+            if let Some(on_delete) = &cfk.on_delete {
+                fk = fk.on_delete(on_delete.clone());
+            }
+            if let Some(on_update) = &cfk.on_update {
+                fk = fk.on_update(on_update.clone());
+            }
+            if cfk.deferrable {
+                fk = fk.deferrable();
+            }
+            if cfk.initially_deferred {
+                fk = fk.initially_deferred();
+            }
+            snapshot.add_entity(PostgresEntity::ForeignKey(fk));
+        }
+
+        // Table-level UNIQUE(...) attributes: `{table}_{cols}_key` naming.
+        for unique in &table.spec.unique_constraints {
+            let columns: Vec<String> = unique
+                .columns
+                .iter()
+                .map(|field| maps.field(&table.name, field))
+                .collect();
+            let name = unique
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("{table_name}_{}_key", columns.join("_")));
+            let mut constraint = UniqueConstraint::from_strings(
+                schema_name.clone(),
+                table_name.clone(),
+                name,
+                columns,
+            );
+            constraint.name_explicit = unique.name.is_some();
+            constraint.nulls_not_distinct = unique.nulls_not_distinct;
+            constraint.deferrable = unique.deferrable;
+            constraint.initially_deferred = unique.initially_deferred;
+            snapshot.add_entity(PostgresEntity::UniqueConstraint(constraint));
+        }
+
+        // Table-level CHECK(...) attributes, macro naming (see SQLite twin).
+        let check_count = table.spec.check_constraints.len();
+        for (idx, check) in table.spec.check_constraints.iter().enumerate() {
+            let name = check.name.clone().unwrap_or_else(|| {
+                if check_count == 1 {
+                    format!("{table_name}_check")
+                } else {
+                    format!("{table_name}_check{}", idx + 1)
+                }
+            });
+            snapshot.add_entity(PostgresEntity::CheckConstraint(CheckConstraint::new(
+                schema_name.clone(),
+                table_name.clone(),
+                name,
+                check.expr.clone(),
+            )));
+        }
+    }
+
+    // Indexes targeting kept tables.
+    for index in indexes_for(result, Dialect::PostgreSQL, &kept) {
+        let table_struct = index.table_name().unwrap_or_default();
+        let index_name = index
+            .spec
+            .explicit_name
+            .clone()
+            .unwrap_or_else(|| crate::parser::postgres_index_name(&index.name));
+        let columns: Vec<IndexColumn> = index
+            .spec
+            .column_refs
+            .iter()
+            .map(|(table, field)| IndexColumn::new(maps.field(table, field)))
+            .collect();
+
+        snapshot.add_entity(PostgresEntity::Index(Index {
+            schema: schema_of(table_struct).into(),
+            table: maps.table(table_struct).into(),
+            name: index_name.into(),
+            name_explicit: false,
+            columns,
+            is_unique: index.spec.unique,
+            where_clause: index.spec.where_clause.clone().map(Cow::Owned),
+            method: index.spec.method.clone().map(Cow::Owned),
+            with: None,
+            concurrently: index.spec.concurrent,
+        }));
+    }
+
+    // Enums: created in the schema from `#[postgres_enum(schema = "...")]`
+    // (default `public`), matching the derive's `ENUM_SCHEMA` const.
+    let mut enums: Vec<_> = result
+        .enums
+        .values()
+        .filter(|e| e.dialect == Dialect::PostgreSQL)
+        .collect();
+    enums.sort_by_key(|e| e.order);
+    for parsed in enums {
+        snapshot.add_entity(PostgresEntity::Enum(PgEnum::from_strings(
+            parsed
+                .schema
+                .clone()
+                .unwrap_or_else(|| "public".to_string()),
+            parsed.name.clone(),
+            parsed.variants.clone(),
+        )));
+    }
+
+    // Views.
+    let mut views: Vec<_> = result
+        .views
+        .values()
+        .filter(|v| v.dialect == Dialect::PostgreSQL)
+        .collect();
+    views.sort_by_key(|v| v.order);
+    for parsed in views {
+        let schema = parsed
+            .schema
+            .clone()
+            .unwrap_or_else(|| "public".to_string());
+        let name = parsed
+            .explicit_name
+            .clone()
+            .unwrap_or_else(|| parsed.name.to_snake_case());
+        let mut view = View::new(schema, name);
+        view.definition = parsed.definition.clone().map(Cow::Owned);
+        view.materialized = parsed.materialized;
+        view.is_existing = parsed.existing;
+        view.with_no_data = if parsed.with_no_data {
+            Some(true)
+        } else {
+            None
+        };
+        view.using = parsed.using.clone().map(Cow::Owned);
+        view.tablespace = parsed.tablespace.clone().map(Cow::Owned);
+        snapshot.add_entity(PostgresEntity::View(view));
+    }
+
+    // Policies (RLS) targeting kept tables.
+    for parsed in policies {
+        let schema = schema_of(&parsed.table);
+        let table = maps.table(&parsed.table);
+        let name = parsed
+            .explicit_name
+            .clone()
+            .unwrap_or_else(|| heck::AsSnakeCase(parsed.name.as_str()).to_string());
+        let mut policy = Policy::new(schema, table, name);
+        policy.as_clause = parsed.as_clause.clone().map(Cow::Owned);
+        policy.for_clause = parsed.for_clause.clone().map(Cow::Owned);
+        if !parsed.to.is_empty() {
+            policy.to = Some(parsed.to.iter().cloned().map(Cow::Owned).collect());
+        }
+        policy.using = parsed.using.clone().map(Cow::Owned);
+        policy.with_check = parsed.with_check.clone().map(Cow::Owned);
+        snapshot.add_entity(PostgresEntity::Policy(policy));
     }
 
     snapshot
 }
 
-/// Build an `SQLite` column from a parsed field
-fn build_sqlite_column(
-    table_name: &str,
-    field: &ParsedField,
-    col_name: &str,
-) -> crate::sqlite::Column {
-    use crate::sqlite::Column;
-
-    let col_type = resolve_sqlite_type(field);
-
-    let mut col = Column::new(
-        table_name.to_string(),
-        col_name.to_string(),
-        sqlite_type_sql(col_type),
-    );
-
-    if !field.is_nullable() {
-        col = col.not_null();
-    }
-
-    if field.is_autoincrement() {
-        col = col.autoincrement();
-    }
-
-    if let Some(default) = field.default_value() {
-        col = col.default_value(default);
-    }
-
-    col
-}
-
-fn resolve_postgres_type(field: &ParsedField) -> PostgreSQLType {
-    if field_has_marker(field, "smallserial") {
-        PostgreSQLType::Smallserial
-    } else if field_has_marker(field, "bigserial") {
-        PostgreSQLType::Bigserial
-    } else if field_has_marker(field, "serial") {
-        PostgreSQLType::Serial
-    } else if field_has_marker(field, "json") {
-        PostgreSQLType::Json
-    } else if field_has_marker(field, "jsonb") {
-        PostgreSQLType::Jsonb
-    } else {
-        infer_postgres_type(&field.ty)
-    }
-}
-
-fn postgres_identity(
-    schema_name: &str,
-    table_name: &str,
-    col_name: &str,
-    field: &ParsedField,
-) -> Option<crate::postgres::Identity> {
-    use crate::postgres::Identity;
-    use crate::postgres::ddl::IdentityType;
-
-    if !field_has_marker(field, "identity") {
-        return None;
-    }
-
-    let type_ = match field_marker_args(field, "identity")
-        .map(str::trim)
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
-        Some("by_default") => IdentityType::ByDefault,
-        Some("always") | None => IdentityType::Always,
-        Some(_) => IdentityType::Always,
-    };
-
-    Some(Identity {
-        name: format!("{table_name}_{col_name}_seq").into(),
-        schema: Some(schema_name.to_string().into()),
-        type_,
-        increment: None,
-        min_value: None,
-        max_value: None,
-        start_with: None,
-        cache: None,
-        cycle: None,
-    })
-}
-
-fn postgres_generated(field: &ParsedField) -> Option<crate::postgres::Generated> {
-    use crate::postgres::Generated;
-    use crate::postgres::ddl::GeneratedType;
-
-    let args = field_marker_args(field, "generated")?;
-    let parts = split_attr_parts(args);
-    let [kind, expression] = parts.as_slice() else {
-        return None;
-    };
-
-    if !kind.trim().eq_ignore_ascii_case("stored") {
-        return None;
-    }
-
-    Some(Generated {
-        expression: trim_wrapping_quotes(expression).into(),
-        gen_type: GeneratedType::Stored,
-    })
-}
-
-/// Build a `PostgreSQL` column from a parsed field
-fn build_postgres_column(
-    schema_name: &str,
-    table_name: &str,
-    field: &ParsedField,
-    col_name: &str,
-) -> crate::postgres::Column {
-    use crate::postgres::Column;
-
-    let col_type = resolve_postgres_type(field);
-    let generated = postgres_generated(field);
-    let identity = postgres_identity(schema_name, table_name, col_name, field);
-    let default = if matches!(
-        &col_type,
-        PostgreSQLType::Smallserial | PostgreSQLType::Serial | PostgreSQLType::Bigserial
-    ) || generated.is_some()
-        || identity.is_some()
-    {
-        None
-    } else {
-        field.default_value().map(Cow::Owned)
-    };
-
-    Column {
-        schema: schema_name.to_string().into(),
-        table: table_name.to_string().into(),
-        name: col_name.to_string().into(),
-        sql_type: postgres_type_sql(&col_type).into(),
-        type_schema: None,
-        not_null: !field.is_nullable(),
-        default,
-        generated,
-        identity,
-        dimensions: None,
-        comment: None,
-        collate: field_marker_value(field, "collate").map(Cow::Owned),
-        ordinal_position: None,
-    }
-}
-
-/// Build an `SQLite` foreign key from a parsed field
-fn build_sqlite_foreign_key(
-    table_name: &str,
-    col_name: &str,
-    field: &ParsedField,
-    ref_target: &str,
-    table_name_map: &HashMap<String, String>,
-    field_name_map: &HashMap<(String, String), String>,
-    casing: Casing,
-) -> Option<crate::sqlite::ForeignKey> {
-    use crate::sqlite::ForeignKey;
-
-    let target = MemberRef::parse(ref_target)?;
-
-    let ref_table = table_name_map
-        .get(target.table)
-        .cloned()
-        .unwrap_or_else(|| apply_casing(target.table, casing));
-    let ref_column = field_name_map
-        .get(&(target.table.to_string(), target.field.to_string()))
-        .cloned()
-        .unwrap_or_else(|| apply_casing(target.field, casing));
-    let fk_name = format!("{table_name}_{col_name}_{ref_table}_{ref_column}_fk");
-
-    let mut fk = ForeignKey::from_strings(
-        table_name.to_string(),
-        fk_name,
-        vec![col_name.to_string()],
-        ref_table,
-        vec![ref_column],
-    );
-
-    fk.on_delete = field.on_delete().map(Cow::Owned);
-    fk.on_update = field.on_update().map(Cow::Owned);
-
-    Some(fk)
-}
-
-/// Build a `PostgreSQL` foreign key from a parsed field
-#[allow(clippy::too_many_arguments)]
-fn build_postgres_foreign_key(
-    schema_name: &str,
-    table_name: &str,
-    col_name: &str,
-    field: &ParsedField,
-    ref_target: &str,
-    table_name_map: &HashMap<String, String>,
-    field_name_map: &HashMap<(String, String), String>,
-    table_schemas: &HashMap<String, String>,
-    casing: Casing,
-) -> Option<crate::postgres::ForeignKey> {
-    use crate::postgres::ForeignKey;
-
-    let target = MemberRef::parse(ref_target)?;
-    let ref_table_struct = target.table;
-    let ref_table = table_name_map
-        .get(ref_table_struct)
-        .cloned()
-        .unwrap_or_else(|| apply_casing(ref_table_struct, casing));
-    let ref_column = field_name_map
-        .get(&(ref_table_struct.to_string(), target.field.to_string()))
-        .cloned()
-        .unwrap_or_else(|| apply_casing(target.field, casing));
-    let ref_schema = table_schemas
-        .get(ref_table_struct)
-        .cloned()
-        .unwrap_or_else(|| "public".to_string());
-    let fk_name = format!("{table_name}_{col_name}_{ref_table}_{ref_column}_fk");
-
-    Some(ForeignKey {
-        schema: schema_name.to_string().into(),
-        table: table_name.to_string().into(),
-        name: fk_name.into(),
-        name_explicit: false,
-        columns: Cow::Owned(vec![Cow::Owned(col_name.to_string())]),
-        schema_to: ref_schema.into(),
-        table_to: ref_table.into(),
-        columns_to: Cow::Owned(vec![Cow::Owned(ref_column)]),
-        on_update: field.on_update().map(Cow::Owned),
-        on_delete: field.on_delete().map(Cow::Owned),
-        deferrable: false,
-        initially_deferred: false,
-    })
-}
-
-/// Build an `SQLite` index from a parsed index
-fn build_sqlite_index(
-    index: &ParsedIndex,
-    table_name_map: &HashMap<String, String>,
-    field_name_map: &HashMap<(String, String), String>,
-    casing: Casing,
-) -> crate::sqlite::Index {
-    use crate::sqlite::{Index, IndexColumn, IndexOrigin};
-
-    let table_struct = index.table_name().unwrap_or_default();
-    let table_name = table_name_map
-        .get(table_struct)
-        .cloned()
-        .unwrap_or_else(|| apply_casing(table_struct, casing));
-    let index_attrs = ParsedIndexAttrs::parse(&index.attr);
-    let index_name = index_attrs
-        .name
-        .unwrap_or_else(|| apply_casing(&index.name, casing));
-
-    let columns: Vec<IndexColumn> = index
-        .columns
-        .iter()
-        .filter_map(|c| {
-            let target = MemberRef::parse(c)?;
-            let col_name = field_name_map
-                .get(&(target.table.to_string(), target.field.to_string()))
-                .cloned()
-                .unwrap_or_else(|| apply_casing(target.field, casing));
-            Some(IndexColumn::new(col_name))
-        })
-        .collect();
-
-    Index {
-        table: table_name.into(),
-        name: index_name.into(),
-        columns,
-        is_unique: index.is_unique(),
-        where_clause: None,
-        origin: IndexOrigin::Manual,
-    }
-}
-
-/// Build a `PostgreSQL` index from a parsed index
-fn build_postgres_index(
-    index: &ParsedIndex,
-    table_name_map: &HashMap<String, String>,
-    field_name_map: &HashMap<(String, String), String>,
-    table_schemas: &HashMap<String, String>,
-    casing: Casing,
-) -> crate::postgres::Index {
-    use crate::postgres::{Index, IndexColumn};
-
-    let table_struct = index.table_name().unwrap_or_default();
-    let table_name = table_name_map
-        .get(table_struct)
-        .cloned()
-        .unwrap_or_else(|| apply_casing(table_struct, casing));
-    let schema_name = table_schemas
-        .get(table_struct)
-        .cloned()
-        .unwrap_or_else(|| "public".to_string());
-    let index_attrs = ParsedIndexAttrs::parse(&index.attr);
-    let index_name = index_attrs
-        .name
-        .unwrap_or_else(|| apply_casing(&index.name, casing));
-
-    let columns: Vec<IndexColumn> = index
-        .columns
-        .iter()
-        .filter_map(|c| {
-            let target = MemberRef::parse(c)?;
-            let col_name = field_name_map
-                .get(&(target.table.to_string(), target.field.to_string()))
-                .cloned()
-                .unwrap_or_else(|| apply_casing(target.field, casing));
-            Some(IndexColumn::new(col_name))
-        })
-        .collect();
-
-    Index {
-        schema: schema_name.into(),
-        table: table_name.into(),
-        name: index_name.into(),
-        name_explicit: false,
-        columns,
-        is_unique: index.is_unique(),
-        where_clause: index.where_clause().map(Cow::Owned),
-        method: index.method().map(Cow::Owned),
-        with: None,
-        concurrently: index.is_concurrent(),
-    }
-}
-
-/// Infer `SQLite` type from Rust type string
-fn infer_sqlite_type(rust_type: &str) -> SQLiteType {
-    match SQLiteTypeCategory::from_type_string(rust_type) {
-        SQLiteTypeCategory::Unknown => SQLiteType::Any,
-        category => category.to_sqlite_type().unwrap_or(SQLiteType::Any),
-    }
-}
-
-/// Infer `PostgreSQL` type from Rust type string
-fn infer_postgres_type(rust_type: &str) -> PostgreSQLType {
-    let base_type = rust_type
-        .trim()
-        .strip_prefix("Option<")
-        .and_then(|s| s.strip_suffix(">"))
-        .unwrap_or(rust_type)
-        .trim();
-
-    match base_type {
-        "u8" | "u16" | "u32" => PostgreSQLType::Integer,
-        "u64" => PostgreSQLType::Bigint,
-        "&str" | "str" => PostgreSQLType::Text,
-        "[u8]" => PostgreSQLType::Bytea,
-        _ if base_type.contains("Decimal") => PostgreSQLType::Numeric,
-        _ => PgTypeCategory::from_type_string(rust_type)
-            .to_postgres_type()
-            .unwrap_or(PostgreSQLType::Text),
-    }
-}
+// =============================================================================
+// Tests
+// =============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::SchemaParser;
 
-    #[test]
-    fn test_infer_sqlite_type() {
-        assert_eq!(infer_sqlite_type("i32"), SQLiteType::Integer);
-        assert_eq!(infer_sqlite_type("i64"), SQLiteType::Integer);
-        assert_eq!(infer_sqlite_type("f64"), SQLiteType::Real);
-        assert_eq!(infer_sqlite_type("String"), SQLiteType::Text);
-        assert_eq!(
-            infer_sqlite_type("compact_str::CompactString"),
-            SQLiteType::Text
+    fn sqlite_snapshot(code: &str) -> SQLiteSnapshot {
+        let result = SchemaParser::parse(code);
+        assert!(
+            result.errors.is_empty(),
+            "parse errors: {:?}",
+            result.errors
         );
-        assert_eq!(infer_sqlite_type("bytes::Bytes"), SQLiteType::Blob);
-        assert_eq!(
-            infer_sqlite_type("smallvec::SmallVec<[u8; 16]>"),
-            SQLiteType::Blob
-        );
-        assert_eq!(infer_sqlite_type("Option<String>"), SQLiteType::Text);
-        assert_eq!(infer_sqlite_type("Vec<u8>"), SQLiteType::Blob);
-        assert_eq!(infer_sqlite_type("Uuid"), SQLiteType::Blob);
-        assert_eq!(infer_sqlite_type("uuid::Uuid"), SQLiteType::Blob);
-        assert_eq!(infer_sqlite_type("Option<uuid::Uuid>"), SQLiteType::Blob);
+        match Snapshot::from_parse_result(&result, Dialect::SQLite, None) {
+            Snapshot::Sqlite(s) => s,
+            Snapshot::Postgres(_) => panic!("expected SQLite snapshot"),
+        }
     }
 
-    #[test]
-    fn test_infer_postgres_type() {
-        assert_eq!(infer_postgres_type("i32"), PostgreSQLType::Integer);
-        assert_eq!(infer_postgres_type("i64"), PostgreSQLType::Bigint);
-        assert_eq!(infer_postgres_type("bool"), PostgreSQLType::Boolean);
-        assert_eq!(infer_postgres_type("String"), PostgreSQLType::Text);
-        assert_eq!(
-            infer_postgres_type("compact_str::CompactString"),
-            PostgreSQLType::Varchar
+    fn postgres_snapshot(code: &str) -> PostgresSnapshot {
+        let result = SchemaParser::parse(code);
+        assert!(
+            result.errors.is_empty(),
+            "parse errors: {:?}",
+            result.errors
         );
-        assert_eq!(
-            infer_postgres_type("arrayvec::ArrayString<32>"),
-            PostgreSQLType::Varchar
-        );
-        assert_eq!(infer_postgres_type("bytes::Bytes"), PostgreSQLType::Bytea);
-        assert_eq!(
-            infer_postgres_type("smallvec::SmallVec<[u8; 16]>"),
-            PostgreSQLType::Bytea
-        );
-        assert_eq!(infer_postgres_type("Vec<u8>"), PostgreSQLType::Bytea);
-        assert_eq!(infer_postgres_type("Uuid"), PostgreSQLType::Uuid);
-        assert_eq!(
-            infer_postgres_type("serde_json::Value"),
-            PostgreSQLType::Jsonb
-        );
+        match Snapshot::from_parse_result(&result, Dialect::PostgreSQL, None) {
+            Snapshot::Postgres(s) => s,
+            Snapshot::Sqlite(_) => panic!("expected Postgres snapshot"),
+        }
     }
 
     #[test]
     fn test_postgres_snapshot_preserves_column_markers() {
-        use crate::parser::SchemaParser;
         use crate::postgres::ddl::{GeneratedType, IdentityType, PostgresEntity};
 
         let code = r#"
 #[PostgresTable(schema = "app")]
 pub struct PgMarkers {
-    #[column(serial, primary, default = 1)]
+    #[column(serial, primary)]
     pub id: i32,
     #[column(smallserial)]
     pub small_id: i16,
@@ -973,22 +981,16 @@ pub struct PgMarkers {
     pub json_doc: AppDoc,
     #[column(jsonb)]
     pub jsonb_doc: AppDoc,
-    #[column(identity(by_default), default = 2)]
+    #[column(identity(by_default))]
     pub identity_id: i32,
-    #[column(generated(stored, "first_name || ' ' || last_name"), default = "'ignored'")]
+    #[column(generated(stored, "first_name || ' ' || last_name"))]
     pub full_name: String,
     #[column(collate = "C")]
     pub sortable: String,
 }
 "#;
 
-        let result = SchemaParser::parse(code);
-        let snapshot = parse_result_to_snapshot(&result, Dialect::PostgreSQL, None);
-        let snap = match snapshot {
-            Snapshot::Postgres(s) => s,
-            _ => panic!("Expected Postgres snapshot"),
-        };
-
+        let snap = postgres_snapshot(code);
         let column = |name: &str| {
             snap.ddl
                 .iter()
@@ -1004,20 +1006,22 @@ pub struct PgMarkers {
                 .expect("expected column")
         };
 
-        assert_eq!(column("id").sql_type.as_ref(), "serial");
+        // SQL types use the macro's spelling (uppercase `to_sql_type`).
+        assert_eq!(column("id").sql_type.as_ref(), "SERIAL");
         assert!(column("id").identity.is_none());
         assert!(column("id").default.is_none());
-        assert_eq!(column("small_id").sql_type.as_ref(), "smallserial");
-        assert_eq!(column("big_id").sql_type.as_ref(), "bigserial");
-        assert_eq!(column("json_doc").sql_type.as_ref(), "json");
-        assert_eq!(column("jsonb_doc").sql_type.as_ref(), "jsonb");
+        assert_eq!(column("small_id").sql_type.as_ref(), "SMALLSERIAL");
+        assert_eq!(column("big_id").sql_type.as_ref(), "BIGSERIAL");
+        assert_eq!(column("json_doc").sql_type.as_ref(), "JSON");
+        assert_eq!(column("jsonb_doc").sql_type.as_ref(), "JSONB");
 
         let identity = column("identity_id")
             .identity
             .as_ref()
             .expect("expected identity");
         assert_eq!(identity.type_, IdentityType::ByDefault);
-        assert!(column("identity_id").default.is_none());
+        assert_eq!(identity.name.as_ref(), "pg_markers_identity_id_seq");
+        assert_eq!(identity.schema.as_deref(), Some("app"));
 
         let generated = column("full_name")
             .generated
@@ -1036,7 +1040,6 @@ pub struct PgMarkers {
 
     #[test]
     fn test_sqlite_uuid_snapshot_storage_respects_column_type() {
-        use crate::parser::SchemaParser;
         use crate::sqlite::SqliteEntity;
 
         let code = r#"
@@ -1054,13 +1057,7 @@ pub struct UuidStorage {
 }
 "#;
 
-        let result = SchemaParser::parse(code);
-        let snapshot = parse_result_to_snapshot(&result, Dialect::SQLite, None);
-        let snap = match snapshot {
-            Snapshot::Sqlite(s) => s,
-            _ => panic!("Expected SQLite snapshot"),
-        };
-
+        let snap = sqlite_snapshot(code);
         let column_type = |name: &str| {
             snap.ddl
                 .iter()
@@ -1076,16 +1073,780 @@ pub struct UuidStorage {
                 .expect("expected column")
         };
 
-        assert_eq!(column_type("blob_uuid"), "blob");
-        assert_eq!(column_type("text_uuid"), "text");
-        assert_eq!(column_type("legacy_blob_uuid"), "blob");
-        assert_eq!(column_type("legacy_text_uuid"), "text");
+        assert_eq!(column_type("blob_uuid"), "BLOB");
+        assert_eq!(column_type("text_uuid"), "TEXT");
+        assert_eq!(column_type("legacy_blob_uuid"), "BLOB");
+        assert_eq!(column_type("legacy_text_uuid"), "TEXT");
+    }
+
+    #[test]
+    fn test_sqlite_string_defaults_are_sql_quoted() {
+        // P4: string defaults become SQL-quoted with '' doubling, matching
+        // the macro's rendering; P9: default_sql passes through with the
+        // macro's normalization.
+        use crate::sqlite::SqliteEntity;
+
+        let code = r#"
+#[SQLiteTable]
+pub struct Defaults {
+    #[column(default = "hello")]
+    pub greeting: String,
+    #[column(default = "it's")]
+    pub quoted: String,
+    #[column(default_sql = "CURRENT_TIMESTAMP")]
+    pub created_at: String,
+    #[column(default_sql = "strftime('%s','now')")]
+    pub epoch: i64,
+    #[column(default = true)]
+    pub active: bool,
+}
+"#;
+
+        let snap = sqlite_snapshot(code);
+        let default_of = |name: &str| {
+            snap.ddl
+                .iter()
+                .find_map(|entity| {
+                    if let SqliteEntity::Column(column) = entity
+                        && column.name.as_ref() == name
+                    {
+                        Some(column.default.as_deref().map(str::to_string))
+                    } else {
+                        None
+                    }
+                })
+                .expect("expected column")
+        };
+
+        assert_eq!(default_of("greeting").as_deref(), Some("'hello'"));
+        assert_eq!(default_of("quoted").as_deref(), Some("'it''s'"));
+        assert_eq!(
+            default_of("created_at").as_deref(),
+            Some("CURRENT_TIMESTAMP")
+        );
+        assert_eq!(
+            default_of("epoch").as_deref(),
+            Some("(strftime('%s','now'))")
+        );
+        assert_eq!(default_of("active").as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn test_sqlite_fk_actions_are_normalized_and_names_canonical() {
+        // P3: SET_NULL renders as `SET NULL`; P14: canonical `fk_..._fk` /
+        // `{table}_pk` names.
+        use crate::sqlite::SqliteEntity;
+
+        let code = r#"
+#[SQLiteTable]
+pub struct Users {
+    #[column(primary)]
+    pub id: i64,
+}
+
+#[SQLiteTable]
+pub struct Posts {
+    #[column(primary)]
+    pub id: i64,
+    #[column(references = Users::id, on_delete = SET_NULL, on_update = Cascade)]
+    pub author_id: i64,
+}
+"#;
+
+        let snap = sqlite_snapshot(code);
+        let fk = snap
+            .ddl
+            .iter()
+            .find_map(|e| {
+                if let SqliteEntity::ForeignKey(fk) = e {
+                    Some(fk)
+                } else {
+                    None
+                }
+            })
+            .expect("expected foreign key");
+        assert_eq!(fk.name.as_ref(), "fk_posts_author_id_users_id_fk");
+        assert_eq!(fk.on_delete.as_deref(), Some("SET NULL"));
+        assert_eq!(fk.on_update.as_deref(), Some("CASCADE"));
+
+        let pk_names: Vec<&str> = snap
+            .ddl
+            .iter()
+            .filter_map(|e| {
+                if let SqliteEntity::PrimaryKey(pk) = e {
+                    Some(pk.name.as_ref())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(pk_names.contains(&"users_pk"));
+        assert!(pk_names.contains(&"posts_pk"));
+    }
+
+    #[test]
+    fn test_sqlite_generated_collate_check_table_constraints() {
+        // P10 + P8: generated/collate/check plus table-level
+        // FOREIGN_KEY/UNIQUE/CHECK all survive into the snapshot.
+        use crate::sqlite::SqliteEntity;
+
+        let code = r#"
+#[SQLiteTable]
+pub struct Parent {
+    #[column(primary)]
+    pub id_a: i64,
+    #[column(primary)]
+    pub id_b: i64,
+}
+
+#[SQLiteTable(
+    FOREIGN_KEY(columns(pa, pb), references(Parent, id_a, id_b), on_delete = "CASCADE"),
+    UNIQUE(columns(first, last), name = "people_name_unique"),
+    CHECK(expr = "score >= 0")
+)]
+pub struct People {
+    #[column(primary)]
+    pub id: i64,
+    pub pa: i64,
+    pub pb: i64,
+    pub first: String,
+    #[column(collate = NOCASE)]
+    pub last: String,
+    #[column(check = "score <= 100")]
+    pub score: i64,
+    #[column(generated(stored, "first || ' ' || last"))]
+    pub full_name: String,
+    #[column(generated(virtual, "score * 2"))]
+    pub double_score: i64,
+}
+"#;
+
+        let snap = sqlite_snapshot(code);
+
+        // Composite PK keeps declaration order in one entity.
+        let parent_pk = snap
+            .ddl
+            .iter()
+            .find_map(|e| match e {
+                SqliteEntity::PrimaryKey(pk) if pk.table.as_ref() == "parent" => Some(pk),
+                _ => None,
+            })
+            .expect("parent pk");
+        assert_eq!(parent_pk.name.as_ref(), "parent_pk");
+        assert_eq!(
+            parent_pk
+                .columns
+                .iter()
+                .map(std::convert::AsRef::as_ref)
+                .collect::<Vec<_>>(),
+            vec!["id_a", "id_b"]
+        );
+
+        let fk = snap
+            .ddl
+            .iter()
+            .find_map(|e| match e {
+                SqliteEntity::ForeignKey(fk) => Some(fk),
+                _ => None,
+            })
+            .expect("composite fk");
+        assert_eq!(fk.name.as_ref(), "fk_people_pa_pb_parent_id_a_id_b_fk");
+        assert_eq!(fk.on_delete.as_deref(), Some("CASCADE"));
+
+        let unique = snap
+            .ddl
+            .iter()
+            .find_map(|e| match e {
+                SqliteEntity::UniqueConstraint(u) => Some(u),
+                _ => None,
+            })
+            .expect("table unique");
+        assert_eq!(unique.name.as_ref(), "people_name_unique");
+        assert!(unique.name_explicit);
+
+        let checks: Vec<&crate::sqlite::CheckConstraint> = snap
+            .ddl
+            .iter()
+            .filter_map(|e| match e {
+                SqliteEntity::CheckConstraint(c) => Some(c),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            checks
+                .iter()
+                .any(|c| c.name.as_ref() == "people_score_check")
+        );
+        assert!(checks.iter().any(|c| c.name.as_ref() == "people_check"));
+
+        let column = |name: &str| {
+            snap.ddl
+                .iter()
+                .find_map(|e| match e {
+                    SqliteEntity::Column(c) if c.name.as_ref() == name => Some(c),
+                    _ => None,
+                })
+                .expect("column")
+        };
+        assert_eq!(column("last").collate.as_deref(), Some("NOCASE"));
+        let full_name = column("full_name").generated.as_ref().expect("generated");
+        assert_eq!(full_name.expression.as_ref(), "(first || ' ' || last)");
+        assert_eq!(full_name.gen_type, crate::sqlite::GeneratedType::Stored);
+        assert_eq!(
+            column("double_score")
+                .generated
+                .as_ref()
+                .expect("generated")
+                .gen_type,
+            crate::sqlite::GeneratedType::Virtual
+        );
+    }
+
+    #[test]
+    fn test_postgres_schema_and_index_options_are_preserved() {
+        use crate::postgres::ddl::PostgresEntity;
+
+        let code = r#"
+#[PostgresTable(schema = "auth")]
+pub struct Users {
+    #[column(primary)]
+    pub id: i32,
+}
+
+#[PostgresTable(schema = "app")]
+pub struct Sessions {
+    #[column(primary)]
+    pub id: i32,
+    #[column(references = Users::id)]
+    pub user_id: i32,
+}
+
+#[PostgresIndex(concurrent, method = "gin", where = "user_id > 0")]
+pub struct SessionsUserIdx(Sessions::user_id);
+"#;
+
+        let snap = postgres_snapshot(code);
+
+        let has_auth_schema = snap
+            .ddl
+            .iter()
+            .any(|e| matches!(e, PostgresEntity::Schema(s) if s.name.as_ref() == "auth"));
+        let has_app_schema = snap
+            .ddl
+            .iter()
+            .any(|e| matches!(e, PostgresEntity::Schema(s) if s.name.as_ref() == "app"));
+        assert!(has_auth_schema, "missing auth schema entity");
+        assert!(has_app_schema, "missing app schema entity");
+
+        let fk = snap.ddl.iter().find_map(|e| {
+            if let PostgresEntity::ForeignKey(fk) = e {
+                Some(fk)
+            } else {
+                None
+            }
+        });
+        let fk = fk.expect("expected foreign key");
+        assert_eq!(fk.schema.as_ref(), "app");
+        assert_eq!(fk.schema_to.as_ref(), "auth");
+        assert_eq!(fk.name.as_ref(), "sessions_user_id_fkey");
+
+        let idx = snap.ddl.iter().find_map(|e| {
+            if let PostgresEntity::Index(i) = e {
+                Some(i)
+            } else {
+                None
+            }
+        });
+        let idx = idx.expect("expected index");
+        assert!(idx.concurrently);
+        assert_eq!(idx.method.as_deref(), Some("gin"));
+        assert_eq!(idx.where_clause.as_deref(), Some("user_id > 0"));
+        assert_eq!(idx.schema.as_ref(), "app");
+        assert_eq!(idx.name.as_ref(), "sessions_user_idx");
+    }
+
+    #[test]
+    fn test_postgres_deferrable_arrays_and_key_names() {
+        // P13: deferrable FKs, Vec<T> arrays; P14: `{t}_pkey` / `{t}_{c}_key`.
+        use crate::postgres::ddl::PostgresEntity;
+
+        let code = r#"
+#[PostgresTable]
+pub struct Users {
+    #[column(primary)]
+    pub id: i32,
+    #[column(unique)]
+    pub email: String,
+    pub tags: Vec<String>,
+}
+
+#[PostgresTable]
+pub struct Sessions {
+    #[column(primary)]
+    pub id: i32,
+    #[column(references = Users::id, deferrable, initially_deferred, on_delete = SET_NULL)]
+    pub user_id: i32,
+}
+"#;
+
+        let snap = postgres_snapshot(code);
+
+        let tags = snap
+            .ddl
+            .iter()
+            .find_map(|e| match e {
+                PostgresEntity::Column(c) if c.name.as_ref() == "tags" => Some(c),
+                _ => None,
+            })
+            .expect("tags column");
+        assert_eq!(tags.sql_type.as_ref(), "TEXT");
+        assert_eq!(tags.dimensions, Some(1));
+
+        let fk = snap
+            .ddl
+            .iter()
+            .find_map(|e| match e {
+                PostgresEntity::ForeignKey(fk) => Some(fk),
+                _ => None,
+            })
+            .expect("fk");
+        assert!(fk.deferrable);
+        assert!(fk.initially_deferred);
+        assert_eq!(fk.on_delete.as_deref(), Some("SET NULL"));
+
+        let unique = snap
+            .ddl
+            .iter()
+            .find_map(|e| match e {
+                PostgresEntity::UniqueConstraint(u) => Some(u),
+                _ => None,
+            })
+            .expect("unique");
+        assert_eq!(unique.name.as_ref(), "users_email_key");
+
+        let pk = snap
+            .ddl
+            .iter()
+            .find_map(|e| match e {
+                PostgresEntity::PrimaryKey(pk) if pk.table.as_ref() == "users" => Some(pk),
+                _ => None,
+            })
+            .expect("pk");
+        assert_eq!(pk.name.as_ref(), "users_pkey");
+    }
+
+    #[test]
+    fn test_postgres_enum_view_policy_entities() {
+        // P8: enums, views, and policies materialize as snapshot entities.
+        use crate::postgres::ddl::PostgresEntity;
+
+        let code = r#"
+#[derive(PostgresEnum, Default, Clone)]
+pub enum OrderStatus {
+    #[default]
+    Pending,
+    Shipped,
+}
+
+#[PostgresTable(RLS)]
+pub struct Orders {
+    #[column(primary)]
+    pub id: i32,
+    #[column(enum)]
+    pub status: OrderStatus,
+}
+
+#[PostgresView(definition = "SELECT id FROM orders WHERE status = 'Pending'")]
+pub struct PendingOrders {
+    pub id: i32,
+}
+
+#[PostgresPolicy(AS = "PERMISSIVE", FOR = "SELECT", TO(authenticated), USING = "true")]
+pub struct OrdersPolicy(Orders);
+"#;
+
+        let snap = postgres_snapshot(code);
+
+        let pg_enum = snap
+            .ddl
+            .iter()
+            .find_map(|e| match e {
+                PostgresEntity::Enum(en) => Some(en),
+                _ => None,
+            })
+            .expect("enum entity");
+        assert_eq!(pg_enum.name.as_ref(), "OrderStatus");
+        assert_eq!(pg_enum.schema.as_ref(), "public");
+        assert_eq!(
+            pg_enum
+                .values
+                .iter()
+                .map(std::convert::AsRef::as_ref)
+                .collect::<Vec<_>>(),
+            vec!["Pending", "Shipped"]
+        );
+
+        let status = snap
+            .ddl
+            .iter()
+            .find_map(|e| match e {
+                PostgresEntity::Column(c) if c.name.as_ref() == "status" => Some(c),
+                _ => None,
+            })
+            .expect("status column");
+        assert_eq!(status.sql_type.as_ref(), "OrderStatus");
+        assert_eq!(status.type_schema.as_deref(), Some("public"));
+
+        let orders = snap
+            .ddl
+            .iter()
+            .find_map(|e| match e {
+                PostgresEntity::Table(t) => Some(t),
+                _ => None,
+            })
+            .expect("orders table");
+        assert_eq!(orders.is_rls_enabled, Some(true));
+
+        let view = snap
+            .ddl
+            .iter()
+            .find_map(|e| match e {
+                PostgresEntity::View(v) => Some(v),
+                _ => None,
+            })
+            .expect("view entity");
+        assert_eq!(view.name.as_ref(), "pending_orders");
+        assert_eq!(
+            view.definition.as_deref(),
+            Some("SELECT id FROM orders WHERE status = 'Pending'")
+        );
+
+        let policy = snap
+            .ddl
+            .iter()
+            .find_map(|e| match e {
+                PostgresEntity::Policy(p) => Some(p),
+                _ => None,
+            })
+            .expect("policy entity");
+        assert_eq!(policy.name.as_ref(), "orders_policy");
+        assert_eq!(policy.table.as_ref(), "orders");
+        assert_eq!(policy.as_clause.as_deref(), Some("PERMISSIVE"));
+        assert_eq!(policy.using.as_deref(), Some("true"));
+    }
+
+    #[test]
+    fn test_sqlite_view_entity() {
+        use crate::sqlite::SqliteEntity;
+
+        let code = r#"
+#[SQLiteTable]
+pub struct Users {
+    #[column(primary)]
+    pub id: i64,
+}
+
+#[SQLiteView(definition = "SELECT id FROM users")]
+pub struct AllUsers {
+    pub id: i64,
+}
+"#;
+
+        let snap = sqlite_snapshot(code);
+        let view = snap
+            .ddl
+            .iter()
+            .find_map(|e| match e {
+                SqliteEntity::View(v) => Some(v),
+                _ => None,
+            })
+            .expect("view entity");
+        assert_eq!(view.name.as_ref(), "all_users");
+        assert_eq!(view.definition.as_deref(), Some("SELECT id FROM users"));
+        assert!(!view.is_existing);
+    }
+
+    #[test]
+    fn test_casing_config_is_ignored_for_names() {
+        // P15: the macros always snake-case inferred names; a camelCase
+        // casing config must not change parser output.
+        use crate::sqlite::SqliteEntity;
+
+        let code = r#"
+#[SQLiteTable]
+pub struct UserAccounts {
+    #[column(primary)]
+    pub id: i64,
+    pub displayName: String,
+}
+"#;
+
+        let result = SchemaParser::parse(code);
+        let snapshot =
+            Snapshot::from_parse_result(&result, Dialect::SQLite, Some(Casing::CamelCase));
+        let snap = match snapshot {
+            Snapshot::Sqlite(s) => s,
+            Snapshot::Postgres(_) => panic!("expected SQLite snapshot"),
+        };
+
+        assert!(
+            snap.ddl
+                .iter()
+                .any(|e| matches!(e, SqliteEntity::Table(t) if t.name.as_ref() == "user_accounts"))
+        );
+        assert!(
+            snap.ddl
+                .iter()
+                .any(|e| matches!(e, SqliteEntity::Column(c) if c.name.as_ref() == "display_name"))
+        );
+    }
+
+    #[test]
+    fn test_schema_struct_scopes_tables() {
+        // Membership scoping matches runtime semantics: with a schema struct
+        // present, only member tables (and their indexes) are emitted.
+        use crate::sqlite::SqliteEntity;
+
+        let code = r#"
+#[SQLiteTable]
+pub struct Users {
+    #[column(primary)]
+    pub id: i64,
+}
+
+#[SQLiteTable]
+pub struct Orphan {
+    #[column(primary)]
+    pub id: i64,
+}
+
+#[derive(SQLiteSchema)]
+pub struct Schema {
+    pub users: Users,
+}
+"#;
+
+        let snap = sqlite_snapshot(code);
+        let table_names: Vec<&str> = snap
+            .ddl
+            .iter()
+            .filter_map(|e| match e {
+                SqliteEntity::Table(t) => Some(t.name.as_ref()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(table_names, vec!["users"]);
+    }
+
+    #[test]
+    fn test_no_schema_struct_keeps_all_tables() {
+        use crate::sqlite::SqliteEntity;
+
+        let code = r#"
+#[SQLiteTable]
+pub struct Users {
+    #[column(primary)]
+    pub id: i64,
+}
+
+#[SQLiteTable]
+pub struct Posts {
+    #[column(primary)]
+    pub id: i64,
+}
+"#;
+
+        let snap = sqlite_snapshot(code);
+        let table_count = snap
+            .ddl
+            .iter()
+            .filter(|e| matches!(e, SqliteEntity::Table(_)))
+            .count();
+        assert_eq!(table_count, 2);
+    }
+
+    #[test]
+    fn test_sqlite_table_options_and_pk_name_are_preserved() {
+        use crate::sqlite::SqliteEntity;
+
+        let code = r#"
+#[SQLiteTable(strict, without_rowid)]
+pub struct Accounts {
+    #[column(primary)]
+    pub id: i64,
+}
+"#;
+
+        let snap = sqlite_snapshot(code);
+        let table = snap.ddl.iter().find_map(|e| {
+            if let SqliteEntity::Table(t) = e {
+                Some(t)
+            } else {
+                None
+            }
+        });
+        let table = table.expect("expected sqlite table");
+        assert!(table.strict, "strict should be preserved");
+        assert!(table.without_rowid, "without_rowid should be preserved");
+
+        let pk = snap.ddl.iter().find_map(|e| {
+            if let SqliteEntity::PrimaryKey(pk) = e {
+                Some(pk)
+            } else {
+                None
+            }
+        });
+        let pk = pk.expect("expected sqlite primary key");
+        // Canonical macro/introspection name (`types::sqlite::ddl::name_for_pk`).
+        assert_eq!(pk.name.as_ref(), "accounts_pk");
+    }
+
+    #[test]
+    fn test_sqlite_casing_preserves_explicit_names() {
+        use crate::sqlite::SqliteEntity;
+
+        let code = r#"
+#[SQLiteTable(name = "users_tbl")]
+pub struct UsersTable {
+    #[column(name = "user_id", primary)]
+    pub userId: i64,
+    pub emailAddress: String,
+}
+
+#[SQLiteIndex(name = "users_tbl_email_idx")]
+pub struct UsersEmailIdx(UsersTable::emailAddress);
+"#;
+
+        let result = SchemaParser::parse(code);
+        let snapshot =
+            Snapshot::from_parse_result(&result, Dialect::SQLite, Some(Casing::SnakeCase));
+        let snap = match snapshot {
+            Snapshot::Sqlite(s) => s,
+            Snapshot::Postgres(_) => panic!("Expected SQLite snapshot"),
+        };
+
+        let table = snap.ddl.iter().find_map(|e| {
+            if let SqliteEntity::Table(t) = e {
+                Some(t)
+            } else {
+                None
+            }
+        });
+        let table = table.expect("expected sqlite table");
+        assert_eq!(table.name.as_ref(), "users_tbl");
+
+        let user_id = snap.ddl.iter().find_map(|e| {
+            if let SqliteEntity::Column(c) = e
+                && c.name.as_ref() == "user_id"
+            {
+                Some(c)
+            } else {
+                None
+            }
+        });
+        assert!(user_id.is_some(), "expected explicit column name user_id");
+
+        let email_col = snap.ddl.iter().find_map(|e| {
+            if let SqliteEntity::Column(c) = e
+                && c.name.as_ref() == "email_address"
+            {
+                Some(c)
+            } else {
+                None
+            }
+        });
+        assert!(
+            email_col.is_some(),
+            "expected inferred snake_case column name"
+        );
+
+        let index = snap.ddl.iter().find_map(|e| {
+            if let SqliteEntity::Index(i) = e {
+                Some(i)
+            } else {
+                None
+            }
+        });
+        let index = index.expect("expected sqlite index");
+        assert_eq!(index.name.as_ref(), "users_tbl_email_idx");
+        assert_eq!(index.columns[0].value.as_ref(), "email_address");
+    }
+
+    #[test]
+    fn test_postgres_casing_preserves_explicit_names() {
+        use crate::postgres::ddl::PostgresEntity;
+
+        let code = r#"
+#[PostgresTable(schema = "auth", name = "users_tbl")]
+pub struct UsersTable {
+    #[column(name = "user_id", primary)]
+    pub userId: i32,
+    pub createdAt: String,
+}
+
+#[PostgresIndex(name = "users_tbl_created_idx")]
+pub struct UsersCreatedIdx(UsersTable::createdAt);
+"#;
+
+        let result = SchemaParser::parse(code);
+        let snapshot =
+            Snapshot::from_parse_result(&result, Dialect::PostgreSQL, Some(Casing::SnakeCase));
+        let snap = match snapshot {
+            Snapshot::Postgres(s) => s,
+            Snapshot::Sqlite(_) => panic!("Expected Postgres snapshot"),
+        };
+
+        let table = snap.ddl.iter().find_map(|e| {
+            if let PostgresEntity::Table(t) = e {
+                Some(t)
+            } else {
+                None
+            }
+        });
+        let table = table.expect("expected postgres table");
+        assert_eq!(table.schema.as_ref(), "auth");
+        assert_eq!(table.name.as_ref(), "users_tbl");
+
+        let user_id = snap.ddl.iter().find_map(|e| {
+            if let PostgresEntity::Column(c) = e
+                && c.name.as_ref() == "user_id"
+            {
+                Some(c)
+            } else {
+                None
+            }
+        });
+        assert!(user_id.is_some(), "expected explicit column name user_id");
+
+        let created_at = snap.ddl.iter().find_map(|e| {
+            if let PostgresEntity::Column(c) = e
+                && c.name.as_ref() == "created_at"
+            {
+                Some(c)
+            } else {
+                None
+            }
+        });
+        assert!(
+            created_at.is_some(),
+            "expected inferred snake_case column name created_at"
+        );
+
+        let index = snap.ddl.iter().find_map(|e| {
+            if let PostgresEntity::Index(i) = e {
+                Some(i)
+            } else {
+                None
+            }
+        });
+        let index = index.expect("expected postgres index");
+        assert_eq!(index.name.as_ref(), "users_tbl_created_idx");
+        assert_eq!(index.schema.as_ref(), "auth");
     }
 
     /// Test that changing a column from Option<String> to String generates table recreation
     #[test]
     fn test_nullable_to_not_null_generates_migration() {
-        use crate::parser::SchemaParser;
         use crate::sqlite::collection::SQLiteDDL;
         use crate::sqlite::diff::compute_migration;
 
@@ -1111,20 +1872,11 @@ pub struct User {
 }
 "#;
 
-        let prev_result = SchemaParser::parse(prev_code);
-        let cur_result = SchemaParser::parse(cur_code);
+        let prev_snap = sqlite_snapshot(prev_code);
+        let cur_snap = sqlite_snapshot(cur_code);
 
-        let prev_snapshot = parse_result_to_snapshot(&prev_result, Dialect::SQLite, None);
-        let cur_snapshot = parse_result_to_snapshot(&cur_result, Dialect::SQLite, None);
-
-        // Extract DDL from snapshots
-        let (prev_ddl, cur_ddl) = match (&prev_snapshot, &cur_snapshot) {
-            (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => (
-                SQLiteDDL::from_entities(p.ddl.clone()),
-                SQLiteDDL::from_entities(c.ddl.clone()),
-            ),
-            _ => panic!("Expected SQLite snapshots"),
-        };
+        let prev_ddl = SQLiteDDL::from_entities(prev_snap.ddl.clone());
+        let cur_ddl = SQLiteDDL::from_entities(cur_snap.ddl.clone());
 
         // Check that previous email column is nullable and current is not
         let prev_email = prev_ddl
@@ -1174,7 +1926,6 @@ pub struct User {
     /// Test that changing a column from String to Option<String> generates table recreation
     #[test]
     fn test_not_null_to_nullable_generates_migration() {
-        use crate::parser::SchemaParser;
         use crate::sqlite::collection::SQLiteDDL;
         use crate::sqlite::diff::compute_migration;
 
@@ -1198,20 +1949,11 @@ pub struct User {
 }
 "#;
 
-        let prev_result = SchemaParser::parse(prev_code);
-        let cur_result = SchemaParser::parse(cur_code);
+        let prev_snap = sqlite_snapshot(prev_code);
+        let cur_snap = sqlite_snapshot(cur_code);
 
-        let prev_snapshot = parse_result_to_snapshot(&prev_result, Dialect::SQLite, None);
-        let cur_snapshot = parse_result_to_snapshot(&cur_result, Dialect::SQLite, None);
-
-        // Extract DDL from snapshots
-        let (prev_ddl, cur_ddl) = match (&prev_snapshot, &cur_snapshot) {
-            (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => (
-                SQLiteDDL::from_entities(p.ddl.clone()),
-                SQLiteDDL::from_entities(c.ddl.clone()),
-            ),
-            _ => panic!("Expected SQLite snapshots"),
-        };
+        let prev_ddl = SQLiteDDL::from_entities(prev_snap.ddl.clone());
+        let cur_ddl = SQLiteDDL::from_entities(cur_snap.ddl.clone());
 
         // Compute migration
         let migration = compute_migration(&prev_ddl, &cur_ddl);
@@ -1235,258 +1977,5 @@ pub struct User {
             "ALTER TABLE `__new_user` RENAME TO `user`;"
         );
         assert_eq!(migration.sql_statements[5], "PRAGMA foreign_keys=ON;");
-    }
-
-    #[test]
-    fn test_postgres_schema_and_index_options_are_preserved() {
-        use crate::parser::SchemaParser;
-        use crate::postgres::ddl::PostgresEntity;
-
-        let code = r#"
-#[PostgresTable(schema = "auth")]
-pub struct Users {
-    #[column(primary)]
-    pub id: i32,
-}
-
-#[PostgresTable(schema = "app")]
-pub struct Sessions {
-    #[column(primary)]
-    pub id: i32,
-    #[column(references = Users::id)]
-    pub user_id: i32,
-}
-
-#[PostgresIndex(concurrent, method = "gin", where = "user_id > 0")]
-pub struct SessionsUserIdx(Sessions::user_id);
-"#;
-
-        let result = SchemaParser::parse(code);
-        let snapshot = parse_result_to_snapshot(&result, Dialect::PostgreSQL, None);
-
-        let snap = match snapshot {
-            Snapshot::Postgres(s) => s,
-            _ => panic!("Expected Postgres snapshot"),
-        };
-
-        let has_auth_schema = snap
-            .ddl
-            .iter()
-            .any(|e| matches!(e, PostgresEntity::Schema(s) if s.name.as_ref() == "auth"));
-        let has_app_schema = snap
-            .ddl
-            .iter()
-            .any(|e| matches!(e, PostgresEntity::Schema(s) if s.name.as_ref() == "app"));
-        assert!(has_auth_schema, "missing auth schema entity");
-        assert!(has_app_schema, "missing app schema entity");
-
-        let fk = snap.ddl.iter().find_map(|e| {
-            if let PostgresEntity::ForeignKey(fk) = e {
-                Some(fk)
-            } else {
-                None
-            }
-        });
-        let fk = fk.expect("expected foreign key");
-        assert_eq!(fk.schema.as_ref(), "app");
-        assert_eq!(fk.schema_to.as_ref(), "auth");
-
-        let idx = snap.ddl.iter().find_map(|e| {
-            if let PostgresEntity::Index(i) = e {
-                Some(i)
-            } else {
-                None
-            }
-        });
-        let idx = idx.expect("expected index");
-        assert!(idx.concurrently);
-        assert_eq!(idx.method.as_deref(), Some("gin"));
-        assert_eq!(idx.where_clause.as_deref(), Some("user_id > 0"));
-        assert_eq!(idx.schema.as_ref(), "app");
-    }
-
-    #[test]
-    fn test_sqlite_table_options_and_pk_name_are_preserved() {
-        use crate::parser::SchemaParser;
-        use crate::sqlite::SqliteEntity;
-
-        let code = r#"
-#[SQLiteTable(strict, without_rowid)]
-pub struct Accounts {
-    #[column(primary)]
-    pub id: i64,
-}
-"#;
-
-        let result = SchemaParser::parse(code);
-        let snapshot = parse_result_to_snapshot(&result, Dialect::SQLite, None);
-        let snap = match snapshot {
-            Snapshot::Sqlite(s) => s,
-            _ => panic!("Expected SQLite snapshot"),
-        };
-
-        let table = snap.ddl.iter().find_map(|e| {
-            if let SqliteEntity::Table(t) = e {
-                Some(t)
-            } else {
-                None
-            }
-        });
-        let table = table.expect("expected sqlite table");
-        assert!(table.strict, "strict should be preserved");
-        assert!(table.without_rowid, "without_rowid should be preserved");
-
-        let pk = snap.ddl.iter().find_map(|e| {
-            if let SqliteEntity::PrimaryKey(pk) = e {
-                Some(pk)
-            } else {
-                None
-            }
-        });
-        let pk = pk.expect("expected sqlite primary key");
-        assert_eq!(pk.name.as_ref(), "accounts_pkey");
-    }
-
-    #[test]
-    fn test_sqlite_casing_preserves_explicit_names() {
-        use crate::parser::SchemaParser;
-        use crate::sqlite::SqliteEntity;
-
-        let code = r#"
-#[SQLiteTable(name = "users_tbl")]
-pub struct UsersTable {
-    #[column(name = "user_id", primary)]
-    pub userId: i64,
-    pub emailAddress: String,
-}
-
-#[SQLiteIndex(name = "users_tbl_email_idx")]
-pub struct UsersEmailIdx(UsersTable::emailAddress);
-"#;
-
-        let result = SchemaParser::parse(code);
-        let snapshot = parse_result_to_snapshot(&result, Dialect::SQLite, Some(Casing::SnakeCase));
-        let snap = match snapshot {
-            Snapshot::Sqlite(s) => s,
-            _ => panic!("Expected SQLite snapshot"),
-        };
-
-        let table = snap.ddl.iter().find_map(|e| {
-            if let SqliteEntity::Table(t) = e {
-                Some(t)
-            } else {
-                None
-            }
-        });
-        let table = table.expect("expected sqlite table");
-        assert_eq!(table.name.as_ref(), "users_tbl");
-
-        let user_id = snap.ddl.iter().find_map(|e| {
-            if let SqliteEntity::Column(c) = e
-                && c.name.as_ref() == "user_id"
-            {
-                Some(c)
-            } else {
-                None
-            }
-        });
-        assert!(user_id.is_some(), "expected explicit column name user_id");
-
-        let email_col = snap.ddl.iter().find_map(|e| {
-            if let SqliteEntity::Column(c) = e
-                && c.name.as_ref() == "email_address"
-            {
-                Some(c)
-            } else {
-                None
-            }
-        });
-        assert!(
-            email_col.is_some(),
-            "expected inferred snake_case column name"
-        );
-
-        let index = snap.ddl.iter().find_map(|e| {
-            if let SqliteEntity::Index(i) = e {
-                Some(i)
-            } else {
-                None
-            }
-        });
-        let index = index.expect("expected sqlite index");
-        assert_eq!(index.name.as_ref(), "users_tbl_email_idx");
-    }
-
-    #[test]
-    fn test_postgres_casing_preserves_explicit_names() {
-        use crate::parser::SchemaParser;
-        use crate::postgres::ddl::PostgresEntity;
-
-        let code = r#"
-#[PostgresTable(schema = "auth", name = "users_tbl")]
-pub struct UsersTable {
-    #[column(name = "user_id", primary)]
-    pub userId: i32,
-    pub createdAt: String,
-}
-
-#[PostgresIndex(name = "users_tbl_created_idx")]
-pub struct UsersCreatedIdx(UsersTable::createdAt);
-"#;
-
-        let result = SchemaParser::parse(code);
-        let snapshot =
-            parse_result_to_snapshot(&result, Dialect::PostgreSQL, Some(Casing::SnakeCase));
-        let snap = match snapshot {
-            Snapshot::Postgres(s) => s,
-            _ => panic!("Expected Postgres snapshot"),
-        };
-
-        let table = snap.ddl.iter().find_map(|e| {
-            if let PostgresEntity::Table(t) = e {
-                Some(t)
-            } else {
-                None
-            }
-        });
-        let table = table.expect("expected postgres table");
-        assert_eq!(table.schema.as_ref(), "auth");
-        assert_eq!(table.name.as_ref(), "users_tbl");
-
-        let user_id = snap.ddl.iter().find_map(|e| {
-            if let PostgresEntity::Column(c) = e
-                && c.name.as_ref() == "user_id"
-            {
-                Some(c)
-            } else {
-                None
-            }
-        });
-        assert!(user_id.is_some(), "expected explicit column name user_id");
-
-        let created_at = snap.ddl.iter().find_map(|e| {
-            if let PostgresEntity::Column(c) = e
-                && c.name.as_ref() == "created_at"
-            {
-                Some(c)
-            } else {
-                None
-            }
-        });
-        assert!(
-            created_at.is_some(),
-            "expected inferred snake_case column name created_at"
-        );
-
-        let index = snap.ddl.iter().find_map(|e| {
-            if let PostgresEntity::Index(i) = e {
-                Some(i)
-            } else {
-                None
-            }
-        });
-        let index = index.expect("expected postgres index");
-        assert_eq!(index.name.as_ref(), "users_tbl_created_idx");
-        assert_eq!(index.schema.as_ref(), "auth");
     }
 }

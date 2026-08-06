@@ -9,7 +9,7 @@ use crate::commands::overrides;
 use crate::config::{Casing, Config, Dialect, Driver, MigrationPrefix};
 use crate::error::CliError;
 use crate::output;
-use crate::snapshot::parse_result_to_snapshot;
+use drizzle_migrations::schema::Snapshot;
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct GenerateOptions {
@@ -54,7 +54,7 @@ pub struct GenerateOptions {
 /// schema files fail to parse, snapshot/diff generation fails, or writing the
 /// new migration and journal files to disk fails.
 pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Result<(), CliError> {
-    use drizzle_migrations::words::{PrefixMode, generate_migration_tag_with_mode};
+    use drizzle_migrations::naming::{PrefixMode, generate_migration_tag_with_mode};
 
     let db = config.database(db_name)?;
 
@@ -126,7 +126,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
     let dialect = effective_dialect.to_base();
 
     // Build current snapshot from parsed schema (use config dialect, not parser-detected)
-    let current_snapshot = parse_result_to_snapshot(&parse_result, dialect, effective_casing);
+    let current_snapshot = Snapshot::from_parse_result(&parse_result, dialect, effective_casing);
 
     // Load previous snapshot if exists
     let prev_snapshot = load_previous_snapshot(&out_dir, dialect)?;
@@ -202,7 +202,9 @@ fn parse_schema_files(
         combined_code.push('\n');
     }
 
-    Ok(SchemaParser::parse(&combined_code))
+    let parse_result = SchemaParser::parse(&combined_code);
+    crate::snapshot::surface_parse_diagnostics(&parse_result)?;
+    Ok(parse_result)
 }
 
 /// Write migration.sql and snapshot.json to `{out_dir}/{tag}/`.
@@ -237,7 +239,7 @@ fn generate_custom_migration(
     name: Option<String>,
     bundle: bool,
 ) -> Result<(), CliError> {
-    use drizzle_migrations::words::{PrefixMode, generate_migration_tag_with_mode};
+    use drizzle_migrations::naming::{PrefixMode, generate_migration_tag_with_mode};
 
     let custom_name = name.unwrap_or_else(|| "custom".to_string());
 
@@ -313,7 +315,9 @@ fn next_migration_index(out_dir: &Path) -> Result<u32, CliError> {
             continue;
         };
 
-        if prefix.len() > 10 || !prefix.chars().all(|c| c.is_ascii_digit()) {
+        // Index prefixes are short (`0000`); longer digit runs are timestamp
+        // (14), unix (10), or millisecond (13) prefixes, not indexes.
+        if prefix.len() > 5 || !prefix.chars().all(|c| c.is_ascii_digit()) {
             continue;
         }
 
