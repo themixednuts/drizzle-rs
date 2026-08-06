@@ -170,9 +170,9 @@ fn rusqlite_runtime_migrate_upgrades_legacy_tracking_table() {
         )
         .expect("select upgraded migration row");
     assert_eq!(name, "20230331141203_runtime_first");
-    assert_eq!(
-        applied_at, None,
-        "backfilled legacy rows keep NULL applied_at"
+    assert!(
+        applied_at.is_some(),
+        "legacy rows get applied_at backfilled so they cannot read as interrupted"
     );
 
     let migrated_table_exists =
@@ -314,9 +314,9 @@ async fn libsql_runtime_migrate_upgrades_legacy_tracking_table() {
     let name = row.get::<String>(0).expect("migration name");
     let applied_at = row.get::<Option<String>>(1).ok().flatten();
     assert_eq!(name, "20230331141203_runtime_first");
-    assert_eq!(
-        applied_at, None,
-        "backfilled legacy rows keep NULL applied_at"
+    assert!(
+        applied_at.is_some(),
+        "legacy rows get applied_at backfilled so they cannot read as interrupted"
     );
 
     let migrated_table_exists =
@@ -514,9 +514,9 @@ async fn turso_runtime_migrate_upgrades_legacy_tracking_table() {
     let name = row.get::<String>(0).expect("migration name");
     let applied_at = row.get::<Option<String>>(1).ok().flatten();
     assert_eq!(name, "20230331141203_runtime_first");
-    assert_eq!(
-        applied_at, None,
-        "backfilled legacy rows keep NULL applied_at"
+    assert!(
+        applied_at.is_some(),
+        "legacy rows get applied_at backfilled so they cannot read as interrupted"
     );
 
     let migrated_table_exists =
@@ -758,4 +758,317 @@ async fn turso_push_table_is_usable() {
         .expect("selected row");
     let name = row.get::<String>(0).expect("selected name");
     assert_eq!(name, "Alice");
+}
+
+// ============================================================================
+// Partial-migration recovery
+// ============================================================================
+//
+// The incident these cover: a process killed after some of a migration's
+// statements landed but before the migration was recorded. The next migrate()
+// used to see the migration as pending, re-run it, and die on
+// `table already exists`. Two-phase tracking turns that into a dirty row
+// (`applied_at` NULL) that migrate() refuses to run past, and `--repair` /
+// `migrate_with_repair` reconciles statement-by-statement.
+
+#[cfg(feature = "rusqlite")]
+const PARTIAL_TAG: &str = "20260801000000_partial";
+
+#[cfg(feature = "rusqlite")]
+const PARTIAL_SQL: &str = "CREATE TABLE partial_first (id INTEGER PRIMARY KEY);\n\
+                           --> statement-breakpoint\n\
+                           CREATE TABLE partial_second (id INTEGER PRIMARY KEY);";
+
+/// Reproduce a crash mid-migration: create the tracking table, write the
+/// two-phase dirty marker, apply only the first statement, then stop.
+#[cfg(feature = "rusqlite")]
+fn simulate_interrupted_migration(path: &std::path::Path) -> Migration {
+    let migration = Migration::new(PARTIAL_TAG, PARTIAL_SQL);
+    let set = drizzle_migrations::Migrations::with_tracking(
+        vec![migration.clone()],
+        drizzle_types::Dialect::SQLite,
+        Tracking::SQLITE,
+    );
+
+    let connection = rusqlite::Connection::open(path).expect("open partial DB");
+    connection
+        .execute(&set.create_table_sql(), [])
+        .expect("create tracking table");
+    // Phase 1 of two-phase tracking: the migration is marked started...
+    connection
+        .execute(&set.record_migration_started_sql(&migration), [])
+        .expect("record migration started");
+    // ...only the first statement lands, then the process dies. Phase 3 never
+    // runs, so the row keeps its NULL applied_at.
+    connection
+        .execute(&migration.statements()[0], [])
+        .expect("apply first statement");
+    drop(connection);
+
+    migration
+}
+
+#[cfg(feature = "rusqlite")]
+fn sqlite_table_exists(path: &std::path::Path, table: &str) -> bool {
+    let connection = rusqlite::Connection::open(path).expect("open DB");
+    let count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [table],
+            |row| row.get(0),
+        )
+        .expect("count table");
+    count == 1
+}
+
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_migrate_refuses_to_rerun_an_interrupted_migration() {
+    let path = crate::common::helpers::temp_db_path();
+    let migration = simulate_interrupted_migration(&path);
+
+    let connection = rusqlite::Connection::open(&path).expect("open DB");
+    let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::new(connection, ());
+    let error = database
+        .migrate(&[migration], Tracking::SQLITE)
+        .expect_err("a dirty tracking row must block migration");
+
+    let text = error.to_string();
+    assert!(text.contains(PARTIAL_TAG), "{text}");
+    assert!(text.contains("interrupted mid-apply"), "{text}");
+    assert!(text.contains("--repair"), "{text}");
+    // The crucial regression: the old behavior re-ran statement 1 and died
+    // with SQLite's raw "table partial_first already exists" instead of
+    // naming the real problem. (The recovery text mentions that phrasing as an
+    // example, so match on the table name.)
+    assert!(
+        !text.contains("partial_first already exists"),
+        "must not surface as a raw DDL failure: {text}"
+    );
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_repair_finishes_an_interrupted_migration() {
+    let path = crate::common::helpers::temp_db_path();
+    let migration = simulate_interrupted_migration(&path);
+    assert!(sqlite_table_exists(&path, "partial_first"));
+    assert!(!sqlite_table_exists(&path, "partial_second"));
+
+    let connection = rusqlite::Connection::open(&path).expect("open DB");
+    let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::new(connection, ());
+    let outcome = database
+        .migrate_with_repair(std::slice::from_ref(&migration), Tracking::SQLITE)
+        .expect("repair should reconcile the interrupted migration");
+
+    assert_eq!(outcome.applied_tags(), [PARTIAL_TAG]);
+    // Statement 1 was proven already present and skipped; statement 2 ran.
+    assert!(sqlite_table_exists(&path, "partial_second"));
+
+    // A subsequent plain migrate() is a clean no-op: the dirty row is gone and
+    // the migration reads as applied.
+    let outcome = database
+        .migrate(&[migration], Tracking::SQLITE)
+        .expect("second migrate");
+    assert!(
+        outcome.is_up_to_date(),
+        "repaired migration must count as applied: {outcome:?}"
+    );
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_repair_refuses_statements_it_cannot_prove() {
+    let path = crate::common::helpers::temp_db_path();
+
+    // An interrupted migration whose first statement is an ALTER: repair
+    // cannot tell whether it ran, so it must refuse rather than guess.
+    let migration = Migration::new(
+        "20260801000001_unprovable",
+        "ALTER TABLE partial_first ADD COLUMN note TEXT;\n\
+         --> statement-breakpoint\n\
+         CREATE TABLE partial_third (id INTEGER PRIMARY KEY);",
+    );
+    let set = drizzle_migrations::Migrations::with_tracking(
+        vec![migration.clone()],
+        drizzle_types::Dialect::SQLite,
+        Tracking::SQLITE,
+    );
+
+    let connection = rusqlite::Connection::open(&path).expect("open DB");
+    connection
+        .execute("CREATE TABLE partial_first (id INTEGER PRIMARY KEY)", [])
+        .expect("seed table");
+    connection
+        .execute(&set.create_table_sql(), [])
+        .expect("create tracking table");
+    connection
+        .execute(&set.record_migration_started_sql(&migration), [])
+        .expect("record migration started");
+    drop(connection);
+
+    let connection = rusqlite::Connection::open(&path).expect("reopen DB");
+    let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::new(connection, ());
+    let error = database
+        .migrate_with_repair(&[migration], Tracking::SQLITE)
+        .expect_err("an unprovable statement must not be silently skipped or re-run");
+
+    let text = error.to_string();
+    assert!(text.contains("cannot repair"), "{text}");
+    assert!(text.contains("statement 1"), "{text}");
+    assert!(text.contains("UPDATE"), "manual completion SQL: {text}");
+    assert!(
+        !sqlite_table_exists(&path, "partial_third"),
+        "a refused repair must not apply anything"
+    );
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_migrate_is_unaffected_when_nothing_is_dirty() {
+    let path = crate::common::helpers::temp_db_path();
+    let migration = Migration::new(PARTIAL_TAG, PARTIAL_SQL);
+
+    let connection = rusqlite::Connection::open(&path).expect("open DB");
+    let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::new(connection, ());
+
+    let outcome = database
+        .migrate(std::slice::from_ref(&migration), Tracking::SQLITE)
+        .expect("first migrate");
+    assert_eq!(outcome.applied_tags(), [PARTIAL_TAG]);
+    assert!(sqlite_table_exists(&path, "partial_first"));
+    assert!(sqlite_table_exists(&path, "partial_second"));
+
+    let outcome = database
+        .migrate(&[migration], Tracking::SQLITE)
+        .expect("second migrate");
+    assert!(outcome.is_up_to_date());
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[cfg(feature = "turso")]
+#[tokio::test]
+async fn turso_migrate_records_two_phase_tracking() {
+    // turso's crash recovery around in-transaction DDL is not trusted, so its
+    // migrate() writes the tracking row *before* running statements and stamps
+    // `applied_at` after. A completed run must still leave a clean row.
+    let (db, _schema) =
+        crate::common::helpers::turso_setup::setup_empty_db(PushSchema::default()).await;
+    let mut db = db;
+
+    let migration = Migration::new(
+        "20260801000000_two_phase",
+        "CREATE TABLE two_phase_a (id INTEGER PRIMARY KEY);\n\
+         --> statement-breakpoint\n\
+         CREATE TABLE two_phase_b (id INTEGER PRIMARY KEY);",
+    );
+
+    let outcome = db
+        .migrate(std::slice::from_ref(&migration), Tracking::SQLITE)
+        .await
+        .expect("migrate");
+    assert_eq!(outcome.applied_tags(), ["20260801000000_two_phase"]);
+
+    // Phase 3 ran: no dirty rows are left behind.
+    let mut rows = db
+        .conn()
+        .query(
+            "SELECT COUNT(*) FROM __drizzle_migrations WHERE applied_at IS NULL",
+            (),
+        )
+        .await
+        .expect("query dirty rows");
+    let dirty = rows
+        .next()
+        .await
+        .expect("next row")
+        .expect("row")
+        .get::<i64>(0)
+        .expect("count");
+    assert_eq!(dirty, 0, "a completed migration must not stay dirty");
+
+    let outcome = db
+        .migrate(&[migration], Tracking::SQLITE)
+        .await
+        .expect("second migrate");
+    assert!(outcome.is_up_to_date());
+}
+
+#[cfg(feature = "turso")]
+#[tokio::test]
+async fn turso_repair_finishes_an_interrupted_migration() {
+    let (db, _schema) =
+        crate::common::helpers::turso_setup::setup_empty_db(PushSchema::default()).await;
+    let mut db = db;
+
+    let migration = Migration::new(
+        "20260801000002_turso_partial",
+        "CREATE TABLE turso_partial_first (id INTEGER PRIMARY KEY);\n\
+         --> statement-breakpoint\n\
+         CREATE TABLE turso_partial_second (id INTEGER PRIMARY KEY);",
+    );
+    let set = drizzle_migrations::Migrations::with_tracking(
+        vec![migration.clone()],
+        drizzle_types::Dialect::SQLite,
+        Tracking::SQLITE,
+    );
+
+    // Reproduce the incident by hand: tracking table, dirty marker, first
+    // statement applied, then "crash".
+    db.conn()
+        .execute(&set.create_table_sql(), ())
+        .await
+        .expect("create tracking table");
+    db.conn()
+        .execute(&set.record_migration_started_sql(&migration), ())
+        .await
+        .expect("record started");
+    db.conn()
+        .execute(&migration.statements()[0], ())
+        .await
+        .expect("apply first statement");
+
+    let error = db
+        .migrate(std::slice::from_ref(&migration), Tracking::SQLITE)
+        .await
+        .expect_err("a dirty row must block migration");
+    let text = error.to_string();
+    assert!(text.contains("20260801000002_turso_partial"), "{text}");
+    assert!(text.contains("interrupted mid-apply"), "{text}");
+
+    let outcome = db
+        .migrate_with_repair(std::slice::from_ref(&migration), Tracking::SQLITE)
+        .await
+        .expect("repair");
+    assert_eq!(outcome.applied_tags(), ["20260801000002_turso_partial"]);
+
+    let mut rows = db
+        .conn()
+        .query(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='turso_partial_second'",
+            (),
+        )
+        .await
+        .expect("query table");
+    let exists = rows
+        .next()
+        .await
+        .expect("next row")
+        .expect("row")
+        .get::<i64>(0)
+        .expect("count");
+    assert_eq!(exists, 1, "repair must run the statement that never landed");
+
+    let outcome = db
+        .migrate(&[migration], Tracking::SQLITE)
+        .await
+        .expect("second migrate");
+    assert!(outcome.is_up_to_date());
 }

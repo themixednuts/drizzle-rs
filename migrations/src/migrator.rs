@@ -3,7 +3,7 @@
 //! Provides the low-level pieces behind runtime migration execution:
 //! - [`Migration`] values holding SQL and metadata
 //! - [`Migrations`] for tracking-table SQL and pending migration checks
-//! - [`MigrationDir`] for filesystem discovery when embedding or testing
+//! - [`MigrationDir`](crate::MigrationDir) for filesystem discovery when embedding or testing
 //!
 //! # Usage
 //!
@@ -288,7 +288,7 @@ impl Migrations {
     {
         self.list.iter().filter(move |m| {
             let name = m.name();
-            name.is_empty() || !applied_names.iter().any(|applied| applied.as_ref() == name)
+            !applied_names.iter().any(|applied| applied.as_ref() == name)
         })
     }
 
@@ -453,43 +453,304 @@ impl Migrations {
         }
     }
 
+    /// Get the SQL to record a migration as *started* (phase 1 of two-phase
+    /// tracking on non-transactional paths).
+    ///
+    /// The row is written with `applied_at` explicitly `NULL`, which marks the
+    /// migration **dirty**: its statements are about to run but have not been
+    /// confirmed. [`Migrations::record_migration_finished_sql`] clears the
+    /// marker once they have. A crash between the two leaves the dirty row
+    /// behind, which is exactly the signal
+    /// [`Migrations::interrupted_migration_error`] reports.
+    ///
+    /// Transactional paths must keep using
+    /// [`Migrations::record_migration_sql`] — a single insert inside the same
+    /// transaction as the statements is already atomic.
+    ///
+    /// `applied_at` is written explicitly because the `PostgreSQL` column
+    /// carries `DEFAULT CURRENT_TIMESTAMP`; omitting it would silently mark
+    /// the migration complete before it ran.
+    #[must_use]
+    pub fn record_migration_started_sql(&self, migration: &Migration) -> String {
+        let table = self.table_ident();
+        let hash = escape_sql_string(migration.hash());
+        let name = escape_sql_string(migration.name());
+        let created_at = migration.created_at();
+
+        match self.dialect {
+            Dialect::SQLite | Dialect::PostgreSQL => {
+                format!(
+                    r#"INSERT INTO {table} ("hash", "created_at", "name", "applied_at") VALUES ('{hash}', {created_at}, '{name}', NULL);"#
+                )
+            }
+            Dialect::MySQL => {
+                format!(
+                    r"INSERT INTO {table} (`hash`, `created_at`, `name`, `applied_at`) VALUES ('{hash}', {created_at}, '{name}', NULL);"
+                )
+            }
+        }
+    }
+
+    /// Get the SQL to mark a started migration as finished (phase 3 of
+    /// two-phase tracking).
+    ///
+    /// Only clears rows that are still dirty, so a concurrent runner that
+    /// already completed the migration is not re-stamped.
+    #[must_use]
+    pub fn record_migration_finished_sql(&self, migration: &Migration) -> String {
+        let table = self.table_ident();
+        let name = escape_sql_string(migration.name());
+
+        match self.dialect {
+            Dialect::MySQL => format!(
+                r"UPDATE {table} SET `applied_at` = CURRENT_TIMESTAMP WHERE `name` = '{name}' AND `applied_at` IS NULL;"
+            ),
+            _ => format!(
+                r#"UPDATE {table} SET "applied_at" = CURRENT_TIMESTAMP WHERE "name" = '{name}' AND "applied_at" IS NULL;"#
+            ),
+        }
+    }
+
+    /// Get the SQL to drop a migration's dirty marker.
+    ///
+    /// Used when a non-transactional run fails on its *first* statement, where
+    /// nothing can have been applied and leaving a dirty row would demand a
+    /// pointless repair. Never touches a completed row.
+    #[must_use]
+    pub fn clear_migration_started_sql(&self, migration: &Migration) -> String {
+        let table = self.table_ident();
+        let name = escape_sql_string(migration.name());
+
+        match self.dialect {
+            Dialect::MySQL => {
+                format!(r"DELETE FROM {table} WHERE `name` = '{name}' AND `applied_at` IS NULL;")
+            }
+            _ => {
+                format!(r#"DELETE FROM {table} WHERE "name" = '{name}' AND "applied_at" IS NULL;"#)
+            }
+        }
+    }
+
+    /// Get the SQL to backfill `name`/`applied_at` on a legacy tracking row.
+    ///
+    /// The v0 tracking table had only `id`/`hash`/`created_at`; the upgrade
+    /// adds `name` and `applied_at` and backfills both. `applied_at` is derived
+    /// from the row's `created_at` rather than left `NULL` — a `NULL` here
+    /// would be indistinguishable from an interrupted migration and would make
+    /// every upgraded database look dirty.
+    #[must_use]
+    pub fn backfill_migration_metadata_sql(&self, row: &MatchedMigrationMetadata) -> String {
+        let table = self.table_ident();
+        let name = escape_sql_string(&row.name);
+        let created_at = row.created_at;
+
+        let (name_column, applied_column, applied_expr, where_clause) = match self.dialect {
+            Dialect::MySQL => (
+                "`name`",
+                "`applied_at`",
+                format!("FROM_UNIXTIME({created_at} / 1000)"),
+                row.id.map_or_else(
+                    || {
+                        format!(
+                            "`created_at` = {created_at} AND `hash` = '{}'",
+                            escape_sql_string(&row.hash)
+                        )
+                    },
+                    |id| format!("`id` = {id}"),
+                ),
+            ),
+            Dialect::PostgreSQL => (
+                "\"name\"",
+                "\"applied_at\"",
+                format!("to_timestamp({created_at}::double precision / 1000.0)"),
+                row.id.map_or_else(
+                    || {
+                        format!(
+                            "\"created_at\" = {created_at} AND \"hash\" = '{}'",
+                            escape_sql_string(&row.hash)
+                        )
+                    },
+                    |id| format!("\"id\" = {id}"),
+                ),
+            ),
+            Dialect::SQLite => (
+                "\"name\"",
+                "\"applied_at\"",
+                format!("datetime({created_at} / 1000, 'unixepoch')"),
+                row.id.map_or_else(
+                    || {
+                        format!(
+                            "\"created_at\" = {created_at} AND \"hash\" = '{}'",
+                            escape_sql_string(&row.hash)
+                        )
+                    },
+                    |id| format!("\"id\" = {id}"),
+                ),
+            ),
+        };
+
+        format!(
+            "UPDATE {table} SET {name_column} = '{name}', {applied_column} = {applied_expr} WHERE {where_clause}"
+        )
+    }
+
     /// Get the SQL to query applied migration names.
     ///
-    /// Only rows with a non-null `name` are returned; rows written before the
-    /// v0 → v1 migrations-table upgrade (which backfills `name`) have
-    /// `NULL` in this column and are deliberately excluded. Pair with
-    /// [`Migrations::pending`].
+    /// A row counts as applied only when it has both a non-null `name` *and* a
+    /// non-null `applied_at`:
+    ///
+    /// * `name IS NULL` — written before the v0 → v1 tracking-table upgrade
+    ///   (which backfills `name`), so it cannot be matched to a local
+    ///   migration.
+    /// * `applied_at IS NULL` — a two-phase **dirty marker**: the migration
+    ///   started but was never confirmed complete. Reporting it as applied
+    ///   would silently skip a half-applied migration. See
+    ///   [`Migrations::dirty_names_sql`].
+    ///
+    /// Pair with [`Migrations::pending`].
     #[must_use]
     pub fn applied_names_sql(&self) -> String {
         let table = self.table_ident();
-        format!(r#"SELECT "name" FROM {table} WHERE "name" IS NOT NULL ORDER BY id;"#)
+        match self.dialect {
+            Dialect::MySQL => {
+                format!(
+                    "SELECT `name` FROM {table} WHERE `name` IS NOT NULL AND `applied_at` IS NOT NULL ORDER BY id;"
+                )
+            }
+            _ => format!(
+                r#"SELECT "name" FROM {table} WHERE "name" IS NOT NULL AND "applied_at" IS NOT NULL ORDER BY id;"#
+            ),
+        }
+    }
+
+    /// Get the SQL to query interrupted ("dirty") migration names.
+    ///
+    /// These are rows whose `name` is known but whose `applied_at` is `NULL` —
+    /// a migration that started on a non-transactional path and never reported
+    /// completion.
+    #[must_use]
+    pub fn dirty_names_sql(&self) -> String {
+        let table = self.table_ident();
+        match self.dialect {
+            Dialect::MySQL => {
+                format!(
+                    "SELECT `name` FROM {table} WHERE `name` IS NOT NULL AND `applied_at` IS NULL ORDER BY id;"
+                )
+            }
+            _ => format!(
+                r#"SELECT "name" FROM {table} WHERE "name" IS NOT NULL AND "applied_at" IS NULL ORDER BY id;"#
+            ),
+        }
+    }
+
+    /// Build the standard error for interrupted migrations, or `None` when
+    /// `dirty_names` is empty.
+    ///
+    /// Every driver calls this after loading
+    /// [`Migrations::dirty_names_sql`] so the message is identical everywhere.
+    #[must_use]
+    pub fn interrupted_migration_error<S: AsRef<str>>(
+        &self,
+        dirty_names: &[S],
+    ) -> Option<MigratorError> {
+        if dirty_names.is_empty() {
+            return None;
+        }
+
+        let table = self.table_ident();
+        let names = dirty_names
+            .iter()
+            .map(|name| format!("`{}`", name.as_ref()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let plural = if dirty_names.len() == 1 { "" } else { "s" };
+        let first = escape_sql_string(dirty_names[0].as_ref());
+
+        Some(MigratorError::InterruptedMigration(format!(
+            "migration{plural} {names} {} interrupted mid-apply: the tracking row in {table} has \
+             a NULL `applied_at`, so an earlier run recorded the migration as started but never \
+             recorded it as finished. The database may be in a partially-migrated state, and \
+             re-running the migration as-is would fail (for example with `table already exists`).\n\
+             Recovery options:\n  \
+             1. re-run with repair enabled (`drizzle migrate --repair`, or `migrate_with_repair` \
+             on the driver) to reconcile each remaining statement against the live schema\n  \
+             2. resolve the partial state by hand, then either complete the row \
+             (UPDATE {table} SET \"applied_at\" = CURRENT_TIMESTAMP WHERE \"name\" = '{first}';) \
+             or discard it and re-run from scratch \
+             (DELETE FROM {table} WHERE \"name\" = '{first}';)",
+            if dirty_names.len() == 1 {
+                "was"
+            } else {
+                "were"
+            },
+        )))
+    }
+
+    /// Resolve dirty tracking-row names to their local migrations, in local
+    /// execution order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MigratorError::UnrepairableMigration`] when a dirty row names
+    /// a migration that is not present locally — repair cannot reconcile
+    /// statements it does not have.
+    pub fn resolve_dirty_migrations<S: AsRef<str>>(
+        &self,
+        dirty_names: &[S],
+    ) -> Result<Vec<&Migration>, MigratorError> {
+        let mut unknown = Vec::new();
+        for name in dirty_names {
+            if !self.list.iter().any(|m| m.name() == name.as_ref()) {
+                unknown.push(name.as_ref().to_string());
+            }
+        }
+
+        if !unknown.is_empty() {
+            return Err(MigratorError::UnrepairableMigration(format!(
+                "cannot repair: the tracking table in {} marks migration(s) {} as interrupted, \
+                 but they are not present in the local migration set, so their statements are \
+                 unknown. Restore the migration folder(s) and retry, or resolve the partial state \
+                 by hand and delete the row(s) from {}.",
+                self.table_ident(),
+                unknown
+                    .iter()
+                    .map(|name| format!("`{name}`"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                self.table_ident(),
+            )));
+        }
+
+        Ok(self
+            .list
+            .iter()
+            .filter(|m| dirty_names.iter().any(|name| name.as_ref() == m.name()))
+            .collect())
     }
 
     /// Get the SQL to check if migrations table exists
     #[must_use]
     pub fn table_exists_sql(&self) -> String {
+        let table = self.table.replace('\'', "''");
         match self.dialect {
             Dialect::SQLite => format!(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='{}';",
-                self.table
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='{table}';"
             ),
             Dialect::PostgreSQL => self.schema.as_ref().map_or_else(
                 || {
                     format!(
-                        "SELECT table_name FROM information_schema.tables WHERE table_name='{}';",
-                        self.table
+                        "SELECT table_name FROM information_schema.tables WHERE table_name='{table}';"
                     )
                 },
                 |schema| {
+                    let schema = schema.replace('\'', "''");
                     format!(
-                        "SELECT table_name FROM information_schema.tables WHERE table_schema='{}' AND table_name='{}';",
-                        schema, self.table
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema='{schema}' AND table_name='{table}';"
                     )
                 },
             ),
             Dialect::MySQL => format!(
-                "SELECT table_name FROM information_schema.tables WHERE table_name='{}';",
-                self.table
+                "SELECT table_name FROM information_schema.tables WHERE table_name='{table}';"
             ),
         }
     }
@@ -509,6 +770,17 @@ pub enum MigratorError {
 
     #[error("Migration failed: {0}")]
     ExecutionError(String),
+
+    /// A tracking row exists with `applied_at` NULL: the migration started but
+    /// never reported completion. Produced by
+    /// [`Migrations::interrupted_migration_error`].
+    #[error("{0}")]
+    InterruptedMigration(String),
+
+    /// Repair could not reconcile every statement of an interrupted migration.
+    /// Produced by [`crate::repair::Plan::into_executable`].
+    #[error("{0}")]
+    UnrepairableMigration(String),
 }
 
 /// Detect PostgreSQL `CREATE/DROP INDEX CONCURRENTLY` statements.
@@ -561,7 +833,93 @@ pub(crate) fn split_statements(sql: &str) -> Vec<String> {
     split_on_semicolons(sql)
 }
 
-/// Split SQL on semicolons, handling basic cases
+/// Per-statement token context for [`split_on_semicolons`].
+///
+/// Tracks whether the statement being accumulated is a compound-bodied
+/// object (`CREATE TRIGGER|PROCEDURE|FUNCTION|EVENT ... BEGIN ...; END` or a
+/// PostgreSQL `BEGIN ATOMIC ...; END` body) so its internal semicolons are
+/// not treated as statement boundaries. Mirrors SQLite's
+/// `sqlite3_complete()`: a compound body terminates only at an `END` token
+/// that directly follows a body semicolon (which keeps `CASE ... END` inside
+/// the body inert), itself followed by a semicolon.
+#[derive(Default)]
+struct StatementState {
+    /// First few identifier tokens of the statement (lowercased).
+    header_tokens: Vec<String>,
+    /// Header names an object kind that can carry a `BEGIN ... END` body.
+    compound_header: bool,
+    /// Nesting depth of compound bodies within the current statement.
+    compound_depth: usize,
+    /// Last token was `BEGIN` (a following `ATOMIC` opens a body).
+    pending_begin: bool,
+    /// Saw a body-terminating `END`; the next semicolon closes one level.
+    pending_end: bool,
+    /// Positioned at the start of a body statement (right after `BEGIN` or a
+    /// body semicolon), where `END` may legally terminate the body.
+    at_body_start: bool,
+    /// Previous consumed character was part of a word (guards token starts).
+    last_char_wordy: bool,
+}
+
+impl StatementState {
+    /// Kinds of `CREATE` statements that may contain compound bodies.
+    const COMPOUND_KINDS: [&'static str; 4] = ["trigger", "procedure", "function", "event"];
+    /// `CREATE <kind>` statements that never do (guards against objects
+    /// merely *named* `function` etc.).
+    const PLAIN_KINDS: [&'static str; 5] = ["table", "index", "view", "schema", "virtual"];
+
+    /// Record significant (non-whitespace, non-comment) content that is not
+    /// an identifier token.
+    fn note_significant(&mut self) {
+        self.pending_begin = false;
+        self.pending_end = false;
+        self.at_body_start = false;
+    }
+
+    /// Process an identifier token encountered in normal state.
+    fn note_token(&mut self, token: &str) {
+        let lower = token.to_ascii_lowercase();
+        let was_pending_begin = self.pending_begin;
+        let was_at_body_start = self.at_body_start;
+        self.note_significant();
+
+        if self.header_tokens.len() < 6 {
+            self.header_tokens.push(lower.clone());
+            if self.header_tokens[0] == "create"
+                && self.header_tokens.len() > 1
+                && !Self::PLAIN_KINDS.contains(&self.header_tokens[1].as_str())
+                && self.header_tokens[1..]
+                    .iter()
+                    .any(|t| Self::COMPOUND_KINDS.contains(&t.as_str()))
+            {
+                self.compound_header = true;
+            }
+        }
+
+        match lower.as_str() {
+            "begin" if self.compound_header && self.compound_depth == 0 => {
+                self.compound_depth = 1;
+                self.at_body_start = true;
+            }
+            "begin" => self.pending_begin = true,
+            "atomic" if was_pending_begin => {
+                self.compound_depth += 1;
+                self.at_body_start = true;
+            }
+            "end" if self.compound_depth > 0 && was_at_body_start => {
+                self.pending_end = true;
+            }
+            _ => {}
+        }
+        self.last_char_wordy = true;
+    }
+}
+
+/// Split SQL on `--> statement-breakpoint` markers and top-level semicolons.
+///
+/// State-aware: quotes, comments, dollar-quoted bodies, and compound
+/// statement bodies (trigger/procedure/function bodies, `BEGIN ATOMIC`)
+/// keep their internal semicolons.
 fn split_on_semicolons(sql: &str) -> Vec<String> {
     const BREAKPOINT: &str = "--> statement-breakpoint";
 
@@ -574,6 +932,7 @@ fn split_on_semicolons(sql: &str) -> Vec<String> {
     let mut in_line_comment = false;
     let mut block_comment_depth = 0usize;
     let mut dollar_tag: Option<String> = None;
+    let mut state = StatementState::default();
 
     while pos < sql.len() {
         // Line comment state
@@ -616,6 +975,7 @@ fn split_on_semicolons(sql: &str) -> Vec<String> {
                 current.push_str(tag);
                 pos += tag.len();
                 dollar_tag = None;
+                state.last_char_wordy = true;
                 continue;
             }
 
@@ -637,6 +997,7 @@ fn split_on_semicolons(sql: &str) -> Vec<String> {
                 current.push('\'');
                 pos += 1;
                 in_single_quote = false;
+                state.last_char_wordy = true;
                 continue;
             }
 
@@ -658,6 +1019,7 @@ fn split_on_semicolons(sql: &str) -> Vec<String> {
                 current.push('"');
                 pos += 1;
                 in_double_quote = false;
+                state.last_char_wordy = true;
                 continue;
             }
 
@@ -675,6 +1037,7 @@ fn split_on_semicolons(sql: &str) -> Vec<String> {
                 statements.push(stmt);
             }
             current.clear();
+            state = StatementState::default();
             pos += BREAKPOINT.len();
             continue;
         }
@@ -696,12 +1059,16 @@ fn split_on_semicolons(sql: &str) -> Vec<String> {
             current.push('\'');
             pos += 1;
             in_single_quote = true;
+            state.note_significant();
+            state.last_char_wordy = false;
             continue;
         }
         if sql[pos..].starts_with('"') {
             current.push('"');
             pos += 1;
             in_double_quote = true;
+            state.note_significant();
+            state.last_char_wordy = false;
             continue;
         }
 
@@ -712,24 +1079,56 @@ fn split_on_semicolons(sql: &str) -> Vec<String> {
             current.push_str(tag);
             pos += tag.len();
             dollar_tag = Some(tag.to_string());
+            state.note_significant();
+            state.last_char_wordy = false;
             continue;
         }
 
-        // Statement boundary
+        // Statement boundary (inert inside compound bodies)
         if sql[pos..].starts_with(';') {
+            pos += 1;
+            if state.compound_depth > 0 {
+                if state.pending_end {
+                    state.pending_end = false;
+                    state.compound_depth -= 1;
+                }
+                if state.compound_depth > 0 {
+                    current.push(';');
+                    state.at_body_start = true;
+                    state.last_char_wordy = false;
+                    continue;
+                }
+                // Depth reached zero: this semicolon closes the compound
+                // statement, so fall through to the boundary handling.
+            }
             let stmt = current.trim().to_string();
             if !stmt.is_empty() {
                 statements.push(stmt);
             }
             current.clear();
-            pos += 1;
+            state = StatementState::default();
             continue;
         }
 
         let ch = sql[pos..].chars().next().unwrap_or('\0');
+        if !state.last_char_wordy && (ch.is_ascii_alphabetic() || ch == '_') {
+            let rest = &sql[pos..];
+            let token_len = rest
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .unwrap_or(rest.len());
+            current.push_str(&rest[..token_len]);
+            pos += token_len;
+            state.note_token(&rest[..token_len]);
+            continue;
+        }
+
         let ch_len = ch.len_utf8();
         current.push_str(&sql[pos..pos + ch_len]);
         pos += ch_len;
+        if !ch.is_whitespace() {
+            state.note_significant();
+        }
+        state.last_char_wordy = ch.is_ascii_alphanumeric() || ch == '_';
     }
 
     // Don't forget the last statement (might not end with ;)
@@ -839,24 +1238,24 @@ fn parse_dollar_tag_start(sql: &str, pos: usize) -> Option<&str> {
 /// Supports both V3 format (`YYYYMMDDHHMMSS_name`) and legacy format (`0000_name`)
 pub(crate) fn parse_timestamp_from_tag(tag: &str) -> i64 {
     // Try to extract timestamp from beginning of tag (V3 format: YYYYMMDDHHMMSS)
-    if tag.len() >= 14
-        && let Some(ts) = parse_timestamp_prefix_to_millis(&tag[0..14])
+    if let Some(prefix) = tag.get(0..14)
+        && let Some(ts) = parse_timestamp_prefix_to_millis(prefix)
     {
         return ts;
     }
 
     // Try legacy format (0000)
-    if tag.len() >= 4
-        && let Ok(idx) = tag[0..4].parse::<i64>()
+    if let Some(prefix) = tag.get(0..4)
+        && let Ok(idx) = prefix.parse::<i64>()
     {
         // Convert index to a pseudo-timestamp for ordering
         return idx;
     }
 
-    // Fallback: use current time
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+    // No timestamp or index prefix (e.g. `PrefixMode::None` tags): use a
+    // stable sentinel so `created_at` is deterministic across processes;
+    // name/hash matching identifies these rows instead.
+    0
 }
 
 /// Parse a `YYYYMMDDHHMMSS` timestamp prefix to UTC milliseconds.
@@ -1055,6 +1454,107 @@ mod tests {
     }
 
     #[test]
+    fn split_keeps_sqlite_trigger_bodies_intact() {
+        let sql = "\
+            CREATE TABLE logs(msg TEXT);\n\
+            CREATE TRIGGER users_ai AFTER INSERT ON users FOR EACH ROW BEGIN\n\
+              INSERT INTO logs(msg) VALUES ('added;removed');\n\
+              UPDATE counters SET n = n + 1 WHERE id = 1;\n\
+            END;\n\
+            CREATE INDEX logs_msg_idx ON logs(msg);\
+        ";
+
+        let stmts = split_statements(sql);
+        assert_eq!(stmts.len(), 3, "unexpected split: {stmts:?}");
+        assert_eq!(stmts[0], "CREATE TABLE logs(msg TEXT)");
+        assert!(stmts[1].starts_with("CREATE TRIGGER users_ai"));
+        assert!(
+            stmts[1].ends_with("END"),
+            "trigger body truncated: {}",
+            stmts[1]
+        );
+        assert!(stmts[1].contains("VALUES ('added;removed');"));
+        assert!(stmts[1].contains("WHERE id = 1;"));
+        assert_eq!(stmts[2], "CREATE INDEX logs_msg_idx ON logs(msg)");
+    }
+
+    #[test]
+    fn split_trigger_body_with_case_end_stays_intact() {
+        let sql = "\
+            CREATE TRIGGER t1 BEFORE UPDATE ON t WHEN (new.n > old.n) BEGIN\n\
+              UPDATE t SET status = CASE WHEN new.n > 0 THEN 'pos' ELSE 'neg' END;\n\
+              DELETE FROM audit WHERE id = old.id;\n\
+            END;\n\
+            CREATE TABLE afterwards(id INTEGER);\
+        ";
+
+        let stmts = split_statements(sql);
+        assert_eq!(stmts.len(), 2, "unexpected split: {stmts:?}");
+        assert!(stmts[0].starts_with("CREATE TRIGGER t1"));
+        assert!(
+            stmts[0].ends_with("END"),
+            "trigger body truncated: {}",
+            stmts[0]
+        );
+        assert!(stmts[0].contains("ELSE 'neg' END;"));
+        assert_eq!(stmts[1], "CREATE TABLE afterwards(id INTEGER)");
+    }
+
+    #[test]
+    fn split_keeps_begin_atomic_bodies_intact() {
+        let sql = "\
+            CREATE FUNCTION add_one(x int) RETURNS int LANGUAGE SQL BEGIN ATOMIC\n\
+              SELECT x + 1;\n\
+            END;\n\
+            CREATE TABLE t(id INTEGER);\
+        ";
+
+        let stmts = split_statements(sql);
+        assert_eq!(stmts.len(), 2, "unexpected split: {stmts:?}");
+        assert!(stmts[0].starts_with("CREATE FUNCTION add_one"));
+        assert!(
+            stmts[0].ends_with("END"),
+            "atomic body truncated: {}",
+            stmts[0]
+        );
+        assert!(stmts[0].contains("SELECT x + 1;"));
+        assert_eq!(stmts[1], "CREATE TABLE t(id INTEGER)");
+    }
+
+    #[test]
+    fn split_plain_begin_transaction_still_splits() {
+        let sql = "BEGIN;\nUPDATE t SET a = 1;\nCOMMIT;";
+
+        let stmts = split_statements(sql);
+        assert_eq!(stmts.len(), 3, "unexpected split: {stmts:?}");
+        assert_eq!(stmts[0], "BEGIN");
+        assert_eq!(stmts[1], "UPDATE t SET a = 1");
+        assert_eq!(stmts[2], "COMMIT");
+    }
+
+    #[test]
+    fn split_markers_and_trigger_bodies_coexist() {
+        let sql = "\
+            CREATE TABLE users(id INTEGER);\n\
+            --> statement-breakpoint\n\
+            CREATE TRIGGER trg AFTER DELETE ON users BEGIN\n\
+              INSERT INTO audit(msg) VALUES ('gone');\n\
+            END;\n\
+            --> statement-breakpoint\n\
+            CREATE TABLE audit(msg TEXT);\
+        ";
+
+        let stmts = split_statements(sql);
+        assert_eq!(stmts.len(), 3, "unexpected split: {stmts:?}");
+        assert!(stmts[1].starts_with("CREATE TRIGGER trg"));
+        assert!(
+            stmts[1].ends_with("END"),
+            "trigger body truncated: {}",
+            stmts[1]
+        );
+    }
+
+    #[test]
     fn breakpoints_split_only_at_top_level_marker_lines() {
         let sql = r#"
             CREATE TABLE notes(value TEXT DEFAULT '--> statement-breakpoint');
@@ -1226,6 +1726,183 @@ mod tests {
         assert!(sql.contains("ORDER BY id"));
         // PostgreSQL sets use schema-qualified identifiers by default.
         assert!(sql.contains("\"drizzle\".\"__drizzle_migrations\""));
+    }
+
+    fn sample_migration() -> super::Migration {
+        super::Migration::with_hash(
+            "20230331141203_test",
+            "abc123",
+            1_680_271_923_000,
+            vec!["CREATE TABLE users(id INTEGER PRIMARY KEY)".to_string()],
+        )
+    }
+
+    #[test]
+    fn applied_names_sql_excludes_dirty_rows() {
+        for dialect in [Dialect::SQLite, Dialect::PostgreSQL, Dialect::MySQL] {
+            let set = Migrations::new(Vec::new(), dialect);
+            let applied = set.applied_names_sql();
+            let dirty = set.dirty_names_sql();
+
+            if dialect == Dialect::MySQL {
+                assert!(applied.contains("`applied_at` IS NOT NULL"), "{applied}");
+                assert!(dirty.contains("`applied_at` IS NULL"), "{dirty}");
+                assert!(dirty.contains("`name` IS NOT NULL"), "{dirty}");
+            } else {
+                assert!(applied.contains("\"applied_at\" IS NOT NULL"), "{applied}");
+                assert!(dirty.contains("\"applied_at\" IS NULL"), "{dirty}");
+                assert!(dirty.contains("\"name\" IS NOT NULL"), "{dirty}");
+            }
+            assert!(dirty.contains("ORDER BY id"));
+        }
+    }
+
+    #[test]
+    fn two_phase_tracking_sql_marks_then_clears_dirty() {
+        let migration = sample_migration();
+        let set = Migrations::new(vec![migration.clone()], Dialect::SQLite);
+
+        let started = set.record_migration_started_sql(&migration);
+        assert!(started.starts_with("INSERT INTO"));
+        assert!(
+            started.contains("'20230331141203_test', NULL)"),
+            "phase 1 must write applied_at NULL explicitly: {started}"
+        );
+
+        let finished = set.record_migration_finished_sql(&migration);
+        assert!(finished.starts_with("UPDATE"));
+        assert!(finished.contains("\"applied_at\" = CURRENT_TIMESTAMP"));
+        assert!(
+            finished.contains("\"applied_at\" IS NULL"),
+            "phase 3 must only clear a still-dirty row: {finished}"
+        );
+
+        let cleared = set.clear_migration_started_sql(&migration);
+        assert!(cleared.starts_with("DELETE FROM"));
+        assert!(cleared.contains("\"applied_at\" IS NULL"));
+    }
+
+    #[test]
+    fn two_phase_tracking_sql_quotes_per_dialect() {
+        let migration = sample_migration();
+
+        let postgres = Migrations::new(vec![migration.clone()], Dialect::PostgreSQL);
+        assert!(
+            postgres
+                .record_migration_started_sql(&migration)
+                .contains("\"drizzle\".\"__drizzle_migrations\"")
+        );
+
+        let mysql = Migrations::with_tracking(
+            vec![migration.clone()],
+            Dialect::MySQL,
+            Tracking::new("__drizzle_migrations", None::<String>),
+        );
+        let started = mysql.record_migration_started_sql(&migration);
+        assert!(started.contains("`hash`"), "{started}");
+        assert!(started.contains("NULL)"), "{started}");
+        assert!(
+            mysql
+                .record_migration_finished_sql(&migration)
+                .contains("`applied_at` = CURRENT_TIMESTAMP")
+        );
+    }
+
+    #[test]
+    fn started_row_is_not_reported_as_applied() {
+        // The started/finished pair is the only difference between "pending",
+        // "dirty" and "applied", so the predicates must be exact complements.
+        let set = Migrations::new(Vec::new(), Dialect::SQLite);
+        assert_ne!(set.applied_names_sql(), set.dirty_names_sql());
+        assert!(!set.applied_names_sql().contains("IS NULL ORDER"));
+    }
+
+    #[test]
+    fn interrupted_migration_error_is_none_when_clean() {
+        let set = Migrations::new(Vec::new(), Dialect::SQLite);
+        assert!(
+            set.interrupted_migration_error::<String>(&[]).is_none(),
+            "no dirty rows means no error"
+        );
+    }
+
+    #[test]
+    fn interrupted_migration_error_names_migration_and_recovery() {
+        let set = Migrations::new(Vec::new(), Dialect::SQLite);
+        let error = set
+            .interrupted_migration_error(&["20230331141203_test"])
+            .expect("dirty row must produce an error");
+        let text = error.to_string();
+
+        assert!(text.contains("`20230331141203_test`"), "{text}");
+        assert!(text.contains("interrupted mid-apply"), "{text}");
+        assert!(text.contains("NULL `applied_at`"), "{text}");
+        assert!(text.contains("drizzle migrate --repair"), "{text}");
+        assert!(text.contains("migrate_with_repair"), "{text}");
+        assert!(
+            text.contains("UPDATE \"__drizzle_migrations\" SET"),
+            "{text}"
+        );
+        assert!(
+            text.contains("DELETE FROM \"__drizzle_migrations\""),
+            "{text}"
+        );
+        assert!(matches!(
+            error,
+            super::MigratorError::InterruptedMigration(_)
+        ));
+    }
+
+    #[test]
+    fn interrupted_migration_error_pluralizes_and_lists_all() {
+        let set = Migrations::new(Vec::new(), Dialect::SQLite);
+        let text = set
+            .interrupted_migration_error(&["a_one", "b_two"])
+            .expect("dirty rows")
+            .to_string();
+        assert!(text.contains("migrations `a_one`, `b_two` were"), "{text}");
+    }
+
+    #[test]
+    fn backfill_metadata_sql_sets_applied_at_from_created_at() {
+        let row = super::MatchedMigrationMetadata {
+            id: Some(7),
+            hash: "abc".to_string(),
+            created_at: 1_680_271_923_000,
+            name: "20230331141203_test".to_string(),
+        };
+
+        let sqlite =
+            Migrations::new(Vec::new(), Dialect::SQLite).backfill_migration_metadata_sql(&row);
+        assert!(
+            sqlite.contains("\"name\" = '20230331141203_test'"),
+            "{sqlite}"
+        );
+        assert!(
+            sqlite.contains("\"applied_at\" = datetime(1680271923000 / 1000, 'unixepoch')"),
+            "legacy rows must not look dirty: {sqlite}"
+        );
+        assert!(sqlite.contains("\"id\" = 7"), "{sqlite}");
+        assert!(!sqlite.contains("= NULL"), "{sqlite}");
+
+        let postgres =
+            Migrations::new(Vec::new(), Dialect::PostgreSQL).backfill_migration_metadata_sql(&row);
+        assert!(postgres.contains("to_timestamp("), "{postgres}");
+        assert!(!postgres.contains("= NULL"), "{postgres}");
+    }
+
+    #[test]
+    fn backfill_metadata_sql_falls_back_to_hash_when_id_is_missing() {
+        let row = super::MatchedMigrationMetadata {
+            id: None,
+            hash: "ab'c".to_string(),
+            created_at: 12,
+            name: "tag".to_string(),
+        };
+        let sql =
+            Migrations::new(Vec::new(), Dialect::SQLite).backfill_migration_metadata_sql(&row);
+        assert!(sql.contains("\"created_at\" = 12"), "{sql}");
+        assert!(sql.contains("\"hash\" = 'ab''c'"), "{sql}");
     }
 
     #[test]

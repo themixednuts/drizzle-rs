@@ -345,6 +345,26 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
 
         ensure_d1_migration_table(&self.conn, &set).await?;
 
+        // A D1 batch is atomic, so this path never writes a dirty marker
+        // itself — but the same database may have been migrated by a
+        // non-transactional runner (the CLI's HTTP path, another driver), so
+        // refuse to stack migrations on top of an unfinished one.
+        let dirty = self
+            .conn
+            .prepare(set.dirty_names_sql())
+            .all()
+            .await
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let dirty_names: Vec<String> = dirty
+            .results::<AppliedName>()
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?
+            .into_iter()
+            .map(|r| r.name)
+            .collect();
+        if let Some(error) = set.interrupted_migration_error(&dirty_names) {
+            return Err(DrizzleError::Other(error.to_string().into()));
+        }
+
         // Read already-applied migration names
         let applied = self
             .conn
@@ -511,22 +531,7 @@ async fn ensure_d1_migration_table(
         set.table_ident_sql()
     )));
     for row in matched {
-        let escaped_name = row.name.replace('\'', "''");
-        let where_clause = if let Some(id) = row.id {
-            format!("\"id\" = {id}")
-        } else {
-            format!(
-                "\"created_at\" = {} AND \"hash\" = '{}'",
-                row.created_at,
-                row.hash.replace('\'', "''")
-            )
-        };
-        batch.push(conn.prepare(format!(
-            "UPDATE {} SET \"name\" = '{}', \"applied_at\" = NULL WHERE {}",
-            set.table_ident_sql(),
-            escaped_name,
-            where_clause
-        )));
+        batch.push(conn.prepare(set.backfill_migration_metadata_sql(&row)));
     }
 
     let results = conn

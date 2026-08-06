@@ -120,9 +120,9 @@ fn migrate_upgrades_legacy_tracking_table_and_applies_pending_migrations() {
     assert_eq!(rows[0].0, first.hash());
     assert_eq!(rows[0].1, first.created_at());
     assert_eq!(rows[0].2, first.name());
-    assert_eq!(
-        rows[0].3, None,
-        "backfilled legacy rows keep NULL applied_at"
+    assert!(
+        rows[0].3.is_some(),
+        "legacy rows get applied_at backfilled so they cannot read as interrupted"
     );
     assert_eq!(rows[1].0, second.hash());
     assert_eq!(rows[1].1, second.created_at());
@@ -196,5 +196,8 @@ fn migrate_upgrades_legacy_custom_tracking_table() {
         )
         .expect("query upgraded custom metadata row");
     assert_eq!(name, first.name());
-    assert_eq!(applied_at, None);
+    assert!(
+        applied_at.is_some(),
+        "legacy rows get applied_at backfilled so they cannot read as interrupted"
+    );
 }

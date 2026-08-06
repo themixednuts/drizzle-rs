@@ -337,11 +337,45 @@ where
 impl<Schema> common::Drizzle<Connection, Schema> {
     /// Apply pending migrations from an embedded migration slice.
     ///
-    /// Creates the migrations table if needed and runs pending migrations in a transaction.
+    /// Creates the migrations table if needed and runs pending migrations in a
+    /// transaction. Statements and the tracking insert share one
+    /// `BEGIN IMMEDIATE` transaction, so an interrupted run rolls both back and
+    /// leaves nothing to reconcile.
+    ///
+    /// Fails with an interrupted-migration error if the tracking table still
+    /// carries a dirty row from a different (non-transactional) runner — see
+    /// [`Self::migrate_with_repair`].
     pub fn migrate(
         &self,
         migrations: &[drizzle_migrations::Migration],
         tracking: drizzle_migrations::Tracking,
+    ) -> drizzle_core::error::Result<drizzle_migrations::MigrateOutcome> {
+        self.migrate_inner(migrations, tracking, false)
+    }
+
+    /// Apply pending migrations, first reconciling any interrupted migration.
+    ///
+    /// For each migration marked dirty (tracking row present, `applied_at`
+    /// NULL) this introspects `sqlite_master` and classifies every statement:
+    /// `CREATE TABLE` / `CREATE [UNIQUE] INDEX` / `CREATE VIEW` statements whose
+    /// object already exists with a matching definition are skipped, and the
+    /// rest are executed. Anything that cannot be proven either way (an
+    /// `ALTER`, a data statement, an unparseable statement inside the region
+    /// that may already have run) aborts with a list of what needs manual
+    /// resolution.
+    pub fn migrate_with_repair(
+        &self,
+        migrations: &[drizzle_migrations::Migration],
+        tracking: drizzle_migrations::Tracking,
+    ) -> drizzle_core::error::Result<drizzle_migrations::MigrateOutcome> {
+        self.migrate_inner(migrations, tracking, true)
+    }
+
+    fn migrate_inner(
+        &self,
+        migrations: &[drizzle_migrations::Migration],
+        tracking: drizzle_migrations::Tracking,
+        repair: bool,
     ) -> drizzle_core::error::Result<drizzle_migrations::MigrateOutcome> {
         let set = drizzle_migrations::Migrations::with_tracking(
             migrations.to_vec(),
@@ -354,15 +388,17 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         self.conn.execute("BEGIN IMMEDIATE", [])?;
 
         let result = (|| -> drizzle_core::error::Result<drizzle_migrations::MigrateOutcome> {
+            let mut applied = repair_dirty_migrations(&self.conn, &set, repair)?;
+
             let mut statement = self.conn.prepare(&set.applied_names_sql())?;
             let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
             let applied_names = rows.collect::<Result<Vec<_>, _>>()?;
+            drop(statement);
             let pending: Vec<_> = set.pending(&applied_names).collect();
-            if pending.is_empty() {
+            if pending.is_empty() && applied.is_empty() {
                 return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
             }
 
-            let mut applied = Vec::with_capacity(pending.len());
             for migration in &pending {
                 for stmt in migration.statements() {
                     if !stmt.trim().is_empty() {
@@ -387,6 +423,68 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             }
         }
     }
+}
+
+/// Read `sqlite_master` into a repair [`Catalog`](drizzle_migrations::repair::Catalog).
+fn introspect_catalog(
+    conn: &rusqlite::Connection,
+) -> drizzle_core::error::Result<drizzle_migrations::repair::Catalog> {
+    let mut statement = conn.prepare(drizzle_migrations::repair::sqlite::OBJECTS_QUERY)?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+        ))
+    })?;
+
+    let rows = rows.collect::<Result<Vec<_>, _>>()?;
+    Ok(drizzle_migrations::repair::sqlite::catalog(&rows))
+}
+
+/// Reject or reconcile interrupted migrations. Returns the repaired tags.
+fn repair_dirty_migrations(
+    conn: &rusqlite::Connection,
+    set: &drizzle_migrations::Migrations,
+    repair: bool,
+) -> drizzle_core::error::Result<Vec<String>> {
+    let dirty = {
+        let mut statement = conn.prepare(&set.dirty_names_sql())?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect::<Result<Vec<String>, _>>()?
+    };
+
+    if dirty.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let migrator_error =
+        |error: drizzle_migrations::MigratorError| DrizzleError::Other(error.to_string().into());
+
+    if !repair {
+        return Err(migrator_error(
+            set.interrupted_migration_error(&dirty)
+                .expect("dirty list is non-empty"),
+        ));
+    }
+
+    let table_ident = set.table_ident_sql();
+    let mut repaired = Vec::new();
+    for migration in set
+        .resolve_dirty_migrations(&dirty)
+        .map_err(migrator_error)?
+    {
+        let catalog = introspect_catalog(conn)?;
+        let plan =
+            drizzle_migrations::repair::plan(drizzle_types::Dialect::SQLite, migration, &catalog);
+        for statement in plan.into_executable(&table_ident).map_err(migrator_error)? {
+            conn.execute(&statement, [])?;
+        }
+        conn.execute(&set.record_migration_finished_sql(migration), [])?;
+        repaired.push(migration.tag().to_string());
+    }
+
+    Ok(repaired)
 }
 
 fn ensure_sqlite_migration_table(
@@ -441,23 +539,7 @@ fn ensure_sqlite_migration_table(
         )?;
 
         for row in matched {
-            let escaped_name = row.name.replace('\'', "''");
-            let where_clause = if let Some(id) = row.id {
-                format!("\"id\" = {id}")
-            } else {
-                format!(
-                    "\"created_at\" = {} AND \"hash\" = '{}'",
-                    row.created_at,
-                    row.hash.replace('\'', "''")
-                )
-            };
-            let update_sql = format!(
-                "UPDATE {} SET \"name\" = '{}', \"applied_at\" = NULL WHERE {}",
-                set.table_ident_sql(),
-                escaped_name,
-                where_clause
-            );
-            conn.execute(&update_sql, [])?;
+            conn.execute(&set.backfill_migration_metadata_sql(&row), [])?;
         }
 
         Ok(())
@@ -585,6 +667,18 @@ fn introspect_query_views(
     Ok(all_views)
 }
 
+fn introspect_query_index_sql(
+    conn: &rusqlite::Connection,
+) -> drizzle_core::error::Result<Vec<(String, String)>> {
+    use drizzle_migrations::sqlite::introspect::queries;
+
+    let mut index_sql_stmt = conn.prepare(queries::INDEX_SQL_QUERY)?;
+    let rows = index_sql_stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 impl<Schema> common::Drizzle<Connection, Schema> {
     /// Introspect the live database and return a [`Snapshot`] of its current schema.
     ///
@@ -596,6 +690,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         let (all_indexes, all_index_columns, all_fks) =
             introspect_query_indexes_and_fks(&self.conn)?;
         let all_views = introspect_query_views(&self.conn)?;
+        let index_sql = introspect_query_index_sql(&self.conn)?;
 
         let ddl = drizzle_migrations::sqlite::introspect::assemble_ddl(
             drizzle_migrations::sqlite::introspect::RawIntrospection {
@@ -605,6 +700,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                 index_columns: all_index_columns,
                 foreign_keys: all_fks,
                 views: all_views,
+                index_sql,
             },
         );
 

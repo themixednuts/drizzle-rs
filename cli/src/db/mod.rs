@@ -31,12 +31,14 @@ pub use filters::apply_snapshot_filters;
 use filters::{compile_patterns, matches_patterns};
 
 /// Result of a migration run
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MigrationResult {
     /// Number of migrations applied
     pub applied_count: usize,
     /// Tags of applied migrations
     pub applied_migrations: Vec<String>,
+    /// Tags of interrupted migrations reconciled by `--repair`.
+    pub repaired_migrations: Vec<String>,
 }
 
 /// Planned migration execution details.
@@ -288,6 +290,7 @@ pub fn run_migrations(
     migrations_dir: &Path,
     migrations_table: &str,
     migrations_schema: &str,
+    repair: bool,
 ) -> Result<MigrationResult, CliError> {
     #[cfg(any(
         feature = "rusqlite",
@@ -301,7 +304,7 @@ pub fn run_migrations(
 
     match credentials {
         #[cfg(feature = "rusqlite")]
-        Credentials::Sqlite { path } => run_sqlite_migrations(&set, path),
+        Credentials::Sqlite { path } => run_sqlite_migrations(&set, path, repair),
 
         #[cfg(not(feature = "rusqlite"))]
         Credentials::Sqlite { .. } => Err(CliError::MissingDriver {
@@ -314,7 +317,7 @@ pub fn run_migrations(
             if is_local_libsql(url) {
                 #[cfg(feature = "libsql")]
                 {
-                    run_libsql_local_migrations(&set, url)
+                    run_libsql_local_migrations(&set, url, repair)
                 }
                 #[cfg(not(feature = "libsql"))]
                 {
@@ -326,7 +329,7 @@ pub fn run_migrations(
             } else {
                 #[cfg(feature = "turso")]
                 {
-                    run_turso_migrations(&set, url, auth_token.as_deref())
+                    run_turso_migrations(&set, url, auth_token.as_deref(), repair)
                 }
                 #[cfg(not(feature = "turso"))]
                 {
@@ -349,8 +352,8 @@ pub fn run_migrations(
         Credentials::Postgres(creds) => {
             let _ = creds;
             core::cfg_select! {
-                feature = "postgres-sync" => run_postgres_sync_migrations(&set, creds),
-                feature = "tokio-postgres" => run_postgres_async_migrations(&set, creds),
+                feature = "postgres-sync" => run_postgres_sync_migrations(&set, creds, repair),
+                feature = "tokio-postgres" => run_postgres_async_migrations(&set, creds, repair),
                 _ => Err(CliError::MissingDriver {
                     dialect: "PostgreSQL",
                     feature: "postgres-sync or tokio-postgres",
@@ -363,7 +366,7 @@ pub fn run_migrations(
             account_id,
             database_id,
             token,
-        } => d1_http::run_migrations(&set, account_id, database_id, token),
+        } => d1_http::run_migrations(&set, account_id, database_id, token, repair),
 
         #[cfg(not(feature = "d1-http"))]
         Credentials::D1 { .. } => Err(CliError::MissingDriver {
@@ -539,6 +542,406 @@ fn escape_sql_literal(value: &str) -> String {
     value.replace('\'', "''")
 }
 
+// ============================================================================
+// Interrupted ("dirty") migration handling
+// ============================================================================
+//
+// A tracking row with a non-null `name` and a NULL `applied_at` means an
+// earlier run recorded a migration as started and never recorded it as
+// finished — the database may hold part of that migration's DDL. Every runner
+// checks for those rows before applying anything; `--repair` additionally
+// reconciles them statement-by-statement against live introspection.
+
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+))]
+fn migrator_cli_error(error: drizzle_migrations::MigratorError) -> CliError {
+    CliError::MigrationError(error.to_string())
+}
+
+/// Turn a dirty-name list into either an error (no `--repair`) or the list of
+/// migrations to reconcile.
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+))]
+fn dirty_migrations_to_repair<'a>(
+    set: &'a Migrations,
+    dirty: &[String],
+    repair: bool,
+) -> Result<Vec<&'a drizzle_migrations::Migration>, CliError> {
+    if dirty.is_empty() {
+        return Ok(Vec::new());
+    }
+    if !repair {
+        return Err(migrator_cli_error(
+            set.interrupted_migration_error(dirty)
+                .expect("dirty list is non-empty"),
+        ));
+    }
+    set.resolve_dirty_migrations(dirty)
+        .map_err(migrator_cli_error)
+}
+
+#[cfg(feature = "rusqlite")]
+fn introspect_catalog_sqlite(
+    conn: &rusqlite::Connection,
+) -> Result<drizzle_migrations::repair::Catalog, CliError> {
+    let mut stmt = conn
+        .prepare(drizzle_migrations::repair::sqlite::OBJECTS_QUERY)
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    let rows = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    Ok(drizzle_migrations::repair::sqlite::catalog(&rows))
+}
+
+#[cfg(feature = "rusqlite")]
+fn repair_dirty_migrations_sqlite(
+    conn: &rusqlite::Connection,
+    set: &Migrations,
+    repair: bool,
+) -> Result<Vec<String>, CliError> {
+    let dirty = {
+        let mut stmt = match conn.prepare(&set.dirty_names_sql()) {
+            Ok(stmt) => stmt,
+            Err(error) if is_sqlite_missing_table(&error) => return Ok(Vec::new()),
+            Err(error) => return Err(CliError::MigrationError(error.to_string())),
+        };
+        stmt.query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| CliError::MigrationError(e.to_string()))?
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|e| CliError::MigrationError(e.to_string()))?
+    };
+
+    let table_ident = set.table_ident_sql();
+    let mut repaired = Vec::new();
+    for migration in dirty_migrations_to_repair(set, &dirty, repair)? {
+        let catalog = introspect_catalog_sqlite(conn)?;
+        let plan =
+            drizzle_migrations::repair::plan(drizzle_types::Dialect::SQLite, migration, &catalog);
+        for statement in plan
+            .into_executable(&table_ident)
+            .map_err(migrator_cli_error)?
+        {
+            conn.execute(&statement, [])
+                .map_err(|e| CliError::MigrationError(format!("Repair statement failed: {e}")))?;
+        }
+        conn.execute(&set.record_migration_finished_sql(migration), [])
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+        repaired.push(migration.tag().to_string());
+    }
+    Ok(repaired)
+}
+
+#[cfg(any(feature = "libsql", feature = "turso"))]
+async fn introspect_catalog_libsql(
+    conn: &libsql::Connection,
+) -> Result<drizzle_migrations::repair::Catalog, CliError> {
+    let mut rows = conn
+        .query(drizzle_migrations::repair::sqlite::OBJECTS_QUERY, ())
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    let mut master_rows = Vec::new();
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?
+    {
+        master_rows.push((
+            row.get::<String>(0)
+                .map_err(|e| CliError::MigrationError(e.to_string()))?,
+            row.get::<String>(1)
+                .map_err(|e| CliError::MigrationError(e.to_string()))?,
+            row.get::<Option<String>>(2).ok().flatten(),
+        ));
+    }
+    Ok(drizzle_migrations::repair::sqlite::catalog(&master_rows))
+}
+
+#[cfg(any(feature = "libsql", feature = "turso"))]
+async fn repair_dirty_migrations_libsql(
+    conn: &libsql::Connection,
+    set: &Migrations,
+    repair: bool,
+) -> Result<Vec<String>, CliError> {
+    let mut rows = conn
+        .query(&set.dirty_names_sql(), ())
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    let mut dirty = Vec::new();
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?
+    {
+        dirty.push(
+            row.get::<String>(0)
+                .map_err(|e| CliError::MigrationError(e.to_string()))?,
+        );
+    }
+
+    let table_ident = set.table_ident_sql();
+    let mut repaired = Vec::new();
+    for migration in dirty_migrations_to_repair(set, &dirty, repair)? {
+        let catalog = introspect_catalog_libsql(conn).await?;
+        let plan =
+            drizzle_migrations::repair::plan(drizzle_types::Dialect::SQLite, migration, &catalog);
+        for statement in plan
+            .into_executable(&table_ident)
+            .map_err(migrator_cli_error)?
+        {
+            conn.execute(&statement, ())
+                .await
+                .map_err(|e| CliError::MigrationError(format!("Repair statement failed: {e}")))?;
+        }
+        conn.execute(&set.record_migration_finished_sql(migration), ())
+            .await
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+        repaired.push(migration.tag().to_string());
+    }
+    Ok(repaired)
+}
+
+#[cfg(feature = "postgres-sync")]
+fn introspect_catalog_postgres_sync(
+    client: &mut postgres::Client,
+) -> Result<drizzle_migrations::repair::Catalog, CliError> {
+    use drizzle_migrations::repair::postgres as pg;
+
+    let err = |e: postgres::Error| CliError::MigrationError(e.to_string());
+    let two =
+        |client: &mut postgres::Client, sql: &str| -> Result<Vec<(String, String)>, CliError> {
+            Ok(client
+                .query(sql, &[])
+                .map_err(err)?
+                .iter()
+                .map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
+                .collect())
+        };
+    let three = |client: &mut postgres::Client,
+                 sql: &str|
+     -> Result<Vec<(String, String, String)>, CliError> {
+        Ok(client
+            .query(sql, &[])
+            .map_err(err)?
+            .iter()
+            .map(|row| {
+                (
+                    row.get::<_, String>(0),
+                    row.get::<_, String>(1),
+                    row.get::<_, String>(2),
+                )
+            })
+            .collect())
+    };
+
+    let indexes = client
+        .query(pg::INDEXES_QUERY, &[])
+        .map_err(err)?
+        .iter()
+        .map(|row| {
+            (
+                row.get::<_, String>(0),
+                row.get::<_, String>(1),
+                row.get::<_, bool>(2),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let tables = two(client, pg::TABLES_QUERY)?;
+    let columns = three(client, pg::COLUMNS_QUERY)?;
+    let views = two(client, pg::VIEWS_QUERY)?;
+    let index_columns = three(client, pg::INDEX_COLUMNS_QUERY)?;
+    let enums = three(client, pg::ENUMS_QUERY)?;
+
+    Ok(pg::catalog(
+        &tables,
+        &columns,
+        &views,
+        &indexes,
+        &index_columns,
+        &enums,
+    ))
+}
+
+#[cfg(feature = "postgres-sync")]
+fn repair_dirty_migrations_postgres_sync(
+    client: &mut postgres::Client,
+    set: &Migrations,
+    repair: bool,
+) -> Result<Vec<String>, CliError> {
+    let dirty = client
+        .query(&set.dirty_names_sql(), &[])
+        .map_err(|e| CliError::MigrationError(e.to_string()))?
+        .iter()
+        .map(|row| row.try_get::<_, String>(0))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    let table_ident = set.table_ident_sql();
+    let to_repair = dirty_migrations_to_repair(set, &dirty, repair)?
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let mut repaired = Vec::new();
+    for migration in &to_repair {
+        let catalog = introspect_catalog_postgres_sync(client)?;
+        let plan = drizzle_migrations::repair::plan(
+            drizzle_types::Dialect::PostgreSQL,
+            migration,
+            &catalog,
+        );
+        for statement in plan
+            .into_executable(&table_ident)
+            .map_err(migrator_cli_error)?
+        {
+            client
+                .execute(statement.as_str(), &[])
+                .map_err(|e| CliError::MigrationError(format!("Repair statement failed: {e}")))?;
+        }
+        client
+            .execute(&set.record_migration_finished_sql(migration), &[])
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+        repaired.push(migration.tag().to_string());
+    }
+    Ok(repaired)
+}
+
+#[cfg(feature = "tokio-postgres")]
+async fn introspect_catalog_postgres_async(
+    client: &tokio_postgres::Client,
+) -> Result<drizzle_migrations::repair::Catalog, CliError> {
+    use drizzle_migrations::repair::postgres as pg;
+
+    async fn two(
+        client: &tokio_postgres::Client,
+        sql: &str,
+    ) -> Result<Vec<(String, String)>, CliError> {
+        Ok(client
+            .query(sql, &[])
+            .await
+            .map_err(|e| CliError::MigrationError(e.to_string()))?
+            .iter()
+            .map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
+            .collect())
+    }
+
+    async fn three(
+        client: &tokio_postgres::Client,
+        sql: &str,
+    ) -> Result<Vec<(String, String, String)>, CliError> {
+        Ok(client
+            .query(sql, &[])
+            .await
+            .map_err(|e| CliError::MigrationError(e.to_string()))?
+            .iter()
+            .map(|row| {
+                (
+                    row.get::<_, String>(0),
+                    row.get::<_, String>(1),
+                    row.get::<_, String>(2),
+                )
+            })
+            .collect())
+    }
+
+    let indexes = client
+        .query(pg::INDEXES_QUERY, &[])
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?
+        .iter()
+        .map(|row| {
+            (
+                row.get::<_, String>(0),
+                row.get::<_, String>(1),
+                row.get::<_, bool>(2),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let tables = two(client, pg::TABLES_QUERY).await?;
+    let columns = three(client, pg::COLUMNS_QUERY).await?;
+    let views = two(client, pg::VIEWS_QUERY).await?;
+    let index_columns = three(client, pg::INDEX_COLUMNS_QUERY).await?;
+    let enums = three(client, pg::ENUMS_QUERY).await?;
+
+    Ok(pg::catalog(
+        &tables,
+        &columns,
+        &views,
+        &indexes,
+        &index_columns,
+        &enums,
+    ))
+}
+
+#[cfg(feature = "tokio-postgres")]
+async fn repair_dirty_migrations_postgres_async(
+    client: &tokio_postgres::Client,
+    set: &Migrations,
+    repair: bool,
+) -> Result<Vec<String>, CliError> {
+    let dirty = client
+        .query(&set.dirty_names_sql(), &[])
+        .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?
+        .iter()
+        .map(|row| row.try_get::<_, String>(0))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+
+    let table_ident = set.table_ident_sql();
+    let to_repair = dirty_migrations_to_repair(set, &dirty, repair)?
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let mut repaired = Vec::new();
+    for migration in &to_repair {
+        let catalog = introspect_catalog_postgres_async(client).await?;
+        let plan = drizzle_migrations::repair::plan(
+            drizzle_types::Dialect::PostgreSQL,
+            migration,
+            &catalog,
+        );
+        for statement in plan
+            .into_executable(&table_ident)
+            .map_err(migrator_cli_error)?
+        {
+            client
+                .execute(statement.as_str(), &[])
+                .await
+                .map_err(|e| CliError::MigrationError(format!("Repair statement failed: {e}")))?;
+        }
+        client
+            .execute(&set.record_migration_finished_sql(migration), &[])
+            .await
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+        repaired.push(migration.tag().to_string());
+    }
+    Ok(repaired)
+}
+
 #[cfg(feature = "rusqlite")]
 fn ensure_sqlite_tracking_table(
     conn: &rusqlite::Connection,
@@ -605,25 +1008,8 @@ fn ensure_sqlite_tracking_table(
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
         for row in matched {
-            let where_clause = if let Some(id) = row.id {
-                format!("\"id\" = {id}")
-            } else {
-                format!(
-                    "\"created_at\" = {} AND \"hash\" = '{}'",
-                    row.created_at,
-                    escape_sql_literal(&row.hash)
-                )
-            };
-            conn.execute(
-                &format!(
-                    "UPDATE {} SET \"name\" = '{}', \"applied_at\" = NULL WHERE {}",
-                    set.table_ident_sql(),
-                    escape_sql_literal(&row.name),
-                    where_clause
-                ),
-                [],
-            )
-            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+            conn.execute(&set.backfill_migration_metadata_sql(&row), [])
+                .map_err(|e| CliError::MigrationError(e.to_string()))?;
         }
 
         Ok(())
@@ -735,26 +1121,9 @@ async fn ensure_sqlite_tracking_table_libsql(
     .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     for row in matched {
-        let where_clause = if let Some(id) = row.id {
-            format!("\"id\" = {id}")
-        } else {
-            format!(
-                "\"created_at\" = {} AND \"hash\" = '{}'",
-                row.created_at,
-                escape_sql_literal(&row.hash)
-            )
-        };
-        tx.execute(
-            &format!(
-                "UPDATE {} SET \"name\" = '{}', \"applied_at\" = NULL WHERE {}",
-                set.table_ident_sql(),
-                escape_sql_literal(&row.name),
-                where_clause
-            ),
-            (),
-        )
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+        tx.execute(&set.backfill_migration_metadata_sql(&row), ())
+            .await
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
     }
 
     tx.commit()
@@ -832,25 +1201,8 @@ fn ensure_postgres_tracking_table_sync(
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     for row in matched {
-        let where_clause = if let Some(id) = row.id {
-            format!("\"id\" = {id}")
-        } else {
-            format!(
-                "\"created_at\" = {} AND \"hash\" = '{}'",
-                row.created_at,
-                escape_sql_literal(&row.hash)
-            )
-        };
         client
-            .execute(
-                &format!(
-                    "UPDATE {} SET \"name\" = '{}', \"applied_at\" = NULL WHERE {}",
-                    set.table_ident_sql(),
-                    escape_sql_literal(&row.name),
-                    where_clause
-                ),
-                &[],
-            )
+            .execute(&set.backfill_migration_metadata_sql(&row), &[])
             .map_err(|e| CliError::MigrationError(e.to_string()))?;
     }
 
@@ -931,25 +1283,8 @@ async fn ensure_postgres_tracking_table_async(
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     for row in matched {
-        let where_clause = if let Some(id) = row.id {
-            format!("\"id\" = {id}")
-        } else {
-            format!(
-                "\"created_at\" = {} AND \"hash\" = '{}'",
-                row.created_at,
-                escape_sql_literal(&row.hash)
-            )
-        };
         client
-            .execute(
-                &format!(
-                    "UPDATE {} SET \"name\" = '{}', \"applied_at\" = NULL WHERE {}",
-                    set.table_ident_sql(),
-                    escape_sql_literal(&row.name),
-                    where_clause
-                ),
-                &[],
-            )
+            .execute(&set.backfill_migration_metadata_sql(&row), &[])
             .await
             .map_err(|e| CliError::MigrationError(e.to_string()))?;
     }
@@ -1030,7 +1365,7 @@ fn generate_push_sql(
         }
         (Snapshot::Postgres(prev_snap), Snapshot::Postgres(curr_snap)) => {
             use drizzle_migrations::postgres::diff_full_snapshots;
-            use drizzle_migrations::postgres::statements::PostgresGenerator;
+            use drizzle_migrations::postgres::statements::Generator as PostgresGenerator;
 
             let diff = diff_full_snapshots(prev_snap, curr_snap);
             let generator = PostgresGenerator::new().with_breakpoints(breakpoints);
@@ -1172,7 +1507,11 @@ fn execute_sqlite_statements(path: &str, statements: &[String]) -> Result<(), Cl
 }
 
 #[cfg(feature = "rusqlite")]
-fn run_sqlite_migrations(set: &Migrations, path: &str) -> Result<MigrationResult, CliError> {
+fn run_sqlite_migrations(
+    set: &Migrations,
+    path: &str,
+    repair: bool,
+) -> Result<MigrationResult, CliError> {
     let conn = rusqlite::Connection::open(path).map_err(|e| {
         CliError::ConnectionError(format!("Failed to open SQLite database '{path}': {e}"))
     })?;
@@ -1182,6 +1521,13 @@ fn run_sqlite_migrations(set: &Migrations, path: &str) -> Result<MigrationResult
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
     conn.execute("BEGIN IMMEDIATE", [])
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    let repaired = match repair_dirty_migrations_sqlite(&conn, set, repair) {
+        Ok(repaired) => repaired,
+        Err(error) => {
+            let _ = conn.execute("ROLLBACK", []);
+            return Err(error);
+        }
+    };
     let applied_names = query_applied_names_sqlite(&conn, set)?;
 
     // Get pending migrations
@@ -1192,6 +1538,7 @@ fn run_sqlite_migrations(set: &Migrations, path: &str) -> Result<MigrationResult
         return Ok(MigrationResult {
             applied_count: 0,
             applied_migrations: vec![],
+            repaired_migrations: repaired,
         });
     }
 
@@ -1222,6 +1569,7 @@ fn run_sqlite_migrations(set: &Migrations, path: &str) -> Result<MigrationResult
     Ok(MigrationResult {
         applied_count: applied.len(),
         applied_migrations: applied,
+        repaired_migrations: repaired,
     })
 }
 
@@ -1432,6 +1780,7 @@ fn execute_postgres_sync_statements(
 fn run_postgres_sync_migrations(
     set: &Migrations,
     creds: &PostgresCreds,
+    repair: bool,
 ) -> Result<MigrationResult, CliError> {
     let mut client = connect_postgres_sync(creds)?;
 
@@ -1446,7 +1795,7 @@ fn run_postgres_sync_migrations(
     client
         .query_one("SELECT pg_advisory_lock($1)", &[&lock_key])
         .map_err(|error| CliError::MigrationError(error.to_string()))?;
-    let result = run_postgres_sync_migrations_locked(&mut client, set);
+    let result = run_postgres_sync_migrations_locked(&mut client, set, repair);
     let unlock = client
         .query_one("SELECT pg_advisory_unlock($1)", &[&lock_key])
         .map_err(|error| CliError::MigrationError(error.to_string()));
@@ -1461,8 +1810,10 @@ fn run_postgres_sync_migrations(
 fn run_postgres_sync_migrations_locked(
     client: &mut postgres::Client,
     set: &Migrations,
+    repair: bool,
 ) -> Result<MigrationResult, CliError> {
     ensure_postgres_tracking_table_sync(client, set)?;
+    let repaired = repair_dirty_migrations_postgres_sync(client, set, repair)?;
     let rows = client
         .query(&set.applied_names_sql(), &[])
         .map_err(|error| CliError::MigrationError(error.to_string()))?;
@@ -1476,24 +1827,43 @@ fn run_postgres_sync_migrations_locked(
         return Ok(MigrationResult {
             applied_count: 0,
             applied_migrations: vec![],
+            repaired_migrations: repaired,
         });
     }
 
     let mut applied = Vec::new();
     if set.has_postgres_concurrent_index() {
+        // CREATE/DROP INDEX CONCURRENTLY cannot run in a transaction, so this
+        // path uses two-phase tracking: mark the migration dirty, run the
+        // statements autocommit, then stamp applied_at. A crash in between
+        // leaves a recoverable dirty row instead of an untracked partial
+        // schema.
         for migration in &pending {
-            for statement in migration.statements() {
-                if !statement.trim().is_empty() {
-                    client.execute(statement, &[]).map_err(|error| {
-                        CliError::MigrationError(format!(
-                            "Migration '{}' failed: {error}",
-                            migration.hash()
-                        ))
-                    })?;
-                }
-            }
             client
-                .execute(&set.record_migration_sql(migration), &[])
+                .execute(&set.record_migration_started_sql(migration), &[])
+                .map_err(|error| CliError::MigrationError(error.to_string()))?;
+
+            let mut executed = 0usize;
+            for statement in migration.statements() {
+                if statement.trim().is_empty() {
+                    continue;
+                }
+                if let Err(error) = client.execute(statement, &[]) {
+                    // Nothing applied yet - drop the marker instead of
+                    // demanding a pointless repair.
+                    if executed == 0 {
+                        let _ = client.execute(&set.clear_migration_started_sql(migration), &[]);
+                    }
+                    return Err(CliError::MigrationError(format!(
+                        "Migration '{}' failed: {error}",
+                        migration.hash()
+                    )));
+                }
+                executed += 1;
+            }
+
+            client
+                .execute(&set.record_migration_finished_sql(migration), &[])
                 .map_err(|error| CliError::MigrationError(error.to_string()))?;
             applied.push(migration.hash().to_string());
         }
@@ -1525,6 +1895,7 @@ fn run_postgres_sync_migrations_locked(
     Ok(MigrationResult {
         applied_count: applied.len(),
         applied_migrations: applied,
+        repaired_migrations: repaired,
     })
 }
 
@@ -1640,13 +2011,14 @@ async fn execute_postgres_async_inner(
 fn run_postgres_async_migrations(
     set: &Migrations,
     creds: &PostgresCreds,
+    repair: bool,
 ) -> Result<MigrationResult, CliError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
 
-    rt.block_on(run_postgres_async_inner(set, creds))
+    rt.block_on(run_postgres_async_inner(set, creds, repair))
 }
 
 #[cfg(feature = "tokio-postgres")]
@@ -1718,6 +2090,7 @@ async fn query_applied_records_postgres_async(
 async fn run_postgres_async_inner(
     set: &Migrations,
     creds: &PostgresCreds,
+    repair: bool,
 ) -> Result<MigrationResult, CliError> {
     let mut client = connect_postgres_async(creds).await?;
 
@@ -1734,7 +2107,7 @@ async fn run_postgres_async_inner(
         .query_one("SELECT pg_advisory_lock($1)", &[&lock_key])
         .await
         .map_err(|error| CliError::MigrationError(error.to_string()))?;
-    let result = run_postgres_async_migrations_locked(&mut client, set).await;
+    let result = run_postgres_async_migrations_locked(&mut client, set, repair).await;
     let unlock = client
         .query_one("SELECT pg_advisory_unlock($1)", &[&lock_key])
         .await
@@ -1750,8 +2123,10 @@ async fn run_postgres_async_inner(
 async fn run_postgres_async_migrations_locked(
     client: &mut tokio_postgres::Client,
     set: &Migrations,
+    repair: bool,
 ) -> Result<MigrationResult, CliError> {
     ensure_postgres_tracking_table_async(client, set).await?;
+    let repaired = repair_dirty_migrations_postgres_async(client, set, repair).await?;
     let rows = client
         .query(&set.applied_names_sql(), &[])
         .await
@@ -1766,24 +2141,46 @@ async fn run_postgres_async_migrations_locked(
         return Ok(MigrationResult {
             applied_count: 0,
             applied_migrations: vec![],
+            repaired_migrations: repaired,
         });
     }
 
     let mut applied = Vec::new();
     if set.has_postgres_concurrent_index() {
+        // CREATE/DROP INDEX CONCURRENTLY cannot run in a transaction, so this
+        // path uses two-phase tracking: mark the migration dirty, run the
+        // statements autocommit, then stamp applied_at. A crash in between
+        // leaves a recoverable dirty row instead of an untracked partial
+        // schema.
         for migration in &pending {
-            for statement in migration.statements() {
-                if !statement.trim().is_empty() {
-                    client.execute(statement, &[]).await.map_err(|error| {
-                        CliError::MigrationError(format!(
-                            "Migration '{}' failed: {error}",
-                            migration.hash()
-                        ))
-                    })?;
-                }
-            }
             client
-                .execute(&set.record_migration_sql(migration), &[])
+                .execute(&set.record_migration_started_sql(migration), &[])
+                .await
+                .map_err(|error| CliError::MigrationError(error.to_string()))?;
+
+            let mut executed = 0usize;
+            for statement in migration.statements() {
+                if statement.trim().is_empty() {
+                    continue;
+                }
+                if let Err(error) = client.execute(statement, &[]).await {
+                    // Nothing applied yet - drop the marker instead of
+                    // demanding a pointless repair.
+                    if executed == 0 {
+                        let _ = client
+                            .execute(&set.clear_migration_started_sql(migration), &[])
+                            .await;
+                    }
+                    return Err(CliError::MigrationError(format!(
+                        "Migration '{}' failed: {error}",
+                        migration.hash()
+                    )));
+                }
+                executed += 1;
+            }
+
+            client
+                .execute(&set.record_migration_finished_sql(migration), &[])
                 .await
                 .map_err(|error| CliError::MigrationError(error.to_string()))?;
             applied.push(migration.hash().to_string());
@@ -1819,6 +2216,7 @@ async fn run_postgres_async_migrations_locked(
     Ok(MigrationResult {
         applied_count: applied.len(),
         applied_migrations: applied,
+        repaired_migrations: repaired,
     })
 }
 
@@ -1875,13 +2273,17 @@ async fn execute_libsql_local_inner(path: &str, statements: &[String]) -> Result
 }
 
 #[cfg(feature = "libsql")]
-fn run_libsql_local_migrations(set: &Migrations, path: &str) -> Result<MigrationResult, CliError> {
+fn run_libsql_local_migrations(
+    set: &Migrations,
+    path: &str,
+    repair: bool,
+) -> Result<MigrationResult, CliError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
 
-    rt.block_on(run_libsql_local_inner(set, path))
+    rt.block_on(run_libsql_local_inner(set, path, repair))
 }
 
 #[cfg(feature = "libsql")]
@@ -1919,7 +2321,11 @@ async fn inspect_libsql_local_inner(
 }
 
 #[cfg(feature = "libsql")]
-async fn run_libsql_local_inner(set: &Migrations, path: &str) -> Result<MigrationResult, CliError> {
+async fn run_libsql_local_inner(
+    set: &Migrations,
+    path: &str,
+    repair: bool,
+) -> Result<MigrationResult, CliError> {
     let db = libsql::Builder::new_local(path)
         .build()
         .await
@@ -1932,6 +2338,7 @@ async fn run_libsql_local_inner(set: &Migrations, path: &str) -> Result<Migratio
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
     ensure_sqlite_tracking_table_libsql(&conn, set).await?;
+    let repaired = repair_dirty_migrations_libsql(&conn, set, repair).await?;
     let tx = conn
         .transaction_with_behavior(libsql::TransactionBehavior::Immediate)
         .await
@@ -1947,6 +2354,7 @@ async fn run_libsql_local_inner(set: &Migrations, path: &str) -> Result<Migratio
         return Ok(MigrationResult {
             applied_count: 0,
             applied_migrations: vec![],
+            repaired_migrations: repaired,
         });
     }
 
@@ -1978,6 +2386,7 @@ async fn run_libsql_local_inner(set: &Migrations, path: &str) -> Result<Migratio
     Ok(MigrationResult {
         applied_count: applied.len(),
         applied_migrations: applied,
+        repaired_migrations: repaired,
     })
 }
 
@@ -2103,13 +2512,14 @@ fn run_turso_migrations(
     set: &Migrations,
     url: &str,
     auth_token: Option<&str>,
+    repair: bool,
 ) -> Result<MigrationResult, CliError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
 
-    rt.block_on(run_turso_inner(set, url, auth_token))
+    rt.block_on(run_turso_inner(set, url, auth_token, repair))
 }
 
 #[cfg(feature = "turso")]
@@ -2153,6 +2563,7 @@ async fn run_turso_inner(
     set: &Migrations,
     url: &str,
     auth_token: Option<&str>,
+    repair: bool,
 ) -> Result<MigrationResult, CliError> {
     let builder =
         libsql::Builder::new_remote(url.to_string(), auth_token.unwrap_or("").to_string());
@@ -2166,6 +2577,7 @@ async fn run_turso_inner(
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
     ensure_sqlite_tracking_table_libsql(&conn, set).await?;
+    let repaired = repair_dirty_migrations_libsql(&conn, set, repair).await?;
     let tx = conn
         .transaction_with_behavior(libsql::TransactionBehavior::Immediate)
         .await
@@ -2181,6 +2593,7 @@ async fn run_turso_inner(
         return Ok(MigrationResult {
             applied_count: 0,
             applied_migrations: vec![],
+            repaired_migrations: repaired,
         });
     }
 
@@ -2212,6 +2625,7 @@ async fn run_turso_inner(
     Ok(MigrationResult {
         applied_count: applied.len(),
         applied_migrations: applied,
+        repaired_migrations: repaired,
     })
 }
 
@@ -2316,7 +2730,7 @@ pub fn run_introspection(
     migrations_table: &str,
     migrations_schema: &str,
 ) -> Result<IntrospectResult, CliError> {
-    use drizzle_migrations::words::generate_migration_tag;
+    use drizzle_migrations::naming::generate_migration_tag;
 
     // Perform introspection
     let mut result = introspect_database(credentials, dialect)?;
@@ -2742,7 +3156,7 @@ fn generate_introspect_migration(
     match (prev, current) {
         (Snapshot::Sqlite(prev_snap), Snapshot::Sqlite(curr_snap)) => {
             use drizzle_migrations::sqlite::diff_snapshots;
-            use drizzle_migrations::sqlite::statements::SqliteGenerator;
+            use drizzle_migrations::sqlite::statements::Generator as SqliteGenerator;
 
             let diff = diff_snapshots(prev_snap, curr_snap);
             let generator = SqliteGenerator::new().with_breakpoints(breakpoints);
@@ -2750,7 +3164,7 @@ fn generate_introspect_migration(
         }
         (Snapshot::Postgres(prev_snap), Snapshot::Postgres(curr_snap)) => {
             use drizzle_migrations::postgres::diff_full_snapshots;
-            use drizzle_migrations::postgres::statements::PostgresGenerator;
+            use drizzle_migrations::postgres::statements::Generator as PostgresGenerator;
 
             let diff = diff_full_snapshots(prev_snap, curr_snap);
             let generator = PostgresGenerator::new().with_breakpoints(breakpoints);
@@ -2938,6 +3352,7 @@ struct SqliteRawData {
     all_index_columns: Vec<drizzle_migrations::sqlite::introspect::RawIndexColumn>,
     all_fks: Vec<drizzle_migrations::sqlite::introspect::RawForeignKey>,
     all_views: Vec<drizzle_migrations::sqlite::introspect::RawViewInfo>,
+    index_sql: Vec<(String, String)>,
 }
 
 #[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
@@ -2950,6 +3365,7 @@ impl SqliteRawData {
             all_index_columns: Vec::new(),
             all_fks: Vec::new(),
             all_views: Vec::new(),
+            index_sql: Vec::new(),
         }
     }
 }
@@ -3117,10 +3533,22 @@ fn query_rusqlite_views_and_view_columns(
 
 #[cfg(feature = "rusqlite")]
 fn query_rusqlite_raw(conn: &rusqlite::Connection) -> Result<SqliteRawData, CliError> {
+    use drizzle_migrations::sqlite::introspect::queries;
+
     let mut raw = SqliteRawData::empty();
     query_rusqlite_tables_and_columns(conn, &mut raw)?;
     query_rusqlite_indexes_and_foreign_keys(conn, &mut raw)?;
     query_rusqlite_views_and_view_columns(conn, &mut raw)?;
+
+    let mut index_sql_stmt = conn
+        .prepare(queries::INDEX_SQL_QUERY)
+        .map_err(|e| CliError::Other(format!("Failed to prepare index sql query: {e}")))?;
+    raw.index_sql = index_sql_stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|e| CliError::Other(e.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| CliError::Other(e.to_string()))?;
+
     Ok(raw)
 }
 
@@ -3134,6 +3562,7 @@ fn build_sqlite_ddl(raw: SqliteRawData) -> drizzle_migrations::sqlite::SQLiteDDL
             index_columns: raw.all_index_columns,
             foreign_keys: raw.all_fks,
             views: raw.all_views,
+            index_sql: raw.index_sql,
         },
     )
 }
@@ -3392,10 +3821,27 @@ async fn query_libsql_views_and_view_columns(
 
 #[cfg(any(feature = "libsql", feature = "turso"))]
 async fn query_libsql_raw(conn: &libsql::Connection) -> Result<SqliteRawData, CliError> {
+    use drizzle_migrations::sqlite::introspect::queries;
+
     let (tables, mut raw_columns) = query_libsql_tables_and_columns(conn).await?;
     let (all_indexes, all_index_columns, all_fks) =
         query_libsql_indexes_and_foreign_keys(conn).await?;
     let all_views = query_libsql_views_and_view_columns(conn, &mut raw_columns).await?;
+
+    let mut index_sql = Vec::new();
+    let mut rows = conn
+        .query(queries::INDEX_SQL_QUERY, ())
+        .await
+        .map_err(|e| CliError::Other(e.to_string()))?;
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|e| CliError::Other(e.to_string()))?
+    {
+        let name: String = row.get(0).map_err(|e| CliError::Other(e.to_string()))?;
+        let sql: String = row.get(1).map_err(|e| CliError::Other(e.to_string()))?;
+        index_sql.push((name, sql));
+    }
 
     Ok(SqliteRawData {
         tables,
@@ -3404,6 +3850,7 @@ async fn query_libsql_raw(conn: &libsql::Connection) -> Result<SqliteRawData, Cl
         all_index_columns,
         all_fks,
         all_views,
+        index_sql,
     })
 }
 
@@ -3656,6 +4103,7 @@ fn query_pg_sync_codegen_meta(
             increment: row.get::<_, Option<String>>(6),
             cycle: row.get::<_, Option<bool>>(7),
             cache_value: row.get::<_, Option<String>>(8),
+            owned_by: row.get::<_, Option<String>>(9),
         })
         .collect();
 
@@ -3682,7 +4130,7 @@ fn query_pg_sync_constraints(
 ) -> Result<(), CliError> {
     use drizzle_migrations::postgres::introspect::{
         RawCheckInfo, RawForeignKeyInfo, RawIndexInfo, RawPrimaryKeyInfo, RawUniqueInfo,
-        parse_index_columns, pg_action_code_to_string, queries,
+        action_code_to_string, parse_index_columns, queries,
     };
 
     raw.indexes = client
@@ -3717,8 +4165,8 @@ fn query_pg_sync_constraints(
             schema_to: row.get::<_, String>(4),
             table_to: row.get::<_, String>(5),
             columns_to: row.get::<_, Vec<String>>(6),
-            on_update: pg_action_code_to_string(&row.get::<_, String>(7)),
-            on_delete: pg_action_code_to_string(&row.get::<_, String>(8)),
+            on_update: action_code_to_string(&row.get::<_, String>(7)),
+            on_delete: action_code_to_string(&row.get::<_, String>(8)),
             deferrable: row.get::<_, bool>(9),
             initially_deferred: row.get::<_, bool>(10),
         })
@@ -3937,6 +4385,7 @@ async fn query_pg_async_codegen_meta(
             increment: row.get::<_, Option<String>>(6),
             cycle: row.get::<_, Option<bool>>(7),
             cache_value: row.get::<_, Option<String>>(8),
+            owned_by: row.get::<_, Option<String>>(9),
         })
         .collect();
 
@@ -3964,7 +4413,7 @@ async fn query_pg_async_constraints(
 ) -> Result<(), CliError> {
     use drizzle_migrations::postgres::introspect::{
         RawCheckInfo, RawForeignKeyInfo, RawIndexInfo, RawPrimaryKeyInfo, RawUniqueInfo,
-        parse_index_columns, pg_action_code_to_string, queries,
+        action_code_to_string, parse_index_columns, queries,
     };
 
     raw.indexes = client
@@ -4001,8 +4450,8 @@ async fn query_pg_async_constraints(
             schema_to: row.get::<_, String>(4),
             table_to: row.get::<_, String>(5),
             columns_to: row.get::<_, Vec<String>>(6),
-            on_update: pg_action_code_to_string(&row.get::<_, String>(7)),
-            on_delete: pg_action_code_to_string(&row.get::<_, String>(8)),
+            on_update: action_code_to_string(&row.get::<_, String>(7)),
+            on_delete: action_code_to_string(&row.get::<_, String>(8)),
             deferrable: row.get::<_, bool>(9),
             initially_deferred: row.get::<_, bool>(10),
         })
@@ -4271,7 +4720,7 @@ mod tests {
         );
 
         let first =
-            run_sqlite_migrations(&first_set, &db_path_str).expect("first migrate succeeds");
+            run_sqlite_migrations(&first_set, &db_path_str, false).expect("first migrate succeeds");
         assert_eq!(first.applied_count, 1);
 
         let second_set = Migrations::new(
@@ -4292,8 +4741,8 @@ mod tests {
             drizzle_types::Dialect::SQLite,
         );
 
-        let second =
-            run_sqlite_migrations(&second_set, &db_path_str).expect("second migrate succeeds");
+        let second = run_sqlite_migrations(&second_set, &db_path_str, false)
+            .expect("second migrate succeeds");
         assert_eq!(
             second.applied_count, 1,
             "only the second (newly introduced by name) migration should apply"
@@ -4338,6 +4787,7 @@ mod tests {
             &migrations_dir,
             "__drizzle_migrations",
             "drizzle",
+            false,
         )
         .expect("run migrations");
         assert_eq!(result.applied_count, 0);
@@ -4510,7 +4960,6 @@ mod tests {
 
     #[test]
     fn generate_push_sql_includes_concurrent_postgres_index() {
-        use crate::snapshot::parse_result_to_snapshot;
         use drizzle_migrations::parser::SchemaParser;
         use drizzle_types::Dialect;
 
@@ -4536,9 +4985,9 @@ pub struct UsersEmailIdx(Users::email);
 "#;
 
         let prev =
-            parse_result_to_snapshot(&SchemaParser::parse(previous), Dialect::PostgreSQL, None);
+            Snapshot::from_parse_result(&SchemaParser::parse(previous), Dialect::PostgreSQL, None);
         let curr =
-            parse_result_to_snapshot(&SchemaParser::parse(current), Dialect::PostgreSQL, None);
+            Snapshot::from_parse_result(&SchemaParser::parse(current), Dialect::PostgreSQL, None);
 
         let (sql, warnings) = generate_push_sql(&prev, &curr, false).expect("push sql generation");
         assert!(warnings.is_empty());
@@ -4566,7 +5015,6 @@ pub struct UsersEmailIdx(Users::email);
 
     #[test]
     fn postgres_table_filter_matches_table_name_only() {
-        use crate::snapshot::parse_result_to_snapshot;
         use drizzle_migrations::parser::SchemaParser;
         use drizzle_migrations::schema::Snapshot;
         use drizzle_types::Dialect as BaseDialect;
@@ -4586,7 +5034,7 @@ pub struct Users {
 "#;
 
         let parsed = SchemaParser::parse(code);
-        let mut snapshot = parse_result_to_snapshot(&parsed, BaseDialect::PostgreSQL, None);
+        let mut snapshot = Snapshot::from_parse_result(&parsed, BaseDialect::PostgreSQL, None);
         let filters = SnapshotFilters {
             tables: Some(vec!["admin.*".to_string()]),
             schemas: None,
@@ -4616,7 +5064,6 @@ pub struct Users {
 
     #[test]
     fn postgres_schema_and_table_filters_intersect() {
-        use crate::snapshot::parse_result_to_snapshot;
         use drizzle_migrations::parser::SchemaParser;
         use drizzle_migrations::schema::Snapshot;
         use drizzle_types::Dialect as BaseDialect;
@@ -4636,7 +5083,7 @@ pub struct UsersPublic {
 "#;
 
         let parsed = SchemaParser::parse(code);
-        let mut snapshot = parse_result_to_snapshot(&parsed, BaseDialect::PostgreSQL, None);
+        let mut snapshot = Snapshot::from_parse_result(&parsed, BaseDialect::PostgreSQL, None);
         let filters = SnapshotFilters {
             tables: Some(vec!["users_*".to_string()]),
             schemas: Some(vec!["!dev".to_string()]),
@@ -4669,7 +5116,6 @@ pub struct UsersPublic {
 
     #[test]
     fn postgres_extensions_filter_excludes_postgis_internal_objects() {
-        use crate::snapshot::parse_result_to_snapshot;
         use drizzle_migrations::parser::SchemaParser;
         use drizzle_migrations::schema::Snapshot;
         use drizzle_types::Dialect as BaseDialect;
@@ -4695,7 +5141,7 @@ pub struct Users {
 "#;
 
         let parsed = SchemaParser::parse(code);
-        let mut snapshot = parse_result_to_snapshot(&parsed, BaseDialect::PostgreSQL, None);
+        let mut snapshot = Snapshot::from_parse_result(&parsed, BaseDialect::PostgreSQL, None);
         let filters = SnapshotFilters {
             tables: None,
             schemas: None,
@@ -4752,7 +5198,6 @@ pub struct Users {
     #[test]
     fn regenerate_sqlite_schema_applies_introspect_casing() {
         use crate::config::{Casing, IntrospectCasing};
-        use crate::snapshot::parse_result_to_snapshot;
         use drizzle_migrations::parser::SchemaParser;
         use drizzle_types::Dialect as BaseDialect;
 
@@ -4767,7 +5212,7 @@ pub struct AuditLogs {
 
         let parsed = SchemaParser::parse(code);
         let snapshot =
-            parse_result_to_snapshot(&parsed, BaseDialect::SQLite, Some(Casing::SnakeCase));
+            Snapshot::from_parse_result(&parsed, BaseDialect::SQLite, Some(Casing::SnakeCase));
 
         let mut camel = IntrospectResult {
             schema_code: String::new(),
@@ -4849,7 +5294,6 @@ pub struct Schema {
     #[test]
     fn regenerate_postgres_schema_applies_introspect_casing() {
         use crate::config::{Casing, IntrospectCasing};
-        use crate::snapshot::parse_result_to_snapshot;
         use drizzle_migrations::parser::SchemaParser;
         use drizzle_types::Dialect as BaseDialect;
 
@@ -4864,7 +5308,7 @@ pub struct AuditLogs {
 
         let parsed = SchemaParser::parse(code);
         let snapshot =
-            parse_result_to_snapshot(&parsed, BaseDialect::PostgreSQL, Some(Casing::SnakeCase));
+            Snapshot::from_parse_result(&parsed, BaseDialect::PostgreSQL, Some(Casing::SnakeCase));
 
         let mut camel = IntrospectResult {
             schema_code: String::new(),
@@ -4983,7 +5427,7 @@ pub struct Schema {
             drizzle_migrations::Tracking::POSTGRES.schema(migration_schema.clone()),
         );
 
-        let result = run_postgres_sync_migrations(&set, &creds)
+        let result = run_postgres_sync_migrations(&set, &creds, false)
             .expect("sync migration with concurrent index should succeed");
         assert_eq!(result.applied_count, 1);
 
@@ -5053,7 +5497,7 @@ pub struct Schema {
             .expect("insert legacy applied migration row");
         drop(client);
 
-        let result = run_postgres_sync_migrations(&set, &creds)
+        let result = run_postgres_sync_migrations(&set, &creds, false)
             .expect("sync migration upgrade should succeed");
         assert_eq!(result.applied_count, 1);
         assert_eq!(result.applied_migrations, vec![second.hash().to_string()]);
@@ -5088,7 +5532,10 @@ pub struct Schema {
         assert_eq!(rows[0].0, first.hash());
         assert_eq!(rows[0].1, first.created_at());
         assert_eq!(rows[0].2, first.name());
-        assert_eq!(rows[0].3, None);
+        assert!(
+            rows[0].3.is_some(),
+            "legacy rows get applied_at backfilled so they cannot read as interrupted"
+        );
         assert_eq!(rows[1].0, second.hash());
         assert_eq!(rows[1].1, second.created_at());
         assert_eq!(rows[1].2, second.name());
@@ -5149,7 +5596,7 @@ pub struct Schema {
             .expect("insert unmatched legacy row");
         drop(client);
 
-        let err = run_postgres_sync_migrations(&set, &creds)
+        let err = run_postgres_sync_migrations(&set, &creds, false)
             .expect_err("unmatched legacy metadata should fail");
         assert!(err.to_string().contains("do not match local migrations"));
 
@@ -5218,7 +5665,7 @@ pub struct Schema {
                 drizzle_migrations::Tracking::POSTGRES.schema(migration_schema.clone()),
             );
 
-            let result = run_postgres_async_inner(&set, &creds)
+            let result = run_postgres_async_inner(&set, &creds, false)
                 .await
                 .expect("async migration with concurrent index should succeed");
             assert_eq!(result.applied_count, 1);
@@ -5300,7 +5747,7 @@ pub struct Schema {
                 .await
                 .expect("insert legacy applied migration row");
 
-            let result = run_postgres_async_inner(&set, &creds)
+            let result = run_postgres_async_inner(&set, &creds, false)
                 .await
                 .expect("async migration upgrade should succeed");
             assert_eq!(result.applied_count, 1);
@@ -5337,7 +5784,10 @@ pub struct Schema {
             assert_eq!(rows[0].0, first.hash());
             assert_eq!(rows[0].1, first.created_at());
             assert_eq!(rows[0].2, first.name());
-            assert_eq!(rows[0].3, None);
+            assert!(
+                rows[0].3.is_some(),
+                "legacy rows get applied_at backfilled so they cannot read as interrupted"
+            );
             assert_eq!(rows[1].0, second.hash());
             assert_eq!(rows[1].1, second.created_at());
             assert_eq!(rows[1].2, second.name());

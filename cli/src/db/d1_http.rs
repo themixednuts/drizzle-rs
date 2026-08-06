@@ -268,11 +268,24 @@ pub(super) fn run_migrations(
     account_id: &str,
     database_id: &str,
     token: &str,
+    repair: bool,
 ) -> Result<MigrationResult, CliError> {
+    let _ = repair;
     let rt = rt()?;
     rt.block_on(async {
         let c = client(account_id, database_id, token)?;
         ensure_tracking_table(&c, set).await?;
+
+        // Each migration is sent as one atomic D1 batch, so this path never
+        // writes a dirty marker itself. It can still inherit one from another
+        // runner, and stacking migrations on an unfinished one is exactly what
+        // we refuse. `--repair` is not wired here: the D1 HTTP API has no
+        // introspection surface in this client.
+        let repaired: Vec<String> = Vec::new();
+        let dirty = query_dirty_names(&c, set).await?;
+        if let Some(error) = set.interrupted_migration_error(&dirty) {
+            return Err(CliError::MigrationError(error.to_string()));
+        }
 
         let applied_names = query_applied_names(&c, set).await?;
         let pending: Vec<_> = set.pending(&applied_names).collect();
@@ -280,6 +293,7 @@ pub(super) fn run_migrations(
             return Ok(MigrationResult {
                 applied_count: 0,
                 applied_migrations: vec![],
+                repaired_migrations: repaired,
             });
         }
 
@@ -312,6 +326,7 @@ pub(super) fn run_migrations(
         Ok(MigrationResult {
             applied_count: applied_hashes.len(),
             applied_migrations: applied_hashes,
+            repaired_migrations: repaired,
         })
     })
 }
@@ -359,6 +374,18 @@ pub(super) fn init_metadata(
 
 async fn ensure_tracking_table(c: &D1HttpClient, set: &Migrations) -> Result<(), CliError> {
     c.run(&set.create_table_sql()).await
+}
+
+/// Names of migrations recorded as started but never finished.
+async fn query_dirty_names(c: &D1HttpClient, set: &Migrations) -> Result<Vec<String>, CliError> {
+    let rows = c.query(&set.dirty_names_sql(), &[]).await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|mut row| {
+            row.remove("name")
+                .and_then(|v| v.as_str().map(String::from))
+        })
+        .collect())
 }
 
 async fn query_applied_names(c: &D1HttpClient, set: &Migrations) -> Result<Vec<String>, CliError> {
