@@ -231,6 +231,7 @@ mod tests {
             is_custom_type: false,
             is_generated_identity: false,
             identity_mode: None,
+            identity_options: Default::default(),
             generated_column: None,
             default: None,
             default_fn: None,

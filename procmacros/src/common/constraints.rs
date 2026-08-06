@@ -83,6 +83,29 @@ fn column_name_const(table_ident: &Ident, field_ident: &Ident, dt: &DialectTypes
     }
 }
 
+/// Generate a const block that resolves a column's SQL name on another table
+/// at compile time via the column ZST's `SQLSchema::NAME` const.
+///
+/// Uses the per-column associated const (`Table::field`) that every table
+/// macro generates, so an explicit `#[column(name = "...")]` on the TARGET
+/// column resolves to the authoritative name instead of a re-derived string.
+pub fn cross_table_column_name_const(
+    table_ident: &Ident,
+    field_ident: &Ident,
+    dt: &DialectTypes,
+) -> TokenStream {
+    let sql_schema = &dt.sql_schema;
+    let value_type = &dt.value_type;
+    quote! {
+        {
+            const fn __ref_col_name<'a, C: #sql_schema<'a, &'static str, #value_type<'a>>>(_: &C) -> &'a str {
+                C::NAME
+            }
+            __ref_col_name(&#table_ident::#field_ident)
+        }
+    }
+}
+
 /// Generate a `concatcp!` expression for a constraint name like `{table_name}_{col_name}_{suffix}`.
 fn constraint_name_with_col_concatcp(
     struct_ident: &Ident,

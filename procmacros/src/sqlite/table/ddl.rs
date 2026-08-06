@@ -15,7 +15,6 @@ use super::context::MacroContext;
 use crate::paths::ddl::sqlite as ddl_paths;
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::field::FieldInfo;
-use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
 use quote::quote;
 use std::fmt::Write;
@@ -39,6 +38,25 @@ fn table_check_name(ctx: &MacroContext, idx: usize, explicit: &Option<String>) -
             format!("{}_check{}", ctx.table_name, idx + 1)
         }
     })
+}
+
+/// `DialectTypes` for compile-time column-name resolution on referenced
+/// tables (`SQLSchema::NAME` of the target column ZST).
+fn sqlite_dialect_types() -> crate::common::constraints::DialectTypes {
+    crate::common::constraints::DialectTypes {
+        sql_schema: core_paths::sql_schema(),
+        schema_type: sqlite_paths::sqlite_schema_type(),
+        value_type: sqlite_paths::sqlite_value(),
+    }
+}
+
+/// Resolve a target column's SQL name at compile time via its `NAME` const.
+fn ref_column_name_expr(table: &syn::Ident, column: &syn::Ident) -> TokenStream {
+    crate::common::constraints::cross_table_column_name_const(
+        table,
+        column,
+        &sqlite_dialect_types(),
+    )
 }
 
 impl DdlPiece {
@@ -130,22 +148,29 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
         }
     }
 
-    // Single-column foreign keys (CONSTRAINT name + FOREIGN KEY ... REFERENCES)
+    // Single-column foreign keys (CONSTRAINT name + FOREIGN KEY ... REFERENCES).
+    // The FK name and the REFERENCES column resolve through the target
+    // table's own consts (`TABLE_NAME` / target column `NAME`), so explicit
+    // `name = "..."` renames on the target are honored.
     for field in field_infos {
         if let Some(ref fk) = field.foreign_key {
-            let ref_column = fk.column_ident.to_string().to_snake_case();
-            let ref_table = fk.table_ident.to_string().to_snake_case();
-            let fk_name = format!(
-                "fk_{}_{}_{}_{}_fk",
-                table_name, field.column_name, ref_table, ref_column
-            );
+            let ref_column_expr = ref_column_name_expr(&fk.table_ident, &fk.column_ident);
             let mut line = Vec::new();
             line.push(DdlPiece::Literal(format!(
-                "\tCONSTRAINT `{}` FOREIGN KEY (`{}`) REFERENCES `",
-                fk_name, field.column_name
+                "\tCONSTRAINT `fk_{}_{}_",
+                table_name, field.column_name
             )));
             line.push(DdlPiece::TableNameOf(fk.table_ident.clone()));
-            let mut suffix = format!("`(`{ref_column}`)");
+            line.push(DdlPiece::Literal("_".to_string()));
+            line.push(DdlPiece::Expr(ref_column_expr.clone()));
+            line.push(DdlPiece::Literal(format!(
+                "_fk` FOREIGN KEY (`{}`) REFERENCES `",
+                field.column_name
+            )));
+            line.push(DdlPiece::TableNameOf(fk.table_ident.clone()));
+            line.push(DdlPiece::Literal("`(`".to_string()));
+            line.push(DdlPiece::Expr(ref_column_expr));
+            let mut suffix = "`)".to_string();
             // Match TableSql::to_constraint_sql ordering: ON UPDATE then ON DELETE,
             // and skip the no-op NO ACTION.
             if let Some(ref on_update) = fk.on_update {
@@ -177,37 +202,43 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
                     .map_or_else(|| src.to_string(), |f| f.column_name.clone())
             })
             .collect();
-        let target_cols: Vec<String> = fk
+        let target_col_exprs: Vec<TokenStream> = fk
             .target_columns
             .iter()
-            .map(std::string::ToString::to_string)
+            .map(|col| ref_column_name_expr(&fk.target_table, col))
             .collect();
 
-        let target_table = fk.target_table.to_string().to_snake_case();
-        let fk_name = format!(
-            "fk_{}_{}_{}_{}_fk",
-            table_name,
-            source_cols.join("_"),
-            target_table,
-            target_cols.join("_")
-        );
         let src_str = source_cols
-            .iter()
-            .map(|c| format!("`{c}`"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let tgt_str = target_cols
             .iter()
             .map(|c| format!("`{c}`"))
             .collect::<Vec<_>>()
             .join(", ");
 
         let mut line = Vec::new();
+        // Constraint name: fk_{table}_{src_cols}_{target_table}_{target_cols}_fk
         line.push(DdlPiece::Literal(format!(
-            "\tCONSTRAINT `{fk_name}` FOREIGN KEY ({src_str}) REFERENCES `"
+            "\tCONSTRAINT `fk_{}_{}_",
+            table_name,
+            source_cols.join("_")
         )));
         line.push(DdlPiece::TableNameOf(fk.target_table.clone()));
-        let mut suffix = format!("`({tgt_str})");
+        for expr in &target_col_exprs {
+            line.push(DdlPiece::Literal("_".to_string()));
+            line.push(DdlPiece::Expr(expr.clone()));
+        }
+        line.push(DdlPiece::Literal(format!(
+            "_fk` FOREIGN KEY ({src_str}) REFERENCES `"
+        )));
+        line.push(DdlPiece::TableNameOf(fk.target_table.clone()));
+        line.push(DdlPiece::Literal("`(".to_string()));
+        for (idx, expr) in target_col_exprs.iter().enumerate() {
+            line.push(DdlPiece::Literal(
+                if idx == 0 { "`" } else { ", `" }.to_string(),
+            ));
+            line.push(DdlPiece::Expr(expr.clone()));
+            line.push(DdlPiece::Literal("`".to_string()));
+        }
+        let mut suffix = ")".to_string();
         if let Some(ref on_update) = fk.on_update {
             let action = on_update.to_uppercase();
             if action != "NO ACTION" {
@@ -537,6 +568,8 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
         }
     };
 
+    let const_format = crate::common::paths::const_format();
+
     // Build foreign key DDL definitions
     let mut fk_defs: Vec<TokenStream> = ctx
         .field_infos
@@ -544,13 +577,19 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
         .filter_map(|field| {
             field.foreign_key.as_ref().map(|fk_ref| {
                 let ref_table_ident = &fk_ref.table_ident;
-                let ref_column = fk_ref.column_ident.to_string().to_snake_case();
+                let ref_column_expr =
+                    ref_column_name_expr(&fk_ref.table_ident, &fk_ref.column_ident);
                 let column_name = &field.column_name;
-                let ref_table = fk_ref.table_ident.to_string().to_snake_case();
-                let fk_name = format!(
-                    "fk_{}_{}_{}_{}_fk",
-                    table_name, field.column_name, ref_table, ref_column
-                );
+                let fk_name_prefix = format!("fk_{}_{}_", table_name, field.column_name);
+                let fk_name_expr = quote! {
+                    #const_format::concatcp!(
+                        #fk_name_prefix,
+                        <#ref_table_ident>::TABLE_NAME,
+                        "_",
+                        #ref_column_expr,
+                        "_fk"
+                    )
+                };
 
                 let mut modifiers = Vec::new();
                 if let Some(ref on_delete) = fk_ref.on_delete {
@@ -569,8 +608,8 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
                 quote! {
                     {
                         const FK_COLS: &[::std::borrow::Cow<'static, str>] = &[::std::borrow::Cow::Borrowed(#column_name)];
-                        const FK_REFS: &[::std::borrow::Cow<'static, str>] = &[::std::borrow::Cow::Borrowed(#ref_column)];
-                        #foreign_key_def::new(#table_name, #fk_name)
+                        const FK_REFS: &[::std::borrow::Cow<'static, str>] = &[::std::borrow::Cow::Borrowed(#ref_column_expr)];
+                        #foreign_key_def::new(#table_name, #fk_name_expr)
                             .columns(FK_COLS)
                             .references(<#ref_table_ident>::TABLE_NAME, FK_REFS)
                             #(#modifiers)*
@@ -592,25 +631,28 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
                     .map_or_else(|| src.to_string(), |f| f.column_name.clone())
             })
             .collect();
-        let target_columns: Vec<String> = fk
+        let target_col_exprs: Vec<TokenStream> = fk
             .target_columns
             .iter()
-            .map(std::string::ToString::to_string)
+            .map(|col| ref_column_name_expr(&fk.target_table, col))
             .collect();
 
-        let target_table = fk.target_table.to_string().to_snake_case();
-        let fk_name = format!(
-            "fk_{}_{}_{}_{}_fk",
-            table_name,
-            source_columns.join("_"),
-            target_table,
-            target_columns.join("_")
-        );
+        let fk_name_prefix = format!("fk_{}_{}_", table_name, source_columns.join("_"));
+        let mut fk_name_pieces: Vec<TokenStream> = vec![
+            quote! { #fk_name_prefix },
+            quote! { <#ref_table_ident>::TABLE_NAME },
+        ];
+        for expr in &target_col_exprs {
+            fk_name_pieces.push(quote! { "_" });
+            fk_name_pieces.push(expr.clone());
+        }
+        fk_name_pieces.push(quote! { "_fk" });
+        let fk_name_expr = quote! { #const_format::concatcp!(#(#fk_name_pieces),*) };
         let fk_cols: Vec<TokenStream> = source_columns
             .iter()
             .map(|c| quote! { ::std::borrow::Cow::Borrowed(#c) })
             .collect();
-        let fk_ref_cols: Vec<TokenStream> = target_columns
+        let fk_ref_cols: Vec<TokenStream> = target_col_exprs
             .iter()
             .map(|c| quote! { ::std::borrow::Cow::Borrowed(#c) })
             .collect();
@@ -629,7 +671,7 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
             {
                 const FK_COLS: &[::std::borrow::Cow<'static, str>] = &[#(#fk_cols),*];
                 const FK_REF_COLS: &[::std::borrow::Cow<'static, str>] = &[#(#fk_ref_cols),*];
-                #foreign_key_def::new(#table_name, #fk_name)
+                #foreign_key_def::new(#table_name, #fk_name_expr)
                     .columns(FK_COLS)
                     .references(<#ref_table_ident>::TABLE_NAME, FK_REF_COLS)
                     #(#modifiers)*

@@ -394,6 +394,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
     let std_cow = std_paths::cow();
     let postgres_value = postgres_paths::postgres_value();
     let postgres_schema_type = postgres_paths::postgres_schema_type();
+    let postgres_item_ddl = crate::paths::ddl::postgres::postgres_item_ddl();
 
     let columns_len = column_zst_idents.len();
 
@@ -700,6 +701,8 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         impl #schema_item_tables for #struct_ident {
             type Tables = #type_set_nil;
         }
+        // Snapshot DDL channel (views carry no const DDL metadata).
+        impl #postgres_item_ddl for #struct_ident {}
         #to_sql_impl
         #relations_impl
         #sql_view_impl

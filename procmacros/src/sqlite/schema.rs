@@ -87,6 +87,7 @@ pub fn generate_sqlite_schema_derive_impl(input: &DeriveInput) -> Result<TokenSt
     let mig_sqlite_primary_key = mig_paths::sqlite::primary_key();
     let mig_sqlite_unique_constraint = mig_paths::sqlite::unique_constraint();
     let mig_sqlite_check_constraint = mig_paths::sqlite::check_constraint();
+    let mig_sqlite_foreign_key = mig_paths::sqlite::foreign_key();
     let mig_sqlite_generated = quote! { drizzle::migrations::sqlite::Generated };
     let mig_sqlite_generated_type = quote! { drizzle::migrations::sqlite::GeneratedType };
     let mig_sqlite_view = mig_paths::sqlite::view();
@@ -166,6 +167,7 @@ pub fn generate_sqlite_schema_derive_impl(input: &DeriveInput) -> Result<TokenSt
                 type MigEntity = #mig_sqlite_entity;
                 type MigTable = #mig_sqlite_table;
                 type MigColumn = #mig_sqlite_column;
+                type MigForeignKey = #mig_sqlite_foreign_key;
                 type MigIndex = #mig_sqlite_index;
                 type MigIndexColumn = #mig_sqlite_index_column;
                 type MigPrimaryKey = #mig_sqlite_primary_key;
@@ -183,7 +185,17 @@ pub fn generate_sqlite_schema_derive_impl(input: &DeriveInput) -> Result<TokenSt
                             let table_ref = <#field_types_for_snapshot as drizzle::core::SchemaItemTables>::TABLE_REF_CONST
                                 .expect("table must have TABLE_REF_CONST");
                             let table_name = table_ref.name;
-                            snapshot.add_entity(MigEntity::Table(MigTable::new(table_name)));
+                            let mut mig_table = MigTable::new(table_name);
+                            if let drizzle::core::TableDialect::SQLite { without_rowid, strict } = table_ref.dialect {
+                                mig_table.strict = strict;
+                                mig_table.without_rowid = without_rowid;
+                            }
+                            snapshot.add_entity(MigEntity::Table(mig_table));
+
+                            // Primary-key columns are collected across the column
+                            // loop and emitted as ONE PrimaryKey entity below
+                            // (per-column entities would mangle composite PKs).
+                            let mut pk_columns: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
 
                             // Add column entities from TABLE_REF
                             for col in table_ref.columns {
@@ -239,13 +251,9 @@ pub fn generate_sqlite_schema_derive_impl(input: &DeriveInput) -> Result<TokenSt
                                 }
                                 snapshot.add_entity(MigEntity::Column(column));
 
-                                // Add primary key entity if this is a primary key column
+                                // Collect primary key columns (declaration order)
                                 if col.primary_key() {
-                                    snapshot.add_entity(MigEntity::PrimaryKey(MigPrimaryKey::from_strings(
-                                        table_name.to_string(),
-                                        ::std::format!("{}_pk", table_name),
-                                        ::std::vec![col.name.to_string()],
-                                    )));
+                                    pk_columns.push(col.name.to_string());
                                 }
 
                                 // Add unique constraint entity if this column is unique
@@ -256,6 +264,37 @@ pub fn generate_sqlite_schema_derive_impl(input: &DeriveInput) -> Result<TokenSt
                                         ::std::vec![col.name.to_string()],
                                     )));
                                 }
+                            }
+
+                            // Emit ONE PrimaryKey entity covering all PK columns
+                            // (single-column and composite alike).
+                            if !pk_columns.is_empty() {
+                                snapshot.add_entity(MigEntity::PrimaryKey(MigPrimaryKey::from_strings(
+                                    table_name.to_string(),
+                                    ::std::format!("{}_pk", table_name),
+                                    pk_columns,
+                                )));
+                            }
+
+                            // Emit ForeignKey entities from the table's FK refs
+                            // (covers both column-level `references = ...` and
+                            // table-level composite FOREIGN_KEY attributes).
+                            for fk in table_ref.foreign_keys {
+                                let mut mig_fk = MigForeignKey::from_strings(
+                                    table_name.to_string(),
+                                    fk.name.to_string(),
+                                    fk.source_columns.iter().map(|c| c.to_string()).collect(),
+                                    fk.target_table.to_string(),
+                                    fk.target_columns.iter().map(|c| c.to_string()).collect(),
+                                );
+                                if let ::core::option::Option::Some(action) = fk.on_delete {
+                                    mig_fk = mig_fk.on_delete(action.to_string());
+                                }
+                                if let ::core::option::Option::Some(action) = fk.on_update {
+                                    mig_fk = mig_fk.on_update(action.to_string());
+                                }
+                                mig_fk.name_explicit = fk.name_explicit;
+                                snapshot.add_entity(MigEntity::ForeignKey(mig_fk));
                             }
 
                             for constraint in table_ref.constraints {
@@ -280,7 +319,11 @@ pub fn generate_sqlite_schema_derive_impl(input: &DeriveInput) -> Result<TokenSt
                                             )));
                                         }
                                     }
-                                    _ => {}
+                                    // PK data comes from the per-column flags above;
+                                    // FK data comes from table_ref.foreign_keys
+                                    // (ConstraintRef carries no FK target info).
+                                    drizzle::core::SQLConstraintKind::PrimaryKey
+                                    | drizzle::core::SQLConstraintKind::ForeignKey => {}
                                 }
                             }
                         }

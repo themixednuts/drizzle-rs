@@ -113,6 +113,10 @@ pub trait DrizzlePostgresColumn: Sized {
     /// Whether this requires a `CREATE TYPE` (native PG enum).
     const NEEDS_CREATE_TYPE: bool = false;
 
+    /// Schema the custom type lives in (native PG enums with
+    /// `#[postgres_enum(schema = "...")]`). Defaults to `public`.
+    const SCHEMA: &'static str = "public";
+
     /// Decode self from a postgres Row at the given index.
     ///
     /// # Errors
@@ -167,6 +171,10 @@ pub trait DrizzlePostgresColumn: Sized {
 
     /// Whether this requires a `CREATE TYPE` (native PG enum).
     const NEEDS_CREATE_TYPE: bool = false;
+
+    /// Schema the custom type lives in (native PG enums with
+    /// `#[postgres_enum(schema = "...")]`). Defaults to `public`.
+    const SCHEMA: &'static str = "public";
 
     /// Convert self to a `PostgresValue` for insertion/updates.
     fn encode(&self) -> PostgresValue<'_>;

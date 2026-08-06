@@ -51,7 +51,8 @@ enum SqlSegment {
     /// Raw SQL text that becomes `SQL::text()`
     Text(String),
     /// An expression inside {braces} that should have .`to_sql()` called on it
-    Expression(Expr),
+    /// (boxed: `syn::Expr` dwarfs the `Text` variant)
+    Expression(Box<Expr>),
 }
 
 impl std::fmt::Debug for SqlSegment {
@@ -131,7 +132,7 @@ fn parse_template_with_args(
                                 ),
                             ));
                         }
-                        segments.push(SqlSegment::Expression(args[arg_index].clone()));
+                        segments.push(SqlSegment::Expression(Box::new(args[arg_index].clone())));
                         arg_index += 1;
                     } else {
                         return Err(syn::Error::new(
@@ -148,7 +149,7 @@ fn parse_template_with_args(
                         )
                     })?;
 
-                    segments.push(SqlSegment::Expression(expr));
+                    segments.push(SqlSegment::Expression(Box::new(expr)));
                 }
             }
             '}' => {
@@ -272,7 +273,7 @@ mod tests {
         match &segments[1] {
             SqlSegment::Expression(expr) => {
                 // Check that it's a path expression with identifier "users"
-                if let Expr::Path(path) = expr {
+                if let Expr::Path(path) = &**expr {
                     assert_eq!(path.path.segments.len(), 1);
                     assert_eq!(path.path.segments[0].ident.to_string(), "users");
                 } else {
@@ -296,7 +297,7 @@ mod tests {
 
         match &segments[1] {
             SqlSegment::Expression(expr) => {
-                if let Expr::Path(path) = expr {
+                if let Expr::Path(path) = &**expr {
                     assert_eq!(path.path.segments[0].ident.to_string(), "column");
                 }
             }
@@ -310,7 +311,7 @@ mod tests {
 
         match &segments[3] {
             SqlSegment::Expression(expr) => {
-                if let Expr::Path(path) = expr {
+                if let Expr::Path(path) = &**expr {
                     assert_eq!(path.path.segments[0].ident.to_string(), "table");
                 }
             }
@@ -324,7 +325,7 @@ mod tests {
 
         match &segments[5] {
             SqlSegment::Expression(expr) => {
-                if let Expr::Path(path) = expr {
+                if let Expr::Path(path) = &**expr {
                     assert_eq!(path.path.segments[0].ident.to_string(), "condition");
                 }
             }
@@ -369,7 +370,7 @@ mod tests {
 
         match &segments[3] {
             SqlSegment::Expression(expr) => {
-                if let Expr::Path(path) = expr {
+                if let Expr::Path(path) = &**expr {
                     assert_eq!(path.path.segments[0].ident.to_string(), "table");
                 }
             }
@@ -405,7 +406,7 @@ mod tests {
 
         match &segments[1] {
             SqlSegment::Expression(expr) => {
-                if let Expr::Path(path) = expr {
+                if let Expr::Path(path) = &**expr {
                     assert_eq!(path.path.segments[0].ident.to_string(), "table");
                 } else {
                     panic!("Expected path expression");
@@ -422,7 +423,7 @@ mod tests {
         match &segments[3] {
             SqlSegment::Expression(expr) => {
                 // This should be table.id field access
-                matches!(expr, Expr::Field(_));
+                assert!(matches!(&**expr, Expr::Field(_)));
             }
             _ => panic!("Expected expression segment"),
         }
@@ -434,7 +435,7 @@ mod tests {
 
         match &segments[5] {
             SqlSegment::Expression(expr) => {
-                if let Expr::Lit(lit) = expr {
+                if let Expr::Lit(lit) = &**expr {
                     if let syn::Lit::Int(int_lit) = &lit.lit {
                         assert_eq!(int_lit.base10_digits(), "42");
                     } else {
@@ -494,7 +495,7 @@ mod tests {
         // First {} should be replaced with "users"
         match &segments[1] {
             SqlSegment::Expression(expr) => {
-                if let Expr::Path(path) = expr {
+                if let Expr::Path(path) = &**expr {
                     assert_eq!(path.path.segments[0].ident.to_string(), "users");
                 }
             }
@@ -504,7 +505,7 @@ mod tests {
         // {id} should be parsed as named expression
         match &segments[3] {
             SqlSegment::Expression(expr) => {
-                if let Expr::Path(path) = expr {
+                if let Expr::Path(path) = &**expr {
                     assert_eq!(path.path.segments[0].ident.to_string(), "id");
                 }
             }
@@ -514,7 +515,7 @@ mod tests {
         // Second {} should be replaced with "42"
         match &segments[5] {
             SqlSegment::Expression(expr) => {
-                if let Expr::Lit(_) = expr {
+                if let Expr::Lit(_) = &**expr {
                     // This is the literal 42
                 } else {
                     panic!("Expected literal expression");

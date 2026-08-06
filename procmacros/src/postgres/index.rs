@@ -5,10 +5,16 @@ use syn::{DeriveInput, Error, Expr, ExprPath, Ident, Meta, Result, Token, Type, 
 
 /// Attributes for the `PostgresIndex` attribute macro
 /// Syntax: #[`PostgresIndex`] or #[PostgresIndex(unique)] or #[PostgresIndex(unique, method = "btree")]
+#[derive(Default)]
 pub struct IndexAttributes {
     pub unique: bool,
     pub concurrent: bool,
-    pub method: Option<String>, // btree, hash, gin, gist, spgist, brin
+    /// Explicit `method = "..."` (btree, hash, gin, gist, spgist, brin).
+    /// `None` = not written in source. PostgreSQL's implicit default is
+    /// btree and the DDL renderer treats `None` as btree, so the default is
+    /// never materialized into `Some("btree")` — only an explicit
+    /// `method = "..."` produces `Some`.
+    pub method: Option<String>,
     pub tablespace: Option<String>,
     pub where_clause: Option<String>,
 }
@@ -19,18 +25,6 @@ fn create_index_prefix(unique: bool, concurrent: bool, index_name: &str) -> Stri
     format!("CREATE {unique_kw}INDEX {concurrent_kw}\"{index_name}\" ON \"")
 }
 
-impl Default for IndexAttributes {
-    fn default() -> Self {
-        Self {
-            unique: false,
-            concurrent: false,
-            method: Some("btree".to_string()), // Default to btree
-            tablespace: None,
-            where_clause: None,
-        }
-    }
-}
-
 impl Parse for IndexAttributes {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
         let mut attrs = Self::default();
@@ -39,9 +33,28 @@ impl Parse for IndexAttributes {
             return Ok(attrs);
         }
 
-        let metas = input.parse_terminated(Meta::parse, Token![,])?;
+        // `where = "..."` needs manual handling: `where` is a Rust keyword,
+        // so `Meta::parse` rejects it as a path. Everything else goes
+        // through `Meta` as before.
+        let mut first = true;
+        while !input.is_empty() {
+            if !first {
+                input.parse::<Token![,]>()?;
+                if input.is_empty() {
+                    break;
+                }
+            }
+            first = false;
 
-        for meta in metas {
+            if input.peek(Token![where]) {
+                input.parse::<Token![where]>()?;
+                input.parse::<Token![=]>()?;
+                let lit: syn::LitStr = input.parse()?;
+                attrs.where_clause = Some(lit.value());
+                continue;
+            }
+
+            let meta: Meta = input.parse()?;
             match meta {
                 Meta::Path(path) if path.is_ident("unique") => {
                     attrs.unique = true;
@@ -82,18 +95,6 @@ impl Parse for IndexAttributes {
                         return Err(Error::new_spanned(
                             &nv,
                             "Expected string literal for tablespace",
-                        ));
-                    }
-                }
-                Meta::NameValue(nv) if nv.path.is_ident("where") => {
-                    if let syn::Expr::Lit(ref lit) = nv.value
-                        && let syn::Lit::Str(str_lit) = &lit.lit
-                    {
-                        attrs.where_clause = Some(str_lit.value());
-                    } else {
-                        return Err(Error::new_spanned(
-                            &nv,
-                            "Expected string literal for where clause",
                         ));
                     }
                 }
@@ -139,6 +140,7 @@ pub fn postgres_index_attr_macro(
     // DDL type paths
     let index_def = ddl_paths::index_def();
     let index_column_def = ddl_paths::index_column_def();
+    let postgres_item_ddl = ddl_paths::postgres_item_ddl();
 
     // Extract columns from tuple struct fields: struct UserEmailIdx(User::email);
     let columns = match &input.data {
@@ -372,6 +374,13 @@ pub fn postgres_index_attr_macro(
 
         impl #schema_item_tables for #struct_ident {
             type Tables = #type_set_nil;
+        }
+
+        // Snapshot DDL channel: exposes the full index definition (method /
+        // where / concurrently) to `PostgresSchema::to_snapshot()`.
+        impl #postgres_item_ddl for #struct_ident {
+            const SNAPSHOT_INDEX: ::std::option::Option<#index_def> =
+                ::std::option::Option::Some(Self::DDL_INDEX);
         }
 
     };

@@ -66,6 +66,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         .collect::<Result<Vec<_>>>()?;
 
     validate_strict_affinity(&field_infos, attrs.strict)?;
+    validation::validate_autoincrement(&field_infos, attrs.without_rowid)?;
 
     // Calculate required fields pattern for const generic
     let required_fields_pattern = required_fields_pattern(&field_infos, |info| {
@@ -80,7 +81,8 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     });
 
     // Generate table metadata JSON for drizzle-kit compatible migrations
-    let table_meta_json = generate_table_meta_json(&table_name, &field_infos, is_composite_pk);
+    let table_meta_json =
+        generate_table_meta_json(&table_name, &field_infos, attrs.strict, attrs.without_rowid);
 
     // Generate table marker const for IDE hover documentation
     let table_marker_const = generate_table_marker_const(struct_ident, &attrs.marker_exprs);
