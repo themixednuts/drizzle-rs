@@ -47,6 +47,7 @@
 //! | `SQLite`     | turso          | `turso`          | ✅     |
 //! | `PostgreSQL` | postgres       | `postgres-sync`  | ✅     |
 //! | `PostgreSQL` | tokio-postgres | `tokio-postgres` | ✅     |
+//! | `PostgreSQL` | tokio-postgres over Cloudflare Hyperdrive (wasm32) | `hyperdrive` | ✅     |
 //!
 //! For schema declarations, import the database prelude:
 //! - `drizzle::sqlite::prelude::*`
@@ -328,10 +329,13 @@ pub mod postgres {
     #[doc(inline)]
     pub use drizzle_postgres::{attrs, builder, common, expr, helpers, traits, types, values};
 
-    #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+    #[cfg(all(
+        feature = "postgres-sync",
+        not(any(feature = "tokio-postgres", feature = "hyperdrive"))
+    ))]
     #[doc(inline)]
     pub use drizzle_postgres::Row;
-    #[cfg(feature = "tokio-postgres")]
+    #[cfg(any(feature = "tokio-postgres", feature = "hyperdrive"))]
     #[doc(inline)]
     pub use drizzle_postgres::Row;
 
@@ -355,13 +359,34 @@ pub mod postgres {
         pub use crate::transaction::postgres::postgres_sync::Transaction;
     }
 
-    #[cfg(feature = "tokio-postgres")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "tokio-postgres")))]
+    /// Async `PostgreSQL` driver over [`tokio_postgres`].
+    ///
+    /// Enabled by either `tokio-postgres` (native) or `hyperdrive`
+    /// (Cloudflare Workers) — both compile the same driver; only the way the
+    /// connection is dialed differs. On wasm32 with the `hyperdrive` feature,
+    /// `drizzle::postgres::hyperdrive` supplies the dial.
+    #[cfg(any(feature = "tokio-postgres", feature = "hyperdrive"))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(any(feature = "tokio-postgres", feature = "hyperdrive")))
+    )]
     pub mod tokio {
         #[doc(inline)]
         pub use crate::builder::postgres::tokio_postgres::{Drizzle, DrizzleBuilder};
         #[doc(inline)]
         pub use crate::transaction::postgres::tokio_postgres::Transaction;
+    }
+
+    /// Cloudflare Hyperdrive connector (WASM-only).
+    ///
+    /// Dials the [`tokio`](self::tokio) driver through a Workers `Hyperdrive`
+    /// binding instead of a TCP socket. The resulting `Drizzle` is the exact
+    /// type the native driver produces.
+    #[cfg(all(feature = "hyperdrive", target_arch = "wasm32"))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "hyperdrive", target_arch = "wasm32"))))]
+    pub mod hyperdrive {
+        #[doc(inline)]
+        pub use crate::builder::postgres::hyperdrive::{connect, connect_raw};
     }
 
     /// AWS Aurora Serverless Data API driver (HTTP-based, async).

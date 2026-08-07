@@ -192,7 +192,7 @@ crate::drizzle_prepare_impl!();
 /// and execution methods (`execute`, `all`, `get`, `transaction`).
 ///
 /// The client is stored behind an [`Arc`], making `Drizzle` cheaply cloneable
-/// for sharing across tasks (e.g. with [`tokio::spawn`]).
+/// for sharing across tasks (e.g. with `tokio::spawn`).
 #[derive(Debug)]
 pub struct Drizzle<Schema = ()> {
     client: Arc<Client>,

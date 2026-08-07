@@ -38,7 +38,7 @@ drizzle-core = { workspace = true, features = ["std", "col32"] }
 drizzle-seed = { workspace = true, default-features = false, features = ["sqlite", "postgres", "chrono"] }
 chrono = { workspace = true, features = ["serde"] }
 postgres = { workspace = true, features = ["with-chrono-0_4"] }
-tokio-postgres = { workspace = true, features = ["with-chrono-0_4"] }
+tokio-postgres = { workspace = true, features = ["runtime", "with-chrono-0_4"] }
 rusqlite = { workspace = true }
 turso = { workspace = true }
 libsql = { workspace = true, optional = true }
