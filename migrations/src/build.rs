@@ -264,18 +264,38 @@ impl Config {
         }
     }
 
-    /// Emit `cargo:rerun-if-changed=` for schema files (and the TOML config,
-    /// if loaded via [`Config::from_toml`]), and `cargo:rerun-if-env-changed=`
-    /// for any env vars referenced by `dbCredentials.url`.
+    /// Paths cargo must watch: the schema files, the TOML config (if loaded
+    /// via [`Config::from_toml`]), and the migrations output directory.
+    ///
+    /// Split out of [`Config::watch`] so the set is assertable without
+    /// capturing the build script's stdout.
+    fn watch_targets(&self) -> Vec<PathBuf> {
+        let mut targets = self.files.clone();
+        if let Some(cfg_path) = &self.config_path {
+            targets.push(cfg_path.clone());
+        }
+        targets.push(self.out_dir.clone());
+        targets
+    }
+
+    /// Emit `cargo:rerun-if-changed=` for schema files, the TOML config (if
+    /// loaded via [`Config::from_toml`]), and the migrations output directory,
+    /// plus `cargo:rerun-if-env-changed=` for any env vars referenced by
+    /// `dbCredentials.url`.
+    ///
+    /// The output directory is watched because the previous-snapshot chain
+    /// under it is a diff input: deleting or reverting a migration folder
+    /// changes what [`run`] generates. Without it, cargo sees no watched path
+    /// change, skips the script, replays the cached "generated migration"
+    /// output, and the migration is silently never regenerated. Cargo scans a
+    /// watched directory recursively, and a not-yet-existing one counts as
+    /// changed — the first run creates it, so this converges.
     ///
     /// Call this once after construction so cargo reruns `build.rs` whenever
     /// any relevant input changes.
     pub fn watch(&self) {
-        for path in &self.files {
+        for path in self.watch_targets() {
             println!("cargo:rerun-if-changed={}", path.display());
-        }
-        if let Some(cfg_path) = &self.config_path {
-            println!("cargo:rerun-if-changed={}", cfg_path.display());
         }
         for var in &self.watched_env_vars {
             println!("cargo:rerun-if-env-changed={var}");
@@ -991,5 +1011,59 @@ schema = "src/schema.rs"
         // Missing dbCredentials is fine — only fails when url() is called.
         let cfg = Config::from_toml(&cfg_path).expect("load toml");
         assert!(matches!(cfg.url(), Err(BuildError::MissingUrl)));
+    }
+
+    #[test]
+    fn watch_targets_include_out_dir_and_schema_files() {
+        let cfg = Config::new(Dialect::SQLite)
+            .file("src/schema.rs")
+            .file("src/posts.rs")
+            .out("./drizzle");
+
+        let targets = cfg.watch_targets();
+
+        assert!(
+            targets.contains(&PathBuf::from("src/schema.rs"))
+                && targets.contains(&PathBuf::from("src/posts.rs")),
+            "schema files must be watched: {targets:?}"
+        );
+        // run() diffs against the snapshot chain under out_dir, so deleting a
+        // migration folder has to retrigger build.rs; without this watch cargo
+        // replays the cached script output and never regenerates it.
+        assert!(
+            targets.contains(&PathBuf::from("./drizzle")),
+            "out_dir must be watched: {targets:?}"
+        );
+    }
+
+    #[test]
+    fn watch_targets_include_the_toml_config_path() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cfg_path = dir.path().join("drizzle.config.toml");
+        std::fs::write(
+            &cfg_path,
+            r#"
+dialect = "sqlite"
+schema = "src/schema.rs"
+out = "./migrations-out"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = Config::from_toml(&cfg_path).expect("load toml");
+        let targets = cfg.watch_targets();
+
+        assert!(
+            targets.contains(&cfg_path),
+            "config path must be watched: {targets:?}"
+        );
+        assert!(
+            targets.contains(&PathBuf::from("src/schema.rs")),
+            "schema files must be watched: {targets:?}"
+        );
+        assert!(
+            targets.contains(&PathBuf::from("./migrations-out")),
+            "out_dir must be watched: {targets:?}"
+        );
     }
 }
