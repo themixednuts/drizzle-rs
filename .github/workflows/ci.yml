@@ -326,3 +326,9 @@ jobs:
 
       - name: Check Durable driver (query)
         run: cargo check -p drizzle --target wasm32-unknown-unknown --no-default-features --features durable,query
+
+      - name: Check Hyperdrive driver
+        run: cargo check -p drizzle --target wasm32-unknown-unknown --no-default-features --features hyperdrive
+
+      - name: Check Hyperdrive driver (query)
+        run: cargo check -p drizzle --target wasm32-unknown-unknown --no-default-features --features hyperdrive,query

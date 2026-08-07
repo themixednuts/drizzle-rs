@@ -77,7 +77,7 @@ pub fn postgres_sync_param_types(
     types
 }
 
-#[cfg(feature = "tokio-postgres")]
+#[cfg(any(feature = "tokio-postgres", feature = "hyperdrive"))]
 pub const fn tokio_postgres_param_type(
     value: &drizzle_postgres::values::PostgresValue<'_>,
 ) -> Option<tokio_postgres::types::Type> {
@@ -141,7 +141,7 @@ pub const fn tokio_postgres_param_type(
     }
 }
 
-#[cfg(feature = "tokio-postgres")]
+#[cfg(any(feature = "tokio-postgres", feature = "hyperdrive"))]
 pub fn tokio_postgres_param_types(
     params: &[drizzle_postgres::values::PostgresValue<'_>],
 ) -> smallvec::SmallVec<[tokio_postgres::types::Type; 8]> {

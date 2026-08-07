@@ -94,6 +94,9 @@ postgres-sync = [
 ]
 tokio-postgres = [
   "dep:tokio-postgres",
+  # The workspace dep leaves `runtime` off so wasm targets can use
+  # tokio-postgres without `tokio/net`; the CLI dials real sockets.
+  "tokio-postgres/runtime",
   "dep:postgres-native-tls",
   "dep:native-tls",
   "dep:tokio",

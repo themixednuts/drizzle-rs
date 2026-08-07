@@ -236,8 +236,14 @@ macro_rules! postgres_builder_constructors {
 #[cfg(feature = "postgres-sync")]
 pub mod postgres_sync;
 
-#[cfg(feature = "tokio-postgres")]
+// `hyperdrive` is the same driver on a different dialer — it compiles this
+// module verbatim and only adds `hyperdrive::connect`.
+#[cfg(any(feature = "tokio-postgres", feature = "hyperdrive"))]
 pub mod tokio_postgres;
+
+/// Cloudflare Hyperdrive connector for the [`tokio_postgres`] driver.
+#[cfg(all(feature = "hyperdrive", target_arch = "wasm32"))]
+pub mod hyperdrive;
 
 #[cfg(feature = "aws-data-api")]
 pub mod aws_data_api;

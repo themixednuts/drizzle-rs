@@ -107,9 +107,13 @@ arrayvec = { version = "0.7", default-features = false, features = ["serde"] }
 postgres = { version = ">=0.19.11, <0.20" }
 postgres-native-tls = { version = ">=0.5.3, <0.6" }
 native-tls = { version = ">=0.2.18, <0.3", features = ["vendored"] }
-tokio-postgres = { version = ">=0.7.18, <0.8", default-features = false, features = [
-  "runtime",
-] }
+# `runtime` is deliberately NOT enabled here. It pulls `tokio/net` + `tokio/time`,
+# neither of which builds for wasm32-unknown-unknown, and it only gates
+# `Config::connect` (TCP/UDS dialing) — every query, transaction, and prepare API
+# lives outside it. Native features add `tokio-postgres/runtime` back explicitly;
+# the Cloudflare Workers `hyperdrive` feature leaves it off and dials through
+# `Config::connect_raw` over a `worker::Socket`.
+tokio-postgres = { version = ">=0.7.18, <0.8", default-features = false }
 # AWS Aurora Data API (RDS Data Service) — Postgres + MySQL over HTTP.
 # Optional, pulls in aws-smithy/hyper/tower/tokio transitively. Gated behind
 # the `aws-data-api` feature in `drizzle-postgres` and the root `drizzle` crate.
@@ -329,7 +333,35 @@ postgres-sync = [
 tokio-postgres = [
   "postgres",
   "dep:tokio-postgres",
+  # Native dialing: `Config::connect` over TCP/UDS. Not part of the workspace
+  # dep's own feature list so wasm builds can opt out — see `hyperdrive`.
+  "tokio-postgres/runtime",
   "dep:tokio",
+  "drizzle-postgres?/tokio-postgres",
+  "drizzle-macros/tokio-postgres",
+]
+# Cloudflare Hyperdrive (async `PostgreSQL`, WASM-only) — enable when targeting
+# wasm32-unknown-unknown inside a Cloudflare Worker. This is not a separate
+# driver: it is the `tokio-postgres` driver with the runtime-bound dialer
+# swapped for `Config::connect_raw` over the `worker::Socket` returned by the
+# `Hyperdrive` binding. Every gate the `tokio-postgres` feature opens, this one
+# opens too; the only extra code is the connect helper in
+# `postgres::hyperdrive`.
+#
+# `tokio-postgres/js` routes postgres-protocol's SCRAM nonce RNG through the
+# browser `getrandom` backend, and `uuid/js` does the same for the v4 RNG
+# drizzle-migrations pulls in (mirrors the `d1` feature).
+hyperdrive = [
+  "std",
+  "postgres",
+  "dep:tokio-postgres",
+  # Weak (`?`) on purpose: this crate has both an optional dep and a feature
+  # named `tokio-postgres`, and a plain `tokio-postgres/js` would resolve to
+  # the *feature* — dragging `runtime` (and `tokio/net` → `mio`) back in.
+  "tokio-postgres?/js",
+  "dep:worker",
+  "dep:uuid",
+  "uuid/js",
   "drizzle-postgres?/tokio-postgres",
   "drizzle-macros/tokio-postgres",
 ]
