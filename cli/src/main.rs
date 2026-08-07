@@ -485,5 +485,16 @@ mod tests {
             }
             _ => panic!("expected migrate command"),
         }
+
+        // --dry-run is the ecosystem-standard alias for --plan.
+        let dry_run_cli = Cli::parse_from(["drizzle", "migrate", "--dry-run"]);
+        match dry_run_cli.command {
+            Command::Migrate(opts) => {
+                assert!(!opts.verify);
+                assert!(opts.plan);
+                assert!(!opts.safe);
+            }
+            _ => panic!("expected migrate command"),
+        }
     }
 }

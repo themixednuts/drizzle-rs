@@ -52,6 +52,11 @@ pub struct MigrationPlan {
     pub pending_migrations: Vec<String>,
     /// Total number of non-empty SQL statements in pending migrations.
     pub pending_statements: usize,
+    /// Integrity findings: hash drift between applied rows and local files,
+    /// applied rows with no local migration, duplicate tracking rows, and
+    /// interrupted (dirty) migrations. `--plan` reports these as warnings;
+    /// `--verify` and `--safe` treat any finding as failure.
+    pub findings: Vec<String>,
 }
 
 #[cfg(any(
@@ -67,6 +72,8 @@ pub struct MigrationPlan {
 pub(crate) struct AppliedMigrationRecord {
     pub(crate) hash: String,
     pub(crate) name: String,
+    /// Row was started but never marked finished (`applied_at IS NULL`).
+    pub(crate) dirty: bool,
 }
 
 /// Planned SQL changes for `drizzle push`
@@ -252,29 +259,6 @@ pub fn plan_migrations(
     }
 }
 
-/// Verify migrations by re-running the planning logic without applying
-/// anything, surfacing any inconsistencies between the on-disk migration
-/// files and the tracking table.
-///
-/// # Errors
-///
-/// Returns the same errors as [`plan_migrations`].
-pub fn verify_migrations(
-    credentials: &Credentials,
-    dialect: Dialect,
-    migrations_dir: &Path,
-    migrations_table: &str,
-    migrations_schema: &str,
-) -> Result<MigrationPlan, CliError> {
-    plan_migrations(
-        credentials,
-        dialect,
-        migrations_dir,
-        migrations_table,
-        migrations_schema,
-    )
-}
-
 /// Apply any pending migrations against the database referenced by
 /// `credentials`.
 ///
@@ -453,9 +437,14 @@ pub(crate) fn build_migration_plan(
     set: &Migrations,
     applied: &[AppliedMigrationRecord],
 ) -> Result<MigrationPlan, CliError> {
-    verify_applied_migrations_consistency(set, applied)?;
+    let findings = collect_integrity_findings(set, applied)?;
 
-    let applied_names = applied.iter().map(|m| m.name.clone()).collect::<Vec<_>>();
+    // Dirty rows are not applied: the migration started but never finished.
+    let applied_names = applied
+        .iter()
+        .filter(|m| !m.dirty)
+        .map(|m| m.name.clone())
+        .collect::<Vec<_>>();
     let pending = set.pending(&applied_names).collect::<Vec<_>>();
 
     let pending_statements = pending
@@ -469,10 +458,11 @@ pub(crate) fn build_migration_plan(
         .sum();
 
     Ok(MigrationPlan {
-        applied_count: applied.len(),
+        applied_count: applied_names.len(),
         pending_count: pending.len(),
         pending_migrations: pending.iter().map(|m| m.tag().to_string()).collect(),
         pending_statements,
+        findings,
     })
 }
 
@@ -485,10 +475,17 @@ pub(crate) fn build_migration_plan(
     feature = "tokio-postgres",
     feature = "d1-http",
 ))]
-fn verify_applied_migrations_consistency(
+/// Collect integrity findings between the tracking table and local files.
+///
+/// Findings (drift, missing-local rows, duplicate tracking rows, interrupted
+/// migrations) are returned rather than raised: `--plan` shows them as
+/// warnings while `--verify`/`--safe` fail on any. A duplicate name in the
+/// LOCAL migration set is still a hard error — the local set is broken and
+/// no comparison against it is meaningful.
+fn collect_integrity_findings(
     set: &Migrations,
     applied: &[AppliedMigrationRecord],
-) -> Result<(), CliError> {
+) -> Result<Vec<String>, CliError> {
     use std::collections::{HashMap, HashSet};
 
     let mut local_by_name = HashMap::<&str, &str>::new();
@@ -504,31 +501,43 @@ fn verify_applied_migrations_consistency(
         }
     }
 
+    let mut findings = Vec::new();
     let mut seen_db_names = HashSet::<&str>::new();
     for applied_row in applied {
         if !seen_db_names.insert(applied_row.name.as_str()) {
-            return Err(CliError::MigrationError(format!(
-                "Database migration metadata contains duplicate name: {}",
+            findings.push(format!(
+                "duplicate tracking rows for `{}` in the migrations table",
                 applied_row.name
-            )));
+            ));
+            continue;
+        }
+
+        if applied_row.dirty {
+            findings.push(format!(
+                "`{}` was interrupted mid-apply (started but never finished) — \
+                 run `drizzle migrate --repair` or resolve it manually",
+                applied_row.name
+            ));
         }
 
         let Some(local_hash) = local_by_name.get(applied_row.name.as_str()) else {
-            return Err(CliError::MigrationError(format!(
-                "Database contains applied migration not found locally (name: {})",
+            findings.push(format!(
+                "`{}` is recorded in the database but no local migration has that name",
                 applied_row.name
-            )));
+            ));
+            continue;
         };
 
         if *local_hash != applied_row.hash {
-            return Err(CliError::MigrationError(format!(
-                "Migration hash mismatch for {}: database={}, local={}",
+            findings.push(format!(
+                "`{}` has drifted: the local migration file no longer matches what \
+                 was applied (database hash {}, local hash {})",
                 applied_row.name, applied_row.hash, local_hash
-            )));
+            ));
         }
     }
 
-    Ok(())
+    Ok(findings)
 }
 
 #[cfg(any(
@@ -1597,10 +1606,7 @@ fn query_applied_records_sqlite(
     conn: &rusqlite::Connection,
     set: &Migrations,
 ) -> Result<Vec<AppliedMigrationRecord>, CliError> {
-    let sql = format!(
-        r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
-        set.table_ident_sql()
-    );
+    let sql = set.applied_records_sql();
     let mut stmt = match conn.prepare(&sql) {
         Ok(stmt) => stmt,
         Err(error) if is_sqlite_missing_table(&error) => return Ok(vec![]),
@@ -1610,13 +1616,17 @@ fn query_applied_records_sqlite(
     let mut applied = Vec::new();
     let rows = stmt
         .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)? != 0,
+            ))
         })
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
 
     for row in rows {
-        let (hash, name) = row.map_err(|e| CliError::MigrationError(e.to_string()))?;
-        applied.push(AppliedMigrationRecord { hash, name });
+        let (hash, name, dirty) = row.map_err(|e| CliError::MigrationError(e.to_string()))?;
+        applied.push(AppliedMigrationRecord { hash, name, dirty });
     }
 
     Ok(applied)
@@ -1922,12 +1932,8 @@ fn query_applied_records_postgres_sync(
     client: &mut postgres::Client,
     set: &Migrations,
 ) -> Result<Vec<AppliedMigrationRecord>, CliError> {
-    let sql = format!(
-        r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
-        set.table_ident_sql()
-    );
     let rows = client
-        .query(&sql, &[])
+        .query(&set.applied_records_sql(), &[])
         .map_err(|error| CliError::MigrationError(error.to_string()))?;
 
     let mut applied = Vec::new();
@@ -1938,8 +1944,11 @@ fn query_applied_records_postgres_sync(
         let name = row
             .try_get::<_, Option<String>>(1)
             .map_err(|error| CliError::MigrationError(error.to_string()))?;
+        let dirty = row
+            .try_get::<_, bool>(2)
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
         if let (Some(hash), Some(name)) = (hash, name) {
-            applied.push(AppliedMigrationRecord { hash, name });
+            applied.push(AppliedMigrationRecord { hash, name, dirty });
         }
     }
 
@@ -2060,12 +2069,8 @@ async fn query_applied_records_postgres_async(
     client: &tokio_postgres::Client,
     set: &Migrations,
 ) -> Result<Vec<AppliedMigrationRecord>, CliError> {
-    let sql = format!(
-        r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
-        set.table_ident_sql()
-    );
     let rows = client
-        .query(&sql, &[])
+        .query(&set.applied_records_sql(), &[])
         .await
         .map_err(|error| CliError::MigrationError(error.to_string()))?;
 
@@ -2077,8 +2082,11 @@ async fn query_applied_records_postgres_async(
         let name = row
             .try_get::<_, Option<String>>(1)
             .map_err(|error| CliError::MigrationError(error.to_string()))?;
+        let dirty = row
+            .try_get::<_, bool>(2)
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
         if let (Some(hash), Some(name)) = (hash, name) {
-            applied.push(AppliedMigrationRecord { hash, name });
+            applied.push(AppliedMigrationRecord { hash, name, dirty });
         }
     }
 
@@ -2420,12 +2428,8 @@ async fn query_applied_records_libsql(
     conn: &libsql::Connection,
     set: &Migrations,
 ) -> Result<Vec<AppliedMigrationRecord>, CliError> {
-    let sql = format!(
-        r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
-        set.table_ident_sql()
-    );
     let mut rows = conn
-        .query(&sql, ())
+        .query(&set.applied_records_sql(), ())
         .await
         .map_err(|error| CliError::MigrationError(error.to_string()))?;
 
@@ -2441,7 +2445,11 @@ async fn query_applied_records_libsql(
         let name = row
             .get::<String>(1)
             .map_err(|error| CliError::MigrationError(error.to_string()))?;
-        applied.push(AppliedMigrationRecord { hash, name });
+        let dirty = row
+            .get::<i64>(2)
+            .map_err(|error| CliError::MigrationError(error.to_string()))?
+            != 0;
+        applied.push(AppliedMigrationRecord { hash, name, dirty });
     }
 
     Ok(applied)
@@ -2659,12 +2667,8 @@ async fn query_applied_records_turso(
     conn: &libsql::Connection,
     set: &Migrations,
 ) -> Result<Vec<AppliedMigrationRecord>, CliError> {
-    let sql = format!(
-        r#"SELECT hash, "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
-        set.table_ident_sql()
-    );
     let mut rows = conn
-        .query(&sql, ())
+        .query(&set.applied_records_sql(), ())
         .await
         .map_err(|error| CliError::MigrationError(error.to_string()))?;
 
@@ -2680,7 +2684,11 @@ async fn query_applied_records_turso(
         let name = row
             .get::<String>(1)
             .map_err(|error| CliError::MigrationError(error.to_string()))?;
-        applied.push(AppliedMigrationRecord { hash, name });
+        let dirty = row
+            .get::<i64>(2)
+            .map_err(|error| CliError::MigrationError(error.to_string()))?
+            != 0;
+        applied.push(AppliedMigrationRecord { hash, name, dirty });
     }
 
     Ok(applied)
@@ -4862,7 +4870,7 @@ mod tests {
     }
 
     #[test]
-    fn verify_applied_migrations_detects_hash_mismatch() {
+    fn integrity_findings_detect_hash_drift() {
         use drizzle_migrations::{Migration, Migrations};
 
         let set = Migrations::new(
@@ -4878,14 +4886,85 @@ mod tests {
         let applied = vec![AppliedMigrationRecord {
             hash: "db_hash".to_string(),
             name: "20230331141203_verify".to_string(),
+            dirty: false,
         }];
 
-        let err = verify_applied_migrations_consistency(&set, &applied)
-            .expect_err("hash mismatch should fail verification");
-        assert_eq!(
-            err.to_string(),
-            "Migration failed: Migration hash mismatch for 20230331141203_verify: database=db_hash, local=local_hash"
+        let findings =
+            collect_integrity_findings(&set, &applied).expect("local set is well-formed");
+        assert_eq!(findings.len(), 1, "expected one finding: {findings:?}");
+        assert!(
+            findings[0].contains("20230331141203_verify") && findings[0].contains("drifted"),
+            "unexpected finding: {}",
+            findings[0]
         );
+    }
+
+    #[test]
+    fn integrity_findings_report_dirty_and_missing_local_rows() {
+        use drizzle_migrations::{Migration, Migrations};
+
+        let set = Migrations::new(
+            vec![Migration::with_hash(
+                "20230331141203_first",
+                "hash_a",
+                1_680_271_923_000,
+                vec!["CREATE TABLE a(id INTEGER PRIMARY KEY)".to_string()],
+            )],
+            drizzle_types::Dialect::SQLite,
+        );
+
+        let applied = vec![
+            AppliedMigrationRecord {
+                hash: "hash_a".to_string(),
+                name: "20230331141203_first".to_string(),
+                dirty: true,
+            },
+            AppliedMigrationRecord {
+                hash: "hash_gone".to_string(),
+                name: "20230401000000_deleted_locally".to_string(),
+                dirty: false,
+            },
+        ];
+
+        let findings =
+            collect_integrity_findings(&set, &applied).expect("local set is well-formed");
+        assert_eq!(findings.len(), 2, "expected two findings: {findings:?}");
+        assert!(
+            findings[0].contains("interrupted mid-apply"),
+            "unexpected finding: {}",
+            findings[0]
+        );
+        assert!(
+            findings[1].contains("no local migration"),
+            "unexpected finding: {}",
+            findings[1]
+        );
+    }
+
+    #[test]
+    fn dirty_rows_are_not_counted_as_applied_in_plan() {
+        use drizzle_migrations::{Migration, Migrations};
+
+        let set = Migrations::new(
+            vec![Migration::with_hash(
+                "20230331141203_first",
+                "hash_a",
+                1_680_271_923_000,
+                vec!["CREATE TABLE a(id INTEGER PRIMARY KEY)".to_string()],
+            )],
+            drizzle_types::Dialect::SQLite,
+        );
+
+        let applied = vec![AppliedMigrationRecord {
+            hash: "hash_a".to_string(),
+            name: "20230331141203_first".to_string(),
+            dirty: true,
+        }];
+
+        let plan = build_migration_plan(&set, &applied).expect("build migration plan");
+        assert_eq!(plan.applied_count, 0);
+        assert_eq!(plan.pending_count, 1, "interrupted migration is unfinished");
+        assert_eq!(plan.findings.len(), 1);
     }
 
     #[test]
@@ -4916,6 +4995,7 @@ mod tests {
         let applied = vec![AppliedMigrationRecord {
             hash: "hash_a".to_string(),
             name: "20230331141203_first".to_string(),
+            dirty: false,
         }];
 
         let plan = build_migration_plan(&set, &applied).expect("build migration plan");
@@ -4923,6 +5003,7 @@ mod tests {
         assert_eq!(plan.pending_count, 1);
         assert_eq!(plan.pending_statements, 1);
         assert_eq!(plan.pending_migrations, vec!["20230331150000_second"]);
+        assert!(plan.findings.is_empty());
     }
 
     #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]

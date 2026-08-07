@@ -405,17 +405,20 @@ async fn query_applied_records(
     c: &D1HttpClient,
     set: &Migrations,
 ) -> Result<Vec<AppliedMigrationRecord>, CliError> {
-    let sql = format!(
-        r#"SELECT "hash", "name" FROM {} WHERE "name" IS NOT NULL ORDER BY id;"#,
-        set.table_ident_sql()
-    );
+    let sql = set.applied_records_sql();
     let rows = c.query(&sql, &[]).await?;
     Ok(rows
         .into_iter()
         .filter_map(|mut row| {
             let hash = row.remove("hash")?.as_str()?.to_string();
             let name = row.remove("name")?.as_str()?.to_string();
-            Some(AppliedMigrationRecord { hash, name })
+            // D1 returns the boolean expression as 0/1.
+            let dirty = row
+                .remove("dirty")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0)
+                != 0;
+            Some(AppliedMigrationRecord { hash, name, dirty })
         })
         .collect())
 }
