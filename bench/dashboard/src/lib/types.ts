@@ -98,6 +98,19 @@ export interface Manifest {
 			cpu_mean_peak?: number;
 			net_peak?: number;
 		};
+		/**
+		 * Where the load generator, the target and the database sat relative to each other.
+		 *
+		 * Absent on artifacts published before the runner recorded it. `cpu_pinning` is null whenever
+		 * nothing was pinned — which is always the case on macOS and Windows, because Darwin exposes
+		 * no usable CPU-affinity API and the runner's affinity call is Linux-only. The UI reports that
+		 * absence rather than implying an isolation that did not happen.
+		 */
+		topology?: {
+			loadgen_colocated: boolean;
+			db_colocated: boolean;
+			cpu_pinning: string | null;
+		};
 	};
 	trials: { count: number; aggregate: string };
 }
@@ -260,6 +273,16 @@ export interface SummaryResult extends Summary {
 	runner_os: string;
 	runner_class: string;
 	runner_label: string;
+	/** CPU brand string of the machine this row was measured on. */
+	runner_cpu: string;
+	/** Logical cores on that machine. */
+	runner_cores: number;
+	/**
+	 * The cpuset split in force for this row (`load=0-1 server=2 db=3`), or null when nothing was
+	 * pinned. The ranking is scoped per OS, and this is how a reader tells a linux ranking whose
+	 * families were isolated from each other from a macOS one where they could not be.
+	 */
+	runner_pinning: string | null;
 }
 
 export interface Primary {

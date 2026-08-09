@@ -24,6 +24,7 @@ import { cohortSearchText } from '#lib/cohort-search';
 import { summarizeAll, type QualitativeNote } from '#lib/qualitative';
 import { anyMeasured, capacity, compareCapacity, type CapacityView } from '#lib/saturation';
 import { harnessRows, type HarnessRow } from '#lib/harness';
+import { osScopes, type OsScope } from '#lib/os';
 import type { FilterOption } from '#lib/components/FilterPills.svelte';
 import {
 	ordinal,
@@ -83,8 +84,19 @@ export class RunsPageState {
 	hoverFamilyKey = $state<string | null>(null);
 	suite = $derived(page.url.searchParams.get('suite'));
 	status = $derived(page.url.searchParams.get('status'));
-	/** Ranking view state, both in the URL so a filtered ranking is a shareable address. */
+	/** Ranking view state, all in the URL so a scoped ranking is a shareable address. */
 	db = $derived(page.url.searchParams.get('db'));
+	/**
+	 * Which operating system the ranking is showing.
+	 *
+	 * Unlike `db`, this has no "All": a rank across operating systems is not a comparison, it is two
+	 * comparisons stacked. Resolved against the scopes this set actually has, so a stale `?os=` from
+	 * an older set lands on a real scope instead of an empty table.
+	 */
+	os = $derived(
+		this.osScopes.find((scope) => scope.os === page.url.searchParams.get('os'))?.os ??
+			this.defaultOs,
+	);
 	sort = $derived(
 		parseRankingSort(page.url.searchParams.get('sort'), this.defaultSort, this.availableSorts),
 	);
@@ -157,6 +169,42 @@ export class RunsPageState {
 		return this.latest?.summaries ?? [];
 	}
 
+	/** Every operating system this set produced rows on, in a fixed order. */
+	get osScopes(): OsScope[] {
+		return osScopes(this.results);
+	}
+
+	/**
+	 * The scope shown when the URL does not name one: the platform with the most targets.
+	 *
+	 * Not a hardcoded "linux". The default should be wherever the set has the most to say, and on a
+	 * run where linux failed and the others did not, hardcoding it would open the page on an empty
+	 * table. `osScopes` is already ordered, so ties resolve to Linux, then macOS, then Windows.
+	 */
+	get defaultOs(): string | null {
+		const scopes = this.osScopes;
+		if (scopes.length === 0) return null;
+		return scopes.reduce((best, scope) => (scope.count > best.count ? scope : best)).os;
+	}
+
+	/** The scope currently on screen, with its provenance. Null only when the set has no rows. */
+	get osScope(): OsScope | null {
+		return this.osScopes.find((scope) => scope.os === this.os) ?? null;
+	}
+
+	/**
+	 * The rows the ranking is computed over: one operating system's worth.
+	 *
+	 * Everything downstream — rank, bar scale, "vs drizzle-rs" baseline, whether this set measured
+	 * capacity at all — reads this rather than `results`, because each of those is a within-scope
+	 * claim. A baseline picked across operating systems would measure two machines and print the
+	 * answer under a library's name.
+	 */
+	get #scopedResults(): SummaryResult[] {
+		if (!this.os) return this.results;
+		return this.results.filter((summary) => summary.runner_os === this.os);
+	}
+
 	/**
 	 * The ranking: every target in the set, in one order, across every database.
 	 *
@@ -173,7 +221,9 @@ export class RunsPageState {
 	 * each row, and the footnote under the table pointing at Repeatability and Method.
 	 */
 	get rankingRows(): RankingRow[] {
-		const rows = this.results.filter((summary) => !this.db || dbProfile(summary) === this.db);
+		const rows = this.#scopedResults.filter(
+			(summary) => !this.db || dbProfile(summary) === this.db,
+		);
 		const ordered = [...rows].sort(this.#comparator);
 
 		// Scaled to the rows on screen, not to every row that exists. With "all databases" selected
@@ -257,13 +307,14 @@ export class RunsPageState {
 	/**
 	 * Whether this set measured capacity at all.
 	 *
-	 * Computed over the whole set rather than the filtered view, so switching the `?db=` pills never
-	 * makes the peak-throughput column appear and disappear. When it is false the column is left off
-	 * and a note says why — twenty rows all reading "not measured" is technically honest and
-	 * practically unreadable, and the fact is a property of the run, not of each row.
+	 * Computed over the OS scope, not over each `?db=` slice: switching database pills must never
+	 * make the peak-throughput column appear and disappear, but switching operating system genuinely
+	 * can, because whether a platform was measured for capacity is a fact about that platform's job.
+	 * When it is false the column is left off and a note says why — twenty rows all reading "not
+	 * measured" is technically honest and practically unreadable.
 	 */
 	get hasCapacity(): boolean {
-		return anyMeasured(this.results);
+		return anyMeasured(this.#scopedResults);
 	}
 
 	/** Capacity is the primary number wherever it exists, and nothing pretends it does when it does not. */
@@ -289,7 +340,7 @@ export class RunsPageState {
 	 * genuinely different harnesses cannot be described by one.
 	 */
 	get harnessRows(): HarnessRow[] {
-		const present = [...new Set(this.results.map((summary) => targetFamily(summary)))];
+		const present = [...new Set(this.#scopedResults.map((summary) => targetFamily(summary)))];
 		return harnessRows(present, this.latest?.harness, familyLabel);
 	}
 
@@ -318,8 +369,10 @@ export class RunsPageState {
 	 * These sit above the table and are deliberately not derived from it — the table is one global
 	 * order and these are per-database standings, which is exactly the orientation the flat table
 	 * does not give you. Each tile links to the table filtered to its database, so it doubles as
-	 * the way in. Tiles are computed from the whole set rather than from the current filter, so
-	 * they stay a complete index however the table is filtered.
+	 * the way in. Tiles are computed from the whole OS scope rather than from the current `?db=`
+	 * filter, so they stay a complete index however the table is filtered — but they never reach
+	 * across operating systems, because "1st of 4" would otherwise be a standing against a field
+	 * measured on another machine.
 	 *
 	 * In-process-cache targets are left out of each database's field: they answer without touching
 	 * the database, so placing drizzle-rs against one would not be a standing among comparable
@@ -327,7 +380,7 @@ export class RunsPageState {
 	 */
 	get verdicts(): DbVerdict[] {
 		const byDb = new Map<DbProfile, SummaryResult[]>();
-		for (const summary of this.results) {
+		for (const summary of this.#scopedResults) {
 			if (isInProcessCache(summary.target_meta)) continue;
 			const profile = dbProfile(summary);
 			const bucket = byDb.get(profile);
@@ -405,7 +458,7 @@ export class RunsPageState {
 	 * differ by language and concurrency model before they differ by library.
 	 */
 	get #baselines(): Map<string, SummaryResult> {
-		return baselinesByFamily([...this.results].sort(compareLeaderboard));
+		return baselinesByFamily([...this.#scopedResults].sort(compareLeaderboard));
 	}
 
 	/**
@@ -415,8 +468,23 @@ export class RunsPageState {
 	 * delta are the same numbers with "All" selected as with one database selected — the pills are
 	 * a lens, not a different ranking.
 	 */
+	/**
+	 * The operating-system scopes, as pills.
+	 *
+	 * Rendered even when the set has only one, so the reader always knows which platform they are
+	 * looking at. A single unlabelled scope is the state that produced the original confusion.
+	 */
+	get osFilters(): FilterOption[] {
+		return this.osScopes.map((scope) => ({
+			label: `${scope.label} (${scope.count})`,
+			title: scope.detail,
+			href: this.rankingUrl(this.db, this.sort, scope.os),
+			active: this.os === scope.os,
+		}));
+	}
+
 	get dbFilters(): FilterOption[] {
-		const present = new Set(this.results.map((summary) => dbProfile(summary)));
+		const present = new Set(this.#scopedResults.map((summary) => dbProfile(summary)));
 		const families = DB_PROFILE_ORDER.filter((profile) => present.has(profile));
 		return [
 			{
@@ -450,13 +518,14 @@ export class RunsPageState {
 		}));
 	}
 
-	rankingUrl(db: string | null, sort: RankingSort): string {
+	rankingUrl(db: string | null, sort: RankingSort, os: string | null = this.os): string {
 		const params = new URLSearchParams();
 		if (this.suite) params.set('suite', this.suite);
 		if (this.status) params.set('status', this.status);
 		if (db) params.set('db', db);
 		// Omitted only when it is already the effective default, so the shortest URL and the
 		// rendered order always agree.
+		if (os && os !== this.defaultOs) params.set('os', os);
 		if (sort !== this.defaultSort) params.set('sort', sort);
 		const query = params.toString();
 		return this.#basePath + (query ? '?' + query : '');

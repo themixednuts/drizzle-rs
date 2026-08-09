@@ -174,6 +174,9 @@ function toSummaryResult(cohortId: string, manifest: Manifest, summary: Summary)
 		runner_os: manifest.runner.os,
 		runner_class: manifest.runner.class,
 		runner_label: `${manifest.runner.os} / ${manifest.runner.class}`,
+		runner_cpu: manifest.runner.cpu,
+		runner_cores: manifest.runner.cores,
+		runner_pinning: manifest.runner.topology?.cpu_pinning ?? null,
 	};
 }
 
