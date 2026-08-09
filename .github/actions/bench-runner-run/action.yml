@@ -284,6 +284,12 @@ runs:
 
             export BENCH_CPUSET_LOAD="0-$(( half - 1 ))"
             export BENCH_CPUSET_SERVER="${sut_lo}-${server_hi}"
+            # The runner cannot pin a process it did not spawn, so this is
+            # disclosure only: it makes `topology.cpu_pinning` describe the
+            # three-way split the caller actually set up.
+            if [[ -n "$DB_CPUSET" ]]; then
+              export BENCH_CPUSET_DB="$DB_CPUSET"
+            fi
             echo "cpu isolation: load=$BENCH_CPUSET_LOAD server=$BENCH_CPUSET_SERVER db=${DB_CPUSET:-<in-process>} (of $cores cores)"
           else
             echo "cpu isolation: skipped, runner reports $cores cores"
