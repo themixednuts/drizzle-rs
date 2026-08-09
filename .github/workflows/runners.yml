@@ -55,7 +55,7 @@ jobs:
       class: ${{ steps.resolve.outputs.class }}
       workload: ${{ steps.resolve.outputs.workload }}
       publish: ${{ steps.resolve.outputs.publish }}
-      pg_all: ${{ steps.resolve.outputs.pg_all }}
+      cross_family: ${{ steps.resolve.outputs.cross_family }}
     steps:
       - name: Resolve run class and workload
         id: resolve
@@ -88,14 +88,16 @@ jobs:
             class="publish"
           fi
 
-          # Cross-family PostgreSQL ranking must come from one machine. On the
-          # weekly schedule and on a manual publish dispatch the three
-          # PostgreSQL families collapse into the single `postgres-all` job;
-          # every other event keeps them parallel and per-family.
-          pg_all="false"
+          # The leaderboard ranks families against each other, so its numbers
+          # have to come off one machine per operating system. On the weekly
+          # schedule and on a manual publish dispatch the `*-all` jobs run every
+          # family that operating system can host, back to back on one VM.
+          # Every other event skips them: a PR wants fast per-family feedback,
+          # not a four-hour serialised ranking, and publishes nothing.
+          cross_family="false"
           if [[ "$publish" == "true" ]] \
             && { [[ "$GITHUB_EVENT_NAME" == "schedule" ]] || [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; }; then
-            pg_all="true"
+            cross_family="true"
           fi
 
           {
@@ -103,10 +105,10 @@ jobs:
             echo "class=$class"
             echo "workload=$workload"
             echo "publish=$publish"
-            echo "pg_all=$pg_all"
+            echo "cross_family=$cross_family"
           } >> "$GITHUB_OUTPUT"
 
-          echo "size=$size class=$class workload=$workload publish=$publish pg_all=$pg_all"
+          echo "size=$size class=$class workload=$workload publish=$publish cross_family=$cross_family"
 
   sqlite:
     name: SQLite (${{ matrix.platform }})
@@ -242,7 +244,6 @@ jobs:
   postgres:
     name: PostgreSQL (linux)
     needs: plan
-    if: ${{ needs.plan.outputs.pg_all != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 240 }}
 
@@ -297,7 +298,6 @@ jobs:
   postgres-rust-orms:
     name: PostgreSQL Rust ORMs (linux)
     needs: plan
-    if: ${{ needs.plan.outputs.pg_all != 'true' }}
     runs-on: ubuntu-latest
     # Two external target crates to build on top of the runner.
     timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 75 || 280 }}
@@ -356,7 +356,6 @@ jobs:
   postgres-ts:
     name: PostgreSQL TS (linux)
     needs: plan
-    if: ${{ needs.plan.outputs.pg_all != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 240 }}
 
@@ -422,118 +421,6 @@ jobs:
           cohort-id: ${{ env.BENCH_COHORT_ID }}
           publish: ${{ needs.plan.outputs.publish }}
           database-url: ${{ steps.pgurl.outputs.url }}
-
-  postgres-all:
-    name: PostgreSQL cross-family (linux)
-    needs: plan
-    # Publish-grade cross-family ranking only. One VM, one PostgreSQL service,
-    # one cohort id, three families run back to back, so the leaderboard rows
-    # for drizzle-rs / Rust ORMs / TypeScript come from identical hardware
-    # instead of three separate CI VMs.
-    if: ${{ needs.plan.outputs.pg_all == 'true' }}
-    runs-on: ubuntu-latest
-    # 11 targets x 5 trials x ~6 min is close to the 6 h hosted-runner ceiling.
-    # If a family is added here, drop the trial count for this job instead of
-    # raising the timeout — GitHub hard-cancels at 360.
-    timeout-minutes: 350
-
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: drizzle_test
-        ports:
-          - 5432/tcp
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-
-      - name: Install Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          check-latest: true
-          package-manager-cache: false
-
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Cache Rust dependencies
-        if: ${{ !env.ACT }}
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: runner-postgres-all
-          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
-
-      - name: Install TS target dependencies
-        uses: ./.github/actions/install-ts-targets
-
-      - name: Resolve DATABASE_URL
-        id: pgurl
-        uses: ./.github/actions/resolve-postgres-url
-        with:
-          port: ${{ job.services.postgres.ports[5432] }}
-          service-id: ${{ job.services.postgres.id }}
-
-      # Sequential on purpose: the three runs must not contend for the same
-      # cores or the same PostgreSQL instance. Artifact and baseline names match
-      # the per-family jobs, which are skipped on these runs, so downstream
-      # consumers see exactly one artifact per family either way.
-      # trials: 3 (instead of the publish default 5) keeps the three-family
-      # sequence comfortably inside the 360-minute hard ceiling; spread/CI docs
-      # record the actual trial count per run.
-      - name: Benchmark PostgreSQL family
-        uses: ./.github/actions/bench-runner-run
-        with:
-          family: postgres
-          targets: bench/spec/targets.postgres.v1.json
-          workload: ${{ needs.plan.outputs.workload }}
-          class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}
-          publish: ${{ needs.plan.outputs.publish }}
-          database-url: ${{ steps.pgurl.outputs.url }}
-          trials: "3"
-
-      - name: Benchmark PostgreSQL Rust ORM family
-        uses: ./.github/actions/bench-runner-run
-        with:
-          family: postgres-rust-orms
-          targets: bench/spec/targets.postgres-rust-orms.v1.json
-          workload: ${{ needs.plan.outputs.workload }}
-          class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}
-          publish: ${{ needs.plan.outputs.publish }}
-          database-url: ${{ steps.pgurl.outputs.url }}
-          trials: "3"
-          prebuild-manifests: |
-            bench/targets/rust-pg-orms/Cargo.toml
-            bench/targets/toasty/Cargo.toml
-
-      - name: Benchmark PostgreSQL TS family
-        uses: ./.github/actions/bench-runner-run
-        with:
-          family: postgres-ts
-          targets: bench/spec/targets.postgres-ts.v1.json
-          workload: ${{ needs.plan.outputs.workload }}
-          class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}
-          publish: ${{ needs.plan.outputs.publish }}
-          database-url: ${{ steps.pgurl.outputs.url }}
-          trials: "3"
 
   spacetimedb:
     name: SpacetimeDB (linux)
@@ -672,7 +559,6 @@ jobs:
       - postgres
       - postgres-rust-orms
       - postgres-ts
-      - postgres-all
       - spacetimedb
       - turso
     # Assemble whatever succeeded. One flaky family used to void the preview
