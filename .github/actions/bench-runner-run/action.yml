@@ -10,11 +10,11 @@ description: >-
 #    reusable workflow cannot serve both the families that need a PostgreSQL
 #    service and the ones that must not have a foreign process on the
 #    benchmark VM.
-# 2. The publish-class `postgres-all` job runs this body three times inside one
-#    job so the three PostgreSQL families are ranked on identical hardware. A
-#    reusable workflow is a job, so it cannot be invoked more than once per job.
-# 3. Composite actions keep the caller job names unchanged, so branch
-#    protection required checks do not have to be renamed.
+# 2. Each per-OS job invokes this body once per family, back to back, so every
+#    family in a ranking is measured on identical hardware. A reusable workflow
+#    is a job, so it cannot be invoked more than once per job.
+# 3. Composite actions keep the caller job names stable, so branch protection
+#    required checks track the OS rather than the family list.
 
 inputs:
   family:
@@ -76,9 +76,23 @@ inputs:
     description: >-
       `auto` pins the load generator and the spawned target processes to
       disjoint core sets on Linux runners with at least 4 cores. `off` disables
-      pinning. No-op on macOS and Windows.
+      pinning. No-op on macOS and Windows — the runner's affinity call is
+      `#[cfg(target_os = "linux")]`, and Darwin exposes no usable CPU-affinity
+      API at all, so there is nothing to fall back to there.
     required: false
     default: auto
+  db-cpuset:
+    description: >-
+      Cores owned by an out-of-process database on this job (the PostgreSQL
+      service container's `--cpuset-cpus`, or the cores SpacetimeDB was started
+      under `taskset` with). Must be a contiguous top slice of the SUT half of
+      the machine; the composite carves it out of `BENCH_CPUSET_SERVER` so
+      load / server / database are three disjoint sets, and hard-fails when the
+      literal disagrees with what `nproc` reports. Empty for families whose
+      engine is in-process — those get the whole SUT half as the server set,
+      because for them the server *is* the database.
+    required: false
+    default: ''
 
 outputs:
   run-id:
@@ -163,30 +177,110 @@ runs:
         BENCH_COHORT: ${{ inputs.cohort-id }}
         BENCH_TRIALS: ${{ inputs.trials }}
         CPU_ISOLATION: ${{ inputs.cpu-isolation }}
+        DB_CPUSET: ${{ inputs.db-cpuset }}
         DATABASE_URL: ${{ inputs.database-url }}
       run: |
         mkdir -p "$BENCH_OUT"
 
-        # Best-effort CPU separation. The load generator, the target process and
-        # (for the PostgreSQL families) the database all share one CI VM, so
-        # this is a partition of a shared machine, not real isolation: memory
-        # bandwidth, caches and the kernel network stack stay shared. It only
-        # stops the load generator and the system under test from fighting over
-        # the same cores. Linux-only; the runner ignores the variables
-        # elsewhere. ubuntu-latest is a 4 vCPU VM, so the split is 0-1 for load
-        # and 2-3 for the target, derived from nproc rather than hard-coded so a
-        # future runner size keeps a balanced split.
+        # ------------------------------------------------------------------
+        # CPU separation (Linux only).
+        #
+        # The machine is cut in half. The lower half drives load; the upper
+        # half is the system under test and nothing else runs there. How the
+        # SUT half is subdivided is a property of the architecture being
+        # measured, not of the family:
+        #
+        #   in-process engine (sqlite, libsql, turso)
+        #     server = whole SUT half. The process that serves HTTP is also
+        #     the process that executes the query, so it gets the half.
+        #
+        #   out-of-process engine (postgres*, spacetimedb)
+        #     database = `db-cpuset` (a contiguous top slice of the SUT half,
+        #     applied by the caller via `--cpuset-cpus` on the service
+        #     container or `taskset` on the daemon)
+        #     server   = the rest of the SUT half, i.e. the client process.
+        #
+        # Either way the SUT owns exactly the same cores, which is what makes
+        # a cross-family ranking on one box mean anything. Before this, the
+        # PostgreSQL service floated unpinned over the whole VM while the
+        # embedded engines were confined to the upper half — a silent handicap
+        # for every in-process engine in the same table.
+        #
+        # This is still a partition of a shared VM, not isolation: memory
+        # bandwidth, last-level cache and the kernel network stack stay shared.
+        #
+        # ubuntu-latest is 4 vCPU, so the split is load=0-1, server=2, db=3 for
+        # the out-of-process families and load=0-1, server=2-3 for the rest.
+        # Derived from nproc rather than hard-coded, so a larger runner keeps a
+        # balanced split; the `db-cpuset` literal is cross-checked against it
+        # instead of being trusted.
+        # ------------------------------------------------------------------
+        cpuset_expand() {
+          local spec="$1" part lo hi i
+          local -a parts=()
+          IFS=',' read -ra parts <<< "$spec"
+          for part in "${parts[@]}"; do
+            part="${part// /}"
+            [[ -z "$part" ]] && continue
+            if [[ "$part" == *-* ]]; then
+              lo="${part%%-*}"; hi="${part##*-}"
+            else
+              lo="$part"; hi="$part"
+            fi
+            [[ "$lo" =~ ^[0-9]+$ && "$hi" =~ ^[0-9]+$ ]] || return 1
+            (( hi >= lo )) || return 1
+            for (( i = lo; i <= hi; i++ )); do echo "$i"; done
+          done
+        }
+
         if [[ "$CPU_ISOLATION" == "auto" && "$RUNNER_OS" == "Linux" ]]; then
           cores="$(nproc 2>/dev/null || echo 0)"
           if (( cores >= 4 )); then
             half=$(( cores / 2 ))
+            sut_lo="$half"
+            sut_hi=$(( cores - 1 ))
+            server_hi="$sut_hi"
+
+            if [[ -n "$DB_CPUSET" ]]; then
+              # Command substitution, not process substitution: `mapfile` would
+              # report its own status and swallow a parse failure.
+              if ! db_expanded="$(cpuset_expand "$DB_CPUSET")" || [[ -z "$db_expanded" ]]; then
+                echo "::error::db-cpuset '$DB_CPUSET' is not a valid cpuset spec"
+                exit 1
+              fi
+              mapfile -t db_cores <<< "$db_expanded"
+              db_lo="${db_cores[0]}"
+              db_hi="${db_cores[${#db_cores[@]} - 1]}"
+              # Contiguous, inside the SUT half, ending at its top, and leaving
+              # at least one core for the client process. Any violation means
+              # the literal in `runners.yml` and the real core count have
+              # drifted apart, which would silently overlap two of the three
+              # sets — fail instead.
+              if (( db_hi - db_lo + 1 != ${#db_cores[@]} )); then
+                echo "::error::db-cpuset '$DB_CPUSET' is not contiguous"
+                exit 1
+              fi
+              if (( db_lo < sut_lo || db_hi != sut_hi )); then
+                echo "::error::db-cpuset '$DB_CPUSET' must be a top slice of the SUT half ${sut_lo}-${sut_hi} on a ${cores}-core runner"
+                exit 1
+              fi
+              if (( db_lo <= sut_lo )); then
+                echo "::error::db-cpuset '$DB_CPUSET' leaves no core for the target process on a ${cores}-core runner"
+                exit 1
+              fi
+              server_hi=$(( db_lo - 1 ))
+            fi
+
             export BENCH_CPUSET_LOAD="0-$(( half - 1 ))"
-            export BENCH_CPUSET_SERVER="${half}-$(( cores - 1 ))"
-            echo "cpu isolation: load=$BENCH_CPUSET_LOAD server=$BENCH_CPUSET_SERVER (of $cores cores)"
+            export BENCH_CPUSET_SERVER="${sut_lo}-${server_hi}"
+            echo "cpu isolation: load=$BENCH_CPUSET_LOAD server=$BENCH_CPUSET_SERVER db=${DB_CPUSET:-<in-process>} (of $cores cores)"
           else
             echo "cpu isolation: skipped, runner reports $cores cores"
           fi
         else
+          # macOS and Windows land here. `manifest.runner.topology.cpu_pinning`
+          # is null on those runs by construction, and that is the honest
+          # record: nothing was pinned.
           echo "cpu isolation: disabled (mode=$CPU_ISOLATION os=$RUNNER_OS)"
         fi
 
