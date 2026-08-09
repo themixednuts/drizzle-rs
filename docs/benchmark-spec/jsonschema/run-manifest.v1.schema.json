@@ -375,7 +375,7 @@
             },
             "cpu_pinning": {
               "type": ["string", "null"],
-              "description": "Applied cpuset assignment (BENCH_CPUSET_LOAD / BENCH_CPUSET_SERVER), or null when nothing was pinned. Linux only."
+              "description": "Applied cpuset assignment (BENCH_CPUSET_LOAD / BENCH_CPUSET_SERVER, plus BENCH_CPUSET_DB when an out-of-process engine was pinned by the caller), or null when nothing was pinned. Linux only."
             }
           }
         }
