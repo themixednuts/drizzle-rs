@@ -27,6 +27,16 @@ inputs:
     description: Platform slug (linux, windows, macos).
     required: false
     default: linux
+  slug-suffix:
+    description: >-
+      Extra segment appended to the `<family>-<platform>` slug. A publish run
+      measures the same family twice on one workflow — once in its per-family
+      job on the paced workload, once in its per-OS job on the saturation ramp —
+      and the slug is what keeps the two output directories, artifact names and
+      baseline caches apart. Empty for the per-family jobs, so their artifact
+      names and cache keys are unchanged.
+    required: false
+    default: ''
   targets:
     description: Path to the family's target spec (`bench/spec/targets.*.v1.json`).
     required: true
@@ -99,10 +109,10 @@ outputs:
     description: Run id emitted by the runner.
     value: ${{ steps.runner.outputs.run_id }}
   out-dir:
-    description: Output root for this family (`bench-out/<family>-<platform>`).
+    description: Output root for this family (`bench-out/<slug>`).
     value: ${{ steps.setup.outputs.out }}
   slug:
-    description: '`<family>-<platform>`.'
+    description: '`<family>-<platform>`, plus `-<slug-suffix>` when one is set.'
     value: ${{ steps.setup.outputs.slug }}
 
 runs:
@@ -114,8 +124,9 @@ runs:
       env:
         FAMILY: ${{ inputs.family }}
         PLATFORM: ${{ inputs.platform }}
+        SLUG_SUFFIX: ${{ inputs.slug-suffix }}
       run: |
-        slug="${FAMILY}-${PLATFORM}"
+        slug="${FAMILY}-${PLATFORM}${SLUG_SUFFIX:+-$SLUG_SUFFIX}"
         echo "slug=$slug" >> "$GITHUB_OUTPUT"
         echo "out=bench-out/$slug" >> "$GITHUB_OUTPUT"
         # The `env` context is not dependably readable from composite-action
