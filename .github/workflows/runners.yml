@@ -98,9 +98,15 @@ jobs:
           # family that operating system can host, back to back on one VM.
           # Every other event skips them: a PR wants fast per-family feedback,
           # not a four-hour serialised ranking, and publishes nothing.
+          # A manual dispatch gets them whether or not it publishes. `publish` is
+          # gated on `main`, so tying these jobs to it would make the one part of
+          # this workflow that cannot be exercised by a pull request also the one
+          # part that only ever runs for the first time after merging. Dispatch
+          # `benchmark_size=preview` from a branch to exercise the topology
+          # cheaply; R2 stays gated on `publish` either way.
           cross_family="false"
-          if [[ "$publish" == "true" ]] \
-            && { [[ "$GITHUB_EVENT_NAME" == "schedule" ]] || [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; }; then
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]] \
+            || { [[ "$publish" == "true" ]] && [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; }; then
             cross_family="true"
           fi
 
