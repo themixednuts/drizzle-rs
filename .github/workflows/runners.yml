@@ -56,7 +56,11 @@ jobs:
       workload: ${{ steps.resolve.outputs.workload }}
       publish: ${{ steps.resolve.outputs.publish }}
       cross_family: ${{ steps.resolve.outputs.cross_family }}
+      cross_workload: ${{ steps.resolve.outputs.cross_workload }}
+      cross_trials: ${{ steps.resolve.outputs.cross_trials }}
     steps:
+      - uses: actions/checkout@v6
+
       - name: Resolve run class and workload
         id: resolve
         shell: bash
@@ -100,15 +104,90 @@ jobs:
             cross_family="true"
           fi
 
+          # The `*-all` jobs always run the saturation ramp, whatever `$workload`
+          # resolved to for the per-family jobs. A cross-family ranking needs a
+          # number that describes the target, and the paced suites cap every
+          # target at `VUs / think_time` — their rps describes the load
+          # generator. The paced reading is not lost: the per-family jobs still
+          # produce it, and it is what the latency views are built from.
+          cross_workload="bench/spec/workload.saturation.v1.json"
+          cross_trials="2"
+          if [[ "$size" == "preview" ]]; then
+            # Smoke-test the topology itself without a five-hour run.
+            cross_workload="bench/spec/workload.saturation-preview.v1.json"
+            cross_trials="1"
+          fi
+
           {
             echo "size=$size"
             echo "class=$class"
             echo "workload=$workload"
             echo "publish=$publish"
             echo "cross_family=$cross_family"
+            echo "cross_workload=$cross_workload"
+            echo "cross_trials=$cross_trials"
           } >> "$GITHUB_OUTPUT"
 
           echo "size=$size class=$class workload=$workload publish=$publish cross_family=$cross_family"
+          echo "cross_workload=$cross_workload cross_trials=$cross_trials"
+
+      # A `*-all` job is a serial sequence, so it is the one place in this
+      # workflow that can walk into GitHub's hard 360-minute job cancellation.
+      # Adding a target to any family spec silently lengthens it. Estimate the
+      # linux sequence up front and fail the run here, in five minutes, rather
+      # than at minute 350 with most of the ranking missing.
+      - name: Check cross-family time budget
+        if: ${{ steps.resolve.outputs.cross_family == 'true' }}
+        shell: bash
+        env:
+          CROSS_WORKLOAD: ${{ steps.resolve.outputs.cross_workload }}
+          CROSS_TRIALS: ${{ steps.resolve.outputs.cross_trials }}
+          JOB_TIMEOUT_MIN: '350'
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+
+          # Keep in sync with the `linux-all` job's family list.
+          LINUX_SPECS = [
+              "bench/spec/targets.sqlite.v1.json",
+              "bench/spec/targets.sqlite-ts.v1.json",
+              "bench/spec/targets.libsql.v1.json",
+              "bench/spec/targets.turso.v1.json",
+              "bench/spec/targets.postgres.v1.json",
+              "bench/spec/targets.postgres-rust-orms.v1.json",
+              "bench/spec/targets.postgres-ts.v1.json",
+              "bench/spec/targets.spacetimedb.v1.json",
+          ]
+          # Per-target-per-trial cost that is not the ramp itself: process spawn,
+          # seed, LISTENING wait, teardown. Measured at roughly a minute on the
+          # hosted runners; rounded up.
+          OVERHEAD_S = 75
+          # Toolchain install, cargo release build of the runner plus four
+          # external target crates, bun install, SpacetimeDB module publish.
+          BUILD_MIN = 55
+
+          workload = json.load(open(os.environ["CROSS_WORKLOAD"]))
+          ramp_s = sum(s["sec"] for s in workload.get("stages", [])) + (workload.get("warmup_s") or 0)
+          trials = int(os.environ["CROSS_TRIALS"])
+          budget = int(os.environ["JOB_TIMEOUT_MIN"])
+
+          targets = sum(len(json.load(open(p))) for p in LINUX_SPECS)
+          run_min = targets * trials * (ramp_s + OVERHEAD_S) / 60
+          total = round(run_min + BUILD_MIN)
+
+          print(
+              f"linux-all estimate: {targets} targets x {trials} trials x "
+              f"({ramp_s}s ramp + {OVERHEAD_S}s overhead) = {round(run_min)} min, "
+              f"+{BUILD_MIN} min build = {total} min (timeout {budget})"
+          )
+          if total > budget:
+              print(
+                  f"::error::linux-all needs ~{total} min but its timeout is {budget}. "
+                  f"Lower cross_trials, shorten the saturation ramp, or split the job — "
+                  f"GitHub hard-cancels at 360 and the ranking would come back partial."
+              )
+              sys.exit(1)
+          PY
 
   sqlite:
     name: SQLite (${{ matrix.platform }})
