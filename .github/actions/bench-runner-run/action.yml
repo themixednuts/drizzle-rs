@@ -282,8 +282,15 @@ runs:
               server_hi=$(( db_lo - 1 ))
             fi
 
-            export BENCH_CPUSET_LOAD="0-$(( half - 1 ))"
-            export BENCH_CPUSET_SERVER="${sut_lo}-${server_hi}"
+            # A one-core set is written as `2`, not `2-2`. The parser accepts
+            # both, but this string is what the dashboard prints as the run's
+            # isolation disclosure, and `server=2-2` reads like a typo.
+            cpuset_range() {
+              if (( $1 == $2 )); then echo "$1"; else echo "$1-$2"; fi
+            }
+
+            export BENCH_CPUSET_LOAD="$(cpuset_range 0 $(( half - 1 )))"
+            export BENCH_CPUSET_SERVER="$(cpuset_range "$sut_lo" "$server_hi")"
             # The runner cannot pin a process it did not spawn, so this is
             # disclosure only: it makes `topology.cpu_pinning` describe the
             # three-way split the caller actually set up.
