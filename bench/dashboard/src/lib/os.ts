@@ -90,7 +90,16 @@ export interface OsScope {
 	 * exposes no usable CPU-affinity API — and it is reported as an absence, never as isolation.
 	 */
 	pinning: string | null;
-	/** True when this scope's rows disagree about the split, so no single one describes them. */
+	/**
+	 * Every distinct split in this scope, when there is more than one.
+	 *
+	 * A cross-family linux job legitimately has two: an in-process engine takes the whole
+	 * system-under-test half, and an out-of-process one hands a core to the database. Both halves
+	 * own the same cores either way, which is the property that makes the ranking comparable — so
+	 * this lists what ran rather than flagging a disagreement.
+	 */
+	pinnings: string[];
+	/** True when this scope's rows ran under more than one split. */
 	mixedPinning: boolean;
 	/** The whole provenance sentence, for the pill's tooltip. */
 	detail: string;
@@ -129,6 +138,9 @@ export function osScopes(rows: readonly OsScopeRow[]): OsScope[] {
 		const pins = [...new Set(bucket.map((row) => row.runner_pinning ?? null))];
 		const mixedPinning = pins.length > 1;
 		const pinning = mixedPinning ? null : (pins[0] ?? null);
+		// Unpinned rows contribute a null, which has no split to name; a scope mixing pinned and
+		// unpinned rows therefore lists only the pinned ones and stays `mixedPinning`.
+		const pinnings = pins.filter((pin): pin is string => Boolean(pin));
 		const cores = bucket.find((row) => row.runner_cores)?.runner_cores ?? null;
 
 		scopes.push({
@@ -138,8 +150,9 @@ export function osScopes(rows: readonly OsScopeRow[]): OsScope[] {
 			count: bucket.length,
 			cpus,
 			pinning,
+			pinnings,
 			mixedPinning,
-			detail: scopeDetail(badge.name, bucket.length, cpus, cores, pinning, mixedPinning),
+			detail: scopeDetail(badge.name, bucket.length, cpus, cores, pinning, pinnings),
 		});
 	}
 
@@ -154,7 +167,7 @@ function scopeDetail(
 	cpus: string[],
 	cores: number | null,
 	pinning: string | null,
-	mixedPinning: boolean,
+	pinnings: string[],
 ): string {
 	const parts = [`${count} target${count === 1 ? '' : 's'} measured on ${label}`];
 
@@ -167,10 +180,13 @@ function scopeDetail(
 		parts.push(`on ${cpus[0]}${cores ? ` (${cores} cores)` : ''}`);
 	}
 
-	if (mixedPinning) {
-		parts.push('under more than one CPU-isolation setting, so no single split describes them');
-	} else if (pinning) {
+	if (pinning) {
 		parts.push(`with cores split ${pinning}`);
+	} else if (pinnings.length > 0) {
+		// Two splits inside one scope is the normal shape of a cross-family linux job, not a fault:
+		// the in-process engines take the whole system-under-test half and the out-of-process ones
+		// hand a core to the database. Naming both is more useful than calling it a disagreement.
+		parts.push(`with cores split ${pinnings.join(' and ')} by engine`);
 	} else {
 		parts.push('with no CPU pinning — the runner pins cores on Linux only');
 	}

@@ -34,16 +34,30 @@ describe('osScopes', () => {
 		expect(scopes[0].detail).toContain('cores split load=0-1 server=2 db=3');
 	});
 
-	it('refuses to pick one pinning when the scope disagrees', () => {
-		// An in-process family gets the whole SUT half; a PostgreSQL family gives a core to the
-		// database. Both are correct, and neither describes the scope, so no single split is claimed.
+	it('names both splits when a scope mixes in-process and out-of-process engines', () => {
+		// The normal shape of a cross-family linux job: an in-process family gets the whole SUT half,
+		// a PostgreSQL family hands a core to the database. Both own the same cores, so this is the
+		// design rather than a disagreement, and the detail lists what ran.
 		const scopes = osScopes([
 			row('linux', { runner_pinning: 'load=0-1 server=2-3' }),
 			row('linux', { runner_pinning: 'load=0-1 server=2 db=3' }),
 		]);
 		expect(scopes[0].mixedPinning).toBe(true);
 		expect(scopes[0].pinning).toBeNull();
-		expect(scopes[0].detail).toContain('more than one CPU-isolation setting');
+		expect(scopes[0].pinnings).toEqual(['load=0-1 server=2-3', 'load=0-1 server=2 db=3']);
+		expect(scopes[0].detail).toContain(
+			'cores split load=0-1 server=2-3 and load=0-1 server=2 db=3 by engine',
+		);
+		expect(scopes[0].detail).not.toContain('no single split');
+	});
+
+	it('keeps the pinned splits when a scope mixes pinned and unpinned rows', () => {
+		const scopes = osScopes([
+			row('linux', { runner_pinning: 'load=0-1 server=2-3' }),
+			row('linux', { runner_pinning: null }),
+		]);
+		expect(scopes[0].mixedPinning).toBe(true);
+		expect(scopes[0].pinnings).toEqual(['load=0-1 server=2-3']);
 	});
 
 	it('states the absence of pinning rather than implying isolation', () => {
