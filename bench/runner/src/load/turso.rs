@@ -18,6 +18,66 @@ const TURSO_POOL_SIZE: usize = 4;
 /// covers the pooled connections opened afterwards.
 const TURSO_JOURNAL_MODE: &str = "mvcc";
 
+/// Page cache for every pooled connection, matching the rusqlite and libsql
+/// SQLite families.
+///
+/// Those two also take a 256 MiB `mmap_size`; turso does not, because turso has
+/// no `mmap_size` pragma at all — it is a rewrite rather than a SQLite fork, and
+/// `PRAGMA mmap_size` reports success while reading back nothing. That is an
+/// engine capability difference, not a configuration choice, so it is declared in
+/// this family's `fair.tuning` instead of being papered over.
+const READ_CACHE_KIB: i64 = 65_536;
+
+/// `temp_store = MEMORY` reads back as SQLite's numeric code for it.
+const TEMP_STORE_MEMORY: i64 = 2;
+
+async fn apply_read_tuning(conn: &::turso::Connection) -> Result<(), Fail> {
+    // This family declared `temp_store=MEMORY` for a long time without anything
+    // setting it. Applying it is the fix rather than dropping the claim: the
+    // other embedded families all run with it, and the declaration is what a
+    // reader uses to decide the three are comparable.
+    conn.pragma_update("temp_store", "MEMORY".to_string())
+        .await
+        .map_err(|err| Fail::new(Code::RunFail, format!("turso temp_store failed: {err}")))?;
+    conn.pragma_update("cache_size", format!("-{READ_CACHE_KIB}"))
+        .await
+        .map_err(|err| Fail::new(Code::RunFail, format!("turso cache_size failed: {err}")))?;
+
+    // Same reason as `enable_mvcc`: a pragma that does not apply is reported as
+    // success with the old value still in effect.
+    expect_pragma(conn, "temp_store", TEMP_STORE_MEMORY).await?;
+    expect_pragma(conn, "cache_size", -READ_CACHE_KIB).await?;
+    Ok(())
+}
+
+async fn expect_pragma(conn: &::turso::Connection, name: &str, want: i64) -> Result<(), Fail> {
+    let mut observed = None;
+    conn.pragma_query(name, |row| {
+        if observed.is_none() {
+            observed = row.get::<i64>(0).ok();
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|err| {
+        Fail::new(
+            Code::RunFail,
+            format!("turso {name} read-back failed: {err}"),
+        )
+    })?;
+
+    if observed != Some(want) {
+        return Err(Fail::new(
+            Code::RunFail,
+            format!(
+                "turso {name} is {observed:?}, expected {want}; the declared tuning would be \
+                 false for this run"
+            ),
+        ));
+    }
+    Ok(())
+}
+
 async fn enable_mvcc(conn: &::turso::Connection) -> Result<(), Fail> {
     conn.pragma_update("journal_mode", format!("'{TURSO_JOURNAL_MODE}'"))
         .await
@@ -564,6 +624,10 @@ async fn serve_with_mode(seed: u64, mode: TursoMode) -> Result<ServerHandle, Fai
         .connect()
         .map_err(|err| Fail::new(Code::RunFail, format!("turso connect failed: {err}")))?;
     enable_mvcc(&conn).await?;
+    // This connection is pushed into the pool below as slot 0, so it takes the
+    // same tuning as the ones opened after it; otherwise one connection in eight
+    // would serve requests with a different page cache.
+    apply_read_tuning(&conn).await?;
     let (db, schema) = drizzle::sqlite::turso::Drizzle::new(conn, Schema::new());
     db.create()
         .await
@@ -611,6 +675,7 @@ async fn serve_with_mode(seed: u64, mode: TursoMode) -> Result<ServerHandle, Fai
         let conn = builder
             .connect()
             .map_err(|err| Fail::new(Code::RunFail, format!("turso connect failed: {err}")))?;
+        apply_read_tuning(&conn).await?;
         let (db, _) = drizzle::sqlite::turso::Drizzle::new(conn, Schema::new());
         connections.push(db);
     }

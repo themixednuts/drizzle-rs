@@ -662,8 +662,83 @@ pub async fn serve(seed: u64) -> Result<ServerHandle, Fail> {
     Ok(handle)
 }
 
+/// Server-side tuning every PostgreSQL target runs against.
+///
+/// Two of these correct assumptions the stock image makes about hardware it is
+/// not running on. `random_page_cost` defaults to 4.0, a spinning-disk figure
+/// that biases the planner away from index scans; this dataset is ~50k orders on
+/// an SSD and, after warmup, in RAM. `effective_cache_size` tells the planner how
+/// much of it the machine is actually caching. `work_mem`'s 4 MB default is what
+/// the `/orders-with-details` aggregate sorts inside.
+///
+/// `shared_buffers` is deliberately absent: it needs a restart, and a GitHub
+/// Actions `services:` block cannot pass a `command`, so it cannot be set there
+/// at all. Setting it locally and not in CI would mean the local and published
+/// numbers came from different servers — worse than leaving it at a default that
+/// already holds a dataset this size.
+///
+/// Applied with `ALTER DATABASE` rather than `SET`, so it reaches every client of
+/// this database — including the external ORM crates, which open their own
+/// connections and never run this code.
+const PG_TUNING: &[(&str, &str)] = &[
+    ("random_page_cost", "1.1"),
+    ("effective_cache_size", "2GB"),
+    ("work_mem", "16MB"),
+];
+
 pub(crate) fn seed_database_url(database_url: &str, seed: u64) -> Result<(), String> {
+    apply_server_tuning(database_url)?;
     seed_database_url_from_schema_cache(database_url, seed)
+}
+
+/// Apply `PG_TUNING`, then confirm on a fresh session that it took.
+///
+/// `ALTER DATABASE` only affects sessions opened after it, so the readback needs
+/// its own connection — and it is a readback rather than an assumption because
+/// every PostgreSQL target spec *declares* this tuning to the reader. A setting
+/// the server rejected or clamped would make that declaration false.
+fn apply_server_tuning(database_url: &str) -> Result<(), String> {
+    let mut conn = ::postgres::Client::connect(database_url, ::postgres::NoTls)
+        .map_err(|err| format!("postgres tuning connect failed: {err}"))?;
+
+    // `ALTER DATABASE` needs the name as an identifier, which no placeholder can
+    // carry, so resolve it and quote it here. Setting names and values are
+    // compile-time constants.
+    let dbname: String = conn
+        .query_one("SELECT current_database()", &[])
+        .map_err(|err| format!("postgres current_database failed: {err}"))?
+        .get(0);
+    let quoted = format!("\"{}\"", dbname.replace('"', "\"\""));
+
+    for (name, value) in PG_TUNING {
+        conn.batch_execute(&format!("ALTER DATABASE {quoted} SET {name} = '{value}'"))
+            .map_err(|err| format!("postgres ALTER DATABASE {name} failed: {err}"))?;
+    }
+    drop(conn);
+
+    let mut fresh = ::postgres::Client::connect(database_url, ::postgres::NoTls)
+        .map_err(|err| format!("postgres tuning readback connect failed: {err}"))?;
+    for (name, expected) in PG_TUNING {
+        let row = fresh
+            .query_one(&format!("SHOW {name}"), &[])
+            .map_err(|err| format!("postgres SHOW {name} failed: {err}"))?;
+        let actual: String = row.get(0);
+        if !same_pg_setting(&actual, expected) {
+            return Err(format!(
+                "postgres {name} is {actual}, expected {expected}; the declared server tuning \
+                 would be false for this run"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// PostgreSQL echoes a setting in its own canonical spelling — `2GB` may come
+/// back as `2GB`, and a float as `1.1`. Compare case-insensitively with
+/// whitespace stripped rather than demanding an exact byte match.
+fn same_pg_setting(actual: &str, expected: &str) -> bool {
+    let norm = |s: &str| s.trim().replace(' ', "").to_ascii_lowercase();
+    norm(actual) == norm(expected)
 }
 
 fn seed_database_url_from_schema_cache(database_url: &str, seed: u64) -> Result<(), String> {

@@ -45,7 +45,7 @@
       "db": "postgres",
       "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
       "contract": "v1",
-      "tuning": "stock postgres:18-alpine, no server-side tuning applied"
+      "tuning": "postgres:18-alpine tuned for a cached dataset: random_page_cost=1.1, effective_cache_size=2GB, work_mem=16MB"
     },
     "contract": {
       "ver": "v1"
@@ -106,7 +106,7 @@
       "db": "postgres",
       "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
       "contract": "v1",
-      "tuning": "stock postgres:18-alpine, no server-side tuning applied"
+      "tuning": "postgres:18-alpine tuned for a cached dataset: random_page_cost=1.1, effective_cache_size=2GB, work_mem=16MB"
     },
     "contract": {
       "ver": "v1"
@@ -168,7 +168,7 @@
       "db": "postgres",
       "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
       "contract": "v1",
-      "tuning": "stock postgres:18-alpine, no server-side tuning applied"
+      "tuning": "postgres:18-alpine tuned for a cached dataset: random_page_cost=1.1, effective_cache_size=2GB, work_mem=16MB"
     },
     "contract": {
       "ver": "v1"
@@ -229,7 +229,7 @@
       "db": "postgres",
       "schema": "sha256:67d569fc52dca6de6f2747867f2e7abe8f4cc736f2c2454f9da5f6e78901759d",
       "contract": "v1",
-      "tuning": "stock postgres:18-alpine, no server-side tuning applied"
+      "tuning": "postgres:18-alpine tuned for a cached dataset: random_page_cost=1.1, effective_cache_size=2GB, work_mem=16MB"
     },
     "contract": {
       "ver": "v1"

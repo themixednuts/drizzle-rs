@@ -680,15 +680,67 @@ async fn serve_with_mode(seed: u64, mode: SqliteMode) -> Result<ServerHandle, Fa
 fn open_sqlite_db(path: &Path, mode: SqliteMode) -> Result<SqliteDb, Fail> {
     let conn = ::rusqlite::Connection::open(path)
         .map_err(|err| Fail::new(Code::RunFail, format!("sqlite pool open failed: {err}")))?;
-    conn.execute_batch(
+    conn.execute_batch(&format!(
         "PRAGMA query_only = ON;
-         PRAGMA temp_store = MEMORY;",
-    )
+         PRAGMA temp_store = MEMORY;
+         PRAGMA cache_size = -{READ_CACHE_KIB};
+         PRAGMA mmap_size = {READ_MMAP_BYTES};",
+    ))
     .map_err(|err| Fail::new(Code::RunFail, format!("sqlite pool pragmas failed: {err}")))?;
+    verify_read_tuning(&conn)?;
     if mode == SqliteMode::RusqliteUnprepared {
         conn.set_prepared_statement_cache_capacity(0);
     }
     Ok(drizzle::sqlite::rusqlite::Drizzle::new(conn, Schema::new()).0)
+}
+
+/// Read-side tuning for every pooled connection, and the TypeScript SQLite
+/// targets' `READ_PRAGMAS` in `bench/targets/sqlite-common.ts`. The two lists
+/// are the same list; a change here without the matching change there makes the
+/// two SQLite families incomparable.
+///
+/// SQLite ships a 2 MiB page cache and no memory map at all. The benchmark
+/// dataset is ~50k orders and ~300k detail rows, which fits in RAM several times
+/// over, so those defaults mean re-reading pages the machine is already holding.
+/// Neither of these is a correctness trade: the pool is `query_only`, so there is
+/// no write path for them to weaken. `synchronous` is deliberately absent for the
+/// same reason.
+const READ_CACHE_KIB: i64 = 65_536;
+const READ_MMAP_BYTES: i64 = 268_435_456;
+
+/// Confirm the engine honoured the tuning rather than trusting that it did.
+///
+/// SQLite reports success for a pragma it clamps or ignores — `mmap_size` in
+/// particular is capped by the compile-time `SQLITE_MAX_MMAP_SIZE` and is 0 in a
+/// build without mmap support. Every target spec in these families *declares*
+/// this tuning to the reader, so a silent clamp would publish a claim about the
+/// run that is not true of it. Fail instead.
+fn verify_read_tuning(conn: &::rusqlite::Connection) -> Result<(), Fail> {
+    let read = |pragma: &str| -> Result<i64, Fail> {
+        conn.query_row(&format!("PRAGMA {pragma}"), [], |row| row.get(0))
+            .map_err(|err| Fail::new(Code::RunFail, format!("sqlite {pragma} readback: {err}")))
+    };
+
+    let cache = read("cache_size")?;
+    if cache != -READ_CACHE_KIB {
+        return Err(Fail::new(
+            Code::RunFail,
+            format!("sqlite cache_size is {cache}, expected -{READ_CACHE_KIB}"),
+        ));
+    }
+
+    let mmap = read("mmap_size")?;
+    if mmap != READ_MMAP_BYTES {
+        return Err(Fail::new(
+            Code::RunFail,
+            format!(
+                "sqlite mmap_size is {mmap}, expected {READ_MMAP_BYTES}; the build caps or \
+                 disables mmap, so the declared tuning would be false for this run"
+            ),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Check a connection out of the pool and run `f` on a blocking thread.
@@ -1845,4 +1897,35 @@ fn product_response_from_row(row: &::rusqlite::Row<'_>) -> ::rusqlite::Result<Pr
         discontinued: row.get(7)?,
         supplier_id: row.get(8)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The declared tuning is only honest if the engine actually applied it, and
+    /// `mmap_size` is the one that can silently come back clamped — it is capped
+    /// by `SQLITE_MAX_MMAP_SIZE` and reports 0 in a build without mmap. This runs
+    /// on every platform the SQLite family is measured on, so a build that cannot
+    /// honour the declaration fails here rather than publishing it as fact.
+    #[test]
+    fn a_pooled_connection_honours_the_declared_read_tuning() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("tuning.db");
+        ::rusqlite::Connection::open(&path)
+            .expect("create db")
+            .execute_batch("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+            .expect("seed schema");
+
+        let conn = ::rusqlite::Connection::open(&path).expect("reopen");
+        conn.execute_batch(&format!(
+            "PRAGMA query_only = ON;
+             PRAGMA temp_store = MEMORY;
+             PRAGMA cache_size = -{READ_CACHE_KIB};
+             PRAGMA mmap_size = {READ_MMAP_BYTES};",
+        ))
+        .expect("apply pragmas");
+
+        verify_read_tuning(&conn).expect("engine honoured the declared read tuning");
+    }
 }
