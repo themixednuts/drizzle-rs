@@ -159,90 +159,59 @@
 		{/snippet}
 	</PageHeader>
 
+	<!--
+		Four claims, one sentence of consequence each. This section used to run four headings
+		deep with two dense paragraphs under every one, which is the shape of notes written by
+		someone who already knows the answer. A reader arriving here wants to know what they
+		may not conclude from the numbers; the reasoning behind each limit is in the repo.
+	-->
 	<Section title="what these numbers are not">
-		<div class="measure text-prose text-foreground-secondary space-y-7">
-			<section>
-				<h3 class="text-heading text-foreground mb-2 font-semibold">
-					The load generator shares the machine with what it measures.
-				</h3>
-				<p>
-					Within a run, the request generator, the target HTTP server and — for embedded engines —
-					the database all execute on the same CI runner and compete for the same cores. Reported
-					CPU is therefore whole-host CPU, and a target that spends more CPU per request also
-					starves the generator driving it. Treat the numbers as a comparison between targets under
-					identical conditions, not as an absolute capacity figure for any of them.
-				</p>
-				<p class="mt-3">
-					Linux jobs split the VM's cores between the two: the lower half runs the load generator (<code
-						class="text-meta font-mono">BENCH_CPUSET_LOAD</code
-					>) and the upper half runs the target and any database it spawns (<code
-						class="text-meta font-mono">BENCH_CPUSET_SERVER</code
-					>). This is best-effort separation, not isolation — memory bandwidth, last-level cache,
-					the kernel network stack and the PostgreSQL service container are all still shared — and
-					macOS and Windows jobs run unpinned. What it buys is that the generator and the system
-					under test stop competing for the same cores. Pinning moves absolute numbers, so a
-					baseline recorded before it is not a valid comparison point for a pinned run.
-				</p>
-			</section>
+		<dl class="measure text-prose text-foreground-secondary space-y-5">
+			<div>
+				<dt class="text-foreground font-semibold">Not absolute capacity.</dt>
+				<dd>
+					The load generator, the target and any embedded engine share one CI runner, so reported
+					CPU is whole-host. Read them as targets compared under identical conditions.
+				</dd>
+			</div>
 
-			<section>
-				<h3 class="text-heading text-foreground mb-2 font-semibold">
-					Cross-family rows usually come from different VMs.
-				</h3>
-				<p>
-					A benchmark set is assembled from several CI jobs — typically one per database family —
-					and each job runs on its own freshly allocated runner. Two rows in the same set are only
-					directly comparable when they share a shard. Every page that lists targets marks which
-					machine each row came off with a three-letter badge —
-					<code class="text-meta font-mono">LNX</code>, <code class="text-meta font-mono">MAC</code>
-					or <code class="text-meta font-mono">WIN</code> — whose tooltip carries the full OS name and
-					the shard timestamp. Rows with different badges were measured on different hardware, and the
-					ranking is one table across every database precisely so that fact is visible on the row rather
-					than implied by which section a row was filed under.
-				</p>
-				<p class="mt-3">
-					Publish-class runs are the exception for PostgreSQL: there the three PostgreSQL families
-					run back to back inside a single job, against a single PostgreSQL service, so their rows
-					share a shard and are comparable to each other. Preview and pull-request runs keep those
-					families parallel on separate VMs. The shard label is what tells the two apart — rows that
-					share one were measured on the same machine.
-				</p>
-			</section>
+			<div>
+				<dt class="text-foreground font-semibold">Pinned on Linux, unpinned elsewhere.</dt>
+				<dd>
+					Linux jobs give the lower half of the cores to the generator and the upper half to the
+					system under test, with an out-of-process database taking a slice of that upper half.
+					Cache, memory bandwidth and the network stack stay shared, so it is separation rather than
+					isolation. macOS and Windows expose no usable affinity API and run unpinned.
+				</dd>
+			</div>
 
-			<section>
-				<h3 class="text-heading text-foreground mb-2 font-semibold">
-					Pacing imposes a ceiling on offered load.
-				</h3>
-				<p>
-					A closed-loop suite with per-request think time bounds the maximum request rate the
-					generator can offer at roughly
-					<code class="text-meta font-mono">VUs / (mean think time + mean service time)</code>. A
-					target fast enough to sit under that ceiling reports the ceiling, not its capacity; a
-					throughput number close to that bound is a statement about the load profile, not about the
-					target.
-				</p>
-				<p class="mt-3">
-					This is not a small effect. Under the paced suite every healthy target lands within a few
-					percent of the same number, because the number is mostly the generator's sleep timer: a
-					tenfold difference in service time moves it by well under a tenth. That is why capacity
-					has its own suite, described below, and why the two are never averaged into one figure.
-				</p>
-			</section>
+			<div>
+				<dt class="text-foreground font-semibold">One machine per ranking, not per row.</dt>
+				<dd>
+					Published rankings run every family an operating system can host back to back on one VM,
+					so the rows in one are comparable. Other runs keep families on separate VMs; the
+					<code class="text-meta font-mono">LNX</code>/<code class="text-meta font-mono">MAC</code
+					>/<code class="text-meta font-mono">WIN</code> badge and its shard tell the two apart.
+				</dd>
+			</div>
 
-			<section>
-				<h3 class="text-heading text-foreground mb-2 font-semibold">
-					In-process caches are not doing database work.
-				</h3>
-				<p>
-					Targets declaring <code class="text-meta font-mono">data_access: in-process-cache</code>
-					answer from a replicated local copy, with no per-request round trip to a database. On the ranking
-					they appear in the one table like everything else, with "in-memory cache — no per-request DB
-					work" spelled out under the name and a dash instead of a comparison against drizzle-rs, because
-					a cache hit and a query are not the same measurement. On
-					<a class="text-link underline" href="/compare">compare</a> they keep their own unranked section.
-				</p>
-			</section>
-		</div>
+			<div>
+				<dt class="text-foreground font-semibold">Paced throughput is the generator's ceiling.</dt>
+				<dd>
+					With think time, offered load caps at roughly
+					<code class="text-meta font-mono">VUs / think time</code>, and every healthy target lands
+					within a few percent of it. Capacity has its own suite for exactly this reason.
+				</dd>
+			</div>
+
+			<div>
+				<dt class="text-foreground font-semibold">Caches are not doing database work.</dt>
+				<dd>
+					Targets marked <code class="text-meta font-mono">in-process-cache</code> answer from a local
+					replica with no round trip, so they carry a dash instead of a comparison against drizzle-rs.
+				</dd>
+			</div>
+		</dl>
 	</Section>
 
 	<Section title="two suites, two headlines">
