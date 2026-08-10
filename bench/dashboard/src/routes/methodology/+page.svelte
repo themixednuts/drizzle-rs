@@ -215,108 +215,67 @@
 	</Section>
 
 	<Section title="two suites, two headlines">
-		<div class="measure text-prose text-foreground-secondary space-y-7">
-			<p>
-				Every target is measured twice, by two load profiles that answer two different questions.
-				Their numbers are never averaged together and never share a column, because a reader who
-				confuses them draws exactly the wrong conclusion.
-			</p>
-
-			<section>
-				<h3 class="text-heading text-foreground mb-2 font-semibold">
-					Throughput at fixed load — the paced suite.
-				</h3>
-				<p>
-					Virtual users send a request, wait a think time, and send the next. The generator offers a
-					fixed amount of work and the measurement is how well the target keeps up with it: latency
-					at a known rate. This is the profile drizzle-benchmarks publishes its TypeScript numbers
-					under, so it is what makes those numbers comparable to these. It is a good latency
-					measurement and, for the reason above, it cannot be a capacity measurement.
-				</p>
-			</section>
-
-			<section>
-				<h3 class="text-heading text-foreground mb-2 font-semibold">
-					Peak throughput — the saturation suite.
-				</h3>
-				<p>
-					The same workload with the think time removed, run as a stepped ramp: hold a fixed number
-					of concurrent requests, measure steady state, step up, repeat. With no think time, N
-					virtual users are N requests in flight, so the ramp is over concurrency and throughput is
-					whatever the target can actually turn over.
-				</p>
-				<p class="mt-3">
-					The headline is the fastest step whose steady-state
-					<code class="text-meta font-mono">p99</code> stayed under the latency objective
-					<em>and</em> whose error rate stayed inside the run's limit. Both conditions matter: a step
-					that returned errors faster is not a faster step, so a step over the error limit is disqualified
-					from being the peak, and the disqualification is recorded and shown rather than quietly skipped.
-				</p>
-				<p class="mt-3">
-					Which of the three outcomes a run gets is decided separately, by whether its <em>last</em>
-					step still held the objective. That is deliberately not the same question as where the maximum
-					landed: a ramp can peak early, flatten, and still finish without breaching, and that is "knee
-					not reached" rather than a measured limit.
-				</p>
-				<p class="mt-3">
-					The whole ramp is published, not just the winning step — every step's concurrency,
-					throughput, percentiles, error rate and CPU. That curve is on each target's section of a
-					run page, and it is the evidence the headline rests on: throughput flattening while
-					latency turns upward is what "peak" means, drawn.
-				</p>
-			</section>
-		</div>
+		<dl class="measure text-prose text-foreground-secondary space-y-5">
+			<div>
+				<dt class="text-foreground font-semibold">Throughput at fixed load — paced.</dt>
+				<dd>
+					Virtual users send a request, wait a think time, send the next. Measures latency at a
+					known rate, and matches the profile drizzle-benchmarks publishes under. Not capacity.
+				</dd>
+			</div>
+			<div>
+				<dt class="text-foreground font-semibold">Peak throughput — saturation.</dt>
+				<dd>
+					The same workload with think time removed, stepped over concurrency: hold, measure steady
+					state, step up. The headline is the fastest step that held the latency objective and
+					stayed inside the error limit — a step that returned errors faster is disqualified, and
+					said to be. Every step's throughput, percentiles, errors and CPU are published, not just
+					the winner.
+				</dd>
+			</div>
+		</dl>
 	</Section>
 
-	<Section title="the three ways a target can have no peak">
-		<div class="measure text-prose text-foreground-secondary space-y-5">
+	<!--
+		These four outcomes are the contract, so this list has to track `saturation.rs` exactly.
+		It previously described the outcome as turning on whether the last step breached the
+		objective, which stopped being true when the rule moved to throughput turning over.
+	-->
+	<Section title="when there is no peak">
+		<div class="measure text-prose text-foreground-secondary space-y-4">
 			<p>
-				A capacity measurement can fail to produce a number, and when it does this site says so in
-				words. Nothing is substituted: not a zero, not the top of the ramp, and never the paced
-				number wearing the other one's name.
+				A capacity measurement can fail to produce a number. Nothing is substituted for it — not a
+				zero, not the top of the ramp, not the paced number under the other one's name.
 			</p>
 			<dl class="space-y-4">
 				<div>
 					<dt class="text-foreground font-medium">A peak, at a stated objective</dt>
 					<dd class="mt-1">
-						The ramp went far enough to break the target: its last step breached the objective. The
-						number reported is the <em>fastest</em> step that did hold it — ties going to the lower concurrency,
-						since the same throughput for less concurrency is the better result — with the objective always
-						beside it ("12.5k req/s at p99 &lt; 50 ms") and with the concurrency it was reached at. This
-						is the only outcome that produces a comparable number, and the only one given a rank when
-						the table is sorted by peak throughput.
+						Throughput rose into a maximum and measurably fell away from it, so the ceiling was
+						bracketed on both sides. Reported with its objective and the concurrency it was reached
+						at. The only outcome that earns a rank.
 					</dd>
 				</div>
 				<div>
 					<dt class="text-foreground font-medium">"at least N req/s — knee not reached"</dt>
 					<dd class="mt-1">
-						The ramp's last step still held the objective, so it stopped before the target did. The
-						best qualifying throughput is a <em>lower bound</em>, not a peak: this target sustains
-						at least that much and may sustain considerably more. Note that this does not require
-						throughput to still be climbing — a curve can flatten, or even dip after the connection
-						pool saturates, and still end without breaching. A visible bend is not the same finding
-						as a measured limit. It is shown with "at least", drawn faint, given no rank, and sorted
-						below every measured peak, because a ramp that ended early is not evidence of beating a
-						target that was measured to its limit. It is also a finding about the workload, and it
-						is visible so the ramp gets extended.
+						Throughput was still flat or climbing when the ramp ended, so the best step is a floor
+						rather than a ceiling. Shown faint, with "at least", ranked below every measured peak. A
+						maximum sitting on the ramp's first step counts here too: nothing below it was tried.
 					</dd>
 				</div>
 				<div>
 					<dt class="text-foreground font-medium">"never met the p99 target"</dt>
 					<dd class="mt-1">
-						Even the smallest step breached the objective. There is no peak and no number is
-						reported in place of one. The curve is still drawn, because how far over the objective
-						the first step landed is the useful part.
+						Even the smallest step breached the objective. The curve is still drawn — how far over
+						it landed is the useful part.
 					</dd>
 				</div>
 				<div>
 					<dt class="text-foreground font-medium">"not measured"</dt>
 					<dd class="mt-1">
-						The run predates the saturation suite, or did not run it for that target. Runs published
-						before the suite existed carry an older field also called "saturation" — a knee
-						heuristic computed off the <em>paced</em> run, which produced a number whether or not it found
-						a knee. This dashboard does not read it. A target with no saturation measurement says "not
-						measured", which is the true statement.
+						The run predates the saturation suite or skipped it. Older runs carry a differently
+						defined field of the same name; this dashboard does not read it.
 					</dd>
 				</div>
 			</dl>
@@ -324,100 +283,102 @@
 	</Section>
 
 	<Section title="fair means two different things">
-		<div class="measure text-prose text-foreground-secondary space-y-7">
-			<p>
-				Fairness on this site has two meanings, and they pull in opposite directions. Keeping them
-				apart is what makes the tables readable; blurring them is the easiest way to mislead.
-			</p>
-
-			<section>
-				<h3 class="text-heading text-foreground mb-2 font-semibold">
-					Inside a comparison group — identical, and enforced.
-				</h3>
-				<p>
-					A <em>comparison group</em> is the set of targets claiming to be directly comparable. Every
-					target in one runs the same worker count, the same connection pool size and the same server
-					tuning, which is what makes the gap between two of its rows attributable to the library rather
-					than to the setup. It is a hard requirement in the runner: a group whose targets declare different
-					harnesses fails the run rather than publishing a quietly unequal comparison. The "vs …" figure
-					inside a ranking row is scoped to exactly this — the drizzle target in that same group, under
-					that same harness.
-				</p>
-				<p class="mt-3">
-					A group is usually a database, but it is not the same thing, and it splits wherever the
-					harness genuinely cannot be equalised. <code class="text-meta font-mono">bun:sqlite</code>
-					is synchronous on a single-threaded runtime, so giving it the Rust stack's pool of eight would
-					be fiction rather than fairness. It therefore sits in its own SQLite group with drizzle-orm
-					— same runtime, same pool of one, same pragmas, a real library comparison — while the Rust stack
-					keeps its own. Both are still SQLite, and both still appear in the one table with SQLite in
-					the database column: the split changes what a row is
-					<em>measured against</em>, never whether it is shown.
-				</p>
-			</section>
-
-			<section>
-				<h3 class="text-heading text-foreground mb-2 font-semibold">
-					Across groups — different, and declared.
-				</h3>
-				<p>
-					An embedded engine and a client/server engine are not made comparable by forcing them into
-					one configuration; they are made <em>equally crippled</em>. So across groups the harness
-					is deliberately allowed to differ, each stack running in the shape it is actually deployed
-					in. That difference is part of what the comparison shows — which means it has to be
-					visible, or a reader will read a stack difference as a library difference.
-				</p>
-				<p class="mt-3">
-					Each run records its harness per group, and the ranking prints them as a strip above the
-					table: one line per group, giving workers, pool size, tuning, and whether within-group
-					identity was verified. Two rows in one group share that whole line; two rows in different
-					groups share none of it. A group whose run declared no harness says "harness not declared"
-					rather than borrowing a neighbour's, and a group that verified identity while exempting
-					some targets says how many were exempted.
-				</p>
-			</section>
-		</div>
+		<dl class="measure text-prose text-foreground-secondary space-y-5">
+			<div>
+				<dt class="text-foreground font-semibold">
+					Inside a comparison group — identical, enforced.
+				</dt>
+				<dd>
+					Every target in a group runs the same workers, pool and tuning, so the gap between two of
+					its rows is the library. The runner fails a run whose group disagrees rather than
+					publishing a quietly unequal comparison, and each row's "vs" figure is scoped to its own
+					group.
+				</dd>
+			</div>
+			<div>
+				<dt class="text-foreground font-semibold">A group is not always a database.</dt>
+				<dd>
+					It splits where the harness cannot honestly be equalised:
+					<code class="text-meta font-mono">bun:sqlite</code> is synchronous on a single-threaded runtime,
+					so handing it the Rust stack's pool of eight would be fiction. It gets its own SQLite group
+					with drizzle-orm. Both still appear in the one table under SQLite — the split changes what a
+					row is measured against, never whether it is shown.
+				</dd>
+			</div>
+			<div>
+				<dt class="text-foreground font-semibold">Across groups — different, declared.</dt>
+				<dd>
+					Forcing an embedded engine and a client/server engine into one configuration does not make
+					them comparable, it makes them equally crippled. Each stack runs in the shape it is
+					deployed in, and every run records what that was — under <em>Run configuration</em> below the
+					ranking, and inside each row's own detail. A group that declared nothing says so instead of
+					borrowing a neighbour's.
+				</dd>
+			</div>
+		</dl>
 	</Section>
 
 	<Section title="how values are aggregated">
-		<div class="measure text-prose text-foreground-secondary space-y-5">
-			<p>
-				Each target is measured over <em>n</em> trials. The summary artifact spells its cross-trial
-				keys <code class="text-meta font-mono">avg</code>, but the value stored there is the
-				<strong class="text-foreground font-medium">median across trials</strong>, which is why this
-				dashboard labels those columns <code class="text-meta font-mono">median</code>. Where a
-				label reads <code class="text-meta font-mono">lat mean</code>, the number is the median
-				across trials of each trial's mean latency — the mean is inside the trial, the median is
-				across them.
-			</p>
-			<p>
-				Percentiles are computed from the trial's merged raw samples. Runs published before the
-				runner measured real percentiles carry no <code class="text-meta font-mono">p50</code>; for
-				those runs the <code class="text-meta font-mono">p90</code> column is hidden rather than shown,
-				because the value it held was interpolated rather than measured.
-			</p>
-			<p>
-				<code class="text-meta font-mono">peak core</code> is the highest single-core utilization
-				observed, not spare capacity. A high value means the run was CPU-bound on one core. Where a
-				run also reports <code class="text-meta font-mono">mean-core peak</code>, that is the
-				mean-across-cores figure the runner's publish gate is written against.
-			</p>
-		</div>
+		<dl class="measure text-prose text-foreground-secondary space-y-5">
+			<div>
+				<dt class="text-foreground font-semibold">Median across trials.</dt>
+				<dd>
+					The artifact spells the key <code class="text-meta font-mono">avg</code>, but stores the
+					median, so these columns read <code class="text-meta font-mono">median</code>. Where a
+					label says <code class="text-meta font-mono">lat mean</code>, the mean is inside each
+					trial and the median is across them.
+				</dd>
+			</div>
+			<div>
+				<dt class="text-foreground font-semibold">Percentiles from merged raw samples.</dt>
+				<dd>
+					Runs predating real percentiles carry no <code class="text-meta font-mono">p50</code>, and
+					their <code class="text-meta font-mono">p90</code> column is hidden rather than shown, because
+					the value was interpolated.
+				</dd>
+			</div>
+			<div>
+				<dt class="text-foreground font-semibold">CPU is load, not headroom.</dt>
+				<dd>
+					<code class="text-meta font-mono">peak core</code> is the busiest single core; a high
+					value means the run was CPU-bound on one.
+					<code class="text-meta font-mono">mean-core peak</code>, where present, is the figure the
+					publish gate is written against.
+				</dd>
+			</div>
+		</dl>
 	</Section>
 
-	{#each REFERENCE as group (group.title)}
-		<Section title={group.title}>
-			<DataTable>
-				<Table.Body>
-					{#each group.rows as [term, definition] (term)}
-						<Tr>
-							<Td tone="muted" class="w-40 align-top">{term}</Td>
-							<Td wrap class="text-foreground-secondary">{definition}</Td>
-						</Tr>
-					{/each}
-				</Table.Body>
-			</DataTable>
-		</Section>
-	{/each}
+	<!--
+		The field glossary is 850 words — half this page — and it is lookup material: nobody reads
+		a glossary top to bottom, they arrive at it holding one term. Closed by default it costs a
+		reader nothing and stays one click from anyone who needs it, which is the same reason the
+		ranking's run configuration is a disclosure rather than a banner.
+	-->
+	<details class="border-border mt-8 border">
+		<summary
+			class="text-meta text-foreground-secondary hover:text-foreground cursor-pointer px-4 py-2.5 transition-colors"
+		>
+			Field reference
+		</summary>
+		<div class="border-border space-y-6 border-t px-4 py-4">
+			{#each REFERENCE as group (group.title)}
+				<section>
+					<h2 class="text-micro text-muted-foreground mb-2 font-mono uppercase">{group.title}</h2>
+					<DataTable>
+						<Table.Body>
+							{#each group.rows as [term, definition] (term)}
+								<Tr>
+									<Td tone="muted" class="w-40 align-top">{term}</Td>
+									<Td wrap class="text-foreground-secondary">{definition}</Td>
+								</Tr>
+							{/each}
+						</Table.Body>
+					</DataTable>
+				</section>
+			{/each}
+		</div>
+	</details>
 
 	<Section title="local commands">
 		<pre

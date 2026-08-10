@@ -78,9 +78,9 @@
 			-->
 			<div class="mt-6">
 				<Note variant="warn">
-					Each database family below ran as its own CI job on its own machine. Within a family the
-					numbers are directly comparable; across families, most of any gap is hardware — see
-					<a class="underline" href="/repeatability">how far the same job moves</a> between machines.
+					Rows that share a shard were measured on one machine; rows that do not were not, and
+					across those most of any gap is
+					<a class="underline" href="/repeatability">hardware</a>.
 				</Note>
 			</div>
 
