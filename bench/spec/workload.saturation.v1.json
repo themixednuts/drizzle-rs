@@ -6,7 +6,7 @@
     "kind": "closed",
     "executor": "ramping-vus",
     "unit": "1s",
-    "concurrency": 512
+    "concurrency": 128
   },
   "data": {
     "name": "bench",
@@ -18,9 +18,13 @@
     "endpoint": "/customer-by-id"
   },
   "stages": [
-    { "sec": 5, "vus": 4 },
-    { "sec": 15, "vus": 4 },
+    { "sec": 5, "vus": 1 },
+    { "sec": 15, "vus": 1 },
 
+    { "sec": 20, "vus": 1 },
+    { "sec": 5, "vus": 2 },
+    { "sec": 20, "vus": 2 },
+    { "sec": 5, "vus": 4 },
     { "sec": 20, "vus": 4 },
     { "sec": 5, "vus": 8 },
     { "sec": 20, "vus": 8 },
@@ -31,11 +35,7 @@
     { "sec": 5, "vus": 64 },
     { "sec": 20, "vus": 64 },
     { "sec": 5, "vus": 128 },
-    { "sec": 20, "vus": 128 },
-    { "sec": 5, "vus": 256 },
-    { "sec": 20, "vus": 256 },
-    { "sec": 5, "vus": 512 },
-    { "sec": 20, "vus": 512 }
+    { "sec": 20, "vus": 128 }
   ],
   "warmup_s": 20,
   "requests": {
