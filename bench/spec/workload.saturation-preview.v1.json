@@ -1,12 +1,12 @@
 {
   "version": "v1",
   "suite": "throughput-http",
-  "name": "Saturation Preview",
+  "name": "Saturation preview",
   "load": {
     "kind": "closed",
     "executor": "ramping-vus",
     "unit": "1s",
-    "concurrency": 1024
+    "concurrency": 64
   },
   "data": {
     "name": "bench",
@@ -18,18 +18,16 @@
     "endpoint": "/customer-by-id"
   },
   "stages": [
-    { "sec": 2, "vus": 4 },
-    { "sec": 8, "vus": 4 },
+    { "sec": 2, "vus": 1 },
+    { "sec": 8, "vus": 1 },
 
+    { "sec": 8, "vus": 1 },
+    { "sec": 2, "vus": 4 },
     { "sec": 8, "vus": 4 },
     { "sec": 2, "vus": 16 },
     { "sec": 8, "vus": 16 },
     { "sec": 2, "vus": 64 },
-    { "sec": 8, "vus": 64 },
-    { "sec": 2, "vus": 256 },
-    { "sec": 8, "vus": 256 },
-    { "sec": 2, "vus": 1024 },
-    { "sec": 8, "vus": 1024 }
+    { "sec": 8, "vus": 64 }
   ],
   "warmup_s": 10,
   "requests": {

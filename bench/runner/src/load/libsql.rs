@@ -916,6 +916,81 @@ async fn enable_wal(conn: &::libsql::Connection) -> Result<(), Fail> {
     }
 }
 
+/// Read-side tuning for every pooled connection, matching the rusqlite SQLite
+/// family in `sqlite.rs`. libsql is a SQLite fork and supports both settings, so
+/// the two families are tuned alike and a difference between them stays a
+/// difference between the engines rather than between their configurations.
+const READ_CACHE_KIB: i64 = 65_536;
+const READ_MMAP_BYTES: i64 = 268_435_456;
+
+/// Apply the read tuning and confirm each setting took.
+///
+/// Two libsql quirks are load-bearing here. A pragma that does not apply reports
+/// success with the old value still in effect, so only the read-back proves
+/// anything — the same reason `enable_wal` reads its mode back. And `mmap_size`
+/// returns a row, so `execute` rejects it with "Execute returned rows"; it has to
+/// go through `query`.
+async fn apply_read_tuning(conn: &::libsql::Connection) -> Result<(), Fail> {
+    conn.execute("PRAGMA temp_store = MEMORY", ())
+        .await
+        .map_err(|err| Fail::new(Code::RunFail, format!("libsql pool pragmas failed: {err}")))?;
+    // This family declared `query_only=ON` for a long time without anything
+    // setting it, so its pooled connections were writable while the rusqlite
+    // family's were not. Applying it is the fix rather than dropping the claim:
+    // these connections only ever read, and the declaration is what a reader uses
+    // to decide the two SQLite families are comparable.
+    conn.execute("PRAGMA query_only = ON", ())
+        .await
+        .map_err(|err| Fail::new(Code::RunFail, format!("libsql query_only failed: {err}")))?;
+    conn.execute(&format!("PRAGMA cache_size = -{READ_CACHE_KIB}"), ())
+        .await
+        .map_err(|err| Fail::new(Code::RunFail, format!("libsql cache_size failed: {err}")))?;
+    read_pragma_i64(conn, &format!("PRAGMA mmap_size = {READ_MMAP_BYTES}")).await?;
+
+    let query_only = read_pragma_i64(conn, "PRAGMA query_only").await?;
+    if query_only != Some(1) {
+        return Err(Fail::new(
+            Code::RunFail,
+            format!("libsql query_only is {query_only:?}, expected 1"),
+        ));
+    }
+    let cache = read_pragma_i64(conn, "PRAGMA cache_size").await?;
+    if cache != Some(-READ_CACHE_KIB) {
+        return Err(Fail::new(
+            Code::RunFail,
+            format!(
+                "libsql cache_size is {cache:?}, expected {}",
+                -READ_CACHE_KIB
+            ),
+        ));
+    }
+    let mmap = read_pragma_i64(conn, "PRAGMA mmap_size").await?;
+    if mmap != Some(READ_MMAP_BYTES) {
+        return Err(Fail::new(
+            Code::RunFail,
+            format!(
+                "libsql mmap_size is {mmap:?}, expected {READ_MMAP_BYTES}; the declared tuning \
+                 would be false for this run"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+async fn read_pragma_i64(conn: &::libsql::Connection, sql: &str) -> Result<Option<i64>, Fail> {
+    let mut rows = conn
+        .query(sql, ())
+        .await
+        .map_err(|err| Fail::new(Code::RunFail, format!("libsql `{sql}` failed: {err}")))?;
+    let row = rows.next().await.map_err(|err| {
+        Fail::new(
+            Code::RunFail,
+            format!("libsql `{sql}` read-back failed: {err}"),
+        )
+    })?;
+    Ok(row.and_then(|row| row.get::<i64>(0).ok()))
+}
+
 async fn open_connection(
     database: &::libsql::Database,
     mode: LibsqlMode,
@@ -923,9 +998,7 @@ async fn open_connection(
     let conn = database
         .connect()
         .map_err(|err| Fail::new(Code::RunFail, format!("libsql connect failed: {err}")))?;
-    conn.execute("PRAGMA temp_store = MEMORY", ())
-        .await
-        .map_err(|err| Fail::new(Code::RunFail, format!("libsql pool pragmas failed: {err}")))?;
+    apply_read_tuning(&conn).await?;
 
     // Compile every statement now, so the first measured request of each route
     // does not pay for its own prepare.

@@ -53,4 +53,16 @@ export async function seedSqlite(dbPath: string): Promise<void> {
 
 /// Pragmas every read-only benchmark connection runs, matching the pooled
 /// rusqlite connections in `bench/runner/src/load/sqlite.rs::open_sqlite_db`.
-export const READ_PRAGMAS = ["PRAGMA query_only = ON", "PRAGMA temp_store = MEMORY"] as const;
+///
+/// The cache and mmap settings are the tuning the two SQLite families declare:
+/// SQLite defaults to a 2 MiB page cache and no memory map, and this dataset fits
+/// in RAM many times over, so the defaults just re-read pages the machine already
+/// holds. They cost nothing in correctness here because `query_only` leaves no
+/// write path. Changing this list without the matching change on the Rust side
+/// makes the Rust and TypeScript SQLite families incomparable.
+export const READ_PRAGMAS = [
+	"PRAGMA query_only = ON",
+	"PRAGMA temp_store = MEMORY",
+	"PRAGMA cache_size = -65536",
+	"PRAGMA mmap_size = 268435456",
+] as const;

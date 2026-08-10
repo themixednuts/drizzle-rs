@@ -39,6 +39,15 @@ use crate::model::{
 };
 use crate::stats::{avg, median};
 
+/// How far above the last SLO-holding step the maximum must sit before the
+/// curve counts as having turned over.
+///
+/// Throughput on a saturated closed-loop target wanders by a percent or two
+/// between steps. Without a margin that wander alone would satisfy "the maximum
+/// is not at the end" and turn every flat curve into a claimed peak, which is
+/// the opposite of what this measurement is for.
+const PLATEAU_MARGIN: f64 = 0.02;
+
 /// Build the saturation artifact from one step series per trial.
 ///
 /// Each `Point` is a whole hold plateau whose percentiles were computed from
@@ -78,16 +87,54 @@ pub fn measure(
             .then_with(|| b.concurrency.cmp(&a.concurrency))
     });
 
-    // Whether the ramp ever found the ceiling is a separate question from where
-    // the best step was: a ramp whose last step still held the SLO never reached
-    // the knee, however early the maximum happened to land.
+    // Whether the ramp found the ceiling is a question about *throughput*, not
+    // about latency. A closed-loop target is saturated once adding in-flight
+    // requests stops buying throughput — past that point the extra concurrency
+    // becomes queueing and nothing else. So the ramp reached the ceiling if the
+    // curve turned over: the best step is measurably faster than the last step
+    // that still held the SLO.
+    //
+    // Keying this on "did some step breach the SLO" instead was wrong, and
+    // measurably so. Every target here reaches maximum throughput at 4-16
+    // concurrent requests and then holds it flat while p99 climbs from 0.2 ms to
+    // 185 ms. A target fast enough to stay under the objective for the whole
+    // ramp — rusqlite peaked at 62.8k rps at 16 and fell to 55.6k by 1024 — got
+    // reported as "knee not reached" and lost its rank, when its maximum had in
+    // fact been measured cleanly three steps in. Being fast is not a reason to
+    // be excluded from a throughput ranking.
+    //
+    // The margin keeps run-to-run noise from manufacturing a turnover: a last
+    // step a hair under the maximum is a plateau, and a plateau means the ramp
+    // ended while throughput was still flat, which is exactly the case where the
+    // honest answer is a lower bound.
+    // The maximum has to be bracketed on both sides to count as measured: a rise
+    // into it and a measurable fall out of it. A maximum sitting on the first
+    // step is not bracketed — the curve may still have been climbing below the
+    // ladder's floor — so it stays a lower bound rather than a peak the ramp did
+    // not actually establish.
+    let first_qualifying = curve.iter().position(|step| step.qualifies());
+    let best_idx = best.and_then(|best| {
+        curve
+            .iter()
+            .position(|step| std::ptr::eq(step, best as *const _))
+    });
+    let last_qualifying = curve.iter().rev().find(|step| step.qualifies());
+    let turned_over = match (best, last_qualifying, best_idx, first_qualifying) {
+        (Some(best), Some(last), Some(best_idx), Some(first_idx)) => {
+            best_idx > first_idx && best.rps > last.rps * (1.0 + PLATEAU_MARGIN)
+        }
+        _ => false,
+    };
     let ramp_ended_inside_slo = curve.last().is_some_and(|step| step.qualifies());
 
     let (outcome, peak, lower_bound_rps) = match best {
         None => (Outcome::SloNeverMet, None, None),
-        // Known to reach at least this much while holding the SLO; the ceiling
-        // is somewhere above the ramp and was not measured.
-        Some(step) if ramp_ended_inside_slo => (Outcome::DidNotSaturate, None, Some(step.rps)),
+        // Known to reach at least this much while holding the SLO; throughput
+        // was still flat or climbing when the ramp ran out, so the ceiling is
+        // somewhere above it and was not measured.
+        Some(step) if ramp_ended_inside_slo && !turned_over => {
+            (Outcome::DidNotSaturate, None, Some(step.rps))
+        }
         Some(step) => {
             let peak = PeakDoc {
                 concurrency: step.concurrency,
@@ -308,15 +355,41 @@ mod tests {
         assert_eq!(peak.concurrency, 16);
     }
 
-    /// A ramp that never breaches reports its best qualifying throughput as a
-    /// lower bound — the maximum is still the maximum, the ceiling is what was
-    /// not found.
+    /// A curve that rises into a maximum and measurably falls out of it has
+    /// found the ceiling, whether or not any step breached the objective.
+    ///
+    /// Saturation is a property of throughput: once more in-flight requests stop
+    /// buying throughput, the target is at its limit and the extra concurrency is
+    /// only queueing. Requiring an SLO breach on top of that punished targets for
+    /// being fast — a real run had a target peak at 62.8k and fall to 55.6k while
+    /// never crossing a 25 ms p99, and it was reported as "knee not reached" and
+    /// dropped from the ranking.
     #[test]
-    fn a_lower_bound_is_the_best_qualifying_throughput() {
+    fn a_curve_that_turns_over_inside_the_slo_reports_a_peak() {
         let steps = [
             point(8, 1_000.0, 2.0, 0.0),
             point(16, 3_000.0, 4.0, 0.0),
             point(32, 2_400.0, 9.0, 0.0),
+        ];
+        let doc = measured(&steps, 50.0, 0.01);
+
+        assert_eq!(doc.outcome, Outcome::Saturated);
+        let peak = doc.peak.as_ref().expect("peak");
+        assert_eq!(peak.rps, 3_000.0);
+        assert_eq!(peak.concurrency, 16);
+        assert!(doc.lower_bound_rps.is_none());
+    }
+
+    /// A curve that flattens has not turned over: the last step is within noise
+    /// of the maximum, so the ramp ended while throughput was still level and the
+    /// ceiling is above it. Without the margin, ordinary run-to-run wander would
+    /// manufacture a peak out of every flat curve.
+    #[test]
+    fn a_plateau_inside_the_slo_is_a_lower_bound_not_a_peak() {
+        let steps = [
+            point(8, 1_000.0, 2.0, 0.0),
+            point(16, 3_000.0, 4.0, 0.0),
+            point(32, 2_985.0, 9.0, 0.0),
         ];
         let doc = measured(&steps, 50.0, 0.01);
 
@@ -409,8 +482,9 @@ mod tests {
         assert_eq!(doc.lower_bound_rps, Some(4_000.0));
     }
 
-    /// The ramp reaching its end inside the SLO is what makes an outcome
-    /// `did_not_saturate` — not where the maximum happened to land.
+    /// A maximum on the very first step is not bracketed: the curve may still
+    /// have been climbing below the ladder's floor, so the ramp started at or
+    /// above the knee rather than finding it. That stays a lower bound.
     #[test]
     fn an_early_maximum_does_not_by_itself_mean_saturated() {
         let steps = [
