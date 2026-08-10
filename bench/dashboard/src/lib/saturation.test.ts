@@ -448,7 +448,15 @@ describe('harness disclosure', () => {
 
 	it('matches families case-insensitively', () => {
 		const rows = harnessRows(['postgres'], [family({ family: 'Postgres' })], (db) => db);
-		expect(rows[0].summary).toBe('1 worker / pool 8 / stock');
+		expect(rows[0].summary).toBe('1 worker / pool 8');
+	});
+
+	/// Tuning is reference material and travels on its own field: inlining it made the summary grow
+	/// without bound as engines gained settings, until one line per group became a block per group.
+	it('keeps engine tuning off the inline summary', () => {
+		const rows = harnessRows(['postgres'], [family({ family: 'postgres' })], (db) => db);
+		expect(rows[0].summary).not.toContain('stock');
+		expect(rows[0].tuning).toBe('stock');
 	});
 
 	it('reports shards that disagree instead of picking one', () => {

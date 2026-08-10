@@ -6,7 +6,6 @@
 	import SortLinks from '#lib/components/SortLinks.svelte';
 	import WarningNotice from '#lib/components/WarningNotice.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
-	import Note from '#lib/components/Note.svelte';
 	import RankRow from '#lib/components/RankRow.svelte';
 	import VerdictStrip from '#lib/components/VerdictStrip.svelte';
 	import HarnessStrip from '#lib/components/HarnessStrip.svelte';
@@ -74,7 +73,6 @@
 			</div>
 		{:else}
 			<VerdictStrip verdicts={view.verdicts} />
-			<HarnessStrip rows={view.harnessRows} />
 
 			<!--
 				One table, one order, every database. The column header is sticky, so the meaning of a
@@ -101,7 +99,13 @@
 					<span class="max-lg:hidden">os</span>
 					<span class="max-lg:hidden"><span class="sr-only">relative throughput</span></span>
 					{#if view.hasCapacity}
-						<span class="text-right max-lg:hidden">peak throughput</span>
+						<!-- The objective states itself once here, for the column, instead of once per row. -->
+						<span class="text-right max-lg:hidden">
+							peak throughput
+							{#if view.capacityObjective}<span class="text-foreground-faint normal-case"
+									>{view.capacityObjective}</span
+								>{/if}
+						</span>
 						<span class="text-right max-lg:hidden">at fixed load</span>
 						<span class="text-right lg:hidden">peak / rps / p95</span>
 					{:else}
@@ -127,51 +131,23 @@
 				{/each}
 			</div>
 
-			<div class="mt-4 space-y-3">
-				{#if view.hasCapacity}
-					<Note>
-						<strong class="text-foreground-secondary font-medium">Two throughput numbers.</strong>
-						<em>Peak throughput</em> is the highest request rate a target sustained while still
-						meeting the latency objective, found by ramping concurrency with no think time — it is a
-						capacity figure and always carries the objective it was measured at.
-						<em>At fixed load</em>
-						is the paced suite's rate, where the generator offers a set amount of work; a healthy target
-						reports the pacing ceiling rather than its capacity. Sorting by peak throughput puts every
-						row without a measured peak below every row that has one, and those rows carry no rank number,
-						because "we did not find out" is not a placement.
-					</Note>
-				{:else}
-					<Note>
-						<strong class="text-foreground-secondary font-medium">No peak throughput here.</strong>
-						This set predates the saturation suite, so no target in it has a measured capacity figure
-						and the peak-throughput column is left off rather than filled with a paced number wearing
-						its name. The throughput below is the paced suite's rate at a fixed offered load — see
-						<a class="text-link underline" href="/methodology">the method</a> for why that cannot be read
-						as capacity.
-					</Note>
-				{/if}
-				<Note>
-					{#if view.osScope}
-						<strong class="text-foreground-secondary font-medium"
-							>One table, every database, one operating system.</strong
-						>
-						This ranking covers {view.osScope.label} only — {view.osScope.detail
-							.charAt(0)
-							.toLowerCase() + view.osScope.detail.slice(1)}
-						{#if view.osScopes.length > 1}
-							The other platforms are their own rankings, on the pills above; they are not folded
-							in, because a rank across operating systems compares machines rather than libraries.
-						{/if}
-					{:else}
-						One table, every database.
-					{/if}
-					Rows on different databases still did different amounts of work per request, and a
-					<a class="text-link underline" href="/repeatability">repeat of the same job</a> can land
-					far apart even on one platform. Open a row for the full numbers and how it compares to
-					drizzle-rs on its own database, or read
-					<a class="text-link underline" href="/methodology">the method</a>.
-				</Note>
-			</div>
+			<!--
+				Reference sits below the rows, not above them. The caveats that used to be two
+				paragraphs here are one line plus links: the detail they carried is already on the
+				column tooltips, inside each expanded row, and on /methodology, which is where anyone
+				actually chasing it goes. Restating it on every page view taxed every reader for the
+				few who wanted it.
+			-->
+			<HarnessStrip rows={view.harnessRows} />
+
+			<p class="text-meta text-muted-foreground mt-3">
+				{#if view.osScope}{view.osScope.label} only{#if view.osScopes.length > 1}; other platforms
+						rank separately{/if}.
+				{/if}Rows on different databases did different work per request, and a
+				<a class="text-link underline" href="/repeatability">repeat of the same job</a>
+				can land far apart. Open a row for detail, or read
+				<a class="text-link underline" href="/methodology">the method</a>.
+			</p>
 		{/if}
 	{/if}
 

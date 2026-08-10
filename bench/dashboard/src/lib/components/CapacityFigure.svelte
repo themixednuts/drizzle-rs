@@ -22,10 +22,22 @@
 		size = 'inline',
 		align = 'left',
 		active = false,
+		showQualifier = true,
 	}: {
 		capacity: CapacityView;
 		size?: 'lead' | 'inline';
 		align?: 'left' | 'right';
+		/**
+		 * False only where the objective is already stated once for the whole set of figures — the
+		 * ranking table states it in the column header, where it applies to every row.
+		 *
+		 * The invariant this component exists to enforce is that a reader never meets a capacity
+		 * number without knowing what it was measured against. A column header satisfies that for a
+		 * table; repeating "at p99 < 25 ms" on all twenty-seven rows satisfies it twenty-six times
+		 * over and crowds out the number it qualifies. Standalone figures still default to carrying
+		 * their own qualifier, so nothing can drop it by omission.
+		 */
+		showQualifier?: boolean;
 		/**
 		 * True when this is the column the table is currently sorted by, which lifts the number to
 		 * full-strength ink. An explicit prop rather than the caller reaching in with a descendant
@@ -71,9 +83,13 @@
 				figure.lowerBound && 'italic',
 			)}
 		>
-			<Hint hint={capacity.detail}>{figure.qualifier}</Hint>
-			<span class="text-foreground-faint" aria-hidden="true">·</span>
-			{capacity.note}
+			{#if showQualifier}
+				<Hint hint={capacity.detail}>{figure.qualifier}</Hint>
+				<span class="text-foreground-faint" aria-hidden="true">·</span>
+				{capacity.note}
+			{:else}
+				<Hint hint={capacity.detail}>{capacity.note}</Hint>
+			{/if}
 		</span>
 	{:else}
 		<span

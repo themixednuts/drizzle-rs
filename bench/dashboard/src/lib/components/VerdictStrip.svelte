@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Hint from './Hint.svelte';
 	import { cn } from '#lib/utils.js';
 	import type { DbVerdict } from '#lib/ranking';
 
@@ -21,11 +20,8 @@
 </script>
 
 {#if verdicts.length > 0}
-	<section class="mt-6" aria-labelledby="verdict-strip-label">
-		<h2 id="verdict-strip-label" class="text-micro text-muted-foreground font-mono uppercase">
-			drizzle-rs by database
-		</h2>
-		<ul class="mt-2 flex flex-wrap gap-2">
+	<section class="mt-5" aria-label="drizzle-rs standing on each database">
+		<ul class="flex flex-wrap gap-2">
 			{#each verdicts as verdict (verdict.db)}
 				<li>
 					<a
@@ -51,17 +47,5 @@
 				</li>
 			{/each}
 		</ul>
-		<!--
-			The explanation hangs off one hint at the end of the row rather than off every tile: a
-			tooltip trigger inside each anchor would be a button inside a link, and the per-tile detail
-			is already the anchor's own `title` and accessible description.
-		-->
-		<p class="text-meta text-muted-foreground mt-2">
-			<Hint
-				hint="Each tile is drizzle-rs's place among the libraries measured on that database, and its margin over the fastest of them. Selecting one filters the table below to that database."
-			>
-				standing on each database, against that database's own field
-			</Hint>
-		</p>
 	</section>
 {/if}

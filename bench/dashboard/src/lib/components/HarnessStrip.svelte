@@ -1,82 +1,62 @@
 <script lang="ts">
-	import Hint from './Hint.svelte';
 	import { cn } from '#lib/utils.js';
 	import type { HarnessRow } from '#lib/harness';
 
 	/**
-	 * What each database's rows ran under, above the one global table.
+	 * What each comparison group ran under.
 	 *
-	 * This exists so that the table can stay a single list. Sectioning by family would make the
-	 * harness legible by construction — one heading, one config — but it also buries the rows a
-	 * reader came for and hides the cross-database comparison that is the point of the page. So the
-	 * harness moves out of the layout and onto its own strip: same three facts, stated once per
-	 * database, above the rows they govern.
+	 * This is reference, not headline. It used to sit above the table with the engine tuning spelled
+	 * out inline, which was readable while tuning read "WAL journal" and stopped being readable the
+	 * moment it named four PostgreSQL planner settings — seven full-width blocks of monospace between
+	 * the filters and the rows a reader came for. So it lives below the table now, closed by default,
+	 * and the tuning is one line per group inside it rather than a wall above everything.
 	 *
-	 * The two readings it has to support are opposite ones. Two rows on the *same* database share
-	 * every line here, so their gap is the libraries. Two rows on *different* databases share none
-	 * of it, so their gap includes the stacks. A family that declared nothing says so in the same
-	 * slot, because "we did not record it" is a third answer and not a quiet version of the first.
+	 * Nothing is lost by closing it: the harness for a given row is also inside that row's own
+	 * expanded detail, which is where it actually matters — next to the delta whose scope it defines.
+	 * What this view adds is the whole-set check, so it opens on the question "was every group
+	 * internally consistent", and answers that in its summary line without being opened at all.
 	 */
 	let { rows }: { rows: HarnessRow[] } = $props();
 
-	const anyUnverified = $derived(rows.some((row) => row.identical === false));
-	const anyUndeclared = $derived(rows.some((row) => row.summary === null));
+	const unverified = $derived(rows.filter((row) => row.identical === false));
+	const undeclared = $derived(rows.filter((row) => row.summary === null));
+	/** The one thing worth saying without opening: whether anything is off. */
+	const status = $derived(
+		unverified.length > 0
+			? `${unverified.length} group${unverified.length === 1 ? '' : 's'} not identical within family`
+			: undeclared.length > 0
+				? `${undeclared.length} group${undeclared.length === 1 ? '' : 's'} undeclared`
+				: 'verified identical within each group',
+	);
 </script>
 
 {#if rows.length > 0}
-	<section class="mt-6" aria-labelledby="harness-strip-label">
-		<h2 id="harness-strip-label" class="text-micro text-muted-foreground font-mono uppercase">
-			harness by comparison group
-		</h2>
-		<ul class="mt-2 flex flex-wrap gap-2">
+	<details class="border-border group mt-4 border">
+		<summary
+			class="text-meta text-muted-foreground hover:text-foreground-secondary flex cursor-pointer items-baseline gap-x-2 px-4 py-2.5 transition-colors"
+		>
+			<span class="text-foreground-secondary">Run configuration</span>
+			<span class={cn(unverified.length > 0 ? 'text-negative' : 'text-muted-foreground')}>
+				{status}
+			</span>
+		</summary>
+
+		<dl class="border-border grid gap-x-6 gap-y-1.5 border-t px-4 py-3 sm:grid-cols-[auto_1fr]">
 			{#each rows as row (row.family)}
-				<li
-					title={row.detail}
-					class={cn(
-						'border-border flex items-baseline gap-x-2.5 border px-3 py-1.5',
-						// A family whose targets did not all share a harness is the one case where this
-						// strip is reporting a problem rather than a fact, so it is the one case that
-						// borrows the negative rule.
-						row.identical === false && 'border-l-negative border-l-[3px]',
-					)}
-				>
-					<span class="text-meta text-foreground-secondary">{row.label}</span>
+				<dt class="text-meta text-foreground-secondary sm:text-right">{row.label}</dt>
+				<dd class="text-meta text-muted-foreground font-mono">
 					{#if row.summary}
-						<span class="text-meta text-foreground font-mono">{row.summary}</span>
+						{row.summary}{row.tuning ? ` · ${row.tuning}` : ''}
 						{#if row.identical === false}
-							<span class="text-meta text-negative">not identical within family</span>
+							<span class="text-negative">· not identical within family</span>
 						{:else if row.exempt.length > 0}
-							<!-- "Verified identical" alongside an exemption is a narrower claim than the tick
-							     reads as, so the exemption travels with it rather than living only in the
-							     manifest. -->
-							<span class="text-meta text-warning-foreground">{row.exempt.length} exempt</span>
+							<span class="text-warning-foreground">· {row.exempt.length} exempt</span>
 						{/if}
 					{:else}
-						<span class="text-meta text-muted-foreground italic">harness not declared</span>
+						<span class="italic">not declared</span>
 					{/if}
-				</li>
+				</dd>
 			{/each}
-		</ul>
-
-		<p class="text-meta text-muted-foreground mt-2">
-			<Hint
-				hint="A comparison group is the set of targets claiming to be directly comparable. Inside one the harness is enforced identical, so a difference between two of its rows is a difference between the libraries. Across groups the harness deliberately differs — each stack runs in the shape it is actually deployed in — so a difference between rows in different groups includes the stack, not just the library. A group is usually a database, and splits where the harness genuinely cannot be equalised: a single-threaded runtime cannot be given the same connection pool as a threaded one without the number becoming fiction."
-			>
-				rows in one group share this configuration; rows in different groups do not
-			</Hint>
-		</p>
-
-		{#if anyUnverified}
-			<p class="text-meta text-negative mt-1.5">
-				At least one group's targets did not all declare the same harness, so a comparison between
-				those rows is not a like-for-like library comparison.
-			</p>
-		{/if}
-		{#if anyUndeclared}
-			<p class="text-meta text-muted-foreground mt-1.5">
-				Groups marked "harness not declared" come from runs published before the runner recorded it;
-				nothing here confirms their rows ran under identical conditions.
-			</p>
-		{/if}
-	</section>
+		</dl>
+	</details>
 {/if}
