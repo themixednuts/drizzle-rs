@@ -125,15 +125,26 @@ pub fn cpu_pinning_description() -> Option<String> {
     let server = std::env::var("BENCH_CPUSET_SERVER")
         .ok()
         .filter(|spec| parse_cpuset(spec).is_some());
-    match (load, server) {
-        (None, None) => None,
-        (load, server) => {
+    // Set by CI when the engine is out of process (the PostgreSQL service
+    // container's `--cpuset-cpus`, or the cores SpacetimeDB was started under
+    // `taskset` with). The runner does not apply it — it cannot pin a process
+    // it did not spawn — but leaving it out of the manifest would describe a
+    // three-way split as a two-way one.
+    let db = std::env::var("BENCH_CPUSET_DB")
+        .ok()
+        .filter(|spec| parse_cpuset(spec).is_some());
+    match (&load, &server, &db) {
+        (None, None, None) => None,
+        _ => {
             let mut parts = Vec::new();
             if let Some(load) = load {
                 parts.push(format!("load={load}"));
             }
             if let Some(server) = server {
                 parts.push(format!("server={server}"));
+            }
+            if let Some(db) = db {
+                parts.push(format!("db={db}"));
             }
             Some(parts.join(" "))
         }

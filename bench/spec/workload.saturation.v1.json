@@ -6,7 +6,7 @@
     "kind": "closed",
     "executor": "ramping-vus",
     "unit": "1s",
-    "concurrency": 1024
+    "concurrency": 512
   },
   "data": {
     "name": "bench",
@@ -35,9 +35,7 @@
     { "sec": 5, "vus": 256 },
     { "sec": 20, "vus": 256 },
     { "sec": 5, "vus": 512 },
-    { "sec": 20, "vus": 512 },
-    { "sec": 5, "vus": 1024 },
-    { "sec": 20, "vus": 1024 }
+    { "sec": 20, "vus": 512 }
   ],
   "warmup_s": 20,
   "requests": {

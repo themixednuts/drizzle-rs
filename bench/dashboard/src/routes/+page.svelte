@@ -50,8 +50,15 @@
 		<!--
 			The filters render whenever there is anything to filter, including when the current filter
 			matches nothing. Hiding them in that state left the only way back to "All" in the URL bar.
+
+			The OS pills come first because they scope everything after them: rank, bar, delta and the
+			database pills themselves are all computed inside one operating system. A rank that spanned
+			operating systems would be two comparisons stacked — different kernels, different CI
+			machines, and a field that cannot even hold the same families, since GitHub runs service
+			containers on Linux only.
 		-->
 		<div class="mt-7 flex flex-wrap items-center gap-x-4 gap-y-3">
+			<FilterPills label="os" options={view.osFilters} />
 			<FilterPills label="database" options={view.dbFilters} />
 			<SortLinks options={view.sortOptions} />
 		</div>
@@ -59,8 +66,10 @@
 		{#if !view.hasRankingRows}
 			<div class="mt-7">
 				<EmptyState title="No results for this database.">
-					This set published no targets for that database. Choose
-					<a class="text-link underline" href={view.rankingUrl(null, view.sort)}>All</a>.
+					This set published no targets for that database on {view.osScope?.label ??
+						'this platform'}. Choose
+					<a class="text-link underline" href={view.rankingUrl(null, view.sort)}>All</a>, or another
+					platform above.
 				</EmptyState>
 			</div>
 		{:else}
@@ -142,12 +151,24 @@
 					</Note>
 				{/if}
 				<Note>
-					One table, every database. Rows on different databases did different amounts of work per
-					request, and rows carrying different <abbr title="operating system">OS</abbr> badges came
-					off
-					<a class="text-link underline" href="/repeatability">different machines</a>, where a
-					repeat of the same job can land far apart. Open a row for the full numbers and how it
-					compares to drizzle-rs on its own database, or read
+					{#if view.osScope}
+						<strong class="text-foreground-secondary font-medium"
+							>One table, every database, one operating system.</strong
+						>
+						This ranking covers {view.osScope.label} only — {view.osScope.detail
+							.charAt(0)
+							.toLowerCase() + view.osScope.detail.slice(1)}
+						{#if view.osScopes.length > 1}
+							The other platforms are their own rankings, on the pills above; they are not folded
+							in, because a rank across operating systems compares machines rather than libraries.
+						{/if}
+					{:else}
+						One table, every database.
+					{/if}
+					Rows on different databases still did different amounts of work per request, and a
+					<a class="text-link underline" href="/repeatability">repeat of the same job</a> can land
+					far apart even on one platform. Open a row for the full numbers and how it compares to
+					drizzle-rs on its own database, or read
 					<a class="text-link underline" href="/methodology">the method</a>.
 				</Note>
 			</div>

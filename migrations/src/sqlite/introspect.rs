@@ -179,7 +179,6 @@ pub fn assemble_ddl(raw: RawIntrospection) -> super::SQLiteDDL {
 pub type EntityFilter = Box<dyn Fn(&str, &str) -> bool>;
 
 /// Default entity filter that allows everything
-#[must_use]
 pub fn default_filter() -> EntityFilter {
     Box::new(|_entity_type, _name| true)
 }

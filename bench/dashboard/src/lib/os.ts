@@ -59,3 +59,137 @@ export function osName(os: string | undefined | null): string {
 export function shardProvenance(os: string | undefined | null, runId: string): string {
 	return `${osBadge(os).name} runner · shard ${runStamp(runId)}`;
 }
+
+/**
+ * One operating system's slice of a set — the unit the ranking is scoped to.
+ *
+ * A rank is a claim that the rows above and below it were measured under the same conditions, and
+ * an operating system is the coarsest condition there is: a Windows row and a Linux row differ by
+ * kernel, filesystem, scheduler and CI machine before they differ by library. They were also never
+ * going to hold the same field — GitHub runs service containers on Linux only, so PostgreSQL and
+ * SpacetimeDB cannot appear on the other two at all. Ranking them together produced a table whose
+ * top half was one OS and whose reader had no way to tell.
+ *
+ * So the ranking shows one OS at a time and says which. Rows are not dropped; the scopes are pills,
+ * and every row is one click away in the scope it belongs to.
+ */
+export interface OsScope {
+	/** Raw `runner.os` value. This is the `?os=` parameter, so it round-trips exactly. */
+	os: string;
+	code: OsCode;
+	/** Full OS name, for the pill. */
+	label: string;
+	/** Rows in this scope. */
+	count: number;
+	/** Distinct CPU brand strings across this scope's rows. */
+	cpus: string[];
+	/**
+	 * The cpuset split every row in this scope ran under, or null when none was recorded.
+	 *
+	 * Null is the normal state off Linux — the runner's affinity call is Linux-only and Darwin
+	 * exposes no usable CPU-affinity API — and it is reported as an absence, never as isolation.
+	 */
+	pinning: string | null;
+	/**
+	 * Every distinct split in this scope, when there is more than one.
+	 *
+	 * A cross-family linux job legitimately has two: an in-process engine takes the whole
+	 * system-under-test half, and an out-of-process one hands a core to the database. Both halves
+	 * own the same cores either way, which is the property that makes the ranking comparable — so
+	 * this lists what ran rather than flagging a disagreement.
+	 */
+	pinnings: string[];
+	/** True when this scope's rows ran under more than one split. */
+	mixedPinning: boolean;
+	/** The whole provenance sentence, for the pill's tooltip. */
+	detail: string;
+}
+
+/** Ranking order for the scope pills. Unknown last: it is a fallback, not a platform. */
+const SCOPE_ORDER: OsCode[] = ['LNX', 'MAC', 'WIN', 'OS?'];
+
+interface OsScopeRow {
+	runner_os: string;
+	runner_cpu?: string;
+	runner_cores?: number;
+	runner_pinning?: string | null;
+}
+
+/**
+ * The OS scopes present in a set, largest platform first in a fixed order.
+ *
+ * Keyed on the raw `runner.os` string so the pill's URL round-trips to exactly the rows it counted.
+ * Two raw strings that badge to the same code (`linux` and `ubuntu`, say) therefore stay separate
+ * scopes rather than being silently merged — they are different evidence, and merging them would be
+ * this function inventing a machine identity the artifacts never claimed.
+ */
+export function osScopes(rows: readonly OsScopeRow[]): OsScope[] {
+	const buckets = new Map<string, OsScopeRow[]>();
+	for (const row of rows) {
+		const bucket = buckets.get(row.runner_os);
+		if (bucket) bucket.push(row);
+		else buckets.set(row.runner_os, [row]);
+	}
+
+	const scopes: OsScope[] = [];
+	for (const [os, bucket] of buckets) {
+		const badge = osBadge(os);
+		const cpus = [...new Set(bucket.map((row) => row.runner_cpu).filter(Boolean))] as string[];
+		const pins = [...new Set(bucket.map((row) => row.runner_pinning ?? null))];
+		const mixedPinning = pins.length > 1;
+		const pinning = mixedPinning ? null : (pins[0] ?? null);
+		// Unpinned rows contribute a null, which has no split to name; a scope mixing pinned and
+		// unpinned rows therefore lists only the pinned ones and stays `mixedPinning`.
+		const pinnings = pins.filter((pin): pin is string => Boolean(pin));
+		const cores = bucket.find((row) => row.runner_cores)?.runner_cores ?? null;
+
+		scopes.push({
+			os,
+			code: badge.code,
+			label: badge.name,
+			count: bucket.length,
+			cpus,
+			pinning,
+			pinnings,
+			mixedPinning,
+			detail: scopeDetail(badge.name, bucket.length, cpus, cores, pinning, pinnings),
+		});
+	}
+
+	return scopes.sort(
+		(a, b) => SCOPE_ORDER.indexOf(a.code) - SCOPE_ORDER.indexOf(b.code) || b.count - a.count,
+	);
+}
+
+function scopeDetail(
+	label: string,
+	count: number,
+	cpus: string[],
+	cores: number | null,
+	pinning: string | null,
+	pinnings: string[],
+): string {
+	const parts = [`${count} target${count === 1 ? '' : 's'} measured on ${label}`];
+
+	// More than one CPU model is proof the rows came off more than one machine. One model is only
+	// consistent with a single machine, and is worded as such — CI hands out identical VM types, so
+	// a matching brand string is not evidence of a shared host.
+	if (cpus.length > 1) {
+		parts.push(`across ${cpus.length} different CPU models, so these rows did not share a machine`);
+	} else if (cpus.length === 1) {
+		parts.push(`on ${cpus[0]}${cores ? ` (${cores} cores)` : ''}`);
+	}
+
+	if (pinning) {
+		parts.push(`with cores split ${pinning}`);
+	} else if (pinnings.length > 0) {
+		// Two splits inside one scope is the normal shape of a cross-family linux job, not a fault:
+		// the in-process engines take the whole system-under-test half and the out-of-process ones
+		// hand a core to the database. Naming both is more useful than calling it a disagreement.
+		parts.push(`with cores split ${pinnings.join(' and ')} by engine`);
+	} else {
+		parts.push('with no CPU pinning — the runner pins cores on Linux only');
+	}
+
+	return parts.join(', ') + '.';
+}

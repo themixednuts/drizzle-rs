@@ -8,10 +8,11 @@ Last updated: 2026-05-04.
 | --- | --- | --- | --- |
 | Run plan | `.github/workflows/runners.yml` `plan` | GitHub-hosted Ubuntu runner | No, resolves class/workload/topology for every other job |
 | Contract runner: SQLite | `.github/workflows/runners.yml` `sqlite` | GitHub-hosted Ubuntu, Windows, macOS runners | Yes, to Cloudflare R2 on `main` when Cloudflare secrets are present |
-| Contract runner: PostgreSQL | `.github/workflows/runners.yml` `postgres` | GitHub-hosted Ubuntu runner plus `postgres:18-alpine` service | Yes, to Cloudflare R2 on `main`; skipped on publish schedule/dispatch runs |
-| Contract runner: PostgreSQL Rust ORMs | `.github/workflows/runners.yml` `postgres-rust-orms` | GitHub-hosted Ubuntu runner plus `postgres:18-alpine` service | Yes, to Cloudflare R2 on `main`; skipped on publish schedule/dispatch runs |
-| Contract runner: PostgreSQL TS | `.github/workflows/runners.yml` `postgres-ts` | GitHub-hosted Ubuntu runner plus Bun and `postgres:18-alpine` service | Yes, to Cloudflare R2 on `main`; skipped on publish schedule/dispatch runs |
-| Contract runner: PostgreSQL cross-family | `.github/workflows/runners.yml` `postgres-all` | One GitHub-hosted Ubuntu runner plus Bun and a single `postgres:18-alpine` service, running all three PostgreSQL families sequentially | Yes; publish schedule/dispatch runs only |
+| Contract runner: PostgreSQL | `.github/workflows/runners.yml` `postgres` | GitHub-hosted Ubuntu runner plus `postgres:18-alpine` service | Yes, to Cloudflare R2 on `main` |
+| Contract runner: PostgreSQL Rust ORMs | `.github/workflows/runners.yml` `postgres-rust-orms` | GitHub-hosted Ubuntu runner plus `postgres:18-alpine` service | Yes, to Cloudflare R2 on `main` |
+| Contract runner: PostgreSQL TS | `.github/workflows/runners.yml` `postgres-ts` | GitHub-hosted Ubuntu runner plus Bun and `postgres:18-alpine` service | Yes, to Cloudflare R2 on `main` |
+| Cross-family ranking: linux | `.github/workflows/runners.yml` `linux-all` | One GitHub-hosted Ubuntu runner plus Bun, a cpuset-pinned `postgres:18-alpine` service and a local SpacetimeDB, running all eight families sequentially | Yes; publish schedule/dispatch runs only |
+| Cross-family ranking: macOS / Windows | `.github/workflows/runners.yml` `desktop-all` | One GitHub-hosted macOS runner and one Windows runner plus Bun, running the three in-process families sequentially | Yes; publish schedule/dispatch runs only |
 | Contract runner: SpacetimeDB | `.github/workflows/runners.yml` `spacetimedb` | GitHub-hosted Ubuntu runner plus local SpacetimeDB service | Yes, to Cloudflare R2 on `main` |
 | Contract runner: Turso | `.github/workflows/runners.yml` `turso` | GitHub-hosted Ubuntu runner | Yes, to Cloudflare R2 on `main` |
 | Criterion microbench | `.github/workflows/criterion.yml` | GitHub-hosted runners | No, uploads GitHub Actions artifacts only |
@@ -59,9 +60,19 @@ Benchmark runs must invoke the runner in release mode. Several built-in targets 
 
 ## CI Topology
 
-Linux jobs split the runner's cores between the load generator and the target: `BENCH_CPUSET_LOAD` gets the lower half, `BENCH_CPUSET_SERVER` the upper half (`0-1` / `2-3` on the 4 vCPU hosted runner). It is best-effort separation on a shared VM — caches, memory bandwidth, the network stack and the PostgreSQL service container remain shared — and it is a no-op on macOS and Windows. Numbers recorded before pinning are not comparable to pinned numbers.
+Linux jobs cut the machine in half: `BENCH_CPUSET_LOAD` gets the lower half, and the upper half is the system under test. How the SUT half is subdivided follows the architecture being measured, not the family. For an in-process engine the whole half is the server, because the process that serves HTTP is the process that executes the query. For an out-of-process engine the caller pins the database to a top slice of that half — `--cpuset-cpus` on the PostgreSQL service container, `taskset` on the SpacetimeDB daemon — and passes the same literal as the composite action's `db-cpuset`, which carves it out of `BENCH_CPUSET_SERVER` and hard-fails if the literal disagrees with `nproc`. Either way the SUT owns the same cores (`0-1` load, `2-3` SUT on the 4 vCPU hosted runner), which is what makes a cross-family ranking on one box mean anything.
 
-Publish-class schedule and manual-dispatch runs collapse the three PostgreSQL families into the single `postgres-all` job so cross-family ranking comes from one machine and one database instance under one cohort id. Every other event keeps the per-family jobs. Artifact names, output directories and baseline cache keys are per family in both shapes.
+It remains best-effort separation on a shared VM — caches, memory bandwidth and the network stack stay shared. It is a no-op on macOS and Windows: the runner's affinity call is Linux-only, and Darwin exposes no usable CPU-affinity API, so `topology.cpu_pinning` is null there and the dashboard reports the absence rather than implying isolation. Numbers recorded before pinning are not comparable to pinned numbers.
+
+## Per-OS cross-family ranking
+
+The leaderboard puts every family in one table, so a rank only means something if the rows came off one machine. Publish-class schedule and manual-dispatch runs therefore add `linux-all` and `desktop-all`, which run every family their OS can host back to back on one VM under one cohort id (`<cohort>-cross-<os>`).
+
+Which families an OS can host is a platform fact. GitHub runs service containers on Linux only, so PostgreSQL and SpacetimeDB exist on linux alone, and libsql has a history of segfaulting the benchmark process on macOS and Windows. That is why the ranking is scoped per OS on the dashboard rather than merged into one table.
+
+These jobs run the saturation ramp regardless of the class's resolved workload, because a cross-family ranking needs a number that describes the target and the paced suites cap every target at `VUs / think_time`. They run *alongside* the per-family jobs rather than replacing them: the paced latency reading still comes from those, in parallel, on every event. `slug-suffix: cross` keeps the two sets of artifacts, output directories and baseline cache keys apart.
+
+`linux-all` is a serial sequence and is the one job here that can walk into GitHub's hard 360-minute cancellation, so `plan` estimates it from the specs themselves — target count × trials × ramp length, plus a build allowance — and fails the run in five minutes if the estimate exceeds the job timeout. Adding a target to any family spec lengthens that sequence, and this is what makes it say so.
 
 The dashboard preview job assembles whatever families succeeded and fails only when no run at all could be assembled.
 
