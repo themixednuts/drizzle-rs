@@ -331,11 +331,18 @@ export class RunsPageState {
 	 *
 	 * Only under `sort=capacity`, and only for a row that has a measured peak: a hero is an assertion,
 	 * and asserting a shape for a lower bound would be drawing a conclusion the ramp did not reach.
+	 *
+	 * In-process caches are skipped, even when they top the table. They answer without crossing a
+	 * database boundary, which is why the table gives them a dash instead of a delta — and a page
+	 * whose job is to be believed cannot open by presenting a cache hit as the fastest way to run a
+	 * query. They keep their row and their rank; what they do not get is the headline.
 	 */
 	get leaderCurve(): { curve: CurveView; name: string; row: RankingRow } | null {
 		if (this.sort !== 'capacity') return null;
-		const top = this.rankingRows.find((row) => row.rank === 1);
-		if (!top || top.capacity.state !== 'measured') return null;
+		const top = this.rankingRows.find(
+			(row) => row.capacity.state === 'measured' && !isInProcessCache(row.summary.target_meta),
+		);
+		if (!top) return null;
 		const doc = readSaturation(top.summary);
 		return doc ? { curve: buildCurve(doc), name: targetDisplay(top.summary).name, row: top } : null;
 	}
