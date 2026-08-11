@@ -7,6 +7,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.16](https://github.com/themixednuts/drizzle-rs/compare/v0.1.15...v0.1.16) - 2026-08-11
+
+### Added
+
+- *(migrations)* partial-migration recovery
+- *(migrations)* syn-based schema parser with producer parity
+- *(bench/dashboard)* compose comparison-group labels, order the strip by engine
+- *(bench/dashboard)* scope fairness to the comparison group, not the database
+- *(bench/dashboard)* peak throughput at an SLO as the primary number
+- *(query)* transaction-scoped relational queries for sqlite drivers
+- *(query)* parameterize the sqlite relational query builder over its runner
+- *(query)* relational query executors for d1 and durable drivers
+- *(query)* row-shape-aware prepare and named relation decode
+- *(bench-runner)* add the feature-gated libsql benchmark family
+- *(bench)* add the sqlite-ts benchmark family
+- *(bench)* dashboard polish — deltas, hover, mobile, CLS, home restructure
+- *(bench)* dashboard redesign — SSR-first, no-JS, comp theme, de-noised
+- *(bench)* replace cloudflare-isr with native Workers Cache API
+- *(bench)* migrate dashboard to SvelteKit 3
+- *(bench)* dashboard on shadcn-svelte with fairness-grouped presentation
+- *(bench)* cross-runtime targets with enforced fairness contracts
+- *(bench)* contract benchmark runner with phase-tagged measurement
+- *(core)* GROUP BY primary-key functional dependency
+- *(core)* accept condition tuples and add all/any combinators
+- add no_std/alloc support to sqlite, postgres, and mysql crates
+- *(seed)* chrono temporal generators and generator registry extensions
+- *(postgres)* Cloudflare Hyperdrive driver — tokio-postgres on wasm32
+
+### Changed
+
+- *(bench/dashboard)* stop calling the paced busiest bucket a "peak"
+- *(core)* macro-generated RowColumnList arities and dep-gated driver codegen
+- *(no_std)* full workspace audit, const fn, and prelude cleanup
+- *(api)* naming — catalog vocabulary, de-stuttered modules, ConfigValue
+
+### Documentation
+
+- *(bench)* describe the per-OS ranking topology
+- *(bench)* record the sqlite-ts and libsql families
+- *(bench)* record workers.dev hosting decision and dormant-cache behavior
+
+### Fixed
+
+- *(bench)* dashboard naming and profiles for the sqlite-ts and libsql families
+- *(ci)* publish R2 objects with --remote
+- *(bench)* make the headroom gate opt-in instead of unconditionally fatal
+- *(macros)* FK target resolution, snapshot fidelity, enum schema support
+- *(release)* publish drizzle-mysql in lockstep with the workspace
+- *(migrations)* drop the redundant must_use on default_filter
+- *(migrations)* watch the migrations out_dir in build::Config::watch
+- *(cli)* make migrate --verify a real integrity gate, --plan a pure dry-run
+- *(migrations)* lifecycle — TS upgrade path, atomic publish, snapshot lineage
+- *(migrations)* postgres dialect correctness
+- *(migrations)* sqlite dialect correctness and determinism
+- *(types)* correct DDL rendering and serde round-trips
+
+### Other
+
+- *(dashboard)* cut the method page by two thirds and correct what it claimed
+- *(dashboard)* cut the method page opening to five claims
+- *(dashboard)* stop the page explaining itself before it shows anything
+- *(saturation)* find the ceiling by throughput turning over, not by latency
+- *(targets)* tune each engine for the workload it is measured on
+- *(dashboard)* name both cpuset splits instead of calling them a conflict
+- *(dashboard)* scope the ranking to one operating system
+- *(runner)* record the database cpuset in topology.cpu_pinning
+- *(spec)* end the saturation ramp at 512 VUs and budget-check the sequence
+- *(ci)* add db-cpuset input for three-way core isolation
+- Cache prepared statements in Turso transactions
+
+### Performance
+
+- *(postgres)* bind numeric LIMIT/OFFSET as parameters on PostgreSQL
+- *(postgres)* cache tokio-postgres statements instead of re-preparing per call
+- *(query)* paginate PostgreSQL relational queries in a derived table
+
 ## [0.1.15](https://github.com/themixednuts/drizzle-rs/compare/v0.1.14...v0.1.15) - 2026-07-21
 
 ### Added
