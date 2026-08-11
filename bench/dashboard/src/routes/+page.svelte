@@ -7,6 +7,7 @@
 	import WarningNotice from '#lib/components/WarningNotice.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import RankRow from '#lib/components/RankRow.svelte';
+	import SaturationCurve from '#lib/components/SaturationCurve.svelte';
 	import VerdictStrip from '#lib/components/VerdictStrip.svelte';
 	import HarnessStrip from '#lib/components/HarnessStrip.svelte';
 	import RunList from '#lib/components/RunList.svelte';
@@ -72,6 +73,32 @@
 				</EmptyState>
 			</div>
 		{:else}
+			<!--
+				The thesis, before the table. A ranking's headline is a claim; this ramp is the evidence
+				for it, and it is the shape the whole suite exists to find — throughput climbing, going
+				flat, and latency turning up underneath. Leading with the winner's curve makes the page
+				open on a finding rather than on controls.
+			-->
+			{#if view.leaderCurve}
+				{@const lead = view.leaderCurve}
+				<section class="border-border mt-5 border" aria-label="leading target's ramp">
+					<div
+						class="border-border flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b px-5 py-3"
+					>
+						<h2 class="text-lead text-foreground font-medium">
+							{lead.name}
+							<span class="text-meta text-muted-foreground font-normal">leads this ranking</span>
+						</h2>
+						<p class="text-meta text-muted-foreground">
+							{lead.row.capacity.figure?.text} · {lead.row.capacity.note}
+						</p>
+					</div>
+					<div class="px-5 py-4">
+						<SaturationCurve curve={lead.curve} targetName={lead.name} />
+					</div>
+				</section>
+			{/if}
+
 			<VerdictStrip verdicts={view.verdicts} />
 
 			<!--

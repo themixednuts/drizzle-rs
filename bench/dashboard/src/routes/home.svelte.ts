@@ -22,7 +22,15 @@ import {
 } from '#lib/target-display';
 import { cohortSearchText } from '#lib/cohort-search';
 import { summarizeAll, type QualitativeNote } from '#lib/qualitative';
-import { anyMeasured, capacity, compareCapacity, type CapacityView } from '#lib/saturation';
+import {
+	anyMeasured,
+	buildCurve,
+	capacity,
+	compareCapacity,
+	readSaturation,
+	type CapacityView,
+	type CurveView,
+} from '#lib/saturation';
 import { harnessRows, type HarnessRow } from '#lib/harness';
 import { osScopes, type OsScope } from '#lib/os';
 import type { FilterOption } from '#lib/components/FilterPills.svelte';
@@ -311,6 +319,27 @@ export class RunsPageState {
 	 * the rows underneath it. Null when no row in view carries a figure, in which case the header
 	 * says nothing rather than naming an objective nothing was measured against.
 	 */
+	/**
+	 * The leading row's ramp, drawn above the table.
+	 *
+	 * The page used to open on a filter bar, which is chrome: it tells a reader what they may adjust
+	 * before telling them anything they came to learn. The most characteristic artifact this project
+	 * produces is the ramp — throughput climbing, flattening, and latency turning up underneath it —
+	 * and it is also the evidence for the headline. Leading with the winner's curve states the finding
+	 * and shows its working in one move, and it is the one place on the page where a number is allowed
+	 * to be large.
+	 *
+	 * Only under `sort=capacity`, and only for a row that has a measured peak: a hero is an assertion,
+	 * and asserting a shape for a lower bound would be drawing a conclusion the ramp did not reach.
+	 */
+	get leaderCurve(): { curve: CurveView; name: string; row: RankingRow } | null {
+		if (this.sort !== 'capacity') return null;
+		const top = this.rankingRows.find((row) => row.rank === 1);
+		if (!top || top.capacity.state !== 'measured') return null;
+		const doc = readSaturation(top.summary);
+		return doc ? { curve: buildCurve(doc), name: targetDisplay(top.summary).name, row: top } : null;
+	}
+
 	get capacityObjective(): string | null {
 		for (const summary of this.#scopedResults) {
 			const figure = this.capacity(summary).figure;
