@@ -305,6 +305,21 @@ export class RunsPageState {
 	}
 
 	/**
+	 * The objective every peak figure in this table was measured against, e.g. "at p99 < 25 ms".
+	 *
+	 * It is one value for the whole set, so it belongs in the column header rather than on each of
+	 * the rows underneath it. Null when no row in view carries a figure, in which case the header
+	 * says nothing rather than naming an objective nothing was measured against.
+	 */
+	get capacityObjective(): string | null {
+		for (const summary of this.#scopedResults) {
+			const figure = this.capacity(summary).figure;
+			if (figure) return figure.qualifier;
+		}
+		return null;
+	}
+
+	/**
 	 * Whether this set measured capacity at all.
 	 *
 	 * Computed over the OS scope, not over each `?db=` slice: switching database pills must never

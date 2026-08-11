@@ -38,12 +38,25 @@ export function harnessFor(
 }
 
 /** "1 worker / pool 8 / stock postgres:18-alpine" — the harness as one readable line. */
+/**
+ * The short form: workers and pool, and nothing else.
+ *
+ * The engine tuning used to be concatenated on here, which was fine while it read
+ * "WAL journal" and stopped being fine the moment it grew to name four PostgreSQL
+ * planner settings. One line per group turned into a full-width block per group,
+ * and seven of those sat between the filters and the table a reader came for.
+ * Tuning is reference material — it travels on `HarnessRow.tuning` and is shown
+ * on demand instead.
+ */
 export function harnessSummary(entry: HarnessFamily): string {
 	const workers = `${entry.workers} worker${entry.workers === 1 ? '' : 's'}`;
-	const parts = [workers, `pool ${entry.pool}`];
-	const tuning = entry.tuning.trim();
-	if (tuning) parts.push(tuning);
-	return parts.join(' / ');
+	return `${workers} / pool ${entry.pool}`;
+}
+
+/** Tuning as a trailing clause, so the tooltip keeps what the inline form drops. */
+function tuningClause(tuning: string): string {
+	const trimmed = tuning.trim();
+	return trimmed ? ` on ${trimmed}` : '';
 }
 
 /** One line of the harness strip: a comparison group, and what every row in it ran under. */
@@ -52,8 +65,10 @@ export interface HarnessRow {
 	family: string;
 	/** Display name for the group. Two groups on one database are named apart, deliberately. */
 	label: string;
-	/** The harness, or `null` when this set's manifests never declared one for this family. */
+	/** Workers and pool, or `null` when this set's manifests never declared a harness. */
 	summary: string | null;
+	/** Engine tuning, shown only on demand. Empty when the family declared none. */
+	tuning: string;
 	/**
 	 * Whether the runner verified every target in this family shares the harness. `null` when
 	 * nothing was declared — which is not the same as "verified false" and must not read as it.
@@ -114,6 +129,7 @@ export function harnessRows(
 				family,
 				label: name,
 				summary: null,
+				tuning: '',
 				identical: null,
 				exempt: [],
 				detail: `This set's manifests declare no harness for ${name}, so there is nothing recorded to confirm its rows ran under identical conditions. ${engine}`,
@@ -130,11 +146,12 @@ export function harnessRows(
 			family,
 			label: name,
 			summary,
+			tuning: entry.tuning.trim(),
 			identical: entry.within_family_identical,
 			exempt,
 			detail: entry.within_family_identical
-				? `Every ${name} target ran under ${summary}, verified identical, so the difference between two ${name} rows is a difference between the libraries.${caveat} Targets in other groups ran under their own harness. ${engine}`
-				: `${name} targets did NOT all run under the same harness (${summary} is one of several), so a difference between two ${name} rows may be a harness difference rather than a library one.${caveat} ${engine}`,
+				? `Every ${name} target ran under ${summary}${tuningClause(entry.tuning)}, verified identical, so the difference between two ${name} rows is a difference between the libraries.${caveat} Targets in other groups ran under their own harness. ${engine}`
+				: `${name} targets did NOT all run under the same harness (${summary}${tuningClause(entry.tuning)} is one of several), so a difference between two ${name} rows may be a harness difference rather than a library one.${caveat} ${engine}`,
 		};
 	});
 }

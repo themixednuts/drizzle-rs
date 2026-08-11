@@ -151,7 +151,12 @@
 			{#if showCapacity}
 				<!-- Peak throughput always arrives with its objective attached; `CapacityFigure` is the
 				     only thing on the site that can draw it, so it cannot arrive without. -->
-				<CapacityFigure capacity={row.capacity} align="right" active={sort === 'capacity'} />
+				<CapacityFigure
+					capacity={row.capacity}
+					align="right"
+					active={sort === 'capacity'}
+					showQualifier={false}
+				/>
 			{/if}
 			<span
 				class={cn(
@@ -159,12 +164,11 @@
 					sort === 'throughput' ? 'text-foreground' : 'text-foreground-secondary',
 				)}
 			>
+				<!-- No "at fixed load" caption here: the column is headed that, and repeating it under
+				     every row restated the header once per target for no reader who had not already
+				     read it. On narrow viewports the columns collapse and the figures carry their own
+				     `title` instead. -->
 				{fmtRps(p.rps.avg)}
-				{#if showCapacity}
-					<span class="text-meta text-muted-foreground mt-1 block font-sans font-normal">
-						at fixed load
-					</span>
-				{/if}
 			</span>
 			<span
 				class={cn(
