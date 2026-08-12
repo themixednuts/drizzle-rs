@@ -20,7 +20,15 @@
 </script>
 
 {#if verdicts.length > 0}
+	<!--
+		The subject has to be on screen. Without it a tile reads "PostgreSQL is 1st of 12" when the
+		claim is "drizzle-rs is 1st of 12 on PostgreSQL" — the numbers belong to a library, not to the
+		database named beside them. An earlier pass deleted the heading that carried this as noise,
+		which left the tiles saying something they did not mean. It is a four-word eyebrow now rather
+		than a section heading, because it is a label, not a section.
+	-->
 	<section class="mt-5" aria-label="drizzle-rs standing on each database">
+		<p class="text-meta text-muted-foreground mb-1.5">where drizzle-rs places</p>
 		<ul class="flex flex-wrap gap-2">
 			{#each verdicts as verdict (verdict.db)}
 				<li>
@@ -30,12 +38,18 @@
 						title={verdict.detail}
 						class={cn(
 							'border-border hover:border-input flex items-baseline gap-x-2.5 border px-3 py-1.5 transition-colors',
+							// Selection is the only state that gets a border treatment. A rule that lit up
+							// exactly where drizzle-rs won was an unexplained colour doing self-congratulation
+							// on a benchmark its own authors publish — the standings are already in the text,
+							// and a reader can see a "1st" without being told to feel good about it.
 							verdict.active && 'border-input bg-surface-raised',
-							verdict.leads && 'border-l-primary border-l-[3px]',
 						)}
 					>
 						<span class="text-meta text-foreground-secondary">{verdict.label}</span>
-						<span class={cn('text-body font-medium', verdict.leads && 'text-link')}>
+						<!-- Emphasised because it is the tile's primary number, not because of what it
+						     says. Colouring it only on a win is the same selective self-emphasis as the
+						     rule above, just quieter. -->
+						<span class="text-body text-foreground font-medium">
 							{verdict.standing}
 						</span>
 						{#if verdict.margin}
