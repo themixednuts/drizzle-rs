@@ -14,6 +14,7 @@ import {
 	dbProfileDetail,
 	dbShortLabel,
 	familyLabel,
+	dbEngineClass,
 	isDrizzleRsTarget,
 	isInProcessCache,
 	targetDisplay,
@@ -337,14 +338,45 @@ export class RunsPageState {
 	 * whose job is to be believed cannot open by presenting a cache hit as the fastest way to run a
 	 * query. They keep their row and their rank; what they do not get is the headline.
 	 */
-	get leaderCurve(): { curve: CurveView; name: string; row: RankingRow } | null {
-		if (this.sort !== 'capacity') return null;
+	get leaderCurve(): {
+		curve: CurveView;
+		name: string;
+		row: RankingRow;
+		db: string;
+		engine: string | null;
+		leads: string;
+		figure: string;
+		note: string | null;
+	} | null {
 		const top = this.rankingRows.find(
 			(row) => row.capacity.state === 'measured' && !isInProcessCache(row.summary.target_meta),
 		);
 		if (!top) return null;
 		const doc = readSaturation(top.summary);
-		return doc ? { curve: buildCurve(doc), name: targetDisplay(top.summary).name, row: top } : null;
+		if (!doc) return null;
+
+		// The figure is whichever column the table is ordered by, so the hero never shows a number
+		// the reader did not just choose to sort on.
+		const primary = top.summary.primary;
+		const figure =
+			this.sort === 'latency'
+				? fmtLatency(primary.latency.p95)
+				: this.sort === 'throughput'
+					? fmtRps(primary.rps.avg)
+					: (top.capacity.figure?.text ?? fmtRps(primary.rps.avg));
+		const note =
+			this.sort === 'latency' ? 'p95' : this.sort === 'throughput' ? null : top.capacity.note;
+
+		return {
+			curve: buildCurve(doc),
+			name: targetDisplay(top.summary).name,
+			row: top,
+			db: this.dbName(top.summary),
+			engine: dbEngineClass(dbProfile(top.summary)),
+			leads: SORT_LABELS[this.sort].label,
+			figure,
+			note,
+		};
 	}
 
 	get capacityObjective(): string | null {

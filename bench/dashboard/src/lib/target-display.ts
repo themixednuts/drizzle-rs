@@ -97,6 +97,28 @@ const DB_PROFILE_LABELS: Record<DbProfile, string> = {
  * that carries that database — same words, attached to the thing they describe rather than to a
  * position in the layout.
  */
+/**
+ * Whether a query on this engine crosses a process boundary.
+ *
+ * Two words, kept as data rather than read out of the prose above, because it is the single fact
+ * that decides whether two rows are architecturally comparable — an embedded engine answering
+ * without a network hop is not doing the same work as one paying a TCP round trip. Anywhere a
+ * headline puts one library above another across engines, this has to travel with it.
+ *
+ * Engines with no entry are deliberately unclassified rather than guessed: SpacetimeDB runs the
+ * application and the database together, which is neither.
+ */
+const DB_ENGINE_CLASS: Partial<Record<DbProfile, 'embedded' | 'client/server'>> = {
+	sqlite: 'embedded',
+	libsql: 'embedded',
+	turso: 'embedded',
+	postgres: 'client/server',
+};
+
+export function dbEngineClass(profile: DbProfile): 'embedded' | 'client/server' | null {
+	return DB_ENGINE_CLASS[profile] ?? null;
+}
+
 const DB_PROFILE_NOTES: Partial<Record<DbProfile, string>> = {
 	sqlite: 'Embedded engine: queries run in the server process, no network hop.',
 	libsql: 'Embedded engine: queries run in the server process, no network hop.',

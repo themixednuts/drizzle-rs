@@ -87,10 +87,22 @@
 					>
 						<h2 class="text-lead text-foreground font-medium">
 							{lead.name}
-							<span class="text-meta text-muted-foreground font-normal">leads this ranking</span>
+							<span class="text-meta text-muted-foreground font-normal">
+								leads on {lead.leads}
+							</span>
 						</h2>
 						<p class="text-meta text-muted-foreground">
-							{lead.row.capacity.figure?.text} · {lead.row.capacity.note}
+							<!-- The engine class rides with the headline. Leading with an embedded engine over
+							     a client/server one is a real result, but part of it was bought by the absence
+							     of a network hop, and a reader who has to open a row to learn that has already
+							     drawn the conclusion. -->
+							<span class="text-foreground-secondary">{lead.db}</span>{#if lead.engine}<span
+									class="text-muted-foreground"
+								>
+									({lead.engine})</span
+								>{/if}
+							· {lead.figure}{#if lead.note}
+								· {lead.note}{/if}
 						</p>
 					</div>
 					<div class="px-5 py-4">
