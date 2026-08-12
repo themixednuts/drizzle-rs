@@ -654,6 +654,14 @@ jobs:
   # per-family jobs, and they do not replace them. The paced latency reading
   # still comes from the parallel per-family jobs, under its own artifact names,
   # on every event; `slug-suffix: cross` is what keeps the two apart.
+  #
+  # All three share ONE cohort id — do not split it per OS. The dashboard shows a
+  # cohort at a time and scopes the ranking by operating system inside it, so a
+  # per-OS cohort id splits the three rankings across three cohorts and leaves the
+  # `?os=` pills with a single entry: macOS and Windows become unreachable from
+  # the ranking page, which is the exact thing the scoping was built to offer.
+  # Hardware differences are already carried by the OS badge and the scope's own
+  # provenance line, so the cohort does not need to encode them too.
   # ---------------------------------------------------------------------------
   linux-all:
     name: All families (linux)
@@ -747,7 +755,7 @@ jobs:
           targets: bench/spec/targets.sqlite.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-linux
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           runner-features: libsql
@@ -760,7 +768,7 @@ jobs:
           targets: bench/spec/targets.sqlite-ts.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-linux
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           runner-features: libsql
@@ -773,7 +781,7 @@ jobs:
           targets: bench/spec/targets.libsql.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-linux
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           runner-features: libsql
@@ -786,7 +794,7 @@ jobs:
           targets: bench/spec/targets.turso.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-linux
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           runner-features: libsql
@@ -800,7 +808,7 @@ jobs:
           targets: bench/spec/targets.postgres.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-linux
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           runner-features: libsql
@@ -815,7 +823,7 @@ jobs:
           targets: bench/spec/targets.postgres-rust-orms.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-linux
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           runner-features: libsql
@@ -833,7 +841,7 @@ jobs:
           targets: bench/spec/targets.postgres-ts.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-linux
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           runner-features: libsql
@@ -903,7 +911,7 @@ jobs:
           targets: bench/spec/targets.spacetimedb.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-linux
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           runner-features: libsql
@@ -973,7 +981,7 @@ jobs:
           targets: bench/spec/targets.sqlite.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-${{ matrix.platform }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
 
@@ -986,7 +994,7 @@ jobs:
           targets: bench/spec/targets.sqlite-ts.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-${{ matrix.platform }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
 
@@ -999,7 +1007,7 @@ jobs:
           targets: bench/spec/targets.turso.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-${{ matrix.platform }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           prebuild-manifests: bench/targets/toasty/Cargo.toml
