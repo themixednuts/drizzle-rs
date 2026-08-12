@@ -521,6 +521,11 @@ function driverLabel(value: string): string {
 	if (known === '@prisma/adapter-pg') return 'adapter-pg';
 	if (known === 'tokio-postgres-simple') return 'PGWire';
 	if (known === 'spacetimedb-sdk') return 'SDK';
+	// The synchronous Rust client is the crate literally named `postgres`, which `humanize` turns
+	// into "PostgreSQL" — the database's name, not the driver's. That rendered its row as "query
+	// builder on PostgreSQL" beside a sibling reading "query builder on tokio-postgres", so the two
+	// looked like the same target listed twice instead of the sync and async clients they are.
+	if (known === 'postgres') return 'postgres (sync)';
 	return GROUP_NAMES.get(known) ?? humanize(value);
 }
 
