@@ -343,6 +343,13 @@ Output root:
    describes the resampling, not the target. Use `spread.rps`, `spread.p95`,
    `spread.variance`, and `spread.boxplot`.
 6. `saturation` is emitted only when the workload declares it — see §6c.
+7. `latency` is emitted only when the workload declares the sustained-latency
+   measurement — see §6d. `primary.latency` remains the whole-ramp aggregate;
+   on a ramp that pushes a target past its ceiling it is queueing-dominated by
+   construction, and the sustained reading is the figure that measures the
+   target.
+8. Stages marked `probe: true` are measured and charted but excluded from
+   `summary.primary` — see §6d.
 
 **Breaking artifact change.** `summary.saturation` previously always carried
 `{knee_rps, knee_p95}`. Those keys are **removed**, not deprecated in place, and
@@ -500,6 +507,155 @@ spacing (4, 16, 64, 256, 1024) and 8 s holds, for PR-sized runs.
 
 The whole 9-step ramp is 240 s per trial per target, under the 300 s of the
 existing paced `workload.throughput.v1.json`. The preview is 58 s.
+
+## 6d. Sustained latency: the paced ramp's honest latency figure
+
+### Why the whole-ramp aggregate cannot be the latency headline
+
+`summary.primary.latency` merges the raw samples of every counted hold
+plateau. On a ramp that pushes targets past their throughput ceiling — the
+paced 3000-VU ramp does this to every database-bound target on a 4-core
+colocated runner — the samples above the ceiling are queueing delay, not
+service time: past saturation a closed loop obeys `latency ≈ VUs /
+throughput`, so each further stage adds a fixed increment of queue. A recorded
+publish run made the failure mode concrete: every PostgreSQL target sat within
+a few percent of 1.3k req/s (the shared two cores, not the libraries) while
+the whole-ramp "p95" spread over 2.2–3.3 s and climbed *linearly with the
+stage schedule* — 210 ms at 400 VUs, 650 ms at 1000, 2.2 s at 3000, at flat
+throughput and 100% CPU throughout. Sorting targets by that number is sorting
+by inverted throughput plus ramp overshoot.
+
+`primary.latency` keeps its whole-ramp meaning anyway. The counted stages of
+the paced ramp are a faithful transcription of
+`drizzle-team/drizzle-benchmarks` (`bench.js`: same stage list, same
+`sleep(0.075 * (i % 6))` pacing, and upstream's `prepare.ts` likewise
+aggregates k6 `http_req_duration` across the run), and that comparability is
+worth keeping under its established name. The service-latency figure gets a
+new field instead of silently changing an old one.
+
+### Probe stages: rungs below the historical floor
+
+A stage may declare `"probe": true`. Probe stages are measured — they appear
+in the timeseries (tagged `probe`) and as steps of the curve — but their
+buckets are excluded from `summary.primary`, so the whole-ramp headline keeps
+aggregating exactly the upstream stage list. `workload.throughput.v1.json`
+prepends probe rungs at 25, 50 and 100 VUs ahead of the untouched 200→3000
+ladder.
+
+The rungs are derived from the recorded cohorts, not guessed. The slowest
+measured target tops out near 770 req/s (spacetime-pgwire), and under the
+187.5 ms mean pacing the rungs offer at most `N / 0.1875` — ≤133, ≤267 and
+≤533 req/s respectively, i.e. at worst ~17%, ~35% and ~70% of that ceiling.
+The 25→50 pair is the floor and its corroboration: at ≤35% utilization the
+latency growth needed to fail the tolerance (~23 ms, see below) exceeds any
+plausible queueing at that load by an order of magnitude, for any service
+distribution, so every target — including ones slower than any yet recorded —
+demonstrates scaling there. 100 VUs probes the region between the floor and
+the old 200-VU start so slower targets read at the highest load they actually
+held rather than at an overly conservative floor. Two consequences are
+disclosed rather than hidden: the ladder now spends 60 s of light load before
+the first counted stage (targets arrive at the 200-VU rung warmer than under
+the bare upstream schedule), and timeseries `stage` indices shift by six.
+
+### The measurement
+
+A workload declares:
+
+```json
+"latency": {}
+```
+
+which emits `summary.latency`. The block is empty on purpose: the qualifying
+rule is not a declarable objective but a property of the curve. The steps are
+the hold stages of `workload.stages` (probes included), aggregated exactly
+like the saturation curve (§6c: per-step percentiles from the plateau's merged
+raw samples via `$BENCH_STEPS_OUT`, medianed across trials,
+error-disqualification from `limits.err`).
+
+**A step is *sustained* when it served the throughput the closed loop offered
+it.** In a closed loop, an unsaturated target's per-VU throughput is constant
+in N — `rps(N) = N / (think + latency)` with latency flat — so the floor
+step's measured rate, scaled by concurrency, is exactly what a target that
+kept its floor latency would serve at every higher rung. Each step publishes
+that `offered_rps`, its `retention` (`rps / offered_rps`), and the verdict;
+a step is sustained when retention stays within a tolerance of 1.0 and the
+step's error rate is inside `limits.err`.
+
+**The published figure is read at the ladder's second rung — the fixed
+reference step — not at the last sustained rung.** The last-sustained reading
+sits at the knee, the steepest part of the latency curve, so which rung it
+lands on decides the figure. Replaying that rule over four measured
+full-ladder curves under ±3% per-rung throughput noise (the observed
+cross-trial bound) moved its published p95 by 51–99% on three of the four —
+one target's figure swung between 4.7 ms and 73.2 ms on a one-rung flap —
+while the fixed reference moved ~9%, which is nothing but the injected
+latency noise itself: there is no rung selection left to perturb. The
+last-sustained rule had a second, independent defect: it compared different
+loads across targets — one row's p95 at 800 VUs against another's at 100 —
+which is not an ordering. The reference step reads every target at the same
+offered load, so the ranking column compares like with like. (Interpolating
+latency at a fixed retention crossing was measured too: 38–51% movement,
+because the crossing sits in the steep region; a derived-ceiling utilization
+rule was bimodal, 9% or 52–114%, depending on where its boundary landed
+relative to a rung — any rule that picks a rung near a data-dependent
+boundary inherits the cliff.) Where a target *stopped* scaling remains fully
+published: the curve carries one `sustained` flag per rung.
+
+Why not a latency SLO? An SLO is a proxy for "this figure is service time,
+not queue time", and it fails both ways: a tight ceiling denies slower targets
+any figure at the ladder's floor, and a loose one lets an already-saturated
+step "qualify" — laundering queueing as service time, which is worse than
+reporting nothing. "Served what it was offered" is the direct test, needs no
+threshold on the quantity being reported, and — because the recorded curves
+collapse from ≥0.92 retention to ≤0.66 in a single geometric rung — separates
+the two regimes with a wide margin.
+
+The tolerance (0.10, recorded in the artifact) is derived, not liked: across
+every recorded target and rung, below-knee retention never measured under
+0.92 (median-of-trials wiggle ≤3% on the noisiest host) and first-rung-past-
+the-knee retention never measured above 0.88. What it admits is the
+instrument's resolution limit: a step can hide at most `tol/(1-tol) × (think +
+latency)` ≈ 21 ms of added mean delay before the shortfall trips the
+threshold — queueing below that scale is indistinguishable from service time
+in paced closed-loop throughput data, and the per-rung retention discloses how
+close each reading ran to the limit.
+
+| `outcome` | when | `reference` | how to say it |
+| --- | --- | --- | --- |
+| `measured` | the reference step sustained | the ladder's second rung | "p95 6.5 ms at 50 VUs, serving 254 of 255 offered req/s; sustained through 200 VUs" |
+| `floor_above_knee` | the reference step failed | absent | "the ladder needs lower rungs for this target" |
+| `floor_disqualified` | the floor exceeded `limits.err` | absent | "erroring at the floor; no honest figure exists" |
+
+The floor's retention is 1.0 by identity — it is its own yardstick — so it
+cannot vouch for itself; the reference rung above it is what corroborates
+that the floor sat below the knee, which is also why the reference is the
+lowest rung with a non-vacuous verdict. `floor_above_knee` is therefore a
+finding about the *ladder*, exactly like `did_not_saturate` is about the
+ramp: with the shipped 25-VU floor and its 50-VU reference it requires a
+target slower than ~250 req/s, three times slower than the slowest ever
+recorded, and the fix is a lower rung, never a floor number that may already
+be queue time. A local verification run measured the shipped probe rungs
+directly on four targets (two of them from the slow cohort): every reference
+retention rode at 0.974–0.997 against the 0.90 threshold, and knee positions
+landed where the recorded ceilings predicted.
+
+Unlike `saturation`, the block is legal on a **paced** workload — think time
+caps offered load but does not distort the latency of the requests that are
+sent, and the paced ramp is exactly where the whole-run aggregate misleads.
+(Unpaced, the same criterion still reads correctly: retention reduces to
+`floor latency / step latency`, a pure latency-growth knee test.) The runner
+refuses the block when the ladder has fewer than two hold steps outside the
+warmup window or the steps do not strictly climb, and a load command that does
+not write `$BENCH_STEPS_OUT` fails the run rather than getting an
+approximation (same rule as §6c).
+
+**Which number to read.** "How fast is this library" is
+`summary.latency.reference` quoted with its load ("p95 6.5 ms at 50 VUs") —
+the same offered load for every target, so it orders. "How far does it keep
+scaling" is the curve's per-rung `sustained` flags. "Throughput at the
+upstream benchmark's fixed load" is `summary.primary.rps`.
+`summary.primary.latency` is the whole-ramp, queue-inclusive aggregate and
+should be labelled as such wherever it is shown.
 
 ## 6b. Host and Topology
 

@@ -29,6 +29,23 @@ pub struct Workload {
     /// (see [`Pacing`]) and the runner refuses the combination.
     #[serde(default)]
     pub saturation: Option<SaturationSpec>,
+    /// Declares a service-latency measurement read off the ramp's step curve,
+    /// producing [`SummaryDoc::latency`]. Without it a ramp's only latency
+    /// figure is `primary.latency`, which merges every hold plateau — and on a
+    /// ramp that pushes past a target's ceiling, every second past that ceiling
+    /// contributes `VUs / throughput` of pure queueing delay, so the aggregate
+    /// measures how far the ramp overshot the target rather than how fast the
+    /// target answers. Unlike [`Self::saturation`] this is valid on a paced
+    /// workload: think time caps offered load but does not distort the latency
+    /// of the requests that are sent.
+    #[serde(default)]
+    pub latency: Option<LatencySpec>,
+}
+
+/// True when `probe` is false — the serde skip predicate that keeps the flag
+/// out of every artifact written by a workload that never uses it.
+fn is_false(flag: &bool) -> bool {
+    !*flag
 }
 
 impl Workload {
@@ -47,6 +64,21 @@ impl Workload {
 pub struct SaturationSpec {
     pub slo: Slo,
 }
+
+/// A service-latency measurement declared by the workload.
+///
+/// Like [`SaturationSpec`], the steps are the hold stages of
+/// [`Workload::stages`] — the spec cannot drift from the ramp that runs. The
+/// block is deliberately empty: the measurement has no objective to declare,
+/// because the qualifying rule is not a threshold on latency but a property of
+/// the curve itself — whether the step served the load the closed loop offered
+/// it (see `saturation::sustained_latency`). An SLO here was rejected: any
+/// latency ceiling either denies slower targets a figure at the ladder's floor
+/// or, widened until everyone passes, launders an already-saturated step's
+/// queueing as service time.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LatencySpec {}
 
 /// The latency ceiling a step must stay under to be eligible as the peak.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
@@ -115,6 +147,14 @@ pub struct Stage {
     pub sec: u32,
     pub vus: Option<u32>,
     pub rps: Option<f64>,
+    /// A probe stage is measured — it appears in the timeseries and as a step
+    /// of the curve — but its buckets are excluded from `primary.*`. This is
+    /// what lets the ladder grow rungs below its historical floor without
+    /// changing what the whole-ramp headline aggregates: the counted stages
+    /// stay exactly the upstream stage list, and the probes exist only to give
+    /// the service-latency reading a floor below every target's knee.
+    #[serde(default)]
+    pub probe: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -376,6 +416,14 @@ pub struct SummaryDoc {
     /// render it as "not measured", never as zero.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub saturation: Option<SaturationDoc>,
+    /// Present only when the workload declared the service-latency
+    /// measurement. This — not `primary.latency` — is the latency figure that
+    /// measures the target: it is read at the highest load the target
+    /// demonstrably sustained, while `primary.latency` spans the whole ramp
+    /// and is queueing-dominated on any target the ramp pushed past its
+    /// ceiling.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latency: Option<SustainedLatencyDoc>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -537,6 +585,94 @@ pub struct StepLatencyDoc {
     pub p99: f64,
 }
 
+/// Service latency read at the ladder's fixed reference step, plus the full
+/// sustained-vs-collapsed curve it belongs to.
+///
+/// The whole-ramp aggregate (`primary.latency`) cannot be this number: on a
+/// closed-loop ramp every hold second past a target's ceiling contributes
+/// `VUs / throughput` of queueing delay, so aggregating the ramp ranks targets
+/// by how far the ramp overshot them.
+///
+/// Neither can "the last sustained step". That reading sits *at the knee* —
+/// the steepest part of the latency curve — so which rung it lands on decides
+/// the figure, and rung selection is exactly what run-to-run noise perturbs:
+/// replaying the rule over measured curves under ±3% throughput noise moved
+/// the published p95 by 51-99% (one target swung 4.7 ms ↔ 73.2 ms on a
+/// one-rung flap). It also compared different loads across targets — one
+/// row's p95 at 800 VUs against another's at 100 — which is not an ordering.
+/// Reading at the fixed reference step removes both defects: the same
+/// perturbation moves the figure only as much as the latency measurement
+/// noise itself (~9%), and every target is read at the same offered load.
+/// Where the target *stopped* scaling is still published, per rung, in the
+/// curve.
+#[derive(Debug, Serialize, Clone)]
+pub struct SustainedLatencyDoc {
+    /// The retention a step must keep to count as sustained (see
+    /// `saturation::SUSTAINED_TOLERANCE` for the derivation).
+    pub tolerance: f64,
+    pub outcome: SustainedOutcome,
+    /// The reading step: always the ladder's second rung, the lowest step
+    /// with a non-vacuous sustained verdict. The ladder places it well below
+    /// every plausible knee (≤35% utilization of the slowest recorded
+    /// target's ceiling), so its own retention rides far from the tolerance
+    /// threshold and the reading cannot flap between rungs. Present iff
+    /// `outcome == "measured"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reference: Option<SustainedStepDoc>,
+    /// Every measured step, ascending by concurrency, failures included.
+    /// Latency-vs-concurrency and retention-vs-concurrency are what make the
+    /// headline checkable, and the per-rung `sustained` flags carry what the
+    /// old knee reading claimed to: how far up the ladder the target kept
+    /// serving its scaled demand.
+    pub curve: Vec<SustainedStepDoc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SustainedOutcome {
+    /// The reference step sustained its floor-scaled demand cleanly:
+    /// `reference` carries the figure.
+    Measured,
+    /// The step above the floor — the reference itself — already failed to
+    /// sustain: collapsed retention, or an error disqualification, whose
+    /// throughput includes shed load and is inadmissible as scaling evidence.
+    /// The floor's own latency cannot be told apart from queueing (the floor
+    /// is the yardstick the reference is judged against, so it cannot vouch
+    /// for itself). The ladder needs lower rungs for this target; publishing
+    /// the floor anyway would report a number that may already be queue time.
+    FloorAboveKnee,
+    /// The floor step exceeded the error limit. Errors are shed load, and the
+    /// latency of the surviving requests is survivorship-biased, so there is
+    /// no honest figure to publish.
+    FloorDisqualified,
+}
+
+/// One step of the sustained-latency curve.
+///
+/// Extends the shared step shape with the two numbers the qualifying rule is
+/// made of, so the artifact carries its own audit trail.
+#[derive(Debug, Serialize, Clone)]
+pub struct SustainedStepDoc {
+    pub concurrency: u32,
+    pub rps: f64,
+    /// The throughput this step was offered: the floor step's measured rate
+    /// scaled by concurrency (`rps_floor * concurrency / concurrency_floor`).
+    /// In a closed loop this is what a target that kept its floor latency
+    /// would have served.
+    pub offered_rps: f64,
+    /// `rps / offered_rps` — the share of the offered load actually served.
+    pub retention: f64,
+    pub latency: StepLatencyDoc,
+    pub cpu: f64,
+    pub err: f64,
+    /// Whether this step counts as sustained: retention within tolerance and
+    /// error rate inside the limit.
+    pub sustained: bool,
+    /// Why this step can never be the reading point, or `null`. Always
+    /// serialized so a consumer can rely on the key being present.
+    pub disqualified: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TimeseriesDoc {
     pub version: &'static str,
@@ -589,6 +725,11 @@ pub struct Point {
     /// saturation curve. Absent on aggregates, which span several VU counts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vus: Option<u32>,
+    /// True when this bucket came from a probe stage: measured and charted,
+    /// but excluded from `primary.*`. Serialized only when set, so artifacts
+    /// from workloads without probe stages are byte-identical to before.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub probe: bool,
     /// Completed requests counted in this bucket (the aggregation weight).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requests: Option<u64>,

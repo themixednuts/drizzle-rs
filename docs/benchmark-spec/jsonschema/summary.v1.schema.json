@@ -204,6 +204,10 @@
     "saturation": {
       "$ref": "#/$defs/saturation",
       "description": "Peak throughput under the workload's declared latency SLO. Emitted ONLY when the workload declared `saturation`; a paced run has no capacity number and the key is then absent, which consumers must render as \"not measured\" and never as zero. BREAKING: runs recorded before the saturation suite carry a `{knee_rps, knee_p95}` object here instead and no longer validate — that heuristic ran on paced workloads, where throughput is capped by the load generator's own sleep timer, so its \"knee\" described the sleep timer rather than the target. Those keys are gone rather than deprecated in place, so there is exactly one saturation concept in this artifact."
+    },
+    "latency": {
+      "$ref": "#/$defs/latency",
+      "description": "Service latency read at the ladder's fixed reference step, plus the full sustained-vs-collapsed curve. Emitted ONLY when the workload declared `latency`. This — not `primary.latency` — is the latency figure that measures the target: `primary.latency` merges the raw samples of every counted hold plateau, and once the ramp pushes a target past its throughput ceiling each further second contributes VUs/throughput of pure queueing delay, so the whole-ramp percentile ranks targets by how far the ramp overshot them (a closed ramp to 3000 VUs put every ~1.3k-rps PostgreSQL target at a 2-3 s \"p95\" that said nothing about the libraries). `primary.latency` keeps its whole-ramp meaning for comparability with the upstream drizzle-benchmarks method; consumers wanting service latency read this block."
     }
   },
   "$defs": {
@@ -217,28 +221,8 @@
       ],
       "properties": {
         "slo": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "Copied from the workload. The headline is only meaningful quoted with it: \"peak throughput at p99 < 50 ms\".",
-          "required": [
-            "metric",
-            "ms"
-          ],
-          "properties": {
-            "metric": {
-              "type": "string",
-              "enum": [
-                "p50",
-                "p90",
-                "p95",
-                "p99"
-              ]
-            },
-            "ms": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            }
-          }
+          "$ref": "#/$defs/slo",
+          "description": "Copied from the workload. The headline is only meaningful quoted with it: \"peak throughput at p99 < 50 ms\"."
         },
         "outcome": {
           "type": "string",
@@ -250,38 +234,8 @@
           ]
         },
         "peak": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "The qualifying step (SLO met AND not disqualified) with the HIGHEST THROUGHPUT; ties break toward the lower concurrency. Not the widest qualifying step: a closed-loop curve dips once the pool saturates, so the last step to survive the SLO is often slower than an earlier one, and reporting it under the name \"peak throughput\" would understate the target. `concurrency` is therefore where the maximum occurred and may sit mid-curve. Present if and only if outcome is `saturated`.",
-          "required": [
-            "concurrency",
-            "rps",
-            "latency",
-            "cpu",
-            "err"
-          ],
-          "properties": {
-            "concurrency": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "rps": {
-              "type": "number",
-              "minimum": 0
-            },
-            "latency": {
-              "$ref": "#/$defs/step_latency"
-            },
-            "cpu": {
-              "type": "number",
-              "minimum": 0
-            },
-            "err": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            }
-          }
+          "$ref": "#/$defs/step_point",
+          "description": "The qualifying step (SLO met AND not disqualified) with the HIGHEST THROUGHPUT; ties break toward the lower concurrency. Not the widest qualifying step: a closed-loop curve dips once the pool saturates, so the last step to survive the SLO is often slower than an earlier one, and reporting it under the name \"peak throughput\" would understate the target. `concurrency` is therefore where the maximum occurred and may sit mid-curve. Present if and only if outcome is `saturated`."
         },
         "lower_bound_rps": {
           "type": "number",
@@ -293,47 +247,198 @@
           "minItems": 1,
           "description": "Every measured step, ascending by concurrency, breaches and disqualifications included. This is the throughput-vs-concurrency curve and it is what makes the headline checkable.",
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "concurrency",
-              "rps",
-              "latency",
-              "err",
-              "cpu",
-              "slo_met",
-              "disqualified"
-            ],
-            "properties": {
-              "concurrency": {
-                "type": "integer",
-                "minimum": 1
-              },
-              "rps": {
-                "type": "number",
-                "minimum": 0
-              },
-              "latency": {
-                "$ref": "#/$defs/step_latency"
-              },
-              "err": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 1
-              },
-              "cpu": {
-                "type": "number",
-                "minimum": 0
-              },
-              "slo_met": {
-                "type": "boolean"
-              },
-              "disqualified": {
-                "type": ["string", "null"],
-                "description": "Why this step can never be the peak, e.g. \"error rate 3.20% exceeds limit 1.00%\", or null. Always present so consumers can rely on the key; a disqualified step is still charted, never silently dropped."
-              }
-            }
+            "$ref": "#/$defs/curve_step"
           }
+        }
+      }
+    },
+    "latency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tolerance",
+        "outcome",
+        "curve"
+      ],
+      "properties": {
+        "tolerance": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "description": "How far a step's throughput may fall short of its floor-scaled demand and still count as sustained. A measurement constant, recorded so the artifact is self-describing; see the runner's SUSTAINED_TOLERANCE for the derivation from the recorded retention distribution."
+        },
+        "outcome": {
+          "type": "string",
+          "description": "measured: the reference step sustained its floor-scaled demand and `reference` carries the figure. floor_above_knee: the step above the floor — the reference itself — already failed to sustain, so the floor's own latency cannot be told apart from queueing (the floor is the yardstick the reference is judged against and cannot vouch for itself); the ladder needs lower rungs for this target, and no figure is published. floor_disqualified: the floor exceeded the error limit; errors are shed load and survivor latency is biased, so no honest figure exists.",
+          "enum": [
+            "measured",
+            "floor_above_knee",
+            "floor_disqualified"
+          ]
+        },
+        "reference": {
+          "$ref": "#/$defs/sustained_step",
+          "description": "The reading step: always the ladder's SECOND rung, the lowest step with a non-vacuous sustained verdict. Deliberately not the last sustained rung: that reading sits at the knee — the steepest part of the latency curve — so which rung it lands on decides the figure, and replaying it over measured curves under ±3% throughput noise moved the published p95 by 51-99% (one target swung 4.7 ms ↔ 73.2 ms on a one-rung flap); it also compared different loads across targets, which is not an ordering. The fixed reference has no rung selection to perturb and reads every target at the same offered load; the ladder places it at ≤35% utilization of the slowest recorded ceiling, so its retention rides far from the tolerance threshold. Rank on `reference.latency.p95`. Present iff outcome is `measured`."
+        },
+        "curve": {
+          "type": "array",
+          "minItems": 2,
+          "description": "Every measured step, ascending by concurrency, failures included. Each step carries the criterion's own inputs (offered_rps, retention), so the reading is auditable from the artifact alone.",
+          "items": {
+            "$ref": "#/$defs/sustained_step"
+          }
+        }
+      }
+    },
+    "slo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metric",
+        "ms"
+      ],
+      "properties": {
+        "metric": {
+          "type": "string",
+          "enum": [
+            "p50",
+            "p90",
+            "p95",
+            "p99"
+          ]
+        },
+        "ms": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "step_point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "concurrency",
+        "rps",
+        "latency",
+        "cpu",
+        "err"
+      ],
+      "properties": {
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rps": {
+          "type": "number",
+          "minimum": 0
+        },
+        "latency": {
+          "$ref": "#/$defs/step_latency"
+        },
+        "cpu": {
+          "type": "number",
+          "minimum": 0
+        },
+        "err": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "curve_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "concurrency",
+        "rps",
+        "latency",
+        "err",
+        "cpu",
+        "slo_met",
+        "disqualified"
+      ],
+      "properties": {
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rps": {
+          "type": "number",
+          "minimum": 0
+        },
+        "latency": {
+          "$ref": "#/$defs/step_latency"
+        },
+        "err": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "cpu": {
+          "type": "number",
+          "minimum": 0
+        },
+        "slo_met": {
+          "type": "boolean"
+        },
+        "disqualified": {
+          "type": ["string", "null"],
+          "description": "Why this step can never be the reading point, e.g. \"error rate 3.20% exceeds limit 1.00%\", or null. Always present so consumers can rely on the key; a disqualified step is still charted, never silently dropped."
+        }
+      }
+    },
+    "sustained_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "concurrency",
+        "rps",
+        "offered_rps",
+        "retention",
+        "latency",
+        "cpu",
+        "err",
+        "sustained",
+        "disqualified"
+      ],
+      "properties": {
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rps": {
+          "type": "number",
+          "minimum": 0
+        },
+        "offered_rps": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The throughput this step was offered: the floor step's measured rate scaled by concurrency. In a closed loop this is exactly what a target that kept its floor latency would have served at this VU count."
+        },
+        "retention": {
+          "type": "number",
+          "minimum": 0,
+          "description": "rps / offered_rps — the share of the offered load actually served. 1.0 on the floor step by identity (it is its own reference). A step is sustained when this stays within the tolerance."
+        },
+        "latency": {
+          "$ref": "#/$defs/step_latency"
+        },
+        "cpu": {
+          "type": "number",
+          "minimum": 0
+        },
+        "err": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "sustained": {
+          "type": "boolean"
+        },
+        "disqualified": {
+          "type": ["string", "null"],
+          "description": "Why this step can never be the reading point, or null. Always present so consumers can rely on the key."
         }
       }
     },

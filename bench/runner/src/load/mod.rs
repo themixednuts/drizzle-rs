@@ -553,6 +553,7 @@ impl Bucket {
             stage: Some(plan.stage),
             phase: Some(plan.phase),
             vus: Some(plan.vus),
+            probe: plan.probe,
             requests: Some(self.requests),
             queries: query_points(keys, &self.queries, self.wall),
         }
@@ -569,6 +570,7 @@ struct Window {
     stage: Option<u32>,
     phase: Option<Phase>,
     vus: Option<u32>,
+    probe: bool,
     time: String,
     queries: Vec<QueryBucket>,
     requests: u64,
@@ -580,11 +582,18 @@ struct Window {
 }
 
 impl Window {
-    fn new(queries: usize, stage: Option<u32>, phase: Option<Phase>, vus: Option<u32>) -> Self {
+    fn new(
+        queries: usize,
+        stage: Option<u32>,
+        phase: Option<Phase>,
+        vus: Option<u32>,
+        probe: bool,
+    ) -> Self {
         Self {
             stage,
             phase,
             vus,
+            probe,
             time: String::new(),
             queries: vec![QueryBucket::default(); queries],
             requests: 0,
@@ -654,6 +663,7 @@ impl Window {
             stage: self.stage,
             phase: self.phase,
             vus: self.vus,
+            probe: self.probe,
             requests: Some(self.requests),
             queries: query_points(keys, &self.queries, wall),
         }
@@ -675,6 +685,9 @@ pub(crate) struct SecondPlan {
     pub(crate) vus: u32,
     pub(crate) stage: u32,
     pub(crate) phase: Phase,
+    /// From `Stage::probe`: measured and charted, excluded from the primary
+    /// aggregate.
+    pub(crate) probe: bool,
 }
 
 /// The per-second plan a workload will actually run.
@@ -743,9 +756,24 @@ async fn measure_vus_async(
     }
     // A workload shorter than its own warmup (smoke tests, 1s previews) has no
     // steady state to restrict to; fall back to counting every bucket rather
-    // than reporting an empty aggregate.
+    // than reporting an empty aggregate. Probe plateaus are steady state but
+    // deliberately outside the primary aggregate — they exist to give the
+    // step curve a floor below every target's knee without changing what the
+    // whole-ramp headline averages — so the fallback ladder is: counted holds,
+    // then any hold, then everything.
+    let has_counted_hold = schedule
+        .iter()
+        .any(|plan| plan.phase == Phase::Hold && !plan.probe);
     let has_hold = schedule.iter().any(|plan| plan.phase == Phase::Hold);
-    let counts_toward_aggregate = |phase: Phase| -> bool { !has_hold || phase == Phase::Hold };
+    let counts_toward_aggregate = |plan: SecondPlan| -> bool {
+        if has_counted_hold {
+            plan.phase == Phase::Hold && !plan.probe
+        } else if has_hold {
+            plan.phase == Phase::Hold
+        } else {
+            true
+        }
+    };
 
     let bucket_s = workload.sampling.bucket_s.max(1) as usize;
     let (mut plans, query_keys) = request_plan(requests);
@@ -769,7 +797,7 @@ async fn measure_vus_async(
     let mut workers: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     let mut series: Vec<Point> = Vec::new();
 
-    let mut aggregate = Window::new(query_keys.len(), None, None, None);
+    let mut aggregate = Window::new(query_keys.len(), None, None, None, false);
     // One window per hold plateau, in the order the ramp visits them. These are
     // the steps of the saturation curve; the aggregate spans all of them.
     let mut steps: Vec<Window> = Vec::new();
@@ -886,7 +914,7 @@ async fn measure_vus_async(
             mem_mb: snapshot.mem_mb,
         };
 
-        if counts_toward_aggregate(plan.phase) {
+        if counts_toward_aggregate(plan) {
             aggregate.absorb(&bucket);
         }
         // A step is one hold plateau. Ramp and warmup buckets are charted but
@@ -900,6 +928,7 @@ async fn measure_vus_async(
                         Some(plan.stage),
                         Some(Phase::Hold),
                         Some(plan.vus),
+                        plan.probe,
                     ));
                     steps.last_mut().expect("just pushed")
                 }
@@ -992,6 +1021,7 @@ fn build_schedule(stages: &[Stage], ramping: bool, warmup_s: u32) -> Vec<SecondP
                     vus: vus.round() as u32,
                     stage: stage_idx,
                     phase,
+                    probe: stage.probe,
                 });
             }
         } else {
@@ -1000,6 +1030,7 @@ fn build_schedule(stages: &[Stage], ramping: bool, warmup_s: u32) -> Vec<SecondP
                     vus: target,
                     stage: stage_idx,
                     phase,
+                    probe: stage.probe,
                 });
             }
         }
@@ -1628,7 +1659,29 @@ mod tests {
             sec,
             vus: Some(vus),
             rps: None,
+            probe: false,
         }
+    }
+
+    fn probe_stage(sec: u32, vus: u32) -> Stage {
+        Stage {
+            probe: true,
+            ..stage(sec, vus)
+        }
+    }
+
+    #[test]
+    fn probe_stages_are_tagged_through_the_schedule() {
+        // A probe rung is scheduled exactly like any other stage — ramped into,
+        // then held — and every second it contributes carries the flag, so the
+        // aggregate can skip it and the emitted buckets disclose it.
+        let schedule = build_schedule(&[probe_stage(2, 50), stage(2, 100)], true, 0);
+
+        assert_eq!(
+            schedule.iter().map(|slot| slot.probe).collect::<Vec<_>>(),
+            vec![true, true, false, false]
+        );
+        assert_eq!(vus_of(&schedule), vec![25, 50, 75, 100]);
     }
 
     fn vus_of(schedule: &[SecondPlan]) -> Vec<u32> {

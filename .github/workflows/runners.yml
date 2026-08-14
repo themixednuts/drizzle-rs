@@ -209,8 +209,10 @@ jobs:
           - os: macos-latest
             platform: macos
     runs-on: ${{ matrix.os }}
-    # ~6 min per trial per target on the full workload; 4 targets x 5 trials
-    # plus a cold release build. Preview runs are a tenth of that.
+    # ~8 min per trial per target on the full workload (400 s of stages — the
+    # three sub-floor probe rungs add 60 s — plus spawn/seed/teardown
+    # overhead); 4 targets x 5 trials plus a cold release build. Preview runs
+    # are a tenth of that.
     timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 240 }}
 
     steps:

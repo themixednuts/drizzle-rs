@@ -19,6 +19,18 @@ default = []
 # Windows/macOS SQLite jobs must stay unaffected. Enabling it links libsql-ffi
 # alongside rusqlite's bundled SQLite, which only works while the workspace
 # stays on rusqlite 0.39 (see the pin comment in the root Cargo.toml).
+#
+# Windows/MSVC builds of this feature can fail *intermittently on the first
+# build* with `assertion failed: Build::new()...arg("-o").arg(rlemon...)` from
+# libsql-sqlite3-parser's build script. That script compiles its `lemon` tool
+# with `cl -o`, and cl writes the intermediate `lemon.obj` into the build
+# script's cwd — the shared registry source dir — while cargo schedules the
+# script for two dependency configurations in parallel; the two cl processes
+# race on that one path. Rerunning the build succeeds (only the lost
+# configuration reruns, alone). The real fix is upstream: the script needs
+# `.current_dir(&out_dir)` (or an explicit `/Fo`) so each configuration keeps
+# its object file in its own OUT_DIR. gcc/clang emit no cwd intermediate, so
+# Linux/macOS never see this.
 libsql = ["dep:libsql", "drizzle/libsql"]
 
 [dependencies]

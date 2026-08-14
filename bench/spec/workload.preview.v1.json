@@ -18,8 +18,12 @@
     "endpoint": null
   },
   "stages": [
-    { "sec": 3, "vus": 16 },
-    { "sec": 7, "vus": 16 },
+    { "sec": 3, "vus": 4, "probe": true },
+    { "sec": 7, "vus": 4, "probe": true },
+    { "sec": 3, "vus": 8, "probe": true },
+    { "sec": 7, "vus": 8, "probe": true },
+    { "sec": 3, "vus": 16, "probe": true },
+    { "sec": 7, "vus": 16, "probe": true },
     { "sec": 3, "vus": 32 },
     { "sec": 7, "vus": 32 },
     { "sec": 3, "vus": 64 },
@@ -45,5 +49,6 @@
   "limits": {
     "err": 0.01,
     "p95": null
-  }
+  },
+  "latency": {}
 }

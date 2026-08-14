@@ -1,4 +1,14 @@
-//! Peak throughput under a declared latency SLO.
+//! Readings off the per-step curve of a concurrency ramp.
+//!
+//! Two measurements live here because they share one substrate — the per-step
+//! (hold-plateau) aggregates every trial emits:
+//!
+//! - [`measure`]: **peak throughput** under a declared latency SLO, for the
+//!   unpaced saturation suite.
+//! - [`sustained_latency`]: **service latency at the ladder's fixed reference
+//!   step**, judged against the curve of floor-scaled demand, for ramps whose
+//!   whole-run latency aggregate would otherwise be dominated by queueing
+//!   (see that function's docs).
 //!
 //! # The measurement
 //!
@@ -35,7 +45,8 @@
 
 use crate::code::{Code, Fail};
 use crate::model::{
-    CurveStepDoc, Limits, Outcome, PeakDoc, Point, SaturationDoc, SaturationSpec, StepLatencyDoc,
+    CurveStepDoc, Limits, Outcome, PeakDoc, Point, SaturationDoc, SaturationSpec, Slo,
+    StepLatencyDoc, SustainedLatencyDoc, SustainedOutcome, SustainedStepDoc,
 };
 use crate::stats::{avg, median};
 
@@ -71,7 +82,7 @@ pub fn measure(
     let curve = ladder
         .iter()
         .enumerate()
-        .map(|(idx, &concurrency)| step(spec, limits, concurrency, idx, trials))
+        .map(|(idx, &concurrency)| step(spec.slo, limits, concurrency, idx, trials))
         .collect::<Vec<_>>();
 
     // Peak throughput means the most throughput, not the most concurrency. A
@@ -156,6 +167,135 @@ pub fn measure(
     })
 }
 
+/// How far a step's throughput may fall short of its floor-scaled demand and
+/// still count as sustained.
+///
+/// In a closed loop, an unsaturated target's per-VU throughput is constant in
+/// N — `rps(N) = N / (think + latency)` with latency flat — so throughput
+/// retention relative to the ladder's floor is 1.0 until the knee and
+/// collapses past it. The recorded publish cohorts put numbers on both sides:
+/// across every target and rung, retention on rungs below the knee never
+/// measured under 0.92 (cross-trial medians; the wiggle on the noisiest host
+/// was ≤3%), while the first rung past the knee never measured above 0.88 and
+/// was usually ≤0.66, because the ladder's geometric spacing crosses the knee
+/// in one rung. 0.10 sits in that gap with margin on both sides: more than 3x
+/// the observed median-of-trials noise, and below every observed post-knee
+/// retention.
+///
+/// What the tolerance admits is bounded too, and it is the instrument's
+/// resolution limit: a rung can hide at most `tol/(1-tol) * (think + latency)`
+/// of added delay — ~21 ms of mean queueing under the 187.5 ms pacing — before
+/// its throughput shortfall trips this threshold. Queueing below that scale is
+/// indistinguishable from service time in paced closed-loop throughput data;
+/// the published retention discloses per rung how close to the limit the
+/// reading ran.
+pub const SUSTAINED_TOLERANCE: f64 = 0.10;
+
+/// Read the target's service latency at the ladder's fixed reference step,
+/// and judge every step of the curve against its floor-scaled demand.
+///
+/// A step's *offered* throughput is the floor step's measured rate scaled by
+/// concurrency: in a closed loop, that is exactly what a target that kept its
+/// floor latency would serve at that VU count. A step is **sustained** when it
+/// served that demand within [`SUSTAINED_TOLERANCE`] and stayed inside the
+/// error limit. This is deliberately not a latency SLO: any fixed latency
+/// ceiling either denies slower targets a figure at the ladder's floor or,
+/// widened until everyone passes, launders a saturated step's queueing as
+/// service time. "Served what it was offered" needs no threshold on the
+/// quantity being reported.
+///
+/// The published figure is read at the **second rung of the ladder** — the
+/// lowest step with a non-vacuous sustained verdict — and not at the last
+/// sustained rung. The last-sustained reading sits at the knee, the steepest
+/// part of the latency curve, so which rung it lands on decides the figure;
+/// replaying that rule over measured curves under ±3% throughput noise moved
+/// the published p95 by 51-99% (one target swung 4.7 ms ↔ 73.2 ms on a
+/// one-rung flap), and it compared different loads across targets — one row
+/// read at 800 VUs against another at 100, which is not an ordering. The
+/// fixed reference has no rung selection to perturb (measured figure movement
+/// under the same noise: ~the latency noise itself) and reads every target at
+/// the same offered load. The ladder places it at ≤35% utilization of the
+/// slowest recorded target's ceiling, so its own retention rides far above
+/// the tolerance threshold. Where a target *stopped* scaling stays in the
+/// curve, one `sustained` flag per rung.
+///
+/// The floor itself sustains by identity (its retention is 1.0 against its own
+/// rate), so it cannot vouch for itself; the reference step above it is what
+/// corroborates that the floor sat below the knee. When the reference fails,
+/// no figure is published: the floor's latency cannot be told apart from
+/// queueing, and the honest fix is a ladder with lower rungs, not a floor
+/// number that may already be queue time.
+///
+/// # Errors
+///
+/// Same contract as [`measure`], plus the ladder must have at least two steps
+/// — a single rung has nothing to corroborate its floor against.
+pub fn sustained_latency(
+    target_id: &str,
+    limits: &Limits,
+    trials: &[&[Point]],
+) -> Result<SustainedLatencyDoc, Fail> {
+    let ladder = verified_ladder(target_id, trials)?;
+    if ladder.len() < 2 {
+        return Err(Fail::new(
+            Code::AggregateFail,
+            format!(
+                "target {target_id} measured only {} step(s); the sustained-latency \
+                 reading needs at least two — the floor is the reference other \
+                 steps are judged against, so it cannot corroborate itself",
+                ladder.len()
+            ),
+        ));
+    }
+
+    let stats: Vec<(u32, StepStats)> = ladder
+        .iter()
+        .enumerate()
+        .map(|(idx, &concurrency)| (concurrency, step_stats(limits, idx, trials)))
+        .collect();
+
+    let (floor_vus, floor) = &stats[0];
+    let floor_per_vu = floor.rps / f64::from(*floor_vus);
+
+    let curve: Vec<SustainedStepDoc> = stats
+        .iter()
+        .map(|(concurrency, step)| {
+            let offered_rps = floor_per_vu * f64::from(*concurrency);
+            let retention = if offered_rps > 0.0 {
+                step.rps / offered_rps
+            } else {
+                0.0
+            };
+            SustainedStepDoc {
+                concurrency: *concurrency,
+                rps: step.rps,
+                offered_rps,
+                retention,
+                latency: step.latency,
+                cpu: step.cpu,
+                err: step.err,
+                sustained: retention >= 1.0 - SUSTAINED_TOLERANCE && step.disqualified.is_none(),
+                disqualified: step.disqualified.clone(),
+            }
+        })
+        .collect();
+
+    let (outcome, reference) = if curve[0].disqualified.is_some() {
+        (SustainedOutcome::FloorDisqualified, None)
+    } else if !curve[1].sustained {
+        (SustainedOutcome::FloorAboveKnee, None)
+    } else {
+        (SustainedOutcome::Measured, Some(curve[1].clone()))
+    };
+
+    Ok(SustainedLatencyDoc {
+        tolerance: SUSTAINED_TOLERANCE,
+        outcome,
+        reference,
+        curve,
+    })
+}
+
 /// The concurrency of every step, ascending, with every step verified complete
 /// and the ladder verified identical across trials.
 ///
@@ -222,14 +362,18 @@ fn verified_ladder(target_id: &str, trials: &[&[Point]]) -> Result<Vec<u32>, Fai
     })
 }
 
-/// Combine one step across trials and judge it against the SLO and error limit.
-fn step(
-    spec: &SaturationSpec,
-    limits: &Limits,
-    concurrency: u32,
-    idx: usize,
-    trials: &[&[Point]],
-) -> CurveStepDoc {
+/// One step's cross-trial aggregates, before either measurement judges it.
+struct StepStats {
+    rps: f64,
+    latency: StepLatencyDoc,
+    err: f64,
+    cpu: f64,
+    disqualified: Option<String>,
+}
+
+/// Combine one step across trials: the median of the per-trial values, plus
+/// the error-limit disqualification both measurements share.
+fn step_stats(limits: &Limits, idx: usize, trials: &[&[Point]]) -> StepStats {
     let points: Vec<&Point> = trials.iter().map(|steps| &steps[idx]).collect();
     let per_trial =
         |value: fn(&Point) -> f64| median(&points.iter().copied().map(value).collect::<Vec<_>>());
@@ -245,13 +389,11 @@ fn step(
     };
     let err = per_trial(|point| point.err);
 
-    CurveStepDoc {
-        concurrency,
+    StepStats {
         rps: per_trial(|point| point.rps),
         latency,
         err,
         cpu: per_trial(|point| avg(&point.cpu)),
-        slo_met: spec.slo.metric.of(&latency) <= spec.slo.ms,
         disqualified: (err > limits.err).then(|| {
             format!(
                 "error rate {:.2}% exceeds limit {:.2}%",
@@ -259,6 +401,26 @@ fn step(
                 limits.err * 100.0
             )
         }),
+    }
+}
+
+/// Combine one step across trials and judge it against the SLO and error limit.
+fn step(
+    slo: Slo,
+    limits: &Limits,
+    concurrency: u32,
+    idx: usize,
+    trials: &[&[Point]],
+) -> CurveStepDoc {
+    let stats = step_stats(limits, idx, trials);
+    CurveStepDoc {
+        concurrency,
+        rps: stats.rps,
+        latency: stats.latency,
+        err: stats.err,
+        cpu: stats.cpu,
+        slo_met: slo.metric.of(&stats.latency) <= slo.ms,
+        disqualified: stats.disqualified,
     }
 }
 
@@ -304,6 +466,7 @@ mod tests {
             stage: None,
             phase: Some(Phase::Hold),
             vus: Some(vus),
+            probe: false,
             requests: Some(rps as u64),
             queries: Vec::new(),
         }
@@ -592,6 +755,219 @@ mod tests {
         let err = measure("t", &spec(50.0), &limits(0.01), &[steps.as_slice()])
             .expect_err("missing vus must fail");
         assert!(err.msg.contains("without a concurrency"), "{}", err.msg);
+    }
+
+    fn sustained(steps: &[Point]) -> SustainedLatencyDoc {
+        sustained_latency("t", &limits(0.01), &[steps]).expect("sustained latency")
+    }
+
+    /// The figure is read at the ladder's second rung — the lowest step with a
+    /// non-vacuous sustained verdict — not at the knee. The knee still shows
+    /// in the curve's per-rung flags; it just cannot decide the headline.
+    #[test]
+    fn latency_is_read_at_the_fixed_reference_step() {
+        let steps = [
+            point(50, 260.0, 10.0, 0.0),
+            point(100, 512.0, 12.0, 0.0), // retention 0.98 — the reference
+            point(200, 940.0, 40.0, 0.0), // retention 0.90 — still sustained
+            point(400, 1_300.0, 500.0, 0.0), // retention 0.63 — the knee
+        ];
+        let doc = sustained(&steps);
+
+        assert_eq!(doc.outcome, SustainedOutcome::Measured);
+        let reference = doc.reference.expect("reference");
+        assert_eq!(reference.concurrency, 100);
+        assert_eq!(reference.latency.p95, 12.0 * 0.8); // p95 = 0.8 * p99 in `point`
+        // The criterion's inputs are published on every rung.
+        assert_eq!(doc.tolerance, SUSTAINED_TOLERANCE);
+        assert_eq!(doc.curve[2].offered_rps, 1_040.0); // 260/50 * 200
+        assert!((doc.curve[2].retention - 940.0 / 1_040.0).abs() < 1e-12);
+        assert_eq!(
+            doc.curve.iter().map(|s| s.sustained).collect::<Vec<_>>(),
+            vec![true, true, true, false]
+        );
+    }
+
+    /// The defect that retired the last-sustained-rung reading: the knee is
+    /// the steepest part of the latency curve, so a one-rung flap there moved
+    /// the published figure by 51-99% in replays over measured curves. Moving
+    /// the knee must not move the reference figure.
+    #[test]
+    fn the_reference_does_not_move_with_the_knee() {
+        let knee_at_200 = [
+            point(50, 260.0, 10.0, 0.0),
+            point(100, 512.0, 12.0, 0.0),
+            point(200, 830.0, 150.0, 0.0), // collapsed
+            point(400, 900.0, 500.0, 0.0),
+        ];
+        let knee_at_400 = [
+            point(50, 260.0, 10.0, 0.0),
+            point(100, 512.0, 12.0, 0.0),
+            point(200, 990.0, 40.0, 0.0),    // sustained this time
+            point(400, 1_050.0, 500.0, 0.0), // collapsed
+        ];
+
+        let early = sustained(&knee_at_200).reference.expect("reference");
+        let late = sustained(&knee_at_400).reference.expect("reference");
+
+        assert_eq!(early.concurrency, 100);
+        assert_eq!(late.concurrency, 100);
+        assert_eq!(early.latency.p95, late.latency.p95);
+    }
+
+    /// A ramp the target never stopped scaling on reads at the same reference
+    /// step as everyone else: the headline compares like loads, and the
+    /// curve's flags say the target was still scaling at the top.
+    #[test]
+    fn sustaining_the_whole_ramp_still_reads_at_the_reference() {
+        let steps = [
+            point(50, 265.0, 1.0, 0.0),
+            point(100, 530.0, 1.0, 0.0),
+            point(200, 1_060.0, 1.0, 0.0),
+        ];
+        let doc = sustained(&steps);
+
+        assert_eq!(doc.outcome, SustainedOutcome::Measured);
+        assert_eq!(doc.reference.expect("reference").concurrency, 100);
+        assert!(doc.curve.iter().all(|s| s.sustained));
+    }
+
+    /// The floor's retention is 1.0 against its own rate, so it cannot vouch
+    /// for itself; the reference rung above it is the corroboration. When it
+    /// fails, the floor's latency cannot be told apart from queueing and no
+    /// figure is published — the fix is a ladder with lower rungs, and
+    /// publishing the floor anyway would launder exactly the number this
+    /// measurement exists to stop.
+    #[test]
+    fn a_failed_reference_reports_no_figure() {
+        let steps = [
+            point(50, 240.0, 60.0, 0.0),
+            point(100, 250.0, 250.0, 0.0), // flat: ceiling at or below the floor
+            point(200, 255.0, 600.0, 0.0),
+        ];
+        let doc = sustained(&steps);
+
+        assert_eq!(doc.outcome, SustainedOutcome::FloorAboveKnee);
+        assert!(doc.reference.is_none());
+        assert_eq!(doc.curve.len(), 3);
+        // The floor's identity-retention is visible in the artifact, so a
+        // reader can see why it could not vouch for itself.
+        assert_eq!(doc.curve[0].retention, 1.0);
+        assert!(!doc.curve[1].sustained);
+    }
+
+    /// Fast answers on a step that sheds load through errors are not
+    /// "sustained": survivor latency is biased, so the disqualification marks
+    /// the rung exactly like a throughput collapse — visible in the curve,
+    /// while the reference below it is untouched.
+    #[test]
+    fn an_error_disqualified_rung_is_marked_unsustained() {
+        let steps = [
+            point(50, 260.0, 10.0, 0.0),
+            point(100, 515.0, 11.0, 0.0),
+            point(200, 1_030.0, 12.0, 0.05), // retention 0.99 but failing 5%
+            point(400, 2_060.0, 13.0, 0.0),
+        ];
+        let doc = sustained(&steps);
+
+        assert_eq!(doc.outcome, SustainedOutcome::Measured);
+        assert_eq!(doc.reference.expect("reference").concurrency, 100);
+        assert!(doc.curve[2].disqualified.is_some());
+        assert!(!doc.curve[2].sustained);
+    }
+
+    /// An erroring reference rung is inadmissible as scaling evidence — its
+    /// throughput includes shed load — so the floor is left uncorroborated,
+    /// the same as a retention collapse there.
+    #[test]
+    fn an_erroring_reference_leaves_the_floor_uncorroborated() {
+        let steps = [
+            point(50, 260.0, 10.0, 0.0),
+            point(100, 515.0, 11.0, 0.05),
+            point(200, 1_030.0, 12.0, 0.0),
+        ];
+        let doc = sustained(&steps);
+
+        assert_eq!(doc.outcome, SustainedOutcome::FloorAboveKnee);
+        assert!(doc.reference.is_none());
+    }
+
+    /// An erroring floor has no honest latency at all: the yardstick itself is
+    /// survivorship-biased, so nothing judged against it can be trusted either.
+    #[test]
+    fn an_erroring_floor_disqualifies_the_whole_reading() {
+        let steps = [
+            point(50, 260.0, 10.0, 0.5),
+            point(100, 520.0, 11.0, 0.0),
+            point(200, 1_040.0, 12.0, 0.0),
+        ];
+        let doc = sustained(&steps);
+
+        assert_eq!(doc.outcome, SustainedOutcome::FloorDisqualified);
+        assert!(doc.reference.is_none());
+        assert!(doc.curve[0].disqualified.is_some());
+    }
+
+    /// A single rung has nothing to corroborate its floor against, and the
+    /// spec validation enforces the same bound up front.
+    #[test]
+    fn a_single_rung_ladder_is_refused() {
+        let steps = [point(50, 260.0, 10.0, 0.0)];
+        let err = sustained_latency("t", &limits(0.01), &[steps.as_slice()])
+            .expect_err("one rung must fail");
+        assert!(err.msg.contains("at least two"), "{}", err.msg);
+    }
+
+    /// Like the saturation peak, the reference is lifted out of the curve and
+    /// medianed across trials, never recomputed.
+    #[test]
+    fn sustained_steps_are_medianed_across_trials() {
+        let a = [
+            point(50, 250.0, 10.0, 0.0),
+            point(100, 495.0, 12.0, 0.0),
+            point(200, 700.0, 300.0, 0.0),
+        ];
+        let b = [
+            point(50, 270.0, 14.0, 0.0),
+            point(100, 515.0, 16.0, 0.0),
+            point(200, 740.0, 320.0, 0.0),
+        ];
+        let c = [
+            point(50, 260.0, 12.0, 0.0),
+            point(100, 505.0, 14.0, 0.0),
+            point(200, 720.0, 310.0, 0.0),
+        ];
+
+        let doc = sustained_latency(
+            "t",
+            &limits(0.01),
+            &[a.as_slice(), b.as_slice(), c.as_slice()],
+        )
+        .expect("sustained latency");
+
+        assert_eq!(doc.outcome, SustainedOutcome::Measured);
+        let reference = doc.reference.expect("reference");
+        assert_eq!(reference.concurrency, 100);
+        assert_eq!(reference.rps, 505.0);
+        assert_eq!(reference.latency.p99, 14.0);
+        // Offered is scaled from the medianed floor, 260 rps at 50 VUs.
+        assert_eq!(reference.offered_rps, 520.0);
+    }
+
+    /// Both readings share `verified_ladder`, so a torn ladder is refused here
+    /// the same way it is for the capacity measurement.
+    #[test]
+    fn sustained_refuses_trials_that_ran_different_ladders() {
+        let a = [point(50, 260.0, 10.0, 0.0), point(100, 500.0, 20.0, 0.0)];
+        let b = [point(50, 260.0, 10.0, 0.0), point(200, 500.0, 20.0, 0.0)];
+
+        let err = sustained_latency("t", &limits(0.01), &[a.as_slice(), b.as_slice()])
+            .expect_err("mismatched ladders must fail");
+        assert!(
+            err.msg.contains("must measure the same steps"),
+            "{}",
+            err.msg
+        );
     }
 
     #[test]
