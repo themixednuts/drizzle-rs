@@ -97,23 +97,40 @@ export interface CapacityView {
 	note: string;
 	/** The full explanation, for a tooltip or a detail line. */
 	detail: string;
-	/** Sort bucket. Ascending, so a measured peak always precedes every state that lacks one. */
+	/** Sort bucket. Ascending, so every state carrying a number precedes every state without one. */
 	tier: number;
 	/** Ordering inside the bucket, descending. Zero wherever there is no number. */
 	tierValue: number;
 	/**
-	 * Whether this row may carry a rank number in a capacity-ordered table. Only a measured peak
-	 * can: a rank on a lower bound or on an unmeasured row would be a position the data does not
-	 * support, and position is exactly what readers trust most.
+	 * Whether this row may carry a rank number in a capacity-ordered table.
+	 *
+	 * A measured peak and a lower bound both can; a row with no number at all cannot, because a
+	 * position is exactly what readers trust most and there is nothing behind it.
+	 *
+	 * Lower bounds were excluded once, on the reasoning that a rank they cannot support is worse
+	 * than no rank. That was half right and cost more than it saved. A lower bound is not unordered
+	 * against everything: a target that sustains *at least* 75.9k certainly beats one whose peak was
+	 * measured at 47.2k, and excluding it dropped the fastest targets out of the ranking entirely
+	 * while sorting them beneath rows they provably beat. Ordering on the printed figure places each
+	 * bound at its lowest possible position — every certain relation is honoured, every uncertain one
+	 * resolves downward, and the row can never be overstated. The figure keeps its "at least" either
+	 * way; `CapacityFigure` is the only thing that can draw it and never draws it bare.
 	 */
 	rankable: boolean;
 }
 
+/**
+ * Two buckets, not four: rows that carry a number and rows that do not.
+ *
+ * A measured peak and a lower bound share the first, because both can be placed on the axis and
+ * the ordering below resolves their uncertainty conservatively. `never-met` and `not-measured`
+ * have no number at all, so they sort under everything and take no rank.
+ */
 const TIERS: Record<CapacityState, number> = {
 	measured: 0,
-	'lower-bound': 1,
-	'never-met': 2,
-	'not-measured': 3,
+	'lower-bound': 0,
+	'never-met': 1,
+	'not-measured': 2,
 };
 
 /** "50 ms", or "12.5 ms" when the objective is not a whole millisecond. */
@@ -169,10 +186,15 @@ export function capacity(summary: Pick<Summary, 'saturation'>): CapacityView {
 			state: 'lower-bound',
 			figure: { text: `at least ${fmtRps(bound)}`, qualifier, lowerBound: true },
 			note: 'knee not reached',
-			detail: `Every concurrency step held ${objective}, so the ramp never found the knee. ${fmtRps(bound)} req/s is a lower bound, not a peak: this target sustains at least that much and may sustain considerably more. The ramp needs extending before a peak can be claimed.`,
+			// Two things are true of this outcome and the copy has to carry both: the ramp stayed
+			// inside the objective, *and* throughput never turned over. It used to say only the
+			// first and conclude "the ramp needs extending", which is the wrong inference — a
+			// closed-loop target at its ceiling holds throughput flat however far the ramp runs, so
+			// more rungs re-confirm a plateau rather than finding a knee that is not there.
+			detail: `Throughput was still flat or climbing when the ramp ran out, and every step held ${objective}. ${fmtRps(bound)} req/s is a floor rather than a peak: this target sustains at least that much, and where it stops was not measured. It is ranked on that floor, which is the lowest place its own data allows — above every peak it certainly beats, below the ones it may or may not.`,
 			tier: TIERS['lower-bound'],
 			tierValue: bound,
-			rankable: false,
+			rankable: true,
 		};
 	}
 
@@ -190,11 +212,14 @@ export function capacity(summary: Pick<Summary, 'saturation'>): CapacityView {
 /**
  * Capacity ordering.
  *
- * A row without a measured peak never outranks one that has it, whatever number it happens to
- * carry: a lower bound of 40k is not evidence of beating a measured 12k, it is evidence that the
- * ramp stopped early. Sorting them together would turn "we did not find out" into a placement. So
- * the tiers are hard, the state is printed on the row rather than implied by where the row sits,
- * and only tier 0 is given a rank number at all.
+ * Rows carrying a number sort against each other on that number, descending; rows carrying none
+ * sort beneath all of them. A lower bound is ordered on its floor, which places it at the lowest
+ * position its data allows: it lands above every peak it certainly beats, and below the ones whose
+ * relation to it is unknown. That is the conservative half of a partial order, and it cannot
+ * overstate a row.
+ *
+ * The state is still printed on the row rather than implied by where the row sits, because where a
+ * bound sits is a floor rather than a placement, and only the words say so.
  */
 export function compareCapacity(a: CapacityView, b: CapacityView): number {
 	if (a.tier !== b.tier) return a.tier - b.tier;

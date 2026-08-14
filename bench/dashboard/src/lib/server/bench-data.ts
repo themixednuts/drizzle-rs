@@ -279,6 +279,48 @@ function readCohortSnapshot(store: BenchStoreInterface, cohort: RunCohort) {
 	});
 }
 
+/**
+ * The suffix the workflow gives the saturation half of a CI run.
+ *
+ * One dispatch produces two cohorts from the same commit: the paced ramp under the bare id, and the
+ * unpaced concurrency ramp under the same id plus this. `slug-suffix: cross` in `runners.yml` is
+ * what sets it, and the two are kept apart on purpose — they are different measurements.
+ */
+const CROSS_SUFFIX = '-cross';
+
+/** The paced half's id, whichever half you have. */
+function pacedIdOf(cohortId: string): string {
+	return cohortId.endsWith(CROSS_SUFFIX) ? cohortId.slice(0, -CROSS_SUFFIX.length) : cohortId;
+}
+
+/**
+ * Graft each target's capacity figure from the saturation cohort onto its paced row.
+ *
+ * The two halves of a run measure the same targets and answer different questions: the paced ramp
+ * produces the request rate and the latency reading, the unpaced one produces peak throughput.
+ * Neither can answer the other's question, so the ranking needs a row from both — and until now it
+ * showed whichever cohort happened to finish last, which on a full run is always the saturation
+ * one, leaving the latency column with nothing to read and falling back to the whole-ramp number.
+ *
+ * This joins *rows*, never numbers. Each column still comes from exactly one cohort: capacity from
+ * the saturation half, everything else from the paced half. Nothing is ever averaged across them,
+ * and no figure from one is compared against a figure from the other — which matters because the
+ * two halves run on different machines, and comparing across them would be comparing hosts.
+ *
+ * Matched on `target_key`, which carries the operating system, so a Linux row can never take its
+ * capacity from a macOS run.
+ */
+function withCrossCapacity(
+	paced: readonly SummaryResult[],
+	cross: readonly SummaryResult[],
+): SummaryResult[] {
+	const capacityOf = new Map(cross.map((summary) => [summary.target_key, summary.saturation]));
+	return paced.map((summary) => {
+		const saturation = capacityOf.get(summary.target_key);
+		return saturation ? { ...summary, saturation } : summary;
+	});
+}
+
 function indexTotals(index: { runs: RunIndexEntry[] }) {
 	return {
 		totalRuns: index.runs.length,
@@ -333,8 +375,16 @@ export const overviewPageData = Effect.fn('BenchData.overviewPage')(function* (f
 	status: MaybeFilter;
 }) {
 	const base = yield* runsPageData(filters);
-	const latestCohort = base.cohorts.find((cohort) => cohort.status === 'success');
-	if (!latestCohort) return { ...base, latest: null as LatestRunOverview | null };
+	const newest = base.cohorts.find((cohort) => cohort.status === 'success');
+	if (!newest) return { ...base, latest: null as LatestRunOverview | null };
+
+	// The ranking is built on the paced half: it owns the request rate, the latency reading and the
+	// ramp the replay plays back. The saturation half contributes one column and is grafted below.
+	const pacedId = pacedIdOf(newest.id);
+	const latestCohort = base.cohorts.find((cohort) => cohort.id === pacedId) ?? newest;
+	const crossCohort = base.cohorts.find(
+		(cohort) => cohort.id === `${pacedId}${CROSS_SUFFIX}` && cohort.status === 'success',
+	);
 
 	const store = yield* BenchStore;
 	// A broken snapshot degrades the overview to "no leaderboard", it does not 500 the page.
@@ -348,6 +398,15 @@ export const overviewPageData = Effect.fn('BenchData.overviewPage')(function* (f
 	}
 
 	const { warnings, ...latest } = snapshot.success;
+
+	// A missing or unreadable saturation half costs the page its capacity column, nothing else.
+	const cross =
+		crossCohort && crossCohort.id !== latestCohort.id
+			? yield* Effect.result(readCohortSnapshot(store, crossCohort))
+			: null;
+	if (cross && cross._tag === 'Success') {
+		latest.summaries = withCrossCapacity(latest.summaries, cross.success.summaries);
+	}
 
 	// The ramp behind the ranking. A failure to read it costs the page a chart, not the table, so
 	// it degrades to null the same way a broken snapshot degrades to "no leaderboard".

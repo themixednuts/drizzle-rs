@@ -153,14 +153,31 @@
 						<RailAxis rail={view.rail} />
 					</span>
 					{#if view.hasCapacity}
-						<!-- The objective states itself once here, for the column, instead of once per row. -->
+						<!--
+							The objective states itself once here, for the column, instead of once per row.
+
+							This column and the two beside it come off different halves of the same CI run —
+							one unpaced ramp on a single machine per platform, one paced ramp spread over
+							several — so each says where it came from. The figures are never compared across
+							that line; the row is a join, not an average.
+						-->
 						<span class="pb-0.5 text-right max-lg:hidden">
-							peak throughput
+							<Hint
+								hint="From the unpaced saturation ramp: concurrency stepped up until throughput stops rising. Every family runs back to back on one machine per platform, so these figures are comparable with each other. They are a different measurement from the paced columns beside them and are never compared against those."
+							>
+								peak throughput
+							</Hint>
 							{#if view.capacityObjective}<span class="text-foreground-faint normal-case"
 									>{view.capacityObjective}</span
 								>{/if}
 						</span>
-						<span class="pb-0.5 text-right max-lg:hidden">at fixed load</span>
+						<span class="pb-0.5 text-right max-lg:hidden">
+							<Hint
+								hint="From the paced ramp, where the generator offers a fixed load with think time. Families run on separate machines here, so a gap between two databases carries some of the hardware they landed on."
+							>
+								at fixed load
+							</Hint>
+						</span>
 						<span class="pb-0.5 text-right lg:hidden">peak / rps / p95 / gap</span>
 					{:else}
 						<span class="pb-0.5 text-right max-lg:hidden">requests/sec</span>
