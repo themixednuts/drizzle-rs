@@ -2649,9 +2649,9 @@ fn saturation_summary(target_id: &str, doc: &SaturationDoc) -> String {
             "{target_id} peak throughput {:.0} req/s at {slo} (concurrency {})",
             peak.rps, peak.concurrency
         ),
-        (_, _, Some(rps)) => format!(
-            "{target_id} at least {rps:.0} req/s at {slo} — knee not reached, extend the ramp"
-        ),
+        (_, _, Some(rps)) => {
+            format!("{target_id} at least {rps:.0} req/s at {slo} — the curve never turned over")
+        }
         _ => format!("{target_id} never met the {slo} target at any concurrency"),
     }
 }

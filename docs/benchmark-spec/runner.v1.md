@@ -421,18 +421,30 @@ the **highest throughput**; ties break toward the lower concurrency, since the
 same throughput for fewer in-flight requests is strictly better. Exactly one of
 three outcomes is recorded, and all three are first class:
 
+Saturation is a property of **throughput**: a closed-loop target is at its
+ceiling once more in-flight requests stop buying throughput. The objective is a
+policy filter on which operating points are acceptable, not the definition of
+the limit. The ceiling therefore counts as *found* when the curve **turned
+over** — the maximum is interior to the ladder (bracketed by a rise into it and
+a fall out of it) and measurably above the last qualifying step (a 2% margin,
+so run-to-run wander cannot manufacture a peak out of an ordinary flat curve) —
+or when the ramp's last step failed to qualify at all.
+
 | `outcome` | when | what the artifact carries | how to say it |
 | --- | --- | --- | --- |
-| `saturated` | a qualifying step exists and it is not the last step | `peak` | "peak throughput N req/s at p99 < 25 ms" |
-| `did_not_saturate` | the last step still qualified | `lower_bound_rps` (the best qualifying throughput), no `peak` | "at least N req/s — knee not reached" |
+| `saturated` | the curve turned over, or the last step failed to qualify | `peak` | "peak throughput N req/s at p99 < 25 ms" |
+| `did_not_saturate` | the last step still qualified and the curve never turned over | `lower_bound_rps` (the best qualifying throughput), no `peak` | "at least N req/s — the curve never turned over" |
 | `slo_never_met` | no step qualified | neither | "never met the p99 target" |
 
-`did_not_saturate` is a finding about the *ramp*, not the target: the workload
-ended before the knee and must be extended. The top step is a lower bound and is
-never presented as a peak. `slo_never_met` covers both "even the smallest step
-was too slow" and "every step was disqualified by errors"; the per-step
-`disqualified` reason distinguishes them, and there is no peak to report either
-way.
+`did_not_saturate` is the **designed outcome for a flat curve**, and fast
+targets produce flat curves normally: they reach their maximum at 4-16
+in-flight requests and hold it, inside the objective, to the top of the ladder.
+The value is a lower bound, never presented as a peak — and it is ranked as a
+first-class figure at its own value, which places it at its minimum possible
+position (see the plateau note below; extending the ladder cannot sharpen a
+plateau). `slo_never_met` covers both "even the smallest step was too slow" and
+"every step was disqualified by errors"; the per-step `disqualified` reason
+distinguishes them, and there is no peak to report either way.
 
 A step over `limits.err` is **disqualified**: it can never be the peak, it stays
 in the curve, and it carries the reason string
@@ -446,9 +458,11 @@ than an earlier one that also held it. A measured drizzle-rs SQLite ramp does
 latter as "peak throughput at p99 < 25 ms" would understate the target by 9% and
 point at a worse operating point on *both* axes. `peak.concurrency` is therefore
 where the maximum occurred, not the last step to survive the SLO, and it can sit
-mid-curve. Whether the ramp found the ceiling is a separate question, answered by
-`outcome`: a ramp whose last step still qualified is `did_not_saturate` however
-early its maximum landed.
+mid-curve. Whether the ramp found the ceiling is a separate question, answered
+by `outcome` through the turnover test above: an interior maximum that
+measurably beats the last qualifying step is a found ceiling however early it
+landed, and a maximum sitting within the 2% margin of the last step is a
+plateau, which stays a lower bound.
 
 ### The curve
 
@@ -472,41 +486,58 @@ A workload carrying a `saturation` block is rejected unless:
 
 ### Why the shipped ramps look the way they do
 
-`workload.saturation.v1.json` holds 20 s at each of 4, 8, 16, 32, 64, 128, 256,
-512 and 1024 VUs, with a 5 s ramp into each and a 20 s warmup at the starting
-concurrency. `workload.saturation-preview.v1.json` keeps the same span with 4x
-spacing (4, 16, 64, 256, 1024) and 8 s holds, for PR-sized runs.
+`workload.saturation.v1.json` holds 20 s at each of 1, 2, 4, 8, 16, 32, 64 and
+128 VUs, with a 5 s ramp into each and a 20 s warmup at the starting
+concurrency. `workload.saturation-preview.v1.json` covers the same span with 4x
+spacing (1, 4, 16, 64) and 8 s holds, for PR-sized runs.
+
+An earlier ladder ran 4..1024. Measuring the tuned engines showed it was
+sampling the wrong region: every target reaches its maximum throughput at 4-16
+in-flight requests and then holds it while only latency climbs, so the steps at
+256 and above bought no throughput information — under the breach-keyed outcome
+rule of that era they existed *only* to make some step eventually breach the
+objective. When the outcome moved to the turnover test, the ladder was re-cut
+to where the information actually is. Do not "restore" the long ladder: rungs
+above the plateau cannot produce an interior maximum, so under the current rule
+they cannot convert a lower bound into a peak — they can only force an SLO
+breach, which re-reports the already-known best step under a peak label while
+adding ~70 minutes to the cross-family sequence and re-creating the design the
+turnover change removed.
 
 - **Geometric spacing, not linear.** The knee's location is not known in advance
   and moves by more than an order of magnitude between an in-process SQLite point
   lookup and a PostgreSQL round trip. Doubling brackets the knee within a factor
-  of two anywhere across a 256x range in nine steps; linear spacing at the same
-  cost would cover a single octave and miss most of them. Because rps flattens at
-  the knee, coarse concurrency spacing costs little accuracy in the reported peak
-  rps.
-- **Starts at 4.** Below the largest declared pool (8), so the first step has SLO
-  headroom even for the slowest stack in the table — `slo_never_met` should mean
-  something is wrong, not that the ramp started too high.
-- **Ends at 1024.** A measured drizzle-rs SQLite ramp reaches p99 ≈ 27 ms at 512
-  VUs and ≈ 70 ms at 1024, so the fastest stack in the suite breaches a 25 ms SLO
-  inside the ramp. `did_not_saturate` should mean the ramp needs extending, not
-  that it was never long enough for anyone. 1024 is also well inside the
-  precedent set by `workload.throughput.v1.json`, which runs to 3000 VUs.
+  of two anywhere in the span; linear spacing at the same cost would cover a
+  single octave and miss most of them. Because rps flattens at the knee, coarse
+  concurrency spacing costs little accuracy in the reported peak rps.
+- **Starts at 1.** The turnover test requires the maximum to be *bracketed* — a
+  rise into it and a fall out of it — so the ladder must start below every
+  target's knee to see the rise. A ladder starting at 4 measured a target whose
+  curve read 9.1k at 1 VU and 27.3k at 8 and never saw it climbing; its interior
+  maximum only became demonstrable once the 1- and 2-VU rungs existed. These two
+  rungs are load-bearing; removing them turns early maxima into unprovable
+  lower bounds.
+- **Ends at 128.** Every measured knee sits at concurrency 4-64 (run
+  31773786939: all fifteen peaks landed at 8-64), so 128 gives the top of the
+  ladder one rung of falling-or-flat evidence beyond the highest knee. Targets
+  whose curve is still flat at 128 report `did_not_saturate` by design; that is
+  a ranked lower bound, not a defect, and no finite ladder end changes it — a
+  plateau has no interior maximum at any length.
 - **20 s holds.** At 500 rps — a slow stack at low concurrency — that is 10 000
   samples per step, so the p99 tail has ~100 observations. The preview's 8 s holds
   are deliberately thinner; a preview answers "does this pipeline work and is the
   shape sane", not "publish this number".
-- **`p99 < 25 ms`.** Loose enough that every stack has headroom at the smallest
-  step on a 4 vCPU runner, tight enough that the fastest stack breaches it before
-  1024 VUs. It is also an ordinary web service level, which is the point: the
-  headline is a capacity claim only because a latency bound is attached to it.
+- **`p99 < 25 ms`.** An ordinary web service level: the headline is a capacity
+  claim only because a latency bound is attached to it. Under the turnover rule
+  the SLO filters which operating points are acceptable rather than defining
+  the ceiling, so nothing requires the ramp to run until the SLO breaks.
 - **Single endpoint (`/customer-by-id`).** A point lookup is where library
   overhead is the largest share of service time, so the number is about the
   library rather than the query planner. A mixed p99 SLO would in practice be a
   threshold on whichever route is heaviest.
 
-The whole 9-step ramp is 240 s per trial per target, under the 300 s of the
-existing paced `workload.throughput.v1.json`. The preview is 58 s.
+The whole 8-step ramp is 215 s per trial per target, under the 400 s of the
+paced `workload.throughput.v1.json`. The preview is 48 s.
 
 ## 6d. Sustained latency: the paced ramp's honest latency figure
 
@@ -790,10 +821,25 @@ For publish class, any gate failure exits with code `9`.
 `.github/workflows/runners.yml` is the reference execution of this contract.
 The measurement-relevant parts of it are contract, not incidental CI plumbing.
 
-### 13.1 One plan, many families
+### 13.1 One plan, grouped jobs
 
-A `plan` job resolves `class` and `workload` once from the event and passes them
-to every family job. Class resolution:
+A `plan` job resolves `class`, `workload` and the paced trial count once from
+the event and passes them to every benchmark job. The jobs are family
+*groups*, not one job per family and not one job per OS: GitHub hard-cancels
+any job at 360 minutes, and the paced ladder alone is ~6.9 measured minutes
+per target-trial, so a single job running Linux's 27 targets at even one trial
+is ~187 minutes of pure ramp — "everything in one job" cannot exist at this
+ladder. The shipped grouping (three paced Linux groups, two paced desktop
+groups per OS, one saturation job per OS) is the smallest set that fits a
+padded time model the `plan` job re-checks on every run, failing in five
+minutes rather than at minute 350.
+
+Paced runs use 3 trials (was 5). Measured from the recorded five-trial
+cohorts: median-of-3 moves `rps.avg` by at most 2.6% (median 0.1%) and the
+whole-ramp p95 by at most 12.5% (median 1.1%); the sustained-latency reference
+median is the loosest — per-trial jitter of 5–39% was measured on slower
+targets — and `spread.trials` discloses the count either way. Class
+resolution:
 
 | `benchmark_size` | publish-class run | class | workload |
 | --- | --- | --- | --- |
@@ -850,23 +896,30 @@ Pinning changes absolute numbers. A baseline recorded before pinning is not a
 valid comparison point for a pinned run even though suite, workload sha and
 class all still match.
 
-### 13.4 Publish topology
+### 13.4 Topology and databases per OS
 
-Rankings are only meaningful within one machine. On publish-class schedule and
-manual-dispatch runs the three PostgreSQL families
-(`targets.postgres.v1.json`, `targets.postgres-rust-orms.v1.json`,
-`targets.postgres-ts.v1.json`) run back to back inside a single job, against a
-single PostgreSQL service, under a single cohort id, and the per-family
-PostgreSQL jobs are skipped for that run. Every other run keeps the families
-parallel on separate VMs, which is faster but only comparable within a family.
+Rankings are only meaningful within one machine. The three PostgreSQL families
+always run back to back inside one job per OS, against one database, under the
+shared paced cohort id: on Linux a `postgres:18-alpine` service container
+pinned to its own core (`--cpuset-cpus`), on Windows and macOS a natively
+installed PostgreSQL 18 (service containers are Linux-only there), unpinned
+like everything else on those platforms. Version parity is enforced by the
+setup action — a platform gets the same major as the Linux image or no
+PostgreSQL at all, never a mismatched engine in the same comparison. The
+embedded families likewise share one job per OS, and the saturation jobs run
+every hostable family on a single VM per OS.
 
 Artifact names, output directories and baseline cache keys are per family in
-both topologies, so a consumer sees exactly one artifact per family either way
-and cannot tell the two apart except through `manifest.runner` host fields.
+every topology, so a consumer sees exactly one artifact per family either way
+and reads the machine facts from `manifest.runner`.
 
 Runs that share a `cohort_id` are the same logical comparison. Runs that share a
 cohort id *and* host fields were measured on the same hardware. Only the second
-supports a ranked table.
+supports a ranked table. A full CI run emits two cohorts — the paced one and
+the `-cross` saturation one — sharing the `gh-<run>-…` prefix; a consumer may
+join them per target (latency columns from the paced cohort, capacity from the
+cross one) provided no number from one cohort is ever compared against a
+number from the other.
 
 ### 13.5 Preview data is best effort
 

@@ -541,9 +541,12 @@ pub enum Outcome {
     /// No step qualified as a peak: every one either breached the SLO or was
     /// disqualified by its error rate. There is no peak, and none is reported.
     SloNeverMet,
-    /// The ramp's last step still qualified, so the ceiling is somewhere above
-    /// the measured range. The best qualifying throughput is a lower bound, not
-    /// a peak — the ramp was too short.
+    /// The ramp's last step still qualified and the curve never turned over —
+    /// a flat curve, which is the designed outcome for a fast target that
+    /// reaches its maximum early and holds it. The best qualifying throughput
+    /// is a lower bound, not a peak, and it is ranked at its own value: a
+    /// plateau has no interior maximum at any ladder length, so extending the
+    /// ramp cannot sharpen it.
     DidNotSaturate,
 }
 
