@@ -18,8 +18,32 @@
  * quantity the scale cannot express. A dot states a position, which is exactly what a log axis has.
  */
 
-/** The 1-2-5 ladder. Bounds and ticks both land on it, so an axis never ends on an odd number. */
-const STEPS = [1, 2, 5] as const;
+/**
+ * Ladders of round numbers, coarsest first. Bounds and ticks both land on one of these, so an axis
+ * never ends on an odd number.
+ *
+ * More than one, because a single ladder cannot serve both shapes of data this site plots. The
+ * 1-2-5 rungs are the nicest to read and are right whenever the values span a decade or more — the
+ * full run's request rates go 766 to 9,800, and snapping those to 500..10,000 spends 85% of the
+ * axis on data. They are wrong when the values are close together: a preview run's rates sit
+ * between 440 and 492, which the same rule snaps to 200..500 and draws as a single clump against
+ * the right edge, using 12% of the width. `buildRail` walks these in order and takes the coarsest
+ * one that still spends most of the axis on the data.
+ */
+const LADDERS: readonly (readonly number[])[] = [
+	[1, 2, 5],
+	[1, 1.5, 2, 3, 5, 7],
+	[1, 2, 3, 4, 5, 6, 7, 8, 9],
+];
+
+/** The coarsest ladder is the default shape of an axis; the rest are for data that clusters. */
+const STEPS = LADDERS[0];
+
+/**
+ * How much of an axis its data should occupy before a coarser ladder is preferred for its rounder
+ * numbers. Half is enough to read a distribution; below that the marks start to merge.
+ */
+const MIN_OCCUPANCY = 0.5;
 
 export interface RailTick {
 	value: number;
@@ -45,35 +69,58 @@ export interface Rail {
 }
 
 /** The largest ladder value at or below `v`. */
-function ladderBelow(v: number): number {
+function ladderBelow(v: number, steps: readonly number[] = STEPS): number {
 	const decade = 10 ** Math.floor(Math.log10(v));
-	for (const step of [5, 2, 1] as const) {
+	for (const step of [...steps].reverse()) {
 		if (step * decade <= v) return step * decade;
 	}
-	return decade / 2;
+	return (steps[steps.length - 1] * decade) / 10;
 }
 
 /** The smallest ladder value at or above `v`. */
-function ladderAbove(v: number): number {
+function ladderAbove(v: number, steps: readonly number[] = STEPS): number {
 	const decade = 10 ** Math.floor(Math.log10(v));
-	for (const step of STEPS) {
+	for (const step of steps) {
 		if (step * decade >= v) return step * decade;
 	}
 	return 10 * decade;
 }
 
 /** Every ladder value in `[lo, hi]`, ascending. */
-function ladderBetween(lo: number, hi: number): number[] {
+function ladderBetween(lo: number, hi: number, steps: readonly number[] = STEPS): number[] {
 	const out: number[] = [];
-	let decade = 10 ** Math.floor(Math.log10(lo));
+	let decade = 10 ** Math.floor(Math.log10(lo)) / 10;
 	while (decade <= hi * 10) {
-		for (const step of STEPS) {
+		for (const step of steps) {
 			const value = step * decade;
 			if (value >= lo && value <= hi) out.push(value);
 		}
 		decade *= 10;
 	}
-	return out;
+	return [...new Set(out)].sort((a, b) => a - b);
+}
+
+/**
+ * The bounds to draw, and the ladder they came from.
+ *
+ * Walks the ladders coarsest first and takes the first whose bounds leave the data occupying at
+ * least `MIN_OCCUPANCY` of the axis, so round numbers win wherever they can be afforded. The finest
+ * ladder is the floor: values that sit within a few percent of each other cannot be bracketed
+ * tightly by any set of round numbers, and inventing a bound off the ladder to chase them would
+ * label the axis with numbers nobody recognises.
+ */
+function bracket(min: number, max: number): { lo: number; hi: number; steps: readonly number[] } {
+	const span = Math.log10(max) - Math.log10(min);
+	let fallback: { lo: number; hi: number; steps: readonly number[] } | null = null;
+
+	for (const steps of LADDERS) {
+		const lo = ladderBelow(min, steps);
+		const hi = ladderAbove(max, steps);
+		const axis = Math.log10(hi) - Math.log10(lo);
+		fallback = { lo, hi, steps };
+		if (axis <= 0 || span / axis >= MIN_OCCUPANCY) return fallback;
+	}
+	return fallback as { lo: number; hi: number; steps: readonly number[] };
 }
 
 /**
@@ -125,8 +172,13 @@ export function buildRail(
 
 	// One distinct value, or a span too narrow to draw: give it a decade of room so the single dot
 	// lands mid-rail instead of on an edge, where it would read as a floor or a ceiling.
-	const lo = min === max ? ladderBelow(min / 2) : ladderBelow(min);
-	const hi = min === max ? ladderAbove(max * 2) : ladderAbove(max);
+	// One distinct value has no span to fit, so it keeps the decade of room that puts its single
+	// mark mid-rail rather than against an edge.
+	const bounds =
+		min === max
+			? { lo: ladderBelow(min / 2), hi: ladderAbove(max * 2), steps: STEPS }
+			: bracket(min, max);
+	const { lo, hi } = bounds;
 
 	const logLo = Math.log10(lo);
 	const span = Math.log10(hi) - logLo;
@@ -137,7 +189,7 @@ export function buildRail(
 		return Math.min(1, Math.max(0, (Math.log10(value) - logLo) / span));
 	};
 
-	const ticks = thin(ladderBetween(lo, hi), maxTicks).map((value) => ({
+	const ticks = thin(ladderBetween(lo, hi, bounds.steps), maxTicks).map((value) => ({
 		value,
 		at: at(value) ?? 0,
 		label: format(value),

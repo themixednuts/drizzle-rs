@@ -102,3 +102,51 @@ describe('railLeft', () => {
 		expect(railLeft(null)).toBeNull();
 	});
 });
+
+describe('bracketing a narrow range', () => {
+	/** How much of the axis the data actually occupies. */
+	function occupancy(values: number[]): number {
+		const rail = buildRail(values, (v) => String(v));
+		const lo = Math.min(...values);
+		const hi = Math.max(...values);
+		return (Math.log10(hi) - Math.log10(lo)) / (Math.log10(rail.hi) - Math.log10(rail.lo));
+	}
+
+	it('does not spend the axis on empty space when the values cluster', () => {
+		// A preview run's request rates. On the 1-2-5 ladder alone these snap to 200..500 and draw as
+		// one clump against the right edge, using an eighth of the width.
+		expect(occupancy([440, 455, 470, 492])).toBeGreaterThanOrEqual(0.5);
+	});
+
+	it('still prefers the round 1-2-5 bounds when the data spans decades', () => {
+		const rail = buildRail([766, 1300, 4600, 9800], (v) => String(v));
+		expect([rail.lo, rail.hi]).toEqual([500, 10000]);
+	});
+
+	it('keeps every value inside the axis it chose', () => {
+		for (const values of [
+			[440, 492],
+			[0.3, 56],
+			[766, 9800],
+			[1.8, 2.1],
+			[12, 13],
+		]) {
+			const rail = buildRail(values, (v) => String(v));
+			for (const v of values) {
+				expect(rail.at(v)).toBeGreaterThanOrEqual(0);
+				expect(rail.at(v)).toBeLessThanOrEqual(1);
+			}
+			expect(rail.lo).toBeLessThanOrEqual(Math.min(...values));
+			expect(rail.hi).toBeGreaterThanOrEqual(Math.max(...values));
+		}
+	});
+
+	it('puts its ticks on the ladder it bracketed with', () => {
+		const rail = buildRail([440, 492], (v) => String(v));
+		expect(rail.ticks.length).toBeGreaterThanOrEqual(2);
+		for (const tick of rail.ticks) {
+			expect(tick.value).toBeGreaterThanOrEqual(rail.lo);
+			expect(tick.value).toBeLessThanOrEqual(rail.hi);
+		}
+	});
+});
