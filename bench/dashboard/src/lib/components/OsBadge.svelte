@@ -34,7 +34,7 @@
 	<Hint
 		{hint}
 		class={cn(
-			'text-micro border-border-soft text-muted-foreground inline-flex w-[2.875rem] shrink-0 items-center justify-center border px-1 py-0.5 font-mono tracking-[0.08em] tabular-nums no-underline',
+			'text-micro bg-muted text-muted-foreground inline-flex w-[2.875rem] shrink-0 items-center justify-center rounded-sm px-1 py-0.5 font-mono tracking-[0.08em] tabular-nums no-underline',
 			className,
 		)}
 	>

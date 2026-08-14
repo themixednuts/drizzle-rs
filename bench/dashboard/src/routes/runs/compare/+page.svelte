@@ -1,6 +1,7 @@
 <script lang="ts">
 	import BoxWhisker from '#lib/components/BoxWhisker.svelte';
 	import Page from '#lib/components/Page.svelte';
+	import RunsTabs from '#lib/components/RunsTabs.svelte';
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import Section from '#lib/components/Section.svelte';
 	import FilterBar from '#lib/components/FilterBar.svelte';
@@ -27,17 +28,19 @@
 </script>
 
 <svelte:head>
-	<title>compare - drizzle-rs/bench</title>
+	<title>Head to head / drizzle-rs benchmarks</title>
 </svelte:head>
 
 <Page>
-	<PageHeader title="Compare">
+	<PageHeader title="Head to head">
 		{#snippet subtitle()}
 			{#if view.cohort}
 				commit {shortHash(view.cohort.git)} &#183; {fmtDate(view.cohort.start)}
 			{/if}
 		{/snippet}
 	</PageHeader>
+
+	<RunsTabs />
 
 	{#if view.warnings.length > 0}
 		<div class="mt-7"><WarningNotice warnings={view.warnings} /></div>
@@ -80,7 +83,7 @@
 				<Note variant="warn">
 					Rows that share a shard were measured on one machine; rows that do not were not, and
 					across those most of any gap is
-					<a class="underline" href="/repeatability">hardware</a>.
+					<a class="underline" href="/runs/machines">hardware</a>.
 				</Note>
 			</div>
 
@@ -108,8 +111,16 @@
 								<Table.Row class="border-0">
 									<Th numeric class="w-8">#</Th>
 									<Th class="w-[32%]">target</Th>
+									<!--
+										`whitespace-normal` overrides the table default. The layout is fixed and these
+										columns are 4rem, so a two-word heading like "busiest second" is 111px of
+										unwrappable text in a 93px cell — it was silently cut off rather than wrapping
+										to the second line this row has room for.
+									-->
 									{#each view.columns as column (column.key)}
-										<Th numeric hint={column.hint} class="w-16">{column.label}</Th>
+										<Th numeric hint={column.hint} class="w-16 whitespace-normal">
+											{column.label}
+										</Th>
 									{/each}
 									{#if view.showErrorColumn}
 										<Th numeric class="w-16">err</Th>

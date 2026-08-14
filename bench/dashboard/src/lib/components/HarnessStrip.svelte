@@ -26,22 +26,24 @@
 			? `${unverified.length} group${unverified.length === 1 ? '' : 's'} not identical within family`
 			: undeclared.length > 0
 				? `${undeclared.length} group${undeclared.length === 1 ? '' : 's'} undeclared`
-				: 'verified identical within each group',
+				: 'identical within each group',
 	);
 </script>
 
 {#if rows.length > 0}
-	<details class="border-border group mt-4 border">
+	<details class="bg-card group mt-5 rounded-md">
 		<summary
-			class="text-meta text-muted-foreground hover:text-foreground-secondary flex cursor-pointer items-baseline gap-x-2 px-4 py-2.5 transition-colors"
+			class="text-meta text-muted-foreground hover:text-foreground-secondary flex cursor-pointer items-baseline gap-x-2 px-4 py-3 transition-colors"
 		>
-			<span class="text-foreground-secondary">Run configuration</span>
+			<span class="text-foreground-secondary">harness</span>
 			<span class={cn(unverified.length > 0 ? 'text-negative' : 'text-muted-foreground')}>
 				{status}
 			</span>
 		</summary>
 
-		<dl class="border-border grid gap-x-6 gap-y-1.5 border-t px-4 py-3 sm:grid-cols-[auto_1fr]">
+		<dl
+			class="border-border-soft grid gap-x-6 gap-y-1.5 border-t px-4 py-3 sm:grid-cols-[auto_1fr]"
+		>
 			{#each rows as row (row.family)}
 				<dt class="text-meta text-foreground-secondary sm:text-right">{row.label}</dt>
 				<dd class="text-meta text-muted-foreground font-mono">
@@ -50,7 +52,7 @@
 						{#if row.identical === false}
 							<span class="text-negative">· not identical within family</span>
 						{:else if row.exempt.length > 0}
-							<span class="text-warning-foreground">· {row.exempt.length} exempt</span>
+							<span class="text-caution-foreground">· {row.exempt.length} exempt</span>
 						{/if}
 					{:else}
 						<span class="italic">not declared</span>

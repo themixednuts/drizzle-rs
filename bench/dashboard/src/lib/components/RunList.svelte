@@ -11,7 +11,7 @@
 	 *
 	 * It replaces two nine-column tables whose SUITE, STATUS, CLASS, COMMIT, TARGETS and RESULTS
 	 * columns held the same value in every row — six columns of chrome that could not help anyone
-	 * choose a row. What is left is what differs: what ran, when, over which databases, for how
+	 * choose a row. What is left is what differs. What ran, when, over which databases, for how
 	 * long. Status and completeness appear only when they are not the expected ones, so a row that
 	 * looks unusual *is* unusual.
 	 */
@@ -32,11 +32,11 @@
 			{@const row = toRunRow(cohort)}
 			<a href={row.href} title={row.title} class="group/run block">
 				<Card.Root
-					class="border-border group-hover/run:border-input grid grid-cols-[minmax(12rem,1.2fr)_minmax(9rem,1fr)_5rem_5rem] items-center gap-x-6 gap-y-0 rounded-none border px-6 py-5 ring-0 transition-colors max-sm:grid-cols-1 max-sm:gap-y-2"
+					class="bg-card group-hover/run:bg-muted grid grid-cols-[minmax(12rem,1.2fr)_minmax(9rem,1fr)_5rem_5rem] items-center gap-x-6 gap-y-0 rounded-md border-0 px-6 py-5 ring-0 transition-colors max-sm:grid-cols-1 max-sm:gap-y-2"
 				>
 					<div class="min-w-0">
 						<div class="text-lead font-semibold">{row.name}</div>
-						<div class="text-caption text-muted-foreground mt-1 font-mono">{row.when}</div>
+						<div class="text-label text-muted-foreground mt-1 font-mono">{row.when}</div>
 					</div>
 
 					<div class="text-meta text-foreground-secondary min-w-0">
@@ -52,7 +52,11 @@
 					</div>
 
 					<div class="text-meta text-muted-foreground font-mono">{row.duration}</div>
-					<div class="text-body text-link text-right max-sm:text-left">open &#8594;</div>
+					<div
+						class="text-body text-muted-foreground group-hover/run:text-foreground text-right transition-colors max-sm:text-left"
+					>
+						Open &#8594;
+					</div>
 				</Card.Root>
 			</a>
 		{/each}

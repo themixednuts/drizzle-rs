@@ -38,9 +38,9 @@ export interface TargetGroup<T> {
 }
 
 const CACHE_GROUP_KEY = 'in-process-cache';
-const CACHE_GROUP_LABEL = 'in-memory cache — no per-request DB work';
+const CACHE_GROUP_LABEL = 'in-process cache';
 const CACHE_GROUP_NOTE =
-	'These targets answer from a replicated in-process cache, so a request never crosses a database boundary. They are shown for context and are deliberately excluded from the SQL round-trip rankings above.';
+	'These targets answer from a replicated in-process cache rather than crossing a database boundary.';
 
 /**
  * Split rows into comparable sections, one per database plus one for in-process caches.

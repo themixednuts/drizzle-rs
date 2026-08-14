@@ -1,4 +1,3 @@
-import type { DeltaDirection } from './leaderboard';
 import type { CapacityView } from './saturation';
 import type { SummaryResult } from './types';
 
@@ -63,14 +62,22 @@ export const SORT_LABELS: Record<RankingSort, { label: string; title: string }> 
 /**
  * One row of the one table.
  *
- * There is no band, no per-family rank restart and no per-family bar scale: rank is `01..N` across
- * every database in the set and the bar is scaled against the fastest row currently on screen. That
- * is the comparison the table is for — SQLite against PostgreSQL against Turso against SpacetimeDB
- * is the point, not an accident to be designed around.
+ * There is no band and no per-family rank restart: rank is `01..N` across every database in the set.
+ * That is the comparison the table is for — SQLite against PostgreSQL against Turso against
+ * SpacetimeDB is the point, not an accident to be designed around.
  *
- * What the bands used to carry did not disappear, it moved onto the row: the database has its own
- * column (with the family's description on its tooltip), the machine has its own badge, and the
- * "vs drizzle-rs" delta is still measured against the drizzle row on *this* row's database.
+ * Every row's mark sits on one logarithmic rail (see `lib/rail.ts`), which is what makes the flat
+ * table readable. The field spans more than a decade in both throughput and latency, and the fastest
+ * row serves from an in-process cache; on a linear scale that row took the full width and pushed
+ * everything doing real work into a stub against the left edge.
+ *
+ * What the bands used to carry did not disappear, it moved onto the row: the database sits on the
+ * target's own note line, and the machine is stated once for the whole table.
+ *
+ * Distances are measured to positions in the field — the top of the table, and the row directly
+ * ahead — rather than to a nominated target. A table that measures everything against its author's
+ * row is answering a different question than the one it appears to be asking, and readers correctly
+ * discount it. Where a row sits, and what it gave up to sit there, is the whole finding.
  */
 export interface RankingRow {
 	id: string;
@@ -87,61 +94,64 @@ export interface RankingRow {
 	rank: number | null;
 	isOurs: boolean;
 	/**
-	 * Bar width as a percentage string, scaled within the rows currently on screen. `null` when the
-	 * sorted column has no number for this row, so the track renders empty rather than at zero.
+	 * Where this row's mark sits on the ratio rail, as a CSS percentage. `null` when the sorted
+	 * column has no number for this row, so the track renders empty rather than putting a dot at
+	 * the origin — on a log axis there is no origin to put it at.
 	 */
-	barPct: string | null;
-	/** `bound` draws the bar as an open-ended floor rather than a measurement. */
+	railLeft: string | null;
+	/** `bound` draws the mark as an open-ended floor rather than a measurement. */
 	barKind: 'measured' | 'bound';
 	/** Peak throughput at the objective, in whichever of its four states this row is in. */
 	capacity: CapacityView;
-	deltaText: string;
-	deltaDirection: DeltaDirection;
-	deltaTitle: string;
 	/**
-	 * The visible scope of the delta, e.g. "vs drizzle-rs on SQLite" or "vs Drizzle ORM on
-	 * SQLite / TypeScript".
-	 *
-	 * In the label rather than only in the tooltip, and naming the actual baseline rather than
-	 * assuming drizzle-rs: one database can hold two comparison groups, and a Bun row measured
-	 * against the Rust row would be a stack comparison wearing a library comparison's name.
+	 * Distance to the top of the table on the column it is sorted by, e.g. "−38.2%". Empty on the
+	 * leading row, and on any row the sorted column has no comparable number for.
 	 */
-	deltaLabel: string;
+	gapText: string;
+	gapTitle: string;
+	/**
+	 * Distance to the row directly above. This is where a field's clusters show: four rows within a
+	 * percent of each other are one result, however far apart their gaps to the top are.
+	 */
+	intervalText: string;
+	intervalTitle: string;
+	/** The saturation ramp as a row-height sparkline; `null` when this row has no ramp. */
+	ramp: RampSpark | null;
+}
+
+/** One row's ramp, reduced to what a sparkline draws. */
+export interface RampSpark {
+	/** Request rate at each concurrency step, in ramp order. */
+	values: number[];
+	/** Which step the peak was taken at, or `null` when no peak was found. */
+	peakIndex: number | null;
+	/** Spoken description, since the shape carries meaning a screen reader cannot see. */
+	label: string;
 }
 
 /**
- * "How does drizzle-rs place on this database", for one database.
+ * A signed percentage difference, in the direction the sorted column reads.
  *
- * The tiles are orientation above a table that is deliberately not grouped: the table answers
- * "who is fastest here", and these answer "how does drizzle do against its own field", which is a
- * different question and the one most readers actually arrive with. Each links to the same table
- * filtered to that database, so a tile is also a way in.
+ * Higher-is-better columns print a negative number for "behind"; lower-is-better ones print a
+ * positive number for the same thing, because on a latency column being behind means a bigger
+ * figure. Both are the natural sign of `value − reference`, so nothing is flipped on the reader's
+ * behalf and every number on the column can be checked against the two it was computed from.
  *
- * The comparison is against the strongest *other* library on the same database rather than a fixed
- * raw-driver baseline: the raw driver is not always present, and when it is it is not always the
- * one to beat. Naming the target in `margin` keeps the claim checkable.
+ * A difference that rounds to nothing is a dead heat rather than a measurement: "−0.0%" reads as a
+ * rounding artefact, so it is printed as "=".
+ *
+ * Past ten times the reference the percentage stops being readable and stops fitting: ordering the
+ * table by latency puts a 1.8 ms leader against a 5.9 s tail, which is "+327,000%" — a figure no
+ * reader parses and no column holds. Beyond that point it is printed as a multiplier, which is
+ * shorter, exact, and how anyone would say it out loud.
  */
-export interface DbVerdict {
-	/** `DbProfile` value, used as the key and as the `?db=` parameter. */
-	db: string;
-	/** Short database name, e.g. "SQLite". */
-	label: string;
-	/** Link to the ranking filtered to this database. */
-	href: string;
-	/** True when the ranking is currently filtered to this database. */
-	active: boolean;
-	/** "1st of 4". */
-	standing: string;
-	/** "+3.1% vs rusqlite", or null when there is nothing to compare against. */
-	margin: string | null;
-	/** Whether drizzle-rs leads this database; drives the quiet accent, never the only signal. */
-	leads: boolean;
-	/** Long form for the tile's tooltip. */
-	detail: string;
-}
+export function gapPercent(value: number, reference: number): string | null {
+	if (!Number.isFinite(value) || !Number.isFinite(reference) || reference <= 0) return null;
 
-const ORDINALS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th'];
+	const ratio = value / reference;
+	if (ratio >= 10) return `${ratio < 100 ? ratio.toFixed(1) : ratio.toFixed(0)}×`;
 
-export function ordinal(n: number): string {
-	return ORDINALS[n - 1] ?? `${n}th`;
+	const pct = (ratio - 1) * 100;
+	if (Math.abs(pct) < 0.05) return '=';
+	return `${pct > 0 ? '+' : '−'}${Math.abs(pct).toFixed(1)}%`;
 }

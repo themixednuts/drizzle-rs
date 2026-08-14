@@ -31,7 +31,7 @@
 		<ul class="grid gap-1.5">
 			{#each chart.routes as route (route.id)}
 				<li
-					class="text-caption grid grid-cols-1 items-center gap-x-3 gap-y-1 font-mono tracking-normal sm:grid-cols-[minmax(8rem,1fr)_minmax(9rem,0.8fr)_9rem] {route.hasSamples
+					class="text-label grid grid-cols-1 items-center gap-x-3 gap-y-1 font-mono tracking-normal sm:grid-cols-[minmax(8rem,1fr)_minmax(9rem,0.8fr)_9rem] {route.hasSamples
 						? ''
 						: 'opacity-45'}"
 				>

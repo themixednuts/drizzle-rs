@@ -262,6 +262,68 @@ export interface Summary {
 	 * `readSaturation`, which treats everything but a real `outcome` as "not measured".
 	 */
 	saturation?: SaturationDoc | LegacySaturation;
+	/**
+	 * Latency at the highest load the target demonstrably sustained.
+	 *
+	 * This — not `primary.latency` — is the figure that measures the target. `primary.latency` merges
+	 * the raw samples of every counted hold plateau, and once the ramp pushes a target past its
+	 * throughput ceiling every further second contributes `VUs / throughput` of pure queueing, so the
+	 * whole-ramp percentile ranks targets by how far the ramp overshot them rather than by how fast
+	 * they answer. `#lib/service-latency` is the only place allowed to read this.
+	 *
+	 * Absent on every run published before the runner emitted it, which is most of them.
+	 */
+	latency?: LatencyUnderLoad;
+}
+
+/** How a target's sustained-load reading turned out. */
+export type LatencyOutcome =
+	/** The reference rung held. `reference` carries the figure. */
+	| 'measured'
+	/** The rung above the floor already failed, so the floor cannot be corroborated. No figure. */
+	| 'floor_above_knee'
+	/** The floor breached the error budget, so its latency is survivor-biased. No figure. */
+	| 'floor_disqualified';
+
+export interface LatencyUnderLoad {
+	/**
+	 * How far below the scaled offered rate a rung may fall and still count as sustained.
+	 *
+	 * Empirically derived rather than chosen. It no longer decides *where* the figure is read — the
+	 * reference rung is fixed — only whether that rung held at all, which it does by a wide margin
+	 * on every measurement taken so far.
+	 */
+	tolerance: number;
+	outcome: LatencyOutcome;
+	/**
+	 * The reading: the ladder's fixed reference rung, the same offered load for every target.
+	 *
+	 * Deliberately not each target's own last sustained rung. That put the reading at the knee — the
+	 * steepest part of the curve — where a run-to-run wobble across the threshold moved the published
+	 * figure by up to fifteenfold, and it compared one target's p95 at 800 concurrent against
+	 * another's at 100 in the same column, which is not an ordering however quiet the measurement is.
+	 * How far a target got up the ramp is carried by `curve` instead.
+	 *
+	 * Absent in both `floor_*` outcomes, where no rung was corroborated.
+	 */
+	reference?: SustainedStep;
+	/** Every rung, held or not, so the headline can be checked against its own working. */
+	curve: SustainedStep[];
+}
+
+export interface SustainedStep {
+	concurrency: number;
+	rps: number;
+	/** What a target holding its floor latency would have served here, by Little's law. */
+	offered_rps: number;
+	/** `rps / offered_rps`. At or above `1 - tolerance` the rung counts as sustained. */
+	retention: number;
+	latency: StepLatency;
+	cpu: number;
+	err: number;
+	sustained: boolean;
+	/** Why this rung was thrown out, or null. Currently only ever the error budget. */
+	disqualified: string | null;
 }
 
 export interface SummaryResult extends Summary {
@@ -478,6 +540,8 @@ export interface TimeseriesPoint {
 	stage?: number;
 	phase?: LoadPhase;
 	requests?: number;
+	/** Virtual users offering load in this bucket, which is the x axis of the load replay. */
+	vus?: number;
 }
 
 export interface QueryTimeseriesPoint {

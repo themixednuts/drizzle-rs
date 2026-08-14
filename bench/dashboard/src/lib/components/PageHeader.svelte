@@ -5,9 +5,9 @@
 	 * One page header pattern: an optional back link, the title, and a mono provenance line sitting
 	 * on the title's baseline rather than under it.
 	 *
-	 * The route eyebrow this used to carry ("/ overview", "/ runs") is gone, and so is the rule
-	 * underneath. The nav already says which page you are on and the title repeats it, so the
-	 * eyebrow was a third label competing for the top of every page without adding a fact.
+	 * The title is set on Archivo's wide width axis. It is the only place on the site that uses it,
+	 * which is what makes a page title read as a page title without needing a rule under it or an
+	 * eyebrow over it.
 	 */
 	let {
 		title,
@@ -26,15 +26,17 @@
 
 <div class="pt-12">
 	{#if back}
-		<a href={back.href} class="text-body text-link hover:underline">&#8592; {back.label}</a>
+		<a href={back.href} class="text-body text-muted-foreground hover:text-foreground"
+			>&#8592; {back.label}</a
+		>
 	{/if}
 	<div class="flex flex-wrap items-baseline gap-x-6 gap-y-2.5 {back ? 'mt-3' : ''}">
-		<h1 class="text-title font-semibold text-balance">{title}</h1>
+		<h1 class="text-display type-wide font-bold text-balance">{title}</h1>
 		{#if subtitle}
-			<div class="text-caption text-muted-foreground font-mono">{@render subtitle()}</div>
+			<div class="text-label text-muted-foreground font-mono">{@render subtitle()}</div>
 		{/if}
 		{#if aside}
-			<div class="text-caption text-muted-foreground ml-auto shrink-0 font-mono">
+			<div class="text-label text-muted-foreground ml-auto shrink-0 font-mono">
 				{@render aside()}
 			</div>
 		{/if}

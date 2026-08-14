@@ -3,12 +3,12 @@
 	import type { Snippet } from 'svelte';
 
 	/**
-	 * One section pattern, and in this design a section *is* a card: a bordered block on the raised
-	 * surface with a quiet heading on its top line.
+	 * One section pattern, and in this design a section is a panel: a lifted surface with a quiet
+	 * heading on its top line.
 	 *
-	 * The heading used to be a mono uppercase label floating above an unbordered block, which meant
-	 * every section announced itself twice — once as a shouty label, once as a visual break. Now the
-	 * border does the separating, so the heading can be ordinary sentence-case text.
+	 * The panel has no border. Structure here is carried by tone — the card surface sits above the
+	 * page surface, and that step is the edge. A border as well would be saying the same thing
+	 * twice, and a page of bordered boxes is the thing this redesign is getting away from.
 	 */
 	let {
 		title,
@@ -26,11 +26,11 @@
 	} = $props();
 </script>
 
-<section class={cn('bg-card border-border mt-3.5 border', className)}>
+<section class={cn('bg-card mt-4 rounded-md', className)}>
 	{#if title || aside}
 		<div class="flex flex-wrap items-baseline gap-x-5 gap-y-1.5 px-6 pt-6">
 			{#if title}
-				<h2 class="text-lead font-semibold">{title}</h2>
+				<h2 class="text-heading font-semibold">{title}</h2>
 			{/if}
 			{#if aside}
 				<div class="text-meta text-muted-foreground ml-auto shrink-0 text-right">

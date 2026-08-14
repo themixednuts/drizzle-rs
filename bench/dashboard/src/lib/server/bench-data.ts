@@ -12,13 +12,16 @@ import {
 	type CompareMetric,
 } from '#lib/compare';
 import {
+	dbProfile,
 	fallbackTargetMeta,
 	isDrizzleRsTarget,
+	legendLabels,
 	targetDisplay,
 	targetLabel,
 } from '#lib/target-display';
 import { buildTargetChart, emptyTargetChart, type TargetChart } from '#lib/chart-series';
 import { buildOverlay, type OverlayTarget } from '#lib/overlay';
+import { buildReplay } from '#lib/replay';
 import { mergeHarness } from '#lib/harness';
 import type { RepeatabilityGroup } from '#lib/repeatability';
 import { cohortSearchText } from '#lib/cohort-search';
@@ -345,13 +348,73 @@ export const overviewPageData = Effect.fn('BenchData.overviewPage')(function* (f
 	}
 
 	const { warnings, ...latest } = snapshot.success;
+
+	// The ramp behind the ranking. A failure to read it costs the page a chart, not the table, so
+	// it degrades to null the same way a broken snapshot degrades to "no leaderboard".
+	const replay = yield* Effect.result(overviewReplay(store, latest.summaries));
+
 	// A set whose shards disagree about a family's harness is reported at the top of the page, not
 	// only inside the harness strip: it invalidates the within-family comparison the table makes.
 	return {
 		...base,
 		warnings: [...base.warnings, ...warnings],
 		latest: latest as LatestRunOverview,
+		replay: replay._tag === 'Success' ? replay.success : null,
 	};
+});
+
+/**
+ * The ranking's replay: every target in the set, reduced to one line each.
+ *
+ * The whole set rather than one shard, because the picker beside the chart is meant to hold a
+ * control per driver — the same field the table below it ranks. Which of them are drawn is decided
+ * on the client from the same `?os=` and `?db=` filters the table uses, so the two can never
+ * disagree about what is in scope.
+ *
+ * This is the expensive part of the page: one timeseries artifact per target, each around 800 KB.
+ * None of it crosses the wire — what reaches the client is a few dozen points per target — and the
+ * result is held by the page cache, so the cost is paid once per published set rather than per
+ * visit. A target whose artifact is missing simply has no line.
+ */
+const overviewReplay = Effect.fn('BenchData.overviewReplay')(function* (
+	store: BenchStoreInterface,
+	summaries: readonly SummaryResult[],
+) {
+	/*
+	 * Names are disambiguated per operating system, and identity is the run plus the target.
+	 *
+	 * A set runs the same targets on Linux, macOS and Windows, so a target id appears up to three
+	 * times in it. Handing all of them to `legendLabels` at once defeats it: its uniqueness check
+	 * sees three copies of one id, concludes that even the id cannot separate the group, and gives
+	 * every drizzle-rs row the bare name "Drizzle RS". Grouping first restores the qualifiers, and
+	 * a composite id keeps the three copies distinct as chart series.
+	 */
+	const byOs = new Map<string, SummaryResult[]>();
+	for (const summary of summaries) {
+		byOs.set(summary.runner_os, [...(byOs.get(summary.runner_os) ?? []), summary]);
+	}
+	const labels = new Map<string, string>();
+	for (const group of byOs.values()) {
+		for (const [targetId, label] of legendLabels(group)) {
+			labels.set(`${group[0].runner_os}:${targetId}`, label);
+		}
+	}
+
+	const series = yield* Effect.forEach(
+		summaries,
+		(summary) =>
+			Effect.map(store.readTimeseries(summary.run_id, summary.target_id), (timeseries) => ({
+				targetId: `${summary.run_id}:${summary.target_id}`,
+				name: labels.get(`${summary.runner_os}:${summary.target_id}`) ?? summary.target_id,
+				os: summary.runner_os,
+				db: dbProfile(summary),
+				rps: summary.primary.rps.avg,
+				points: timeseries?.points ?? [],
+			})),
+		{ concurrency: R2_CONCURRENCY },
+	);
+
+	return buildReplay(series);
 });
 
 /**
@@ -399,7 +462,33 @@ export const runDetailPageData = Effect.fn('BenchData.runDetailPage')(function* 
 		{ concurrency: R2_CONCURRENCY },
 	);
 
-	const overlayTargets = derived.map((entry) => entry.overlay);
+	// The overlay legend is the one place a target's name stands alone, with no API tag or note line
+	// beside it to tell two rows of the same library apart. See `legendLabels`.
+	const legend = legendLabels(summaries);
+	const overlayTargets = derived.map((entry) => ({
+		...entry.overlay,
+		name: legend.get(entry.overlay.targetId) ?? entry.overlay.name,
+	}));
+
+	/**
+	 * The same timeseries again, reduced to one median point per load level.
+	 *
+	 * Free here in the sense that matters: the artifacts are already open, and what crosses the wire
+	 * is a few dozen points per target rather than the ~800 KB each one weighs. `null` on any run
+	 * whose buckets carry no virtual-user count, and the page draws the static overlays instead.
+	 *
+	 * Ordered by rate so the first few series — the ones the chart starts with visible — are the
+	 * fastest targets rather than whichever order the manifest listed.
+	 */
+	const replay = buildReplay(
+		[...derived]
+			.sort((a, b) => b.summary.primary.rps.avg - a.summary.primary.rps.avg)
+			.map((entry) => ({
+				targetId: entry.overlay.targetId,
+				name: legend.get(entry.overlay.targetId) ?? entry.overlay.name,
+				points: entry.overlay.points,
+			})),
+	);
 
 	return {
 		manifest,
@@ -408,6 +497,7 @@ export const runDetailPageData = Effect.fn('BenchData.runDetailPage')(function* 
 		charts: Object.fromEntries(
 			derived.map((entry) => [entry.summary.target_id, entry.chart]),
 		) as Record<string, TargetChart>,
+		replay,
 		overlays: {
 			rps: buildOverlay(overlayTargets, 'rps', trials),
 			latency: buildOverlay(overlayTargets, 'latency', trials),

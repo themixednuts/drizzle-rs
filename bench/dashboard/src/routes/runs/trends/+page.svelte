@@ -1,6 +1,7 @@
 <script lang="ts">
 	import TrendChart from '#lib/components/TrendChart.svelte';
 	import Page from '#lib/components/Page.svelte';
+	import RunsTabs from '#lib/components/RunsTabs.svelte';
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import Section from '#lib/components/Section.svelte';
 	import FilterBar from '#lib/components/FilterBar.svelte';
@@ -34,11 +35,11 @@
 </script>
 
 <svelte:head>
-	<title>trends - drizzle-rs/bench</title>
+	<title>History / drizzle-rs benchmarks</title>
 </svelte:head>
 
 <Page>
-	<PageHeader title="Trends">
+	<PageHeader title="History">
 		{#snippet subtitle()}
 			{view.targetLabel ?? 'select a library'} &#183; {view.trends.length} run{view.trends
 				.length === 1
@@ -48,12 +49,14 @@
 		{#snippet aside()}
 			{#if view.latest}
 				latest
-				<a class="text-link hover:underline" href="/runs/{view.latest.run_id}">
+				<a class="underline underline-offset-2" href="/runs/{view.latest.run_id}">
 					{shortHash(view.latest.git)}
 				</a>
 			{/if}
 		{/snippet}
 	</PageHeader>
+
+	<RunsTabs />
 
 	<WarningNotice warnings={view.warnings} />
 
@@ -79,9 +82,9 @@
 
 	{#if !view.targetKey}
 		<div class="mt-7">
-			<EmptyState title="Select a target to view its history.">
-				The dropdown lists the targets in the newest benchmark set; history is then fetched for that
-				target alone.
+			<EmptyState title="Pick a target to see its history.">
+				The list holds every target in the newest set. Picking one fetches its history and nothing
+				else.
 			</EmptyState>
 		</div>
 	{:else if view.trends.length === 0}
@@ -154,7 +157,7 @@
 					{#each view.reversedTrends as point (point.run_id)}
 						<Tr>
 							<Td>
-								<a class="text-link hover:underline" href="/runs/{point.run_id}">
+								<a class="underline underline-offset-2" href="/runs/{point.run_id}">
 									{runStamp(point.run_id)}
 								</a>
 							</Td>

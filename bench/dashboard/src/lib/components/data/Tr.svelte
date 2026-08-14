@@ -35,9 +35,9 @@
 	class={cn(
 		'border-0 transition-colors',
 		baseline &&
-			'bg-accent-tint [&>td:first-child]:before:bg-primary [&>td:first-child]:relative [&>td:first-child]:pl-2 [&>td:first-child]:before:absolute [&>td:first-child]:before:inset-y-1 [&>td:first-child]:before:left-0 [&>td:first-child]:before:w-0.5',
+			'bg-signal-wash [&>td:first-child]:before:bg-primary [&>td:first-child]:relative [&>td:first-child]:pl-2 [&>td:first-child]:before:absolute [&>td:first-child]:before:inset-y-1 [&>td:first-child]:before:left-0 [&>td:first-child]:before:w-0.5',
 		// The hovered or focused row is always the loudest thing in the table.
-		'hover:bg-accent-tint-strong focus-within:bg-accent-tint-strong',
+		'hover:bg-signal-wash-strong focus-within:bg-signal-wash-strong',
 		className,
 	)}
 	{...rest}

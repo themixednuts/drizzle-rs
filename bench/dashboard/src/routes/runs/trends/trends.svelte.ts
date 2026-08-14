@@ -177,6 +177,6 @@ export class TrendsPageState {
 		if (suite) params.set('suite', suite);
 		if (target) params.set('target', target);
 		const query = params.toString();
-		return '/trends' + (query ? '?' + query : '');
+		return '/runs/trends' + (query ? '?' + query : '');
 	}
 }
