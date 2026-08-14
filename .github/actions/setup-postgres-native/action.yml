@@ -47,6 +47,14 @@ runs:
         winget install --id "PostgreSQL.PostgreSQL.${PG_MAJOR}" \
           --exact --silent --accept-package-agreements --accept-source-agreements \
           --disable-interactivity
+        # The EDB installer can register and start a `postgresql-x64-N`
+        # Windows service as part of a silent install. This action uses the
+        # installer for binaries only, and a resident default server would sit
+        # on :5432 underneath the scratch cluster — stop and disable anything
+        # it started, so the contract stated above is enforced rather than
+        # assumed.
+        powershell -NoProfile -Command \
+          "Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue | ForEach-Object { Stop-Service -InputObject \$_ -Force -ErrorAction SilentlyContinue; Set-Service -Name \$_.Name -StartupType Disabled -ErrorAction SilentlyContinue }"
         # POSIX form, not `C:\...`: PG_BIN is prepended to bash's
         # colon-separated PATH in the next step, and the colon in `C:` would
         # split the entry into two fragments, neither a directory.
@@ -98,8 +106,23 @@ runs:
         fi
         data="$temp/pgdata"
         initdb -D "$data" -U postgres -A trust -E UTF8
-        pg_ctl -D "$data" -l "$temp/pg.log" \
-          -o "-p 5432 -c listen_addresses=127.0.0.1" start
+
+        # The step runs under `set -e`, so a bare failing `pg_ctl` would abort
+        # before any diagnostics print and the run would report only "could
+        # not start server". Dumping the server's own log on every failure
+        # path is what makes the next failure diagnosable instead of opaque.
+        dump_log() {
+          echo "::group::pg.log"
+          cat "$temp/pg.log" 2>/dev/null || echo "(no pg.log was written)"
+          echo "::endgroup::"
+        }
+
+        if ! pg_ctl -D "$data" -l "$temp/pg.log" \
+          -o "-p 5432 -c listen_addresses=127.0.0.1" start; then
+          echo "::error::pg_ctl could not start the server; its log follows"
+          dump_log
+          exit 1
+        fi
 
         for i in $(seq 1 30); do
           if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then
@@ -107,7 +130,11 @@ runs:
           fi
           sleep 1
         done
-        pg_isready -h 127.0.0.1 -p 5432 || { cat "$RUNNER_TEMP/pg.log"; exit 1; }
+        if ! pg_isready -h 127.0.0.1 -p 5432; then
+          echo "::error::server started but never became ready; its log follows"
+          dump_log
+          exit 1
+        fi
 
         createdb -h 127.0.0.1 -U postgres drizzle_test
         echo "url=host=127.0.0.1 port=5432 user=postgres password=postgres dbname=drizzle_test" >> "$GITHUB_OUTPUT"
