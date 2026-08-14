@@ -66,7 +66,7 @@
 	}
 
 	const VERDICT_TONE: Record<CurvePoint['verdict'], string> = {
-		peak: 'text-link',
+		peak: 'text-signal',
 		under: 'text-foreground-secondary',
 		over: 'text-muted-foreground',
 		disqualified: 'text-negative',
@@ -137,7 +137,7 @@
 
 	{#if points.length === 0}
 		<div
-			class="border-border text-caption text-muted-foreground mt-3 flex items-center justify-center border border-dashed font-mono"
+			class="border-border text-label text-muted-foreground mt-3 flex items-center justify-center border border-dashed font-mono"
 			style="height:{RPS_HEIGHT + LATENCY_HEIGHT}px"
 		>
 			this run recorded an outcome but published no curve

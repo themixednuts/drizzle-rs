@@ -2,7 +2,9 @@ import { dev } from '$app/env';
 import { sequence } from '@sveltejs/kit/hooks';
 import { pageCache } from '#lib/server/page-cache';
 import { parseTheme, themeAttribute, THEME_COOKIE } from '#lib/theme';
-import type { Handle } from '@sveltejs/kit';
+// `Handle` lives alongside `sequence` in `@sveltejs/kit/hooks` as of Kit 3; the root export no
+// longer carries it.
+import type { Handle } from '@sveltejs/kit/hooks';
 
 /**
  * LayerChart writes its root element's position with the `style:position` shorthand. Under Svelte 5

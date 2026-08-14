@@ -43,7 +43,7 @@
 	content height of 20px. It only means "take the remaining width" once the row direction is back.
 -->
 <div class={cn('flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:gap-2', className)}>
-	<label for={id} class="text-caption text-muted-foreground shrink-0 font-mono uppercase">
+	<label for={id} class="text-label text-muted-foreground shrink-0 font-mono uppercase">
 		{label}
 	</label>
 	<select

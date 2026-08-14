@@ -47,13 +47,31 @@ instead of $lib`) in favour of Node subpath imports, so `package.json` declares
   `"imports": { "#lib/*": "./src/lib/*" }` and Kit derives both the Vite aliases and the generated
   tsconfig paths from it. `tsconfig.json` extends `$app/tsconfig`.
 
-Two rough edges worth knowing:
+Four rough edges worth knowing:
 
+- **On Windows, start the dev server from the path the filesystem reports.** Vite serves a module as
+  `/node_modules/...` when it resolves inside `root` and as `/@fs/<absolute path>` when it does not,
+  and that comparison is case-sensitive even though opening the file is not. Running from
+  `E:\projects\...` when the directory is really `E:\Projects\...` splits some imports across both
+  forms, so the browser loads `runtime/client/state.svelte.js` twice. SvelteKit's client `page`
+  is a module-level object, so `start()` populates one copy and every component reads the other,
+  which still holds its `new URL('a:')` placeholder: `page.url` reads as `file:///A:`,
+  `page.url.searchParams` is always empty, and the app hydrates with no filters, no sort and no
+  active nav. The SSR HTML is correct, so nothing looks wrong until you click something.
+  `vite.config.ts` prints a warning naming the correct path. Production builds are unaffected —
+  everything is bundled into one entry.
 - **`bun run dev` uses plain `vite`, not `vp`.** Kit 3's dev server asserts
   `vite.isRunnableDevEnvironment(server.environments.ssr)` against the standalone `vite` package,
   while Vite+ builds that environment from its own bundled copy — two module instances, so the
   check always fails with "The configured Vite SSR environment must be a RunnableDevEnvironment".
-  `vp` still runs fmt, lint, typecheck and build.
+  `vp` still runs fmt, lint, typecheck and build. This is also why the config cannot simply set
+  `root` to the corrected casing: overriding `root` makes that same assertion fail.
+- **`#lib` needs the `alias` option, deprecated as it is.** Kit derived the generated tsconfig's
+  `paths` from `package.json`'s `imports` field up to `3.0.0-next.13`; by `next.23` `get_paths`
+  reads only `alias`. Without it `svelte-check` cannot resolve a single `#lib/...` import, while
+  Vite and Node resolve them fine. Kit warns that `alias` is deprecated in favour of the subpath
+  imports we already declare; the two directions disagree today and this is the side that
+  typechecks. Retry dropping it on a later `next.*`.
 - **`svelte-kit sync` warns `"paths" was overwritten. Imports from "#lib" may not typecheck`.** It
   is a false positive: Kit validates the resolved tsconfig by handing TypeScript a raw JSON object,
   which cannot follow `extends: "$app/tsconfig"`, so it sees no `paths` at all. Resolving the config

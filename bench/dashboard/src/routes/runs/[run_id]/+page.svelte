@@ -1,8 +1,10 @@
 <script lang="ts">
+	import BoxWhisker from '#lib/components/BoxWhisker.svelte';
 	import CapacityFigure from '#lib/components/CapacityFigure.svelte';
 	import HarnessStrip from '#lib/components/HarnessStrip.svelte';
 	import LatencyBars from '#lib/components/LatencyBars.svelte';
 	import OverlayChart from '#lib/components/OverlayChart.svelte';
+	import Replay from '#lib/components/Replay.svelte';
 	import SaturationCurve from '#lib/components/SaturationCurve.svelte';
 	import QueryMetricBars from '#lib/components/QueryMetricBars.svelte';
 	import SparkLine from '#lib/components/SparkLine.svelte';
@@ -15,7 +17,6 @@
 	import Hint from '#lib/components/Hint.svelte';
 	import ApiTag from '#lib/components/ApiTag.svelte';
 	import OsBadge from '#lib/components/OsBadge.svelte';
-	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import DataTable from '#lib/components/data/DataTable.svelte';
 	import Td from '#lib/components/data/Td.svelte';
 	import Tr from '#lib/components/data/Tr.svelte';
@@ -50,11 +51,12 @@
 </svelte:head>
 
 <Page>
-	<PageHeader title={view.runName} back={{ href: '/runs', label: 'all runs' }}>
-		{#snippet aside()}
-			<StatusBadge status={manifest.status} />
-		{/snippet}
-	</PageHeader>
+	<!--
+		No status badge. Every run that renders this page succeeded — a failed one has no summaries to
+		draw — so the badge was a green tick beside a page that could not exist without it. The runs
+		list is where status distinguishes one row from another, and it still carries it there.
+	-->
+	<PageHeader title={view.runName} back={{ href: '/runs', label: 'all runs' }} />
 
 	<!--
 		The comp's meta strip: the facts that identify this run, on one mono line under the title
@@ -62,7 +64,7 @@
 		carry is still in "About this run" below.
 	-->
 	<div
-		class="border-border text-caption text-muted-foreground mt-4 flex flex-wrap gap-x-7 gap-y-2 border-b pb-5 font-mono"
+		class="border-border text-label text-muted-foreground mt-4 flex flex-wrap gap-x-7 gap-y-2 border-b pb-5 font-mono"
 	>
 		<span>commit {shortHash(manifest.git)}</span>
 		<span>{fmtDate(manifest.start)}</span>
@@ -84,13 +86,29 @@
 	-->
 	<HarnessStrip rows={view.harnessRows} />
 
-	<Section>
-		<OverlayChart chart={view.overlays.rps} height={190} />
-	</Section>
+	<!--
+		The run itself, before any of the reductions below it.
 
-	<Section>
-		<OverlayChart chart={view.overlays.latency} height={150} />
-	</Section>
+		Every section under this one is a target's numbers after five trials have been collapsed into
+		a median. This is the ramp those numbers came off: load climbing along the bottom, each
+		target's rate drawing itself across, and a readout that follows the playhead. Where one line
+		flattens and another keeps climbing is a finding no table on this page can state.
+	-->
+	{#if view.replay}
+		<Section>
+			<Replay replay={view.replay} />
+		</Section>
+	{:else}
+		<!-- No load ramp was recorded, so there is nothing to play. The same series against elapsed
+		     time is still worth drawing. -->
+		<Section>
+			<OverlayChart chart={view.overlays.rps} height={190} />
+		</Section>
+
+		<Section>
+			<OverlayChart chart={view.overlays.latency} height={150} />
+		</Section>
+	{/if}
 
 	<!-- One section per target, in throughput order, with the accent edge on ours. -->
 	{#each view.sortedSummaries as summary (summary.target_id)}
@@ -98,12 +116,12 @@
 		{@const meta = view.targetMeta(summary.target_id)}
 		{@const display = view.targetDisplay(summary.target_id)}
 		{@const ours = view.isBaseline(summary)}
-		<Section class={cn(ours && 'border-l-primary border-l-[3px]')}>
+		<Section class={cn(ours && 'border-l-signal border-l-[3px]')}>
 			<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-				<h2 class={cn('text-heading font-semibold', ours && 'text-link')}>{display.name}</h2>
+				<h2 class={cn('text-heading font-semibold', ours && 'text-signal-ink')}>{display.name}</h2>
 				<ApiTag api={display.api} />
 				<span class="text-meta text-foreground-secondary">{display.note}</span>
-				<span class="text-caption text-muted-foreground ml-auto font-mono">
+				<span class="text-label text-muted-foreground ml-auto font-mono">
 					{view.rangeText(summary)}
 				</span>
 			</div>
@@ -143,7 +161,7 @@
 								throughput at fixed load
 							</Hint>
 						</div>
-						<div class="text-metric mt-2 font-mono font-medium tabular-nums">
+						<div class="text-figure mt-2 font-mono font-medium tabular-nums">
 							{fmtRps(p.rps.avg)}
 						</div>
 						<div class="text-body text-muted-foreground mt-1">
@@ -169,11 +187,17 @@
 						detail="median across trials"
 						hint="median across trials of each trial's mean latency"
 					/>
+					<!--
+						Labelled for what it is. This is the whole-ramp percentile: past the point where a
+						target stops keeping up, the ramp's extra load is queueing, so the figure carries the
+						queue as well as the work. The sustained-load reading is the one that measures the
+						target, and it lives on the ranking.
+					-->
 					<MetricTile
 						label="slowest 5%"
 						value={fmtLatency(p.latency.p95)}
-						detail="p99 {fmtLatency(p.latency.p99)}"
-						hint="p95: 95 of 100 requests finished faster than this, median across trials"
+						detail="whole ramp · p99 {fmtLatency(p.latency.p99)}"
+						hint="p95 merged across every hold plateau of the ramp, up to 3000 concurrent, median across trials. Past a target's throughput ceiling the ramp contributes queueing rather than work, so this is not the target's service latency."
 					/>
 					<MetricTile
 						label="cpu"
@@ -224,6 +248,34 @@
 				</p>
 			{/if}
 
+			<!--
+				The trials behind the headline. Every number in the grid above is a median across five
+				runs, and how far those five ranged is what decides whether a difference between two
+				targets is a result — so it is drawn here rather than left as a text range folded into
+				the configuration table below.
+			-->
+			{@const figure = view.spreadFigure(summary)}
+			<div class="border-border-soft mt-6 border-t pt-4">
+				<div class="text-micro text-muted-foreground font-mono uppercase">
+					<Hint
+						hint="Whiskers reach the slowest and fastest trial. The box spans the middle two quartiles, and is drawn only where the run recorded them."
+					>
+						rate across trials
+					</Hint>
+				</div>
+				<div class="mt-2 grid items-center gap-x-5 gap-y-2 lg:grid-cols-[minmax(0,1fr)_auto]">
+					<BoxWhisker
+						box={figure.box}
+						extent={figure.extent}
+						label={view.spreadLabel(summary)}
+						accent={ours}
+					/>
+					<span class="text-meta text-foreground-secondary font-mono tabular-nums">
+						{view.spreadLabel(summary)}
+					</span>
+				</div>
+			</div>
+
 			<div class="mt-6 grid gap-7 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
 				<div>
 					<div class="text-micro text-muted-foreground mb-2 font-mono uppercase">
@@ -259,7 +311,7 @@
 								)}>{tab.label}</a
 							>
 						{/each}
-						<span class="text-caption text-muted-foreground ml-auto font-mono">
+						<span class="text-label text-muted-foreground ml-auto font-mono">
 							<Hint hint={view.metricHelp(summary.target_id)}>one representative trial</Hint>
 						</span>
 					</nav>
@@ -314,11 +366,10 @@
 									<Td>{meta.data_access ?? 'not declared'}</Td>
 								</Tr>
 							{/if}
+							<!-- The rate's spread is drawn above; only the p95 range is left to state here. -->
 							<Tr>
-								<Td tone="muted">spread rps</Td>
-								<Td>{fmtRps(summary.spread.rps.min)} - {fmtRps(summary.spread.rps.max)}</Td>
-								<Td tone="muted">spread p95</Td>
-								<Td>{view.latencyRangeText(summary)}</Td>
+								<Td tone="muted">p95 across trials</Td>
+								<Td colspan={3}>{view.latencyRangeText(summary)}</Td>
 							</Tr>
 							<!--
 								The harness this target's whole database family ran under, beside the target's own
@@ -402,7 +453,7 @@
 		<Section title="Query catalog" flush>
 			{#snippet aside()}{view.queries.length} operations / SQL shapes{/snippet}
 
-			<div class="border-border border-t">
+			<div class="border-border-soft border-t">
 				{#each view.queries as query (query.id)}
 					<details class="border-border-soft group border-b last:border-b-0">
 						<summary
@@ -430,7 +481,7 @@
 							</dl>
 							{#each query.sql as shape (shape.dialect + shape.text)}
 								<pre
-									class="border-border bg-surface-inset text-caption text-foreground-secondary mt-2 overflow-x-auto border px-3 py-2 font-mono"><code
+									class="bg-surface-inset text-label text-foreground-secondary mt-2 overflow-x-auto rounded-sm px-3 py-2 font-mono"><code
 										>{shape.text}</code
 									></pre>
 							{/each}
@@ -442,7 +493,7 @@
 	{/if}
 
 	<Section title="About this run" flush>
-		<div class="border-border border-t">
+		<div class="border-border-soft border-t">
 			<!--
 				One fact per row, one key column and one value column. This replaced a four-column
 				label/value/label/value zig-zag that made the eye jump columns to follow a single fact,
@@ -472,7 +523,7 @@
 					The load generator, the target server and its database all run on this one machine and
 					share its cores, so target CPU and load-generator CPU come out of the same budget. Numbers
 					here are comparable to other targets in this same run, and not to other runs — see <a
-						class="text-link underline"
+						class="underline underline-offset-2"
 						href="/methodology">the method</a
 					>.
 				</Note>

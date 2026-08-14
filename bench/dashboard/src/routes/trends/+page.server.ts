@@ -1,12 +1,7 @@
+import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { trendsPageData } from '#lib/server/bench-data';
-import { runServerEffect } from '#lib/server/effect';
 
-export const load: PageServerLoad = ({ platform, url }) =>
-	runServerEffect(
-		trendsPageData({
-			suite: url.searchParams.get('suite'),
-			target: url.searchParams.get('target'),
-		}),
-		platform,
-	);
+/** Trends moved under runs, where the rest of the per-job views live. */
+export const load: PageServerLoad = ({ url }) => {
+	redirect(308, `/runs/trends${url.search}`);
+};

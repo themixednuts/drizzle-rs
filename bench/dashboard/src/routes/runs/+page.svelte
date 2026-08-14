@@ -7,6 +7,7 @@
 	import WarningNotice from '#lib/components/WarningNotice.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import RunList from '#lib/components/RunList.svelte';
+	import RunsTabs from '#lib/components/RunsTabs.svelte';
 	import Note from '#lib/components/Note.svelte';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { RunsPageState } from '../home.svelte';
@@ -27,13 +28,15 @@
 		{#snippet subtitle()}{view.runsMeta}{/snippet}
 		{#snippet aside()}
 			<a
-				class="text-link hover:underline"
+				class="underline underline-offset-2"
 				href="/api/v1/runs/latest?suite={view.suite ?? view.suites[0] ?? ''}"
 			>
-				latest json
+				Latest run as JSON
 			</a>
 		{/snippet}
 	</PageHeader>
+
+	<RunsTabs />
 
 	{#if view.warnings.length > 0}
 		<div class="mt-7"><WarningNotice warnings={view.warnings} /></div>
@@ -48,12 +51,12 @@
 			<FilterForm action="/runs" submitLabel="search" class="flex items-center gap-2">
 				{#if view.suite}<input type="hidden" name="suite" value={view.suite} />{/if}
 				{#if view.status}<input type="hidden" name="status" value={view.status} />{/if}
-				<label for="run-search" class="sr-only">filter benchmark sets</label>
+				<label for="run-search" class="sr-only">Search runs</label>
 				<Input
 					id="run-search"
 					name="q"
 					type="search"
-					placeholder="run, commit, target..."
+					placeholder="Search runs, commits, targets"
 					value={view.query}
 					oninput={view.search}
 					class="text-meta h-8 w-full font-mono sm:w-64"
@@ -72,8 +75,8 @@
 	{:else}
 		<RunList cohorts={view.filteredCohorts}>
 			{#snippet empty()}
-				<EmptyState title="No runs match the current filters.">
-					Clear the suite or status filter, or widen the search text.
+				<EmptyState title="No runs match these filters.">
+					Clear the suite or status filter, or shorten the search.
 				</EmptyState>
 			{/snippet}
 		</RunList>
@@ -81,8 +84,10 @@
 		{#if view.filteredCohorts.length > 0}
 			<div class="mt-4">
 				<Note>
-					A job that appears more than once is the same work
-					<a class="text-link underline" href="/repeatability">repeated on another machine</a>.
+					A job listed more than once is the same work
+					<a class="underline underline-offset-2" href="/runs/machines"
+						>run again on another machine</a
+					>.
 				</Note>
 			</div>
 		{/if}

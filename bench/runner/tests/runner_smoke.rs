@@ -111,6 +111,8 @@ fn run_writes_contract_artifacts() {
     assert!(summary.get("spread").is_some());
     // This workload declares no capacity measurement, so it reports none.
     assert!(summary.get("saturation").is_none());
+    // Nor a latency SLO, so no latency-under-SLO block either.
+    assert!(summary.get("latency").is_none());
     // The n=5 bootstrap only ever measured its own resampling noise.
     assert!(
         summary["spread"].get("ci95").is_none(),
@@ -932,6 +934,174 @@ fn within_family_harness_drift_fails_the_run_before_any_load() {
     assert!(stderr.contains("fair.pool=1"), "{stderr}");
     // It fails before spending an hour producing an unusable comparison.
     assert!(!out.join("runs").exists() || stderr.contains("fair.pool"));
+}
+
+/// A workload declaring the latency measurement must produce a schema-valid
+/// sustained-latency artifact end to end: a real curve tagged with concurrency
+/// and the criterion's own inputs, a named outcome, the fixed reference step,
+/// and probe buckets disclosed in the timeseries.
+#[test]
+fn a_latency_run_writes_a_sustained_latency_artifact() {
+    let tmp = TempDir::new().expect("tmp");
+    let root = tmp.path();
+    let input = root.join("input");
+    let out = root.join("out");
+    fs::create_dir_all(&input).expect("mkdir input");
+    fs::create_dir_all(&out).expect("mkdir out");
+
+    write_json(input.join("workload.json"), &latency_workload_json());
+    write_json(input.join("targets.json"), &targets_json());
+    write_json(
+        input.join("requests.json"),
+        r#"[{"method":"GET","path":"/customer-by-id"}]"#,
+    );
+
+    let output = run_cmd(
+        &[
+            "run",
+            "--suite",
+            "throughput-http",
+            "--workload",
+            input.join("workload.json").to_str().expect("workload path"),
+            "--targets",
+            input.join("targets.json").to_str().expect("targets path"),
+            "--requests",
+            input.join("requests.json").to_str().expect("requests path"),
+            "--out",
+            out.to_str().expect("out path"),
+            "--trials",
+            "2",
+            "--seed",
+            "42",
+        ],
+        true,
+    );
+    let run_dir = out.join("runs").join(extract_run_id(&output));
+
+    let summary: Value = serde_json::from_str(
+        &fs::read_to_string(
+            run_dir
+                .join("targets")
+                .join("drizzle-rs-sqlite")
+                .join("summary.json"),
+        )
+        .expect("summary read"),
+    )
+    .expect("summary json");
+
+    // primary.latency is untouched: it stays the whole-ramp aggregate for
+    // comparability, and the new block sits beside it.
+    assert!(summary["primary"]["latency"]["p95"].as_f64().is_some());
+    // A latency workload without a saturation block reports no capacity.
+    assert!(summary.get("saturation").is_none());
+
+    let latency = &summary["latency"];
+    assert!(latency["tolerance"].as_f64().is_some_and(|t| t > 0.0));
+    let outcome = latency["outcome"].as_str().expect("outcome is required");
+    assert!(
+        ["measured", "floor_above_knee", "floor_disqualified"].contains(&outcome),
+        "unexpected outcome {outcome}"
+    );
+
+    let curve = latency["curve"].as_array().expect("curve array");
+    assert_eq!(
+        curve
+            .iter()
+            .map(|step| step["concurrency"].as_u64().expect("concurrency"))
+            .collect::<Vec<_>>(),
+        vec![2, 4, 8]
+    );
+    for step in curve {
+        // The criterion's inputs travel with every step so the reading is
+        // auditable from the artifact alone.
+        assert!(step["offered_rps"].as_f64().is_some());
+        assert!(step["retention"].as_f64().is_some());
+        assert!(step["sustained"].is_boolean(), "sustained must be present");
+        assert!(
+            step.get("disqualified").is_some(),
+            "disqualified must be present on every step"
+        );
+        assert!(step["latency"]["p95"].as_f64().is_some());
+        assert!(step["rps"].as_f64().is_some());
+    }
+    // The floor is its own reference.
+    assert_eq!(curve[0]["retention"].as_f64(), Some(1.0));
+
+    // The reference exists unless the floor could not be corroborated, and it
+    // is always the ladder's second rung — a fixed reading point, never a
+    // knee-dependent one.
+    if outcome.starts_with("floor_") {
+        assert!(latency.get("reference").is_none());
+    } else {
+        assert_eq!(
+            latency["reference"]["concurrency"].as_u64(),
+            Some(4),
+            "the reference is the ladder's second rung"
+        );
+    }
+
+    // Probe buckets are disclosed in the timeseries and excluded nowhere else:
+    // the floor stage's hold buckets carry the flag, counted stages never do.
+    let series: Value = serde_json::from_str(
+        &fs::read_to_string(
+            run_dir
+                .join("targets")
+                .join("drizzle-rs-sqlite")
+                .join("timeseries.json"),
+        )
+        .expect("timeseries read"),
+    )
+    .expect("timeseries json");
+    let points = series["points"].as_array().expect("points");
+    assert!(
+        points
+            .iter()
+            .any(|point| point["probe"].as_bool() == Some(true)),
+        "probe buckets must be disclosed"
+    );
+    for point in points {
+        let vus = point["vus"].as_u64();
+        match point["probe"].as_bool() {
+            Some(true) => assert_eq!(vus, Some(2), "only the floor stage is a probe"),
+            _ => assert_ne!(vus, Some(2), "the probe stage must carry its flag"),
+        }
+    }
+
+    let validate = run_cmd(
+        &["validate", "--run", run_dir.to_str().expect("run path")],
+        true,
+    );
+    assert_eq!(validate.status.code(), Some(0));
+}
+
+/// Warmup at 2 VUs (stages 0-1), a probe floor at 2, then counted steps at 4
+/// and 8. The outcome depends on this machine's speed; the test asserts
+/// artifact shape and invariants, not a particular reading.
+fn latency_workload_json() -> String {
+    r#"{
+  "version": "v1",
+  "suite": "throughput-http",
+  "name": "Latency",
+  "load": { "kind": "closed", "executor": "ramping-vus", "unit": "1s", "concurrency": 8 },
+  "data": { "name": "base", "seed": 42, "schema": "bench/schema.sql" },
+  "shape": { "mode": "single", "endpoint": "/customer-by-id" },
+  "stages": [
+    { "sec": 1, "vus": 2, "probe": true },
+    { "sec": 1, "vus": 2, "probe": true },
+    { "sec": 2, "vus": 2, "probe": true },
+    { "sec": 1, "vus": 4 },
+    { "sec": 2, "vus": 4 },
+    { "sec": 1, "vus": 8 },
+    { "sec": 2, "vus": 8 }
+  ],
+  "warmup_s": 2,
+  "requests": { "source": "generated", "file": "requests.json", "skip": [] },
+  "pacing": { "mode": "none" },
+  "sampling": { "cpu_ms": 100, "bucket_s": 1 },
+  "limits": { "err": 0.01 },
+  "latency": {}
+}"#
+    .to_string()
 }
 
 /// Warmup at 2 VUs (stages 0-1), then steps at 2, 4 and 8.

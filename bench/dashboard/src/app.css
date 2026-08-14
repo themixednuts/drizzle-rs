@@ -3,83 +3,99 @@
 @import 'shadcn-svelte/tailwind.css';
 
 /*
- * Fonts are declared here rather than imported from Fontsource's stylesheet, for two reasons that
- * both come down to layout stability.
+ * ============================================================================
+ * Instrument — the visual system for the drizzle-rs benchmark site.
+ * ============================================================================
  *
- * `font-display: optional` is the only value that guarantees zero layout shift: there is no swap
- * period, so the browser either has the font in time for first paint or renders the whole page in
- * the fallback and swaps on the next navigation. It never re-lays-out text that is already on
- * screen. Fontsource's own CSS hardcodes `swap`, which is exactly the FOUT that moves things.
+ * A benchmark is a recording. This suite ramps virtual users from nothing to
+ * three thousand, samples every second, and repeats the whole thing five times;
+ * the numbers on these pages are what is left after all of that is reduced. The
+ * design's job is to keep the recording visible behind the reduction.
  *
- * The fallback faces below carry metric overrides measured against the real fonts with fontTools,
- * so even the fallback render occupies the same space — nothing reflows in either direction. Only
- * the latin subset is declared; this dashboard has no other content.
+ * So it is built like an instrument panel rather than a document:
  *
- * Both families are self-hosted from Fontsource. The design comp loads them from Google Fonts;
- * that would put a third-party origin on the critical path for every first paint, which is exactly
- * what the preload-plus-`optional` arrangement here exists to avoid.
+ *   Ground    Near-black, because every page here is a chart with numbers on
+ *             it, and a dark ground lets a trace carry without shouting.
+ *   Signal    One lime, used for the current position and nothing else. Series
+ *             colours step away from it, so five lines stay separable while the
+ *             accent still belongs to the page.
+ *   Numbers   Monospace and tabular everywhere. Every figure on this site is
+ *             read down a column against the figure above it.
+ *   Recording Wherever one number stands for many, the many are drawn beside
+ *             it: a sparkline on a row, a box and whisker in a detail, the ramp
+ *             itself on a run.
+ *
+ * Dark is the designed mode. Light is derived by mirroring the lightness ramp
+ * on the same hues, so the two are one palette rather than two to keep in sync,
+ * and the theme toggle keeps working.
+ */
+
+/*
+ * Fonts.
+ *
+ * `font-display: optional` is the only value that guarantees zero layout shift:
+ * there is no swap period, so the browser either has the font in time for first
+ * paint or renders in the fallback and swaps on the next navigation. It never
+ * re-lays-out text already on screen. Fontsource's own CSS hardcodes `swap`,
+ * which is the FOUT that moves things, so the faces are declared here instead.
+ *
+ * Inter for everything that is words, JetBrains Mono for everything that is a
+ * number. The split is strict: a figure read down a column is always mono.
  */
 @font-face {
-	font-family: 'Instrument Sans Variable';
+	font-family: 'Inter Variable';
 	font-style: normal;
-	font-weight: 400 700;
+	font-weight: 100 900;
 	font-display: optional;
-	src: url('@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2')
+	src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2')
 		format('woff2-variations');
 	unicode-range:
 		U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
 		U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
-/* Plex Mono is not a variable family; the comp uses 400 and 500, so exactly those ship. */
 @font-face {
-	font-family: 'IBM Plex Mono';
+	font-family: 'JetBrains Mono Variable';
 	font-style: normal;
-	font-weight: 400;
+	font-weight: 100 800;
 	font-display: optional;
-	src: url('@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2') format('woff2');
-	unicode-range:
-		U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-		U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-	font-family: 'IBM Plex Mono';
-	font-style: normal;
-	font-weight: 500;
-	font-display: optional;
-	src: url('@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2') format('woff2');
+	src: url('@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2')
+		format('woff2-variations');
 	unicode-range:
 		U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
 		U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 /*
- * Metric-matched stand-ins, so the fallback render has the same line box and the same line-break
- * points as the real font. Every number below was measured off the shipped woff2:
+ * Metric-matched stand-ins, so the fallback render has the same line box and the
+ * same line-break points as the real face. Every number below was measured off
+ * the shipped woff2 with fontTools, against the local face named in `src`:
  *
- *   Instrument Sans  1000upm  asc 970  desc -250  gap 0   avg advance 0.58845em
- *   Arial            2048upm                              avg advance 0.56966em  -> size-adjust 103.30%
- *   IBM Plex Mono    1000upm  asc 1025 desc -275  gap 0   advance 0.600em
- *   Courier New      2048upm                              advance 0.6001em      -> size-adjust 99.98%
+ *   Inter            2048upm  asc 96.88%  desc 24.12%  avg advance 0.59153em
+ *   Arial            2048upm                           avg advance 0.56517em
+ *                                                      -> size-adjust 104.67%
+ *   JetBrains Mono   1000upm  asc 102.0%  desc 30.00%  advance 0.60000em
+ *   Courier New      2048upm                           advance 0.60010em
+ *                                                      -> size-adjust  99.98%
  *
- * The ascent/descent overrides are the real font's percentages divided by the size-adjust, which is
- * what keeps the line box identical once the stand-in has been scaled.
+ * The ascent/descent overrides are the real face's percentages divided by the
+ * size-adjust, which is what keeps the line box identical once the stand-in has
+ * been scaled.
  */
 @font-face {
-	font-family: 'Instrument Sans Fallback';
+	font-family: 'Inter Fallback';
 	src: local('Arial');
-	ascent-override: 93.9%;
-	descent-override: 24.2%;
+	ascent-override: 92.56%;
+	descent-override: 23.05%;
 	line-gap-override: 0%;
-	size-adjust: 103.3%;
+	size-adjust: 104.67%;
 }
 
 @font-face {
-	font-family: 'IBM Plex Mono Fallback';
+	font-family: 'JetBrains Mono Fallback';
 	src: local('Courier New');
-	ascent-override: 102.52%;
-	descent-override: 27.5%;
+	ascent-override: 102.02%;
+	descent-override: 30%;
 	line-gap-override: 0%;
 	size-adjust: 99.98%;
 }
@@ -106,102 +122,101 @@
 
 /*
  * ---------------------------------------------------------------------------
- * Design tokens — the only place a colour, type step, or radius is decided.
+ * Tokens — the only place a colour, type step, or radius is decided.
  * ---------------------------------------------------------------------------
- * Every value is declared once as `light-dark(<light>, <dark>)`. There is no second dark block to
- * keep in sync, and no parallel hand-rolled palette: `@theme inline` below is what publishes these
- * to Tailwind, and the vendored shadcn components read the same names.
+ * Every value is declared once as `light-dark(<light>, <dark>)`. There is no
+ * second dark block to keep in sync, and no parallel hand-rolled palette:
+ * Every value is declared once as `light-dark(<light>, <dark>)`. There is no
+ * second dark block to keep in sync: `@theme inline` below publishes these to
+ * Tailwind, and the vendored shadcn components read the same names.
+ *
+ * Neutrals sit at hue 285 with almost no chroma — a near-neutral charcoal that
+ * keeps the lime from going muddy against it. Lime is hue 122.
  */
 :root {
 	color-scheme: light dark;
 
-	/* Surfaces -------------------------------------------------------------- */
-	/* Dark is the designed mode; every dark value is the comp's. Light is derived from the same two
-	   hues (262 for the neutrals, 132 for the accent) by mirroring the lightness ramp, so the two
-	   modes are one palette seen from either end rather than two palettes to keep in sync. */
-	--background: light-dark(oklch(0.975 0.003 262), oklch(0.185 0.014 262));
-	--foreground: light-dark(oklch(0.22 0.015 262), oklch(0.95 0.005 262));
-	--card: light-dark(oklch(0.995 0.002 262), oklch(0.235 0.014 262));
+	/* Surfaces ------------------------------------------------------------- */
+	--background: light-dark(oklch(0.968 0.002 285), oklch(0.145 0.004 285));
+	--foreground: light-dark(oklch(0.205 0.006 285), oklch(0.935 0.003 285));
+	--card: light-dark(oklch(0.995 0.001 285), oklch(0.188 0.005 285));
 	--card-foreground: var(--foreground);
 	--popover: var(--card);
 	--popover-foreground: var(--foreground);
-	--muted: light-dark(oklch(0.955 0.005 262), oklch(0.265 0.014 262));
-	--muted-foreground: light-dark(oklch(0.5 0.018 262), oklch(0.72 0.012 262));
+	--muted: light-dark(oklch(0.935 0.003 285), oklch(0.238 0.006 285));
+	--muted-foreground: light-dark(oklch(0.5 0.008 285), oklch(0.68 0.008 285));
 	--secondary: var(--muted);
 	--secondary-foreground: var(--foreground);
 	--accent: var(--muted);
 	--accent-foreground: var(--foreground);
 
-	/* Two more surfaces the comp uses structurally: the tinted header row of a table or card, and
-	   the recessed well a chart is drawn into. */
-	--surface-raised: light-dark(oklch(0.955 0.005 262), oklch(0.265 0.014 262));
-	--surface-inset: light-dark(oklch(0.962 0.004 262), oklch(0.21 0.014 262));
-	/* The page chrome sits away from the page: darker in dark, lighter in light. */
-	--surface-chrome: light-dark(oklch(0.995 0.002 262), oklch(0.155 0.014 262));
+	/* The recessed well a chart is drawn into, and the chrome around the page. */
+	--surface-inset: light-dark(oklch(0.945 0.003 285), oklch(0.118 0.004 285));
+	--surface-chrome: light-dark(oklch(0.99 0.001 285), oklch(0.128 0.004 285));
 
-	/* Ink steps beyond the two shadcn roles. The comp reads its muted text as a ramp, not a single
-	   grey: labels sit low, values sit high. `faint` is decorative only — separators and disabled
-	   marks — because it does not clear 4.5:1 for text. */
-	--foreground-secondary: light-dark(oklch(0.38 0.016 262), oklch(0.84 0.008 262));
-	--foreground-faint: light-dark(oklch(0.62 0.014 262), oklch(0.58 0.012 262));
+	/* Ink steps. `faint` is decorative only — it does not clear 4.5:1 for text. */
+	--foreground-secondary: light-dark(oklch(0.375 0.007 285), oklch(0.81 0.006 285));
+	--foreground-faint: light-dark(oklch(0.66 0.008 285), oklch(0.5 0.008 285));
 
 	/* Rules ----------------------------------------------------------------- */
-	--border: light-dark(oklch(0.87 0.008 262), oklch(0.31 0.014 262));
-	/* The hairline between table rows: present, but never louder than the numbers. */
-	--border-soft: light-dark(oklch(0.925 0.006 262), oklch(0.275 0.014 262));
-	--input: light-dark(oklch(0.85 0.01 262), oklch(0.36 0.014 262));
-	--ring: light-dark(oklch(0.52 0.14 138), oklch(0.86 0.18 132));
+	--border: light-dark(oklch(0.87 0.004 285), oklch(0.278 0.006 285));
+	--border-soft: light-dark(oklch(0.922 0.003 285), oklch(0.222 0.006 285));
+	--input: light-dark(oklch(0.85 0.005 285), oklch(0.33 0.007 285));
+	--ring: light-dark(oklch(0.58 0.16 122), oklch(0.92 0.19 122));
 
-	/* Accent ---------------------------------------------------------------- */
-	/* Lime. It marks exactly three things: links, the active filter, and drizzle-rs itself. */
-	--primary: light-dark(oklch(0.86 0.18 132), oklch(0.86 0.18 132));
-	--primary-foreground: light-dark(oklch(0.24 0.04 132), oklch(0.24 0.04 132));
-	/* The fill lime is far too light to be text on paper; link text drops to a readable L. */
-	--link: light-dark(oklch(0.52 0.14 138), oklch(0.86 0.18 132));
+	/* Signal ---------------------------------------------------------------- */
 	/*
-	 * Two steps of the same wash, and the order between them is the whole point.
+	 * Lime, marking the current position and nothing else: the page you are on,
+	 * the filter you applied, the playhead.
 	 *
-	 * `--accent-tint` marks identity: the row that *is* drizzle-rs. `--accent-tint-strong` marks
-	 * attention: the row under the pointer or holding focus. Attention has to out-rank identity,
-	 * because a reader pointing at a row expects that row to light up — when identity was the
-	 * louder of the two, hovering one row appeared to highlight a different one.
+	 * The two modes are not the same lightness, and cannot be. Dark mode gets the
+	 * bright lime this palette is built around. On paper that same value is
+	 * 1.3:1 against the page — invisible as a plotted line — so light mode runs
+	 * an olive at L 0.55, which clears 3:1 as a mark on every surface here and
+	 * still carries near-white text when it is used as a fill.
 	 */
-	--accent-tint: light-dark(oklch(0.975 0.02 140), oklch(0.245 0.018 140));
-	--accent-tint-strong: light-dark(oklch(0.945 0.055 140), oklch(0.3 0.045 140));
+	--primary: light-dark(oklch(0.55 0.15 128), oklch(0.92 0.19 122));
+	--primary-foreground: light-dark(oklch(0.99 0.005 122), oklch(0.19 0.05 122));
+	--signal: var(--primary);
+	--signal-ink: light-dark(oklch(0.5 0.14 128), oklch(0.9 0.19 122));
+
+	/* Two steps of the same wash: the row that *is* current, and the row under
+	   the pointer. Attention out-ranks identity, so the second is the louder. */
+	--signal-wash: light-dark(oklch(0.965 0.03 122), oklch(0.21 0.03 122));
+	--signal-wash-strong: light-dark(oklch(0.93 0.07 122), oklch(0.265 0.055 122));
 
 	/* Status ---------------------------------------------------------------- */
-	/* Never carried by colour alone: every use pairs with a sign, an arrow, or a word. */
-	--positive: light-dark(oklch(0.5 0.12 150), oklch(0.8 0.13 150));
-	--negative: light-dark(oklch(0.5 0.17 25), oklch(0.75 0.15 25));
+	/* Well away from the lime: teal at 190, rose at 15. Never colour alone —
+	   every use pairs with a sign, an arrow or a word. */
+	--positive: light-dark(oklch(0.5 0.1 190), oklch(0.82 0.11 190));
+	--negative: light-dark(oklch(0.52 0.19 15), oklch(0.74 0.17 15));
 	--destructive: var(--negative);
 
-	/* The comp's one loud surface: the cross-machine warning. Amber, and used nowhere else, so it
-	   never has to compete for meaning. */
-	--warning: light-dark(oklch(0.96 0.05 85), oklch(0.29 0.05 80));
-	--warning-border: light-dark(oklch(0.8 0.09 80), oklch(0.45 0.08 80));
-	--warning-foreground: light-dark(oklch(0.4 0.08 70), oklch(0.93 0.04 85));
+	/* The one interrupting surface. A tinted panel plus a hatched edge and the
+	   word, carrying no hue: an amber warning beside a lime signal is a coin
+	   flip at a glance. */
+	--caution: light-dark(oklch(0.9 0.006 285), oklch(0.26 0.006 285));
+	--caution-border: light-dark(oklch(0.58 0.008 285), oklch(0.58 0.008 285));
+	--caution-foreground: light-dark(oklch(0.28 0.008 285), oklch(0.92 0.004 285));
 
-	/* Chart series ---------------------------------------------------------- */
-	/* The overlay charts are one accent line against a neutral ramp: drizzle-rs is lime, everything
-	   else steps down the same 262 hue so the comparison reads as figure-against-ground. */
-	--series-1: light-dark(oklch(0.45 0.05 262), oklch(0.88 0.05 262));
-	--series-2: light-dark(oklch(0.58 0.05 262), oklch(0.72 0.05 262));
-	/* The light-mode third step is darker than mirroring the dark ramp would suggest: the comp's
-	   own value lands at 2.3:1 on paper, and a chart line has to clear 3:1 to be a usable mark. */
-	--series-3: light-dark(oklch(0.63 0.045 262), oklch(0.58 0.04 262));
-
-	/* Metric hues ----------------------------------------------------------- */
-	/* Categorical, kept for the per-metric charts. Throughput takes the accent because it is the
-	   headline number; the rest use the alternates the comp itself offers (teal, amber,
-	   periwinkle) plus a red for errors. Charts carry a direct label, so hue reinforces identity
-	   and is never the only carrier. */
-	--chart-1: light-dark(oklch(0.52 0.14 138), oklch(0.86 0.18 132));
-	--chart-2: light-dark(oklch(0.48 0.14 265), oklch(0.8 0.12 265));
-	--chart-3: light-dark(oklch(0.5 0.11 195), oklch(0.85 0.15 195));
-	--chart-4: light-dark(oklch(0.52 0.13 75), oklch(0.82 0.16 85));
-	--chart-5: var(--negative);
+	/* Plotted series --------------------------------------------------------- */
+	/*
+	 * Five traces that stay apart at a glance and never collide with the signal.
+	 * Lime leads because it is the accent; the rest step around the wheel to
+	 * teal, azure, rose and amber.
+	 */
+	--series-1: light-dark(oklch(0.52 0.14 128), oklch(0.92 0.19 122));
+	--series-2: light-dark(oklch(0.5 0.1 195), oklch(0.82 0.12 195));
+	--series-3: light-dark(oklch(0.48 0.13 255), oklch(0.78 0.12 255));
+	--series-4: light-dark(oklch(0.53 0.16 15), oklch(0.75 0.15 15));
+	--series-5: light-dark(oklch(0.55 0.12 75), oklch(0.82 0.13 75));
 
 	/* One metric, one hue, everywhere it is drawn. */
+	--chart-1: var(--series-1);
+	--chart-2: var(--series-3);
+	--chart-3: var(--series-2);
+	--chart-4: var(--series-5);
+	--chart-5: var(--series-4);
 	--metric-rps: var(--chart-1);
 	--metric-latency: var(--chart-2);
 	--metric-mem: var(--chart-3);
@@ -209,8 +224,9 @@
 	--metric-err: var(--chart-5);
 
 	/* Geometry -------------------------------------------------------------- */
-	/* Square. Measurement instruments do not have rounded corners, and neither does the comp. */
-	--radius: 0rem;
+	/* Softer than the old zero. An instrument panel has moulded corners; a
+	   hairline grid of hard boxes is the newsprint look this replaced. */
+	--radius: 0.375rem;
 }
 
 /* An explicit choice wins over the OS preference, in both directions. */
@@ -223,9 +239,8 @@
 }
 
 @theme inline {
-	--font-sans:
-		'Instrument Sans Variable', 'Instrument Sans Fallback', ui-sans-serif, system-ui, sans-serif;
-	--font-mono: 'IBM Plex Mono', 'IBM Plex Mono Fallback', ui-monospace, monospace;
+	--font-sans: 'Inter Variable', 'Inter Fallback', ui-sans-serif, system-ui, sans-serif;
+	--font-mono: 'JetBrains Mono Variable', 'JetBrains Mono Fallback', ui-monospace, monospace;
 
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
@@ -251,17 +266,21 @@
 	--color-link: var(--link);
 	--color-positive: var(--positive);
 	--color-negative: var(--negative);
-	--color-surface-raised: var(--surface-raised);
 	--color-surface-inset: var(--surface-inset);
 	--color-surface-chrome: var(--surface-chrome);
-	--color-accent-tint: var(--accent-tint);
-	--color-accent-tint-strong: var(--accent-tint-strong);
-	--color-warning: var(--warning);
-	--color-warning-border: var(--warning-border);
-	--color-warning-foreground: var(--warning-foreground);
+	--color-signal: var(--signal);
+	--color-signal-ink: var(--signal-ink);
+	--color-signal-wash: var(--signal-wash);
+	--color-signal-wash-strong: var(--signal-wash-strong);
+	--color-caution: var(--caution);
+	--color-caution-border: var(--caution-border);
+	--color-caution-foreground: var(--caution-foreground);
+	--color-series-signal: var(--series-signal);
 	--color-series-1: var(--series-1);
 	--color-series-2: var(--series-2);
 	--color-series-3: var(--series-3);
+	--color-series-4: var(--series-4);
+	--color-series-5: var(--series-5);
 
 	--color-chart-1: var(--chart-1);
 	--color-chart-2: var(--chart-2);
@@ -275,66 +294,59 @@
 	--color-metric-err: var(--metric-err);
 
 	/*
-	 * Type ramp, taken step for step off the comp. Each step has one job, so a size is picked by
-	 * role and never by nudging a pixel value. Tailwind's own text-xs/text-sm scale is left
+	 * Type. Each step has one job, so a size is picked by role and never by
+	 * nudging a pixel value. Tailwind's own text-xs/text-sm scale is left
 	 * untouched — the vendored shadcn components are calibrated against it.
 	 *
-	 *   micro    10.5px mono UPPERCASE — KPI labels, column headers, axis ticks
-	 *   caption  11.5px mono           — the meta strips beside a title
-	 *   meta     12.5px                — the quiet note line under a name, footnote-weight text
-	 *   body     14px                  — body copy: UI text, nav, filters, prose footnotes
-	 *   lead     15px                  — card titles, section headings, a table row's primary cell
-	 *   heading  16.5px                — a target's own heading on run detail
-	 *   prose    15px/1.65             — Method, the only place with real paragraphs
-	 *   metric   22px mono             — KPI values
-	 *   title    26px                  — page titles
+	 *   micro    10.5px mono UPPERCASE — axis ticks, column labels
+	 *   label    11.5px mono           — the meta strip beside a title
+	 *   meta     12.5px                — the quiet note under a name
+	 *   body     14px                  — UI copy: nav, filters, footnotes
+	 *   lead     15px                  — a row's primary cell, card titles
+	 *   heading  18px                  — section headings
+	 *   figure   24px mono             — a KPI value
+	 *   display  34px                  — page titles, set wide
+	 *   prose    16px/1.625            — Method, the only page with paragraphs
 	 *
-	 * Line heights are absolute rather than unitless, and every one lands on a whole pixel at the
-	 * default root size (14/16/18/22/20/22/25/22/30). A unitless 1.55 on 14px text is a 21.7px line
-	 * box, and a stack of fractional boxes rounds differently depending on the exact glyph metrics
-	 * in use — which showed up as a 1px layout shift during the font settle. Whole-pixel line boxes
-	 * make the height of a paragraph identical in the fallback and the real face.
-	 *
-	 * `body` sits at 14px deliberately: it is the size the page's default `font-size` is set to, and
-	 * the step below it (`meta`) is for text that is genuinely subordinate. An earlier pass had
-	 * `body` at 13.5px and `meta` at 12.5px, which put ordinary reading copy a half-step below the
-	 * document default and squeezed the gap between "read this" and "glance at this" to almost
-	 * nothing — everything looked like fine print. The jumps that carry hierarchy here are
-	 * 12.5 -> 14 -> 15 -> 16.5 -> 22 -> 26, reinforced by weight (600 headings against 400/500 copy)
-	 * and by colour, never by size alone.
+	 * Line heights are absolute rather than unitless, and every one lands on a
+	 * whole pixel at the default root size. A unitless 1.55 on 14px text is a
+	 * 21.7px line box, and a stack of fractional boxes rounds differently
+	 * depending on the glyph metrics in use — which shows up as a 1px shift
+	 * during the font settle. Whole-pixel line boxes make a paragraph the same
+	 * height in the fallback and in the real face.
 	 */
 	--text-micro: 0.65625rem;
 	--text-micro--line-height: 0.875rem;
-	--text-micro--letter-spacing: 0.06em;
-	--text-caption: 0.71875rem;
-	--text-caption--line-height: 1rem;
-	--text-caption--letter-spacing: 0.005em;
+	--text-micro--letter-spacing: 0.07em;
+	--text-label: 0.71875rem;
+	--text-label--line-height: 1rem;
+	--text-label--letter-spacing: 0.01em;
 	--text-meta: 0.78125rem;
 	--text-meta--line-height: 1.125rem;
 	--text-body: 0.875rem;
 	--text-body--line-height: 1.375rem;
 	--text-lead: 0.9375rem;
 	--text-lead--line-height: 1.25rem;
-	--text-lead--letter-spacing: -0.01em;
-	--text-heading: 1.03125rem;
-	--text-heading--line-height: 1.375rem;
-	--text-heading--letter-spacing: -0.012em;
-	--text-prose: 0.9375rem;
-	--text-prose--line-height: 1.5625rem;
-	--text-metric: 1.375rem;
-	--text-metric--line-height: 1;
-	--text-metric--letter-spacing: -0.01em;
-	--text-title: 1.625rem;
-	--text-title--line-height: 1.875rem;
-	--text-title--letter-spacing: -0.022em;
+	--text-lead--letter-spacing: -0.006em;
+	--text-heading: 1.125rem;
+	--text-heading--line-height: 1.5rem;
+	--text-heading--letter-spacing: -0.014em;
+	--text-prose: 1rem;
+	--text-prose--line-height: 1.625rem;
+	--text-figure: 1.5rem;
+	--text-figure--line-height: 1.75rem;
+	--text-figure--letter-spacing: -0.018em;
+	--text-display: 2.125rem;
+	--text-display--line-height: 2.25rem;
+	--text-display--letter-spacing: -0.026em;
 
-	--radius-sm: calc(var(--radius) * 0.6);
-	--radius-md: calc(var(--radius) * 0.8);
-	--radius-lg: var(--radius);
-	--radius-xl: calc(var(--radius) * 1.4);
-	--radius-2xl: calc(var(--radius) * 1.8);
-	--radius-3xl: calc(var(--radius) * 2.2);
-	--radius-4xl: calc(var(--radius) * 2.6);
+	--radius-sm: calc(var(--radius) * 0.5);
+	--radius-md: var(--radius);
+	--radius-lg: calc(var(--radius) * 1.5);
+	--radius-xl: calc(var(--radius) * 2);
+	--radius-2xl: calc(var(--radius) * 3);
+	--radius-3xl: calc(var(--radius) * 4);
+	--radius-4xl: calc(var(--radius) * 5);
 }
 
 @layer base {
@@ -353,10 +365,10 @@
 		background: var(--background);
 		color: var(--foreground);
 		font-size: 0.875rem;
-		/* 22px, matching --text-body: whole pixels, so a paragraph is the same height in the
-		   fallback face and the real one. */
+		/* 22px, matching --text-body: whole pixels, so a paragraph is the same
+		   height in the fallback face and the real one. */
 		line-height: 1.375rem;
-		/* Every number on this site is read in a column against the number above it. */
+		/* Every number here is read in a column against the number above it. */
 		font-variant-numeric: tabular-nums;
 		-webkit-font-smoothing: antialiased;
 		-moz-osx-font-smoothing: grayscale;
@@ -367,15 +379,15 @@
 		text-decoration: none;
 	}
 
-	/* Keyboard focus stays visible everywhere. Components that suppress the default outline on
-	   :focus fall through to this. */
+	/* Keyboard focus stays visible everywhere. Components that suppress the
+	   default outline on :focus fall through to this. */
 	:focus-visible {
 		outline: 2px solid var(--ring);
 		outline-offset: 2px;
 	}
 
 	::selection {
-		background: light-dark(oklch(0.86 0.14 132 / 0.45), oklch(0.45 0.1 132));
+		background: light-dark(oklch(0.86 0.09 55 / 0.5), oklch(0.45 0.1 50));
 		color: var(--foreground);
 	}
 
@@ -394,36 +406,39 @@
 }
 
 /*
- * LayerChart sizes its root from a measurement that only exists once the component is in the DOM,
- * so between the server's markup and hydration the root has no height of its own and collapses for
- * a frame — which drops everything below the chart and then lifts it back. It was the last layout
- * shift left on the site (0.0295 on /trends at desktop width).
+ * LayerChart sizes its root from a measurement that only exists once the
+ * component is in the DOM, so between the server's markup and hydration the root
+ * has no height of its own and collapses for a frame — which drops everything
+ * below the chart and then lifts it back.
  *
- * Every chart here already sits in a wrapper whose height is reserved in CSS, so the fix is simply
- * to let the root fill the box that is already the right size. This is a global element rule rather
- * than a utility on each chart because it is a property of the library, not of any one chart.
+ * Every chart here already sits in a wrapper whose height is reserved in CSS, so
+ * the fix is to let the root fill the box that is already the right size. This
+ * is a global element rule rather than a utility on each chart because it is a
+ * property of the library, not of any one chart.
  */
 .lc-root-container {
 	height: 100%;
 	/*
-	 * Full width for the same reason, and it fixes a second, subtler shift. The server renders the
-	 * chart at the nominal width `#lib/chart-ssr` supplies (800px), and the library's own wrapper
-	 * centres it; on a 1016px-wide column that put the chart 108px in from the left, and hydration
-	 * then snapped it back to the edge. Filling the box means the chart's left edge is in the same
-	 * place before and after, so growing to the real width moves nothing.
+	 * Full width for the same reason, and it fixes a second, subtler shift. The
+	 * server renders the chart at the nominal width `#lib/chart-ssr` supplies
+	 * (800px), and the library's own wrapper centres it; on a 1016px-wide column
+	 * that put the chart 108px in from the left, and hydration then snapped it
+	 * back to the edge. Filling the box means the chart's left edge is in the
+	 * same place before and after, so growing to the real width moves nothing.
 	 */
 	width: 100%;
 }
 
-/*
- * The only two app-level utilities. Everything else is a component: another class here would be a
- * second place where a colour or spacing decision could be made.
- */
+/* --------------------------------------------------------------------------
+   App utilities. Each one is a decision the design makes in exactly one place.
+   -------------------------------------------------------------------------- */
+
 @utility page-gutter {
 	margin-inline: auto;
 	width: 100%;
-	/* 1140px content column, 36px gutters — the comp's measure. */
-	max-width: 71.25rem;
+	/* 1200px content column. The ratio rail needs the width: a decade of scale
+	   below about 240px stops being readable as distance. */
+	max-width: 75rem;
 	padding-inline: --spacing(5);
 
 	@media (width >= 40rem) {
@@ -432,14 +447,45 @@
 }
 
 /*
- * Prose measure: the comp sets 62ch, which is where a line stops needing a ruler.
- *
- * Expressed in rem rather than ch, and that is a layout-stability fix rather than a preference.
- * `ch` is the advance width of the font's "0" glyph, so a `ch`-based max-width is recomputed the
- * moment the real font replaces the metric-matched fallback — the paragraph re-wraps, its height
- * changes, and everything below it moves. It was the only remaining source of layout shift on the
- * site. 34rem is 544px, the same measure at the 15px prose size, and it does not move.
+ * Prose measure, expressed in rem rather than ch, and that is a layout-stability
+ * fix rather than a preference. `ch` is the advance width of the font's "0"
+ * glyph, so a `ch`-based max-width is recomputed the moment the real font
+ * replaces the metric-matched fallback — the paragraph re-wraps, its height
+ * changes, and everything below it moves. 36rem is 576px, which is where a line
+ * of the 16px prose size stops needing a ruler, and it does not move.
  */
 @utility measure {
-	max-width: 34rem;
+	max-width: 36rem;
+}
+
+/*
+ * Two named tracking steps, so the choice is stated once rather than repeated
+ * as a magic number at every call site.
+ */
+/*
+ * These two named the width axis of the old display face. Inter has no width
+ * axis, so they now carry the same intent through tracking: a page title set
+ * open, and an uppercase label set tight enough to sit over a column.
+ */
+@utility type-wide {
+	letter-spacing: -0.03em;
+}
+
+@utility type-narrow {
+	letter-spacing: 0.08em;
+}
+
+/*
+ * The caution panel's hatch. This design has no amber in it — a warning is a
+ * tinted panel plus 45-degree ruling plus the word, which survives greyscale,
+ * colour-blindness and a bad projector, none of which a hue does.
+ */
+@utility hatch {
+	background-image: repeating-linear-gradient(
+		45deg,
+		transparent,
+		transparent 5px,
+		var(--caution-border) 5px,
+		var(--caution-border) 6px
+	);
 }

@@ -25,7 +25,7 @@
 		<Hint
 			hint={api.hint}
 			class={cn(
-				'text-micro border-border-soft text-muted-foreground inline-flex shrink-0 items-center border px-1.5 py-0.5 font-mono whitespace-nowrap no-underline',
+				'text-micro bg-muted text-muted-foreground inline-flex shrink-0 items-center rounded-sm px-1.5 py-0.5 font-mono whitespace-nowrap no-underline',
 				className,
 			)}
 		>

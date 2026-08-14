@@ -1,0 +1,140 @@
+name: Set up native PostgreSQL 18
+description: >-
+  Install PostgreSQL 18 natively on a Windows or macOS runner, init a scratch
+  cluster with trust auth, start it, and expose a DATABASE_URL. Service
+  containers are Linux-only on GitHub-hosted runners, so the desktop platforms
+  get the same engine major the Linux jobs run in `postgres:18-alpine` — or no
+  PostgreSQL at all. Version parity is enforced, not hoped for: if the
+  installed server is not the expected major, this action fails rather than
+  letting a mismatched engine into the comparison.
+
+  The installer is used only to obtain binaries. The cluster itself is created
+  with `initdb -A trust` and started with `pg_ctl` as a plain process: no
+  Windows service, no superuser password prompts, no Homebrew services — the
+  parts of a native install that differ per platform and rot silently. Trust
+  auth matches what the runner's default URL expects (libpq ignores the
+  password when the server does not ask for one).
+
+  Topology honesty: unlike the Linux service container (pinned via
+  `--cpuset-cpus`), a native server cannot be pinned on these platforms —
+  Windows pinning is not implemented by the runner and Darwin has no usable
+  affinity API. Nothing else on these platforms is pinned either, so the
+  manifest's `topology.cpu_pinning: null` already records the truth.
+
+inputs:
+  pg-major:
+    description: Required PostgreSQL major version. The action fails on any other.
+    required: false
+    default: '18'
+
+outputs:
+  url:
+    description: libpq connection string for the started cluster.
+    value: ${{ steps.start.outputs.url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install PostgreSQL ${{ inputs.pg-major }} (Windows)
+      if: runner.os == 'Windows'
+      shell: bash
+      env:
+        PG_MAJOR: ${{ inputs.pg-major }}
+      run: |
+        # The image preinstalls PostgreSQL 14 (stopped, disabled). Wrong major:
+        # using it would put differently-versioned engines in one comparison,
+        # so it is ignored entirely and the requested major is installed.
+        winget install --id "PostgreSQL.PostgreSQL.${PG_MAJOR}" \
+          --exact --silent --accept-package-agreements --accept-source-agreements \
+          --disable-interactivity
+        # The EDB installer can register and start a `postgresql-x64-N`
+        # Windows service as part of a silent install. This action uses the
+        # installer for binaries only, and a resident default server would sit
+        # on :5432 underneath the scratch cluster — stop and disable anything
+        # it started, so the contract stated above is enforced rather than
+        # assumed.
+        powershell -NoProfile -Command \
+          "Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue | ForEach-Object { Stop-Service -InputObject \$_ -Force -ErrorAction SilentlyContinue; Set-Service -Name \$_.Name -StartupType Disabled -ErrorAction SilentlyContinue }"
+        # POSIX form, not `C:\...`: PG_BIN is prepended to bash's
+        # colon-separated PATH in the next step, and the colon in `C:` would
+        # split the entry into two fragments, neither a directory.
+        echo "PG_BIN=$(cygpath -u "C:\\Program Files\\PostgreSQL\\${PG_MAJOR}\\bin")" >> "$GITHUB_ENV"
+
+    - name: Install PostgreSQL ${{ inputs.pg-major }} (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      env:
+        PG_MAJOR: ${{ inputs.pg-major }}
+      run: |
+        # The image ships no PostgreSQL and no container runtime; Homebrew is
+        # the platform's package route.
+        brew install "postgresql@${PG_MAJOR}"
+        echo "PG_BIN=$(brew --prefix "postgresql@${PG_MAJOR}")/bin" >> "$GITHUB_ENV"
+
+    - name: Init and start cluster
+      id: start
+      shell: bash
+      env:
+        PG_MAJOR: ${{ inputs.pg-major }}
+      run: |
+        export PATH="$PG_BIN:$PATH"
+
+        # Version parity gate: a platform gets PostgreSQL 18 or none at all.
+        # The parse anchors on the major alone (no dot required, so "18",
+        # "18.1" and "18beta1" all parse), and an unparseable version is its
+        # own explicit failure — a parse problem must never read as a version
+        # mismatch.
+        version="$(postgres --version)"
+        echo "$version"
+        major="$(printf '%s\n' "$version" | sed -n 's/.*(PostgreSQL)[[:space:]]*\([0-9][0-9]*\).*/\1/p')"
+        if [[ -z "$major" ]]; then
+          echo "::error::could not parse a PostgreSQL major version from: $version"
+          exit 1
+        fi
+        if [[ "$major" != "$PG_MAJOR" ]]; then
+          echo "::error::expected PostgreSQL major $PG_MAJOR, found: $version"
+          exit 1
+        fi
+
+        # On Windows RUNNER_TEMP is a backslash path with a drive colon.
+        # Native binaries accept it in arguments, but normalise to the
+        # forward-slash Windows form (`D:/a/_temp`) so both bash and the
+        # PostgreSQL tools read one unambiguous shape.
+        temp="$RUNNER_TEMP"
+        if command -v cygpath >/dev/null 2>&1; then
+          temp="$(cygpath -m "$RUNNER_TEMP")"
+        fi
+        data="$temp/pgdata"
+        initdb -D "$data" -U postgres -A trust -E UTF8
+
+        # The step runs under `set -e`, so a bare failing `pg_ctl` would abort
+        # before any diagnostics print and the run would report only "could
+        # not start server". Dumping the server's own log on every failure
+        # path is what makes the next failure diagnosable instead of opaque.
+        dump_log() {
+          echo "::group::pg.log"
+          cat "$temp/pg.log" 2>/dev/null || echo "(no pg.log was written)"
+          echo "::endgroup::"
+        }
+
+        if ! pg_ctl -D "$data" -l "$temp/pg.log" \
+          -o "-p 5432 -c listen_addresses=127.0.0.1" start; then
+          echo "::error::pg_ctl could not start the server; its log follows"
+          dump_log
+          exit 1
+        fi
+
+        for i in $(seq 1 30); do
+          if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then
+            break
+          fi
+          sleep 1
+        done
+        if ! pg_isready -h 127.0.0.1 -p 5432; then
+          echo "::error::server started but never became ready; its log follows"
+          dump_log
+          exit 1
+        fi
+
+        createdb -h 127.0.0.1 -U postgres drizzle_test
+        echo "url=host=127.0.0.1 port=5432 user=postgres password=postgres dbname=drizzle_test" >> "$GITHUB_OUTPUT"

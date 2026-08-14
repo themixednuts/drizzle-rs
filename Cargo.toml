@@ -419,3 +419,12 @@ debug = true
 
 [profile.dev]
 debug = true
+
+# Vendored only to carry a one-line build-script fix; see bench/vendor/README.md.
+#
+# This is inert for the whole repository except when the `libsql` feature is enabled, which is off
+# by default and used only by the benchmark runner's libsql family. Nothing else in the workspace
+# reaches libsql-sqlite3-parser, so an ordinary `cargo build`/`test`/`clippy` resolves exactly as
+# before.
+[patch.crates-io]
+libsql-sqlite3-parser = { path = "bench/vendor/libsql-sqlite3-parser" }

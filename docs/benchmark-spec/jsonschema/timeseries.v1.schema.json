@@ -108,6 +108,10 @@
             "minimum": 0,
             "description": "Virtual users in flight during this bucket. Under pacing.mode=none there is no think time, so this is also the request concurrency — the x-axis of the saturation curve. Absent on aggregate points, which span several VU counts, and on artifacts written before it was recorded."
           },
+          "probe": {
+            "type": "boolean",
+            "description": "True when this bucket came from a stage declared `probe: true` in the workload: measured and charted, but excluded from summary.primary. Serialized only when set, so artifacts from workloads without probe stages are unchanged."
+          },
           "requests": {
             "type": "integer",
             "minimum": 0,

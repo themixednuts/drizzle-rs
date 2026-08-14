@@ -19,6 +19,9 @@ default = []
 # Windows/macOS SQLite jobs must stay unaffected. Enabling it links libsql-ffi
 # alongside rusqlite's bundled SQLite, which only works while the workspace
 # stays on rusqlite 0.39 (see the pin comment in the root Cargo.toml).
+#
+# The MSVC build race in libsql-sqlite3-parser's build script is fixed by the
+# vendored copy this workspace patches in; see bench/vendor/README.md.
 libsql = ["dep:libsql", "drizzle/libsql"]
 
 [dependencies]

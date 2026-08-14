@@ -28,10 +28,15 @@
 			title={option.title}
 			aria-current={option.active ? 'true' : undefined}
 			class={cn(
-				buttonVariants({ variant: option.active ? 'default' : 'outline', size: 'sm' }),
+				buttonVariants({ variant: 'ghost', size: 'sm' }),
 				// 40px on touch; the desktop row keeps its tighter rhythm.
-				'text-body h-auto min-h-10 px-3 py-1.5 font-medium sm:min-h-0',
-				!option.active && 'text-muted-foreground',
+				'text-body h-auto min-h-10 rounded-sm px-3 py-1.5 font-medium sm:min-h-0',
+				// The applied filter takes the signal — one of the two things in this palette allowed
+				// to. Everything else is a muted chip rather than an outlined one: an outline here
+				// would be a rule doing a surface's job, on a row of six or more.
+				option.active
+					? 'bg-signal text-primary-foreground hover:bg-signal hover:text-primary-foreground'
+					: 'bg-muted text-muted-foreground hover:text-foreground',
 			)}
 		>
 			{option.label}

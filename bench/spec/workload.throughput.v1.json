@@ -18,6 +18,12 @@
     "endpoint": null
   },
   "stages": [
+    { "sec": 5, "vus": 25, "probe": true },
+    { "sec": 15, "vus": 25, "probe": true },
+    { "sec": 5, "vus": 50, "probe": true },
+    { "sec": 15, "vus": 50, "probe": true },
+    { "sec": 5, "vus": 100, "probe": true },
+    { "sec": 15, "vus": 100, "probe": true },
     { "sec": 5, "vus": 200 },
     { "sec": 15, "vus": 200 },
     { "sec": 5, "vus": 400 },
@@ -65,5 +71,6 @@
   "limits": {
     "err": 0.01,
     "p95": null
-  }
+  },
+  "latency": {}
 }
