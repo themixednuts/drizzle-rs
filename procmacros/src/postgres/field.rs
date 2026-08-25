@@ -821,6 +821,12 @@ fn postgres_array_info(ty: &Type) -> Option<PostgreSQLType> {
 }
 
 impl FieldInfo {
+    /// Whether schema, expression, bind, and row conversion are owned by
+    /// `DrizzlePostgresColumn` rather than by a built-in field category.
+    pub(crate) const fn uses_postgres_column_codec(&self) -> bool {
+        self.is_custom_type || self.is_pgenum
+    }
+
     /// Parse field information from a struct field.
     ///
     /// The `PostgreSQL` type is INFERRED from the Rust type, not from attributes.
@@ -1623,7 +1629,7 @@ impl FieldInfo {
     /// Built-in columns use a literal. Custom columns use the associated const
     /// from `DrizzlePostgresColumn`, making the trait the source of truth.
     pub(crate) fn sql_type_expr(&self) -> TokenStream {
-        if self.is_custom_type {
+        if self.uses_postgres_column_codec() {
             let base_type = &self.base_type;
             let drizzle_postgres_column = crate::paths::postgres::drizzle_postgres_column();
             quote!(<#base_type as #drizzle_postgres_column>::SQL_TYPE)
@@ -1635,7 +1641,7 @@ impl FieldInfo {
 
     /// Drizzle SQL type marker used by expression generation.
     pub(crate) fn sql_type_marker(&self) -> TokenStream {
-        let base = if self.is_custom_type {
+        let base = if self.uses_postgres_column_codec() {
             let base_type = &self.base_type;
             let drizzle_postgres_column = crate::paths::postgres::drizzle_postgres_column();
             quote!(<#base_type as #drizzle_postgres_column>::SQLType)
@@ -1652,7 +1658,7 @@ impl FieldInfo {
 
     /// Column SQL definition expression for `SQLSchema::SQL`.
     pub(crate) fn sql_definition_expr(&self) -> TokenStream {
-        if !self.is_custom_type {
+        if !self.uses_postgres_column_codec() {
             let sql_definition = &self.sql_definition;
             return quote!(#sql_definition);
         }
@@ -1716,7 +1722,7 @@ impl FieldInfo {
         if let Some(default) = self.default_to_string() {
             col = col.default_value(default);
         }
-        if self.is_pgenum || self.is_custom_type {
+        if self.is_custom_type {
             // Enum/custom types are created unqualified by their derives, so
             // they live in the default (`public`) schema — not the table's.
             col.type_schema = Some(std::borrow::Cow::Borrowed("public"));

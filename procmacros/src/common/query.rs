@@ -20,6 +20,9 @@ pub enum EnumStorage {
     Integer,
     /// Stored as TEXT — deserialize via `FromStr`.
     Text,
+    /// PostgreSQL enum whose storage is owned by its derive. Native enums are
+    /// projected as strings; repr enums are projected as numbers.
+    Postgres,
 }
 
 /// FK info extracted from field declarations.
@@ -1086,10 +1089,15 @@ fn generate_enum_decode(
     storage: EnumStorage,
     is_nullable: bool,
 ) -> TokenStream {
+    if let EnumStorage::Postgres = storage {
+        return generate_postgres_enum_decode(ident, col_name, base_type, is_nullable);
+    }
+
     let decode_some = enum_json_decode(base_type, col_name, storage);
     let raw_type = match storage {
         EnumStorage::Integer => quote!(i64),
         EnumStorage::Text => quote!(::std::string::String),
+        EnumStorage::Postgres => unreachable!(),
     };
 
     if is_nullable {
@@ -1132,6 +1140,64 @@ fn enum_json_decode(field_type: &syn::Type, col_name: &str, storage: EnumStorage
                     )
                 })?
         },
+        EnumStorage::Postgres => unreachable!(),
+    }
+}
+
+fn generate_postgres_enum_decode(
+    ident: &Ident,
+    col_name: &str,
+    base_type: &syn::Type,
+    is_nullable: bool,
+) -> TokenStream {
+    let decode = quote! {
+        match raw {
+            drizzle::core::serde_json::Value::Number(number) => {
+                let value = number.as_i64().ok_or_else(|| {
+                    <__A::Error as drizzle::core::serde::de::Error>::custom(
+                        ::std::format!("enum field '{}': invalid integer value {number}", #col_name)
+                    )
+                })?;
+                <#base_type as ::std::convert::TryFrom<i64>>::try_from(value).map_err(|_| {
+                    <__A::Error as drizzle::core::serde::de::Error>::custom(
+                        ::std::format!("enum field '{}': invalid integer value {value}", #col_name)
+                    )
+                })?
+            }
+            drizzle::core::serde_json::Value::String(value) => {
+                <#base_type as ::std::str::FromStr>::from_str(&value).map_err(|error| {
+                    <__A::Error as drizzle::core::serde::de::Error>::custom(
+                        ::std::format!("enum field '{}': {error}", #col_name)
+                    )
+                })?
+            }
+            value => return ::std::result::Result::Err(
+                <__A::Error as drizzle::core::serde::de::Error>::custom(
+                    ::std::format!("enum field '{}': expected string or integer, got {value}", #col_name)
+                )
+            ),
+        }
+    };
+
+    if is_nullable {
+        quote! {
+            #col_name => {
+                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
+                state.#ident = ::std::option::Option::Some(match raw {
+                    drizzle::core::serde_json::Value::Null => ::std::option::Option::None,
+                    raw => ::std::option::Option::Some({ #decode }),
+                });
+                ::std::result::Result::Ok(true)
+            }
+        }
+    } else {
+        quote! {
+            #col_name => {
+                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
+                state.#ident = ::std::option::Option::Some({ #decode });
+                ::std::result::Result::Ok(true)
+            }
+        }
     }
 }
 

@@ -225,8 +225,7 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
         .iter()
         .map(|f| {
             let enum_storage = if f.is_pgenum {
-                // Native PostgreSQL enums are always text-based
-                Some(EnumStorage::Text)
+                Some(EnumStorage::Postgres)
             } else if f.is_enum {
                 match f.column_type {
                     PostgreSQLType::Integer

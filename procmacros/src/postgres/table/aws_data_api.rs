@@ -88,9 +88,9 @@ fn generate_select_field_conversion(idx: &TokenStream, info: &FieldInfo) -> Toke
         };
     }
 
-    // Text-stored enum (including native `#[PostgresEnum]` — AWS always returns
-    // enum values as StringValue regardless of column representation).
-    if info.is_enum || info.is_pgenum {
+    // Legacy text-stored enums. PostgresEnum delegates through its type-owned
+    // FromDrizzleRow implementation in the default branch below.
+    if info.is_enum {
         if info.is_nullable {
             return quote! {
                 #name: {
@@ -181,7 +181,7 @@ fn generate_partial_field_conversion(idx: usize, info: &FieldInfo) -> TokenStrea
         };
     }
 
-    if info.is_enum || info.is_pgenum {
+    if info.is_enum {
         return quote! {
             #name: {
                 let s: ::core::result::Result<String, _> =

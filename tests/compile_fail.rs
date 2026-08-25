@@ -107,6 +107,12 @@ fn no_widening_postgres_ui() {
     must_fail("tests/ui/no_widening_postgres/fail/*.rs");
 }
 
+#[cfg(feature = "postgres")]
+#[test]
+fn postgres_enum_storage_ui() {
+    must_fail("tests/ui/postgres_enum_storage/fail/*.rs");
+}
+
 #[cfg(feature = "rusqlite")]
 #[test]
 fn sqlite_strict_affinity_ui() {

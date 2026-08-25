@@ -380,6 +380,17 @@ pub fn generate_enum_impl(
         impl<'__drizzle_r> #row_column_list<drizzle::sqlite::rusqlite::Row<'__drizzle_r>> for #name {
             type Columns = #type_set_cons<#name, #type_set_nil>;
         }
+
+        impl<'__drizzle_r> drizzle::core::FromDrizzleRow<drizzle::sqlite::rusqlite::Row<'__drizzle_r>> for #name {
+            const COLUMN_COUNT: usize = 1;
+
+            fn from_row_at(
+                row: &drizzle::sqlite::rusqlite::Row<'__drizzle_r>,
+                offset: usize,
+            ) -> ::std::result::Result<Self, #drizzle_error> {
+                <drizzle::sqlite::rusqlite::Row<'__drizzle_r> as drizzle::sqlite::traits::DrizzleRowByIndex>::get_column(row, offset)
+            }
+        }
     };
     #[cfg(not(feature = "rusqlite"))]
     let row_column_list_rusqlite = quote! {};
@@ -389,6 +400,17 @@ pub fn generate_enum_impl(
         impl #row_column_list<drizzle::sqlite::libsql::Row> for #name {
             type Columns = #type_set_cons<#name, #type_set_nil>;
         }
+
+        impl drizzle::core::FromDrizzleRow<drizzle::sqlite::libsql::Row> for #name {
+            const COLUMN_COUNT: usize = 1;
+
+            fn from_row_at(
+                row: &drizzle::sqlite::libsql::Row,
+                offset: usize,
+            ) -> ::std::result::Result<Self, #drizzle_error> {
+                <drizzle::sqlite::libsql::Row as drizzle::sqlite::traits::DrizzleRowByIndex>::get_column(row, offset)
+            }
+        }
     };
     #[cfg(not(feature = "libsql"))]
     let row_column_list_libsql = quote! {};
@@ -397,6 +419,17 @@ pub fn generate_enum_impl(
     let row_column_list_turso = quote! {
         impl #row_column_list<drizzle::sqlite::turso::Row> for #name {
             type Columns = #type_set_cons<#name, #type_set_nil>;
+        }
+
+        impl drizzle::core::FromDrizzleRow<drizzle::sqlite::turso::Row> for #name {
+            const COLUMN_COUNT: usize = 1;
+
+            fn from_row_at(
+                row: &drizzle::sqlite::turso::Row,
+                offset: usize,
+            ) -> ::std::result::Result<Self, #drizzle_error> {
+                <drizzle::sqlite::turso::Row as drizzle::sqlite::traits::DrizzleRowByIndex>::get_column(row, offset)
+            }
         }
     };
     #[cfg(not(feature = "turso"))]

@@ -332,10 +332,33 @@ fn repr_enum_shared_by_two_tables_filters_and_round_trips(db: &mut TestDb<Schema
         .r#where(eq(secondary_job.status, SharedJobStatus::Queued))
         .all();
 
+    let tuple_rows: Vec<(i64, SharedJobStatus)> = db
+        .select((primary_job.id, primary_job.status))
+        .from(primary_job)
+        .r#where(in_array(
+            primary_job.status,
+            [SharedJobStatus::Queued, SharedJobStatus::Complete],
+        ))
+        .order_by([asc(primary_job.id)])
+        .all();
+    let excluded_rows: Vec<(i64, SharedJobStatus)> = db
+        .select((primary_job.id, primary_job.status))
+        .from(primary_job)
+        .r#where(not_in_array(
+            primary_job.status,
+            [SharedJobStatus::Complete],
+        ))
+        .all();
+
     assert_eq!(primary.len(), 1);
     assert_eq!(primary[0].status, SharedJobStatus::Complete);
     assert_eq!(secondary.len(), 1);
     assert_eq!(secondary[0].status, SharedJobStatus::Queued);
+    assert_eq!(tuple_rows.len(), 2);
+    assert_eq!(tuple_rows[0].1, SharedJobStatus::Queued);
+    assert_eq!(tuple_rows[1].1, SharedJobStatus::Complete);
+    assert_eq!(excluded_rows.len(), 1);
+    assert_eq!(excluded_rows[0].1, SharedJobStatus::Queued);
 }
 
 #[cfg(feature = "query")]

@@ -410,7 +410,7 @@ fn column_to_sql(field: &FieldInfo) -> String {
 }
 
 fn column_to_sql_pieces(field: &FieldInfo) -> Vec<DdlPiece> {
-    if !field.is_custom_type {
+    if !field.uses_postgres_column_codec() {
         return vec![DdlPiece::Literal(column_to_sql(field))];
     }
 
@@ -503,7 +503,7 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
                 };
                 modifiers.push(quote! { .default_value(#default_str) });
             }
-            if field.is_pgenum || field.is_custom_type {
+            if field.is_custom_type {
                 // Custom/enum types carry their OWN schema, not the table's:
                 // the `PostgresEnum` derive exposes it as
                 // `DrizzlePostgresColumn::SCHEMA` (default `public`, set via
@@ -515,6 +515,19 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
                     .type_schema(<#base_type as #drizzle_postgres_column>::SCHEMA)
                 });
             }
+            let enum_type_schema = if field.is_pgenum {
+                let base_type = &field.base_type;
+                let drizzle_postgres_column = postgres_paths::drizzle_postgres_column();
+                Some(quote! {
+                    if <#base_type as #drizzle_postgres_column>::NEEDS_CREATE_TYPE {
+                        column = column.type_schema(
+                            <#base_type as #drizzle_postgres_column>::SCHEMA,
+                        );
+                    }
+                })
+            } else {
+                None
+            };
             if let Some(ref collate_name) = field.collate {
                 modifiers.push(quote! { .collate(#collate_name) });
             }
@@ -571,9 +584,18 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> T
                 });
             }
 
-            quote! {
+            let column = quote! {
                 #column_def::new(#schema_name, #table_name, #column_name, #sql_type)
                 #(#modifiers)*
+            };
+            if let Some(enum_type_schema) = enum_type_schema {
+                quote! {{
+                    let mut column = #column;
+                    #enum_type_schema
+                    column
+                }}
+            } else {
+                column
             }
         })
         .collect();
