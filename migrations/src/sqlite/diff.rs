@@ -362,6 +362,7 @@ fn append_table_create_recreate_stmts(
         statements.push(JsonStatement::RecreateTable(RecreateTableStatement {
             from: from_table,
             to: to_table,
+            data: None,
         }));
     }
 }

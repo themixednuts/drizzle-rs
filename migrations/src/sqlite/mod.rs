@@ -7,6 +7,7 @@ pub mod codegen;
 pub mod collection;
 pub mod diff;
 pub mod introspect;
+pub mod rebuild_data;
 pub mod serializer;
 pub mod snapshot;
 pub mod statements;
@@ -15,6 +16,7 @@ pub use codegen::*;
 pub use collection::*;
 pub use diff::*;
 pub use introspect::*;
+pub use rebuild_data::*;
 pub use serializer::*;
 pub use snapshot::*;
 

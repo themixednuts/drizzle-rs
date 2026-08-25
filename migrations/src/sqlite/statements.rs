@@ -8,6 +8,7 @@ use crate::sqlite::ddl::{
     CheckConstraint, Column, ForeignKey, Index, PrimaryKey, Table, TableSql, UniqueConstraint, View,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// SQL statement breakpoint marker (used by drizzle-kit)
 pub const BREAKPOINT: &str = "--> statement-breakpoint";
@@ -166,6 +167,36 @@ pub struct RecreateColumnStatement {
 pub struct RecreateTableStatement {
     pub from: TableFull,
     pub to: TableFull,
+    #[serde(default)]
+    pub data: Option<RebuildTableData>,
+}
+
+/// Validated data movement rendered as part of one table rebuild.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RebuildTableData {
+    pub copies: BTreeMap<String, RebuildCopyExpression>,
+    pub validations: Vec<RebuildDataValidation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum RebuildCopyExpression {
+    HexTextToBlob {
+        source: String,
+    },
+    IntegerMap {
+        source: String,
+        cases: Vec<(i64, i64)>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum RebuildDataValidation {
+    HexText { column: String, bytes: usize },
+    JsonValid { column: String },
+    IntegerSet { column: String, allowed: Vec<i64> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -367,24 +398,55 @@ fn convert_recreate_table(st: &RecreateTableStatement) -> Vec<String> {
     let name = &st.to.name;
     let new_table_name = format!("__new_{name}");
 
-    // Get columns to copy (non-generated columns that exist in both)
-    let column_names: Vec<String> = st
-        .from
+    let data = st.data.as_ref();
+    let copied_columns = st
+        .to
         .columns
         .iter()
-        .filter(|col| {
-            col.generated.is_none()
-                && st
-                    .to
-                    .columns
-                    .iter()
-                    .any(|c| c.name == col.name && c.generated.is_none())
+        .filter(|target| {
+            target.generated.is_none()
+                && (data.is_some_and(|data| data.copies.contains_key(target.name.as_ref()))
+                    || st
+                        .from
+                        .columns
+                        .iter()
+                        .any(|source| source.name == target.name && source.generated.is_none()))
         })
-        .map(|col| quote_ident(&col.name))
-        .collect();
-    let cols_str = column_names.join(", ");
+        .collect::<Vec<_>>();
+    let cols_str = copied_columns
+        .iter()
+        .map(|column| quote_ident(&column.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let select_str = copied_columns
+        .iter()
+        .map(|column| {
+            data.and_then(|data| data.copies.get(column.name.as_ref()))
+                .map_or_else(|| quote_ident(&column.name), render_copy_expression)
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
 
     let mut statements = Vec::new();
+
+    if let Some(data) = data
+        && !data.validations.is_empty()
+    {
+        let guard = format!("__drizzle_rebuild_guard_{name}");
+        statements.push(format!(
+            "CREATE TEMP TABLE {} (`valid` INTEGER NOT NULL CHECK (`valid` = 1)) STRICT;",
+            quote_ident(&guard)
+        ));
+        for validation in &data.validations {
+            statements.push(format!(
+                "INSERT INTO {}(`valid`) SELECT 0 FROM {} WHERE {} LIMIT 1;",
+                quote_ident(&guard),
+                quote_ident(name),
+                render_invalid_predicate(validation)
+            ));
+        }
+        statements.push(format!("DROP TABLE {};", quote_ident(&guard)));
+    }
 
     // 1. Disable foreign keys
     statements.push("PRAGMA foreign_keys=OFF;".to_string());
@@ -424,7 +486,7 @@ fn convert_recreate_table(st: &RecreateTableStatement) -> Vec<String> {
         )
     };
     statements.push(format!(
-        "{warning}INSERT INTO {}({cols_str}) SELECT {cols_str} FROM {};",
+        "{warning}INSERT INTO {}({cols_str}) SELECT {select_str} FROM {};",
         quote_ident(&new_table_name),
         quote_ident(name)
     ));
@@ -443,6 +505,50 @@ fn convert_recreate_table(st: &RecreateTableStatement) -> Vec<String> {
     statements.push("PRAGMA foreign_keys=ON;".to_string());
 
     statements
+}
+
+fn render_copy_expression(expression: &RebuildCopyExpression) -> String {
+    match expression {
+        RebuildCopyExpression::HexTextToBlob { source } => {
+            format!("unhex({})", quote_ident(source))
+        }
+        RebuildCopyExpression::IntegerMap { source, cases } => {
+            let cases = cases
+                .iter()
+                .map(|(from, to)| format!(" WHEN {from} THEN {to}"))
+                .collect::<String>();
+            format!("CASE {}{cases} ELSE NULL END", quote_ident(source))
+        }
+    }
+}
+
+fn render_invalid_predicate(validation: &RebuildDataValidation) -> String {
+    match validation {
+        RebuildDataValidation::HexText { column, bytes } => {
+            let column = quote_ident(column);
+            let chars = bytes.saturating_mul(2);
+            format!(
+                "{column} IS NOT NULL AND (typeof({column}) <> 'text' OR length({column}) <> {chars} OR coalesce(length(unhex({column})), -1) <> {bytes})"
+            )
+        }
+        RebuildDataValidation::JsonValid { column } => {
+            let column = quote_ident(column);
+            format!(
+                "{column} IS NOT NULL AND (typeof({column}) <> 'text' OR json_valid({column}) <> 1)"
+            )
+        }
+        RebuildDataValidation::IntegerSet { column, allowed } => {
+            let column = quote_ident(column);
+            let allowed = allowed
+                .iter()
+                .map(i64::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "{column} IS NOT NULL AND (typeof({column}) <> 'integer' OR {column} NOT IN ({allowed}))"
+            )
+        }
+    }
 }
 
 fn convert_create_index(st: &CreateIndexStatement) -> String {
@@ -984,7 +1090,11 @@ mod tests {
             without_rowid: false,
         };
 
-        let statements = convert_recreate_table(&RecreateTableStatement { from, to });
+        let statements = convert_recreate_table(&RecreateTableStatement {
+            from,
+            to,
+            data: None,
+        });
         let insert = statements
             .iter()
             .find(|s| s.contains("INSERT INTO"))
