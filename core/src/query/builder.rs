@@ -407,10 +407,11 @@ pub trait QueryTable {
     const TABLE_NAME: &'static str;
     /// All column names in SELECT order.
     const COLUMN_NAMES: &'static [&'static str];
-    /// Column names that store BLOB data (e.g., UUID as bytes in `SQLite`).
+    /// Column names that store or may store BLOB data (for example UUID bytes
+    /// and columns backed by a type-owned SQLite codec).
     ///
-    /// These columns are wrapped with `hex()` inside `json_object()` calls
-    /// because `SQLite`'s JSON functions cannot serialize BLOB values directly.
-    /// The query JSON decoder then parses the hex string back.
+    /// SQLite query projection carries the runtime storage class in a tagged
+    /// JSON value and hex-encodes BLOB payloads. The owning codec decodes that
+    /// tag, so malformed or affinity-mismatched cells fail closed.
     const BLOB_COLUMNS: &'static [&'static str] = &[];
 }

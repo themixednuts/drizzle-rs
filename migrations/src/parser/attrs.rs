@@ -1871,10 +1871,21 @@ pub(crate) fn index_spec(
                             }
                         }
                         IndexArg::NameValue(key, lit)
-                            if dialect == Dialect::PostgreSQL && key == "where" =>
+                            if matches!(dialect, Dialect::PostgreSQL | Dialect::SQLite)
+                                && key == "where" =>
                         {
                             if let Some(value) = str_of(&lit) {
-                                spec.where_clause = Some(value);
+                                if value.trim().is_empty() {
+                                    diags.errors.push(format!(
+                                        "{desc}: partial-index predicate cannot be empty"
+                                    ));
+                                } else if spec.where_clause.is_some() {
+                                    diags.errors.push(format!(
+                                        "{desc}: index accepts only one partial-index predicate"
+                                    ));
+                                } else {
+                                    spec.where_clause = Some(value);
+                                }
                             } else {
                                 diags.errors.push(format!(
                                     "{desc}: expected string literal for index where clause"
@@ -1946,7 +1957,6 @@ pub(crate) fn index_spec(
             ));
         }
     }
-
     spec
 }
 
@@ -2533,6 +2543,15 @@ mod tests {
         assert_eq!(legacy.sqlite_type.as_deref(), Some("TEXT"));
         let (json, _) = sqlite_spec("#[column(jsonb)] doc: MyDoc");
         assert_eq!(json.sqlite_type.as_deref(), Some("BLOB"));
+    }
+
+    #[test]
+    fn sqlite_explicit_custom_blob_records_blob() {
+        let (spec, diags) = sqlite_spec("#[column(blob)] digest: Digest");
+
+        assert_eq!(spec.sqlite_type.as_deref(), Some("BLOB"));
+        assert!(diags.warnings.is_empty());
+        assert!(diags.errors.is_empty());
     }
 
     // ---- table attributes -------------------------------------------------

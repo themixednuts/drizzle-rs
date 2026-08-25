@@ -35,7 +35,7 @@
 			{label}
 		{/if}
 	</div>
-	<div class="text-metric mt-2 font-mono font-medium tabular-nums">{value}</div>
+	<div class="text-figure mt-2 font-mono font-medium tabular-nums">{value}</div>
 	{#if delta || detail}
 		<div class="text-meta text-muted-foreground mt-1.5">
 			{#if delta}

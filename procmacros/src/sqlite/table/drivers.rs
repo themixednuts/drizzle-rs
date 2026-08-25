@@ -78,8 +78,8 @@ pub fn generate_field_conversion_with_index<D: DriverConfig>(
         ));
     }
 
-    // Custom types (auto-detected enums): use DrizzleRowByIndex for driver-agnostic conversion
-    if info.is_custom_type {
+    // Codec-owned types use DrizzleRowByIndex for driver-agnostic conversion.
+    if info.uses_sqlite_column_codec() {
         let base_type = info.base_type;
         if is_optional {
             return Ok(quote! {

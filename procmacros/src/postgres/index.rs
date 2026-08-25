@@ -50,7 +50,20 @@ impl Parse for IndexAttributes {
                 input.parse::<Token![where]>()?;
                 input.parse::<Token![=]>()?;
                 let lit: syn::LitStr = input.parse()?;
-                attrs.where_clause = Some(lit.value());
+                let value = lit.value();
+                if value.trim().is_empty() {
+                    return Err(Error::new_spanned(
+                        lit,
+                        "PostgreSQL partial-index predicate cannot be empty",
+                    ));
+                }
+                if attrs.where_clause.is_some() {
+                    return Err(Error::new_spanned(
+                        lit,
+                        "PostgreSQL index accepts only one partial-index predicate",
+                    ));
+                }
+                attrs.where_clause = Some(value);
                 continue;
             }
 
@@ -252,6 +265,10 @@ pub fn postgres_index_attr_macro(
         || quote! {},
         |where_clause| quote! { .where_clause(#where_clause) },
     );
+    let where_clause = attr.where_clause.as_ref().map_or_else(
+        || quote! { ::std::option::Option::None },
+        |predicate| quote! { ::std::option::Option::Some(#predicate) },
+    );
 
     let is_unique = attr.unique;
 
@@ -350,6 +367,7 @@ pub fn postgres_index_attr_macro(
             const INDEX_NAME: &'static str = #index_name;
             const COLUMN_NAMES: &'static [&'static str] = Self::COLUMN_NAMES;
             const IS_UNIQUE: bool = #is_unique;
+            const WHERE_CLAUSE: ::std::option::Option<&'static str> = #where_clause;
 
             fn table_ref() -> &'static drizzle::core::TableRef {
                 &<#table_type as drizzle::core::DrizzleTable>::TABLE_REF
@@ -385,16 +403,16 @@ pub fn postgres_index_attr_macro(
 
     };
 
-    // Generate ConflictTarget + NamedConstraint for unique indexes
+    // Generate ConflictTarget for unique indexes. CREATE UNIQUE INDEX does not
+    // create a PostgreSQL constraint addressable through ON CONSTRAINT.
     if attr.unique {
         let conflict_target = core_paths::conflict_target();
-        let named_constraint = core_paths::named_constraint();
         expanded.extend(quote! {
             impl #conflict_target<#table_type> for #struct_ident {
                 fn conflict_columns(&self) -> &'static [&'static str] { Self::COLUMN_NAMES }
-            }
-            impl #named_constraint<#table_type> for #struct_ident {
-                fn constraint_name(&self) -> &'static str { #index_name }
+                fn conflict_where_clause(&self) -> ::std::option::Option<&'static str> {
+                    <Self as #drizzle_index>::WHERE_CLAUSE
+                }
             }
         });
     }
@@ -404,7 +422,8 @@ pub fn postgres_index_attr_macro(
 
 #[cfg(test)]
 mod tests {
-    use super::create_index_prefix;
+    use super::{IndexAttributes, create_index_prefix, postgres_index_attr_macro};
+    use syn::{DeriveInput, parse_quote};
 
     #[test]
     fn create_index_prefix_places_concurrently_after_index() {
@@ -412,6 +431,32 @@ mod tests {
             create_index_prefix(true, true, "users_email_idx"),
             "CREATE UNIQUE INDEX CONCURRENTLY \"users_email_idx\" ON \""
         );
+    }
+
+    #[test]
+    fn duplicate_partial_index_predicates_are_rejected() {
+        assert!(
+            syn::parse_str::<IndexAttributes>("where = \"active\", where = \"current\"").is_err()
+        );
+    }
+
+    #[test]
+    fn empty_partial_index_predicate_is_rejected() {
+        assert!(syn::parse_str::<IndexAttributes>("where = \"  \"").is_err());
+    }
+
+    #[test]
+    fn unique_index_is_not_a_named_constraint() {
+        let attrs = syn::parse_str::<IndexAttributes>("unique").unwrap();
+        let input: DeriveInput = parse_quote! {
+            pub struct UsersEmailIdx(Users::email);
+        };
+        let expanded = postgres_index_attr_macro(&attrs, &input)
+            .unwrap()
+            .to_string();
+
+        assert!(expanded.contains("ConflictTarget"));
+        assert!(!expanded.contains("NamedConstraint"));
     }
 }
 

@@ -165,8 +165,9 @@ describe('the figure and its qualifier', () => {
 		expect(view.figure?.text).toBe('at least 40.0k');
 		expect(view.figure?.lowerBound).toBe(true);
 		expect(view.note).toBe('knee not reached');
-		// A lower bound is never given a rank: it is not a placement.
-		expect(view.rankable).toBe(false);
+		// A lower bound is ranked, on its floor. Excluding it dropped the fastest targets out of
+		// the table entirely while sorting them beneath rows they provably beat.
+		expect(view.rankable).toBe(true);
 	});
 
 	it('substitutes no number when the objective was never met', () => {
@@ -179,24 +180,33 @@ describe('the figure and its qualifier', () => {
 });
 
 describe('ordering', () => {
-	it('never lets a state without a measured peak outrank one that has it', () => {
-		// The lower bound here (40k) is more than three times the measured peak (12.45k) — and still
-		// sorts below it. A ramp that stopped early is not evidence of being faster.
+	it('places a lower bound above a measured peak it certainly beats', () => {
+		// The bound here is 40k against a measured 12.45k. "At least 40k" beats a measured 12.45k
+		// with certainty, and sorting it underneath understated exactly the targets too fast to
+		// turn over inside the ladder.
 		const measured = capacity(summary(saturated));
 		const bounded = capacity(summary(didNotSaturate));
-		expect(compareCapacity(measured, bounded)).toBeLessThan(0);
+		expect(compareCapacity(bounded, measured)).toBeLessThan(0);
 	});
 
-	it('orders the four states measured, lower bound, never met, not measured', () => {
+	it('orders a bound on its floor, which is the lowest position its data allows', () => {
+		// A bound of 40k sits below a measured 62k — their true order is unknown, and resolving it
+		// downward is the half that cannot overstate the row.
+		const faster = capacity(summary({ ...saturated, peak: { ...saturated.peak, rps: 62_000 } }));
+		const bounded = capacity(summary(didNotSaturate));
+		expect(compareCapacity(faster, bounded)).toBeLessThan(0);
+	});
+
+	it('sorts every state carrying a number above every state carrying none', () => {
 		const views = [
 			capacity(summary(undefined)),
 			capacity(summary(sloNeverMet)),
-			capacity(summary(didNotSaturate)),
 			capacity(summary(saturated)),
+			capacity(summary(didNotSaturate)),
 		].sort(compareCapacity);
 		expect(views.map((view) => view.state)).toEqual([
-			'measured',
 			'lower-bound',
+			'measured',
 			'never-met',
 			'not-measured',
 		]);

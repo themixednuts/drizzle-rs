@@ -1,13 +1,11 @@
 import { page } from '$app/state';
-import { rpsBox } from '#lib/boxplot';
-import { fmtCpu, fmtDate, fmtLatency, fmtPct, fmtRps, shortHash, suiteLabel } from '#lib/format';
 import {
-	baselinesByFamily,
-	deltaDirection,
-	deltaSentence,
-	rowDelta,
-	type DeltaDirection,
-} from '#lib/leaderboard';
+	boxWhiskerExtent,
+	rpsBox,
+	type BoxWhiskerDatum,
+	type BoxWhiskerExtent,
+} from '#lib/boxplot';
+import { fmtDate, fmtLatency, fmtPct, fmtRps, shortHash, suiteLabel } from '#lib/format';
 import {
 	DB_PROFILE_ORDER,
 	dbProfile,
@@ -22,15 +20,32 @@ import {
 } from '#lib/target-display';
 import { cohortSearchText } from '#lib/cohort-search';
 import { summarizeAll, type QualitativeNote } from '#lib/qualitative';
-import { anyMeasured, capacity, compareCapacity, type CapacityView } from '#lib/saturation';
+import {
+	anyMeasured,
+	buildCurve,
+	capacity,
+	compareCapacity,
+	readSaturation,
+	type CapacityView,
+} from '#lib/saturation';
 import { harnessRows, type HarnessRow } from '#lib/harness';
+import { buildRail, railLeft, type Rail } from '#lib/rail';
+import { buildScope, type ScopeView } from '#lib/scope';
+import {
+	latencyBasis,
+	latencyView,
+	sharedReferenceLoad,
+	type LatencyBasis,
+	type LatencyView,
+} from '#lib/service-latency';
+import type { ReplayView } from '#lib/replay';
 import { osScopes, type OsScope } from '#lib/os';
 import type { FilterOption } from '#lib/components/FilterPills.svelte';
 import {
-	ordinal,
+	gapPercent,
 	parseRankingSort,
 	SORT_LABELS,
-	type DbVerdict,
+	type RampSpark,
 	type RankingRow,
 	type RankingSort,
 } from '#lib/ranking';
@@ -53,6 +68,11 @@ interface RunsPageData {
 	totalResults: number;
 	totalTargets: number;
 	hasData: boolean;
+	/**
+	 * A ramp for every target in the set, before the ranking's filters narrow it. Null when the
+	 * artifacts carry no load levels to play against.
+	 */
+	replay?: ReplayView | null;
 	suites: string[];
 	statuses: string[];
 }
@@ -66,11 +86,31 @@ function dbLabel(profile: DbProfile): string {
 	return dbShortLabel(profile);
 }
 
-function compareLeaderboard(a: SummaryResult, b: SummaryResult): number {
-	const aBad = hasMaterialErrors(a);
-	const bBad = hasMaterialErrors(b);
-	if (aBad !== bBad) return aBad ? 1 : -1;
-	return b.primary.rps.avg - a.primary.rps.avg;
+/** The row's identity, shared by the table and the plot so a hover crosses between them. */
+function rowId(summary: SummaryResult): string {
+	return `${summary.run_id}:${summary.target_key}`;
+}
+
+/** One measured distance between two rows: what to print, and what it means. */
+interface Distance {
+	text: string;
+	title: string;
+}
+
+type ComparableMetric =
+	| { kind: 'measured'; value: number }
+	| { kind: 'errors'; rate: number }
+	| { kind: 'unmeasured' };
+
+/** `{text, title}` under a column's own names, so both distances can spread into the same row. */
+function prefixed<K extends 'gap' | 'interval'>(
+	key: K,
+	distance: Distance,
+): { [P in `${K}Text` | `${K}Title`]: string } {
+	return {
+		[`${key}Text`]: distance.text,
+		[`${key}Title`]: distance.title,
+	} as { [P in `${K}Text` | `${K}Title`]: string };
 }
 
 export class RunsPageState {
@@ -82,6 +122,14 @@ export class RunsPageState {
 	 */
 	query = $state('');
 	hoverFamilyKey = $state<string | null>(null);
+	/**
+	 * The row under the pointer, whichever view the pointer is in.
+	 *
+	 * Held here rather than in either component because the plot and the table are two drawings of
+	 * one set of rows: hovering a point has to lift a row twenty lines down, and hovering that row
+	 * has to light its point back up.
+	 */
+	hoverRowId = $state<string | null>(null);
 	suite = $derived(page.url.searchParams.get('suite'));
 	status = $derived(page.url.searchParams.get('status'));
 	/** Ranking view state, all in the URL so a scoped ranking is a shareable address. */
@@ -221,44 +269,179 @@ export class RunsPageState {
 	 * each row, and the footnote under the table pointing at Repeatability and Method.
 	 */
 	get rankingRows(): RankingRow[] {
-		const rows = this.#scopedResults.filter(
-			(summary) => !this.db || dbProfile(summary) === this.db,
-		);
-		const ordered = [...rows].sort(this.#comparator);
+		const ordered = this.#orderedRows;
+		const rail = this.rail;
+		const metric = SORT_LABELS[this.sort].label;
 
-		// Scaled to the rows on screen, not to every row that exists. With "all databases" selected
-		// the in-memory-cache target is several times faster than anything doing real per-request
-		// work, and an absolute scale would squash every other bar into an unreadable stub. The
-		// number beside each bar is always the real one, so the bar is a shape cue and never the
-		// source of a value.
-		const baselines = this.#baselines;
-		const peak = Math.max(1, ...ordered.map((summary) => summary.primary.rps.avg));
-		const peakLatency = Math.max(1, ...ordered.map((summary) => summary.primary.latency.p95));
-		const peakCapacity = Math.max(1, ...ordered.map((summary) => this.capacity(summary).tierValue));
+		// Every distance on the table is measured on the column the table is sorted by, so the two
+		// always agree. Rows the sorted column has no number for contribute nothing and receive
+		// nothing: they are skipped as references and print no gap of their own.
+		const values = ordered.map((summary) => this.#comparable(summary));
+		const leadIndex = values.findIndex((value) => value.kind === 'measured');
+		const lead = leadIndex === -1 ? null : ordered[leadIndex];
+		const leadValue = leadIndex === -1 ? null : values[leadIndex];
 
 		// Ranks are handed out only to rows the sorted column actually measured, and they run
 		// 01..N over those. Under `sort=capacity` that means the unmeasured rows carry no number
 		// at all rather than a number that would read as a placement.
 		let rank = 0;
 
-		return ordered.map((summary) => {
+		return ordered.map((summary, index) => {
 			const view = this.capacity(summary);
 			const ranked = this.sort !== 'capacity' || view.rankable;
 			if (ranked) rank += 1;
 
+			// The nearest row above that the sorted column did measure. Skipping the unmeasured ones
+			// keeps an interval a distance between two real figures rather than a hole in the column.
+			let aheadIndex = index - 1;
+			while (aheadIndex >= 0 && values[aheadIndex].kind !== 'measured') aheadIndex -= 1;
+			const aheadValue = aheadIndex === -1 ? null : values[aheadIndex];
+
 			return {
-				id: `${summary.run_id}:${summary.target_key}`,
+				id: rowId(summary),
 				summary,
 				rank: ranked ? rank : null,
-				// Identity, not baseline-hood: every drizzle-rs row is "us", including the second and
-				// third API variants that are not the row the delta is measured against.
+				// Identity and nothing more: it tints the row so a reader can find it, and it changes no
+				// number anywhere on the page.
 				isOurs: isDrizzleRsTarget(summary),
-				barPct: this.#barPct(summary, view, { peak, peakLatency, peakCapacity }),
+				railLeft: railLeft(rail.at(this.#railValue(summary, view))),
 				barKind: this.sort === 'capacity' && view.state === 'lower-bound' ? 'bound' : 'measured',
 				capacity: view,
-				...this.#delta(summary, baselines.get(targetFamily(summary)) ?? null),
+				ramp: this.#ramp(summary),
+				...prefixed(
+					'gap',
+					this.#distance(
+						values[index],
+						index === leadIndex || leadValue?.kind !== 'measured' ? null : leadValue.value,
+						lead && index !== leadIndex ? targetDisplay(lead).name : null,
+						metric,
+						'the row leading this order',
+						true,
+					),
+				),
+				...prefixed(
+					'interval',
+					this.#distance(
+						values[index],
+						aheadValue?.kind === 'measured' ? aheadValue.value : null,
+						aheadIndex === -1 ? null : targetDisplay(ordered[aheadIndex]).name,
+						metric,
+						'the row directly above',
+						false,
+					),
+				),
 			};
 		});
+	}
+
+	/**
+	 * A distance from one row to another on the sorted column, as text plus its explanation.
+	 *
+	 * Written once and called twice because the gap and the interval differ only in which row they
+	 * point at. `reference` being null covers both the row that *is* the reference and the case where
+	 * there is nothing above it to measure against — neither is a failure, and both print a dash
+	 * rather than a zero, which would claim a measured dead heat.
+	 */
+	#distance(
+		value: ComparableMetric,
+		reference: number | null,
+		referenceName: string | null,
+		metric: string,
+		relation: string,
+		toLeader: boolean,
+	): Distance {
+		if (value.kind === 'errors') {
+			return {
+				text: '—',
+				title: `${metric} was excluded because ${fmtPct(value.rate)} of requests failed, above the 0.50% ranking limit.`,
+			};
+		}
+		if (value.kind === 'unmeasured') {
+			return {
+				text: '—',
+				title: `${metric} was not measured for this row, so it has no distance to ${relation}.`,
+			};
+		}
+		if (reference === null || referenceName === null) {
+			return {
+				text: '—',
+				title: toLeader
+					? 'This row leads the order. Every gap in this column is measured to it.'
+					: `Nothing above this row carries a ${metric} figure to measure against.`,
+			};
+		}
+
+		const printed = gapPercent(value.value, reference);
+		if (printed === null) return { text: '—', title: `Not comparable to ${referenceName}.` };
+		if (printed === '=') return { text: '=', title: `Level with ${referenceName} on ${metric}.` };
+		return {
+			text: printed,
+			title: `${printed} on ${metric} against ${referenceName}, ${relation}.`,
+		};
+	}
+
+	/** This row's figure on the sorted column, or the reason it cannot be compared. */
+	#comparable(summary: SummaryResult): ComparableMetric {
+		if (hasMaterialErrors(summary)) return { kind: 'errors', rate: summary.primary.err };
+		const value = this.#railValue(summary, this.capacity(summary));
+		return Number.isFinite(value) && value > 0
+			? { kind: 'measured', value }
+			: { kind: 'unmeasured' };
+	}
+
+	/**
+	 * The row's ramp, reduced to a sparkline.
+	 *
+	 * Read from the saturation artifact the row already carries, so drawing it costs no extra
+	 * request; a row from a run that measured no ramp simply has none, and the cell stays empty
+	 * rather than showing a flat line that would read as a measurement.
+	 */
+	#ramp(summary: SummaryResult): RampSpark | null {
+		const doc = readSaturation(summary);
+		if (!doc) return null;
+		const curve = buildCurve(doc);
+		if (curve.points.length < 2) return null;
+
+		const peak = curve.peakIndex === null ? null : curve.points[curve.peakIndex];
+		return {
+			values: curve.points.map((point) => point.rps),
+			peakIndex: curve.peakIndex,
+			label: peak
+				? `Ramp over ${curve.points.length} concurrency steps, peaking at ${fmtRps(peak.rps)} requests per second at ${peak.concurrency} concurrent.`
+				: `Ramp over ${curve.points.length} concurrency steps, with no peak found.`,
+		};
+	}
+
+	/** The rows currently in view, in the current order. */
+	get #orderedRows(): SummaryResult[] {
+		const rows = this.#scopedResults.filter(
+			(summary) => !this.db || dbProfile(summary) === this.db,
+		);
+		return [...rows].sort(this.#comparator);
+	}
+
+	/**
+	 * The one axis every row is drawn against.
+	 *
+	 * Built over the rows on screen, not over every row that exists: filtering to one database
+	 * re-scales the rail to that database's field rather than leaving it stretched to fit rows that
+	 * are no longer shown. The printed number beside each mark is always the real one.
+	 */
+	get rail(): Rail {
+		const values = this.#orderedRows.map((summary) =>
+			this.#railValue(summary, this.capacity(summary)),
+		);
+		return buildRail(values, this.sort === 'latency' ? fmtLatency : fmtRps);
+	}
+
+	/** Which number this row contributes to the rail, per sort mode. */
+	#railValue(summary: SummaryResult, view: CapacityView): number {
+		if (this.sort === 'capacity') return view.figure ? view.tierValue : Number.NaN;
+		// The rail, the order and the printed figure are the same number by construction. Sorting on
+		// the whole-ramp percentile while printing the sustained-load one would put the table in an
+		// order its own column does not explain.
+		if (this.sort === 'latency') return this.latency(summary).value;
+		return summary.primary.rps.avg;
 	}
 
 	/**
@@ -276,33 +459,96 @@ export class RunsPageState {
 				this.#byErrorsThen(a, b, compareCapacity(this.capacity(a), this.capacity(b)));
 		}
 		if (this.sort === 'latency') {
-			return (a, b) => this.#byErrorsThen(a, b, a.primary.latency.p95 - b.primary.latency.p95);
+			return (a, b) => this.#byErrorsThen(a, b, this.latency(a).value - this.latency(b).value);
 		}
 		return (a, b) => this.#byErrorsThen(a, b, b.primary.rps.avg - a.primary.rps.avg);
-	}
-
-	#barPct(
-		summary: SummaryResult,
-		view: CapacityView,
-		scale: { peak: number; peakLatency: number; peakCapacity: number },
-	): string | null {
-		if (this.sort === 'capacity') {
-			// No number, no bar. An empty track is the honest drawing of "not measured"; a zero-width
-			// bar reads as a measured zero and a full-width one would be a fabrication.
-			if (!view.figure) return null;
-			return `${Math.max(1.5, (view.tierValue / scale.peakCapacity) * 100).toFixed(1)}%`;
-		}
-		const fraction =
-			this.sort === 'latency'
-				? summary.primary.latency.p95 / scale.peakLatency
-				: summary.primary.rps.avg / scale.peak;
-		return `${Math.max(1.5, fraction * 100).toFixed(1)}%`;
 	}
 
 	/** Peak throughput for one row, in whichever of its four states it is. */
 	capacity(summary: SummaryResult): CapacityView {
 		return capacity(summary);
 	}
+
+	/**
+	 * Which latency the table is showing: the one measured at sustained load, or the whole-ramp
+	 * figure that includes the queue the ramp built.
+	 *
+	 * Decided over the operating-system scope rather than the `?db=` slice, for the same reason
+	 * `hasCapacity` is: switching database pills must not change what a column means. It only says
+	 * `sustained` when every row in scope carries a reading — a column holding a mix would be two
+	 * measurements under one heading.
+	 */
+	get latencyBasis(): LatencyBasis {
+		return latencyBasis(this.#scopedResults);
+	}
+
+	/**
+	 * The load every row's latency is read at, when the table's rows agree on one.
+	 *
+	 * The reading rung is fixed by the ladder rather than chosen per target, so this is normally a
+	 * single number for the whole table — which means it belongs in the heading, not repeated down
+	 * twenty-seven rows.
+	 */
+	get latencyLoad(): number | null {
+		return this.latencyBasis === 'sustained' ? sharedReferenceLoad(this.#scopedResults) : null;
+	}
+
+	/** One row's latency on the table's basis, with the words that say which measurement it is. */
+	latency(summary: SummaryResult): LatencyView {
+		return latencyView(summary, this.latencyBasis);
+	}
+
+	/**
+	 * The field on two axes, drawn above the table.
+	 *
+	 * The page opens on this rather than on the filter bar, and rather than on any single target's
+	 * ramp. A filter bar is chrome — it tells a reader what they may adjust before telling them
+	 * anything worth adjusting — and one target's curve is an assertion about which target matters
+	 * before the reader has seen the field.
+	 *
+	 * The plot is neither. It shows every row at once, positioned by the two quantities the table has
+	 * to flatten into one order, and it is the one view on the site where the trade a target made is
+	 * visible rather than inferred. It is also the way in: hovering a point lifts its row below.
+	 *
+	 * Built from the rows currently in view, so filtering the table re-frames the plot with it.
+	 *
+	 * `$derived` rather than a getter, unlike almost everything else on this class. A prop is read
+	 * many times over the course of one render, and a getter would rebuild the whole point set on
+	 * each read — which is not just wasted work: the plot compares points by object identity when it
+	 * decides which ones to label, and two reads returning two sets of equal-but-distinct objects
+	 * made every labelled point appear twice.
+	 */
+	scope: ScopeView = $derived(
+		buildScope(this.#orderedRows.map((summary) => ({ id: rowId(summary), summary }))),
+	);
+
+	/**
+	 * The ramp the plot above is a snapshot of, narrowed to the same rows the table is showing.
+	 *
+	 * The server loads a line for every target in the set; the filters decide which of them this is.
+	 * That is what makes the picker beside the chart a control per driver in the current view rather
+	 * than an arbitrary subset — switching to PostgreSQL leaves exactly the PostgreSQL drivers, and
+	 * the chart and the table can never disagree about what is in scope.
+	 *
+	 * Ordered by rate, so the handful drawn before the reader touches anything are the fastest.
+	 *
+	 * `null` when nothing in view has a load level to play against, and the section is left out
+	 * rather than drawing an empty playback.
+	 */
+	replay: ReplayView | null = $derived.by(() => {
+		const loaded = this.#data().replay;
+		if (!loaded) return null;
+
+		const series = loaded.series
+			.filter((entry) => (!this.os || entry.os === this.os) && (!this.db || entry.db === this.db))
+			.sort((a, b) => (b.rps ?? 0) - (a.rps ?? 0));
+		if (series.length === 0) return null;
+
+		// Re-scaled to what is in view: filtering to one database should not leave the axis stretched
+		// to a ramp that is no longer on screen.
+		const maxVus = Math.max(...series.flatMap((entry) => entry.points.map((point) => point.vus)));
+		return maxVus > 0 ? { series, maxVus } : null;
+	});
 
 	/**
 	 * The objective every peak figure in this table was measured against, e.g. "at p99 < 25 ms".
@@ -377,81 +623,6 @@ export class RunsPageState {
 		return this.rankingRows.length > 0;
 	}
 
-	/**
-	 * One tile per database: where drizzle-rs placed on it, and by how much against the best
-	 * alternative *on that database*.
-	 *
-	 * These sit above the table and are deliberately not derived from it — the table is one global
-	 * order and these are per-database standings, which is exactly the orientation the flat table
-	 * does not give you. Each tile links to the table filtered to its database, so it doubles as
-	 * the way in. Tiles are computed from the whole OS scope rather than from the current `?db=`
-	 * filter, so they stay a complete index however the table is filtered — but they never reach
-	 * across operating systems, because "1st of 4" would otherwise be a standing against a field
-	 * measured on another machine.
-	 *
-	 * In-process-cache targets are left out of each database's field: they answer without touching
-	 * the database, so placing drizzle-rs against one would not be a standing among comparable
-	 * libraries.
-	 */
-	get verdicts(): DbVerdict[] {
-		const byDb = new Map<DbProfile, SummaryResult[]>();
-		for (const summary of this.#scopedResults) {
-			if (isInProcessCache(summary.target_meta)) continue;
-			const profile = dbProfile(summary);
-			const bucket = byDb.get(profile);
-			if (bucket) bucket.push(summary);
-			else byDb.set(profile, [summary]);
-		}
-
-		const out: DbVerdict[] = [];
-		for (const profile of DB_PROFILE_ORDER) {
-			const bucket = byDb.get(profile);
-			if (!bucket || bucket.length === 0) continue;
-
-			const rows = [...bucket].sort(compareLeaderboard);
-			const ourIndex = rows.findIndex((summary) => isDrizzleRsTarget(summary));
-			if (ourIndex === -1) continue;
-
-			const ours = rows[ourIndex];
-			const label = dbLabel(profile);
-			const standing = `${ordinal(ourIndex + 1)} of ${rows.length}`;
-			const common = {
-				db: profile,
-				label,
-				href: this.rankingUrl(profile, this.sort),
-				active: this.db === profile,
-				standing,
-			};
-
-			const best = rows.find((summary) => !isDrizzleRsTarget(summary));
-			if (!best) {
-				out.push({
-					...common,
-					margin: null,
-					leads: true,
-					detail: `drizzle-rs is the only library measured on ${label} in this set.`,
-				});
-				continue;
-			}
-
-			const bestName = targetDisplay(best).name;
-			const delta = rowDelta(ours.primary.rps.avg, best.primary.rps.avg, true);
-			out.push({
-				...common,
-				margin:
-					delta === null
-						? null
-						: `${delta >= 0 ? '+' : ''}${(delta * 100).toFixed(1)}% vs ${bestName}`,
-				leads: ourIndex === 0,
-				detail:
-					delta === null
-						? `Not comparable against ${bestName}.`
-						: `${deltaSentence(delta, 'drizzle-rs', bestName, { better: 'faster', worse: 'slower' })} — the fastest other library measured on ${label} in this set. Opens the ranking filtered to ${label}.`,
-			});
-		}
-		return out;
-	}
-
 	/** Errored targets sort last whichever column is chosen; their numbers are not comparable. */
 	#byErrorsThen(a: SummaryResult, b: SummaryResult, tiebreak: number): number {
 		const aBad = hasMaterialErrors(a);
@@ -460,29 +631,6 @@ export class RunsPageState {
 		return tiebreak;
 	}
 
-	/**
-	 * The drizzle row each database's rows are measured against.
-	 *
-	 * Computed from the *whole* set, not the filtered view, so switching the `?db=` pills never
-	 * changes a single delta — the number on a row means the same thing whichever way the table is
-	 * currently sliced. Sorting first is what makes `pickBaseline` return the strongest drizzle
-	 * result in each group rather than whichever one the artifact happened to list first.
-	 *
-	 * Keyed on the comparison group, not the database: a TypeScript SQLite row is measured against
-	 * the drizzle target on its own runtime, because drizzle-rs-on-Rust and drizzle-orm-on-Bun
-	 * differ by language and concurrency model before they differ by library.
-	 */
-	get #baselines(): Map<string, SummaryResult> {
-		return baselinesByFamily([...this.#scopedResults].sort(compareLeaderboard));
-	}
-
-	/**
-	 * Which databases this set actually produced, in the canonical order.
-	 *
-	 * These narrow the one table; they never change how a row in it is computed. Rank, bar and
-	 * delta are the same numbers with "All" selected as with one database selected — the pills are
-	 * a lens, not a different ranking.
-	 */
 	/**
 	 * The operating-system scopes, as pills.
 	 *
@@ -561,102 +709,6 @@ export class RunsPageState {
 	}
 
 	/**
-	 * How this row compares to the drizzle target *in this row's own comparison group*.
-	 *
-	 * One table holds every database, so the reference has to be named rather than assumed: a
-	 * PostgreSQL row measured against a SQLite drizzle number would be comparing two engines and
-	 * calling it a library comparison. The scope is the comparison group rather than the database,
-	 * which is a finer cut wherever one database holds two — a Bun SQLite row is measured against
-	 * drizzle-orm on Bun, not against drizzle-rs on Rust, because those differ by runtime and
-	 * concurrency model before they differ by library. Where the set contains no drizzle row in a
-	 * group, the cell says so instead of quietly borrowing the nearest one.
-	 */
-	#delta(
-		summary: SummaryResult,
-		baseline: SummaryResult | null,
-	): {
-		deltaText: string;
-		deltaDirection: DeltaDirection;
-		deltaTitle: string;
-		deltaLabel: string;
-	} {
-		const group = familyLabel(targetFamily(summary));
-		if (baseline === null) {
-			return {
-				deltaText: '—',
-				deltaDirection: 'flat',
-				deltaLabel: `vs drizzle on ${group}`,
-				deltaTitle: `no drizzle row in the ${group} group in this set, so there is nothing directly comparable to measure this row against`,
-			};
-		}
-
-		const reference = `${targetDisplay(baseline).name} on ${group}`;
-		const deltaLabel = `vs ${targetDisplay(baseline).name} on ${group}`;
-		if (summary === baseline) {
-			return {
-				deltaText: 'baseline',
-				deltaDirection: 'flat',
-				deltaLabel,
-				deltaTitle: `the drizzle baseline row for ${group}; every other ${group} row is measured against this one, under the same harness`,
-			};
-		}
-		if (isInProcessCache(summary.target_meta)) {
-			return {
-				deltaText: '—',
-				deltaDirection: 'flat',
-				deltaLabel,
-				deltaTitle: `this target answers from an in-process cache and never crosses a database boundary, so it is not comparable to ${reference}`,
-			};
-		}
-		if (hasMaterialErrors(summary)) {
-			return {
-				deltaText: 'errored',
-				deltaDirection: 'flat',
-				deltaLabel,
-				deltaTitle: 'error rate above 0.5%: throughput is not comparable',
-			};
-		}
-
-		// Throughput: higher is better, so the row's own sign is already the natural one.
-		const delta = rowDelta(summary.primary.rps.avg, baseline.primary.rps.avg, true);
-		if (delta === null) {
-			return {
-				deltaText: '—',
-				deltaDirection: 'flat',
-				deltaLabel,
-				deltaTitle: `not comparable to ${reference}`,
-			};
-		}
-		return {
-			deltaText: `${delta >= 0 ? '+' : ''}${(delta * 100).toFixed(1)}%`,
-			deltaDirection: deltaDirection(delta),
-			deltaLabel,
-			deltaTitle: deltaSentence(delta, 'This library', reference, {
-				better: 'faster',
-				worse: 'slower',
-			}),
-		};
-	}
-
-	/**
-	 * The target the KPI block describes. Never silently substitutes the fastest target for a
-	 * drizzle one — when no drizzle target ran, the block says whose numbers it is showing.
-	 */
-	get kpiTarget(): { summary: SummaryResult; label: string; isOurs: boolean } | null {
-		const results = this.results;
-		if (results.length === 0) return null;
-
-		const ours = [...results]
-			.sort(compareLeaderboard)
-			.find((summary) => isDrizzleRsTarget(summary));
-		if (ours) {
-			return { summary: ours, label: targetDisplay(ours).name, isOurs: true };
-		}
-		const fastest = [...results].sort(compareLeaderboard)[0];
-		return { summary: fastest, label: `fastest: ${targetDisplay(fastest).name}`, isOurs: false };
-	}
-
-	/**
 	 * The single line of run-level metadata a list page is allowed: which commit, when, how many
 	 * trials. Nothing else.
 	 *
@@ -678,62 +730,6 @@ export class RunsPageState {
 		const count = this.totalCohorts;
 		if (!newest) return `${count} job${count === 1 ? '' : 's'}`;
 		return `${count} job${count === 1 ? '' : 's'} · commit ${shortHash(newest.git)} · ${fmtDate(newest.start)}`;
-	}
-
-	/**
-	 * Labels say `median` wherever the number is the runner's cross-trial aggregate, which is a
-	 * median even though the artifact key is spelled `avg`.
-	 */
-	get kpis() {
-		const target = this.kpiTarget;
-		if (!target) return [];
-
-		const p = target.summary.primary;
-		return [
-			{
-				label: 'rps median',
-				value: fmtRps(p.rps.avg),
-				detail: `busiest second ${fmtRps(p.rps.peak)}`,
-				hint: "median requests/second across trials, at the paced suite's fixed offered load",
-			},
-			{
-				label: 'lat mean',
-				value: fmtLatency(p.latency.avg),
-				detail: 'median across trials',
-				hint: "median across trials of each trial's mean latency",
-			},
-			{
-				label: 'lat p95',
-				value: fmtLatency(p.latency.p95),
-				detail: 'median across trials',
-				hint: 'median across trials of the 95th percentile',
-			},
-			{
-				label: 'lat p99',
-				value: fmtLatency(p.latency.p99),
-				detail: 'median across trials',
-				hint: 'median across trials of the 99th percentile',
-			},
-			{
-				label: 'cpu median',
-				value: fmtCpu(p.cpu.avg),
-				detail: `peak core ${fmtCpu(p.cpu.peak)}`,
-				hint: 'median across trials of mean-across-cores utilization; peak core is the highest single-core utilization',
-			},
-			p.mem
-				? {
-						label: 'mem median',
-						value: `${p.mem.avg.toFixed(1)}MB`,
-						detail: `peak ${p.mem.peak.toFixed(1)}MB`,
-						hint: 'median resident memory across trials',
-					}
-				: {
-						label: 'err',
-						value: fmtPct(p.err),
-						detail: 'error rate',
-						hint: 'errored requests / total requests',
-					},
-		];
 	}
 
 	targetDisplay(summary: SummaryResult) {
@@ -768,6 +764,22 @@ export class RunsPageState {
 
 	throughputBox(summary: SummaryResult) {
 		return rpsBox(summary);
+	}
+
+	/**
+	 * The row's trial spread, scaled to itself.
+	 *
+	 * Every figure on the table is a median across five trials, and the five do not always agree.
+	 * Where they disagree by more than the interval to the row above, the order between those two
+	 * rows is not a result — and this is the only thing on the page that can say so.
+	 *
+	 * The extent comes from this row's own trials rather than from the table's, because the variation
+	 * being drawn is a few percent while the field spans more than a decade: on a shared axis every
+	 * box would be a pixel wide.
+	 */
+	spreadFigure(summary: SummaryResult): { box: BoxWhiskerDatum; extent: BoxWhiskerExtent } {
+		const box = rpsBox(summary);
+		return { box, extent: boxWhiskerExtent([box]) };
 	}
 
 	throughputLabel(summary: SummaryResult): string {

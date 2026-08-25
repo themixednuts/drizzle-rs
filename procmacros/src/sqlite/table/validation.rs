@@ -7,7 +7,7 @@ pub fn validate_strict_affinity(field_infos: &[FieldInfo], strict: bool) -> syn:
     let mut errors: Vec<syn::Error> = Vec::new();
 
     for info in field_infos {
-        if info.is_custom_type {
+        if info.uses_sqlite_column_codec() {
             continue;
         }
 
@@ -146,6 +146,41 @@ pub fn generate_default_validations(field_infos: &[FieldInfo]) -> TokenStream {
     }
 }
 
+/// Generates associated-type equality checks for explicit storage markers on
+/// codec-owned columns.
+///
+/// `DrizzleSQLiteColumn` remains the storage authority. An explicit `TEXT` or
+/// other affinity marker is accepted only when it agrees with the codec's
+/// associated SQLite type.
+pub fn generate_codec_storage_validations(field_infos: &[FieldInfo]) -> TokenStream {
+    let validations = field_infos.iter().filter_map(|info| {
+        if !info.uses_sqlite_column_codec() || !info.has_explicit_type {
+            return None;
+        }
+
+        let sqlite_types = crate::paths::sqlite::types();
+        let expected = match info.column_type {
+            SQLiteType::Integer => quote!(#sqlite_types::Integer),
+            SQLiteType::Text => quote!(#sqlite_types::Text),
+            SQLiteType::Blob => quote!(#sqlite_types::Blob),
+            SQLiteType::Real => quote!(#sqlite_types::Real),
+            SQLiteType::Numeric => quote!(#sqlite_types::Numeric),
+            SQLiteType::Any => quote!(#sqlite_types::Any),
+        };
+        let base_type = info.base_type;
+        let drizzle_sqlite_column = crate::paths::sqlite::drizzle_sqlite_column();
+
+        Some(quote! {
+            const _: fn() = || {
+                fn assert_column_storage<__T: #drizzle_sqlite_column<SQLType = #expected>>() {}
+                assert_column_storage::<#base_type>();
+            };
+        })
+    });
+
+    quote! { #(#validations)* }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,6 +204,7 @@ mod tests {
             is_json: false,
             is_enum: false,
             is_uuid: false,
+            has_explicit_type: false,
             is_custom_type: false,
             column_type,
             foreign_key: None,

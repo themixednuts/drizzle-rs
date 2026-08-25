@@ -1,20 +1,20 @@
 # Benchmark Runner Audit
 
-Last updated: 2026-05-04.
+Last updated: 2026-08-25.
 
 ## Execution Surfaces
 
 | Surface | Workflow / command | Runtime location | Publishes dashboard artifacts |
 | --- | --- | --- | --- |
 | Run plan | `.github/workflows/runners.yml` `plan` | GitHub-hosted Ubuntu runner | No, resolves class/workload/topology for every other job |
-| Contract runner: SQLite | `.github/workflows/runners.yml` `sqlite` | GitHub-hosted Ubuntu, Windows, macOS runners | Yes, to Cloudflare R2 on `main` when Cloudflare secrets are present |
-| Contract runner: PostgreSQL | `.github/workflows/runners.yml` `postgres` | GitHub-hosted Ubuntu runner plus `postgres:18-alpine` service | Yes, to Cloudflare R2 on `main` |
-| Contract runner: PostgreSQL Rust ORMs | `.github/workflows/runners.yml` `postgres-rust-orms` | GitHub-hosted Ubuntu runner plus `postgres:18-alpine` service | Yes, to Cloudflare R2 on `main` |
-| Contract runner: PostgreSQL TS | `.github/workflows/runners.yml` `postgres-ts` | GitHub-hosted Ubuntu runner plus Bun and `postgres:18-alpine` service | Yes, to Cloudflare R2 on `main` |
-| Cross-family ranking: linux | `.github/workflows/runners.yml` `linux-all` | One GitHub-hosted Ubuntu runner plus Bun, a cpuset-pinned `postgres:18-alpine` service and a local SpacetimeDB, running all eight families sequentially | Yes; publish schedule/dispatch runs only |
-| Cross-family ranking: macOS / Windows | `.github/workflows/runners.yml` `desktop-all` | One GitHub-hosted macOS runner and one Windows runner plus Bun, running the three in-process families sequentially | Yes; publish schedule/dispatch runs only |
-| Contract runner: SpacetimeDB | `.github/workflows/runners.yml` `spacetimedb` | GitHub-hosted Ubuntu runner plus local SpacetimeDB service | Yes, to Cloudflare R2 on `main` |
-| Contract runner: Turso | `.github/workflows/runners.yml` `turso` | GitHub-hosted Ubuntu runner | Yes, to Cloudflare R2 on `main` |
+| Contract runner: SQLite | `.github/workflows/runners.yml` `sqlite` | GitHub-hosted Ubuntu, Windows, macOS runners | Yes, for releases and opted-in manual runs on main or a version tag |
+| Contract runner: PostgreSQL | `.github/workflows/runners.yml` `postgres` | GitHub-hosted Ubuntu runner plus `postgres:18-alpine` service | Yes, for releases and opted-in manual runs on main or a version tag |
+| Contract runner: PostgreSQL Rust ORMs | `.github/workflows/runners.yml` `postgres-rust-orms` | GitHub-hosted Ubuntu runner plus `postgres:18-alpine` service | Yes, for releases and opted-in manual runs on main or a version tag |
+| Contract runner: PostgreSQL TS | `.github/workflows/runners.yml` `postgres-ts` | GitHub-hosted Ubuntu runner plus Bun and `postgres:18-alpine` service | Yes, for releases and opted-in manual runs on main or a version tag |
+| Cross-family ranking: linux | `.github/workflows/runners.yml` `linux-all` | One GitHub-hosted Ubuntu runner plus Bun, a cpuset-pinned `postgres:18-alpine` service and a local SpacetimeDB, running all eight families sequentially | Yes, for releases and opted-in manual runs on main or a version tag |
+| Cross-family ranking: macOS / Windows | `.github/workflows/runners.yml` `desktop-all` | One GitHub-hosted macOS runner and one Windows runner plus Bun, running the three in-process families sequentially | Yes, for releases and opted-in manual runs on main or a version tag |
+| Contract runner: SpacetimeDB | `.github/workflows/runners.yml` `spacetimedb` | GitHub-hosted Ubuntu runner plus local SpacetimeDB service | Yes, for releases and opted-in manual runs on main or a version tag |
+| Contract runner: Turso | `.github/workflows/runners.yml` `turso` | GitHub-hosted Ubuntu runner | Yes, for releases and opted-in manual runs on main or a version tag |
 | Criterion microbench | `.github/workflows/criterion.yml` | GitHub-hosted runners | No, uploads GitHub Actions artifacts only |
 | Dashboard | `bench/dashboard` Cloudflare Worker | Cloudflare Workers, reading R2 | Reads and renders published artifacts; does not run benchmarks |
 
@@ -66,7 +66,7 @@ It remains best-effort separation on a shared VM — caches, memory bandwidth an
 
 ## Per-OS cross-family ranking
 
-The leaderboard puts every family in one table, so a rank only means something if the rows came off one machine. Publish-class schedule and manual-dispatch runs therefore add `linux-all` and `desktop-all`, which run every family their OS can host back to back on one VM under one cohort id (`<cohort>-cross-<os>`).
+The leaderboard puts every family in one table, so a rank only means something if the rows came off one machine. Release and manual-dispatch runs therefore add `linux-all` and `desktop-all`, which run every family their OS can host back to back on one VM under one cohort id (`<cohort>-cross-<os>`).
 
 Which families an OS can host is a platform fact. GitHub runs service containers on Linux only, so PostgreSQL and SpacetimeDB exist on linux alone, and libsql has a history of segfaulting the benchmark process on macOS and Windows. That is why the ranking is scoped per OS on the dashboard rather than merged into one table.
 

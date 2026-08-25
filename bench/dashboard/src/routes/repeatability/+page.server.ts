@@ -1,6 +1,10 @@
+import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { repeatabilityPageData } from '#lib/server/bench-data';
-import { runServerEffect } from '#lib/server/effect';
 
-export const load: PageServerLoad = ({ platform, url }) =>
-	runServerEffect(repeatabilityPageData({ suite: url.searchParams.get('suite') }), platform);
+/**
+ * Repeatability is now "across machines" under runs. The old name described the
+ * statistic; the new one describes what the reader is looking at.
+ */
+export const load: PageServerLoad = ({ url }) => {
+	redirect(308, `/runs/machines${url.search}`);
+};

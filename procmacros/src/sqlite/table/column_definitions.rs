@@ -38,12 +38,12 @@ fn generate_marker_const(info: &FieldInfo, _zst_ident: &Ident) -> TokenStream {
     }
 }
 
-pub(super) fn generate_custom_comparison_operand_impls(
+pub(super) fn generate_column_comparison_operand_impls(
     info: &FieldInfo,
     zst_ident: &Ident,
     sqlite_value: &TokenStream,
 ) -> TokenStream {
-    if !info.is_custom_type {
+    if !info.is_enum && !info.is_custom_type {
         return TokenStream::new();
     }
 
@@ -129,9 +129,6 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
 
         let name = &info.column_name;
         let col_type = info.sql_type_expr();
-
-        // Generate enum implementations using the shared generator
-        let enum_impl = super::enum_impls::generate_enum_impls_for_field(info)?;
 
         // Generate foreign key reference implementation (kept for FK const validation)
         let _foreign_key_impl = info.foreign_key.as_ref().map_or_else(
@@ -259,8 +256,8 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             &sql_type_marker,
             &sql_nullable_marker,
         );
-        let custom_comparison_operand_impls =
-            generate_custom_comparison_operand_impls(info, &zst_ident, &sqlite_value);
+        let column_comparison_operand_impls =
+            generate_column_comparison_operand_impls(info, &zst_ident, &sqlite_value);
 
         // Generate arithmetic operators for numeric columns
         let arithmetic_ops = if sqlite_column_type_is_numeric(&info.column_type) {
@@ -342,11 +339,8 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             }
             #into_sqlite_value_impl
             #expr_impl
-            #custom_comparison_operand_impls
+            #column_comparison_operand_impls
             #arithmetic_ops
-
-            // Include enum implementation if this is an enum field
-            #enum_impl
         };
         all_column_code.extend(column_code);
     }

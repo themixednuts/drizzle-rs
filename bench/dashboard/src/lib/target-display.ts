@@ -97,6 +97,28 @@ const DB_PROFILE_LABELS: Record<DbProfile, string> = {
  * that carries that database — same words, attached to the thing they describe rather than to a
  * position in the layout.
  */
+/**
+ * Whether a query on this engine crosses a process boundary.
+ *
+ * Two words, kept as data rather than read out of the prose above, because it is the single fact
+ * that decides whether two rows are architecturally comparable — an embedded engine answering
+ * without a network hop is not doing the same work as one paying a TCP round trip. Anywhere a
+ * headline puts one library above another across engines, this has to travel with it.
+ *
+ * Engines with no entry are deliberately unclassified rather than guessed: SpacetimeDB runs the
+ * application and the database together, which is neither.
+ */
+const DB_ENGINE_CLASS: Partial<Record<DbProfile, 'embedded' | 'client/server'>> = {
+	sqlite: 'embedded',
+	libsql: 'embedded',
+	turso: 'embedded',
+	postgres: 'client/server',
+};
+
+export function dbEngineClass(profile: DbProfile): 'embedded' | 'client/server' | null {
+	return DB_ENGINE_CLASS[profile] ?? null;
+}
+
 const DB_PROFILE_NOTES: Partial<Record<DbProfile, string>> = {
 	sqlite: 'Embedded engine: queries run in the server process, no network hop.',
 	libsql: 'Embedded engine: queries run in the server process, no network hop.',
@@ -332,7 +354,18 @@ export function targetDisplay(input: TargetDisplayInput): TargetDisplay {
 	});
 	// The API tag joins the attribute list so it reaches every picker label too — a `<select>` full
 	// of options all reading "Drizzle RS / SQLite / rusqlite / prepared" cannot be chosen from.
-	const badges = [dialect, driver, mode, api && `${api.label} API`, accessBadge(access), os]
+	// `targetKind` joins the list so the framing this project cares about — a query builder measured
+	// against a raw driver is a different claim than two ORMs measured against each other — is still
+	// one hover away, now that the note no longer repeats it on every row.
+	const badges = [
+		dialect,
+		targetKind(meta),
+		driver,
+		mode,
+		api && `${api.label} API`,
+		accessBadge(access),
+		os,
+	]
 		.filter((badge): badge is string => Boolean(badge))
 		.filter((badge) => !sameLabel(badge, name));
 
@@ -346,7 +379,7 @@ export function targetDisplay(input: TargetDisplayInput): TargetDisplay {
 		sqlVariant: meta?.sql_variant ?? null,
 		api,
 		badges,
-		note: targetNote(meta, driver, mode, access),
+		note: targetNote(meta, driver, mode),
 		familyKey: slug(`${name}:${dialect}:${driver ?? 'default'}`),
 		detail: badges.join(' / '),
 		incomplete: meta?.incomplete === true,
@@ -366,18 +399,30 @@ function targetKind(meta: TargetMeta | undefined): string {
 	return 'ORM';
 }
 
+/**
+ * The quiet second line under a target's name: what distinguishes this row from the other rows of
+ * the same library, and nothing else.
+ *
+ * It used to lead with the kind — "query builder on rusqlite, unprepared". The kind is the same on
+ * every row of a given library, so across twenty-seven rows it was two or three words of repetition
+ * per row that never once told a reader which row they were looking at. It is still carried, in the
+ * attribute list on the tooltip and in the accessible name, where a reader who wants the framing
+ * can get it once instead of being handed it twenty-seven times.
+ *
+ * What is left is the pair that actually varies within a library: the driver and whether statements
+ * were prepared.
+ */
 function targetNote(
 	meta: TargetMeta | undefined,
 	driver: string | null,
 	mode: string | null,
-	access: DataAccess | null,
 ): string {
-	// An in-process cache is not doing the same work as everything else in the table, so it says so
-	// in full rather than being reduced to a two-word chip. This is the one note that never
-	// abbreviates.
-	if (access === 'in-process-cache') return 'in-memory cache — no per-request DB work';
+	// This used to special-case an in-process cache and spell out "in-memory cache — no per-request
+	// DB work". It explained something the audience already knows, on every row that carried it.
+	// The data-access field is still on the tooltip and in the Method reference.
 
-	const head = driver ? `${targetKind(meta)} on ${driver}` : targetKind(meta);
+	// No driver to name means the library *is* the driver, and its own kind is the only fact left.
+	const head = driver ?? targetKind(meta);
 	return mode ? `${head}, ${mode}` : head;
 }
 
@@ -499,6 +544,11 @@ function driverLabel(value: string): string {
 	if (known === '@prisma/adapter-pg') return 'adapter-pg';
 	if (known === 'tokio-postgres-simple') return 'PGWire';
 	if (known === 'spacetimedb-sdk') return 'SDK';
+	// The synchronous Rust client is the crate literally named `postgres`, which `humanize` turns
+	// into "PostgreSQL" — the database's name, not the driver's. That rendered its row as "query
+	// builder on PostgreSQL" beside a sibling reading "query builder on tokio-postgres", so the two
+	// looked like the same target listed twice instead of the sync and async clients they are.
+	if (known === 'postgres') return 'postgres (sync)';
 	return GROUP_NAMES.get(known) ?? humanize(value);
 }
 
@@ -516,4 +566,84 @@ function slug(value: string): string {
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, '-')
 		.replace(/^-|-$/g, '');
+}
+
+/**
+ * Legend labels for the targets of one run, keyed by target id.
+ *
+ * A run holds three targets all displayed as "Drizzle RS": the select builder, the relational
+ * query API, and the sync Postgres client. In a table that is fine, because the API tag and the
+ * note line sit right beside the name. A chart legend has room for the name and nothing else, so
+ * those three arrived as three identical entries against three shades of one hue — a legend that
+ * cannot be read, on the two charts that open the run detail page.
+ *
+ * A name that is already unique in the run is left exactly as the rest of the site prints it. An
+ * ambiguous one takes the shortest qualifier that actually separates its group — and "actually" is
+ * the load-bearing word. Reaching for the API tag first looked right and was not: a PostgreSQL run
+ * holds `drizzle-rs-pg` and `drizzle-rs-pg-sync`, which are both the sql API over different
+ * drivers, so the first attempt at this produced "Drizzle RS (sql)" twice and moved the ambiguity
+ * rather than removing it. Each candidate is now checked for distinctness across the group before
+ * it is used, and if none is enough on its own they are combined.
+ */
+export function legendLabels(inputs: readonly TargetDisplayInput[]): Map<string, string> {
+	const displays = inputs.map((input) => ({ id: input.target_id, display: targetDisplay(input) }));
+
+	const groups = new Map<string, typeof displays>();
+	for (const entry of displays) {
+		const group = groups.get(entry.display.name) ?? [];
+		group.push(entry);
+		groups.set(entry.display.name, group);
+	}
+
+	type Entry = { id: string; display: TargetDisplay };
+
+	/**
+	 * Candidate qualifiers, shortest and most readable first.
+	 *
+	 * The target id is last and is the reason this always terminates with a usable answer. Published
+	 * summaries do not always carry a driver or a prepared flag — on the PostgreSQL run every
+	 * drizzle-rs summary has both fields empty, so `drizzle-rs-pg` and `drizzle-rs-pg-sync` are
+	 * indistinguishable by any attribute the display layer can see. The id is unique by
+	 * construction, so it separates them, and an ugly-but-correct legend beats two identical
+	 * entries against two shades of one hue.
+	 */
+	const CANDIDATES: ((entry: Entry) => string | null)[] = [
+		({ display }) => display.api?.label ?? null,
+		({ display }) => display.driver,
+		({ display }) => display.mode,
+		({ display }) =>
+			[display.api?.label, display.driver, display.mode].filter(Boolean).join(', ') || null,
+		({ id }) => id,
+	];
+
+	const labels = new Map<string, string>();
+	for (const [name, group] of groups) {
+		if (group.length < 2) {
+			labels.set(group[0].id, name);
+			continue;
+		}
+
+		const qualifier = CANDIDATES.find((pick) => {
+			const values = group.map(pick);
+			// Usable only if every member has one and no two share it.
+			return (
+				values.every((value) => value !== null && value !== '') &&
+				new Set(values).size === group.length
+			);
+		});
+
+		for (const entry of group) {
+			const value = qualifier?.(entry);
+			if (!value) {
+				labels.set(entry.id, name);
+			} else if (value === entry.id) {
+				// The id stands alone rather than being parenthesised after the name it already
+				// contains: "Drizzle RS (drizzle-rs-pg-query)" says the library twice.
+				labels.set(entry.id, entry.id);
+			} else {
+				labels.set(entry.id, `${name} (${value})`);
+			}
+		}
+	}
+	return labels;
 }

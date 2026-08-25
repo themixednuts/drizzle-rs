@@ -1,6 +1,8 @@
 import { version } from '$app/env';
 import { parseTheme, THEME_COOKIE, type ThemePreference } from '#lib/theme';
-import type { Handle, RequestEvent } from '@sveltejs/kit';
+// `Handle` moved to `@sveltejs/kit/hooks` in Kit 3; `RequestEvent` stays on the root export.
+import type { Handle } from '@sveltejs/kit/hooks';
+import type { RequestEvent } from '@sveltejs/kit';
 
 /**
  * Edge page cache built on the Workers Cache API (`caches.default`).
@@ -43,9 +45,9 @@ const POLICIES: Record<string, CachePolicy> = {
 	'/': { ttl: FIVE_MINUTES, params: ['suite', 'status', 'db', 'sort'] },
 	'/runs': { ttl: FIVE_MINUTES, params: ['suite', 'status', 'q'] },
 	'/runs/[run_id]': { ttl: ONE_YEAR, params: ['metric'] },
-	'/trends': { ttl: FIVE_MINUTES, params: ['suite', 'target'] },
-	'/compare': { ttl: FIVE_MINUTES, params: ['cohort', 'metric'] },
-	'/repeatability': { ttl: FIVE_MINUTES, params: ['suite'] },
+	'/runs/trends': { ttl: FIVE_MINUTES, params: ['suite', 'target'] },
+	'/runs/compare': { ttl: FIVE_MINUTES, params: ['cohort', 'metric'] },
+	'/runs/machines': { ttl: FIVE_MINUTES, params: ['suite'] },
 	'/methodology': { ttl: FIVE_MINUTES, params: [] },
 	// The JSON API already advertises `max-age=300` to shared caches; the edge TTL matches it.
 	'/api/v1/runs/latest': { ttl: FIVE_MINUTES, params: ['suite'] },

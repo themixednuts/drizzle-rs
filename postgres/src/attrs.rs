@@ -972,7 +972,10 @@ pub const CONCURRENT: IndexMarker = IndexMarker;
 /// See: <https://www.postgresql.org/docs/current/indexes-types.html>
 pub const METHOD: IndexMarker = IndexMarker;
 
-/// Specifies a partial-index predicate.
+/// Specifies a partial-index predicate as raw PostgreSQL SQL.
+///
+/// Use database column names in the predicate. Rust field or column renames do
+/// not rewrite this string.
 ///
 /// ## Example
 /// ```rust

@@ -99,7 +99,7 @@ pub struct SnapshotV6 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sqlite::ddl::{Column, Table};
+    use crate::sqlite::ddl::{Column, Index, IndexColumn, Table};
 
     #[test]
     fn test_new_snapshot() {
@@ -154,6 +154,30 @@ mod tests {
         assert_eq!(value["dialect"], "sqlite");
         assert_eq!(value["ddl"][0]["entityType"], "tables");
         assert_eq!(value["ddl"][1]["entityType"], "columns");
+    }
+
+    #[test]
+    fn partial_index_predicate_round_trips_through_snapshot_json() {
+        let mut snapshot = SQLiteSnapshot::new();
+        let mut index = Index::new("jobs", "idx_jobs_unclaimed", vec![IndexColumn::new("id")]);
+        index.where_clause = Some("builder IS NULL".into());
+        snapshot.add_entity(SqliteEntity::Index(index));
+
+        let json = snapshot.to_json().unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&json).unwrap()["ddl"][0]["where"],
+            "builder IS NULL"
+        );
+        let parsed = SQLiteSnapshot::from_json(&json).unwrap();
+        let index = parsed
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                SqliteEntity::Index(index) => Some(index),
+                _ => None,
+            })
+            .expect("partial index");
+        assert_eq!(index.where_clause.as_deref(), Some("builder IS NULL"));
     }
 
     #[test]

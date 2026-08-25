@@ -157,7 +157,7 @@ mod sqlite_parity {
         pub linked_code: Option<String>,
     }
 
-    #[SQLiteIndex(unique)]
+    #[SQLiteIndex(unique, where = "email IS NOT NULL")]
     pub struct UsersEmailIdx(Users::email);
 
     #[SQLiteView(DEFINITION = "SELECT id, email FROM users")]
@@ -218,9 +218,20 @@ mod sqlite_parity {
         );
 
         // Presence checks: parity alone can't tell "both sides emit X"
-        // from "both sides dropped X". Lock the renamed-FK-target shapes on
-        // the macro side (parity extends them to the parser side).
+        // from "both sides dropped X". Lock the partial-index predicate and
+        // renamed-FK-target shapes on the macro side (parity extends them to
+        // the parser side).
         use drizzle::migrations::sqlite::SqliteEntity;
+        let email_index = macro_snapshot.ddl.iter().find_map(|entity| match entity {
+            SqliteEntity::Index(index) if index.name.as_ref() == "users_email_idx" => Some(index),
+            _ => None,
+        });
+        assert_eq!(
+            email_index.and_then(|index| index.where_clause.as_deref()),
+            Some("email IS NOT NULL"),
+            "compiled SQLite schema dropped the partial-index predicate"
+        );
+
         let fks: Vec<_> = macro_snapshot
             .ddl
             .iter()

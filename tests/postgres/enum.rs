@@ -58,6 +58,33 @@ mod unit_tests {
     }
 }
 
+#[cfg(feature = "aws-data-api")]
+mod aws_data_api_traits {
+    use crate::common::schema::postgres::Role;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, drizzle::postgres::PostgresEnum)]
+    #[repr(i64)]
+    enum NumericRole {
+        #[default]
+        User = 0,
+        Admin = 1,
+    }
+
+    fn assert_enum_row_traits<Row: ?Sized>()
+    where
+        Role: drizzle::core::FromDrizzleRow<Row> + drizzle::core::RowColumnList<Row>,
+        Option<Role>: drizzle::core::FromDrizzleRow<Row> + drizzle::core::RowColumnList<Row>,
+        NumericRole: drizzle::core::FromDrizzleRow<Row> + drizzle::core::RowColumnList<Row>,
+        Option<NumericRole>: drizzle::core::FromDrizzleRow<Row> + drizzle::core::RowColumnList<Row>,
+    {
+    }
+
+    #[test]
+    fn postgres_enum_supports_aws_scalar_tuple_decoding() {
+        assert_enum_row_traits::<drizzle::postgres::aws_data_api::Row>();
+    }
+}
+
 // Database execution tests for enum storage/retrieval
 #[cfg(all(
     feature = "uuid",
@@ -67,6 +94,54 @@ mod execution {
     use crate::common::schema::postgres::*;
     use drizzle::core::expr::*;
     use drizzle::postgres::prelude::*;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PostgresEnum)]
+    #[repr(i64)]
+    enum NumericRole {
+        #[default]
+        User = 0,
+        Admin = 1,
+        Moderator = 2,
+    }
+
+    #[PostgresTable(name = "numeric_enum_records")]
+    struct NumericEnumRecord {
+        #[column(primary, serial)]
+        id: i32,
+        #[column(enum)]
+        role: NumericRole,
+        #[column(enum)]
+        optional_role: Option<NumericRole>,
+    }
+
+    #[derive(PostgresSchema)]
+    struct NumericEnumSchema {
+        records: NumericEnumRecord,
+    }
+
+    #[PostgresTable(name = "numeric_enum_parents")]
+    struct NumericEnumParent {
+        // Keep the repr enum first: optional relation decoding probes the
+        // relation's first projected column for NULL.
+        #[column(enum)]
+        role: NumericRole,
+        #[column(primary, serial)]
+        id: i32,
+    }
+
+    #[PostgresTable(name = "numeric_enum_children")]
+    struct NumericEnumChild {
+        #[column(primary, serial)]
+        id: i32,
+        #[column(references = NumericEnumParent::id)]
+        parent_id: Option<i32>,
+    }
+
+    #[derive(PostgresSchema)]
+    struct NumericEnumRelationSchema {
+        parents: NumericEnumParent,
+        children: NumericEnumChild,
+    }
 
     #[allow(dead_code)]
     #[derive(Debug, PostgresFromRow)]
@@ -158,16 +233,87 @@ mod execution {
         ]);
         stmt.execute();
 
-        // Filter by multiple enum values
-        let stmt = db.select(()).from(complex).r#where(or(
-            eq(complex.role, Role::Admin),
-            eq(complex.role, Role::Moderator),
-        ));
-        let results: Vec<PgComplexResult> = stmt.all();
+        let results: Vec<(String, Role)> = db
+            .select((complex.name, complex.role))
+            .from(complex)
+            .r#where(in_array(complex.role, [Role::Admin, Role::Moderator]))
+            .order_by([asc(complex.name)])
+            .all();
 
-        assert_eq!(results.len(), 2);
-        let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
-        assert!(names.contains(&"Admin"));
-        assert!(names.contains(&"Moderator"));
+        assert_eq!(
+            results,
+            vec![
+                ("Admin".to_string(), Role::Admin),
+                ("Moderator".to_string(), Role::Moderator),
+            ]
+        );
+    }
+
+    #[drizzle::test]
+    fn integer_enum_filters_and_round_trips(db: &mut TestDb<NumericEnumSchema>) {
+        let NumericEnumSchema { records } = schema;
+
+        db.insert(records)
+            .values([InsertNumericEnumRecord::new(NumericRole::User)])
+            .execute();
+        db.insert(records)
+            .values([
+                InsertNumericEnumRecord::new(NumericRole::Admin)
+                    .with_optional_role(NumericRole::Admin),
+                InsertNumericEnumRecord::new(NumericRole::Moderator)
+                    .with_optional_role(NumericRole::Moderator),
+            ])
+            .execute();
+
+        let rows: Vec<SelectNumericEnumRecord> = db
+            .select(())
+            .from(records)
+            .order_by([asc(records.id)])
+            .all();
+        assert_eq!(rows[0].optional_role, None);
+        assert_eq!(rows[1].optional_role, Some(NumericRole::Admin));
+        assert_eq!(rows[2].optional_role, Some(NumericRole::Moderator));
+
+        let roles: Vec<NumericRole> = db
+            .select(records.role)
+            .from(records)
+            .r#where(in_array(
+                records.role,
+                [NumericRole::Admin, NumericRole::Moderator],
+            ))
+            .order_by([asc(records.id)])
+            .all();
+
+        assert_eq!(roles, vec![NumericRole::Admin, NumericRole::Moderator]);
+    }
+
+    #[cfg(feature = "query")]
+    #[drizzle::test]
+    fn integer_enum_decodes_in_optional_relation(db: &mut TestDb<NumericEnumRelationSchema>) {
+        let NumericEnumRelationSchema { parents, children } = schema;
+
+        db.insert(parents)
+            .values([InsertNumericEnumParent::new(NumericRole::Admin)])
+            .execute();
+        let parent: SelectNumericEnumParent = db.select(()).from(parents).get();
+
+        db.insert(children)
+            .values([InsertNumericEnumChild::new().with_parent_id(parent.id)])
+            .execute();
+        db.insert(children)
+            .values([InsertNumericEnumChild::new()])
+            .execute();
+
+        let rows = db
+            .query(children)
+            .with(children.parent())
+            .order_by(asc(children.id))
+            .find_many();
+
+        assert_eq!(
+            rows[0].parent.as_ref().map(|row| row.role),
+            Some(NumericRole::Admin)
+        );
+        assert!(rows[1].parent.is_none());
     }
 }

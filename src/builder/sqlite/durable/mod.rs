@@ -312,6 +312,12 @@ where
             tracking,
         );
 
+        let applied_before_table_write =
+            durable_applied_names_before_migration_table_write(&self.conn, &set)?;
+        super::reject_foreign_key_suspending_migrations(
+            set.pending(&applied_before_table_write),
+            "Durable Object",
+        )?;
         ensure_durable_migration_table(&self.conn, &set)?;
 
         // Durable Object storage runs this whole flow in one transaction, so
@@ -349,6 +355,7 @@ where
         if pending.is_empty() {
             return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
         }
+        super::reject_foreign_key_suspending_migrations(pending.iter().copied(), "Durable Object")?;
 
         let applied = self.transaction(|tx| {
             let mut applied = Vec::with_capacity(pending.len());
@@ -374,6 +381,69 @@ where
 #[derive(serde::Deserialize)]
 struct AppliedName {
     name: String,
+}
+
+fn durable_applied_names_before_migration_table_write(
+    conn: &SqlStorage,
+    set: &drizzle_migrations::Migrations,
+) -> drizzle_core::error::Result<Vec<String>> {
+    let table_name = set.table_name().replace('\'', "''");
+    let columns = conn
+        .exec(
+            &format!("SELECT name FROM pragma_table_info('{}')", table_name),
+            None,
+        )
+        .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+
+    #[derive(serde::Deserialize)]
+    struct ColumnName {
+        name: String,
+    }
+
+    let columns: Vec<ColumnName> = columns
+        .to_array()
+        .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+    if columns.is_empty() {
+        return Ok(Vec::new());
+    }
+    if columns.iter().any(|column| column.name == "name") {
+        return conn
+            .exec(&set.applied_names_sql(), None)
+            .map_err(|error| DrizzleError::Other(error.to_string().into()))?
+            .to_array::<AppliedName>()
+            .map(|rows| rows.into_iter().map(|row| row.name).collect())
+            .map_err(|error| DrizzleError::Other(error.to_string().into()));
+    }
+
+    #[derive(serde::Deserialize)]
+    struct LegacyRow {
+        id: Option<i64>,
+        hash: String,
+        created_at: i64,
+    }
+
+    let legacy = conn
+        .exec(
+            &format!(
+                "SELECT id, hash, created_at FROM {} ORDER BY id ASC",
+                set.table_ident_sql()
+            ),
+            None,
+        )
+        .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+    let applied = legacy
+        .to_array::<LegacyRow>()
+        .map_err(|error| DrizzleError::Other(error.to_string().into()))?
+        .into_iter()
+        .map(|row| drizzle_migrations::AppliedMigrationMetadata {
+            id: row.id,
+            hash: row.hash,
+            created_at: row.created_at,
+        })
+        .collect::<Vec<_>>();
+    drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
+        .map(|rows| rows.into_iter().map(|row| row.name).collect())
+        .map_err(|error| DrizzleError::Other(error.to_string().into()))
 }
 
 fn ensure_durable_migration_table(

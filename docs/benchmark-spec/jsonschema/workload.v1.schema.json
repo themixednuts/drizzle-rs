@@ -170,6 +170,11 @@
           "rps": {
             "type": "number",
             "exclusiveMinimum": 0
+          },
+          "probe": {
+            "type": "boolean",
+            "default": false,
+            "description": "A probe stage is measured — it appears in the timeseries and as a step of the curve — but its buckets are excluded from summary.primary. This lets the ladder grow rungs below its historical floor without changing what the whole-ramp headline aggregates: the counted stages stay exactly the upstream stage list, and the probes exist to give the sustained-latency reading a floor below every target's knee."
           }
         },
         "oneOf": [
@@ -289,28 +294,39 @@
       ],
       "properties": {
         "slo": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "The latency ceiling a step must stay under to be eligible as the peak. The headline is always quoted with it attached — a throughput number without a latency bound is not a capacity claim.",
-          "required": [
-            "metric",
-            "ms"
-          ],
-          "properties": {
-            "metric": {
-              "type": "string",
-              "enum": [
-                "p50",
-                "p90",
-                "p95",
-                "p99"
-              ]
-            },
-            "ms": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            }
-          }
+          "$ref": "#/$defs/slo",
+          "description": "The latency ceiling a step must stay under to be eligible as the peak. The headline is always quoted with it attached — a throughput number without a latency bound is not a capacity claim."
+        }
+      }
+    },
+    "latency": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Declares a service-latency measurement read off the ramp's step curve, producing `summary.latency`. Without it a ramp's only latency figure is `primary.latency`, which merges every hold plateau — and once a stage pushes a target past its throughput ceiling, each of that stage's seconds contributes VUs/throughput of pure queueing delay, so the aggregate measures how far the ramp overshot the target rather than how fast it answers. The block is deliberately empty: the qualifying rule is not a declarable objective but a property of the curve — whether a step served the throughput the closed loop offered it, i.e. the floor step's rate scaled by concurrency (see summary.latency for the rule and its tolerance). An SLO here was rejected: any latency ceiling either denies slower targets a figure at the ladder's floor or, widened until everyone passes, launders an already-saturated step's queueing as service time. Unlike `saturation` this block is valid on a paced workload (think time caps offered load without distorting per-request latency); the runner refuses it only when the ladder has fewer than two hold steps outside the warmup window or the steps do not strictly climb in concurrency.",
+      "properties": {}
+    }
+  },
+  "$defs": {
+    "slo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metric",
+        "ms"
+      ],
+      "properties": {
+        "metric": {
+          "type": "string",
+          "enum": [
+            "p50",
+            "p90",
+            "p95",
+            "p99"
+          ]
+        },
+        "ms": {
+          "type": "number",
+          "exclusiveMinimum": 0
         }
       }
     }

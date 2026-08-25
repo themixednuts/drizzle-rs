@@ -5,7 +5,6 @@ pub mod context;
 mod ddl;
 #[cfg(feature = "turso")]
 mod drivers;
-mod enum_impls;
 mod errors;
 mod json;
 pub mod models;
@@ -35,7 +34,9 @@ use ddl::generate_const_ddl;
 use json::generate_json_impls;
 use models::generate_model_definitions;
 use traits::generate_table_impls;
-use validation::{generate_default_validations, validate_strict_affinity};
+use validation::{
+    generate_codec_storage_validations, generate_default_validations, validate_strict_affinity,
+};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
@@ -139,6 +140,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
 
     // Generate compile-time validation for default literals
     let default_validations = generate_default_validations(&field_infos);
+    let codec_storage_validations = generate_codec_storage_validations(&field_infos);
 
     // Generate const DDL definitions
     let const_ddl = generate_const_ddl(&ctx);
@@ -147,6 +149,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     let expanded = quote! {
         // Compile-time validation for default literals
         #default_validations
+        #codec_storage_validations
 
         // Table marker const for IDE hover documentation
         #table_marker_const
@@ -198,7 +201,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
 /// Shared by both `#[SQLiteTable]` and `#[SQLiteView]`.
 #[cfg(feature = "query")]
 pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
-    use crate::common::query::{EnumStorage, FieldJsonInfo, FkInfo, generate_query_api};
+    use crate::common::query::{FieldJsonInfo, FkInfo, generate_query_api};
     use crate::sqlite::field::SQLiteType;
 
     let struct_ident = ctx.struct_ident;
@@ -228,21 +231,15 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
         .field_infos
         .iter()
         .map(|f| {
-            let enum_storage = if f.is_enum {
-                match f.column_type {
-                    SQLiteType::Integer => Some(EnumStorage::Integer),
-                    _ => Some(EnumStorage::Text),
-                }
-            } else {
-                None
-            };
             // Determine mutually-exclusive read strategy. UUID wins over blob
             // (UUIDs are stored as BLOB internally but parsed from strings in
             // JSON). Bool is checked against the base Rust type.
             let storage = if f.is_uuid {
-                crate::common::query::FieldStorageKind::Uuid
+                crate::common::query::FieldStorageKind::SQLiteUuid
             } else if crate::common::type_is_bool(f.base_type) {
                 crate::common::query::FieldStorageKind::Bool
+            } else if f.uses_sqlite_column_codec() {
+                crate::common::query::FieldStorageKind::SQLiteColumn
             } else if matches!(f.column_type, SQLiteType::Blob) {
                 crate::common::query::FieldStorageKind::Blob
             } else {
@@ -254,7 +251,7 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
                 is_nullable: f.is_nullable,
                 is_json: f.is_json,
                 storage,
-                enum_storage,
+                enum_storage: None,
                 base_type: f.base_type.clone(),
                 select_type: crate::sqlite::table::context::MacroContext::get_field_type_for_model(
                     f,

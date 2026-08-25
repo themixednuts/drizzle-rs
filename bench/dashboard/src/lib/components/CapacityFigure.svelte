@@ -56,7 +56,7 @@
 		<span
 			class={cn(
 				'block font-mono tabular-nums',
-				size === 'lead' ? 'text-metric font-medium' : 'text-lead font-medium',
+				size === 'lead' ? 'text-figure font-medium' : 'text-lead font-medium',
 				// A lower bound is deliberately not given the full-strength ink a measurement gets. It is
 				// a floor, and it should not read as the same kind of fact as the row above it — so the
 				// active-column emphasis lifts a measurement and deliberately leaves a bound where it is.

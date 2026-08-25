@@ -45,6 +45,27 @@ fn custom_sqlite_column_decode_rejects_invalid_storage() {
     assert!(U32Be::decode(SQLiteValueRef::Blob(&[1, 2, 3])).is_err());
 }
 
+#[cfg(feature = "query")]
+#[test]
+fn projected_blob_decode_rejects_corrupt_and_mismatched_storage() {
+    let malformed = drizzle::core::serde_json::json!({
+        "$drizzle_storage": "blob",
+        "$drizzle_value": "A",
+    });
+    let non_ascii = drizzle::core::serde_json::json!({
+        "$drizzle_storage": "blob",
+        "$drizzle_value": "é",
+    });
+    let text_in_blob_affinity = drizzle::core::serde_json::json!({
+        "$drizzle_storage": "text",
+        "$drizzle_value": "AB",
+    });
+
+    assert!(U32Be::decode_json(&malformed).is_err());
+    assert!(U32Be::decode_json(&non_ascii).is_err());
+    assert!(U32Be::decode_json(&text_in_blob_affinity).is_err());
+}
+
 #[test]
 fn custom_sqlite_column_converts_from_borrowed_value_ref() {
     let bytes = [0x01, 0x02, 0x03, 0x04];
@@ -58,6 +79,8 @@ struct CustomU32BeTest {
     #[column(PRIMARY)]
     id: i32,
     payload: U32Be,
+    #[column(blob)]
+    explicit_payload: Option<U32Be>,
     optional_payload: Option<U32Be>,
 }
 
@@ -87,7 +110,12 @@ fn custom_sqlite_column_roundtrip_and_metadata(db: &mut TestDb<CustomU32BeSchema
     db.insert(table).values([row]).execute();
 
     let out: Vec<SelectCustomU32BeTest> = db
-        .select((table.id, table.payload, table.optional_payload))
+        .select((
+            table.id,
+            table.payload,
+            table.explicit_payload,
+            table.optional_payload,
+        ))
         .from(table)
         .r#where(and(
             and(eq(table.payload, value), eq(table.payload, &value)),
@@ -100,7 +128,12 @@ fn custom_sqlite_column_roundtrip_and_metadata(db: &mut TestDb<CustomU32BeSchema
     assert_eq!(out[0].optional_payload, None);
 
     let optional_matches: Vec<SelectCustomU32BeTest> = db
-        .select((table.id, table.payload, table.optional_payload))
+        .select((
+            table.id,
+            table.payload,
+            table.explicit_payload,
+            table.optional_payload,
+        ))
         .from(table)
         .r#where(eq(table.optional_payload, value))
         .all();
@@ -109,7 +142,12 @@ fn custom_sqlite_column_roundtrip_and_metadata(db: &mut TestDb<CustomU32BeSchema
 
     let alias = CustomU32BeTest::alias::<CustomU32BeAlias>();
     let aliased: Vec<SelectCustomU32BeTest> = db
-        .select((alias.id, alias.payload, alias.optional_payload))
+        .select((
+            alias.id,
+            alias.payload,
+            alias.explicit_payload,
+            alias.optional_payload,
+        ))
         .from(alias)
         .r#where(eq(alias.payload, value))
         .all();
@@ -126,4 +164,19 @@ fn custom_sqlite_column_roundtrip_and_metadata(db: &mut TestDb<CustomU32BeSchema
         .get();
 
     assert_eq!(ty.0, "blob");
+}
+
+#[cfg(feature = "query")]
+#[drizzle::test]
+fn marker_free_blob_query_uses_type_owned_codec(db: &mut TestDb<CustomU32BeSchema>) {
+    let table = schema.custom_u32_be_test;
+    let value = U32Be(0x0102_0304);
+    db.insert(table)
+        .values([InsertCustomU32BeTest::new(value).with_explicit_payload(value)])
+        .execute();
+
+    let rows = db.query(table).find_many();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].payload, value);
+    assert_eq!(rows[0].explicit_payload, Some(value));
 }

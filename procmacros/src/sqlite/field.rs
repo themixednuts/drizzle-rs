@@ -243,6 +243,10 @@ pub struct FieldInfo<'a> {
     pub(crate) is_json: bool,
     pub(crate) is_enum: bool,
     pub(crate) is_uuid: bool,
+    /// Whether the column attribute explicitly named a SQLite storage type.
+    /// For enum-backed columns this is an assertion against
+    /// `DrizzleSQLiteColumn::SQLType`, never an independent storage authority.
+    pub(crate) has_explicit_type: bool,
     /// True when the type is unknown to the macro (e.g., a user-defined enum type).
     /// The type is validated at type-check time via `DrizzleSQLiteColumn` trait bounds.
     pub(crate) is_custom_type: bool,
@@ -947,6 +951,7 @@ impl<'a> FieldInfo<'a> {
             is_json,
             is_enum,
             is_uuid,
+            has_explicit_type: attrs.has_explicit_type,
             is_custom_type,
             column_type,
             foreign_key,
@@ -1166,6 +1171,12 @@ impl FieldInfo<'_> {
         type_category_from_type(self.base_type)
     }
 
+    /// Whether schema, bind, and row conversion are owned by
+    /// `DrizzleSQLiteColumn` rather than by a built-in field category.
+    pub(crate) fn uses_sqlite_column_codec(&self) -> bool {
+        self.is_enum || self.is_custom_type
+    }
+
     /// Get the inner type for `SQLiteInsertValue` wrapper.
     ///
     /// For types that use `impl Into<...>` parameters, this returns the
@@ -1208,10 +1219,13 @@ impl FieldInfo<'_> {
     /// Built-in columns use a literal. Custom columns use the associated const
     /// from `DrizzleSQLiteColumn`, making the trait the source of truth.
     pub(crate) fn sql_type_expr(&self) -> TokenStream {
-        if self.is_custom_type {
+        if self.uses_sqlite_column_codec() {
             let base_type = self.base_type;
             let drizzle_sqlite_column = crate::paths::sqlite::drizzle_sqlite_column();
-            quote!(<#base_type as #drizzle_sqlite_column>::SQL_TYPE)
+            let sqlite_affinity = crate::paths::sqlite::sqlite_affinity();
+            quote!(
+                <<#base_type as #drizzle_sqlite_column>::SQLType as #sqlite_affinity>::SQL_TYPE
+            )
         } else {
             let sql_type = self.column_type.to_sql_type();
             quote!(#sql_type)
@@ -1220,7 +1234,7 @@ impl FieldInfo<'_> {
 
     /// Drizzle SQL type marker used by expression generation.
     pub(crate) fn sql_type_marker(&self) -> TokenStream {
-        if self.is_custom_type {
+        if self.uses_sqlite_column_codec() {
             let base_type = self.base_type;
             let drizzle_sqlite_column = crate::paths::sqlite::drizzle_sqlite_column();
             quote!(<#base_type as #drizzle_sqlite_column>::SQLType)
@@ -1231,7 +1245,7 @@ impl FieldInfo<'_> {
 
     /// Column SQL definition expression for `SQLSchema::SQL`.
     pub(crate) fn sql_definition_expr(&self) -> TokenStream {
-        if !self.is_custom_type {
+        if !self.uses_sqlite_column_codec() {
             let sql_definition = &self.sql_definition;
             return quote!(#sql_definition);
         }

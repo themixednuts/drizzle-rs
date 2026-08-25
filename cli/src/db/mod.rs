@@ -599,6 +599,77 @@ fn dirty_migrations_to_repair<'a>(
         .map_err(migrator_cli_error)
 }
 
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "d1-http",
+))]
+fn sqlite_execution_cli_error(
+    error: drizzle_migrations::SqliteMigrationExecutionError,
+) -> CliError {
+    CliError::MigrationError(error.to_string())
+}
+
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "d1-http",
+))]
+pub(super) fn reject_sqlite_foreign_key_suspension<'a>(
+    migrations: impl IntoIterator<Item = &'a drizzle_migrations::Migration>,
+    adapter: &str,
+) -> Result<(), CliError> {
+    let executions = migrations
+        .into_iter()
+        .map(drizzle_migrations::Migration::sqlite_execution)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sqlite_execution_cli_error)?;
+    if executions
+        .iter()
+        .any(|execution| execution.suspends_foreign_keys())
+    {
+        return Err(CliError::MigrationError(format!(
+            "{adapter} cannot execute SQLite table rebuilds that suspend foreign keys"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
+fn ensure_sqlite_dirty_repairs_are_safe(
+    migrations: &[&drizzle_migrations::Migration],
+) -> Result<(), CliError> {
+    for migration in migrations {
+        let execution = migration
+            .sqlite_execution()
+            .map_err(sqlite_execution_cli_error)?;
+        if execution.suspends_foreign_keys() {
+            return Err(CliError::MigrationError(format!(
+                "Migration '{}' cannot be repaired safely: foreign-key-suspending table rebuilds require the original connection-owned transaction scope",
+                migration.tag()
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
+fn finish_sqlite_foreign_key_scope<T>(
+    result: Result<T, CliError>,
+    restore: Result<(), CliError>,
+) -> Result<T, CliError> {
+    match (result, restore) {
+        (Err(primary), Err(restore)) => Err(CliError::MigrationError(format!(
+            "{primary}; additionally failed to restore SQLite foreign-key enforcement: {restore}"
+        ))),
+        (Err(primary), Ok(())) => Err(primary),
+        (Ok(_), Err(restore)) => Err(restore),
+        (Ok(value), Ok(())) => Ok(value),
+    }
+}
+
 #[cfg(feature = "rusqlite")]
 fn introspect_catalog_sqlite(
     conn: &rusqlite::Connection,
@@ -640,9 +711,11 @@ fn repair_dirty_migrations_sqlite(
             .map_err(|e| CliError::MigrationError(e.to_string()))?
     };
 
+    let migrations = dirty_migrations_to_repair(set, &dirty, repair)?;
+    ensure_sqlite_dirty_repairs_are_safe(&migrations)?;
     let table_ident = set.table_ident_sql();
     let mut repaired = Vec::new();
-    for migration in dirty_migrations_to_repair(set, &dirty, repair)? {
+    for migration in migrations {
         let catalog = introspect_catalog_sqlite(conn)?;
         let plan =
             drizzle_migrations::repair::plan(drizzle_types::Dialect::SQLite, migration, &catalog);
@@ -708,9 +781,11 @@ async fn repair_dirty_migrations_libsql(
         );
     }
 
+    let migrations = dirty_migrations_to_repair(set, &dirty, repair)?;
+    ensure_sqlite_dirty_repairs_are_safe(&migrations)?;
     let table_ident = set.table_ident_sql();
     let mut repaired = Vec::new();
-    for migration in dirty_migrations_to_repair(set, &dirty, repair)? {
+    for migration in migrations {
         let catalog = introspect_catalog_libsql(conn).await?;
         let plan =
             drizzle_migrations::repair::plan(drizzle_types::Dialect::SQLite, migration, &catalog);
@@ -1362,15 +1437,10 @@ fn generate_push_sql(
     breakpoints: bool,
 ) -> Result<(Vec<String>, Vec<String>), CliError> {
     match (current, desired) {
-        (Snapshot::Sqlite(prev_snap), Snapshot::Sqlite(curr_snap)) => {
-            use drizzle_migrations::sqlite::collection::SQLiteDDL;
-            use drizzle_migrations::sqlite::diff::compute_migration;
-
-            let prev_ddl = SQLiteDDL::from_entities(prev_snap.ddl.clone());
-            let cur_ddl = SQLiteDDL::from_entities(curr_snap.ddl.clone());
-
-            let diff = compute_migration(&prev_ddl, &cur_ddl);
-            Ok((diff.sql_statements, diff.warnings))
+        (Snapshot::Sqlite(_), Snapshot::Sqlite(_)) => {
+            let plan = drizzle_migrations::diff(current, desired)
+                .map_err(|error| CliError::MigrationError(error.to_string()))?;
+            Ok((plan.statements, plan.warnings))
         }
         (Snapshot::Postgres(prev_snap), Snapshot::Postgres(curr_snap)) => {
             use drizzle_migrations::postgres::diff_full_snapshots;
@@ -1493,26 +1563,57 @@ fn execute_sqlite_statements(path: &str, statements: &[String]) -> Result<(), Cl
         CliError::ConnectionError(format!("Failed to open SQLite database '{path}': {e}"))
     })?;
 
-    conn.execute("BEGIN", [])
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    execute_sqlite_statements_on_connection(&conn, statements)
+}
 
-    for stmt in statements {
-        let s = stmt.trim();
-        if s.is_empty() {
-            continue;
-        }
-        if let Err(e) = conn.execute(s, []) {
-            let _ = conn.execute("ROLLBACK", []);
-            return Err(CliError::MigrationError(format!(
-                "Statement failed: {e}\n{s}"
-            )));
-        }
+#[cfg(feature = "rusqlite")]
+fn execute_sqlite_statements_on_connection(
+    conn: &rusqlite::Connection,
+    statements: &[String],
+) -> Result<(), CliError> {
+    let operation =
+        drizzle_migrations::Migration::with_hash("sqlite_push", "", 0, statements.to_vec());
+    let execution = operation
+        .sqlite_execution()
+        .map_err(sqlite_execution_cli_error)?;
+    let foreign_keys_were_enabled = sqlite_foreign_keys_enabled_cli(conn)?;
+    let suspend_foreign_keys = execution.suspends_foreign_keys() && foreign_keys_were_enabled;
+    if suspend_foreign_keys && let Err(error) = set_sqlite_foreign_keys_cli(conn, false) {
+        let restore = set_sqlite_foreign_keys_cli(conn, true);
+        return finish_sqlite_foreign_key_scope(Err(error), restore);
     }
 
-    conn.execute("COMMIT", [])
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-
-    Ok(())
+    let result = (|| -> Result<(), CliError> {
+        conn.execute("BEGIN IMMEDIATE", [])
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
+        for statement in execution
+            .statements()
+            .filter(|statement| !statement.trim().is_empty())
+        {
+            conn.execute(statement, []).map_err(|error| {
+                CliError::MigrationError(format!("Statement failed: {error}\n{statement}"))
+            })?;
+        }
+        if execution.suspends_foreign_keys() {
+            verify_sqlite_foreign_keys_cli(conn)?;
+        }
+        conn.execute("COMMIT", [])
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
+        Ok(())
+    })();
+    let result = match result {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let _ = conn.execute("ROLLBACK", []);
+            Err(error)
+        }
+    };
+    let restore = if suspend_foreign_keys {
+        set_sqlite_foreign_keys_cli(conn, true)
+    } else {
+        Ok(())
+    };
+    finish_sqlite_foreign_key_scope(result, restore)
 }
 
 #[cfg(feature = "rusqlite")]
@@ -1525,61 +1626,142 @@ fn run_sqlite_migrations(
         CliError::ConnectionError(format!("Failed to open SQLite database '{path}': {e}"))
     })?;
 
-    ensure_sqlite_tracking_table(&conn, set)?;
+    run_sqlite_migrations_on_connection(set, &conn, repair)
+}
+
+#[cfg(feature = "rusqlite")]
+fn run_sqlite_migrations_on_connection(
+    set: &Migrations,
+    conn: &rusqlite::Connection,
+    repair: bool,
+) -> Result<MigrationResult, CliError> {
+    ensure_sqlite_tracking_table(conn, set)?;
     conn.busy_timeout(std::time::Duration::from_secs(30))
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
-    conn.execute("BEGIN IMMEDIATE", [])
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-    let repaired = match repair_dirty_migrations_sqlite(&conn, set, repair) {
-        Ok(repaired) => repaired,
+    let applied_before_transaction = query_applied_names_sqlite(conn, set)?;
+    let suspends_foreign_keys = set
+        .pending(&applied_before_transaction)
+        .map(|migration| migration.sqlite_execution())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sqlite_execution_cli_error)?
+        .iter()
+        .any(|execution| execution.suspends_foreign_keys());
+    let foreign_keys_were_enabled = sqlite_foreign_keys_enabled_cli(conn)?;
+    let suspend_foreign_keys = suspends_foreign_keys && foreign_keys_were_enabled;
+    if suspend_foreign_keys && let Err(error) = set_sqlite_foreign_keys_cli(conn, false) {
+        let restore = set_sqlite_foreign_keys_cli(conn, true);
+        return finish_sqlite_foreign_key_scope(Err(error), restore);
+    }
+
+    let result = (|| -> Result<MigrationResult, CliError> {
+        conn.execute("BEGIN IMMEDIATE", [])
+            .map_err(|e| CliError::MigrationError(e.to_string()))?;
+        let repaired = repair_dirty_migrations_sqlite(conn, set, repair)?;
+        let applied_names = query_applied_names_sqlite(conn, set)?;
+        let pending = set
+            .pending(&applied_names)
+            .map(|migration| {
+                migration
+                    .sqlite_execution()
+                    .map(|execution| (migration, execution))
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(sqlite_execution_cli_error)?;
+
+        let mut applied = Vec::with_capacity(pending.len());
+        for (migration, execution) in pending {
+            for statement in execution
+                .statements()
+                .filter(|statement| !statement.trim().is_empty())
+            {
+                conn.execute(statement, []).map_err(|error| {
+                    CliError::MigrationError(format!(
+                        "Migration '{}' failed: {error}",
+                        migration.hash()
+                    ))
+                })?;
+            }
+            conn.execute(&set.record_migration_sql(migration), [])
+                .map_err(|e| CliError::MigrationError(e.to_string()))?;
+            applied.push(migration.hash().to_string());
+        }
+
+        Ok(MigrationResult {
+            applied_count: applied.len(),
+            applied_migrations: applied,
+            repaired_migrations: repaired,
+        })
+    })();
+
+    let result = match result {
+        Ok(outcome) => match suspends_foreign_keys
+            .then(|| verify_sqlite_foreign_keys_cli(conn))
+            .transpose()
+        {
+            Ok(_) => conn
+                .execute("COMMIT", [])
+                .map(|_| outcome)
+                .map_err(|e| CliError::MigrationError(e.to_string())),
+            Err(error) => {
+                let _ = conn.execute("ROLLBACK", []);
+                Err(error)
+            }
+        },
         Err(error) => {
             let _ = conn.execute("ROLLBACK", []);
-            return Err(error);
+            Err(error)
         }
     };
-    let applied_names = query_applied_names_sqlite(&conn, set)?;
+    let restore = if suspend_foreign_keys {
+        set_sqlite_foreign_keys_cli(conn, true)
+    } else {
+        Ok(())
+    };
+    finish_sqlite_foreign_key_scope(result, restore)
+}
 
-    // Get pending migrations
-    let pending: Vec<_> = set.pending(&applied_names).collect();
-    if pending.is_empty() {
-        conn.execute("COMMIT", [])
-            .map_err(|e| CliError::MigrationError(e.to_string()))?;
-        return Ok(MigrationResult {
-            applied_count: 0,
-            applied_migrations: vec![],
-            repaired_migrations: repaired,
-        });
-    }
+#[cfg(feature = "rusqlite")]
+fn sqlite_foreign_keys_enabled_cli(conn: &rusqlite::Connection) -> Result<bool, CliError> {
+    conn.query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))
+        .map(|enabled| enabled != 0)
+        .map_err(|error| CliError::MigrationError(error.to_string()))
+}
 
-    let mut applied = Vec::new();
-    for migration in &pending {
-        for stmt in migration.statements() {
-            if !stmt.trim().is_empty()
-                && let Err(e) = conn.execute(stmt, [])
-            {
-                let _ = conn.execute("ROLLBACK", []);
-                return Err(CliError::MigrationError(format!(
-                    "Migration '{}' failed: {}",
-                    migration.hash(),
-                    e
-                )));
-            }
-        }
-        if let Err(e) = conn.execute(&set.record_migration_sql(migration), []) {
-            let _ = conn.execute("ROLLBACK", []);
-            return Err(CliError::MigrationError(e.to_string()));
-        }
-        applied.push(migration.hash().to_string());
-    }
-
-    conn.execute("COMMIT", [])
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-
-    Ok(MigrationResult {
-        applied_count: applied.len(),
-        applied_migrations: applied,
-        repaired_migrations: repaired,
+#[cfg(feature = "rusqlite")]
+fn set_sqlite_foreign_keys_cli(conn: &rusqlite::Connection, enabled: bool) -> Result<(), CliError> {
+    conn.execute_batch(if enabled {
+        "PRAGMA foreign_keys=ON"
+    } else {
+        "PRAGMA foreign_keys=OFF"
     })
+    .map_err(|error| CliError::MigrationError(error.to_string()))?;
+    if sqlite_foreign_keys_enabled_cli(conn)? != enabled {
+        return Err(CliError::MigrationError(format!(
+            "SQLite refused to set foreign_keys={}",
+            if enabled { "ON" } else { "OFF" }
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "rusqlite")]
+fn verify_sqlite_foreign_keys_cli(conn: &rusqlite::Connection) -> Result<(), CliError> {
+    let mut statement = conn
+        .prepare("PRAGMA foreign_key_check")
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
+    let mut rows = statement
+        .query([])
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
+    if rows
+        .next()
+        .map_err(|error| CliError::MigrationError(error.to_string()))?
+        .is_some()
+    {
+        return Err(CliError::MigrationError(
+            "SQLite foreign_key_check failed after migration rebuild".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(feature = "rusqlite")]
@@ -2255,29 +2437,66 @@ async fn execute_libsql_local_inner(path: &str, statements: &[String]) -> Result
         .connect()
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
-    let tx = conn
-        .transaction()
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    execute_libsql_sqlite_statements_on_connection(&conn, statements).await
+}
 
-    for stmt in statements {
-        let s = stmt.trim();
-        if s.is_empty() {
-            continue;
-        }
-        if let Err(e) = tx.execute(s, ()).await {
-            tx.rollback().await.ok();
-            return Err(CliError::MigrationError(format!(
-                "Statement failed: {e}\n{s}"
-            )));
-        }
+#[cfg(any(feature = "libsql", feature = "turso"))]
+async fn execute_libsql_sqlite_statements_on_connection(
+    conn: &libsql::Connection,
+    statements: &[String],
+) -> Result<(), CliError> {
+    let operation =
+        drizzle_migrations::Migration::with_hash("libsql_push", "", 0, statements.to_vec());
+    let execution = operation
+        .sqlite_execution()
+        .map_err(sqlite_execution_cli_error)?;
+    let foreign_keys_were_enabled = sqlite_foreign_keys_enabled_libsql_cli(conn).await?;
+    let suspend_foreign_keys = execution.suspends_foreign_keys() && foreign_keys_were_enabled;
+    if suspend_foreign_keys
+        && let Err(error) = set_sqlite_foreign_keys_libsql_cli(conn, false).await
+    {
+        let restore = set_sqlite_foreign_keys_libsql_cli(conn, true).await;
+        return finish_sqlite_foreign_key_scope(Err(error), restore);
     }
 
-    tx.commit()
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-
-    Ok(())
+    let result = async {
+        let tx = conn
+            .transaction_with_behavior(libsql::TransactionBehavior::Immediate)
+            .await
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
+        let transaction_result = async {
+            for statement in execution
+                .statements()
+                .filter(|statement| !statement.trim().is_empty())
+            {
+                tx.execute(statement, ()).await.map_err(|error| {
+                    CliError::MigrationError(format!("Statement failed: {error}\n{statement}"))
+                })?;
+            }
+            if execution.suspends_foreign_keys() {
+                verify_sqlite_foreign_keys_libsql_cli(&tx).await?;
+            }
+            Ok::<_, CliError>(())
+        }
+        .await;
+        match transaction_result {
+            Ok(()) => tx
+                .commit()
+                .await
+                .map_err(|error| CliError::MigrationError(error.to_string())),
+            Err(error) => {
+                tx.rollback().await.ok();
+                Err(error)
+            }
+        }
+    }
+    .await;
+    let restore = if suspend_foreign_keys {
+        set_sqlite_foreign_keys_libsql_cli(conn, true).await
+    } else {
+        Ok(())
+    };
+    finish_sqlite_foreign_key_scope(result, restore)
 }
 
 #[cfg(feature = "libsql")]
@@ -2345,60 +2564,10 @@ async fn run_libsql_local_inner(
         .connect()
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
-    ensure_sqlite_tracking_table_libsql(&conn, set).await?;
-    let repaired = repair_dirty_migrations_libsql(&conn, set, repair).await?;
-    let tx = conn
-        .transaction_with_behavior(libsql::TransactionBehavior::Immediate)
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-    let applied_names = query_applied_names_libsql(&tx, set).await?;
-
-    // Get pending migrations
-    let pending: Vec<_> = set.pending(&applied_names).collect();
-    if pending.is_empty() {
-        tx.commit()
-            .await
-            .map_err(|e| CliError::MigrationError(e.to_string()))?;
-        return Ok(MigrationResult {
-            applied_count: 0,
-            applied_migrations: vec![],
-            repaired_migrations: repaired,
-        });
-    }
-
-    let mut applied = Vec::new();
-    for migration in &pending {
-        for stmt in migration.statements() {
-            if !stmt.trim().is_empty()
-                && let Err(e) = tx.execute(stmt, ()).await
-            {
-                tx.rollback().await.ok();
-                return Err(CliError::MigrationError(format!(
-                    "Migration '{}' failed: {}",
-                    migration.hash(),
-                    e
-                )));
-            }
-        }
-        if let Err(e) = tx.execute(&set.record_migration_sql(migration), ()).await {
-            tx.rollback().await.ok();
-            return Err(CliError::MigrationError(e.to_string()));
-        }
-        applied.push(migration.hash().to_string());
-    }
-
-    tx.commit()
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-
-    Ok(MigrationResult {
-        applied_count: applied.len(),
-        applied_migrations: applied,
-        repaired_migrations: repaired,
-    })
+    run_libsql_sqlite_migrations_on_connection(set, &conn, repair).await
 }
 
-#[cfg(feature = "libsql")]
+#[cfg(any(feature = "libsql", feature = "turso"))]
 async fn query_applied_names_libsql(
     conn: &libsql::Connection,
     set: &Migrations,
@@ -2421,6 +2590,164 @@ async fn query_applied_names_libsql(
     }
 
     Ok(names)
+}
+
+#[cfg(any(feature = "libsql", feature = "turso"))]
+async fn run_libsql_sqlite_migrations_on_connection(
+    set: &Migrations,
+    conn: &libsql::Connection,
+    repair: bool,
+) -> Result<MigrationResult, CliError> {
+    ensure_sqlite_tracking_table_libsql(conn, set).await?;
+    let applied_before_transaction = query_applied_names_libsql(conn, set).await?;
+    let suspends_foreign_keys = set
+        .pending(&applied_before_transaction)
+        .map(|migration| migration.sqlite_execution())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sqlite_execution_cli_error)?
+        .iter()
+        .any(|execution| execution.suspends_foreign_keys());
+    let foreign_keys_were_enabled = sqlite_foreign_keys_enabled_libsql_cli(conn).await?;
+    let suspend_foreign_keys = suspends_foreign_keys && foreign_keys_were_enabled;
+    if suspend_foreign_keys
+        && let Err(error) = set_sqlite_foreign_keys_libsql_cli(conn, false).await
+    {
+        let restore = set_sqlite_foreign_keys_libsql_cli(conn, true).await;
+        return finish_sqlite_foreign_key_scope(Err(error), restore);
+    }
+
+    let result = async {
+        let repaired = repair_dirty_migrations_libsql(conn, set, repair).await?;
+        let tx = conn
+            .transaction_with_behavior(libsql::TransactionBehavior::Immediate)
+            .await
+            .map_err(|error| CliError::MigrationError(error.to_string()))?;
+        let transaction_result = async {
+            let applied_names = query_applied_names_libsql(&tx, set).await?;
+            let pending = set
+                .pending(&applied_names)
+                .map(|migration| {
+                    migration
+                        .sqlite_execution()
+                        .map(|execution| (migration, execution))
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(sqlite_execution_cli_error)?;
+
+            let mut applied = Vec::with_capacity(pending.len());
+            for (migration, execution) in pending {
+                for statement in execution
+                    .statements()
+                    .filter(|statement| !statement.trim().is_empty())
+                {
+                    tx.execute(statement, ()).await.map_err(|error| {
+                        CliError::MigrationError(format!(
+                            "Migration '{}' failed: {error}",
+                            migration.hash()
+                        ))
+                    })?;
+                }
+                tx.execute(&set.record_migration_sql(migration), ())
+                    .await
+                    .map_err(|error| CliError::MigrationError(error.to_string()))?;
+                applied.push(migration.hash().to_string());
+            }
+
+            Ok::<_, CliError>(MigrationResult {
+                applied_count: applied.len(),
+                applied_migrations: applied,
+                repaired_migrations: repaired,
+            })
+        }
+        .await;
+
+        match transaction_result {
+            Ok(outcome) => {
+                if suspends_foreign_keys
+                    && let Err(error) = verify_sqlite_foreign_keys_libsql_cli(&tx).await
+                {
+                    tx.rollback().await.ok();
+                    return Err(error);
+                }
+                tx.commit()
+                    .await
+                    .map_err(|error| CliError::MigrationError(error.to_string()))?;
+                Ok(outcome)
+            }
+            Err(error) => {
+                tx.rollback().await.ok();
+                Err(error)
+            }
+        }
+    }
+    .await;
+    let restore = if suspend_foreign_keys {
+        set_sqlite_foreign_keys_libsql_cli(conn, true).await
+    } else {
+        Ok(())
+    };
+    finish_sqlite_foreign_key_scope(result, restore)
+}
+
+#[cfg(any(feature = "libsql", feature = "turso"))]
+async fn sqlite_foreign_keys_enabled_libsql_cli(
+    conn: &libsql::Connection,
+) -> Result<bool, CliError> {
+    let mut rows = conn
+        .query("PRAGMA foreign_keys", ())
+        .await
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
+    let row = rows
+        .next()
+        .await
+        .map_err(|error| CliError::MigrationError(error.to_string()))?
+        .ok_or_else(|| CliError::MigrationError("PRAGMA foreign_keys returned no row".into()))?;
+    row.get::<i64>(0)
+        .map(|enabled| enabled != 0)
+        .map_err(|error| CliError::MigrationError(error.to_string()))
+}
+
+#[cfg(any(feature = "libsql", feature = "turso"))]
+async fn set_sqlite_foreign_keys_libsql_cli(
+    conn: &libsql::Connection,
+    enabled: bool,
+) -> Result<(), CliError> {
+    conn.execute(
+        if enabled {
+            "PRAGMA foreign_keys=ON"
+        } else {
+            "PRAGMA foreign_keys=OFF"
+        },
+        (),
+    )
+    .await
+    .map_err(|error| CliError::MigrationError(error.to_string()))?;
+    if sqlite_foreign_keys_enabled_libsql_cli(conn).await? != enabled {
+        return Err(CliError::MigrationError(format!(
+            "SQLite refused to set foreign_keys={}",
+            if enabled { "ON" } else { "OFF" }
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(any(feature = "libsql", feature = "turso"))]
+async fn verify_sqlite_foreign_keys_libsql_cli(conn: &libsql::Connection) -> Result<(), CliError> {
+    let mut rows = conn
+        .query("PRAGMA foreign_key_check", ())
+        .await
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
+    if rows
+        .next()
+        .await
+        .map_err(|error| CliError::MigrationError(error.to_string()))?
+        .is_some()
+    {
+        return Err(CliError::MigrationError(
+            "SQLite foreign_key_check failed after migration rebuild".into(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(feature = "libsql")]
@@ -2490,29 +2817,7 @@ async fn execute_turso_inner(
         .connect()
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
-    let tx = conn
-        .transaction()
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-
-    for stmt in statements {
-        let s = stmt.trim();
-        if s.is_empty() {
-            continue;
-        }
-        if let Err(e) = tx.execute(s, ()).await {
-            tx.rollback().await.ok();
-            return Err(CliError::MigrationError(format!(
-                "Statement failed: {e}\n{s}"
-            )));
-        }
-    }
-
-    tx.commit()
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-
-    Ok(())
+    execute_libsql_sqlite_statements_on_connection(&conn, statements).await
 }
 
 #[cfg(feature = "turso")]
@@ -2584,82 +2889,7 @@ async fn run_turso_inner(
         .connect()
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
-    ensure_sqlite_tracking_table_libsql(&conn, set).await?;
-    let repaired = repair_dirty_migrations_libsql(&conn, set, repair).await?;
-    let tx = conn
-        .transaction_with_behavior(libsql::TransactionBehavior::Immediate)
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-    let applied_names = query_applied_names_turso(&tx, set).await?;
-
-    // Get pending migrations
-    let pending: Vec<_> = set.pending(&applied_names).collect();
-    if pending.is_empty() {
-        tx.commit()
-            .await
-            .map_err(|e| CliError::MigrationError(e.to_string()))?;
-        return Ok(MigrationResult {
-            applied_count: 0,
-            applied_migrations: vec![],
-            repaired_migrations: repaired,
-        });
-    }
-
-    let mut applied = Vec::new();
-    for migration in &pending {
-        for stmt in migration.statements() {
-            if !stmt.trim().is_empty()
-                && let Err(e) = tx.execute(stmt, ()).await
-            {
-                tx.rollback().await.ok();
-                return Err(CliError::MigrationError(format!(
-                    "Migration '{}' failed: {}",
-                    migration.hash(),
-                    e
-                )));
-            }
-        }
-        if let Err(e) = tx.execute(&set.record_migration_sql(migration), ()).await {
-            tx.rollback().await.ok();
-            return Err(CliError::MigrationError(e.to_string()));
-        }
-        applied.push(migration.hash().to_string());
-    }
-
-    tx.commit()
-        .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-
-    Ok(MigrationResult {
-        applied_count: applied.len(),
-        applied_migrations: applied,
-        repaired_migrations: repaired,
-    })
-}
-
-#[cfg(feature = "turso")]
-async fn query_applied_names_turso(
-    conn: &libsql::Connection,
-    set: &Migrations,
-) -> Result<Vec<String>, CliError> {
-    let mut rows = conn
-        .query(&set.applied_names_sql(), ())
-        .await
-        .map_err(|error| CliError::MigrationError(error.to_string()))?;
-
-    let mut names = Vec::new();
-    while let Some(row) = rows
-        .next()
-        .await
-        .map_err(|error| CliError::MigrationError(error.to_string()))?
-    {
-        names.push(
-            row.get::<String>(0)
-                .map_err(|error| CliError::MigrationError(error.to_string()))?,
-        );
-    }
-
-    Ok(names)
+    run_libsql_sqlite_migrations_on_connection(set, &conn, repair).await
 }
 
 #[cfg(feature = "turso")]
@@ -3057,7 +3287,7 @@ async fn init_turso_metadata_inner(
 
     ensure_sqlite_tracking_table_libsql(&conn, set).await?;
 
-    let applied_names = query_applied_names_turso(&conn, set).await?;
+    let applied_names = query_applied_names_libsql(&conn, set).await?;
     validate_init_metadata(&applied_names, set)?;
 
     let Some(first) = set.all().first() else {
@@ -4775,6 +5005,103 @@ mod tests {
             table_b_exists, 1,
             "the new-name migration must execute even though created_at collides"
         );
+    }
+
+    #[cfg(feature = "rusqlite")]
+    #[test]
+    fn sqlite_cli_rebuild_preserves_cascade_children() {
+        use drizzle_migrations::{Migration, Migrations};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("rebuild.sqlite");
+        let conn = rusqlite::Connection::open(&db_path).expect("open sqlite");
+        conn.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TABLE rebuild_parent (id INTEGER PRIMARY KEY);
+             CREATE TABLE rebuild_child (
+                 id INTEGER PRIMARY KEY,
+                 parent_id INTEGER NOT NULL REFERENCES rebuild_parent(id) ON DELETE CASCADE
+             );
+             INSERT INTO rebuild_parent VALUES (1);
+             INSERT INTO rebuild_child VALUES (1, 1);",
+        )
+        .expect("seed related tables");
+
+        let migration = Migration::new(
+            "20260825000000_rebuild",
+            "PRAGMA foreign_keys=OFF;
+             --> statement-breakpoint
+             CREATE TABLE rebuild_parent_new (id INTEGER PRIMARY KEY) STRICT;
+             --> statement-breakpoint
+             INSERT INTO rebuild_parent_new SELECT * FROM rebuild_parent;
+             --> statement-breakpoint
+             DROP TABLE rebuild_parent;
+             --> statement-breakpoint
+             ALTER TABLE rebuild_parent_new RENAME TO rebuild_parent;
+             --> statement-breakpoint
+             PRAGMA foreign_keys=ON;",
+        );
+        let set = Migrations::new(vec![migration], drizzle_types::Dialect::SQLite);
+
+        run_sqlite_migrations_on_connection(&set, &conn, false).expect("run safe rebuild");
+
+        let children: i64 = conn
+            .query_row("SELECT count(*) FROM rebuild_child", [], |row| row.get(0))
+            .expect("count cascade children");
+        assert_eq!(children, 1, "rebuild must not trigger ON DELETE CASCADE");
+        let violations: i64 = conn
+            .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get(0)
+            })
+            .expect("check rebuilt foreign keys");
+        assert_eq!(violations, 0);
+        let foreign_keys: i64 = conn
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .expect("read restored foreign-key mode");
+        assert_eq!(foreign_keys, 1);
+    }
+
+    #[cfg(feature = "rusqlite")]
+    #[test]
+    fn sqlite_push_rebuild_preserves_cascade_children() {
+        let conn = rusqlite::Connection::open_in_memory().expect("open sqlite");
+        conn.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TABLE rebuild_parent (id INTEGER PRIMARY KEY);
+             CREATE TABLE rebuild_child (
+                 id INTEGER PRIMARY KEY,
+                 parent_id INTEGER NOT NULL REFERENCES rebuild_parent(id) ON DELETE CASCADE
+             );
+             INSERT INTO rebuild_parent VALUES (1);
+             INSERT INTO rebuild_child VALUES (1, 1);",
+        )
+        .expect("seed related tables");
+        let migration = drizzle_migrations::Migration::new(
+            "push_rebuild",
+            "PRAGMA foreign_keys=OFF;
+             --> statement-breakpoint
+             CREATE TABLE rebuild_parent_new (id INTEGER PRIMARY KEY) STRICT;
+             --> statement-breakpoint
+             INSERT INTO rebuild_parent_new SELECT * FROM rebuild_parent;
+             --> statement-breakpoint
+             DROP TABLE rebuild_parent;
+             --> statement-breakpoint
+             ALTER TABLE rebuild_parent_new RENAME TO rebuild_parent;
+             --> statement-breakpoint
+             PRAGMA foreign_keys=ON;",
+        );
+
+        execute_sqlite_statements_on_connection(&conn, migration.statements())
+            .expect("apply push statements");
+
+        let children: i64 = conn
+            .query_row("SELECT count(*) FROM rebuild_child", [], |row| row.get(0))
+            .expect("count cascade children");
+        assert_eq!(children, 1, "push rebuild must not trigger cascade");
+        let foreign_keys: i64 = conn
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .expect("read restored foreign-key mode");
+        assert_eq!(foreign_keys, 1);
     }
 
     #[cfg(feature = "rusqlite")]

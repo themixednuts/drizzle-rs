@@ -34,7 +34,8 @@ pub struct RenderedRelation<'a, V: SQLParam> {
     pub table_name: &'static str,
     /// Target table columns for SELECT (e.g., `["id", "content", "author_id"]`).
     pub column_names: Vec<&'static str>,
-    /// Column names that store BLOB data and need `hex()` wrapping in JSON.
+    /// Column names that store or may store BLOB data and need tagged,
+    /// storage-class-aware JSON projection.
     pub blob_columns: &'static [&'static str],
     /// FK column pairs for the join condition.
     /// Each pair `(a, b)` generates `target_alias."a" = parent_alias."b"`.
@@ -775,12 +776,12 @@ fn write_junction_join(
 
 /// Writes a column reference for use inside `json_object()`.
 ///
-/// For BLOB columns on `SQLite`, wraps with a NULL-safe `hex()` expression:
-/// `CASE WHEN col IS NULL THEN NULL ELSE hex(col) END`.
+/// For columns that may use BLOB storage on `SQLite`, preserves the runtime
+/// storage class and value in a tagged JSON object. BLOB values are hex-encoded
+/// because SQLite's JSON functions cannot serialize them directly.
 ///
-/// Plain `hex(NULL)` returns an empty string `""` rather than SQL NULL,
-/// which would cause `json_object()` to emit `"col":""` instead of
-/// `"col":null`. The CASE expression preserves NULLs correctly.
+/// SQL NULL remains JSON null rather than a tagged object so nullable field
+/// decoding retains its ordinary `None` representation.
 ///
 /// `PostgreSQL` handles all types natively in `json_build_object()`, so no
 /// wrapping is needed regardless of column type.
@@ -793,11 +794,17 @@ fn write_json_column(
 ) {
     let is_blob = dialect == Dialect::SQLite && blob_columns.contains(&column);
     if is_blob {
-        sql.push_str("CASE WHEN ");
+        sql.push_str("json(CASE WHEN ");
         write_qualified_column(alias, column, sql);
-        sql.push_str(" IS NULL THEN NULL ELSE hex(");
+        sql.push_str(" IS NULL THEN NULL ELSE json_object('$drizzle_storage', typeof(");
         write_qualified_column(alias, column, sql);
-        sql.push_str(") END");
+        sql.push_str("), '$drizzle_value', CASE WHEN typeof(");
+        write_qualified_column(alias, column, sql);
+        sql.push_str(") = 'blob' THEN hex(");
+        write_qualified_column(alias, column, sql);
+        sql.push_str(") ELSE ");
+        write_qualified_column(alias, column, sql);
+        sql.push_str(" END) END)");
     } else {
         write_qualified_column(alias, column, sql);
     }

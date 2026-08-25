@@ -466,6 +466,11 @@ pub mod sqlite {
         quote!(drizzle::sqlite::traits::DrizzleSQLiteColumn)
     }
 
+    /// Path to the SQLite affinity metadata trait.
+    pub fn sqlite_affinity() -> TokenStream {
+        quote!(drizzle::sqlite::traits::SQLiteAffinity)
+    }
+
     pub fn drizzle_row() -> TokenStream {
         quote!(drizzle::sqlite::traits::DrizzleRowByIndex)
     }

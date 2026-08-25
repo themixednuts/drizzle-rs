@@ -1,15 +1,6 @@
 name: Runners
 
 on:
-  push:
-    branches: [main]
-    tags: ['*']
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
-  merge_group:
-  schedule:
-    - cron: '0 4 * * 1'  # weekly Monday 04:00 UTC
   workflow_dispatch:
     inputs:
       benchmark_size:
@@ -23,7 +14,7 @@ on:
           - saturation
         default: full
       publish_to_r2:
-        description: Publish manual main runs to Cloudflare R2
+        description: Publish main or release-tag runs to Cloudflare R2
         required: false
         type: boolean
         default: false
@@ -35,9 +26,9 @@ env:
   CARGO_TERM_COLOR: always
   RUST_VERSION: "1.95"
   NODE_VERSION: "24"
-  BENCHMARK_SIZE: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_size || (github.event_name == 'pull_request' && 'preview' || 'full') }}
+  BENCHMARK_SIZE: ${{ inputs.benchmark_size || 'full' }}
   BENCH_COHORT_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}-throughput-http
-  PUBLISH_TO_R2: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_to_r2 && github.ref == 'refs/heads/main') }}
+  PUBLISH_TO_R2: ${{ inputs.publish_to_r2 && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
   R2_BUCKET: drizzle-bench
 
 # Every family job is a thin caller of `.github/actions/bench-runner-run`, which
@@ -55,6 +46,7 @@ jobs:
       class: ${{ steps.resolve.outputs.class }}
       workload: ${{ steps.resolve.outputs.workload }}
       publish: ${{ steps.resolve.outputs.publish }}
+      paced_trials: ${{ steps.resolve.outputs.paced_trials }}
       cross_family: ${{ steps.resolve.outputs.cross_family }}
       cross_workload: ${{ steps.resolve.outputs.cross_workload }}
       cross_trials: ${{ steps.resolve.outputs.cross_trials }}
@@ -92,23 +84,11 @@ jobs:
             class="publish"
           fi
 
-          # The leaderboard ranks families against each other, so its numbers
-          # have to come off one machine per operating system. On the weekly
-          # schedule and on a manual publish dispatch the `*-all` jobs run every
-          # family that operating system can host, back to back on one VM.
-          # Every other event skips them: a PR wants fast per-family feedback,
-          # not a four-hour serialised ranking, and publishes nothing.
-          # A manual dispatch gets them whether or not it publishes. `publish` is
-          # gated on `main`, so tying these jobs to it would make the one part of
-          # this workflow that cannot be exercised by a pull request also the one
-          # part that only ever runs for the first time after merging. Dispatch
-          # `benchmark_size=preview` from a branch to exercise the topology
-          # cheaply; R2 stays gated on `publish` either way.
-          cross_family="false"
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]] \
-            || { [[ "$publish" == "true" ]] && [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; }; then
-            cross_family="true"
-          fi
+          # The workflow now runs only by explicit dispatch. Release creation
+          # dispatches a full publish run, while a person can select `preview`
+          # from a branch to exercise the topology cheaply. Every run includes
+          # the cross-family jobs so the manual and release paths stay identical.
+          cross_family="true"
 
           # The `*-all` jobs always run the saturation ramp, whatever `$workload`
           # resolved to for the per-family jobs. A cross-family ranking needs a
@@ -124,11 +104,25 @@ jobs:
             cross_trials="1"
           fi
 
+          # Paced trials: 3 for full/publish, class default (3) for small.
+          # 5 trials does not fit any grouped-job structure inside GitHub's
+          # 360-minute cancellation (27 targets x 5 x ~7 min is 15.6 h on
+          # Linux alone). Measured cost of 3 vs 5 on the recorded five-trial
+          # cohorts: rps.avg medians move <=2.6% (median 0.1%), whole-ramp p95
+          # <=12.5% (median 1.1%); the sustained-latency reference median is
+          # the loosest — its per-trial jitter measured 5-39% on slower
+          # targets — and spread.trials discloses the count either way.
+          paced_trials=""
+          if [[ "$class" != "small" ]]; then
+            paced_trials="3"
+          fi
+
           {
             echo "size=$size"
             echo "class=$class"
             echo "workload=$workload"
             echo "publish=$publish"
+            echo "paced_trials=$paced_trials"
             echo "cross_family=$cross_family"
             echo "cross_workload=$cross_workload"
             echo "cross_trials=$cross_trials"
@@ -137,113 +131,132 @@ jobs:
           echo "size=$size class=$class workload=$workload publish=$publish cross_family=$cross_family"
           echo "cross_workload=$cross_workload cross_trials=$cross_trials"
 
-      # A `*-all` job is a serial sequence, so it is the one place in this
-      # workflow that can walk into GitHub's hard 360-minute job cancellation.
-      # Adding a target to any family spec silently lengthens it. Estimate the
-      # linux sequence up front and fail the run here, in five minutes, rather
-      # than at minute 350 with most of the ranking missing.
-      - name: Check cross-family time budget
-        if: ${{ steps.resolve.outputs.cross_family == 'true' }}
+      # Every benchmark job is a serial sequence of family runs, so any of them
+      # can walk into GitHub's hard 360-minute job cancellation. Adding a
+      # target to a family spec silently lengthens every job carrying that
+      # family. Estimate each job up front and fail the run here, in five
+      # minutes, rather than at minute 350 with most of the ranking missing.
+      - name: Check per-job time budgets
         shell: bash
         env:
+          PACED_WORKLOAD: ${{ steps.resolve.outputs.workload }}
+          PACED_TRIALS: ${{ steps.resolve.outputs.paced_trials }}
+          CROSS_FAMILY: ${{ steps.resolve.outputs.cross_family }}
           CROSS_WORKLOAD: ${{ steps.resolve.outputs.cross_workload }}
           CROSS_TRIALS: ${{ steps.resolve.outputs.cross_trials }}
-          JOB_TIMEOUT_MIN: '350'
+          CLASS: ${{ steps.resolve.outputs.class }}
         run: |
           python3 - <<'PY'
           import json, os, sys
 
-          # Keep in sync with the `linux-all` job's family list.
-          LINUX_SPECS = [
-              "bench/spec/targets.sqlite.v1.json",
-              "bench/spec/targets.sqlite-ts.v1.json",
-              "bench/spec/targets.libsql.v1.json",
-              "bench/spec/targets.turso.v1.json",
-              "bench/spec/targets.postgres.v1.json",
-              "bench/spec/targets.postgres-rust-orms.v1.json",
-              "bench/spec/targets.postgres-ts.v1.json",
-              "bench/spec/targets.spacetimedb.v1.json",
+          SPEC = {
+              "sqlite": "bench/spec/targets.sqlite.v1.json",
+              "sqlite-ts": "bench/spec/targets.sqlite-ts.v1.json",
+              "libsql": "bench/spec/targets.libsql.v1.json",
+              "turso": "bench/spec/targets.turso.v1.json",
+              "postgres": "bench/spec/targets.postgres.v1.json",
+              "postgres-rust-orms": "bench/spec/targets.postgres-rust-orms.v1.json",
+              "postgres-ts": "bench/spec/targets.postgres-ts.v1.json",
+              "spacetimedb": "bench/spec/targets.spacetimedb.v1.json",
+          }
+
+          small = os.environ["CLASS"] == "small"
+          # Empty means "class default", which is 3 for small.
+          paced_trials = int(os.environ["PACED_TRIALS"] or "3")
+          cross_trials = int(os.environ["CROSS_TRIALS"])
+          cross = os.environ["CROSS_FAMILY"] == "true"
+
+          # Keep in sync with the job definitions below: (job, families,
+          # workload env var, trials, timeout minutes, runs on this event).
+          JOBS = [
+              ("paced-linux-embedded", ["sqlite", "sqlite-ts", "turso"],
+               "PACED_WORKLOAD", paced_trials, 150 if small else 300, True),
+              ("paced-linux-isolated", ["libsql", "spacetimedb"],
+               "PACED_WORKLOAD", paced_trials, 150 if small else 240, True),
+              ("paced-linux-postgres", ["postgres", "postgres-ts", "postgres-rust-orms"],
+               "PACED_WORKLOAD", paced_trials, 150 if small else 350, True),
+              ("paced-desktop-embedded", ["sqlite", "sqlite-ts", "turso", "spacetimedb"],
+               "PACED_WORKLOAD", paced_trials, 150 if small else 350, True),
+              ("paced-desktop-postgres", ["postgres", "postgres-ts", "postgres-rust-orms"],
+               "PACED_WORKLOAD", paced_trials, 150 if small else 350, True),
+              ("linux-all", list(SPEC),
+               "CROSS_WORKLOAD", cross_trials, 350, cross),
+              ("desktop-all", [f for f in SPEC if f != "libsql"],
+               "CROSS_WORKLOAD", cross_trials, 350, cross),
           ]
-          # Per-target-per-trial cost that is not the ramp itself: process spawn,
-          # seed, LISTENING wait, teardown. Measured at roughly a minute on the
-          # hosted runners; rounded up.
-          OVERHEAD_S = 75
-          # Toolchain install, cargo release build of the runner plus four
-          # external target crates, bun install, SpacetimeDB module publish.
+
+          # Per-target-per-trial cost that is not the ramp itself: process
+          # spawn, seed, LISTENING wait, teardown. Run 31773786939 measured
+          # ~10-15 s with a hot cargo cache; padded to double.
+          OVERHEAD_S = 30
+          # Toolchain install, cargo release build of the runner plus the
+          # external target crates, bun install, database and SpacetimeDB
+          # setup — the cold-cache day, not the usual one.
           BUILD_MIN = 55
 
-          workload = json.load(open(os.environ["CROSS_WORKLOAD"]))
-          ramp_s = sum(s["sec"] for s in workload.get("stages", [])) + (workload.get("warmup_s") or 0)
-          trials = int(os.environ["CROSS_TRIALS"])
-          budget = int(os.environ["JOB_TIMEOUT_MIN"])
-
-          targets = sum(len(json.load(open(p))) for p in LINUX_SPECS)
-          run_min = targets * trials * (ramp_s + OVERHEAD_S) / 60
-          total = round(run_min + BUILD_MIN)
-
-          print(
-              f"linux-all estimate: {targets} targets x {trials} trials x "
-              f"({ramp_s}s ramp + {OVERHEAD_S}s overhead) = {round(run_min)} min, "
-              f"+{BUILD_MIN} min build = {total} min (timeout {budget})"
-          )
-          if total > budget:
+          failed = False
+          for job, families, workload_env, trials, timeout, active in JOBS:
+              if not active:
+                  continue
+              workload = json.load(open(os.environ[workload_env]))
+              ramp_s = sum(s["sec"] for s in workload.get("stages", []))
+              targets = sum(len(json.load(open(SPEC[f]))) for f in families)
+              total = round(targets * trials * (ramp_s + OVERHEAD_S) / 60 + BUILD_MIN)
+              status = "ok" if total <= timeout - 10 else "OVER BUDGET"
               print(
-                  f"::error::linux-all needs ~{total} min but its timeout is {budget}. "
-                  f"Lower cross_trials, shorten the saturation ramp, or split the job — "
-                  f"GitHub hard-cancels at 360 and the ranking would come back partial."
+                  f"{job}: {targets} targets x {trials} trials x "
+                  f"({ramp_s}s ramp + {OVERHEAD_S}s overhead) + {BUILD_MIN} min build "
+                  f"= ~{total} min (timeout {timeout}) {status}"
               )
+              if total > timeout - 10:
+                  print(
+                      f"::error::{job} needs ~{total} min against a {timeout} min timeout. "
+                      f"Lower trials, regroup its families, or split the job — GitHub "
+                      f"hard-cancels at 360 and the ranking would come back partial."
+                  )
+                  failed = True
+          if failed:
               sys.exit(1)
           PY
 
-  sqlite:
-    name: SQLite (${{ matrix.platform }})
-    needs: plan
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            platform: linux
-          - os: windows-latest
-            platform: windows
-          - os: macos-latest
-            platform: macos
-    runs-on: ${{ matrix.os }}
-    # ~6 min per trial per target on the full workload; 4 targets x 5 trials
-    # plus a cold release build. Preview runs are a tenth of that.
-    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 240 }}
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-
-      - name: Cache Rust dependencies
-        if: ${{ !env.ACT }}
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: runner-sqlite-${{ matrix.platform }}
-          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
-
-      - name: Benchmark SQLite family
-        uses: ./.github/actions/bench-runner-run
-        with:
-          family: sqlite
-          platform: ${{ matrix.platform }}
-          targets: bench/spec/targets.sqlite.v1.json
-          workload: ${{ needs.plan.outputs.workload }}
-          class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}
-          publish: ${{ needs.plan.outputs.publish }}
-
-  sqlite-ts:
-    name: SQLite TS (linux)
+  # ---------------------------------------------------------------------------
+  # Job structure: three benchmark jobs per desktop OS, four on Linux.
+  #
+  # "One job per OS" does not fit GitHub's hard 360-minute cancellation and
+  # never can: the paced ladder is a byte-for-byte transcription of upstream
+  # bench.js (400 s per target-trial including the probe rungs), and run
+  # 31773786939 measured ~415 s per target-trial wall (~99% benchmark, build
+  # sub-minute). Linux hosts 27 targets, so even a single paced trial of every
+  # family is 27 x 6.9 min = 187 min, and the previous five-trial suite summed
+  # to ~15.6 h of paced benchmarking. The ladder is near-inviolable — shortening
+  # it forfeits the upstream comparability that primary.rps exists to preserve —
+  # so the levers are trials and grouping:
+  #
+  #   trials 5 -> 3 for the paced suite. Measured from the recorded five-trial
+  #   cohorts: the median-of-3 moves rps.avg by <=2.6% (median 0.1%) and the
+  #   whole-ramp p95 by <=12.5% (median 1.1%) versus the median-of-5. The cost
+  #   lands on the sustained-latency reference figure, whose per-trial jitter
+  #   measured 5-39% on slower targets — its cross-trial median is real but
+  #   looser at 3 than at 5. Disclosed in spread.trials, not hidden.
+  #
+  #   families grouped by shared infrastructure, PostgreSQL families together
+  #   (a service container cannot be started conditionally, so a job either
+  #   carries the database or must not), embedded families together, and the
+  #   two resident-daemon families (libsql's feature-gated build, SpacetimeDB's
+  #   daemon) on Linux in their own job.
+  #
+  # Every paced group stays inside its timeout under the deliberately padded
+  # model the `plan` job enforces (30 s overhead per target-trial — double the
+  # measured ~15 s — plus 55 min for a cold build): 12 targets x 3 trials is
+  # ~313 min padded, ~260 min at measured rates. The saturation jobs are
+  # unchanged in method (2 trials, unpaced ramp) and now cover every family the
+  # OS can host, PostgreSQL included.
+  # ---------------------------------------------------------------------------
+  paced-linux-embedded:
+    name: Paced embedded (linux)
     needs: plan
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 240 }}
+    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 150 || 300 }}
 
     steps:
       - uses: actions/checkout@v6
@@ -269,11 +282,22 @@ jobs:
         if: ${{ !env.ACT }}
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: runner-sqlite-ts
+          shared-key: runner-paced-linux-embedded
           save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
 
       - name: Install TS target dependencies
         uses: ./.github/actions/install-ts-targets
+
+      - name: Benchmark SQLite family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: sqlite
+          targets: bench/spec/targets.sqlite.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.paced_trials }}
 
       # No database service: both targets seed their own file-backed temp
       # database via `bench-runner seed-sqlite` before announcing LISTENING.
@@ -286,235 +310,26 @@ jobs:
           class: ${{ needs.plan.outputs.class }}
           cohort-id: ${{ env.BENCH_COHORT_ID }}
           publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.paced_trials }}
 
-  libsql:
-    name: libSQL (linux)
-    needs: plan
-    # Linux only, deliberately. libsql has a history of segfaulting the
-    # benchmark process on Windows and macOS — that is why it was dropped from
-    # the criterion benches — and `bench-runner` only links it when the
-    # `libsql` cargo feature is on, so the Windows/macOS SQLite jobs are
-    # unaffected by this family existing.
-    runs-on: ubuntu-latest
-    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 240 }}
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-
-      - name: Cache Rust dependencies
-        if: ${{ !env.ACT }}
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: runner-libsql
-          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
-
-      - name: Benchmark libSQL family
+      - name: Benchmark Turso family
         uses: ./.github/actions/bench-runner-run
         with:
-          family: libsql
-          targets: bench/spec/targets.libsql.v1.json
+          family: turso
+          targets: bench/spec/targets.turso.v1.json
           workload: ${{ needs.plan.outputs.workload }}
           class: ${{ needs.plan.outputs.class }}
           cohort-id: ${{ env.BENCH_COHORT_ID }}
           publish: ${{ needs.plan.outputs.publish }}
-          # The builtin libsql targets are behind this cargo feature; without it
-          # the prebuilt `$BENCH_RUNNER_BIN` rejects their ids.
-          runner-features: libsql
+          trials: ${{ needs.plan.outputs.paced_trials }}
+          # toasty-turso is an external cargo target in this family.
+          prebuild-manifests: bench/targets/toasty/Cargo.toml
 
-  postgres:
-    name: PostgreSQL (linux)
+  paced-linux-isolated:
+    name: Paced libSQL + SpacetimeDB (linux)
     needs: plan
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 240 }}
-
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: drizzle_test
-        ports:
-          - 5432/tcp
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-
-      - name: Cache Rust dependencies
-        if: ${{ !env.ACT }}
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: runner-postgres
-          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
-
-      - name: Resolve DATABASE_URL
-        id: pgurl
-        uses: ./.github/actions/resolve-postgres-url
-        with:
-          port: ${{ job.services.postgres.ports[5432] }}
-          service-id: ${{ job.services.postgres.id }}
-
-      - name: Benchmark PostgreSQL family
-        uses: ./.github/actions/bench-runner-run
-        with:
-          family: postgres
-          targets: bench/spec/targets.postgres.v1.json
-          workload: ${{ needs.plan.outputs.workload }}
-          class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}
-          publish: ${{ needs.plan.outputs.publish }}
-          database-url: ${{ steps.pgurl.outputs.url }}
-
-  postgres-rust-orms:
-    name: PostgreSQL Rust ORMs (linux)
-    needs: plan
-    runs-on: ubuntu-latest
-    # Two external target crates to build on top of the runner.
-    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 75 || 280 }}
-
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: drizzle_test
-        ports:
-          - 5432/tcp
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-
-      - name: Cache Rust dependencies
-        if: ${{ !env.ACT }}
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: runner-postgres-rust-orms
-          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
-
-      - name: Resolve DATABASE_URL
-        id: pgurl
-        uses: ./.github/actions/resolve-postgres-url
-        with:
-          port: ${{ job.services.postgres.ports[5432] }}
-          service-id: ${{ job.services.postgres.id }}
-
-      - name: Benchmark PostgreSQL Rust ORM family
-        uses: ./.github/actions/bench-runner-run
-        with:
-          family: postgres-rust-orms
-          targets: bench/spec/targets.postgres-rust-orms.v1.json
-          workload: ${{ needs.plan.outputs.workload }}
-          class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}
-          publish: ${{ needs.plan.outputs.publish }}
-          database-url: ${{ steps.pgurl.outputs.url }}
-          prebuild-manifests: |
-            bench/targets/rust-pg-orms/Cargo.toml
-            bench/targets/toasty/Cargo.toml
-
-  postgres-ts:
-    name: PostgreSQL TS (linux)
-    needs: plan
-    runs-on: ubuntu-latest
-    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 240 }}
-
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: drizzle_test
-        ports:
-          - 5432/tcp
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-
-      - name: Install Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          check-latest: true
-          package-manager-cache: false
-
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Cache Rust dependencies
-        if: ${{ !env.ACT }}
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: runner-postgres-ts
-          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
-
-      - name: Install TS target dependencies
-        uses: ./.github/actions/install-ts-targets
-
-      - name: Resolve DATABASE_URL
-        id: pgurl
-        uses: ./.github/actions/resolve-postgres-url
-        with:
-          port: ${{ job.services.postgres.ports[5432] }}
-          service-id: ${{ job.services.postgres.id }}
-
-      - name: Benchmark PostgreSQL TS family
-        uses: ./.github/actions/bench-runner-run
-        with:
-          family: postgres-ts
-          targets: bench/spec/targets.postgres-ts.v1.json
-          workload: ${{ needs.plan.outputs.workload }}
-          class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}
-          publish: ${{ needs.plan.outputs.publish }}
-          database-url: ${{ steps.pgurl.outputs.url }}
-
-  spacetimedb:
-    name: SpacetimeDB (linux)
-    needs: plan
-    runs-on: ubuntu-latest
-    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 180 }}
-    # Job-level so the composite action's steps inherit them; SPACETIME_TOKEN is
-    # appended to the job environment by the extraction step below because it
-    # comes from a step output, which `jobs.<id>.env` cannot reference.
+    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 150 || 240 }}
     env:
       SPACETIME_URI: "ws://127.0.0.1:3000"
       SPACETIME_MODULE: "bench-module"
@@ -527,20 +342,36 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
 
-      # No Node or Bun here on purpose: `targets.spacetimedb.v1.json` is two
-      # Rust targets since `spacetime-native-ts` was removed.
-      - name: Install SpacetimeDB CLI
-        shell: bash
-        run: |
-          curl -fsSL https://install.spacetimedb.com | bash -s -- -y
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
       - name: Cache Rust dependencies
         if: ${{ !env.ACT }}
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: runner-spacetimedb
+          shared-key: runner-paced-linux-isolated
           save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      # libsql is Linux-only, deliberately: it has a history of segfaulting the
+      # benchmark process on Windows and macOS — that is why it was dropped
+      # from the criterion benches — and `bench-runner` only links it when the
+      # `libsql` cargo feature is on, so no other job is affected by this
+      # family existing.
+      - name: Benchmark libSQL family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: libsql
+          targets: bench/spec/targets.libsql.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.paced_trials }}
+          # The builtin libsql targets are behind this cargo feature; without it
+          # the prebuilt `$BENCH_RUNNER_BIN` rejects their ids.
+          runner-features: libsql
+
+      # SpacetimeDB's daemon starts after libsql has finished measuring, so it
+      # is not sitting resident underneath another family's run.
+      - name: Install SpacetimeDB CLI
+        uses: ./.github/actions/install-spacetime
 
       - name: Start SpacetimeDB
         shell: bash
@@ -597,13 +428,35 @@ jobs:
           class: ${{ needs.plan.outputs.class }}
           cohort-id: ${{ env.BENCH_COHORT_ID }}
           publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.paced_trials }}
           prebuild-manifests: bench/targets/spacetime-native-rs/Cargo.toml
 
-  turso:
-    name: Turso (linux)
+  paced-linux-postgres:
+    name: Paced PostgreSQL (linux)
     needs: plan
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 60 || 240 }}
+    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 150 || 350 }}
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: drizzle_test
+        ports:
+          - 5432/tcp
+        # Pinned to the top core of the SUT half, matching the saturation job's
+        # topology so the two suites measure the same arrangement. The previous
+        # per-family paced jobs left the service floating over the whole VM;
+        # this job's slugs are new, so no stale baseline compares the pinned
+        # numbers against unpinned ones — the regression gate re-baselines.
+        options: >-
+          --cpuset-cpus 3
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v6
@@ -613,24 +466,326 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
 
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+          package-manager-cache: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Cache Rust dependencies
         if: ${{ !env.ACT }}
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: runner-turso
+          shared-key: runner-paced-linux-postgres
           save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Install TS target dependencies
+        uses: ./.github/actions/install-ts-targets
+
+      - name: Resolve DATABASE_URL
+        id: pgurl
+        uses: ./.github/actions/resolve-postgres-url
+        with:
+          port: ${{ job.services.postgres.ports[5432] }}
+          service-id: ${{ job.services.postgres.id }}
+
+      - name: Benchmark PostgreSQL family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: postgres
+          targets: bench/spec/targets.postgres.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.paced_trials }}
+          database-url: ${{ steps.pgurl.outputs.url }}
+          db-cpuset: '3'
+
+      - name: Benchmark PostgreSQL TS family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: postgres-ts
+          targets: bench/spec/targets.postgres-ts.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.paced_trials }}
+          database-url: ${{ steps.pgurl.outputs.url }}
+          db-cpuset: '3'
+
+      - name: Benchmark PostgreSQL Rust ORM family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: postgres-rust-orms
+          targets: bench/spec/targets.postgres-rust-orms.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.paced_trials }}
+          database-url: ${{ steps.pgurl.outputs.url }}
+          db-cpuset: '3'
+          prebuild-manifests: |
+            bench/targets/rust-pg-orms/Cargo.toml
+            bench/targets/toasty/Cargo.toml
+
+  paced-desktop-embedded:
+    name: Paced embedded (${{ matrix.platform }})
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 150 || 350 }}
+    env:
+      SPACETIME_URI: "ws://127.0.0.1:3000"
+      SPACETIME_MODULE: "bench-module"
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+          package-manager-cache: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-paced-desktop-${{ matrix.platform }}
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Install TS target dependencies
+        uses: ./.github/actions/install-ts-targets
+
+      # No libsql here, and that is not a choice this job makes: libsql has a
+      # history of segfaulting the benchmark process on both of these
+      # platforms. Nothing on these platforms is pinned — the runner's affinity
+      # call is Linux-only and Darwin exposes no usable affinity API — and the
+      # manifest's `topology.cpu_pinning: null` records exactly that.
+      - name: Benchmark SQLite family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: sqlite
+          platform: ${{ matrix.platform }}
+          targets: bench/spec/targets.sqlite.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.paced_trials }}
+
+      - name: Benchmark SQLite TS family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: sqlite-ts
+          platform: ${{ matrix.platform }}
+          targets: bench/spec/targets.sqlite-ts.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.paced_trials }}
 
       - name: Benchmark Turso family
         uses: ./.github/actions/bench-runner-run
         with:
           family: turso
+          platform: ${{ matrix.platform }}
           targets: bench/spec/targets.turso.v1.json
           workload: ${{ needs.plan.outputs.workload }}
           class: ${{ needs.plan.outputs.class }}
           cohort-id: ${{ env.BENCH_COHORT_ID }}
           publish: ${{ needs.plan.outputs.publish }}
-          # toasty-turso is an external cargo target in this family.
+          trials: ${{ needs.plan.outputs.paced_trials }}
           prebuild-manifests: bench/targets/toasty/Cargo.toml
+
+      # SpacetimeDB last: its daemon starts only after the in-process families
+      # have finished measuring. The desktop daemon is unpinned like everything
+      # else on these platforms (Linux pins it with taskset; there is no
+      # equivalent here and the topology block says so by carrying null).
+      - name: Install SpacetimeDB CLI
+        uses: ./.github/actions/install-spacetime
+
+      - name: Start SpacetimeDB
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            # A process backgrounded from a bash step dies with the step's
+            # console on Windows; Start-Process detaches it properly.
+            powershell -NoProfile -Command \
+              "Start-Process spacetime -WindowStyle Hidden -ArgumentList 'start','--listen-addr','127.0.0.1:3000','--pg-port','5433'"
+          else
+            rm -rf "$HOME/.local/share/spacetime/data" "$HOME/.config/spacetime"
+            nohup spacetime start --listen-addr 127.0.0.1:3000 --pg-port 5433 >/dev/null 2>&1 &
+          fi
+          for i in $(seq 1 60); do
+            if spacetime server ping http://127.0.0.1:3000 2>/dev/null; then
+              echo "SpacetimeDB WebSocket ready"
+              break
+            fi
+            sleep 1
+          done
+          spacetime server ping http://127.0.0.1:3000
+
+      - name: Build and publish SpacetimeDB module
+        shell: bash
+        run: |
+          spacetime build -p bench/targets/spacetime-module
+          spacetime publish bench-module -p bench/targets/spacetime-module --server http://127.0.0.1:3000
+
+      - name: Extract SpacetimeDB identity token
+        shell: bash
+        run: |
+          config="$HOME/.config/spacetime/cli.toml"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            config="$LOCALAPPDATA/SpacetimeDB/config/cli.toml"
+            [[ -f "$config" ]] || config="$HOME/.config/spacetime/cli.toml"
+          fi
+          if [[ ! -f "$config" ]]; then
+            echo "WARNING: spacetime cli.toml not found"
+            exit 0
+          fi
+          token=$(sed -n 's/^[[:space:]]*spacetimedb_token[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' "$config" | head -n1)
+          if [[ -z "$token" ]]; then
+            echo "WARNING: No token found in $config"
+            exit 0
+          fi
+          echo "::add-mask::$token"
+          echo "SPACETIME_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: Benchmark SpacetimeDB family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: spacetimedb
+          platform: ${{ matrix.platform }}
+          targets: bench/spec/targets.spacetimedb.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.paced_trials }}
+          prebuild-manifests: bench/targets/spacetime-native-rs/Cargo.toml
+
+  paced-desktop-postgres:
+    name: Paced PostgreSQL (${{ matrix.platform }})
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ needs.plan.outputs.class == 'small' && 150 || 350 }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+          package-manager-cache: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: runner-paced-desktop-pg-${{ matrix.platform }}
+          save-if: ${{ env.PUBLISH_TO_R2 == 'true' }}
+
+      - name: Install TS target dependencies
+        uses: ./.github/actions/install-ts-targets
+
+      # Service containers are Linux-only, so these platforms run a natively
+      # installed PostgreSQL 18 — the same major as the Linux service image, or
+      # the action fails and the platform gets no PostgreSQL rather than a
+      # mismatched one. diesel needs no native libpq (pq-sys is bundled).
+      - name: Set up PostgreSQL 18
+        id: pgnative
+        uses: ./.github/actions/setup-postgres-native
+
+      - name: Benchmark PostgreSQL family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: postgres
+          platform: ${{ matrix.platform }}
+          targets: bench/spec/targets.postgres.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.paced_trials }}
+          database-url: ${{ steps.pgnative.outputs.url }}
+
+      - name: Benchmark PostgreSQL TS family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: postgres-ts
+          platform: ${{ matrix.platform }}
+          targets: bench/spec/targets.postgres-ts.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.paced_trials }}
+          database-url: ${{ steps.pgnative.outputs.url }}
+
+      - name: Benchmark PostgreSQL Rust ORM family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: postgres-rust-orms
+          platform: ${{ matrix.platform }}
+          targets: bench/spec/targets.postgres-rust-orms.v1.json
+          workload: ${{ needs.plan.outputs.workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}
+          publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.paced_trials }}
+          database-url: ${{ steps.pgnative.outputs.url }}
+          prebuild-manifests: |
+            bench/targets/rust-pg-orms/Cargo.toml
+            bench/targets/toasty/Cargo.toml
 
   # ---------------------------------------------------------------------------
   # Per-OS cross-family ranking.
@@ -641,19 +796,31 @@ jobs:
   # family that OS can host, run back to back on that job's VM.
   #
   # Which families an OS can host is a platform fact, not a policy choice:
-  #   linux    everything. Service containers are Linux-only on GitHub-hosted
-  #            runners, so this is the only OS that can host PostgreSQL, and
-  #            libsql has a history of segfaulting the benchmark elsewhere.
-  #   macos    in-process engines only, and unpinned: Darwin exposes no usable
-  #            CPU-affinity API, so `topology.cpu_pinning` comes back null and
-  #            the dashboard reports the absence rather than implying isolation
-  #            that never happened.
-  #   windows  in-process engines only.
+  #   linux    everything, with the PostgreSQL service container pinned to its
+  #            own core.
+  #   macos    everything but libsql (segfault history), unpinned: Darwin
+  #            exposes no usable CPU-affinity API, so `topology.cpu_pinning`
+  #            comes back null and the dashboard reports the absence rather
+  #            than implying isolation that never happened. PostgreSQL runs
+  #            natively at the same major as the Linux service image (service
+  #            containers are Linux-only), also unpinned.
+  #   windows  everything but libsql, unpinned, PostgreSQL native like macOS.
   #
-  # These jobs run the saturation ramp whatever `plan` resolved for the
-  # per-family jobs, and they do not replace them. The paced latency reading
-  # still comes from the parallel per-family jobs, under its own artifact names,
-  # on every event; `slug-suffix: cross` is what keeps the two apart.
+  # These jobs run the saturation ramp whatever `plan` resolved for the paced
+  # group jobs, and they do not replace them. The paced latency reading still
+  # comes from the parallel paced groups, under its own artifact names, on
+  # every event; `slug-suffix: cross` is what keeps the two apart. The two
+  # cohorts of one CI run share the `gh-<run>-...` prefix, which is what lets
+  # a consumer join them per target — latency columns from the paced cohort,
+  # capacity from this one — without ever comparing numbers across cohorts.
+  #
+  # All three share ONE cohort id — do not split it per OS. The dashboard shows a
+  # cohort at a time and scopes the ranking by operating system inside it, so a
+  # per-OS cohort id splits the three rankings across three cohorts and leaves the
+  # `?os=` pills with a single entry: macOS and Windows become unreachable from
+  # the ranking page, which is the exact thing the scoping was built to offer.
+  # Hardware differences are already carried by the OS badge and the scope's own
+  # provenance line, so the cohort does not need to encode them too.
   # ---------------------------------------------------------------------------
   linux-all:
     name: All families (linux)
@@ -747,7 +914,7 @@ jobs:
           targets: bench/spec/targets.sqlite.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-linux
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           runner-features: libsql
@@ -760,7 +927,7 @@ jobs:
           targets: bench/spec/targets.sqlite-ts.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-linux
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           runner-features: libsql
@@ -773,7 +940,7 @@ jobs:
           targets: bench/spec/targets.libsql.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-linux
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           runner-features: libsql
@@ -786,7 +953,7 @@ jobs:
           targets: bench/spec/targets.turso.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-linux
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           runner-features: libsql
@@ -800,7 +967,7 @@ jobs:
           targets: bench/spec/targets.postgres.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-linux
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           runner-features: libsql
@@ -815,7 +982,7 @@ jobs:
           targets: bench/spec/targets.postgres-rust-orms.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-linux
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           runner-features: libsql
@@ -833,7 +1000,7 @@ jobs:
           targets: bench/spec/targets.postgres-ts.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-linux
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           runner-features: libsql
@@ -841,10 +1008,7 @@ jobs:
           db-cpuset: '3'
 
       - name: Install SpacetimeDB CLI
-        shell: bash
-        run: |
-          curl -fsSL https://install.spacetimedb.com | bash -s -- -y
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/install-spacetime
 
       # Started last and pinned to the same core the PostgreSQL service owns.
       # PostgreSQL is idle by this point, and both are the out-of-process engine
@@ -903,7 +1067,7 @@ jobs:
           targets: bench/spec/targets.spacetimedb.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-linux
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           runner-features: libsql
@@ -923,9 +1087,14 @@ jobs:
           - os: windows-latest
             platform: windows
     runs-on: ${{ matrix.os }}
-    # Ten targets rather than linux's twenty-seven; the same trial count fits
-    # with room to spare.
-    timeout-minutes: 240
+    # Twenty-four targets (everything but linux-only libsql) at 2 trials on the
+    # ~215 s saturation ramp: ~196 min padded benchmark + build + the native
+    # PostgreSQL and SpacetimeDB setups. `plan` estimates this sequence and
+    # fails the run up front when it does not fit.
+    timeout-minutes: 350
+    env:
+      SPACETIME_URI: "ws://127.0.0.1:3000"
+      SPACETIME_MODULE: "bench-module"
 
     steps:
       - uses: actions/checkout@v6
@@ -957,13 +1126,17 @@ jobs:
       - name: Install TS target dependencies
         uses: ./.github/actions/install-ts-targets
 
-      # No PostgreSQL, no SpacetimeDB and no libsql here, and none of that is a
-      # choice this workflow makes: GitHub only runs service containers on
-      # Linux, and libsql has a history of segfaulting the benchmark process on
-      # both of these platforms. The ranking these jobs publish is therefore
-      # over the in-process engines only, which is why it is presented as a
-      # macOS ranking and a Windows ranking rather than folded into one table
-      # with the linux rows.
+      # Everything the platform can host, in-process families first. libsql is
+      # the one absence and it is not a choice this workflow makes: it has a
+      # history of segfaulting the benchmark process on both of these
+      # platforms. PostgreSQL runs natively (service containers are
+      # Linux-only) at the same major as the Linux service image, and the
+      # SpacetimeDB daemon starts last so it is not resident under anything
+      # else. Nothing on these platforms is pinned — the runner's affinity call
+      # is Linux-only and Darwin has no usable affinity API — and the
+      # manifest's `topology.cpu_pinning: null` records exactly that, which is
+      # why these rankings are presented per OS rather than folded into one
+      # table with the pinned linux rows.
       - name: Benchmark SQLite family
         uses: ./.github/actions/bench-runner-run
         with:
@@ -973,7 +1146,7 @@ jobs:
           targets: bench/spec/targets.sqlite.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-${{ matrix.platform }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
 
@@ -986,7 +1159,7 @@ jobs:
           targets: bench/spec/targets.sqlite-ts.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-${{ matrix.platform }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
 
@@ -999,10 +1172,123 @@ jobs:
           targets: bench/spec/targets.turso.v1.json
           workload: ${{ needs.plan.outputs.cross_workload }}
           class: ${{ needs.plan.outputs.class }}
-          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross-${{ matrix.platform }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
           publish: ${{ needs.plan.outputs.publish }}
           trials: ${{ needs.plan.outputs.cross_trials }}
           prebuild-manifests: bench/targets/toasty/Cargo.toml
+
+      - name: Set up PostgreSQL 18
+        id: pgnative
+        uses: ./.github/actions/setup-postgres-native
+
+      - name: Benchmark PostgreSQL family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: postgres
+          platform: ${{ matrix.platform }}
+          slug-suffix: cross
+          targets: bench/spec/targets.postgres.v1.json
+          workload: ${{ needs.plan.outputs.cross_workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
+          publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.cross_trials }}
+          database-url: ${{ steps.pgnative.outputs.url }}
+
+      - name: Benchmark PostgreSQL TS family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: postgres-ts
+          platform: ${{ matrix.platform }}
+          slug-suffix: cross
+          targets: bench/spec/targets.postgres-ts.v1.json
+          workload: ${{ needs.plan.outputs.cross_workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
+          publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.cross_trials }}
+          database-url: ${{ steps.pgnative.outputs.url }}
+
+      - name: Benchmark PostgreSQL Rust ORM family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: postgres-rust-orms
+          platform: ${{ matrix.platform }}
+          slug-suffix: cross
+          targets: bench/spec/targets.postgres-rust-orms.v1.json
+          workload: ${{ needs.plan.outputs.cross_workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
+          publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.cross_trials }}
+          database-url: ${{ steps.pgnative.outputs.url }}
+          prebuild-manifests: |
+            bench/targets/rust-pg-orms/Cargo.toml
+            bench/targets/toasty/Cargo.toml
+
+      - name: Install SpacetimeDB CLI
+        uses: ./.github/actions/install-spacetime
+
+      - name: Start SpacetimeDB
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            # A process backgrounded from a bash step dies with the step's
+            # console on Windows; Start-Process detaches it properly.
+            powershell -NoProfile -Command \
+              "Start-Process spacetime -WindowStyle Hidden -ArgumentList 'start','--listen-addr','127.0.0.1:3000','--pg-port','5433'"
+          else
+            rm -rf "$HOME/.local/share/spacetime/data" "$HOME/.config/spacetime"
+            nohup spacetime start --listen-addr 127.0.0.1:3000 --pg-port 5433 >/dev/null 2>&1 &
+          fi
+          for i in $(seq 1 60); do
+            if spacetime server ping http://127.0.0.1:3000 2>/dev/null; then
+              echo "SpacetimeDB WebSocket ready"
+              break
+            fi
+            sleep 1
+          done
+          spacetime server ping http://127.0.0.1:3000
+
+      - name: Build and publish SpacetimeDB module
+        shell: bash
+        run: |
+          spacetime build -p bench/targets/spacetime-module
+          spacetime publish bench-module -p bench/targets/spacetime-module --server http://127.0.0.1:3000
+
+      - name: Extract SpacetimeDB identity token
+        shell: bash
+        run: |
+          config="$HOME/.config/spacetime/cli.toml"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            config="$LOCALAPPDATA/SpacetimeDB/config/cli.toml"
+            [[ -f "$config" ]] || config="$HOME/.config/spacetime/cli.toml"
+          fi
+          if [[ ! -f "$config" ]]; then
+            echo "WARNING: spacetime cli.toml not found"
+            exit 0
+          fi
+          token=$(sed -n 's/^[[:space:]]*spacetimedb_token[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' "$config" | head -n1)
+          if [[ -z "$token" ]]; then
+            echo "WARNING: No token found in $config"
+            exit 0
+          fi
+          echo "::add-mask::$token"
+          echo "SPACETIME_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: Benchmark SpacetimeDB family
+        uses: ./.github/actions/bench-runner-run
+        with:
+          family: spacetimedb
+          platform: ${{ matrix.platform }}
+          slug-suffix: cross
+          targets: bench/spec/targets.spacetimedb.v1.json
+          workload: ${{ needs.plan.outputs.cross_workload }}
+          class: ${{ needs.plan.outputs.class }}
+          cohort-id: ${{ env.BENCH_COHORT_ID }}-cross
+          publish: ${{ needs.plan.outputs.publish }}
+          trials: ${{ needs.plan.outputs.cross_trials }}
+          prebuild-manifests: bench/targets/spacetime-native-rs/Cargo.toml
 
   dashboard-preview:
     name: Dashboard preview data
@@ -1010,14 +1296,11 @@ jobs:
     timeout-minutes: 30
     needs:
       - plan
-      - sqlite
-      - sqlite-ts
-      - libsql
-      - postgres
-      - postgres-rust-orms
-      - postgres-ts
-      - spacetimedb
-      - turso
+      - paced-linux-embedded
+      - paced-linux-isolated
+      - paced-linux-postgres
+      - paced-desktop-embedded
+      - paced-desktop-postgres
       - linux-all
       - desktop-all
     # Assemble whatever succeeded. One flaky family used to void the preview

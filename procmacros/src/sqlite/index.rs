@@ -3,38 +3,69 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{DeriveInput, Error, Expr, Meta, Result, Token, Type, parse::Parse};
 
-/// Attributes for the `SQLiteIndex` attribute macro
-/// Syntax: #[`SQLiteIndex`] or #[SQLiteIndex(unique)]
-#[derive(Copy, Clone)]
+/// Attributes for the `SQLiteIndex` attribute macro.
+/// Syntax: #[`SQLiteIndex`], #[SQLiteIndex(unique)], or
+/// #[SQLiteIndex(unique, where = "deleted = 0")].
+#[derive(Clone, Default)]
 pub struct IndexAttributes {
     pub unique: bool,
+    pub where_clause: Option<String>,
 }
 
 impl Parse for IndexAttributes {
     fn parse(input: syn::parse::ParseStream) -> Result<Self> {
-        let mut unique = false;
+        let mut attrs = Self::default();
 
         if input.is_empty() {
-            return Ok(Self { unique });
+            return Ok(attrs);
         }
 
-        let metas = input.parse_terminated(Meta::parse, Token![,])?;
+        let mut first = true;
+        while !input.is_empty() {
+            if !first {
+                input.parse::<Token![,]>()?;
+                if input.is_empty() {
+                    break;
+                }
+            }
+            first = false;
 
-        for meta in metas {
+            if input.peek(Token![where]) {
+                input.parse::<Token![where]>()?;
+                input.parse::<Token![=]>()?;
+                let predicate: syn::LitStr = input.parse()?;
+                let value = predicate.value();
+                if value.trim().is_empty() {
+                    return Err(Error::new_spanned(
+                        predicate,
+                        "SQLite partial-index predicate cannot be empty",
+                    ));
+                }
+                if attrs.where_clause.is_some() {
+                    return Err(Error::new_spanned(
+                        predicate,
+                        "SQLite index accepts only one partial-index predicate",
+                    ));
+                }
+                attrs.where_clause = Some(value);
+                continue;
+            }
+
+            let meta: Meta = input.parse()?;
             match meta {
                 Meta::Path(path) if path.is_ident("unique") => {
-                    unique = true;
+                    attrs.unique = true;
                 }
                 _ => {
                     return Err(Error::new_spanned(
                         meta,
-                        "Only 'unique' is supported in SQLiteIndex attribute",
+                        "Unrecognized SQLite index attribute; supported: `unique`, `where = \"...\"`",
                     ));
                 }
             }
         }
 
-        Ok(Self { unique })
+        Ok(attrs)
     }
 }
 
@@ -173,8 +204,17 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Re
     } else {
         quote! {}
     };
+    let where_modifier = attr.where_clause.as_ref().map_or_else(
+        || quote! {},
+        |predicate| quote! { .where_clause(#predicate) },
+    );
+    let where_clause = attr.where_clause.as_ref().map_or_else(
+        || quote! { ::std::option::Option::None },
+        |predicate| quote! { ::std::option::Option::Some(#predicate) },
+    );
 
     // Build the const SQL using concatcp! to reference the table's TABLE_NAME
+    let const_format = crate::common::paths::const_format();
     let unique_kw = if is_unique { "UNIQUE " } else { "" };
     let index_name_lit = &index_name;
 
@@ -201,9 +241,13 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Re
 
     let create_index_prefix = format!("CREATE {unique_kw}INDEX \"{index_name_lit}\" ON \"");
     let create_index_mid = "\" (";
-    let create_index_suffix = ")";
-
-    let const_format = crate::common::paths::const_format();
+    let create_index_suffix = attr.where_clause.as_ref().map_or_else(
+        || quote! { ")" },
+        |predicate| {
+            let suffix = format!(") WHERE {predicate}");
+            quote! { #suffix }
+        },
+    );
     let const_sql = quote! {
         #const_format::concatcp!(
             #create_index_prefix,
@@ -231,7 +275,8 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Re
                 #index_name
             )
             .columns(Self::DDL_COLUMNS)
-            #unique_modifier;
+            #unique_modifier
+            #where_modifier;
 
             pub const fn new() -> Self {
                 Self
@@ -264,6 +309,7 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Re
             const INDEX_NAME: &'static str = #index_name;
             const COLUMN_NAMES: &'static [&'static str] = Self::COLUMN_NAMES;
             const IS_UNIQUE: bool = #is_unique;
+            const WHERE_CLAUSE: ::std::option::Option<&'static str> = #where_clause;
 
             fn table_ref() -> &'static drizzle::core::TableRef {
                 &<#table_type as drizzle::core::DrizzleTable>::TABLE_REF
@@ -294,16 +340,16 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Re
 
     };
 
-    // Generate ConflictTarget + NamedConstraint for unique indexes
+    // Generate ConflictTarget for unique indexes. A standalone index is not a
+    // named table constraint, so it must not implement NamedConstraint.
     if is_unique {
         let conflict_target = core_paths::conflict_target();
-        let named_constraint = core_paths::named_constraint();
         expanded.extend(quote! {
             impl #conflict_target<#table_type> for #struct_ident {
                 fn conflict_columns(&self) -> &'static [&'static str] { Self::COLUMN_NAMES }
-            }
-            impl #named_constraint<#table_type> for #struct_ident {
-                fn constraint_name(&self) -> &'static str { #index_name }
+                fn conflict_where_clause(&self) -> ::std::option::Option<&'static str> {
+                    <Self as #drizzle_index>::WHERE_CLAUSE
+                }
             }
         });
     }
@@ -334,5 +380,36 @@ fn extract_table_from_column(column: &Expr) -> Result<Type> {
             column,
             "Column must be a path expression",
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{IndexAttributes, sqlite_index_attr_macro};
+    use syn::{DeriveInput, parse_quote};
+
+    #[test]
+    fn rejects_duplicate_raw_partial_predicates() {
+        assert!(
+            syn::parse_str::<IndexAttributes>("where = \"deleted = 0\", where = \"archived = 0\"")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn rejects_empty_partial_index_predicate() {
+        assert!(syn::parse_str::<IndexAttributes>("where = \"  \"").is_err());
+    }
+
+    #[test]
+    fn unique_index_is_not_a_named_constraint() {
+        let attrs = syn::parse_str::<IndexAttributes>("unique").unwrap();
+        let input: DeriveInput = parse_quote! {
+            pub struct UsersEmailIdx(Users::email);
+        };
+        let expanded = sqlite_index_attr_macro(attrs, &input).unwrap().to_string();
+
+        assert!(expanded.contains("ConflictTarget"));
+        assert!(!expanded.contains("NamedConstraint"));
     }
 }

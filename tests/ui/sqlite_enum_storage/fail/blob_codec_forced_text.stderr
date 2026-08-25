@@ -1,0 +1,17 @@
+error[E0271]: type mismatch resolving `<BlobValue as DrizzleSQLiteColumn>::SQLType == Text`
+  --> tests/ui/sqlite_enum_storage/fail/blob_codec_forced_text.rs:28:12
+   |
+28 |     value: BlobValue,
+   |            ^^^^^^^^^ type mismatch resolving `<BlobValue as DrizzleSQLiteColumn>::SQLType == Text`
+   |
+note: expected this to be `drizzle::sqlite::types::Text`
+  --> tests/ui/sqlite_enum_storage/fail/blob_codec_forced_text.rs:10:20
+   |
+10 |     type SQLType = drizzle::sqlite::types::Blob;
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `assert_column_storage`
+  --> tests/ui/sqlite_enum_storage/fail/blob_codec_forced_text.rs:24:1
+   |
+24 | #[SQLiteTable]
+   | ^^^^^^^^^^^^^^ required by this bound in `assert_column_storage`
+   = note: this error originates in the attribute macro `SQLiteTable` (in Nightly builds, run with -Z macro-backtrace for more info)

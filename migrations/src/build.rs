@@ -30,7 +30,7 @@
 //! ```
 
 use crate::config::Tracking;
-use crate::generate::diff;
+use crate::generate::{DiffOptions, diff_with};
 use crate::naming::{PrefixMode, generate_migration_tag_with_mode};
 use crate::parser::SchemaParser;
 use crate::schema::Snapshot;
@@ -59,6 +59,7 @@ pub struct Config {
     watched_env_vars: Vec<String>,
     /// Optional last-mile rewrite of the generated statements.
     transform: Option<StatementTransform>,
+    sqlite_rebuild_data: Option<SqliteRebuildDataSource>,
 }
 
 /// Boxed statement-transform callback.
@@ -67,6 +68,12 @@ pub struct Config {
 /// (a bare `Box<dyn Fn>` has neither).
 #[derive(Clone)]
 struct StatementTransform(std::sync::Arc<dyn Fn(Vec<String>) -> Vec<String> + Send + Sync>);
+
+#[derive(Clone, Debug)]
+enum SqliteRebuildDataSource {
+    Inline(crate::sqlite::SqliteRebuildDataPlanRegistry),
+    File(PathBuf),
+}
 
 impl std::fmt::Debug for StatementTransform {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -95,6 +102,7 @@ impl Config {
             config_path: None,
             watched_env_vars: Vec::new(),
             transform: None,
+            sqlite_rebuild_data: None,
         }
     }
 
@@ -102,7 +110,8 @@ impl Config {
     ///
     /// Reads `dialect`, `schema` (one path or a list), `out`, `dbCredentials.url`
     /// (literal string or `{ env = "VAR" }`), and an optional `[migrations]`
-    /// section with `table` / `schema` overrides for the tracking table.
+    /// section with tracking overrides and a checked-in
+    /// `sqliteRebuildDataPlan` path.
     ///
     /// Anything else in the file is ignored — this loader covers only what
     /// the build-time generate/migrate flow needs. The CLI's full loader
@@ -157,6 +166,10 @@ impl Config {
             }
             if let Some(s) = m.schema {
                 cfg.tracking = cfg.tracking.schema(s);
+            }
+            if let Some(plan) = m.sqlite_rebuild_data_plan {
+                let base = path.parent().unwrap_or_else(|| Path::new("."));
+                cfg.sqlite_rebuild_data = Some(SqliteRebuildDataSource::File(base.join(plan)));
             }
         }
 
@@ -256,6 +269,36 @@ impl Config {
         self
     }
 
+    /// Attach typed data movement to SQLite table rebuilds in this generation.
+    ///
+    /// The plan is validated against both schema snapshots and its exact
+    /// predecessor ID. It does not rewrite generated statements after diffing.
+    #[must_use]
+    pub fn sqlite_rebuild_data_plan(mut self, plan: crate::sqlite::SqliteRebuildDataPlan) -> Self {
+        self.sqlite_rebuild_data = Some(SqliteRebuildDataSource::Inline(
+            crate::sqlite::SqliteRebuildDataPlanRegistry::single(plan),
+        ));
+        self
+    }
+
+    /// Attach a versioned registry of snapshot-bound SQLite rebuild plans.
+    #[must_use]
+    pub fn sqlite_rebuild_data_plan_registry(
+        mut self,
+        registry: crate::sqlite::SqliteRebuildDataPlanRegistry,
+    ) -> Self {
+        self.sqlite_rebuild_data = Some(SqliteRebuildDataSource::Inline(registry));
+        self
+    }
+
+    /// Load a checked-in, versioned SQLite rebuild-data plan during normal
+    /// generation.
+    #[must_use]
+    pub fn sqlite_rebuild_data_plan_file(mut self, path: impl Into<PathBuf>) -> Self {
+        self.sqlite_rebuild_data = Some(SqliteRebuildDataSource::File(path.into()));
+        self
+    }
+
     /// Apply the configured statement transform, if any.
     fn apply_transform(&self, statements: Vec<String>) -> Vec<String> {
         match &self.transform {
@@ -275,6 +318,9 @@ impl Config {
             targets.push(cfg_path.clone());
         }
         targets.push(self.out_dir.clone());
+        if let Some(SqliteRebuildDataSource::File(path)) = &self.sqlite_rebuild_data {
+            targets.push(path.clone());
+        }
         targets
     }
 
@@ -392,11 +438,14 @@ struct RawCreds {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RawMigrations {
     #[serde(default)]
     table: Option<String>,
     #[serde(default)]
     schema: Option<String>,
+    #[serde(default)]
+    sqlite_rebuild_data_plan: Option<PathBuf>,
 }
 
 /// Result of a build-time migration generation run.
@@ -431,6 +480,11 @@ pub enum BuildError {
     #[error("no schema files configured")]
     MissingSchemaFiles,
 
+    #[error(
+        "SQLite rebuild-data plans cannot be combined with statement transforms; typed plan validation must remain the final migration authority"
+    )]
+    SqliteRebuildDataTransformConflict,
+
     #[error("failed to read schema file `{path:?}`: {source}")]
     ReadSchema {
         path: PathBuf,
@@ -457,6 +511,20 @@ pub enum BuildError {
         source: toml::de::Error,
     },
 
+    #[error("failed to read SQLite rebuild-data plan `{}`: {source}", path.display())]
+    ReadSqliteRebuildDataPlan {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to parse SQLite rebuild-data plan `{}`: {source}", path.display())]
+    ParseSqliteRebuildDataPlan {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+
     #[error("no database URL configured (set `dbCredentials.url` in TOML)")]
     MissingUrl,
 
@@ -465,6 +533,27 @@ pub enum BuildError {
 
     #[error("env var `{0}` contains invalid unicode")]
     EnvVarNotUnicode(String),
+}
+
+fn load_sqlite_rebuild_data_plan(
+    source: &SqliteRebuildDataSource,
+) -> Result<crate::sqlite::SqliteRebuildDataPlanRegistry, BuildError> {
+    match source {
+        SqliteRebuildDataSource::Inline(plan) => Ok(plan.clone()),
+        SqliteRebuildDataSource::File(path) => {
+            let bytes =
+                std::fs::read(path).map_err(|source| BuildError::ReadSqliteRebuildDataPlan {
+                    path: path.clone(),
+                    source,
+                })?;
+            serde_json::from_slice(&bytes).map_err(|source| {
+                BuildError::ParseSqliteRebuildDataPlan {
+                    path: path.clone(),
+                    source,
+                }
+            })
+        }
+    }
 }
 
 /// Generate and write a migration folder when schema changes are detected.
@@ -502,6 +591,10 @@ pub fn run(config: &Config) -> Result<Output, BuildError> {
         return Err(BuildError::MissingSchemaFiles);
     }
 
+    if config.sqlite_rebuild_data.is_some() && config.transform.is_some() {
+        return Err(BuildError::SqliteRebuildDataTransformConflict);
+    }
+
     if !matches!(config.dialect, Dialect::SQLite | Dialect::PostgreSQL) {
         return Err(BuildError::UnsupportedDialect(config.dialect));
     }
@@ -523,7 +616,16 @@ pub fn run(config: &Config) -> Result<Output, BuildError> {
     let current_snapshot =
         Snapshot::from_parse_result(&parse_result, config.dialect, config.casing);
     let previous_snapshot = load_previous_snapshot(&config.out_dir, config.dialect)?;
-    let mut generated = diff(&previous_snapshot, &current_snapshot)?;
+    let sqlite_rebuild_data = config
+        .sqlite_rebuild_data
+        .as_ref()
+        .map(load_sqlite_rebuild_data_plan)
+        .transpose()?;
+    let options = match sqlite_rebuild_data {
+        Some(registry) => DiffOptions::new().sqlite_rebuild_data_registry(registry),
+        None => DiffOptions::new(),
+    };
+    let mut generated = diff_with(&previous_snapshot, &current_snapshot, &options)?;
 
     // App-level statement policy runs before the emptiness check, so a
     // transform that filters everything out reports NoChanges instead of
@@ -655,6 +757,11 @@ fn collect_v3_migration_dirs(out_dir: &Path) -> Result<Vec<(String, PathBuf)>, B
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sqlite::{
+        SQLITE_REBUILD_DATA_PLAN_VERSION, SqliteColumnCopy, SqliteCopyExpression,
+        SqliteDataValidation, SqliteIntegerMapping, SqliteRebuildDataPlan,
+        SqliteRebuildDataPlanRegistry, SqliteTableRebuildPlan,
+    };
 
     #[test]
     fn run_creates_then_stabilizes() {
@@ -687,6 +794,216 @@ pub struct Users {
 
         let second = run(&cfg).expect("second generation should succeed");
         assert_eq!(second, Output::NoChanges);
+    }
+
+    #[test]
+    fn run_applies_snapshot_bound_typed_sqlite_rebuild_data() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let schema_path = dir.path().join("schema.rs");
+        let out_dir = dir.path().join("drizzle");
+        std::fs::write(
+            &schema_path,
+            r#"
+#[SQLiteTable]
+pub struct Assets {
+    #[column(primary)]
+    pub id: i64,
+    pub digest: Option<String>,
+    pub relation: i64,
+    pub metadata: String,
+}
+"#,
+        )
+        .expect("write predecessor schema");
+        let base = Config::new(Dialect::SQLite)
+            .file(&schema_path)
+            .out(&out_dir)
+            .prefix_mode(PrefixMode::Index);
+        let Output::Generated { path, .. } = run(&base).expect("generate predecessor") else {
+            panic!("expected predecessor migration");
+        };
+        let predecessor = Snapshot::load(&path.join("snapshot.json"), Dialect::SQLite)
+            .expect("load predecessor snapshot");
+
+        std::fs::write(
+            &schema_path,
+            r#"
+#[SQLiteTable(STRICT)]
+pub struct Assets {
+    #[column(primary)]
+    pub id: i64,
+    #[column(blob)]
+    pub digest: Option<Vec<u8>>,
+    pub relation: i64,
+    pub metadata: String,
+}
+"#,
+        )
+        .expect("write current schema");
+        let error = run(&base).expect_err("affinity change without a rebuild plan must fail");
+        let BuildError::Migration(crate::writer::MigrationError::ConfigError(message)) = error
+        else {
+            panic!("unexpected error: {error:?}");
+        };
+        assert!(
+            message.contains("storage affinity without a rebuild-data plan")
+                && message.contains("assets.digest"),
+            "{message}"
+        );
+        let plan = SqliteRebuildDataPlan {
+            predecessor_snapshot_id: uuid::Uuid::parse_str(predecessor.id())
+                .expect("generated predecessor ID is a UUID"),
+            tables: vec![SqliteTableRebuildPlan {
+                table: "assets".to_string(),
+                columns: vec![
+                    SqliteColumnCopy {
+                        target: "digest".to_string(),
+                        expression: SqliteCopyExpression::HexTextToBlob {
+                            source: "digest".to_string(),
+                            bytes: 32,
+                        },
+                    },
+                    SqliteColumnCopy {
+                        target: "relation".to_string(),
+                        expression: SqliteCopyExpression::IntegerMap {
+                            source: "relation".to_string(),
+                            cases: vec![
+                                SqliteIntegerMapping { from: 1, to: 0 },
+                                SqliteIntegerMapping { from: 2, to: 1 },
+                                SqliteIntegerMapping { from: 4, to: 2 },
+                            ],
+                        },
+                    },
+                ],
+                validations: vec![SqliteDataValidation::JsonValid {
+                    column: "metadata".to_string(),
+                }],
+            }],
+        };
+        let registry = SqliteRebuildDataPlanRegistry {
+            version: SQLITE_REBUILD_DATA_PLAN_VERSION,
+            plans: vec![plan],
+        };
+        let plan_path = dir.path().join("rebuild-data.json");
+        std::fs::write(
+            &plan_path,
+            serde_json::to_vec_pretty(&registry).expect("serialize rebuild-data registry"),
+        )
+        .expect("write rebuild-data plan");
+        let configured = Config::new(Dialect::SQLite)
+            .file(&schema_path)
+            .out(&out_dir)
+            .prefix_mode(PrefixMode::Index)
+            .sqlite_rebuild_data_plan_file(&plan_path);
+        let Output::Generated { tag, path, .. } = run(&configured).expect("generate typed rebuild")
+        else {
+            panic!("expected typed rebuild migration");
+        };
+        let sql = std::fs::read_to_string(path.join("migration.sql"))
+            .expect("read generated rebuild migration");
+        assert!(
+            sql.contains("coalesce(length(unhex(`digest`)), -1) <> 32"),
+            "{sql}"
+        );
+        assert!(sql.contains("unhex(`digest`)"), "{sql}");
+        assert!(
+            sql.contains("CASE `relation` WHEN 1 THEN 0 WHEN 2 THEN 1 WHEN 4 THEN 2 ELSE NULL END"),
+            "{sql}"
+        );
+        assert!(!sql.contains("IF EXISTS"), "{sql}");
+        assert!(!sql.contains("IF NOT EXISTS"), "{sql}");
+
+        let connection = rusqlite::Connection::open_in_memory().expect("open SQLite");
+        connection
+            .execute_batch(
+                "CREATE TABLE assets (id INTEGER PRIMARY KEY, digest TEXT, relation INTEGER NOT NULL, metadata TEXT NOT NULL);\
+                 INSERT INTO assets VALUES (1, '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f', 1, '[]');\
+                 INSERT INTO assets VALUES (2, NULL, 4, '{}');",
+            )
+            .expect("seed valid predecessor rows");
+        apply_generated_sql(&connection, &sql).expect("apply generated rebuild");
+        let rows = connection
+            .prepare("SELECT id, typeof(digest), length(digest), relation, metadata FROM assets ORDER BY id")
+            .expect("prepare migrated read")
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })
+            .expect("query migrated rows")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("decode migrated rows");
+        assert_eq!(
+            rows,
+            vec![
+                (1, "blob".to_string(), Some(32), 0, "[]".to_string()),
+                (2, "null".to_string(), None, 2, "{}".to_string()),
+            ]
+        );
+        let guard_count: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_temp_master WHERE name LIKE '__drizzle_rebuild_guard_%'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query temp guards");
+        assert_eq!(guard_count, 0, "successful migration must drop its guard");
+
+        let migration = crate::Migration::new(&tag, &sql);
+        let migrations = crate::Migrations::new(vec![migration], Dialect::SQLite);
+        assert_eq!(migrations.pending::<String>(&[]).count(), 1);
+        assert_eq!(migrations.pending(&[tag]).count(), 0);
+        assert!(
+            apply_generated_sql(&connection, &sql).is_err(),
+            "forced replay must fail loudly"
+        );
+
+        assert_invalid_rebuild_row(
+            &sql,
+            "'zz0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f'",
+            "1",
+            "'[]'",
+        );
+        assert_invalid_rebuild_row(&sql, "NULL", "3", "'[]'");
+        assert_invalid_rebuild_row(&sql, "NULL", "1", "'{' ");
+
+        assert_eq!(
+            run(&configured).expect("reopen generation with historical registry"),
+            Output::NoChanges
+        );
+    }
+
+    fn apply_generated_sql(connection: &rusqlite::Connection, sql: &str) -> rusqlite::Result<()> {
+        for statement in sql.split("\n--> statement-breakpoint\n") {
+            connection.execute_batch(statement)?;
+        }
+        Ok(())
+    }
+
+    fn assert_invalid_rebuild_row(sql: &str, digest: &str, relation: &str, metadata: &str) {
+        let connection = rusqlite::Connection::open_in_memory().expect("open SQLite");
+        connection
+            .execute_batch(&format!(
+                "CREATE TABLE assets (id INTEGER PRIMARY KEY, digest TEXT, relation INTEGER NOT NULL, metadata TEXT NOT NULL);\
+                 INSERT INTO assets VALUES (1, {digest}, {relation}, {metadata});"
+            ))
+            .expect("seed invalid predecessor row");
+        assert!(
+            apply_generated_sql(&connection, sql).is_err(),
+            "invalid predecessor row unexpectedly migrated: digest={digest}, relation={relation}, metadata={metadata}"
+        );
+        let table_sql: String = connection
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'assets'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("predecessor table remains");
+        assert!(!table_sql.contains("STRICT"), "copy began before preflight");
     }
 
     #[test]
@@ -932,6 +1249,23 @@ pub struct Schema {
     }
 
     #[test]
+    fn typed_rebuild_plan_rejects_statement_transform() {
+        let plan = SqliteRebuildDataPlan {
+            predecessor_snapshot_id: uuid::Uuid::new_v4(),
+            tables: Vec::new(),
+        };
+        let cfg = Config::new(Dialect::SQLite)
+            .file("schema.rs")
+            .sqlite_rebuild_data_plan(plan)
+            .transform_statements(|statements| statements);
+
+        assert!(matches!(
+            run(&cfg),
+            Err(BuildError::SqliteRebuildDataTransformConflict)
+        ));
+    }
+
+    #[test]
     fn from_toml_loads_minimal_sqlite() {
         let dir = tempfile::tempdir().expect("tempdir");
         let cfg_path = dir.path().join("drizzle.config.toml");
@@ -941,6 +1275,9 @@ pub struct Schema {
 dialect = "sqlite"
 schema = "src/schema.rs"
 out = "./drizzle"
+
+[migrations]
+sqliteRebuildDataPlan = "plans/rebuild-data.json"
 
 [dbCredentials]
 url = "./dev.db"
@@ -954,6 +1291,11 @@ url = "./dev.db"
         assert_eq!(cfg.out_dir(), Path::new("./drizzle"));
         assert_eq!(cfg.url().expect("resolve url"), "./dev.db");
         assert_eq!(cfg.tracking(), Tracking::SQLITE);
+        assert!(
+            cfg.watch_targets()
+                .contains(&dir.path().join("plans/rebuild-data.json")),
+            "checked-in rebuild plan must be resolved relative to and watched with its config"
+        );
     }
 
     #[test]

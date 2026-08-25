@@ -11,4 +11,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 rand = { version = "0.9", default-features = false, features = ["std_rng"] }
-spacetimedb = "2.2.0"
+spacetimedb = "2.8.0"

@@ -72,7 +72,7 @@
 				</Chart>
 			</ChartUI.Container>
 		{:else}
-			<div class="text-caption text-muted-foreground flex h-12 items-center font-mono">
+			<div class="text-label text-muted-foreground flex h-12 items-center font-mono">
 				no samples in this trial
 			</div>
 		{/if}

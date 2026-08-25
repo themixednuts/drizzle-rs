@@ -66,6 +66,7 @@ pub fn generate_table_impls(
         sql_schema: core_paths::sql_schema(),
         schema_type: sqlite_paths::sqlite_schema_type(),
         value_type: sqlite_paths::sqlite_value(),
+        unique_constraint_suffix: "_unique",
     };
     let (foreign_key_impls, _sql_foreign_keys, foreign_keys_type, fk_constraint_idents) =
         crate::common::constraints::generate_foreign_keys(

@@ -22,7 +22,7 @@
 				],
 				[
 					'summary.json',
-					'per-target primary metrics, trial spread, confidence intervals when present, and — on runs that measured it — the saturation block: the objective, the outcome, the peak or lower bound, and the full concurrency curve',
+					'per-target primary metrics, trial spread, confidence intervals when present, and, on runs that measured it, the saturation block. That block holds the objective, the outcome, the peak or lower bound, and the full concurrency curve',
 				],
 				[
 					'timeseries.json',
@@ -46,8 +46,12 @@
 					'the fastest single sample bucket of a paced run. A momentary rate inside a fixed-load run; it was previously labelled "peak throughput", which now means the capacity figure above',
 				],
 				[
-					'latency',
-					'mean, p50, p90, p95, p99, and p999 in milliseconds; p50 and p90 only when the artifact measured them',
+					'latency at load',
+					'p95 read at the highest rung of the ramp where the target still served the load it was offered. This is the figure that measures the target',
+				],
+				[
+					'whole-ramp latency',
+					'the same run, with percentiles merged across every hold plateau up to 3000 concurrent. Past the point where a target stops keeping up, the extra load is queueing, so this figure carries the queue as well as the work. It is the upstream method, kept so the throughput beside it stays comparable',
 				],
 				[
 					'cpu',
@@ -65,11 +69,11 @@
 			rows: [
 				[
 					'prepared',
-					'whether the target issues prepared statements; rendered as a badge, and left off when the artifact does not declare it',
+					'whether the target issues prepared statements. It rides on the target note line, and drops out entirely when the artifact does not declare it',
 				],
 				[
 					'data access',
-					'sql-roundtrip or in-process-cache; an in-process cache is listed in the ranking but never given a comparison against drizzle-rs, and keeps its own unranked section on compare',
+					'sql-roundtrip or in-process-cache. A cache-backed target still ranks, but carries a dash where the comparison against drizzle-rs would go, because it is not doing the same work',
 				],
 				[
 					'sql variant',
@@ -77,7 +81,7 @@
 				],
 				[
 					'drizzle-rs api',
-					'which drizzle-rs surface a target exercises, derived from the target id suffix and the sql variant, and shown as a "sql" or "relational" tag beside the name: "sql" is the typed select builder, "relational" is the db.query(..).with(..) relational query API. They generate different SQL and are two measurements, not one. Targets from other libraries carry no tag',
+					'which drizzle-rs API a target exercises, derived from the target id suffix and the sql variant, and shown as a "sql" or "relational" tag beside the name: "sql" is the typed select builder, "relational" is the db.query(..).with(..) relational query API. They generate different SQL and are two measurements, not one. Targets from other libraries carry no tag',
 				],
 				[
 					'fair block',
@@ -85,11 +89,11 @@
 				],
 				[
 					'comparison group',
-					'the set of targets claiming to be directly comparable, declared per target as fair.family. Usually a database, and split where the harness cannot be equalised — sqlite (Rust) and sqlite-ts (Bun) are both SQLite and are two groups. Enforcement and the "vs …" delta are scoped to the group; the table and the database column are not, so a split never hides a row',
+					'the set of targets claiming to be directly comparable, declared per target as fair.family. Usually a database, and split where the harness cannot be equalised. sqlite (Rust) and sqlite-ts (Bun) are both SQLite, and they are two groups. Enforcement and the "vs …" delta are scoped to the group; the table and the database column are not, so a split never hides a row',
 				],
 				[
 					'group harness',
-					'the workers, pool size and tuning a whole comparison group ran under, recorded once per group in the manifest, plus whether within-group identity was verified and which targets if any were exempted from that check. Shown as a strip above the ranking and on each row; a group with no declaration reads "harness not declared" rather than inheriting one',
+					'the workers, pool size and tuning a whole comparison group ran under, recorded once per group in the manifest, plus whether within-group identity was verified and which targets if any were exempted from that check. It sits behind "How each engine was configured" below the ranking, and inside each row\'s own detail; a group with no declaration reads "harness not declared" rather than inheriting one',
 				],
 			],
 		},
@@ -98,19 +102,19 @@
 			rows: [
 				[
 					'load',
-					'executor, stages, duration, max virtual users, and total requests are captured per run',
+					'the run records the executor, stages, duration, max virtual users and total requests',
 				],
 				[
 					'dataset',
-					'customers, employees, orders, suppliers, products, and details-per-order are captured per run',
+					'the run records customers, employees, orders, suppliers, products and details-per-order',
 				],
 				[
 					'runner',
-					'class, os, cpu model, core count, memory, metric scopes, and peak cpu are captured per run; the os appears throughout the site as an LNX / MAC / WIN badge whose tooltip names the machine and the shard',
+					'the run records class, os, cpu model, core count, memory, metric scopes and peak cpu. The os appears throughout the site as an LNX / MAC / WIN badge whose tooltip names the machine and the shard',
 				],
 				[
 					'trials',
-					'summary artifacts report the trial count, the cross-trial aggregation (median), trial spread, and optional ci95 ranges',
+					'a summary artifact reports the trial count, the cross-trial aggregation (median), the trial spread and optional ci95 ranges',
 				],
 			],
 		},
@@ -129,15 +133,15 @@
 				],
 				[
 					'saturation outcome',
-					'one of four states, never a substituted number: a measured peak; "at least N req/s — knee not reached" for a ramp that ended before the target did; "never met the p99 target" when even the smallest step breached the objective; and "not measured" for runs that did not run the suite',
+					'one of four states, never a substituted number: a measured peak; "at least N req/s · knee not reached" for a ramp that ended before the target did; "never met the p99 target" when even the smallest step breached the objective; and "not measured" for runs that did not run the suite',
 				],
 				[
 					'disqualified step',
-					"a step of the ramp whose error rate exceeded the run's limit. It is measured, drawn on the curve struck through, and listed in the step table with its reason — and it can never be chosen as the peak",
+					"a step of the ramp whose error rate exceeded the run's limit. It is measured, drawn on the curve struck through, and listed in the step table with its reason. It can never be chosen as the peak",
 				],
 				[
 					'rank',
-					'01..N across every database in one table. Under the peak-throughput order only rows with a measured peak are numbered; a lower bound or an unmeasured row shows a dash and sorts below every measured one, because position on a ranked table reads as a claim',
+					'position in the one table, across every database. There is no rank column, because the table is sorted and a reader can see where a row sits; the number is in the accessible name for readers who cannot. Under the peak-throughput order a row whose peak was never measured sorts below every row that has one, because position on a ranked table reads as a claim',
 				],
 				[
 					'caveat',
@@ -149,13 +153,13 @@
 </script>
 
 <svelte:head>
-	<title>methodology - drizzle-rs/bench</title>
+	<title>Method / drizzle-rs benchmarks</title>
 </svelte:head>
 
 <Page>
 	<PageHeader title="Method">
 		{#snippet subtitle()}
-			fields shown here come from each run manifest and summary artifact
+			every field below comes from a run manifest or a summary artifact
 		{/snippet}
 	</PageHeader>
 
@@ -165,13 +169,14 @@
 		someone who already knows the answer. A reader arriving here wants to know what they
 		may not conclude from the numbers; the reasoning behind each limit is in the repo.
 	-->
-	<Section title="what these numbers are not">
+	<Section title="What these numbers are not">
 		<dl class="measure text-prose text-foreground-secondary space-y-5">
 			<div>
 				<dt class="text-foreground font-semibold">Not absolute capacity.</dt>
 				<dd>
-					The load generator, the target and any embedded engine share one CI runner, so reported
-					CPU is whole-host. Read them as targets compared under identical conditions.
+					The load generator, the target and any embedded engine share one CI runner, so the CPU
+					figure covers the whole host. Compare these rows against each other, not against a number
+					you measured on your own hardware.
 				</dd>
 			</div>
 
@@ -180,8 +185,8 @@
 				<dd>
 					Linux jobs give the lower half of the cores to the generator and the upper half to the
 					system under test, with an out-of-process database taking a slice of that upper half.
-					Cache, memory bandwidth and the network stack stay shared, so it is separation rather than
-					isolation. macOS and Windows expose no usable affinity API and run unpinned.
+					Cache, memory bandwidth and the network stack stay shared, so the two halves still
+					interfere. macOS and Windows expose no usable affinity API and run unpinned.
 				</dd>
 			</div>
 
@@ -200,7 +205,7 @@
 				<dd>
 					With think time, offered load caps at roughly
 					<code class="text-meta font-mono">VUs / think time</code>, and every healthy target lands
-					within a few percent of it. Capacity has its own suite for exactly this reason.
+					within a few percent of it. That ceiling is why capacity gets its own suite.
 				</dd>
 			</div>
 
@@ -214,23 +219,38 @@
 		</dl>
 	</Section>
 
-	<Section title="two suites, two headlines">
+	<Section title="Two suites, two headlines">
 		<dl class="measure text-prose text-foreground-secondary space-y-5">
 			<div>
-				<dt class="text-foreground font-semibold">Throughput at fixed load — paced.</dt>
+				<dt class="text-foreground font-semibold">Throughput at fixed load, paced.</dt>
 				<dd>
-					Virtual users send a request, wait a think time, send the next. Measures latency at a
-					known rate, and matches the profile drizzle-benchmarks publishes under. Not capacity.
+					Virtual users send a request, wait a think time, send the next. The ramp is a port of the
+					profile drizzle-benchmarks publishes under — the same thirty stages to 3000 concurrent,
+					the same 0–375&nbsp;ms think-time staircase averaging 187.5&nbsp;ms. It is not a capacity
+					figure.
 				</dd>
 			</div>
 			<div>
-				<dt class="text-foreground font-semibold">Peak throughput — saturation.</dt>
+				<dt class="text-foreground font-semibold">Latency, read where the target kept up.</dt>
+				<dd>
+					A closed ramp cannot offer more than a target can serve, so past its ceiling every extra
+					virtual user becomes queue depth and the reported latency measures the ramp rather than
+					the library. So latency is read at the highest rung the target still served in full —
+					where its throughput still rose in step with the load offered to it. Every rung publishes
+					what it was offered, what it served, and the ratio between them, so the reading can be
+					checked against its own working. The cut between keeping up and falling behind is drawn
+					from the recorded runs rather than chosen, and it is narrow: a target within about a
+					percent of it can read at a different rung between runs.
+				</dd>
+			</div>
+			<div>
+				<dt class="text-foreground font-semibold">Peak throughput, from saturation.</dt>
 				<dd>
 					The same workload with think time removed, stepped over concurrency: hold, measure steady
 					state, step up. The headline is the fastest step that held the latency objective and
-					stayed inside the error limit — a step that returned errors faster is disqualified, and
-					said to be. Every step's throughput, percentiles, errors and CPU are published, not just
-					the winner.
+					stayed inside the error limit. A step that broke the error limit is disqualified, and the
+					curve strikes it through. Every step publishes its own throughput, percentiles, errors and
+					CPU, not only the winning one.
 				</dd>
 			</div>
 		</dl>
@@ -241,34 +261,35 @@
 		It previously described the outcome as turning on whether the last step breached the
 		objective, which stopped being true when the rule moved to throughput turning over.
 	-->
-	<Section title="when there is no peak">
+	<Section title="When there is no peak">
 		<div class="measure text-prose text-foreground-secondary space-y-4">
 			<p>
-				A capacity measurement can fail to produce a number. Nothing is substituted for it — not a
-				zero, not the top of the ramp, not the paced number under the other one's name.
+				A capacity measurement can fail to produce a number. When it does, nothing stands in for it.
+				Not a zero, not the top of the ramp, not the paced number wearing the other one's name.
 			</p>
 			<dl class="space-y-4">
 				<div>
 					<dt class="text-foreground font-medium">A peak, at a stated objective</dt>
 					<dd class="mt-1">
-						Throughput rose into a maximum and measurably fell away from it, so the ceiling was
-						bracketed on both sides. Reported with its objective and the concurrency it was reached
-						at. The only outcome that earns a rank.
+						Throughput climbed to a maximum and then fell away from it, so the ramp found the
+						ceiling from both sides. It prints with its objective and the concurrency that reached
+						it. This is the only outcome that earns a rank.
 					</dd>
 				</div>
 				<div>
-					<dt class="text-foreground font-medium">"at least N req/s — knee not reached"</dt>
+					<dt class="text-foreground font-medium">"at least N req/s · knee not reached"</dt>
 					<dd class="mt-1">
 						Throughput was still flat or climbing when the ramp ended, so the best step is a floor
 						rather than a ceiling. Shown faint, with "at least", ranked below every measured peak. A
-						maximum sitting on the ramp's first step counts here too: nothing below it was tried.
+						maximum sitting on the ramp's first step counts here too, because nothing below it was
+						tried.
 					</dd>
 				</div>
 				<div>
 					<dt class="text-foreground font-medium">"never met the p99 target"</dt>
 					<dd class="mt-1">
-						Even the smallest step breached the objective. The curve is still drawn — how far over
-						it landed is the useful part.
+						Even the smallest step breached the objective. The curve is still drawn, because how far
+						over it landed is the useful part.
 					</dd>
 				</div>
 				<div>
@@ -282,11 +303,11 @@
 		</div>
 	</Section>
 
-	<Section title="fair means two different things">
+	<Section title="Fair means two different things">
 		<dl class="measure text-prose text-foreground-secondary space-y-5">
 			<div>
 				<dt class="text-foreground font-semibold">
-					Inside a comparison group — identical, enforced.
+					Inside a comparison group, identical and enforced.
 				</dt>
 				<dd>
 					Every target in a group runs the same workers, pool and tuning, so the gap between two of
@@ -298,27 +319,27 @@
 			<div>
 				<dt class="text-foreground font-semibold">A group is not always a database.</dt>
 				<dd>
-					It splits where the harness cannot honestly be equalised:
+					It splits wherever one harness cannot fit both sides.
 					<code class="text-meta font-mono">bun:sqlite</code> is synchronous on a single-threaded runtime,
 					so handing it the Rust stack's pool of eight would be fiction. It gets its own SQLite group
-					with drizzle-orm. Both still appear in the one table under SQLite — the split changes what a
+					with drizzle-orm. Both still appear in the one table under SQLite. The split changes what a
 					row is measured against, never whether it is shown.
 				</dd>
 			</div>
 			<div>
-				<dt class="text-foreground font-semibold">Across groups — different, declared.</dt>
+				<dt class="text-foreground font-semibold">Across groups, different and declared.</dt>
 				<dd>
 					Forcing an embedded engine and a client/server engine into one configuration does not make
-					them comparable, it makes them equally crippled. Each stack runs in the shape it is
-					deployed in, and every run records what that was — under <em>Run configuration</em> below the
-					ranking, and inside each row's own detail. A group that declared nothing says so instead of
-					borrowing a neighbour's.
+					them comparable. It makes them equally hobbled. Each stack runs in the shape it is
+					deployed in, and every run records what that was, under <em>Run configuration</em> below the
+					ranking and inside each row's own detail. A group that declared nothing says so instead of borrowing
+					a neighbour's.
 				</dd>
 			</div>
 		</dl>
 	</Section>
 
-	<Section title="how values are aggregated">
+	<Section title="How trials become one number">
 		<dl class="measure text-prose text-foreground-secondary space-y-5">
 			<div>
 				<dt class="text-foreground font-semibold">Median across trials.</dt>
@@ -355,16 +376,18 @@
 		reader nothing and stays one click from anyone who needs it, which is the same reason the
 		ranking's run configuration is a disclosure rather than a banner.
 	-->
-	<details class="border-border mt-8 border">
+	<details class="bg-card mt-8 rounded-md">
 		<summary
 			class="text-meta text-foreground-secondary hover:text-foreground cursor-pointer px-4 py-2.5 transition-colors"
 		>
 			Field reference
 		</summary>
-		<div class="border-border space-y-6 border-t px-4 py-4">
+		<div class="border-border-soft space-y-6 border-t px-4 py-4">
 			{#each REFERENCE as group (group.title)}
 				<section>
-					<h2 class="text-micro text-muted-foreground mb-2 font-mono uppercase">{group.title}</h2>
+					<h2 class="text-micro text-muted-foreground type-narrow mb-2 font-mono uppercase">
+						{group.title}
+					</h2>
 					<DataTable>
 						<Table.Body>
 							{#each group.rows as [term, definition] (term)}
@@ -380,9 +403,9 @@
 		</div>
 	</details>
 
-	<Section title="local commands">
+	<Section title="Running it yourself">
 		<pre
-			class="border-border bg-muted text-meta overflow-x-auto border px-4 py-3 font-mono leading-relaxed"><span
+			class="bg-surface-inset text-meta overflow-x-auto rounded-sm px-4 py-3 font-mono leading-relaxed"><span
 				class="text-muted-foreground"># run Rust benchmarks</span
 			>
 cargo bench --features "rusqlite,uuid"

@@ -75,6 +75,12 @@ fn fresh_fixture_root(root: &Path) -> PathBuf {
 fn cargo_check(root: &Path, manifest_path: &Path, extra_args: &[&str]) {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"));
     let target_dir = root.join("target");
+    let parser_path = root
+        .join("bench/vendor/libsql-sqlite3-parser")
+        .display()
+        .to_string()
+        .replace('\\', "/");
+    let parser_patch = format!("patch.crates-io.libsql-sqlite3-parser.path={parser_path:?}");
     let fixture_workspace = manifest_path
         .parent()
         .expect("fixture manifest should have a parent directory");
@@ -88,6 +94,10 @@ fn cargo_check(root: &Path, manifest_path: &Path, extra_args: &[&str]) {
         .arg("check")
         .arg("--manifest-path")
         .arg(manifest_path)
+        // Workspace patches do not propagate through a path dependency. Repeat this repository's
+        // parser patch so a clean runner can resolve the copied lockfile without network access.
+        .arg("--config")
+        .arg(parser_patch)
         .arg("--offline")
         .args(extra_args)
         .arg("--quiet")

@@ -364,14 +364,6 @@ fn generate_partial_field_from_row(idx: usize, info: &FieldInfo) -> TokenStream 
 // JSON/Enum Implementation Generation
 // =============================================================================
 
-/// Generate rusqlite enum implementations (FromSql/ToSql)
-/// NOTE: This is now a no-op since `SQLiteEnum` derive generates these impls directly.
-pub fn generate_enum_impls(_info: &FieldInfo) -> TokenStream {
-    // SQLiteEnum now generates FromSql/ToSql implementations directly,
-    // so we don't need to generate them here anymore.
-    quote! {}
-}
-
 /// Generate rusqlite JSON implementations (FromSql/ToSql)
 pub fn generate_json_impls(
     json_type_storage: &std::collections::HashMap<String, (SQLiteType, &FieldInfo)>,

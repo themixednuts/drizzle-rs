@@ -4,10 +4,11 @@ use crate::code::{Code, Fail};
 use crate::jsonio;
 use crate::model::{
     Artifacts, AvgPeakDoc, BoxMetricDoc, BoxPlotDoc, DatasetSummary, Event, Exec, Gate, Gates,
-    HarnessDoc, Headroom, LatencyDoc, Limits, LoadSummary, ManifestDoc, ManifestSummary, Point,
-    PrimaryDoc, QueryDoc, QueryShapeDoc, RangeDoc, RequestDoc, ResultDoc, Runner, RunnerMetrics,
-    SaturationDoc, SaturationSpec, SpreadDoc, Status, SummaryDoc, Target, TargetMetaDoc,
-    TimeseriesDoc, Topology, TrialMeta, VarianceDoc, VarianceMetricDoc, Workload,
+    HarnessDoc, Headroom, LatencyDoc, LatencySpec, Limits, LoadSummary, ManifestDoc,
+    ManifestSummary, Point, PrimaryDoc, QueryDoc, QueryShapeDoc, RangeDoc, RequestDoc, ResultDoc,
+    Runner, RunnerMetrics, SaturationDoc, SaturationSpec, SpreadDoc, Status, SummaryDoc,
+    SustainedLatencyDoc, Target, TargetMetaDoc, TimeseriesDoc, Topology, TrialMeta, VarianceDoc,
+    VarianceMetricDoc, Workload,
 };
 use crate::stats::{avg, max, median, median_sorted, min, peak, sample_variance};
 use crate::workload_terms::{CUSTOMER_SEARCH_TERMS, PRODUCT_SEARCH_TERMS};
@@ -233,6 +234,10 @@ struct RunInput {
     /// Declared only by the stepped unpaced ramp; absent for the paced suite,
     /// which cannot measure capacity.
     saturation: Option<SaturationSpec>,
+    /// Declared by ramps whose whole-run latency aggregate would be
+    /// queueing-dominated; the published latency is then read off the step
+    /// curve instead.
+    latency: Option<LatencySpec>,
 }
 
 struct TrialContext<'a> {
@@ -278,6 +283,7 @@ struct TargetArtifacts<'a> {
     summary: &'a PrimaryDoc,
     spread: &'a SpreadDoc,
     saturation: Option<&'a SaturationDoc>,
+    latency: Option<&'a SustainedLatencyDoc>,
 }
 
 #[derive(Debug, Clone)]
@@ -388,6 +394,7 @@ fn load_input(args: &Run) -> Result<RunInput, Fail> {
         bucket_s,
         harness,
         saturation: workload.saturation,
+        latency: workload.latency,
     })
 }
 
@@ -898,6 +905,16 @@ fn run_aggregate(
             )?),
             None => None,
         };
+        let latency = match &input.latency {
+            Some(LatencySpec {}) => Some(measure_latency(
+                &target.id,
+                &input.limits,
+                values,
+                events,
+                json,
+            )?),
+            None => None,
+        };
         summary_map.insert(target.id.clone(), summary.clone());
         write_target_artifacts(
             run_dir,
@@ -911,6 +928,7 @@ fn run_aggregate(
                 summary: &summary,
                 spread: &spread,
                 saturation: saturation.as_ref(),
+                latency: latency.as_ref(),
             },
         )?;
     }
@@ -942,6 +960,7 @@ fn write_target_artifacts(run_dir: &Path, doc: TargetArtifacts<'_>) -> Result<()
         primary: doc.summary.clone(),
         spread: doc.spread.clone(),
         saturation: doc.saturation.cloned(),
+        latency: doc.latency.cloned(),
     };
     jsonio::write(
         target_dir.join("summary.json"),
@@ -1574,11 +1593,20 @@ fn load_points(path: &Path) -> Result<Vec<Point>, Fail> {
 /// 10 000-request one, and including ramp/warmup buckets averages the cold
 /// start into the published number.
 fn point_from_series(points: &[Point]) -> Point {
+    // Same fallback ladder as the load-side aggregate: counted holds, then any
+    // hold, then everything. Probe buckets belong to the step curve, not the
+    // whole-ramp aggregate.
+    let counted_hold: Vec<&Point> = points
+        .iter()
+        .filter(|point| point.is_hold() && !point.probe)
+        .collect();
     let hold: Vec<&Point> = points.iter().filter(|point| point.is_hold()).collect();
-    let counted: Vec<&Point> = if hold.is_empty() {
-        points.iter().collect()
-    } else {
+    let counted: Vec<&Point> = if !counted_hold.is_empty() {
+        counted_hold
+    } else if !hold.is_empty() {
         hold
+    } else {
+        points.iter().collect()
     };
 
     let time = counted
@@ -1670,6 +1698,7 @@ fn point_from_series(points: &[Point]) -> Point {
         stage: None,
         phase: None,
         vus: None,
+        probe: false,
         requests: counted
             .iter()
             .filter_map(|point| point.requests)
@@ -1686,18 +1715,27 @@ fn combined_series(measurements: &[TrialMeasurement]) -> Vec<Point> {
 }
 
 /// Steady-state buckets across every trial — the only samples that describe the
-/// target rather than its warm-up.
+/// target rather than its warm-up. Probe plateaus are steady state too, but
+/// they exist for the step curve, not the primary aggregate: letting a
+/// low-load probe bucket into the peak pool would be harmless for rps and
+/// misleading for nothing today, yet the exclusion is what keeps `primary.*`
+/// aggregating exactly the stages the upstream method aggregates.
 fn hold_points(measurements: &[TrialMeasurement]) -> Vec<&Point> {
-    let hold: Vec<&Point> = measurements
-        .iter()
-        .flat_map(|measurement| measurement.series.iter())
-        .filter(|point| point.is_hold())
-        .collect();
-    if hold.is_empty() {
+    let all = || {
         measurements
             .iter()
             .flat_map(|measurement| measurement.series.iter())
-            .collect()
+    };
+    let counted: Vec<&Point> = all()
+        .filter(|point| point.is_hold() && !point.probe)
+        .collect();
+    if !counted.is_empty() {
+        return counted;
+    }
+    // Same fallback ladder as the load-side aggregate: any hold, then all.
+    let hold: Vec<&Point> = all().filter(|point| point.is_hold()).collect();
+    if hold.is_empty() {
+        all().collect()
     } else {
         hold
     }
@@ -2525,6 +2563,83 @@ fn measure_saturation(
     Ok(doc)
 }
 
+/// Read one target's service latency off its step curve.
+///
+/// The whole-ramp aggregate cannot be this number. On a closed-loop ramp,
+/// every hold second past a target's throughput ceiling adds `VUs / rps` of
+/// queueing delay to the sample pool, so a p95 computed across the ramp
+/// measures how far the ramp overshot the target — a recorded publish run had
+/// every PostgreSQL target within a few percent of 1.3k rps and yet spread
+/// over 2.2-3.3 s "p95", which was the stage schedule talking, not the
+/// libraries. The step curve keeps each plateau's exact percentiles separate,
+/// and the sustained criterion names the plateau worth publishing.
+fn measure_latency(
+    target_id: &str,
+    limits: &Limits,
+    measurements: &[TrialMeasurement],
+    events: &mut BufWriter<File>,
+    json: bool,
+) -> Result<SustainedLatencyDoc, Fail> {
+    let steps: Vec<&[Point]> = measurements
+        .iter()
+        .map(|measurement| measurement.steps.as_slice())
+        .collect();
+    if steps.iter().any(|trial| trial.is_empty()) {
+        return Err(Fail::new(
+            Code::AggregateFail,
+            format!(
+                "target {target_id} produced no per-step measurements, so its \
+                 sustained latency cannot be computed. A workload declaring `latency` \
+                 requires a load command that writes $BENCH_STEPS_OUT; per-step \
+                 percentiles cannot be recovered from the bucket series without \
+                 averaging percentiles together."
+            ),
+        ));
+    }
+
+    let doc = crate::saturation::sustained_latency(target_id, limits, &steps)?;
+    emit(
+        events,
+        json,
+        "info",
+        "aggregate",
+        latency_summary(target_id, &doc),
+    )?;
+    Ok(doc)
+}
+
+/// Plain-language one-liner for the events stream, using the same words the
+/// dashboard shows so the log and the UI cannot disagree.
+fn latency_summary(target_id: &str, doc: &SustainedLatencyDoc) -> String {
+    use crate::model::SustainedOutcome;
+    match (&doc.reference, doc.outcome) {
+        (Some(reference), _) => {
+            let sustained_to = doc
+                .curve
+                .iter()
+                .take_while(|step| step.sustained)
+                .last()
+                .map(|step| step.concurrency)
+                .unwrap_or(reference.concurrency);
+            format!(
+                "{target_id} p95 {:.1} ms at reference concurrency {} ({:.0} of {:.0} offered req/s served); sustained through {} VUs",
+                reference.latency.p95,
+                reference.concurrency,
+                reference.rps,
+                reference.offered_rps,
+                sustained_to
+            )
+        }
+        (None, SustainedOutcome::FloorDisqualified) => format!(
+            "{target_id} exceeded the error limit at the ladder's floor — no honest latency figure exists"
+        ),
+        (None, _) => format!(
+            "{target_id} did not sustain even the reference rung above the ladder's floor — extend \
+             the ladder downward; the floor's latency cannot be told apart from queueing"
+        ),
+    }
+}
+
 /// Plain-language one-liner for the events stream, using the same words the
 /// dashboard shows so the log and the UI cannot disagree.
 fn saturation_summary(target_id: &str, doc: &SaturationDoc) -> String {
@@ -2534,9 +2649,9 @@ fn saturation_summary(target_id: &str, doc: &SaturationDoc) -> String {
             "{target_id} peak throughput {:.0} req/s at {slo} (concurrency {})",
             peak.rps, peak.concurrency
         ),
-        (_, _, Some(rps)) => format!(
-            "{target_id} at least {rps:.0} req/s at {slo} — knee not reached, extend the ramp"
-        ),
+        (_, _, Some(rps)) => {
+            format!("{target_id} at least {rps:.0} req/s at {slo} — the curve never turned over")
+        }
         _ => format!("{target_id} never met the {slo} target at any concurrency"),
     }
 }
@@ -3047,6 +3162,9 @@ fn validate_workload(workload: &Workload) -> Result<(), Fail> {
     if workload.saturation.is_some() {
         validate_saturation(workload)?;
     }
+    if workload.latency.is_some() {
+        validate_latency(workload)?;
+    }
     Ok(())
 }
 
@@ -3125,6 +3243,46 @@ fn validate_saturation(workload: &Workload) -> Result<(), Fail> {
                 "workload.saturation steps must climb in concurrency, but a step at \
                  {higher} VUs follows one at {lower}. The curve is read left to right \
                  and the peak is the highest qualifying step."
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// A sustained-latency workload must be able to produce the number it claims.
+///
+/// Deliberately looser than [`validate_saturation`]: pacing is allowed (think
+/// time bounds offered load without distorting per-request latency, and the
+/// paced ramp is exactly where the whole-run aggregate is most misleading).
+/// Two things it cannot tolerate: a ladder with fewer than two steps — the
+/// floor is the reference other steps are judged against, so it cannot
+/// corroborate itself — and a ladder that dips: the reading point is the last
+/// step of the contiguous sustained prefix, which only names a load level when
+/// concurrency climbs left to right.
+fn validate_latency(workload: &Workload) -> Result<(), Fail> {
+    if workload.latency.is_none() {
+        return Ok(());
+    }
+    let invalid = |msg: String| Fail::new(Code::InvalidInput, msg);
+
+    let steps = crate::load::hold_steps(workload);
+    if steps.len() < 2 {
+        return Err(invalid(format!(
+            "workload.latency needs at least two measured steps, found {}. A step \
+             is a stage that holds its concurrency and is not inside the \
+             warmup_s={} window, and the floor step cannot corroborate itself.",
+            steps.len(),
+            workload.warmup_seconds()
+        )));
+    }
+    for pair in steps.windows(2) {
+        let ((_, lower), (_, higher)) = (pair[0], pair[1]);
+        if higher <= lower {
+            return Err(invalid(format!(
+                "workload.latency steps must climb in concurrency, but a step at \
+                 {higher} VUs follows one at {lower}. The published figure is the \
+                 highest step the target sustained, which is only a load level when \
+                 the ladder ascends."
             )));
         }
     }
@@ -3460,6 +3618,42 @@ mod tests {
         assert_eq!(primary.cpu.peak, 25.0);
     }
 
+    /// Probe plateaus feed the step curve, never `primary.*`: the whole-ramp
+    /// headline must keep aggregating exactly the stages the upstream method
+    /// aggregates, or the probes would change the number they exist to protect.
+    #[test]
+    fn primary_ignores_probe_buckets() {
+        let mut probe = tagged(9_500.0, 99.0, Phase::Hold, 0);
+        probe.probe = true;
+        let measurements = vec![TrialMeasurement::new(
+            point(100.0, 10.0),
+            vec![
+                probe,
+                tagged(100.0, 20.0, Phase::Hold, 1),
+                tagged(120.0, 25.0, Phase::Hold, 1),
+            ],
+        )];
+
+        let primary = compute_primary(&measurements);
+        assert_eq!(primary.rps.peak, 120.0);
+        assert_eq!(primary.cpu.peak, 25.0);
+    }
+
+    /// The series-derived fallback aggregate obeys the same exclusion.
+    #[test]
+    fn series_fallback_skips_probe_buckets() {
+        let mut probe = tagged(9_500.0, 99.0, Phase::Hold, 0);
+        probe.probe = true;
+        probe.requests = Some(9_500);
+        let mut counted = tagged(100.0, 20.0, Phase::Hold, 1);
+        counted.requests = Some(100);
+
+        let aggregate = point_from_series(&[probe, counted]);
+
+        assert_eq!(aggregate.requests, Some(100));
+        assert_eq!(aggregate.rps, 100.0);
+    }
+
     #[test]
     fn primary_reports_measured_p90_not_an_interpolation() {
         let mut aggregate = point(100.0, 10.0);
@@ -3575,6 +3769,58 @@ mod tests {
             .expect("valid ramp");
     }
 
+    /// The whole point of the latency block is to be legal on the paced ramp:
+    /// think time bounds offered load without distorting per-request latency,
+    /// and the paced ramp is exactly where the whole-run aggregate misleads.
+    #[test]
+    fn a_latency_block_on_a_paced_ramp_validates() {
+        validate_workload(&parse_workload(&latency_workload(
+            FOUR_STEP_RAMP,
+            6,
+            "drizzle-benchmark",
+        )))
+        .expect("paced latency ramp");
+    }
+
+    #[test]
+    fn a_latency_ladder_must_climb() {
+        // Steps become 8, 16, 8, 64 — the third one goes backwards.
+        let spec = latency_workload(FOUR_STEP_RAMP, 6, "drizzle-benchmark").replace(
+            r#""vus": 32 }, { "sec": 4, "vus": 32 }"#,
+            r#""vus": 8 }, { "sec": 4, "vus": 8 }"#,
+        );
+        let err = validate_workload(&parse_workload(&spec)).expect_err("ladder that dips");
+        assert!(err.msg.contains("must climb in concurrency"), "{}", err.msg);
+    }
+
+    /// The floor is the reference the other rungs are judged against, so one
+    /// rung — or none, when warmup swallows the run — cannot measure anything.
+    #[test]
+    fn a_latency_block_needs_two_measured_steps() {
+        // Warmup swallows the entire run, so no stage ever holds outside it.
+        let spec = latency_workload(r#"{ "sec": 4, "vus": 8 }"#, 4, "drizzle-benchmark");
+        let err = validate_workload(&parse_workload(&spec)).expect_err("no steps");
+        assert!(
+            err.msg.contains("at least two measured steps"),
+            "{}",
+            err.msg
+        );
+
+        // One hold step outside warmup is still one short: the floor alone
+        // cannot corroborate itself.
+        let spec = latency_workload(
+            r#"{ "sec": 2, "vus": 8 }, { "sec": 4, "vus": 8 }"#,
+            2,
+            "drizzle-benchmark",
+        );
+        let err = validate_workload(&parse_workload(&spec)).expect_err("one step");
+        assert!(
+            err.msg.contains("at least two measured steps"),
+            "{}",
+            err.msg
+        );
+    }
+
     fn parse_workload(body: &str) -> crate::model::Workload {
         serde_json::from_str(body).expect("workload json")
     }
@@ -3587,6 +3833,26 @@ mod tests {
         { "sec": 2, "vus": 32 }, { "sec": 4, "vus": 32 },
         { "sec": 2, "vus": 64 }, { "sec": 4, "vus": 64 }
     "#;
+
+    fn latency_workload(stages: &str, warmup_s: u32, pacing: &str) -> String {
+        format!(
+            r#"{{
+          "version": "v1",
+          "suite": "throughput-http",
+          "name": "Paced ramp",
+          "load": {{ "kind": "closed", "executor": "ramping-vus", "unit": "1s", "concurrency": 64 }},
+          "data": {{ "name": "b", "seed": 42, "schema": "s.sql" }},
+          "shape": {{ "mode": "mixed", "endpoint": null }},
+          "stages": [{stages}],
+          "warmup_s": {warmup_s},
+          "requests": {{ "source": "generated", "file": "r.json", "skip": [] }},
+          "pacing": {{ "mode": "{pacing}" }},
+          "sampling": {{ "cpu_ms": 200, "bucket_s": 1 }},
+          "limits": {{ "err": 0.01, "p95": null }},
+          "latency": {{}}
+        }}"#
+        )
+    }
 
     fn saturation_workload(stages: &str, warmup_s: u32) -> String {
         format!(
@@ -3759,6 +4025,7 @@ mod tests {
             stage: None,
             phase: None,
             vus: None,
+            probe: false,
             requests: None,
             queries: Vec::new(),
         }

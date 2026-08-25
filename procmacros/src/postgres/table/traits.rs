@@ -66,6 +66,7 @@ pub(super) fn generate_table_impls(
         sql_schema: core_paths::sql_schema(),
         schema_type: postgres_paths::postgres_schema_type(),
         value_type: postgres_paths::postgres_value(),
+        unique_constraint_suffix: "_key",
     };
     let (foreign_key_impls, _sql_foreign_keys, foreign_keys_type, fk_constraint_idents) =
         crate::common::constraints::generate_foreign_keys(

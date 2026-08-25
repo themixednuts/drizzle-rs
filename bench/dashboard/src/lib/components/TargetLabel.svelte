@@ -9,7 +9,7 @@
 	 * renders this, so a target reads the same on the ranking, the compare page and a run detail.
 	 *
 	 * What used to be a row of outlined badge chips is now that second line plus a tooltip. Nothing
-	 * was dropped: the note carries kind/driver/prepared (and states an in-process cache in full),
+	 * was dropped: the note carries the driver and whether statements were prepared,
 	 * the dialect gets its own column wherever there is one, and the full attribute list — runner OS
 	 * included — is on the tooltip and in the accessible name.
 	 *
@@ -39,7 +39,7 @@
 			{href}
 			class={cn(
 				'text-lead font-medium',
-				accent ? 'text-link' : 'text-foreground',
+				accent ? 'text-signal-ink' : 'text-foreground',
 				href && 'hover:underline',
 			)}
 		>

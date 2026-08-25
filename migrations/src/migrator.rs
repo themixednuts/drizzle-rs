@@ -81,6 +81,52 @@ pub struct Migration {
     sql: Vec<String>,
 }
 
+/// SQLite statements prepared for execution by a runtime adapter.
+///
+/// Generated table rebuilds carry `PRAGMA foreign_keys=OFF/ON` sentinels.
+/// SQLite ignores those pragmas inside a transaction, so adapters must apply
+/// the connection setting before opening their transaction and restore it
+/// after completion. The sentinels are excluded from
+/// [`SqliteMigrationExecution::statements`].
+#[derive(Debug, Clone, Copy)]
+pub struct SqliteMigrationExecution<'a> {
+    statements: &'a [String],
+    suspends_foreign_keys: bool,
+}
+
+impl<'a> SqliteMigrationExecution<'a> {
+    /// Whether the adapter must disable foreign-key enforcement before its
+    /// transaction and restore it afterward.
+    #[inline]
+    #[must_use]
+    pub const fn suspends_foreign_keys(self) -> bool {
+        self.suspends_foreign_keys
+    }
+
+    /// Statements to execute inside the migration transaction.
+    pub fn statements(self) -> impl Iterator<Item = &'a str> + 'a {
+        self.statements.iter().filter_map(|statement| {
+            sqlite_foreign_keys_setting(statement)
+                .expect("SQLite migration execution was validated before construction")
+                .is_none()
+                .then_some(statement.as_str())
+        })
+    }
+}
+
+/// Invalid SQLite foreign-key suspension sentinels in a migration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum SqliteMigrationExecutionError {
+    #[error("PRAGMA foreign_keys=OFF is nested without a matching ON")]
+    NestedForeignKeysOff,
+    #[error("PRAGMA foreign_keys=ON has no preceding OFF")]
+    ForeignKeysOnWithoutOff,
+    #[error("PRAGMA foreign_keys=OFF has no matching ON")]
+    ForeignKeysOffWithoutOn,
+    #[error("unsupported PRAGMA foreign_keys assignment in migration")]
+    UnsupportedForeignKeysPragma,
+}
+
 /// Outcome of a successful `migrate(...)` call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MigrateOutcome {
@@ -198,11 +244,52 @@ impl Migration {
         self.created_at
     }
 
-    /// Get the SQL statements (already split)
+    /// Get the raw SQL statements (already split).
+    ///
+    /// SQLite transaction-owning adapters must use [`Self::sqlite_execution`]
+    /// instead so foreign-key suspension sentinels are handled outside the
+    /// transaction.
     #[inline]
     #[must_use]
     pub fn statements(&self) -> &[String] {
         &self.sql
+    }
+
+    /// Validate SQLite foreign-key suspension sentinels and prepare the
+    /// statement stream for a transaction-owning runtime adapter.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SqliteMigrationExecutionError`] when foreign-key suspension
+    /// pragmas are nested, unbalanced, or use an unsupported assignment form.
+    pub fn sqlite_execution(
+        &self,
+    ) -> Result<SqliteMigrationExecution<'_>, SqliteMigrationExecutionError> {
+        let mut foreign_keys_disabled = false;
+        let mut suspends_foreign_keys = false;
+        for statement in &self.sql {
+            match sqlite_foreign_keys_setting(statement)? {
+                Some(false) if foreign_keys_disabled => {
+                    return Err(SqliteMigrationExecutionError::NestedForeignKeysOff);
+                }
+                Some(false) => {
+                    foreign_keys_disabled = true;
+                    suspends_foreign_keys = true;
+                }
+                Some(true) if !foreign_keys_disabled => {
+                    return Err(SqliteMigrationExecutionError::ForeignKeysOnWithoutOff);
+                }
+                Some(true) => foreign_keys_disabled = false,
+                None => {}
+            }
+        }
+        if foreign_keys_disabled {
+            return Err(SqliteMigrationExecutionError::ForeignKeysOffWithoutOn);
+        }
+        Ok(SqliteMigrationExecution {
+            statements: &self.sql,
+            suspends_foreign_keys,
+        })
     }
 
     /// Check if this migration is empty
@@ -219,6 +306,108 @@ impl Migration {
             .iter()
             .any(|statement| is_postgres_concurrent_index_statement(statement))
     }
+}
+
+fn sqlite_foreign_keys_setting(
+    statement: &str,
+) -> Result<Option<bool>, SqliteMigrationExecutionError> {
+    let normalized: String = strip_sql_comments(statement)
+        .trim()
+        .trim_end_matches(';')
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect();
+    match sqlite_foreign_keys_assignment(&normalized) {
+        Some("=off" | "=0" | "=false" | "=no" | "(off)" | "(0)" | "(false)" | "(no)") => {
+            Ok(Some(false))
+        }
+        Some("=on" | "=1" | "=true" | "=yes" | "(on)" | "(1)" | "(true)" | "(yes)") => {
+            Ok(Some(true))
+        }
+        Some(_) => Err(SqliteMigrationExecutionError::UnsupportedForeignKeysPragma),
+        _ => Ok(None),
+    }
+}
+
+fn sqlite_foreign_keys_assignment(normalized: &str) -> Option<&str> {
+    let pragma = normalized.strip_prefix("pragma")?;
+    for name in [
+        "foreign_keys",
+        "\"foreign_keys\"",
+        "'foreign_keys'",
+        "`foreign_keys`",
+        "[foreign_keys]",
+    ] {
+        if let Some(assignment) = pragma.strip_prefix(name)
+            && matches!(assignment.as_bytes().first(), Some(b'=' | b'('))
+        {
+            return Some(assignment);
+        }
+        if let Some((_, assignment)) = pragma.rsplit_once(&format!(".{name}"))
+            && matches!(assignment.as_bytes().first(), Some(b'=' | b'('))
+        {
+            return Some(assignment);
+        }
+    }
+    None
+}
+
+fn strip_sql_comments(statement: &str) -> String {
+    let mut output = String::with_capacity(statement.len());
+    let mut characters = statement.chars().peekable();
+    let mut quote = None;
+
+    while let Some(character) = characters.next() {
+        if let Some(terminator) = quote {
+            output.push(character);
+            if character == terminator {
+                if terminator != ']' && characters.peek() == Some(&terminator) {
+                    output.push(characters.next().expect("peeked quote is present"));
+                } else {
+                    quote = None;
+                }
+            }
+            continue;
+        }
+
+        match character {
+            '\'' | '"' | '`' => {
+                quote = Some(character);
+                output.push(character);
+            }
+            '[' => {
+                quote = Some(']');
+                output.push(character);
+            }
+            '-' if characters.peek() == Some(&'-') => {
+                characters.next();
+                for comment_character in characters.by_ref() {
+                    if comment_character == '\n' {
+                        output.push('\n');
+                        break;
+                    }
+                }
+            }
+            '/' if characters.peek() == Some(&'*') => {
+                characters.next();
+                let mut closed = false;
+                while let Some(comment_character) = characters.next() {
+                    if comment_character == '*' && characters.peek() == Some(&'/') {
+                        characters.next();
+                        closed = true;
+                        break;
+                    }
+                }
+                if !closed {
+                    output.push_str("/*");
+                }
+            }
+            _ => output.push(character),
+        }
+    }
+
+    output
 }
 
 /// A collection of migrations ready to be applied
@@ -1367,13 +1556,76 @@ macro_rules! migrations {
 #[cfg(test)]
 mod tests {
     use super::{
-        AppliedMigrationMetadata, Migrations, compute_hash, is_postgres_concurrent_index_statement,
-        match_applied_migration_metadata, parse_timestamp_from_tag, split_on_semicolons,
-        split_statements,
+        AppliedMigrationMetadata, Migration, Migrations, SqliteMigrationExecutionError,
+        compute_hash, is_postgres_concurrent_index_statement, match_applied_migration_metadata,
+        parse_timestamp_from_tag, split_on_semicolons, split_statements,
     };
     use crate::config::Tracking;
     use crate::dir::MigrationDir;
     use drizzle_types::Dialect;
+
+    #[test]
+    fn sqlite_execution_lifts_foreign_key_pragmas_out_of_transactions() {
+        let migration = Migration::new(
+            "0001_rebuild",
+            "PRAGMA foreign_keys = OFF;\n--> statement-breakpoint\nCREATE TABLE records (id INTEGER);\n--> statement-breakpoint\nPRAGMA foreign_keys=ON;",
+        );
+
+        let execution = migration.sqlite_execution().expect("valid suspension");
+        assert!(execution.suspends_foreign_keys());
+        assert_eq!(
+            execution.statements().collect::<Vec<_>>(),
+            vec!["CREATE TABLE records (id INTEGER)"]
+        );
+    }
+
+    #[test]
+    fn sqlite_execution_rejects_unbalanced_foreign_key_pragmas() {
+        let missing_on = Migration::new("0001", "PRAGMA foreign_keys=OFF;");
+        assert_eq!(
+            missing_on.sqlite_execution().unwrap_err(),
+            SqliteMigrationExecutionError::ForeignKeysOffWithoutOn
+        );
+
+        let missing_off = Migration::new("0002", "PRAGMA foreign_keys=ON;");
+        assert_eq!(
+            missing_off.sqlite_execution().unwrap_err(),
+            SqliteMigrationExecutionError::ForeignKeysOnWithoutOff
+        );
+
+        let nested = Migration::new(
+            "0003",
+            "PRAGMA foreign_keys=OFF;\n--> statement-breakpoint\nPRAGMA foreign_keys=OFF;\n--> statement-breakpoint\nPRAGMA foreign_keys=ON;",
+        );
+        assert_eq!(
+            nested.sqlite_execution().unwrap_err(),
+            SqliteMigrationExecutionError::NestedForeignKeysOff
+        );
+
+        let unsupported = Migration::new(
+            "0004",
+            "PRAGMA foreign_keys=disabled;\n--> statement-breakpoint\nPRAGMA foreign_keys=ON;",
+        );
+        assert_eq!(
+            unsupported.sqlite_execution().unwrap_err(),
+            SqliteMigrationExecutionError::UnsupportedForeignKeysPragma
+        );
+    }
+
+    #[test]
+    fn sqlite_execution_accepts_parenthesized_and_commented_pragmas() {
+        let migration = Migration::new(
+            "0001_rebuild",
+            "-- generated rebuild guard\nPRAGMA /* suspend enforcement */ main.'foreign_keys'(OFF);\n--> statement-breakpoint\nCREATE TABLE records (id INTEGER);\n--> statement-breakpoint\nPRAGMA \"main\".\"foreign_keys\" /* restore enforcement */ (ON);",
+        );
+
+        let execution = migration.sqlite_execution().expect("valid suspension");
+        assert!(execution.suspends_foreign_keys());
+        assert_eq!(
+            execution.statements().collect::<Vec<_>>(),
+            vec!["CREATE TABLE records (id INTEGER)"]
+        );
+    }
 
     #[test]
     fn migration_tracking_identifiers_are_escaped_per_dialect() {

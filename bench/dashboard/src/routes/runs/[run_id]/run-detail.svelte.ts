@@ -19,7 +19,14 @@ import {
 	type CurveView,
 } from '#lib/saturation';
 import { harnessFor, harnessRows, harnessSummary, type HarnessRow } from '#lib/harness';
+import {
+	boxWhiskerExtent,
+	rpsBox,
+	type BoxWhiskerDatum,
+	type BoxWhiskerExtent,
+} from '#lib/boxplot';
 import type { TargetChart } from '#lib/chart-series';
+import type { ReplayView } from '#lib/replay';
 import type { HarnessFamily, QueryDoc, Summary, TargetMeta } from '#lib/types';
 import type { PageData } from './$types';
 
@@ -230,6 +237,16 @@ export class RunDetailState {
 	}
 
 	/**
+	 * The run played back against load, or `null` when its buckets carry no virtual-user count.
+	 *
+	 * Null is a real answer, not a failure: a suite that offers a fixed load never ramps, and there
+	 * is nothing to replay. The page draws the two static overlays in that case.
+	 */
+	get replay(): ReplayView | null {
+		return this.#data().replay;
+	}
+
+	/**
 	 * The comp's mono range line beside a target's name — the spread across trials, stated as text.
 	 *
 	 * This is the plain-language rendering of the same numbers the box-and-whisker draws on
@@ -249,6 +266,32 @@ export class RunDetailState {
 		const spread = summary.spread.p95;
 		if (!Number.isFinite(spread.min) || !Number.isFinite(spread.max)) return 'not recorded';
 		return `${fmtLatency(spread.min)}–${fmtLatency(spread.max)}`;
+	}
+
+	/**
+	 * The trials behind this target's rate, as a shape.
+	 *
+	 * Scaled to the target's own trials. Five trials of one target agree to within a few percent
+	 * while the run spans more than a decade between targets, so a shared axis would draw every box
+	 * one pixel wide — the variation this is here to show is three orders of magnitude smaller than
+	 * the one an absolute axis has to accommodate.
+	 */
+	spreadFigure(summary: Summary): { box: BoxWhiskerDatum; extent: BoxWhiskerExtent } {
+		const box = rpsBox(summary);
+		return { box, extent: boxWhiskerExtent([box]) };
+	}
+
+	/** The same trials spelled out, for the caption and the accessible name. */
+	spreadLabel(summary: Summary): string {
+		const box = rpsBox(summary);
+		const median = box.median === null ? 'n/a' : fmtRps(box.median);
+		if (box.spread === 'boxplot') {
+			return `min ${fmtRps(box.min)} · q1 ${fmtRps(box.q1 as number)} · median ${median} · q3 ${fmtRps(box.q3 as number)} · max ${fmtRps(box.max)} · ${box.samples} trials`;
+		}
+		if (box.spread === 'range') {
+			return `min ${fmtRps(box.min)} · median ${median} · max ${fmtRps(box.max)} · ${box.samples} trials · no quartiles recorded`;
+		}
+		return `${median} · no per-trial spread recorded`;
 	}
 
 	/**

@@ -1,32 +1,37 @@
 <script lang="ts">
 	import ApiTag from './ApiTag.svelte';
+	import RailMark from './RailMark.svelte';
+	import RampSpark from './RampSpark.svelte';
+	import BoxWhisker from './BoxWhisker.svelte';
 	import CapacityFigure from './CapacityFigure.svelte';
-	import Delta from './Delta.svelte';
 	import Hint from './Hint.svelte';
-	import OsBadge from './OsBadge.svelte';
+	import type { BoxWhiskerDatum, BoxWhiskerExtent } from '#lib/boxplot';
 	import { cn } from '#lib/utils.js';
-	import { fmtCpu, fmtLatency, fmtPct, fmtRps, runStamp, shardLabel } from '#lib/format';
+	import { fmtCpu, fmtLatency, fmtPct, fmtRps, shardLabel } from '#lib/format';
 	import type { HarnessRow } from '#lib/harness';
 	import type { QualitativeNote } from '#lib/qualitative';
 	import type { RankingRow, RankingSort } from '#lib/ranking';
+	import type { LatencyView } from '#lib/service-latency';
 	import type { TargetDisplay } from '#lib/target-display';
 
 	/**
-	 * One row of the ranking.
+	 * One row of the ranking, read like a line on a timing board.
 	 *
-	 * Closed, it is seven columns: rank, library (with its API tag and note), database, machine,
-	 * a bar, throughput, p95. Opened, it is every other number the old sectioned table used to show
-	 * inline — mean and p99 latency, cpu, errors, memory, the across-trial spread, the delta against
-	 * drizzle-rs on this row's own database, and a link to the shard it came from.
+	 * Position, entrant, the shape of its ramp, where it sits on the shared ratio rail, its figures,
+	 * and two distances: to the top of the table, and to the row directly above. Nothing on the row
+	 * is measured against a nominated target — a board that measured every entrant against the one
+	 * its author entered would be answering a different question than it appears to be asking.
 	 *
-	 * Three of those columns exist because the table is one global list rather than a stack of
-	 * per-database bands: `database` is the family context the bands used to supply by position,
-	 * the machine badge is the confound that matters most when adjacent rows came from different
-	 * CI VMs, and the API tag is what tells two rows both named "Drizzle RS" apart.
+	 * The two distances do different work and both are needed. The gap says how far off the pace this
+	 * row is; the interval is where the clusters show, because four rows within a percent of each
+	 * other are one result however far all four are from the top.
+	 *
+	 * There is no `os` column: the ranking is always scoped to one operating system, so the badge was
+	 * the same on all twenty-seven rows. It is stated once under the table. The database moved onto
+	 * the target's own note line for the same reason — five repeating words do not need a column.
 	 *
 	 * A native `<details>` rather than a JS disclosure: it is keyboard operable, announces its own
-	 * expanded state, and works with scripting off — which is the only way "quieter, but still
-	 * reachable" can be true for a reader who never gets the bundle.
+	 * expanded state, and works with scripting off.
 	 */
 	let {
 		row,
@@ -35,10 +40,16 @@
 		dbDetail,
 		spread,
 		spreadDetail,
+		spreadBox,
+		latency,
 		sort,
+		columns,
 		variant = null,
 		harness = null,
 		showCapacity = false,
+		showRamp = false,
+		showLatencyLoad = true,
+		hovered = $bindable(null),
 	}: {
 		row: RankingRow;
 		display: TargetDisplay;
@@ -46,100 +57,117 @@
 		dbDetail: string;
 		spread: string;
 		spreadDetail: string;
+		/** The same trials as `spread`, as a shape: min, quartiles where recorded, and max. */
+		spreadBox: { box: BoxWhiskerDatum; extent: BoxWhiskerExtent };
+		/**
+		 * The row's latency on the table's basis. Passed in rather than derived here, because which
+		 * of the two latencies a row may show is a property of the table, not of the row.
+		 */
+		latency: LatencyView;
 		sort: RankingSort;
+		/**
+		 * The table's grid template, passed down from the page so the header and the rows cannot
+		 * drift apart. The rail column in particular has to be exactly as wide here as it is under
+		 * the axis, or every mark on the page is offset from the ticks it is measured against.
+		 */
+		columns: string;
 		/** Short form plus full text for the target's SQL notes; `null` when it declared none. */
 		variant?: QualitativeNote | null;
 		/** The harness this row's whole database ran under; `null` when nothing was declared. */
 		harness?: HarnessRow | null;
 		/** Whether this set measured capacity at all — see `RunsPageState.hasCapacity`. */
 		showCapacity?: boolean;
+		/**
+		 * Whether the set recorded ramps. A column of empty cells under a "ramp" heading reads as a
+		 * measurement that came back blank rather than one that was never taken, so the column is left
+		 * off entirely when nothing in the set has one.
+		 */
+		showRamp?: boolean;
+		/**
+		 * Whether the row prints the load its latency was read at.
+		 *
+		 * False in the normal case, where every row is read at the same load and the heading says so
+		 * once. True only when a table spans ladders that disagree, and each row has to carry its own.
+		 */
+		showLatencyLoad?: boolean;
+		/** The row under the pointer anywhere on the page, shared with the plot above the table. */
+		hovered?: string | null;
 	} = $props();
 
 	const p = $derived(row.summary.primary);
-	/**
-	 * A dash, not a number, when the sorted column did not measure this row. Padding a null to "00"
-	 * would put a rank on a row that has no place in this order.
-	 */
-	const rank = $derived(row.rank === null ? '—' : String(row.rank).padStart(2, '0'));
-	const shard = $derived(`shard ${runStamp(row.summary.run_id)}`);
+	/** Position, for the accessible name only. `null` when the sorted column never measured it. */
+	const place = $derived(row.rank === null ? 'unranked' : `number ${row.rank}`);
+	/** True when this row is lit from the plot rather than from the pointer being on it. */
+	const linked = $derived(hovered === row.id);
 </script>
 
 <details
+	id="rank-{row.id}"
 	class={cn(
 		'group border-border-soft border-b transition-colors last:border-b-0',
-		// Identity: this row is drizzle-rs. Deliberately faint — see `--accent-tint` in app.css.
-		row.isOurs && 'bg-accent-tint',
-		// Attention: the row under the pointer, or holding keyboard focus, always wins. `hover:` and
-		// `focus-within:` carry a pseudo-class, so they out-specify the identity tint above on the
-		// drizzle row too.
-		'hover:bg-accent-tint-strong focus-within:bg-accent-tint-strong',
+		// Identity: this row is drizzle-rs. Deliberately faint — see `--signal-wash` in app.css.
+		row.isOurs && 'bg-signal-wash',
+		// Attention: the row under the pointer, holding keyboard focus, or lit from the plot above,
+		// always wins. `hover:` and `focus-within:` carry a pseudo-class, so they out-specify the
+		// identity tint above on the drizzle row too.
+		'hover:bg-signal-wash-strong focus-within:bg-signal-wash-strong',
+		linked && 'bg-signal-wash-strong',
 	)}
+	onmouseenter={() => (hovered = row.id)}
+	onmouseleave={() => (hovered = null)}
 >
 	<summary
 		class={cn(
-			"grid cursor-pointer list-none grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 px-5 py-4 transition-colors marker:content-[''] lg:gap-x-5 lg:px-6",
-			showCapacity
-				? 'lg:grid-cols-[2rem_minmax(8rem,1fr)_5.5rem_3.25rem_minmax(4rem,0.9fr)_8.5rem_6rem_4.5rem]'
-				: 'lg:grid-cols-[2rem_minmax(9rem,1.05fr)_6.5rem_3.25rem_minmax(5rem,1.3fr)_6.5rem_5.125rem]',
+			"grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-5 py-3.5 transition-colors marker:content-[''] lg:gap-x-5 lg:px-6",
+			columns,
 		)}
 	>
+		<!--
+			Position. It left this table once, on the argument that a sorted table already shows it —
+			which is true right up until a reader wants to say which row they mean, or count how far
+			down something sits. Rows the sorted column never measured carry no number at all rather
+			than one that would read as a placement.
+		-->
 		<span
-			class={cn('font-mono text-[0.75rem]', row.isOurs ? 'text-link' : 'text-muted-foreground')}
+			class="text-meta text-muted-foreground font-mono tabular-nums max-lg:hidden"
+			aria-hidden="true"
 		>
-			{rank}
+			{row.rank ?? '—'}
 		</span>
 
 		<span class="min-w-0">
+			<span class="sr-only">{place}, </span>
 			<span class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-				<span class={cn('text-lead font-medium', row.isOurs && 'text-link')}>
+				<span class={cn('text-lead font-medium', row.isOurs && 'text-signal-ink')}>
 					{display.name}
 				</span>
 				<ApiTag api={display.api} />
 			</span>
-			{#if display.note}
-				<span class="text-meta text-muted-foreground mt-1 block">{display.note}</span>
-			{/if}
-			<!-- The database and the machine have their own columns from `lg`; below that they join the
-			     note line rather than claiming columns the row cannot spare. -->
-			<span class="mt-1 flex items-center gap-x-2 lg:hidden">
-				<OsBadge os={row.summary.runner_os} detail={shard} />
-				<span class="text-meta text-muted-foreground" title={dbDetail}>{db}</span>
+			<!--
+				The engine leads the note line, because it is the fact that decides whether two rows are
+				comparable at all, and it used to be a column of repeating words.
+			-->
+			<span class="text-meta text-muted-foreground mt-1 block">
+				<span class="text-foreground-secondary" title={dbDetail}>{db}</span>{#if display.note}
+					· {display.note}{/if}
 			</span>
 		</span>
 
-		<!--
-			`title` rather than a `Hint` here, deliberately. The two badges in this row are
-			abbreviations and have to be explainable from the keyboard, so they are real tooltip
-			triggers; "SQLite" is a word that already says what it is, and its family description is
-			background. Making it a third focusable control per row would have tripled the tab stops
-			needed to walk a twenty-row table for a sentence nobody is looking for.
-		-->
-		<span class="text-meta text-foreground-secondary max-lg:hidden" title={dbDetail}>{db}</span>
-
-		<span class="max-lg:hidden">
-			<OsBadge os={row.summary.runner_os} detail={shard} />
-		</span>
+		<!-- The run behind the number: whether the ramp flattened, kept climbing, or turned over. -->
+		{#if showRamp}
+			<span class="block max-lg:hidden">
+				{#if row.ramp}
+					<RampSpark ramp={row.ramp} />
+				{/if}
+			</span>
+		{/if}
 
 		<!--
-			Decorative: the number beside it is the value, and the bar is scaled within the current
-			filter, so it says "relative to what is on screen" and nothing more. A row the sorted
-			column never measured gets an empty track — a zero-width bar would read as a measured
-			zero, and there is nothing here to draw.
+			The row's position on the shared ratio rail. The axis is drawn once in the table header,
+			so this is a mark and not a scale of its own.
 		-->
-		<span class="bg-muted block h-2 max-lg:hidden" aria-hidden="true">
-			{#if row.barPct}
-				<span
-					class={cn(
-						'block h-2',
-						row.isOurs ? 'bg-primary' : 'bg-series-2',
-						// A lower bound is drawn faint and open-ended: the value it represents is a floor,
-						// so a solid bar ending at a definite point would overstate it.
-						row.barKind === 'bound' &&
-							'[mask-image:repeating-linear-gradient(90deg,#000_0_4px,transparent_4px_7px)] opacity-45',
-					)}
-					style="width:{row.barPct}"
-				></span>
-			{/if}
+		<span class="block max-lg:hidden">
+			<RailMark left={row.railLeft} ours={row.isOurs} kind={row.barKind} />
 		</span>
 
 		<!--
@@ -164,31 +192,61 @@
 					sort === 'throughput' ? 'text-foreground' : 'text-foreground-secondary',
 				)}
 			>
-				<!-- No "at fixed load" caption here: the column is headed that, and repeating it under
-				     every row restated the header once per target for no reader who had not already
-				     read it. On narrow viewports the columns collapse and the figures carry their own
-				     `title` instead. -->
 				{fmtRps(p.rps.avg)}
 			</span>
-			<span
-				class={cn(
-					'text-foreground-secondary text-meta lg:text-body block font-mono tabular-nums lg:text-right',
-					sort === 'latency' && 'text-foreground',
-				)}
-			>
-				{fmtLatency(p.latency.p95)}
+			<!--
+				Latency, with the load it was read at underneath. The qualifier is not decoration: the
+				same column carries two different measurements depending on what the run recorded, and
+				a bare figure would not say which one this is.
+			-->
+			<span class="block lg:text-right" title={latency.detail}>
+				<span
+					class={cn(
+						'text-foreground-secondary text-meta lg:text-body block font-mono tabular-nums',
+						sort === 'latency' && 'text-foreground',
+					)}
+				>
+					{latency.text}
+				</span>
+				{#if showLatencyLoad || latency.basis === 'whole-ramp'}
+					<span class="text-micro text-muted-foreground mt-0.5 block font-mono">
+						{latency.note}
+					</span>
+				{/if}
+			</span>
+			<!--
+				Two distances in one column: to the top of the table, and under it to the row directly
+				above. Both are on whichever column the table is ordered by, so they never describe a
+				different measurement than the one the reader chose to sort on.
+			-->
+			<span class="block lg:text-right">
+				<span
+					class="text-meta lg:text-body text-foreground-secondary block font-mono tabular-nums"
+					title={row.gapTitle}
+				>
+					{row.gapText}
+				</span>
+				<span
+					class="text-micro text-muted-foreground mt-0.5 block font-mono tabular-nums"
+					title={row.intervalTitle}
+				>
+					{row.intervalText}
+				</span>
 			</span>
 		</span>
 	</summary>
 
+	<!--
+		What is left after the row itself answers the common questions: the numbers a reader opens a
+		row *for*, rather than every number the artifact happens to carry. Mean and p99 latency, cpu,
+		memory, errors, the across-trial spread that says whether to believe any of it, and the shard
+		it came off. Six fields, down from ten — `database`, `busiest second` and the delta all moved
+		out, the first two onto the row and the third into its own column.
+	-->
 	<div class="bg-surface-inset border-border-soft mx-5 mb-5 border-t px-4 py-5 lg:mx-6 lg:px-5">
 		<dl
 			class="grid grid-cols-[repeat(auto-fit,minmax(8.5rem,1fr))] gap-x-6 gap-y-5 max-lg:grid-cols-2"
 		>
-			<div class="lg:hidden">
-				<dt class="text-micro text-muted-foreground font-mono uppercase">database</dt>
-				<dd class="text-body mt-1.5" title={dbDetail}>{db}</dd>
-			</div>
 			{#if showCapacity}
 				<div class="lg:hidden">
 					<dt class="text-micro text-muted-foreground font-mono uppercase">peak throughput</dt>
@@ -196,12 +254,15 @@
 				</div>
 			{/if}
 			<div>
-				<dt class="text-micro text-muted-foreground font-mono uppercase">typical latency</dt>
+				<dt class="text-micro text-muted-foreground font-mono uppercase">
+					<Hint
+						hint="Median across trials of the mean latency inside each trial. The p95 on the row is the one to compare; this says where the bulk of requests sat."
+					>
+						typical latency
+					</Hint>
+				</dt>
 				<dd class="text-body mt-1.5 font-mono tabular-nums">{fmtLatency(p.latency.avg)}</dd>
-			</div>
-			<div>
-				<dt class="text-micro text-muted-foreground font-mono uppercase">p99</dt>
-				<dd class="text-body mt-1.5 font-mono tabular-nums">{fmtLatency(p.latency.p99)}</dd>
+				<dd class="text-meta text-muted-foreground mt-1">p99 {fmtLatency(p.latency.p99)}</dd>
 			</div>
 			<div>
 				<dt class="text-micro text-muted-foreground font-mono uppercase">cpu</dt>
@@ -220,73 +281,51 @@
 				<dd class="text-body mt-1.5 font-mono tabular-nums">{fmtPct(p.err)}</dd>
 			</div>
 			<div>
-				<!--
-					Renamed from "peak throughput", which now means the saturation suite's capacity figure.
-					This is the fastest single sample bucket of a paced run — a different fact, and one
-					that must not borrow the other's name.
-				-->
-				<dt class="text-micro text-muted-foreground font-mono uppercase">
-					<Hint
-						hint="The fastest single sample bucket of the paced run. It is a momentary rate inside a fixed-load run, not a capacity figure."
-					>
-						busiest second
-					</Hint>
-				</dt>
+				<dt class="text-micro text-muted-foreground font-mono uppercase">busiest second</dt>
 				<dd class="text-body mt-1.5 font-mono tabular-nums">{fmtRps(p.rps.peak)}</dd>
 			</div>
 			<div>
-				<dt class="text-micro text-muted-foreground font-mono uppercase">across trials</dt>
-				<dd class="text-body mt-1.5 font-mono tabular-nums" title={spreadDetail}>{spread}</dd>
-			</div>
-			<div>
-				<!--
-					The scope is in the label, not only in the tooltip, and it names the row's own
-					comparison group rather than assuming drizzle-rs on this row's database. One database
-					can hold two groups — the Rust stack and the TypeScript one — and a Bun row measured
-					against the Rust row would be a stack comparison wearing a library comparison's name.
-				-->
 				<dt class="text-micro text-muted-foreground font-mono uppercase">
-					<Hint hint={row.deltaTitle}>{row.deltaLabel}</Hint>
+					{#if harness}
+						<Hint hint={harness.detail}>ran under</Hint>
+					{:else}
+						ran under
+					{/if}
 				</dt>
 				<dd class="text-body mt-1.5">
-					<Delta text={row.deltaText} direction={row.deltaDirection} hint={row.deltaTitle} />
-				</dd>
-			</div>
-			{#if harness}
-				<div>
-					<dt class="text-micro text-muted-foreground font-mono uppercase">
-						<Hint hint={harness.detail}>harness</Hint>
-					</dt>
-					<dd class="text-body mt-1.5">
-						{#if harness.summary}
-							<span class="font-mono">{harness.summary}</span>
-							{#if harness.identical === false}
-								<span class="text-meta text-negative mt-1 block">not identical within family</span>
-							{:else}
-								<!--
-									Named by comparison group, not by database. "Shared by every SQLite row" is
-									false the moment SQLite holds both the Rust group and the TypeScript one,
-									and it is false in exactly the direction that matters.
-								-->
-								<span class="text-meta text-muted-foreground mt-1 block">
-									shared by every {harness.label} row
-								</span>
-							{/if}
-						{:else}
-							<span class="text-muted-foreground italic">not declared</span>
-						{/if}
-					</dd>
-				</div>
-			{/if}
-			<div>
-				<dt class="text-micro text-muted-foreground font-mono uppercase">machine</dt>
-				<dd class="text-body mt-1.5">
-					<a class="text-link hover:underline" href="/runs/{row.summary.run_id}">
+					<a class="underline underline-offset-2" href="/runs/{row.summary.run_id}">
 						{shardLabel(row.summary.runner_os, row.summary.run_id)}
 					</a>
 				</dd>
+				{#if harness?.summary}
+					<dd class="text-meta text-muted-foreground mt-1 font-mono">
+						{harness.summary}
+						{#if harness.identical === false}
+							<span class="text-negative">· not identical within family</span>
+						{/if}
+					</dd>
+				{/if}
 			</div>
 		</dl>
+
+		<!--
+			The five trials behind the one number on the row, drawn rather than described.
+
+			It gets a full-width block instead of a cell in the grid above because it is the field a
+			reader opens a row to check: where a row's trials range wider than its interval to the row
+			above, those two rows are not separated by this measurement, and no figure in the grid can
+			say that. Whiskers reach the slowest and fastest trial; the box spans the middle two
+			quartiles, and is drawn only where the run recorded them.
+		-->
+		<div class="border-border-soft mt-5 border-t pt-4">
+			<div class="text-micro text-muted-foreground font-mono uppercase">
+				<Hint hint={spreadDetail}>rate across trials</Hint>
+			</div>
+			<div class="mt-2 grid items-center gap-x-5 gap-y-2 lg:grid-cols-[minmax(0,1fr)_auto]">
+				<BoxWhisker box={spreadBox.box} extent={spreadBox.extent} label={spreadDetail} />
+				<span class="text-meta text-foreground-secondary font-mono tabular-nums">{spread}</span>
+			</div>
+		</div>
 
 		<!--
 			Qualitative attributes are a footnote under the grid, never a cell in it. A sentence in a

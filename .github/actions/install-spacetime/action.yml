@@ -1,0 +1,42 @@
+name: Install SpacetimeDB CLI
+description: Install the SpacetimeDB CLI non-interactively on benchmark runners
+
+runs:
+  using: composite
+  steps:
+    - name: Install on Windows
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $mirror = 'https://spacetimedb-client-binaries.s3.amazonaws.com'
+        $response = Invoke-WebRequest "$mirror/latest-version" -UseBasicParsing -TimeoutSec 30
+        $tag = if ($response.Content -is [byte[]]) {
+          [System.Text.Encoding]::UTF8.GetString($response.Content).Trim()
+        } else {
+          ([string]$response.Content).Trim()
+        }
+        $asset = 'spacetimedb-update-x86_64-pc-windows-msvc.exe'
+        $installer = Join-Path $env:RUNNER_TEMP 'spacetimedb-update.exe'
+
+        Invoke-WebRequest "$mirror/refs/tags/$tag/$asset" `
+          -OutFile $installer `
+          -UseBasicParsing `
+          -TimeoutSec 120
+
+        & $installer self-install -y
+        if ($LASTEXITCODE -ne 0) {
+          exit $LASTEXITCODE
+        }
+
+        "$env:LOCALAPPDATA\SpacetimeDB" | Out-File `
+          -FilePath $env:GITHUB_PATH `
+          -Encoding utf8 `
+          -Append
+
+    - name: Install on Unix
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        curl -fsSL https://install.spacetimedb.com | bash -s -- -y
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"

@@ -220,6 +220,9 @@ pub struct DiffOptions {
     pub renames: RenameHints,
     /// If true, every hint must apply; otherwise generation fails.
     pub strict_renames: bool,
+    /// Typed data movement for SQLite table rebuilds, bound to the exact
+    /// predecessor snapshot.
+    pub sqlite_rebuild_data: Option<crate::sqlite::SqliteRebuildDataPlanRegistry>,
 }
 
 impl DiffOptions {
@@ -237,6 +240,21 @@ impl DiffOptions {
     #[must_use]
     pub const fn strict_renames(mut self, strict: bool) -> Self {
         self.strict_renames = strict;
+        self
+    }
+
+    #[must_use]
+    pub fn sqlite_rebuild_data(mut self, plan: crate::sqlite::SqliteRebuildDataPlan) -> Self {
+        self.sqlite_rebuild_data = Some(crate::sqlite::SqliteRebuildDataPlanRegistry::single(plan));
+        self
+    }
+
+    #[must_use]
+    pub fn sqlite_rebuild_data_registry(
+        mut self,
+        registry: crate::sqlite::SqliteRebuildDataPlanRegistry,
+    ) -> Self {
+        self.sqlite_rebuild_data = Some(registry);
         self
     }
 
@@ -326,11 +344,27 @@ pub fn diff_with(
             let mut prev_ddl = SQLiteDDL::from_entities(p.ddl.clone());
             let cur_ddl = crate::sqlite::collection::SQLiteDDL::from_entities(c.ddl.clone());
             let mut statements = apply_sqlite_rename_hints(&mut prev_ddl, &cur_ddl, options)?;
-            let diff = crate::sqlite::diff::compute_migration(&prev_ddl, &cur_ddl);
+            let mut diff = crate::sqlite::diff::compute_migration(&prev_ddl, &cur_ddl);
+            crate::sqlite::rebuild_data::apply_rebuild_data_plan(
+                prev.id(),
+                &prev_ddl,
+                &cur_ddl,
+                &mut diff.statements,
+                options.sqlite_rebuild_data.as_ref(),
+            )
+            .map_err(MigrationError::ConfigError)?;
+            diff.sql_statements =
+                crate::sqlite::statements::from_json(diff.statements.clone()).sql_statements;
             statements.extend(diff.sql_statements);
             (statements, diff.warnings)
         }
         (Snapshot::Postgres(p), Snapshot::Postgres(c)) => {
+            if options.sqlite_rebuild_data.is_some() {
+                return Err(MigrationError::ConfigError(
+                    "SQLite rebuild-data plan cannot be used for a PostgreSQL migration"
+                        .to_string(),
+                ));
+            }
             let mut prev_ddl = PostgresDDL::from_entities(p.ddl.clone());
             let cur_ddl = PostgresDDL::from_entities(c.ddl.clone());
             let mut statements = apply_postgres_rename_hints(&mut prev_ddl, &cur_ddl, options)?;

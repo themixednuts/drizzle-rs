@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { baselinesByFamily, type RankableTarget } from './leaderboard';
 import { osBadge, shardProvenance } from './os';
-import { targetApi } from './target-display';
+import { gapPercent } from './ranking';
+import { legendLabels, targetApi } from './target-display';
 import type { TargetMeta } from './types';
 
 /**
@@ -140,5 +141,77 @@ describe('shardProvenance', () => {
 		expect(shardProvenance('windows', '20260731T040301Z_3247f5b_throughput-http')).toBe(
 			'Windows runner · shard 07-31 04:03',
 		);
+	});
+});
+
+describe('legendLabels', () => {
+	/**
+	 * A chart legend has room for a name and nothing else, so it is the one place a target cannot
+	 * lean on the API tag and note line sitting beside it. A run detail page opens on two overlay
+	 * charts; if this is wrong, both are unreadable and nothing else on the site shows it.
+	 */
+	const pg = (id: string, over: Partial<TargetMeta> = {}) =>
+		drizzleRs(id, { db: { profile: 'postgres', hash: '' }, ...over });
+
+	it('leaves a name that is already unique alone', () => {
+		const labels = legendLabels([pg('drizzle-rs-pg'), row('sqlx-pg')]);
+		// No parenthetical: a qualifier is only spent where it buys a distinction.
+		expect(labels.get('sqlx-pg')).not.toContain('(');
+	});
+
+	it('separates two targets of one library by the attribute that actually differs', () => {
+		// Both are the sql API; only the driver tells them apart. Qualifying by API would print
+		// "Drizzle RS (sql)" twice, which is the ambiguity moved rather than removed.
+		const labels = legendLabels([
+			pg('drizzle-rs-pg', { driver: { name: 'tokio-postgres', ver: '0.7' } }),
+			pg('drizzle-rs-pg-sync', { driver: { name: 'postgres', ver: '0.19' } }),
+		]);
+		const values = [...labels.values()];
+		expect(new Set(values).size).toBe(2);
+		for (const value of values) expect(value).toContain('Drizzle RS');
+	});
+
+	it('gives every member of an ambiguous group a distinct label', () => {
+		const labels = legendLabels([
+			pg('drizzle-rs-pg', { driver: { name: 'tokio-postgres', ver: '0.7' } }),
+			pg('drizzle-rs-pg-query', { driver: { name: 'tokio-postgres', ver: '0.7' } }),
+			pg('drizzle-rs-pg-sync', { driver: { name: 'postgres', ver: '0.19' } }),
+		]);
+		expect(new Set(labels.values()).size).toBe(3);
+	});
+
+	it('falls back to the target id when no attribute separates the group', () => {
+		// This is the real shape of the published PostgreSQL run: the drizzle-rs summaries carry
+		// neither a driver nor a prepared flag, so two of them are identical to the display layer.
+		// The id is unique by construction, and it stands alone rather than being parenthesised
+		// after a name it already contains.
+		const labels = legendLabels([pg('drizzle-rs-pg'), pg('drizzle-rs-pg-sync')]);
+		expect([...labels.values()].sort()).toEqual(['drizzle-rs-pg', 'drizzle-rs-pg-sync']);
+	});
+});
+
+describe('gapPercent', () => {
+	it('prints the natural sign of value against reference', () => {
+		expect(gapPercent(780, 1000)).toBe('−22.0%');
+		expect(gapPercent(1220, 1000)).toBe('+22.0%');
+	});
+
+	it('calls a difference that rounds away a dead heat rather than −0.0%', () => {
+		expect(gapPercent(1000.2, 1000)).toBe('=');
+		expect(gapPercent(1000, 1000)).toBe('=');
+	});
+
+	it('switches to a multiplier past ten times the reference', () => {
+		// Ordering by latency puts a 1.8ms leader against a 5.9s tail; "+327,000%" is unreadable.
+		expect(gapPercent(5900, 1.8)).toBe('+3278×');
+		expect(gapPercent(24, 1.8)).toBe('+13.3×');
+		// Just under the threshold stays a percentage, so the two forms cannot both apply.
+		expect(gapPercent(9.9, 1)).toBe('+890.0%');
+	});
+
+	it('has no answer where there is nothing to divide by', () => {
+		expect(gapPercent(500, 0)).toBeNull();
+		expect(gapPercent(Number.NaN, 10)).toBeNull();
+		expect(gapPercent(10, Number.POSITIVE_INFINITY)).toBeNull();
 	});
 });

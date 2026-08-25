@@ -27,7 +27,11 @@
 				aria-current={option.active ? 'true' : undefined}
 				class={cn(
 					buttonVariants({ variant: 'link', size: 'sm' }),
-					'text-body flex h-auto min-h-10 items-center rounded-none border-b-2 px-0 py-0.5 font-medium no-underline hover:no-underline sm:min-h-0',
+					// `border-x-0 border-t-0` is load-bearing: the button variant sets `border` on all
+					// four sides, so colouring it with `border-primary` below drew a full box around the
+					// active link — the boxed treatment this component exists to avoid. Only the bottom
+					// edge should ever carry colour.
+					'text-body flex h-auto min-h-10 items-center rounded-none border-x-0 border-t-0 border-b-2 px-0 py-0.5 font-medium no-underline hover:no-underline sm:min-h-0',
 					option.active
 						? 'border-primary text-foreground'
 						: 'hover:text-foreground text-muted-foreground border-transparent',

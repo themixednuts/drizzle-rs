@@ -122,10 +122,6 @@ jobs:
 
           dispatch ci.yml
           dispatch criterion.yml
-          # `preview` mirrors what a pull_request event would pick, so the
-          # release PR gets the same short benchmark workload as any other PR
-          # instead of the multi-hour `full` workflow_dispatch default.
-          dispatch runners.yml -f benchmark_size=preview
 
           if (( dispatch_failed )); then
             echo "::error::one or more CI dispatches failed for release PR #$PR_NUMBER"

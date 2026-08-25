@@ -166,9 +166,106 @@ pub fn generate_enum_impl(
         })
         .collect();
 
+    // Keep repr enums integer-backed at every PostgreSQL driver boundary.
+    let is_integer_storage = has_integer_repr(attrs);
+    let postgres_integer_ref_variants: Box<[_]> = if is_integer_storage {
+        resolved
+            .iter()
+            .map(|(ident, value)| {
+                let value = i32::try_from(*value).map_err(|_| {
+                    syn::Error::new_spanned(
+                        ident,
+                        "PostgresEnum integer discriminants must fit PostgreSQL INTEGER (i32)",
+                    )
+                })?;
+                Ok(quote! { &#name::#ident => #value })
+            })
+            .collect::<syn::Result<Vec<_>>>()?
+            .into_boxed_slice()
+    } else {
+        Box::new([])
+    };
+
     // Generate postgres FromSql/ToSql impls when postgres feature is enabled
     #[cfg(feature = "postgres")]
-    let postgres_impls = {
+    let postgres_impls = if is_integer_storage {
+        let name_str = name.to_string();
+        quote! {
+            #[cfg(feature = "tokio-postgres")]
+            impl<'a> ::tokio_postgres::types::FromSql<'a> for #name {
+                fn from_sql(
+                    ty: &::tokio_postgres::types::Type,
+                    raw: &'a [u8],
+                ) -> ::std::result::Result<Self, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
+                    let value = <i32 as ::tokio_postgres::types::FromSql>::from_sql(ty, raw)?;
+                    <#name as ::std::convert::TryFrom<i32>>::try_from(value).map_err(|_| {
+                        ::std::format!("Failed to parse {} from integer {}", #name_str, value).into()
+                    })
+                }
+
+                fn accepts(ty: &::tokio_postgres::types::Type) -> bool {
+                    *ty == ::tokio_postgres::types::Type::INT4
+                }
+            }
+
+            #[cfg(feature = "tokio-postgres")]
+            impl ::tokio_postgres::types::ToSql for #name {
+                fn to_sql(
+                    &self,
+                    ty: &::tokio_postgres::types::Type,
+                    out: &mut ::bytes::BytesMut,
+                ) -> ::std::result::Result<::tokio_postgres::types::IsNull, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
+                    let value: i32 = match self {
+                        #(#postgres_integer_ref_variants,)*
+                    };
+                    ::tokio_postgres::types::ToSql::to_sql(&value, ty, out)
+                }
+
+                fn accepts(ty: &::tokio_postgres::types::Type) -> bool {
+                    *ty == ::tokio_postgres::types::Type::INT4
+                }
+
+                ::tokio_postgres::types::to_sql_checked!();
+            }
+
+            #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+            impl<'a> ::postgres::types::FromSql<'a> for #name {
+                fn from_sql(
+                    ty: &::postgres::types::Type,
+                    raw: &'a [u8],
+                ) -> ::std::result::Result<Self, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
+                    let value = <i32 as ::postgres::types::FromSql>::from_sql(ty, raw)?;
+                    <#name as ::std::convert::TryFrom<i32>>::try_from(value).map_err(|_| {
+                        ::std::format!("Failed to parse {} from integer {}", #name_str, value).into()
+                    })
+                }
+
+                fn accepts(ty: &::postgres::types::Type) -> bool {
+                    *ty == ::postgres::types::Type::INT4
+                }
+            }
+
+            #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+            impl ::postgres::types::ToSql for #name {
+                fn to_sql(
+                    &self,
+                    ty: &::postgres::types::Type,
+                    out: &mut ::bytes::BytesMut,
+                ) -> ::std::result::Result<::postgres::types::IsNull, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
+                    let value: i32 = match self {
+                        #(#postgres_integer_ref_variants,)*
+                    };
+                    ::postgres::types::ToSql::to_sql(&value, ty, out)
+                }
+
+                fn accepts(ty: &::postgres::types::Type) -> bool {
+                    *ty == ::postgres::types::Type::INT4
+                }
+
+                ::postgres::types::to_sql_checked!();
+            }
+        }
+    } else {
         let name_str = name.to_string();
         quote! {
             // When tokio-postgres is enabled, impl against tokio_postgres::types
@@ -258,8 +355,6 @@ pub fn generate_enum_impl(
     #[cfg(not(feature = "postgres"))]
     let postgres_impls = quote! {};
 
-    // Detect storage format: INTEGER if has #[repr(iN)]
-    let is_integer_storage = has_integer_repr(attrs);
     if is_integer_storage && enum_schema.is_some() {
         return Err(syn::Error::new_spanned(
             name,
@@ -476,12 +571,14 @@ pub fn generate_enum_impl(
         // Integer-stored enum: read as i32, write as Integer
         quote! {
             impl #drizzle_postgres_column for #name {
-                type SQLType = #postgres_types::Integer;
+                type SQLType = #postgres_types::Int4;
                 const SQL_TYPE: &'static str = "integer";
                 const NEEDS_CREATE_TYPE: bool = false;
 
                 fn decode(row: &drizzle::postgres::Row, idx: usize) -> ::std::result::Result<Self, #drizzle_error> {
-                    let v: i32 = row.get::<_, i32>(idx);
+                    let v = row
+                        .try_get::<_, i32>(idx)
+                        .map_err(|error| #drizzle_error::ConversionError(error.to_string().into()))?;
                     <#name as ::std::convert::TryFrom<i32>>::try_from(v)
                         .map_err(|_| #drizzle_error::ConversionError(
                             ::std::format!("Failed to convert {} to {}", v, stringify!(#name)).into()
@@ -489,8 +586,10 @@ pub fn generate_enum_impl(
                 }
 
                 fn encode(&self) -> #postgres_value<'_> {
-                    let integer: i64 = self.into();
-                    #postgres_value::Integer(integer as i32)
+                    let integer = match self {
+                        #(#postgres_integer_ref_variants,)*
+                    };
+                    #postgres_value::Integer(integer)
                 }
             }
         }
@@ -504,8 +603,8 @@ pub fn generate_enum_impl(
                 const SCHEMA: &'static str = #type_schema;
 
                 fn decode(row: &drizzle::postgres::Row, idx: usize) -> ::std::result::Result<Self, #drizzle_error> {
-                    let v: #name = row.get::<_, #name>(idx);
-                    ::std::result::Result::Ok(v)
+                    row.try_get::<_, #name>(idx)
+                        .map_err(|error| #drizzle_error::ConversionError(error.to_string().into()))
                 }
 
                 fn encode(&self) -> #postgres_value<'_> {
@@ -534,17 +633,109 @@ pub fn generate_enum_impl(
         // Integer-stored enum without driver: no decode method
         quote! {
             impl #drizzle_postgres_column for #name {
-                type SQLType = #postgres_types::Integer;
+                type SQLType = #postgres_types::Int4;
                 const SQL_TYPE: &'static str = "integer";
                 const NEEDS_CREATE_TYPE: bool = false;
 
                 fn encode(&self) -> #postgres_value<'_> {
-                    let integer: i64 = self.into();
-                    #postgres_value::Integer(integer as i32)
+                    let integer = match self {
+                        #(#postgres_integer_ref_variants,)*
+                    };
+                    #postgres_value::Integer(integer)
                 }
             }
         }
     };
+
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    let postgres_row_impls = {
+        let null_probe = if is_integer_storage {
+            quote! {
+                let value = row
+                    .try_get::<_, ::std::option::Option<i32>>(offset)
+                    .map_err(|error| #drizzle_error::ConversionError(error.to_string().into()))?;
+                ::std::result::Result::Ok(value.is_none())
+            }
+        } else {
+            quote! {
+                let value = row
+                    .try_get::<_, ::std::option::Option<#name>>(offset)
+                    .map_err(|error| #drizzle_error::ConversionError(error.to_string().into()))?;
+                ::std::result::Result::Ok(value.is_none())
+            }
+        };
+
+        quote! {
+            impl drizzle::core::FromDrizzleRow<#postgres_row> for #name {
+                const COLUMN_COUNT: usize = 1;
+
+                fn from_row_at(
+                    row: &#postgres_row,
+                    offset: usize,
+                ) -> ::std::result::Result<Self, #drizzle_error> {
+                    <Self as #drizzle_postgres_column>::decode(row, offset)
+                }
+            }
+
+            impl drizzle::core::NullProbeRow<#postgres_row> for #name {
+                fn is_null_at(
+                    row: &#postgres_row,
+                    offset: usize,
+                ) -> ::std::result::Result<bool, #drizzle_error> {
+                    #null_probe
+                }
+            }
+        }
+    };
+    #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
+    let postgres_row_impls = quote! {};
+
+    #[cfg(feature = "aws-data-api")]
+    let aws_data_api_row_impls = {
+        let decode = if is_integer_storage {
+            quote! {
+                let value = <i64 as drizzle::core::FromDrizzleRow<
+                    drizzle::postgres::aws_data_api::Row,
+                >>::from_row_at(row, offset)?;
+                <Self as ::std::convert::TryFrom<i64>>::try_from(value)
+            }
+        } else {
+            quote! {
+                let value = <::std::string::String as drizzle::core::FromDrizzleRow<
+                    drizzle::postgres::aws_data_api::Row,
+                >>::from_row_at(row, offset)?;
+                <Self as ::std::str::FromStr>::from_str(&value)
+            }
+        };
+
+        quote! {
+            impl drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row> for #name {
+                const COLUMN_COUNT: usize = 1;
+
+                fn from_row_at(
+                    row: &drizzle::postgres::aws_data_api::Row,
+                    offset: usize,
+                ) -> ::std::result::Result<Self, #drizzle_error> {
+                    #decode
+                }
+            }
+
+            impl drizzle::core::NullProbeRow<drizzle::postgres::aws_data_api::Row> for #name {
+                fn is_null_at(
+                    row: &drizzle::postgres::aws_data_api::Row,
+                    offset: usize,
+                ) -> ::std::result::Result<bool, #drizzle_error> {
+                    drizzle::postgres::aws_data_api::is_null_at(row, offset)
+                }
+            }
+
+            impl #row_column_list<drizzle::postgres::aws_data_api::Row> for #name {
+                type Columns = #type_set_cons<#name, #type_set_nil>;
+            }
+        }
+    };
+    #[cfg(not(feature = "aws-data-api"))]
+    let aws_data_api_row_impls = quote! {};
 
     // Native enum impls (PostgresEnum trait, SQLEnumInfo, SQLSchema, CREATE TYPE SQL, Expr with Enum type)
     // Only generated for non-integer-repr enums
@@ -563,7 +754,7 @@ pub fn generate_enum_impl(
 
             // Implement Expr trait for type-safe comparisons — integer type
             impl<'a> #core_expr::Expr<'a, #postgres_value<'a>> for #name {
-                type SQLType = #postgres_types::Integer;
+                type SQLType = #postgres_types::Int4;
                 type Nullable = #core_expr::NonNull;
                 type Aggregate = #core_expr::Scalar;
             }
@@ -572,11 +763,11 @@ pub fn generate_enum_impl(
             #drizzle_postgres_column_impl
 
             impl #value_type_for_dialect<#postgres_dialect> for #name {
-                type SQLType = #postgres_types::Integer;
+                type SQLType = #postgres_types::Int4;
             }
 
             impl #value_type_for_dialect<#postgres_dialect> for &#name {
-                type SQLType = #postgres_types::Integer;
+                type SQLType = #postgres_types::Int4;
             }
 
             // TryFrom<PostgresValue> for the enum (read path)
@@ -723,6 +914,9 @@ pub fn generate_enum_impl(
         impl #row_column_list<#postgres_row> for #name {
             type Columns = #type_set_cons<#name, #type_set_nil>;
         }
+
+        #postgres_row_impls
+        #aws_data_api_row_impls
 
         impl #schema_item_tables for #name {
             type Tables = #type_set_nil;

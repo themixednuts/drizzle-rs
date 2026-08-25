@@ -5,7 +5,7 @@ use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::{Compatible, DataType};
 
-use super::{AggregateKind, Expr, NonNull, SQLExpr, Scalar};
+use super::{AggregateKind, ComparisonOperand, Expr, NonNull, SQLExpr, Scalar};
 
 #[inline]
 fn operand_sql<'a, V, T>(value: T) -> SQL<'a, V>
@@ -120,8 +120,8 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     I: IntoIterator<Item = R>,
-    R: Expr<'a, V>,
-    E::SQLType: Compatible<R::SQLType>,
+    R: ComparisonOperand<'a, V, E>,
+    E::SQLType: Compatible<<R as ComparisonOperand<'a, V, E>>::SQLType>,
 {
     SQLExpr::new(in_array_impl(expr, values, false))
 }
@@ -138,8 +138,8 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     I: IntoIterator<Item = R>,
-    R: Expr<'a, V>,
-    E::SQLType: Compatible<R::SQLType>,
+    R: ComparisonOperand<'a, V, E>,
+    E::SQLType: Compatible<<R as ComparisonOperand<'a, V, E>>::SQLType>,
 {
     SQLExpr::new(in_array_impl(expr, values, true))
 }
@@ -149,8 +149,8 @@ where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     I: IntoIterator<Item = R>,
-    R: Expr<'a, V>,
-    E::SQLType: Compatible<R::SQLType>,
+    R: ComparisonOperand<'a, V, E>,
+    E::SQLType: Compatible<<R as ComparisonOperand<'a, V, E>>::SQLType>,
 {
     let left_sql = operand_sql(expr);
     let mut values_iter = values.into_iter();
@@ -172,10 +172,12 @@ where
             result = result
                 .push(Token::IN)
                 .push(Token::LPAREN)
-                .append(operand_sql(first_value));
+                .append(ComparisonOperand::into_comparison_sql(first_value));
 
             for value in values_iter {
-                result = result.push(Token::COMMA).append(operand_sql(value));
+                result = result
+                    .push(Token::COMMA)
+                    .append(ComparisonOperand::into_comparison_sql(value));
             }
             result.push(Token::RPAREN)
         }

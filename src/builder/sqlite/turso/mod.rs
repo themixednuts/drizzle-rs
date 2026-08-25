@@ -432,7 +432,6 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             drizzle_types::Dialect::SQLite,
             tracking,
         );
-
         ensure_sqlite_migration_table(&mut self.conn, &set).await?;
         let mut applied = repair_dirty_migrations(&self.conn, &set, repair).await?;
 
@@ -447,27 +446,55 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             }
             return Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied });
         }
+        pending
+            .iter()
+            .map(drizzle_migrations::Migration::sqlite_execution)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
 
         for migration in &pending {
-            // Phase 1: mark dirty before touching the schema.
-            self.conn
-                .execute(&set.record_migration_started_sql(migration), ())
-                .await
-                .map_err(DrizzleError::from)?;
-
-            // Phase 2: run the statements. The inner transaction is a best
-            // effort — the dirty marker is what makes recovery possible.
-            if let Err(error) = run_migration_statements(&mut self.conn, migration).await {
-                // Failing on the first statement means nothing was applied, so
-                // the marker would only demand a pointless repair.
-                if error.failed_first_statement {
-                    let _ = self
-                        .conn
-                        .execute(&set.clear_migration_started_sql(migration), ())
-                        .await;
-                }
-                return Err(error.error);
+            let execution = migration
+                .sqlite_execution()
+                .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+            let foreign_keys_were_enabled = sqlite_foreign_keys_enabled(&self.conn).await?;
+            let suspend_foreign_keys =
+                execution.suspends_foreign_keys() && foreign_keys_were_enabled;
+            if suspend_foreign_keys
+                && let Err(error) = set_sqlite_foreign_keys(&self.conn, false).await
+            {
+                let restore = set_sqlite_foreign_keys(&self.conn, true).await;
+                return super::finish_foreign_key_scope(Err(error), restore);
             }
+
+            let migration_result = async {
+                // Phase 1: mark dirty before touching the schema.
+                self.conn
+                    .execute(&set.record_migration_started_sql(migration), ())
+                    .await
+                    .map_err(DrizzleError::from)?;
+
+                // Phase 2: run the statements. The inner transaction is a best
+                // effort — the dirty marker is what makes recovery possible.
+                if let Err(error) = run_migration_statements(&mut self.conn, execution).await {
+                    // Failing on the first statement means nothing was applied, so
+                    // the marker would only demand a pointless repair.
+                    if error.failed_first_statement {
+                        let _ = self
+                            .conn
+                            .execute(&set.clear_migration_started_sql(migration), ())
+                            .await;
+                    }
+                    return Err(error.error);
+                }
+                Ok(())
+            }
+            .await;
+            let restore_result = if suspend_foreign_keys {
+                set_sqlite_foreign_keys(&self.conn, true).await
+            } else {
+                Ok(())
+            };
+            super::finish_foreign_key_scope(migration_result, restore_result)?;
 
             // Phase 3: the migration is complete.
             self.conn
@@ -491,8 +518,9 @@ struct StatementRunError {
 /// Run one migration's statements inside an immediate transaction.
 async fn run_migration_statements(
     conn: &mut turso::Connection,
-    migration: &drizzle_migrations::Migration,
+    execution: drizzle_migrations::SqliteMigrationExecution<'_>,
 ) -> Result<(), StatementRunError> {
+    let verify_foreign_keys = execution.suspends_foreign_keys();
     let tx = conn
         .transaction_with_behavior(turso::transaction::TransactionBehavior::Immediate)
         .await
@@ -502,7 +530,7 @@ async fn run_migration_statements(
         })?;
 
     let mut executed = 0usize;
-    for stmt in migration.statements() {
+    for stmt in execution.statements() {
         if stmt.trim().is_empty() {
             continue;
         }
@@ -516,6 +544,29 @@ async fn run_migration_statements(
         executed += 1;
     }
 
+    if verify_foreign_keys {
+        let check = async {
+            let mut rows = tx
+                .query("PRAGMA foreign_key_check", ())
+                .await
+                .map_err(DrizzleError::from)?;
+            if rows.next().await.map_err(DrizzleError::from)?.is_some() {
+                return Err(DrizzleError::Other(
+                    "SQLite foreign_key_check failed after migration rebuild".into(),
+                ));
+            }
+            Ok::<_, DrizzleError>(())
+        }
+        .await;
+        if let Err(error) = check {
+            let _ = tx.rollback().await;
+            return Err(StatementRunError {
+                error,
+                failed_first_statement: false,
+            });
+        }
+    }
+
     tx.commit().await.map_err(|error| StatementRunError {
         error: DrizzleError::from(error),
         // The statements ran; only the commit failed. Whether they landed is
@@ -523,6 +574,47 @@ async fn run_migration_statements(
         // dirty marker.
         failed_first_statement: false,
     })
+}
+
+async fn sqlite_foreign_keys_enabled(
+    conn: &turso::Connection,
+) -> drizzle_core::error::Result<bool> {
+    let mut rows = conn
+        .query("PRAGMA foreign_keys", ())
+        .await
+        .map_err(DrizzleError::from)?;
+    let row = rows
+        .next()
+        .await
+        .map_err(DrizzleError::from)?
+        .ok_or_else(|| DrizzleError::Other("PRAGMA foreign_keys returned no row".into()))?;
+    Ok(row.get::<i64>(0).map_err(DrizzleError::from)? != 0)
+}
+
+async fn set_sqlite_foreign_keys(
+    conn: &turso::Connection,
+    enabled: bool,
+) -> drizzle_core::error::Result<()> {
+    conn.execute(
+        if enabled {
+            "PRAGMA foreign_keys=ON"
+        } else {
+            "PRAGMA foreign_keys=OFF"
+        },
+        (),
+    )
+    .await
+    .map_err(DrizzleError::from)?;
+    if sqlite_foreign_keys_enabled(conn).await? != enabled {
+        return Err(DrizzleError::Other(
+            format!(
+                "SQLite refused to set foreign_keys={} outside the migration transaction",
+                if enabled { "ON" } else { "OFF" }
+            )
+            .into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Read `sqlite_master` into a repair [`Catalog`](drizzle_migrations::repair::Catalog).
@@ -573,6 +665,7 @@ async fn repair_dirty_migrations(
                 .expect("dirty list is non-empty"),
         ));
     }
+    super::reject_unsafe_dirty_rebuild_repair(set, &dirty)?;
 
     let table_ident = set.table_ident_sql();
     let mut repaired = Vec::new();
@@ -909,15 +1002,63 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         let desired = schema.to_snapshot();
         let generated = drizzle_migrations::diff(&live, &desired)
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-        for stmt in generated.statements {
-            if !stmt.trim().is_empty() {
-                self.conn
-                    .execute(&stmt, ())
-                    .await
-                    .map_err(DrizzleError::from)?;
+        let operation =
+            drizzle_migrations::Migration::with_hash("push", "", 0, generated.statements);
+        let execution = operation
+            .sqlite_execution()
+            .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+        let foreign_keys_were_enabled = sqlite_foreign_keys_enabled(&self.conn).await?;
+        let suspend_foreign_keys = execution.suspends_foreign_keys() && foreign_keys_were_enabled;
+        if suspend_foreign_keys && let Err(error) = set_sqlite_foreign_keys(&self.conn, false).await
+        {
+            let restore = set_sqlite_foreign_keys(&self.conn, true).await;
+            return super::finish_foreign_key_scope(Err(error), restore);
+        }
+
+        let result = async {
+            let tx = self
+                .conn
+                .unchecked_transaction()
+                .await
+                .map_err(DrizzleError::from)?;
+            let transaction_result = async {
+                for statement in execution
+                    .statements()
+                    .filter(|statement| !statement.trim().is_empty())
+                {
+                    tx.execute(statement, ())
+                        .await
+                        .map_err(DrizzleError::from)?;
+                }
+                if execution.suspends_foreign_keys() {
+                    let mut rows = tx
+                        .query("PRAGMA foreign_key_check", ())
+                        .await
+                        .map_err(DrizzleError::from)?;
+                    if rows.next().await.map_err(DrizzleError::from)?.is_some() {
+                        return Err(DrizzleError::Other(
+                            "SQLite foreign_key_check failed after schema push".into(),
+                        ));
+                    }
+                }
+                Ok::<_, DrizzleError>(())
+            }
+            .await;
+            match transaction_result {
+                Ok(()) => tx.commit().await.map_err(DrizzleError::from),
+                Err(error) => {
+                    tx.rollback().await.ok();
+                    Err(error)
+                }
             }
         }
-        Ok(())
+        .await;
+        let restore = if suspend_foreign_keys {
+            set_sqlite_foreign_keys(&self.conn, true).await
+        } else {
+            Ok(())
+        };
+        super::finish_foreign_key_scope(result, restore)
     }
 }
 
