@@ -16,6 +16,9 @@ pub trait DrizzleIndex: Send + Sync + 'static {
     /// Whether this is a unique index.
     const IS_UNIQUE: bool = false;
 
+    /// Raw SQL predicate for a partial index.
+    const WHERE_CLAUSE: Option<&'static str> = None;
+
     /// The table this index belongs to.
     fn table_ref() -> &'static TableRef;
 }
@@ -37,6 +40,10 @@ impl<T: DrizzleIndex> SQLIndexInfo for T {
     fn is_unique(&self) -> bool {
         T::IS_UNIQUE
     }
+
+    fn where_clause(&self) -> Option<&'static str> {
+        T::WHERE_CLAUSE
+    }
 }
 
 pub trait SQLIndexInfo: Any + Send + Sync {
@@ -51,6 +58,11 @@ pub trait SQLIndexInfo: Any + Send + Sync {
     fn is_unique(&self) -> bool {
         false
     }
+
+    /// Raw SQL predicate for a partial index.
+    fn where_clause(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 impl core::fmt::Debug for dyn SQLIndexInfo {
@@ -58,6 +70,7 @@ impl core::fmt::Debug for dyn SQLIndexInfo {
         f.debug_struct("SQLIndexInfo")
             .field("name", &self.name())
             .field("is_unique", &self.is_unique())
+            .field("where_clause", &self.where_clause())
             .field("columns", &self.columns())
             .field("table", &self.table().name)
             .finish()

@@ -25,6 +25,8 @@ pub struct DialectTypes {
     pub schema_type: TokenStream,
     /// The value type (e.g., `drizzle::sqlite::values::SQLiteValue`)
     pub value_type: TokenStream,
+    /// Suffix used for implicit single-column unique constraint names.
+    pub unique_constraint_suffix: &'static str,
 }
 
 // =============================================================================
@@ -551,8 +553,12 @@ pub fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
         let col_zst = format_ident!("{}{}", struct_ident, col_pascal);
         let uq_zst = format_ident!("__Unique_{}_{}", struct_ident, col_pascal);
         let col_name = field.column_name();
-        let constraint_name =
-            constraint_name_with_col_concatcp(struct_ident, field.ident(), "_unique", dt);
+        let constraint_name = constraint_name_with_col_concatcp(
+            struct_ident,
+            field.ident(),
+            dt.unique_constraint_suffix,
+            dt,
+        );
 
         tokens.extend(quote! {
             impl #conflict_target<#struct_ident> for #col_zst {
@@ -560,6 +566,9 @@ pub fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
             }
             impl #conflict_target<#struct_ident> for #uq_zst {
                 fn conflict_columns(&self) -> &'static [&'static str] { &[#col_name] }
+            }
+            impl #named_constraint<#struct_ident> for #col_zst {
+                fn constraint_name(&self) -> &'static str { #constraint_name }
             }
             impl #named_constraint<#struct_ident> for #uq_zst {
                 fn constraint_name(&self) -> &'static str { #constraint_name }

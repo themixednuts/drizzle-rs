@@ -254,7 +254,9 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// Begins a typed ON CONFLICT ON CONSTRAINT clause (PostgreSQL-only).
     ///
     /// The target must implement `NamedConstraint<T>`, which is auto-generated
-    /// for unique indexes.
+    /// for unique columns and named unique constraints. Standalone indexes are
+    /// conflict targets, but PostgreSQL does not accept them after
+    /// `ON CONFLICT ON CONSTRAINT`.
     ///
     /// Returns an [`OnConflictBuilder`] to specify `do_nothing()` or `do_update()`.
     ///
@@ -308,20 +310,17 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     ///     email: Option<String>,
     /// }
     ///
-    /// #[PostgresIndex(unique)]
-    /// struct UserEmailIdx(User::email);
-    ///
     /// #[derive(PostgresSchema)]
     /// struct Schema {
     ///     user: User,
-    ///     user_email_idx: UserEmailIdx,
     /// }
     ///
     /// let builder = QueryBuilder::new::<Schema>();
     /// let schema = Schema::new();
     ///
-    /// builder.insert(schema.user).values([InsertUser::new("Alice")])
-    ///     .on_conflict_on_constraint(schema.user_email_idx).do_nothing();
+    /// let user = schema.user;
+    /// builder.insert(user).values([InsertUser::new("Alice")])
+    ///     .on_conflict_on_constraint(user.email).do_nothing();
     /// }
     /// ```
     pub fn on_conflict_on_constraint<C: NamedConstraint<T>>(

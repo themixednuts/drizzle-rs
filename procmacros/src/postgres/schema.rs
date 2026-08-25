@@ -320,6 +320,13 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                                 if #sql_index_info::is_unique(index_info) {
                                     index = index.unique();
                                 }
+                                if let ::core::option::Option::Some(where_clause) =
+                                    #sql_index_info::where_clause(index_info)
+                                {
+                                    index.where_clause = ::core::option::Option::Some(
+                                        ::std::borrow::Cow::Borrowed(where_clause),
+                                    );
+                                }
                                 snapshot.add_entity(MigEntity::Index(index));
                             }
                         }

@@ -341,6 +341,13 @@ pub fn generate_sqlite_schema_derive_impl(input: &DeriveInput) -> Result<TokenSt
                             if #sql_index_info::is_unique(index_info) {
                                 idx = idx.unique();
                             }
+                            if let ::core::option::Option::Some(where_clause) =
+                                #sql_index_info::where_clause(index_info)
+                            {
+                                idx.where_clause = ::core::option::Option::Some(
+                                    ::std::borrow::Cow::Borrowed(where_clause),
+                                );
+                            }
                             snapshot.add_entity(MigEntity::Index(idx));
                         }
                         #sqlite_schema_type::View(view_info) => {

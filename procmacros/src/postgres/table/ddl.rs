@@ -85,6 +85,7 @@ fn ref_column_name_expr(table: &Ident, column: &Ident) -> TokenStream {
         sql_schema: core_paths::sql_schema(),
         schema_type: postgres_paths::postgres_schema_type(),
         value_type: postgres_paths::postgres_value(),
+        unique_constraint_suffix: "_key",
     };
     crate::common::constraints::cross_table_column_name_const(table, column, &dt)
 }

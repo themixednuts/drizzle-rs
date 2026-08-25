@@ -224,10 +224,10 @@ pub trait ConflictTarget<Table>: Copy {
 }
 
 /// Marker trait for named constraints usable with ON CONFLICT ON CONSTRAINT (PG-only).
-/// Generated for unique index structs and unique constraint ZSTs that have a name.
+/// Generated for unique columns and unique constraint ZSTs that have a name.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a named constraint on table `{Table}`",
-    label = "ON CONSTRAINT requires a named unique index or unique constraint"
+    label = "ON CONSTRAINT requires a named unique or exclusion constraint"
 )]
 pub trait NamedConstraint<Table>: Copy {
     fn constraint_name(&self) -> &'static str;

@@ -123,6 +123,10 @@ where
     }
 
     /// Adds a WHERE clause to the conflict target for partial index matching.
+    ///
+    /// A typed partial-index target supplies its declared predicate automatically.
+    /// Calling this method after selecting such a target replaces that predicate,
+    /// so the replacement must still identify the same unique index.
     #[must_use]
     pub fn r#where<E>(mut self, condition: E) -> Self
     where

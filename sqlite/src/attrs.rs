@@ -64,6 +64,30 @@ pub const PRIMARY_KEY: ColumnMarker = ColumnMarker;
 pub const AUTOINCREMENT: ColumnMarker = ColumnMarker;
 
 //------------------------------------------------------------------------------
+// Index Attributes
+//------------------------------------------------------------------------------
+
+/// Marker struct for index attributes.
+#[derive(Debug, Clone, Copy)]
+pub struct IndexMarker;
+
+/// Specifies a partial-index predicate as raw SQLite SQL.
+///
+/// Use database column names in the predicate. Rust field or column renames do
+/// not rewrite this string.
+///
+/// ## Example
+/// ```rust
+/// # let _ = r####"
+/// #[SQLiteIndex(where = "deleted_at IS NULL")]
+/// struct ActiveUsersEmailIdx(Users::email);
+/// # "####;
+/// ```
+///
+/// See: <https://sqlite.org/partialindex.html>
+pub const WHERE: IndexMarker = IndexMarker;
+
+//------------------------------------------------------------------------------
 // Uniqueness Constraints
 //------------------------------------------------------------------------------
 
