@@ -26,6 +26,21 @@ struct ComplexResult {
     description: Option<String>,
 }
 
+#[cfg(feature = "turso")]
+#[SQLiteTable(STRICT)]
+struct StrictAutoRow {
+    #[column(PRIMARY)]
+    id: i64,
+    marker: Option<Vec<u8>>,
+    name: String,
+}
+
+#[cfg(feature = "turso")]
+#[derive(SQLiteSchema)]
+struct StrictAutoSchema {
+    rows: StrictAutoRow,
+}
+
 #[drizzle::test]
 fn simple_insert(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
@@ -238,6 +253,38 @@ async fn turso_get_finishes_returning_cursor_before_another_connection_writes() 
         visible.iter().find(|row| row.id == 6).unwrap().name,
         "updated-cloned-transaction"
     );
+}
+
+#[cfg(feature = "turso")]
+#[tokio::test]
+async fn turso_strict_insert_returning_generates_integer_primary_key() {
+    let database = turso::Builder::new_local(":memory:")
+        .build()
+        .await
+        .expect("build Turso database");
+    let connection = database.connect().expect("connect Turso database");
+    let (mut db, StrictAutoSchema { rows }) =
+        drizzle::sqlite::turso::Drizzle::new(connection, StrictAutoSchema::new());
+    db.create().await.expect("create strict schema");
+
+    let returned: SelectStrictAutoRow = db
+        .transaction(
+            drizzle::sqlite::connection::SQLiteTransactionType::Immediate,
+            async |transaction| {
+                transaction
+                    .insert(rows)
+                    .values([InsertStrictAutoRow::new("generated")])
+                    .returning(())
+                    .get()
+                    .await
+            },
+        )
+        .await
+        .expect("insert returning must observe SQLite's generated rowid");
+
+    assert_eq!(returned.id, 1);
+    assert_eq!(returned.marker, None);
+    assert_eq!(returned.name, "generated");
 }
 
 #[cfg(feature = "uuid")]
