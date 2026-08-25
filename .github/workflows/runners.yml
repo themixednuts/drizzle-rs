@@ -392,10 +392,7 @@ jobs:
       # SpacetimeDB's daemon starts after libsql has finished measuring, so it
       # is not sitting resident underneath another family's run.
       - name: Install SpacetimeDB CLI
-        shell: bash
-        run: |
-          curl -fsSL https://install.spacetimedb.com | bash -s -- -y
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/install-spacetime
 
       - name: Start SpacetimeDB
         shell: bash
@@ -655,15 +652,7 @@ jobs:
       # else on these platforms (Linux pins it with taskset; there is no
       # equivalent here and the topology block says so by carrying null).
       - name: Install SpacetimeDB CLI
-        shell: bash
-        run: |
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            powershell -NoProfile -Command "iwr https://windows.spacetimedb.com -useb | iex"
-            echo "$LOCALAPPDATA\\SpacetimeDB" >> "$GITHUB_PATH"
-          else
-            curl -fsSL https://install.spacetimedb.com | bash -s -- -y
-            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          fi
+        uses: ./.github/actions/install-spacetime
 
       - name: Start SpacetimeDB
         shell: bash
@@ -1040,10 +1029,7 @@ jobs:
           db-cpuset: '3'
 
       - name: Install SpacetimeDB CLI
-        shell: bash
-        run: |
-          curl -fsSL https://install.spacetimedb.com | bash -s -- -y
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/install-spacetime
 
       # Started last and pinned to the same core the PostgreSQL service owns.
       # PostgreSQL is idle by this point, and both are the out-of-process engine
@@ -1262,15 +1248,7 @@ jobs:
             bench/targets/toasty/Cargo.toml
 
       - name: Install SpacetimeDB CLI
-        shell: bash
-        run: |
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            powershell -NoProfile -Command "iwr https://windows.spacetimedb.com -useb | iex"
-            echo "$LOCALAPPDATA\\SpacetimeDB" >> "$GITHUB_PATH"
-          else
-            curl -fsSL https://install.spacetimedb.com | bash -s -- -y
-            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          fi
+        uses: ./.github/actions/install-spacetime
 
       - name: Start SpacetimeDB
         shell: bash
