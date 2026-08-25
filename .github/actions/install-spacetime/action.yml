@@ -10,7 +10,12 @@ runs:
       run: |
         $ErrorActionPreference = 'Stop'
         $mirror = 'https://spacetimedb-client-binaries.s3.amazonaws.com'
-        $tag = (Invoke-WebRequest "$mirror/latest-version" -UseBasicParsing -TimeoutSec 30).Content.Trim()
+        $response = Invoke-WebRequest "$mirror/latest-version" -UseBasicParsing -TimeoutSec 30
+        $tag = if ($response.Content -is [byte[]]) {
+          [System.Text.Encoding]::UTF8.GetString($response.Content).Trim()
+        } else {
+          ([string]$response.Content).Trim()
+        }
         $asset = 'spacetimedb-update-x86_64-pc-windows-msvc.exe'
         $installer = Join-Path $env:RUNNER_TEMP 'spacetimedb-update.exe'
 
