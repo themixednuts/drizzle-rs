@@ -18,6 +18,7 @@ env:
   BINARY_NAME: drizzle
 
 permissions:
+  actions: write
   contents: write
 
 jobs:
@@ -206,3 +207,17 @@ jobs:
             See `checksums-sha256.txt` for SHA256 hashes.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # GitHub suppresses most workflow events created with GITHUB_TOKEN.
+      # workflow_dispatch is exempt, so release creation starts the long suite
+      # explicitly instead of relying on the release or tag-push event.
+      - name: Trigger release benchmarks
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run runners.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF_NAME" \
+            -f benchmark_size=full \
+            -f publish_to_r2=true
