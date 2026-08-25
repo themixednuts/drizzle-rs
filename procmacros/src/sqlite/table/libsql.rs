@@ -125,8 +125,9 @@ fn generate_field_from_row_impl(
         ));
     }
 
-    // Custom types (auto-detected enums): use DrizzleRowByIndex for unified conversion
-    if info.is_custom_type {
+    // Codec-owned types use DrizzleRowByIndex for unified conversion. Option<T>
+    // only maps SQL NULL to None; invalid non-NULL values remain errors.
+    if info.uses_sqlite_column_codec() {
         // idx is a usize expression here (before i32 cast for libsql)
         if is_optional {
             return Ok(quote! {
@@ -426,48 +427,4 @@ pub fn generate_json_impls(
             Ok(into_value_impl)
         })
         .collect::<Result<Vec<_>>>()
-}
-
-/// Generate libsql enum implementations (Into<libsql::Value>)
-pub fn generate_enum_impls(info: &FieldInfo) -> Result<TokenStream> {
-    if !info.is_enum {
-        return Ok(quote! {});
-    }
-
-    let value_type = info.base_type;
-
-    match info.column_type {
-        SQLiteType::Integer => Ok(quote! {
-            impl From<#value_type> for drizzle::sqlite::libsql::Value {
-                fn from(value: #value_type) -> Self {
-                    let integer: i64 = value.into();
-                    drizzle::sqlite::libsql::Value::Integer(integer)
-                }
-            }
-
-            impl From<&#value_type> for drizzle::sqlite::libsql::Value {
-                fn from(value: &#value_type) -> Self {
-                    let integer: i64 = (*value).clone().into();
-                    drizzle::sqlite::libsql::Value::Integer(integer)
-                }
-            }
-        }),
-        SQLiteType::Text => Ok(quote! {
-            impl From<#value_type> for drizzle::sqlite::libsql::Value {
-                fn from(value: #value_type) -> Self {
-                    drizzle::sqlite::libsql::Value::Text(value.to_string())
-                }
-            }
-
-            impl From<&#value_type> for drizzle::sqlite::libsql::Value {
-                fn from(value: &#value_type) -> Self {
-                    drizzle::sqlite::libsql::Value::Text(value.to_string())
-                }
-            }
-        }),
-        _ => Err(syn::Error::new_spanned(
-            info.ident,
-            errors::enums::INVALID_COLUMN_TYPE,
-        )),
-    }
 }

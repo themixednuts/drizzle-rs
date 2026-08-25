@@ -17,7 +17,6 @@ pub fn generate_enum_impl(
     let type_set_nil = core_paths::type_set_nil();
     let row_column_list = core_paths::row_column_list();
     let type_set_cons = core_paths::type_set_cons();
-    let core_expr = core_paths::expr();
     let impl_try_from_int = core_paths::impl_try_from_int();
     let value_type_for_dialect = core_paths::value_type_for_dialect();
     let sqlite_dialect = core_paths::sqlite_dialect();
@@ -103,14 +102,6 @@ pub fn generate_enum_impl(
     };
 
     let base_impls = quote! {
-
-        // Implement Expr trait for type-safe comparisons
-        // Note: &T impl is handled by blanket impl in drizzle_core
-        impl<'a> #core_expr::Expr<'a, #sqlite_value<'a>> for #name {
-            type SQLType = #enum_sql_type;
-            type Nullable = #core_expr::NonNull;
-            type Aggregate = #core_expr::Scalar;
-        }
 
         impl ::std::convert::From<#name> for i64 {
             fn from(value: #name) -> Self {
@@ -247,37 +238,142 @@ pub fn generate_enum_impl(
 
     // Add rusqlite FromSql/ToSql implementations when the feature is enabled
     #[cfg(feature = "rusqlite")]
-    let rusqlite_impls = quote! {
-        // FromSql implementation that handles both TEXT and INTEGER storage
-        impl drizzle::sqlite::rusqlite::types::FromSql for #name {
-            fn column_result(value: drizzle::sqlite::rusqlite::types::ValueRef<'_>) -> drizzle::sqlite::rusqlite::types::FromSqlResult<Self> {
-                match value {
-                    drizzle::sqlite::rusqlite::types::ValueRef::Integer(i) => {
-                        Self::try_from(i).map_err(|_| drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType)
-                    },
-                    drizzle::sqlite::rusqlite::types::ValueRef::Text(s) => {
-                        let s_str = ::std::str::from_utf8(s)
-                            .map_err(|_| drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType)?;
-                        Self::try_from(s_str).map_err(|_| drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType)
-                    },
-                    _ => ::std::result::Result::Err(drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType),
+    let rusqlite_from_sql = if is_integer_storage {
+        quote! {
+            match value {
+                drizzle::sqlite::rusqlite::types::ValueRef::Integer(value) => {
+                    Self::try_from(value)
+                        .map_err(|_| drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType)
                 }
+                _ => ::std::result::Result::Err(
+                    drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType
+                ),
             }
         }
-
-        // ToSql defaults to TEXT representation (use table macro for INTEGER storage)
-        impl drizzle::sqlite::rusqlite::types::ToSql for #name {
-            fn to_sql(&self) -> drizzle::sqlite::rusqlite::Result<drizzle::sqlite::rusqlite::types::ToSqlOutput<'_>> {
-                let val: &str = self.into();
-                ::std::result::Result::Ok(drizzle::sqlite::rusqlite::types::ToSqlOutput::Borrowed(
-                    drizzle::sqlite::rusqlite::types::ValueRef::Text(val.as_bytes())
-                ))
+    } else {
+        quote! {
+            match value {
+                drizzle::sqlite::rusqlite::types::ValueRef::Text(value) => {
+                    let value = ::std::str::from_utf8(value)
+                        .map_err(|_| drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType)?;
+                    Self::try_from(value)
+                        .map_err(|_| drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType)
+                }
+                _ => ::std::result::Result::Err(
+                    drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType
+                ),
             }
         }
     };
 
+    #[cfg(feature = "rusqlite")]
+    let rusqlite_to_sql = if is_integer_storage {
+        quote! {
+            impl drizzle::sqlite::rusqlite::types::ToSql for #name {
+                fn to_sql(&self) -> drizzle::sqlite::rusqlite::Result<drizzle::sqlite::rusqlite::types::ToSqlOutput<'_>> {
+                    let value: i64 = self.into();
+                    ::std::result::Result::Ok(
+                        drizzle::sqlite::rusqlite::types::ToSqlOutput::Owned(
+                            drizzle::sqlite::rusqlite::types::Value::Integer(value)
+                        )
+                    )
+                }
+            }
+        }
+    } else {
+        quote! {
+            impl drizzle::sqlite::rusqlite::types::ToSql for #name {
+                fn to_sql(&self) -> drizzle::sqlite::rusqlite::Result<drizzle::sqlite::rusqlite::types::ToSqlOutput<'_>> {
+                    let value: &str = self.into();
+                    ::std::result::Result::Ok(
+                        drizzle::sqlite::rusqlite::types::ToSqlOutput::Borrowed(
+                            drizzle::sqlite::rusqlite::types::ValueRef::Text(value.as_bytes())
+                        )
+                    )
+                }
+            }
+        }
+    };
+
+    #[cfg(feature = "rusqlite")]
+    let rusqlite_impls = quote! {
+        impl drizzle::sqlite::rusqlite::types::FromSql for #name {
+            fn column_result(value: drizzle::sqlite::rusqlite::types::ValueRef<'_>) -> drizzle::sqlite::rusqlite::types::FromSqlResult<Self> {
+                #rusqlite_from_sql
+            }
+        }
+
+        #rusqlite_to_sql
+    };
+
     #[cfg(not(feature = "rusqlite"))]
     let rusqlite_impls = quote! {};
+
+    #[cfg(feature = "turso")]
+    let turso_impls = if is_integer_storage {
+        quote! {
+            impl drizzle::sqlite::turso::IntoValue for #name {
+                fn into_value(self) -> drizzle::sqlite::turso::Result<drizzle::sqlite::turso::Value> {
+                    Ok(drizzle::sqlite::turso::Value::Integer(self.into()))
+                }
+            }
+
+            impl drizzle::sqlite::turso::IntoValue for &#name {
+                fn into_value(self) -> drizzle::sqlite::turso::Result<drizzle::sqlite::turso::Value> {
+                    Ok(drizzle::sqlite::turso::Value::Integer(self.into()))
+                }
+            }
+        }
+    } else {
+        quote! {
+            impl drizzle::sqlite::turso::IntoValue for #name {
+                fn into_value(self) -> drizzle::sqlite::turso::Result<drizzle::sqlite::turso::Value> {
+                    Ok(drizzle::sqlite::turso::Value::Text(self.to_string()))
+                }
+            }
+
+            impl drizzle::sqlite::turso::IntoValue for &#name {
+                fn into_value(self) -> drizzle::sqlite::turso::Result<drizzle::sqlite::turso::Value> {
+                    Ok(drizzle::sqlite::turso::Value::Text(self.to_string()))
+                }
+            }
+        }
+    };
+    #[cfg(not(feature = "turso"))]
+    let turso_impls = quote! {};
+
+    #[cfg(feature = "libsql")]
+    let libsql_impls = if is_integer_storage {
+        quote! {
+            impl From<#name> for drizzle::sqlite::libsql::Value {
+                fn from(value: #name) -> Self {
+                    Self::Integer(value.into())
+                }
+            }
+
+            impl From<&#name> for drizzle::sqlite::libsql::Value {
+                fn from(value: &#name) -> Self {
+                    Self::Integer(value.into())
+                }
+            }
+        }
+    } else {
+        quote! {
+            impl From<#name> for drizzle::sqlite::libsql::Value {
+                fn from(value: #name) -> Self {
+                    Self::Text(value.to_string())
+                }
+            }
+
+            impl From<&#name> for drizzle::sqlite::libsql::Value {
+                fn from(value: &#name) -> Self {
+                    Self::Text(value.to_string())
+                }
+            }
+        }
+    };
+    #[cfg(not(feature = "libsql"))]
+    let libsql_impls = quote! {};
 
     #[cfg(feature = "rusqlite")]
     let row_column_list_rusqlite = quote! {
@@ -312,12 +408,13 @@ pub fn generate_enum_impl(
         quote! {
             impl #drizzle_sqlite_column for #name {
                 type SQLType = #sqlite_types::Integer;
-                const SQL_TYPE: &'static str = "INTEGER";
 
                 fn decode(value: #sqlite_value_ref<'_>) -> ::std::result::Result<Self, #drizzle_error> {
                     match value {
                         #sqlite_value_ref::Integer(value) => Self::try_from(value).map_err(::std::convert::Into::into),
-                        #sqlite_value_ref::Text(value) => Self::try_from(value).map_err(::std::convert::Into::into),
+                        #sqlite_value_ref::Text(_) => ::std::result::Result::Err(#drizzle_error::ConversionError(
+                            ::std::format!("cannot convert TEXT to {}", stringify!(#name)).into()
+                        )),
                         #sqlite_value_ref::Real(_) => ::std::result::Result::Err(#drizzle_error::ConversionError(
                             ::std::format!("cannot convert REAL to {}", stringify!(#name)).into()
                         )),
@@ -340,11 +437,12 @@ pub fn generate_enum_impl(
         quote! {
             impl #drizzle_sqlite_column for #name {
                 type SQLType = #sqlite_types::Text;
-                const SQL_TYPE: &'static str = "TEXT";
 
                 fn decode(value: #sqlite_value_ref<'_>) -> ::std::result::Result<Self, #drizzle_error> {
                     match value {
-                        #sqlite_value_ref::Integer(value) => Self::try_from(value).map_err(::std::convert::Into::into),
+                        #sqlite_value_ref::Integer(_) => ::std::result::Result::Err(#drizzle_error::ConversionError(
+                            ::std::format!("cannot convert INTEGER to {}", stringify!(#name)).into()
+                        )),
                         #sqlite_value_ref::Text(value) => Self::try_from(value).map_err(::std::convert::Into::into),
                         #sqlite_value_ref::Real(_) => ::std::result::Result::Err(#drizzle_error::ConversionError(
                             ::std::format!("cannot convert REAL to {}", stringify!(#name)).into()
@@ -372,6 +470,8 @@ pub fn generate_enum_impl(
     Ok(quote! {
         #base_impls
         #rusqlite_impls
+        #turso_impls
+        #libsql_impls
         #row_column_list_rusqlite
         #row_column_list_libsql
         #row_column_list_turso

@@ -9,6 +9,19 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use syn::Visibility;
 
+/// How an enum field is stored in a dialect's JSON projection.
+///
+/// PostgreSQL enums and integer-backed enum columns use this direct path.
+/// SQLite codec-owned columns use `FieldStorageKind::SQLiteColumn` instead.
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+pub enum EnumStorage {
+    /// Stored as INTEGER — deserialize via `TryFrom<i64>`.
+    Integer,
+    /// Stored as TEXT — deserialize via `FromStr`.
+    Text,
+}
+
 /// FK info extracted from field declarations.
 pub struct FkInfo {
     /// Source column name (e.g., "`author_id`").
@@ -24,28 +37,25 @@ pub struct FkInfo {
     pub relation_name: Option<String>,
 }
 
-/// How an enum field is stored in the database.
-#[derive(Clone, Copy)]
-pub enum EnumStorage {
-    /// Stored as INTEGER — deserialize via `TryFrom<i64>`.
-    Integer,
-    /// Stored as TEXT — deserialize via `FromStr`.
-    Text,
-}
-
 /// How a field should be read from JSON. These storage kinds are mutually
 /// exclusive and each takes a distinct decode path.
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum FieldStorageKind {
     /// Plain JSON-native value (number, string, array, object).
     Plain,
-    /// UUID parsed from a string.
+    /// UUID parsed from a dialect-native JSON string.
     Uuid,
+    /// UUID read from SQLite's tagged JSON projection.
+    SQLiteUuid,
     /// Boolean. `SQLite` stores booleans as integers (0/1) which appear as JSON
     /// numbers inside `json_object()`.
     Bool,
     /// Raw blob (`Vec<u8>`).
     Blob,
+    /// A SQLite column whose storage and decoding are owned by
+    /// `DrizzleSQLiteColumn`.
+    SQLiteColumn,
 }
 
 /// Info about a field for generating JSON decoders.
@@ -61,7 +71,7 @@ pub struct FieldJsonInfo {
     pub is_json: bool,
     /// How this field is stored and therefore how it should be read back.
     pub storage: FieldStorageKind,
-    /// If the field is an enum, how it is stored in the database.
+    /// Direct enum storage used by dialects without a SQLite column codec.
     pub enum_storage: Option<EnumStorage>,
     /// The unwrapped base type (e.g., `i32` even if the field is `Option<i32>`).
     pub base_type: syn::Type,
@@ -96,7 +106,14 @@ pub fn generate_query_api(
     // Collect blob column names (UUID and Vec<u8> types — stored as BLOB in SQLite).
     let blob_column_names: Vec<&str> = field_json_infos
         .iter()
-        .filter(|f| matches!(f.storage, FieldStorageKind::Uuid | FieldStorageKind::Blob))
+        .filter(|f| {
+            matches!(
+                f.storage,
+                FieldStorageKind::SQLiteUuid
+                    | FieldStorageKind::Blob
+                    | FieldStorageKind::SQLiteColumn
+            )
+        })
         .map(|f| f.column_name.as_str())
         .collect();
 
@@ -676,9 +693,15 @@ fn generate_json_decoder(
                 FieldStorageKind::Uuid => {
                     generate_uuid_decode(ident, col_name, &f.base_type, is_nullable)
                 }
+                FieldStorageKind::SQLiteUuid => {
+                    generate_sqlite_uuid_decode(ident, col_name, &f.base_type, is_nullable)
+                }
                 FieldStorageKind::Bool => generate_bool_decode(ident, col_name, is_nullable),
                 FieldStorageKind::Blob => {
                     generate_blob_decode(ident, col_name, &f.base_type, is_nullable, f.is_json)
+                }
+                FieldStorageKind::SQLiteColumn => {
+                    generate_sqlite_column_decode(ident, col_name, &f.base_type, is_nullable)
                 }
                 FieldStorageKind::Plain => {
                     let ty = if nullable_all {
@@ -860,8 +883,8 @@ fn generate_uuid_decode(
             #col_name => {
                 let raw = map.next_value::<::std::option::Option<::std::string::String>>()?;
                 state.#ident = ::std::option::Option::Some(raw
-                    .map(|s| {
-                        s.parse::<#base_type>().map_err(|e| {
+                    .map(|value| {
+                        value.parse::<#base_type>().map_err(|e| {
                             <__A::Error as drizzle::core::serde::de::Error>::custom(
                                 ::std::format!("field '{}': invalid UUID: {e}", #col_name)
                             )
@@ -880,6 +903,52 @@ fn generate_uuid_decode(
                         ::std::format!("field '{}': invalid UUID: {e}", #col_name)
                     )
                 })?);
+                ::std::result::Result::Ok(true)
+            }
+        }
+    }
+}
+
+fn generate_sqlite_uuid_decode(
+    ident: &Ident,
+    col_name: &str,
+    base_type: &syn::Type,
+    is_nullable: bool,
+) -> TokenStream {
+    let decode = quote! {
+        {
+            let value = drizzle::sqlite::traits::decode_projected_sqlite_value(&raw)
+                .map_err(|e| {
+                    <__A::Error as drizzle::core::serde::de::Error>::custom(
+                        ::std::format!("field '{}': {e}", #col_name)
+                    )
+                })?;
+            let value = value.as_value();
+            <#base_type as drizzle::sqlite::traits::FromSQLiteValue>::from_sqlite_ref(value.as_ref())
+                .map_err(|e| {
+                    <__A::Error as drizzle::core::serde::de::Error>::custom(
+                        ::std::format!("field '{}': invalid UUID: {e}", #col_name)
+                    )
+                })?
+        }
+    };
+
+    if is_nullable {
+        quote! {
+            #col_name => {
+                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
+                state.#ident = ::std::option::Option::Some(match raw {
+                    drizzle::core::serde_json::Value::Null => ::std::option::Option::None,
+                    raw => ::std::option::Option::Some(#decode),
+                });
+                ::std::result::Result::Ok(true)
+            }
+        }
+    } else {
+        quote! {
+            #col_name => {
+                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
+                state.#ident = ::std::option::Option::Some(#decode);
                 ::std::result::Result::Ok(true)
             }
         }
@@ -935,32 +1004,29 @@ fn generate_blob_decode(
     };
 
     let decode = quote! {
-        if s.len() % 2 != 0 {
-            return ::std::result::Result::Err(
-                <__A::Error as drizzle::core::serde::de::Error>::custom(
-                    ::std::format!("field '{}': odd-length hex string", #col_name)
-                )
-            );
-        }
-        let bytes = (0..s.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
-            .collect::<::std::result::Result<::std::vec::Vec<u8>, _>>()
+        let projected = drizzle::sqlite::traits::decode_projected_sqlite_value(&raw)
             .map_err(|e| {
                 <__A::Error as drizzle::core::serde::de::Error>::custom(
-                    ::std::format!("field '{}': invalid hex: {e}", #col_name)
+                    ::std::format!("field '{}': {e}", #col_name)
                 )
             })?;
+        let drizzle::sqlite::values::OwnedSQLiteValue::Blob(bytes) = projected else {
+            return ::std::result::Result::Err(
+                <__A::Error as drizzle::core::serde::de::Error>::custom(
+                    ::std::format!("field '{}': projected value is not a SQLite BLOB", #col_name)
+                )
+            );
+        };
         #convert
     };
 
     if is_nullable {
         quote! {
             #col_name => {
-                let raw = map.next_value::<::std::option::Option<::std::string::String>>()?;
+                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
                 state.#ident = ::std::option::Option::Some(match raw {
-                    ::std::option::Option::Some(s) => ::std::option::Option::Some({ #decode }),
-                    ::std::option::Option::None => ::std::option::Option::None,
+                    drizzle::core::serde_json::Value::Null => ::std::option::Option::None,
+                    raw => ::std::option::Option::Some({ #decode }),
                 });
                 ::std::result::Result::Ok(true)
             }
@@ -968,7 +1034,44 @@ fn generate_blob_decode(
     } else {
         quote! {
             #col_name => {
-                let s = map.next_value::<::std::string::String>()?;
+                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
+                state.#ident = ::std::option::Option::Some({ #decode });
+                ::std::result::Result::Ok(true)
+            }
+        }
+    }
+}
+
+fn generate_sqlite_column_decode(
+    ident: &Ident,
+    col_name: &str,
+    base_type: &syn::Type,
+    is_nullable: bool,
+) -> TokenStream {
+    let decode = quote! {
+        <#base_type as drizzle::sqlite::traits::DrizzleSQLiteColumn>::decode_json(&raw)
+        .map_err(|e| {
+            <__A::Error as drizzle::core::serde::de::Error>::custom(
+                ::std::format!("field '{}': {e}", #col_name)
+            )
+        })?
+    };
+
+    if is_nullable {
+        quote! {
+            #col_name => {
+                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
+                state.#ident = ::std::option::Option::Some(match raw {
+                    drizzle::core::serde_json::Value::Null => ::std::option::Option::None,
+                    raw => ::std::option::Option::Some({ #decode }),
+                });
+                ::std::result::Result::Ok(true)
+            }
+        }
+    } else {
+        quote! {
+            #col_name => {
+                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
                 state.#ident = ::std::option::Option::Some({ #decode });
                 ::std::result::Result::Ok(true)
             }
@@ -984,11 +1087,15 @@ fn generate_enum_decode(
     is_nullable: bool,
 ) -> TokenStream {
     let decode_some = enum_json_decode(base_type, col_name, storage);
+    let raw_type = match storage {
+        EnumStorage::Integer => quote!(i64),
+        EnumStorage::Text => quote!(::std::string::String),
+    };
+
     if is_nullable {
-        let raw_ty = enum_raw_type(storage);
         quote! {
             #col_name => {
-                let raw = map.next_value::<::std::option::Option<#raw_ty>>()?;
+                let raw = map.next_value::<::std::option::Option<#raw_type>>()?;
                 state.#ident = ::std::option::Option::Some(match raw {
                     ::std::option::Option::Some(raw) => ::std::option::Option::Some({ #decode_some }),
                     ::std::option::Option::None => ::std::option::Option::None,
@@ -997,21 +1104,13 @@ fn generate_enum_decode(
             }
         }
     } else {
-        let raw_ty = enum_raw_type(storage);
         quote! {
             #col_name => {
-                let raw = map.next_value::<#raw_ty>()?;
+                let raw = map.next_value::<#raw_type>()?;
                 state.#ident = ::std::option::Option::Some({ #decode_some });
                 ::std::result::Result::Ok(true)
             }
         }
-    }
-}
-
-fn enum_raw_type(storage: EnumStorage) -> TokenStream {
-    match storage {
-        EnumStorage::Integer => quote!(i64),
-        EnumStorage::Text => quote!(::std::string::String),
     }
 }
 

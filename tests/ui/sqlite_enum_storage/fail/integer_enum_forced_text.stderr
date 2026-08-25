@@ -1,0 +1,17 @@
+error[E0271]: type mismatch resolving `<JobState as DrizzleSQLiteColumn>::SQLType == Text`
+  --> tests/ui/sqlite_enum_storage/fail/integer_enum_forced_text.rs:15:12
+   |
+15 |     state: JobState,
+   |            ^^^^^^^^ type mismatch resolving `<JobState as DrizzleSQLiteColumn>::SQLType == Text`
+   |
+note: expected this to be `drizzle::sqlite::types::Text`
+  --> tests/ui/sqlite_enum_storage/fail/integer_enum_forced_text.rs:3:10
+   |
+ 3 | #[derive(SQLiteEnum, Clone, Debug, Default, PartialEq)]
+   |          ^^^^^^^^^^
+note: required by a bound in `assert_column_storage`
+  --> tests/ui/sqlite_enum_storage/fail/integer_enum_forced_text.rs:11:1
+   |
+11 | #[SQLiteTable]
+   | ^^^^^^^^^^^^^^ required by this bound in `assert_column_storage`
+   = note: this error originates in the derive macro `SQLiteEnum` which comes from the expansion of the attribute macro `SQLiteTable` (in Nightly builds, run with -Z macro-backtrace for more info)

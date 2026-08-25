@@ -120,6 +120,12 @@ fn sqlite_macro_errors_ui() {
     must_fail("tests/ui/sqlite_macro_errors/fail/*.rs");
 }
 
+#[cfg(feature = "rusqlite")]
+#[test]
+fn sqlite_enum_storage_ui() {
+    must_fail("tests/ui/sqlite_enum_storage/fail/*.rs");
+}
+
 #[cfg(feature = "postgres")]
 #[test]
 fn boolean_enforcement_ui() {
@@ -145,6 +151,12 @@ fn view_query_sqlite_ui() {
 #[test]
 fn query_api_sqlite_ui() {
     must_fail("tests/ui/query_api_sqlite/fail/*.rs");
+}
+
+#[cfg(all(feature = "postgres", feature = "query", feature = "uuid"))]
+#[test]
+fn query_api_postgres_ui() {
+    must_pass("tests/ui/query_api_postgres/pass/*.rs");
 }
 
 #[cfg(feature = "rusqlite")]

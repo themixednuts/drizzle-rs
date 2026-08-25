@@ -409,7 +409,7 @@ fn column_to_sql(field: &FieldInfo, inline_pk: bool, inline_unique: bool) -> Str
 }
 
 fn column_to_sql_pieces(field: &FieldInfo, inline_pk: bool, inline_unique: bool) -> Vec<DdlPiece> {
-    if !field.is_custom_type {
+    if !field.uses_sqlite_column_codec() {
         return vec![DdlPiece::Literal(column_to_sql(
             field,
             inline_pk,
@@ -837,6 +837,7 @@ mod tests {
             is_json: false,
             is_enum: false,
             is_uuid: false,
+            has_explicit_type: false,
             is_custom_type: false,
             column_type: SQLiteType::Text,
             foreign_key: None,
