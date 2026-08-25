@@ -1,5 +1,6 @@
 use drizzle::sqlite::prelude::*;
 
+#[derive(Debug, Clone)]
 struct Opaque;
 
 #[SQLiteTable]
