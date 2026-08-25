@@ -142,14 +142,14 @@ export interface RampSpark {
  *
  * Past ten times the reference the percentage stops being readable and stops fitting: ordering the
  * table by latency puts a 1.8 ms leader against a 5.9 s tail, which is "+327,000%" — a figure no
- * reader parses and no column holds. Beyond that point it is printed as a multiplier, which is
- * shorter, exact, and how anyone would say it out loud.
+ * reader parses and no column holds. Beyond that point it is printed as a multiplier. The leading
+ * plus remains so the column does not switch from a signed difference to an unsigned ratio.
  */
 export function gapPercent(value: number, reference: number): string | null {
 	if (!Number.isFinite(value) || !Number.isFinite(reference) || reference <= 0) return null;
 
 	const ratio = value / reference;
-	if (ratio >= 10) return `${ratio < 100 ? ratio.toFixed(1) : ratio.toFixed(0)}×`;
+	if (ratio >= 10) return `+${ratio < 100 ? ratio.toFixed(1) : ratio.toFixed(0)}×`;
 
 	const pct = (ratio - 1) * 100;
 	if (Math.abs(pct) < 0.05) return '=';

@@ -102,6 +102,7 @@
 </script>
 
 <details
+	id="rank-{row.id}"
 	class={cn(
 		'group border-border-soft border-b transition-colors last:border-b-0',
 		// Identity: this row is drizzle-rs. Deliberately faint — see `--signal-wash` in app.css.

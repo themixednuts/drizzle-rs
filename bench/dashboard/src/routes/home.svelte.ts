@@ -5,7 +5,7 @@ import {
 	type BoxWhiskerDatum,
 	type BoxWhiskerExtent,
 } from '#lib/boxplot';
-import { fmtDate, fmtLatency, fmtRps, shortHash, suiteLabel } from '#lib/format';
+import { fmtDate, fmtLatency, fmtPct, fmtRps, shortHash, suiteLabel } from '#lib/format';
 import {
 	DB_PROFILE_ORDER,
 	dbProfile,
@@ -96,6 +96,11 @@ interface Distance {
 	text: string;
 	title: string;
 }
+
+type ComparableMetric =
+	| { kind: 'measured'; value: number }
+	| { kind: 'errors'; rate: number }
+	| { kind: 'unmeasured' };
 
 /** `{text, title}` under a column's own names, so both distances can spread into the same row. */
 function prefixed<K extends 'gap' | 'interval'>(
@@ -272,8 +277,9 @@ export class RunsPageState {
 		// always agree. Rows the sorted column has no number for contribute nothing and receive
 		// nothing: they are skipped as references and print no gap of their own.
 		const values = ordered.map((summary) => this.#comparable(summary));
-		const leadIndex = values.findIndex((value) => value !== null);
+		const leadIndex = values.findIndex((value) => value.kind === 'measured');
 		const lead = leadIndex === -1 ? null : ordered[leadIndex];
+		const leadValue = leadIndex === -1 ? null : values[leadIndex];
 
 		// Ranks are handed out only to rows the sorted column actually measured, and they run
 		// 01..N over those. Under `sort=capacity` that means the unmeasured rows carry no number
@@ -288,7 +294,8 @@ export class RunsPageState {
 			// The nearest row above that the sorted column did measure. Skipping the unmeasured ones
 			// keeps an interval a distance between two real figures rather than a hole in the column.
 			let aheadIndex = index - 1;
-			while (aheadIndex >= 0 && values[aheadIndex] === null) aheadIndex -= 1;
+			while (aheadIndex >= 0 && values[aheadIndex].kind !== 'measured') aheadIndex -= 1;
+			const aheadValue = aheadIndex === -1 ? null : values[aheadIndex];
 
 			return {
 				id: rowId(summary),
@@ -305,7 +312,7 @@ export class RunsPageState {
 					'gap',
 					this.#distance(
 						values[index],
-						index === leadIndex ? null : (values[leadIndex] ?? null),
+						index === leadIndex || leadValue?.kind !== 'measured' ? null : leadValue.value,
 						lead && index !== leadIndex ? targetDisplay(lead).name : null,
 						metric,
 						'the row leading this order',
@@ -316,7 +323,7 @@ export class RunsPageState {
 					'interval',
 					this.#distance(
 						values[index],
-						aheadIndex === -1 ? null : values[aheadIndex],
+						aheadValue?.kind === 'measured' ? aheadValue.value : null,
 						aheadIndex === -1 ? null : targetDisplay(ordered[aheadIndex]).name,
 						metric,
 						'the row directly above',
@@ -336,14 +343,20 @@ export class RunsPageState {
 	 * rather than a zero, which would claim a measured dead heat.
 	 */
 	#distance(
-		value: number | null,
+		value: ComparableMetric,
 		reference: number | null,
 		referenceName: string | null,
 		metric: string,
 		relation: string,
 		toLeader: boolean,
 	): Distance {
-		if (value === null) {
+		if (value.kind === 'errors') {
+			return {
+				text: '—',
+				title: `${metric} was excluded because ${fmtPct(value.rate)} of requests failed, above the 0.50% ranking limit.`,
+			};
+		}
+		if (value.kind === 'unmeasured') {
 			return {
 				text: '—',
 				title: `${metric} was not measured for this row, so it has no distance to ${relation}.`,
@@ -358,7 +371,7 @@ export class RunsPageState {
 			};
 		}
 
-		const printed = gapPercent(value, reference);
+		const printed = gapPercent(value.value, reference);
 		if (printed === null) return { text: '—', title: `Not comparable to ${referenceName}.` };
 		if (printed === '=') return { text: '=', title: `Level with ${referenceName} on ${metric}.` };
 		return {
@@ -367,11 +380,13 @@ export class RunsPageState {
 		};
 	}
 
-	/** This row's figure on the column the table is sorted by, or null where it has none. */
-	#comparable(summary: SummaryResult): number | null {
-		if (hasMaterialErrors(summary)) return null;
+	/** This row's figure on the sorted column, or the reason it cannot be compared. */
+	#comparable(summary: SummaryResult): ComparableMetric {
+		if (hasMaterialErrors(summary)) return { kind: 'errors', rate: summary.primary.err };
 		const value = this.#railValue(summary, this.capacity(summary));
-		return Number.isFinite(value) && value > 0 ? value : null;
+		return Number.isFinite(value) && value > 0
+			? { kind: 'measured', value }
+			: { kind: 'unmeasured' };
 	}
 
 	/**

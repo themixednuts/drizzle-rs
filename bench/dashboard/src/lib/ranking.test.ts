@@ -203,8 +203,8 @@ describe('gapPercent', () => {
 
 	it('switches to a multiplier past ten times the reference', () => {
 		// Ordering by latency puts a 1.8ms leader against a 5.9s tail; "+327,000%" is unreadable.
-		expect(gapPercent(5900, 1.8)).toBe('3278×');
-		expect(gapPercent(24, 1.8)).toBe('13.3×');
+		expect(gapPercent(5900, 1.8)).toBe('+3278×');
+		expect(gapPercent(24, 1.8)).toBe('+13.3×');
 		// Just under the threshold stays a percentage, so the two forms cannot both apply.
 		expect(gapPercent(9.9, 1)).toBe('+890.0%');
 	});

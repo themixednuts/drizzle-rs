@@ -68,6 +68,8 @@
 	 */
 	const labelled = $derived.by(() => {
 		const MIN_GAP = 13;
+		const MIN_Y = PAD.top + 4;
+		const MAX_Y = PAD.top + plotH - 4;
 		const fastest = [...scope.points].sort((a, b) => b.rps - a.rps).slice(0, 4);
 		// Keyed on the target's id rather than on the object, since a point can arrive from both
 		// lists and the two need to resolve to one label.
@@ -84,6 +86,18 @@
 				placed[i].y = placed[i - 1].y + MIN_GAP;
 			}
 		}
+		// Work back from the plot floor after the downward pass. This preserves the minimum gap
+		// without letting a low-latency cluster spill into the x-axis labels.
+		for (let i = placed.length - 1; i >= 0; i -= 1) {
+			placed[i].y = Math.min(MAX_Y, placed[i].y);
+			if (
+				i < placed.length - 1 &&
+				placed[i + 1].y - placed[i].y < MIN_GAP &&
+				Math.abs(placed[i].x - placed[i + 1].x) < 170
+			) {
+				placed[i].y = Math.max(MIN_Y, placed[i + 1].y - MIN_GAP);
+			}
+		}
 		return placed;
 	});
 </script>
@@ -98,7 +112,7 @@
 		<svg
 			class="bg-surface-inset block h-auto w-full min-w-[46rem] rounded-md"
 			viewBox="0 0 {W} {H}"
-			role="img"
+			role="group"
 			aria-labelledby="scope-desc"
 		>
 			<desc id="scope-desc">
@@ -191,21 +205,24 @@
 						r={isActive ? 11 : 9}
 					/>
 				{/if}
-				<!-- A generous transparent target over each mark. Four-pixel circles are unhittable
+				<!-- A generous transparent link to the matching row. Four-pixel circles are unhittable
 				     with a trackpad, and enlarging the visible dot would overstate the measurement. -->
-				<circle
-					class="fill-transparent focus-visible:outline-none"
-					cx={px(point)}
-					cy={py(point)}
-					r="14"
-					role="button"
-					tabindex="0"
+				<a
+					class="group"
+					href="#rank-{point.id}"
 					aria-label="{point.name}, {point.db}, {point.rpsText} requests per second, {point.p95Text} p95"
 					onmouseenter={() => (hovered = point.id)}
 					onmouseleave={() => (hovered = null)}
 					onfocus={() => (hovered = point.id)}
 					onblur={() => (hovered = null)}
-				/>
+				>
+					<circle
+						class="group-focus-visible:stroke-signal fill-transparent stroke-transparent group-focus-visible:stroke-2"
+						cx={px(point)}
+						cy={py(point)}
+						r="14"
+					/>
+				</a>
 			{/each}
 
 			{#each labelled as entry (entry.point.id)}
