@@ -257,6 +257,11 @@ pub(super) fn inspect_migrations(
     let rt = rt()?;
     rt.block_on(async {
         let c = client(account_id, database_id, token)?;
+        let applied_before_table_write = applied_names_before_tracking_table_write(&c, set).await?;
+        super::reject_sqlite_foreign_key_suspension(
+            set.pending(&applied_before_table_write),
+            "D1 HTTP",
+        )?;
         ensure_tracking_table(&c, set).await?;
         let applied = query_applied_records(&c, set).await?;
         super::build_migration_plan(set, &applied)
@@ -274,6 +279,11 @@ pub(super) fn run_migrations(
     let rt = rt()?;
     rt.block_on(async {
         let c = client(account_id, database_id, token)?;
+        let applied_before_table_write = applied_names_before_tracking_table_write(&c, set).await?;
+        super::reject_sqlite_foreign_key_suspension(
+            set.pending(&applied_before_table_write),
+            "D1 HTTP",
+        )?;
         ensure_tracking_table(&c, set).await?;
 
         // Each migration is sent as one atomic D1 batch, so this path never
@@ -296,6 +306,7 @@ pub(super) fn run_migrations(
                 repaired_migrations: repaired,
             });
         }
+        super::reject_sqlite_foreign_key_suspension(pending.iter().copied(), "D1 HTTP")?;
 
         // Build one big SQL blob per migration: statements + the record_migration
         // INSERT. Each migration is sent as its own batch so a failure in a later
@@ -338,11 +349,41 @@ pub(super) fn execute_statements(
     statements: &[String],
 ) -> Result<(), CliError> {
     let rt = rt()?;
+    let operation =
+        drizzle_migrations::Migration::with_hash("d1_http_push", "", 0, statements.to_vec());
+    super::reject_sqlite_foreign_key_suspension([&operation], "D1 HTTP")?;
     rt.block_on(async {
         let c = client(account_id, database_id, token)?;
         let refs: Vec<&str> = statements.iter().map(String::as_str).collect();
         c.batch(&refs).await
     })
+}
+
+async fn applied_names_before_tracking_table_write(
+    client: &D1HttpClient,
+    set: &Migrations,
+) -> Result<Vec<String>, CliError> {
+    let table_name = set.table_name().replace('\'', "''");
+    let rows = client
+        .query(
+            &format!("SELECT name FROM pragma_table_info('{}')", table_name),
+            &[],
+        )
+        .await?;
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+    if !rows.iter().any(|row| {
+        row.get("name")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|name| name == "name")
+    }) {
+        return Err(CliError::MigrationError(
+            "D1 HTTP cannot upgrade a legacy migration tracking table; run the documented wrangler upgrade first"
+                .into(),
+        ));
+    }
+    query_applied_names(client, set).await
 }
 
 pub(super) fn init_metadata(

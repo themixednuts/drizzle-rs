@@ -385,9 +385,26 @@ impl<Schema> common::Drizzle<Connection, Schema> {
 
         ensure_sqlite_migration_table(&self.conn, &set)?;
         self.conn.busy_timeout(std::time::Duration::from_secs(30))?;
-        self.conn.execute("BEGIN IMMEDIATE", [])?;
+        let applied_before_transaction = load_applied_migration_names(&self.conn, &set)?;
+        let suspends_foreign_keys = set
+            .pending(&applied_before_transaction)
+            .map(|migration| migration.sqlite_execution())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| DrizzleError::Other(error.to_string().into()))?
+            .iter()
+            .any(|execution| execution.suspends_foreign_keys());
+        let foreign_keys_were_enabled = self
+            .conn
+            .query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))?
+            != 0;
+        let suspend_foreign_keys = suspends_foreign_keys && foreign_keys_were_enabled;
+        if suspend_foreign_keys && let Err(error) = set_sqlite_foreign_keys(&self.conn, false) {
+            let restore = set_sqlite_foreign_keys(&self.conn, true);
+            return super::finish_foreign_key_scope(Err(error), restore);
+        }
 
         let result = (|| -> drizzle_core::error::Result<drizzle_migrations::MigrateOutcome> {
+            self.conn.execute("BEGIN IMMEDIATE", [])?;
             let mut applied = repair_dirty_migrations(&self.conn, &set, repair)?;
 
             let mut statement = self.conn.prepare(&set.applied_names_sql())?;
@@ -400,7 +417,10 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             }
 
             for migration in &pending {
-                for stmt in migration.statements() {
+                let execution = migration
+                    .sqlite_execution()
+                    .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+                for stmt in execution.statements() {
                     if !stmt.trim().is_empty() {
                         self.conn.execute(stmt, [])?;
                     }
@@ -412,17 +432,75 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
         })();
 
-        match result {
-            Ok(outcome) => {
-                self.conn.execute("COMMIT", [])?;
-                Ok(outcome)
-            }
+        let result = match result {
+            Ok(outcome) => match suspends_foreign_keys
+                .then(|| verify_sqlite_foreign_keys(&self.conn))
+                .transpose()
+            {
+                Ok(_) => self
+                    .conn
+                    .execute("COMMIT", [])
+                    .map(|_| outcome)
+                    .map_err(DrizzleError::from),
+                Err(error) => {
+                    let _ = self.conn.execute("ROLLBACK", []);
+                    Err(error)
+                }
+            },
             Err(e) => {
                 let _ = self.conn.execute("ROLLBACK", []);
                 Err(e)
             }
-        }
+        };
+        let restore = if suspend_foreign_keys {
+            set_sqlite_foreign_keys(&self.conn, true)
+        } else {
+            Ok(())
+        };
+        super::finish_foreign_key_scope(result, restore)
     }
+}
+
+fn load_applied_migration_names(
+    conn: &rusqlite::Connection,
+    set: &drizzle_migrations::Migrations,
+) -> drizzle_core::error::Result<Vec<String>> {
+    let mut statement = conn.prepare(&set.applied_names_sql())?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+fn set_sqlite_foreign_keys(
+    conn: &rusqlite::Connection,
+    enabled: bool,
+) -> drizzle_core::error::Result<()> {
+    conn.execute_batch(if enabled {
+        "PRAGMA foreign_keys=ON"
+    } else {
+        "PRAGMA foreign_keys=OFF"
+    })?;
+    let actual = conn.query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))? != 0;
+    if actual != enabled {
+        return Err(DrizzleError::Other(
+            format!(
+                "SQLite refused to set foreign_keys={} outside the migration transaction",
+                if enabled { "ON" } else { "OFF" }
+            )
+            .into(),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_sqlite_foreign_keys(conn: &rusqlite::Connection) -> drizzle_core::error::Result<()> {
+    let mut statement = conn.prepare("PRAGMA foreign_key_check")?;
+    let mut rows = statement.query([])?;
+    if rows.next()?.is_some() {
+        return Err(DrizzleError::Other(
+            "SQLite foreign_key_check failed after migration rebuild".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Read `sqlite_master` into a repair [`Catalog`](drizzle_migrations::repair::Catalog).
@@ -467,6 +545,7 @@ fn repair_dirty_migrations(
                 .expect("dirty list is non-empty"),
         ));
     }
+    super::reject_unsafe_dirty_rebuild_repair(set, &dirty)?;
 
     let table_ident = set.table_ident_sql();
     let mut repaired = Vec::new();
@@ -724,12 +803,48 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         let desired = schema.to_snapshot();
         let generated = drizzle_migrations::diff(&live, &desired)
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-        for stmt in generated.statements {
-            if !stmt.trim().is_empty() {
-                self.conn.execute(&stmt, [])?;
-            }
+        let operation =
+            drizzle_migrations::Migration::with_hash("push", "", 0, generated.statements);
+        let execution = operation
+            .sqlite_execution()
+            .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+        let foreign_keys_were_enabled = self
+            .conn
+            .query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))?
+            != 0;
+        let suspend_foreign_keys = execution.suspends_foreign_keys() && foreign_keys_were_enabled;
+        if suspend_foreign_keys && let Err(error) = set_sqlite_foreign_keys(&self.conn, false) {
+            let restore = set_sqlite_foreign_keys(&self.conn, true);
+            return super::finish_foreign_key_scope(Err(error), restore);
         }
-        Ok(())
+
+        let result = (|| -> drizzle_core::error::Result<()> {
+            self.conn.execute("BEGIN IMMEDIATE", [])?;
+            for statement in execution
+                .statements()
+                .filter(|statement| !statement.trim().is_empty())
+            {
+                self.conn.execute(statement, [])?;
+            }
+            if execution.suspends_foreign_keys() {
+                verify_sqlite_foreign_keys(&self.conn)?;
+            }
+            self.conn.execute("COMMIT", [])?;
+            Ok(())
+        })();
+        let result = match result {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                let _ = self.conn.execute("ROLLBACK", []);
+                Err(error)
+            }
+        };
+        let restore = if suspend_foreign_keys {
+            set_sqlite_foreign_keys(&self.conn, true)
+        } else {
+            Ok(())
+        };
+        super::finish_foreign_key_scope(result, restore)
     }
 }
 

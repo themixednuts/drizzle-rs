@@ -480,6 +480,11 @@ pub enum BuildError {
     #[error("no schema files configured")]
     MissingSchemaFiles,
 
+    #[error(
+        "SQLite rebuild-data plans cannot be combined with statement transforms; typed plan validation must remain the final migration authority"
+    )]
+    SqliteRebuildDataTransformConflict,
+
     #[error("failed to read schema file `{path:?}`: {source}")]
     ReadSchema {
         path: PathBuf,
@@ -584,6 +589,10 @@ fn load_sqlite_rebuild_data_plan(
 pub fn run(config: &Config) -> Result<Output, BuildError> {
     if config.files.is_empty() {
         return Err(BuildError::MissingSchemaFiles);
+    }
+
+    if config.sqlite_rebuild_data.is_some() && config.transform.is_some() {
+        return Err(BuildError::SqliteRebuildDataTransformConflict);
     }
 
     if !matches!(config.dialect, Dialect::SQLite | Dialect::PostgreSQL) {
@@ -831,6 +840,16 @@ pub struct Assets {
 "#,
         )
         .expect("write current schema");
+        let error = run(&base).expect_err("affinity change without a rebuild plan must fail");
+        let BuildError::Migration(crate::writer::MigrationError::ConfigError(message)) = error
+        else {
+            panic!("unexpected error: {error:?}");
+        };
+        assert!(
+            message.contains("storage affinity without a rebuild-data plan")
+                && message.contains("assets.digest"),
+            "{message}"
+        );
         let plan = SqliteRebuildDataPlan {
             predecessor_snapshot_id: uuid::Uuid::parse_str(predecessor.id())
                 .expect("generated predecessor ID is a UUID"),
@@ -1227,6 +1246,23 @@ pub struct Schema {
         // The boxed callback must not break Config's derived Debug/Clone.
         let cloned = cfg.clone().transform_statements(|s| s);
         assert!(format!("{cloned:?}").contains("statement transform"));
+    }
+
+    #[test]
+    fn typed_rebuild_plan_rejects_statement_transform() {
+        let plan = SqliteRebuildDataPlan {
+            predecessor_snapshot_id: uuid::Uuid::new_v4(),
+            tables: Vec::new(),
+        };
+        let cfg = Config::new(Dialect::SQLite)
+            .file("schema.rs")
+            .sqlite_rebuild_data_plan(plan)
+            .transform_statements(|statements| statements);
+
+        assert!(matches!(
+            run(&cfg),
+            Err(BuildError::SqliteRebuildDataTransformConflict)
+        ));
     }
 
     #[test]

@@ -2535,6 +2535,15 @@ mod tests {
         assert_eq!(json.sqlite_type.as_deref(), Some("BLOB"));
     }
 
+    #[test]
+    fn sqlite_explicit_custom_blob_records_blob() {
+        let (spec, diags) = sqlite_spec("#[column(blob)] digest: Digest");
+
+        assert_eq!(spec.sqlite_type.as_deref(), Some("BLOB"));
+        assert!(diags.warnings.is_empty());
+        assert!(diags.errors.is_empty());
+    }
+
     // ---- table attributes -------------------------------------------------
 
     fn parse_attr(code: &str) -> Attribute {

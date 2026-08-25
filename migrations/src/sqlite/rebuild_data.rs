@@ -704,4 +704,35 @@ mod tests {
             .expect_err("incompatible validation target must fail");
         assert!(error.contains("incompatible integer affinity"), "{error}");
     }
+
+    #[test]
+    fn integer_validation_requires_a_copied_current_integer_column() {
+        let from = vec![ColumnDef::new("assets", "status", "integer").into_column()];
+        let validation = SqliteTableRebuildPlan {
+            table: "assets".to_string(),
+            columns: Vec::new(),
+            validations: vec![SqliteDataValidation::IntegerSet {
+                column: "status".to_string(),
+                allowed: vec![0, 1],
+            }],
+        };
+
+        let error = validate_table_plan(&validation, &from, &[], &BTreeSet::new())
+            .expect_err("removed integer validation target must fail");
+        assert!(error.contains("protects removed column"), "{error}");
+
+        let generated = vec![
+            ColumnDef::new("assets", "status", "integer")
+                .generated_stored("0")
+                .into_column(),
+        ];
+        let error = validate_table_plan(&validation, &from, &generated, &BTreeSet::new())
+            .expect_err("generated integer validation target must fail");
+        assert!(error.contains("generated current column"), "{error}");
+
+        let incompatible = vec![ColumnDef::new("assets", "status", "text").into_column()];
+        let error = validate_table_plan(&validation, &from, &incompatible, &BTreeSet::new())
+            .expect_err("incompatible integer validation target must fail");
+        assert!(error.contains("incompatible text affinity"), "{error}");
+    }
 }

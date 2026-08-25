@@ -18,6 +18,195 @@ struct PushSchema {
     push_user: PushUser,
 }
 
+#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
+fn generated_style_rebuild_migration() -> Migration {
+    Migration::new(
+        "20260824000000_strict_parent_rebuild",
+        "PRAGMA foreign_keys=OFF;
+         --> statement-breakpoint
+         CREATE TABLE rebuild_parent_new (id INTEGER PRIMARY KEY) STRICT;
+         --> statement-breakpoint
+         INSERT INTO rebuild_parent_new SELECT * FROM rebuild_parent;
+         --> statement-breakpoint
+         DROP TABLE rebuild_parent;
+         --> statement-breakpoint
+         ALTER TABLE rebuild_parent_new RENAME TO rebuild_parent;
+         --> statement-breakpoint
+         PRAGMA foreign_keys=ON;",
+    )
+}
+
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_rebuild_preserves_cascade_children_and_restores_foreign_keys() {
+    let db = crate::common::helpers::rusqlite_setup::setup_empty();
+    db.conn()
+        .execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TABLE rebuild_parent (id INTEGER PRIMARY KEY);
+             CREATE TABLE rebuild_child (
+                 id INTEGER PRIMARY KEY,
+                 parent_id INTEGER NOT NULL REFERENCES rebuild_parent(id) ON DELETE CASCADE
+             );
+             INSERT INTO rebuild_parent VALUES (1);
+             INSERT INTO rebuild_child VALUES (1, 1);",
+        )
+        .expect("seed related predecessor tables");
+    let migration = generated_style_rebuild_migration();
+
+    db.migrate(std::slice::from_ref(&migration), Tracking::SQLITE)
+        .expect("run generated-style rebuild");
+
+    let children: i64 = db
+        .conn()
+        .query_row("SELECT count(*) FROM rebuild_child", [], |row| row.get(0))
+        .expect("count cascade children");
+    assert_eq!(children, 1, "rebuild must not trigger ON DELETE CASCADE");
+    let foreign_keys: i64 = db
+        .conn()
+        .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+        .expect("read restored foreign-key mode");
+    assert_eq!(foreign_keys, 1);
+    let violations: i64 = db
+        .conn()
+        .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+            row.get(0)
+        })
+        .expect("verify rebuilt foreign keys");
+    assert_eq!(violations, 0);
+    let rebuilt_sql: String = db
+        .conn()
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'rebuild_parent'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read rebuilt parent schema");
+    assert!(rebuilt_sql.ends_with("STRICT"), "{rebuilt_sql}");
+    let tracked: i64 = db
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM __drizzle_migrations WHERE name = ?1",
+            [migration.tag()],
+            |row| row.get(0),
+        )
+        .expect("read migration tracking");
+    assert_eq!(tracked, 1);
+}
+
+#[cfg(feature = "libsql")]
+#[tokio::test]
+async fn libsql_rebuild_preserves_cascade_children_and_restores_foreign_keys() {
+    let db = crate::common::helpers::libsql_setup::setup_empty().await;
+    db.conn()
+        .execute_batch(
+            "CREATE TABLE rebuild_parent (id INTEGER PRIMARY KEY);
+             CREATE TABLE rebuild_child (
+                 id INTEGER PRIMARY KEY,
+                 parent_id INTEGER NOT NULL REFERENCES rebuild_parent(id) ON DELETE CASCADE
+             );
+             INSERT INTO rebuild_parent VALUES (1);
+             INSERT INTO rebuild_child VALUES (1, 1);",
+        )
+        .await
+        .expect("seed related predecessor tables");
+
+    db.migrate(&[generated_style_rebuild_migration()], Tracking::SQLITE)
+        .await
+        .expect("run generated-style rebuild");
+
+    let mut rows = db
+        .conn()
+        .query("SELECT count(*) FROM rebuild_child", ())
+        .await
+        .expect("query rebuild state");
+    let row = rows.next().await.expect("read row").expect("state row");
+    assert_eq!(row.get::<i64>(0).expect("child count"), 1);
+
+    let mut rows = db
+        .conn()
+        .query("PRAGMA foreign_keys", ())
+        .await
+        .expect("query foreign-key mode");
+    let row = rows.next().await.expect("read row").expect("pragma row");
+    assert_eq!(row.get::<i64>(0).expect("foreign-key mode"), 1);
+
+    let mut rows = db
+        .conn()
+        .query("PRAGMA foreign_key_check", ())
+        .await
+        .expect("query foreign-key violations");
+    assert!(rows.next().await.expect("read violation row").is_none());
+}
+
+#[cfg(feature = "turso")]
+#[tokio::test]
+async fn turso_rebuild_preserves_cascade_children_and_restores_foreign_keys() {
+    let mut db = crate::common::helpers::turso_setup::setup_empty().await;
+    for statement in [
+        "CREATE TABLE rebuild_parent (id INTEGER PRIMARY KEY)",
+        "CREATE TABLE rebuild_child (id INTEGER PRIMARY KEY, parent_id INTEGER NOT NULL REFERENCES rebuild_parent(id) ON DELETE CASCADE)",
+        "INSERT INTO rebuild_parent VALUES (1)",
+        "INSERT INTO rebuild_child VALUES (1, 1)",
+    ] {
+        db.conn()
+            .execute(statement, ())
+            .await
+            .expect("seed related predecessor tables");
+    }
+
+    db.migrate(&[generated_style_rebuild_migration()], Tracking::SQLITE)
+        .await
+        .expect("run generated-style rebuild");
+
+    let mut rows = db
+        .conn()
+        .query("SELECT count(*) FROM rebuild_child", ())
+        .await
+        .expect("query rebuild state");
+    let row = rows.next().await.expect("read row").expect("state row");
+    assert_eq!(row.get::<i64>(0).expect("child count"), 1);
+
+    let mut rows = db
+        .conn()
+        .query("PRAGMA foreign_keys", ())
+        .await
+        .expect("query foreign-key mode");
+    let row = rows.next().await.expect("read row").expect("pragma row");
+    assert_eq!(row.get::<i64>(0).expect("foreign-key mode"), 1);
+
+    let mut rows = db
+        .conn()
+        .query("PRAGMA foreign_key_check", ())
+        .await
+        .expect("query foreign-key violations");
+    assert!(rows.next().await.expect("read violation row").is_none());
+}
+
+#[cfg(feature = "turso")]
+#[tokio::test]
+async fn turso_ignores_invalid_sentinels_in_applied_history() {
+    let mut db = crate::common::helpers::turso_setup::setup_empty().await;
+    let applied = Migration::new(
+        "20260824000000_legacy_rebuild",
+        "CREATE TABLE legacy_rebuild (id INTEGER PRIMARY KEY)",
+    );
+    db.migrate(std::slice::from_ref(&applied), Tracking::SQLITE)
+        .await
+        .expect("apply historical migration");
+
+    let legacy_source = Migration::new(
+        applied.tag(),
+        "PRAGMA foreign_keys=OFF;\n--> statement-breakpoint\nSELECT 1;",
+    );
+    let outcome = db
+        .migrate(&[legacy_source], Tracking::SQLITE)
+        .await
+        .expect("applied history must not be revalidated");
+
+    assert!(outcome.is_up_to_date());
+}
+
 #[cfg(feature = "rusqlite")]
 #[test]
 fn rusqlite_runtime_migrate_serializes_concurrent_runners() {

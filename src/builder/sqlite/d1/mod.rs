@@ -343,6 +343,12 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
             tracking,
         );
 
+        let applied_before_table_write =
+            d1_applied_names_before_migration_table_write(&self.conn, &set).await?;
+        super::reject_foreign_key_suspending_migrations(
+            set.pending(&applied_before_table_write),
+            "D1",
+        )?;
         ensure_d1_migration_table(&self.conn, &set).await?;
 
         // A D1 batch is atomic, so this path never writes a dirty marker
@@ -384,6 +390,7 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
         if pending.is_empty() {
             return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
         }
+        super::reject_foreign_key_suspending_migrations(pending.iter().copied(), "D1")?;
 
         // Build all statements (DDL + tracking insert) into a single batch.
         let mut batch: Vec<D1PreparedStatement> = Vec::new();
@@ -426,6 +433,73 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
 #[derive(serde::Deserialize)]
 struct AppliedName {
     name: String,
+}
+
+async fn d1_applied_names_before_migration_table_write(
+    conn: &D1Database,
+    set: &drizzle_migrations::Migrations,
+) -> drizzle_core::error::Result<Vec<String>> {
+    let table_name = set.table_name().replace('\'', "''");
+    let columns = conn
+        .prepare(format!(
+            "SELECT name FROM pragma_table_info('{}')",
+            table_name
+        ))
+        .all()
+        .await
+        .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+
+    #[derive(serde::Deserialize)]
+    struct ColumnName {
+        name: String,
+    }
+
+    let columns: Vec<ColumnName> = columns
+        .results()
+        .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+    if columns.is_empty() {
+        return Ok(Vec::new());
+    }
+    if columns.iter().any(|column| column.name == "name") {
+        let applied = conn
+            .prepare(set.applied_names_sql())
+            .all()
+            .await
+            .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+        return applied
+            .results::<AppliedName>()
+            .map(|rows| rows.into_iter().map(|row| row.name).collect())
+            .map_err(|error| DrizzleError::Other(error.to_string().into()));
+    }
+
+    #[derive(serde::Deserialize)]
+    struct LegacyRow {
+        id: Option<i64>,
+        hash: String,
+        created_at: i64,
+    }
+
+    let legacy = conn
+        .prepare(format!(
+            "SELECT id, hash, created_at FROM {} ORDER BY id ASC",
+            set.table_ident_sql()
+        ))
+        .all()
+        .await
+        .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+    let applied = legacy
+        .results::<LegacyRow>()
+        .map_err(|error| DrizzleError::Other(error.to_string().into()))?
+        .into_iter()
+        .map(|row| drizzle_migrations::AppliedMigrationMetadata {
+            id: row.id,
+            hash: row.hash,
+            created_at: row.created_at,
+        })
+        .collect::<Vec<_>>();
+    drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
+        .map(|rows| rows.into_iter().map(|row| row.name).collect())
+        .map_err(|error| DrizzleError::Other(error.to_string().into()))
 }
 
 async fn d1_migrations_are_applied(

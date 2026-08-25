@@ -141,6 +141,26 @@ pub enum DrizzleError {
     #[error("Schema error: {0}")]
     Schema(compact_str::CompactString),
 
+    /// A dirty migration cannot be repaired without violating its execution
+    /// safety contract.
+    #[error("Migration `{tag}` cannot be repaired safely: {reason}")]
+    UnsafeMigrationRepair {
+        /// Migration tag recorded in the tracking table.
+        tag: CompactString,
+        /// Safety requirement that prevents automatic repair.
+        reason: CompactString,
+    },
+
+    /// The selected adapter cannot provide a migration's required execution
+    /// semantics.
+    #[error("{adapter} cannot execute this migration: {requirement}")]
+    UnsupportedMigrationExecution {
+        /// Runtime adapter that cannot provide the required semantics.
+        adapter: CompactString,
+        /// Migration execution capability the adapter does not provide.
+        requirement: CompactString,
+    },
+
     /// Generic error
     #[error("Database error: {0}")]
     Other(compact_str::CompactString),
