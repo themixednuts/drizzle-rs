@@ -33,7 +33,10 @@ tokio = { workspace = true, optional = true }
 bytes = { version = "1.11", optional = true }
 
 [dev-dependencies]
-drizzle-macros = { workspace = true, features = ["postgres"] }
+# Keep this path-only so Cargo omits it from the published manifest. Publishing
+# it with the workspace version creates a registry cycle because drizzle-macros
+# optionally depends on drizzle-postgres.
+drizzle-macros = { path = "../procmacros", features = ["postgres"] }
 drizzle-types = { workspace = true }
 drizzle-migrations = { workspace = true }
 const_format = { workspace = true }
