@@ -1294,7 +1294,7 @@ dependencies = [
 
 [[package]]
 name = "bench-runner"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "assert_cmd",
  "axum 0.8.9",
@@ -2369,7 +2369,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
 name = "drizzle"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "arrayvec",
  "aws-config",
@@ -2416,7 +2416,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-cli"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2449,7 +2449,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-core"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "arrayvec",
  "bit-vec",
@@ -2480,7 +2480,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-macros"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "bytes",
  "const_format",
@@ -2511,7 +2511,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-migrations"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "drizzle-types",
  "heck",
@@ -2532,7 +2532,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-mysql"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "drizzle-core",
  "serde",
@@ -2542,7 +2542,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-postgres"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "arrayvec",
  "aws-config",
@@ -2572,7 +2572,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-seed"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "chrono",
  "drizzle-core",
@@ -2583,7 +2583,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-sqlite"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "arrayvec",
  "bytes",
@@ -2610,7 +2610,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-types"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "schemars",
  "serde",
