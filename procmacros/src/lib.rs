@@ -823,6 +823,7 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// # Attributes
 ///
 /// - `unique` - Create a unique index (enforces uniqueness constraint)
+/// - `where = "..."` - Create a partial index with the given predicate
 /// - No attributes for standard index
 ///
 /// # Examples
@@ -2986,6 +2987,9 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// # Attributes
 ///
 /// - `unique` - Create a unique index
+/// - `concurrent` - Create the index without locking out writes
+/// - `method = "..."` - Select the PostgreSQL index method
+/// - `where = "..."` - Create a partial index with the given predicate
 /// - No attributes for standard index
 ///
 /// # Examples

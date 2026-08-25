@@ -245,7 +245,7 @@ pub struct IndexSpec {
     /// PostgreSQL's implicit btree default is never materialized (the macro
     /// and the renderer both treat absence as btree).
     pub method: Option<String>,
-    /// `where = "..."` partial-index predicate (`PostgreSQL` only).
+    /// `where = "..."` partial-index predicate.
     pub where_clause: Option<String>,
     /// `tablespace = "..."` (`PostgreSQL` only).
     pub tablespace: Option<String>,
@@ -503,7 +503,7 @@ impl ParsedIndex {
         self.spec.method.clone()
     }
 
-    /// Get `PostgreSQL` partial-index WHERE clause if explicitly set.
+    /// Get the partial-index `WHERE` clause if explicitly set.
     #[must_use]
     pub fn where_clause(&self) -> Option<String> {
         self.spec.where_clause.clone()

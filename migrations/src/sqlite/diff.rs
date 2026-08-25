@@ -1182,6 +1182,30 @@ mod tests {
     }
 
     #[test]
+    fn partial_index_predicate_change_recreates_index() {
+        let mut prev = sqlite_table_with_id("jobs");
+        let mut previous_index =
+            Index::new("jobs", "idx_jobs_unclaimed", vec![IndexColumn::new("id")]);
+        previous_index.where_clause = Some(Cow::Borrowed("builder IS NULL"));
+        prev.indexes.push(previous_index);
+
+        let mut cur = sqlite_table_with_id("jobs");
+        let mut current_index =
+            Index::new("jobs", "idx_jobs_unclaimed", vec![IndexColumn::new("id")]);
+        current_index.where_clause = Some(Cow::Borrowed("builder IS NOT NULL"));
+        cur.indexes.push(current_index);
+
+        let migration = compute_migration(&prev, &cur);
+        assert_eq!(
+            migration.sql_statements,
+            vec![
+                "DROP INDEX IF EXISTS `idx_jobs_unclaimed`;",
+                "CREATE INDEX `idx_jobs_unclaimed` ON `jobs`(`id`) WHERE builder IS NOT NULL;",
+            ]
+        );
+    }
+
+    #[test]
     fn without_rowid_toggle_generates_table_recreate() {
         let mut prev = SQLiteDDL::new();
         prev.tables.push(Table::new("kv"));

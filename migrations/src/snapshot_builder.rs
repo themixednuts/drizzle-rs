@@ -429,7 +429,7 @@ fn build_sqlite_snapshot(result: &ParseResult) -> SQLiteSnapshot {
             name: index_name.into(),
             columns,
             is_unique: index.spec.unique,
-            where_clause: None,
+            where_clause: index.spec.where_clause.clone().map(Cow::Owned),
             origin: IndexOrigin::Manual,
         }));
     }
@@ -1077,6 +1077,36 @@ pub struct UuidStorage {
         assert_eq!(column_type("text_uuid"), "TEXT");
         assert_eq!(column_type("legacy_blob_uuid"), "BLOB");
         assert_eq!(column_type("legacy_text_uuid"), "TEXT");
+    }
+
+    #[test]
+    fn test_sqlite_snapshot_preserves_partial_index_predicate() {
+        use crate::sqlite::SqliteEntity;
+
+        let snap = sqlite_snapshot(
+            r#"
+#[SQLiteTable]
+pub struct Jobs {
+    #[column(primary)]
+    pub id: i64,
+    pub builder: Option<String>,
+}
+
+#[SQLiteIndex(unique, where = "builder IS NULL")]
+pub struct IdxPlanJobs(Jobs::id);
+"#,
+        );
+
+        let index = snap
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                SqliteEntity::Index(index) => Some(index),
+                _ => None,
+            })
+            .expect("expected partial index");
+        assert!(index.is_unique);
+        assert_eq!(index.where_clause.as_deref(), Some("builder IS NULL"));
     }
 
     #[test]

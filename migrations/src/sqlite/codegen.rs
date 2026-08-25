@@ -740,11 +740,22 @@ fn generate_index_struct(index: &Index, use_pub: bool, field_casing: FieldCasing
         })
         .collect();
 
-    // Index attribute
+    // Keep the generated attribute as the complete schema contract so an
+    // introspected partial index survives parse -> snapshot -> diff unchanged.
+    let mut attrs = Vec::new();
     if index.is_unique {
-        code.push_str("#[SQLiteIndex(unique)]\n");
-    } else {
+        attrs.push("unique".to_string());
+    }
+    if let Some(where_clause) = &index.where_clause {
+        attrs.push(format!(
+            "where = \"{}\"",
+            escape_for_rust_literal(where_clause)
+        ));
+    }
+    if attrs.is_empty() {
         code.push_str("#[SQLiteIndex]\n");
+    } else {
+        let _ = writeln!(code, "#[SQLiteIndex({})]", attrs.join(", "));
     }
 
     // Struct definition (tuple struct with column references)
@@ -1014,6 +1025,28 @@ struct Users {
 struct UsersEmailIdx(Users::email);
 
 "
+        );
+    }
+
+    #[test]
+    fn test_generate_partial_index() {
+        let mut ddl = SQLiteDDL::new();
+        ddl.tables.push(Table::new("jobs"));
+        ddl.columns.push(Column::new("jobs", "builder", "text"));
+        let mut index = Index::new(
+            "jobs",
+            "jobs_unclaimed_idx",
+            vec![IndexColumn::new("builder")],
+        );
+        index.is_unique = true;
+        index.where_clause = Some("builder IS NULL".into());
+        ddl.indexes.push(index);
+
+        let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+        assert!(
+            generated
+                .code
+                .contains("#[SQLiteIndex(unique, where = \"builder IS NULL\")]")
         );
     }
 

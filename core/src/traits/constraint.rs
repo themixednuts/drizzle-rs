@@ -216,6 +216,11 @@ where
 )]
 pub trait ConflictTarget<Table>: Copy {
     fn conflict_columns(&self) -> &'static [&'static str];
+
+    /// Predicate required to infer a matching partial unique index.
+    fn conflict_where_clause(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// Marker trait for named constraints usable with ON CONFLICT ON CONSTRAINT (PG-only).

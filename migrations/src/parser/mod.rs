@@ -900,6 +900,19 @@ struct IdxUsersName(Users::name);
     }
 
     #[test]
+    fn test_parse_sqlite_partial_unique_index() {
+        let code = r#"
+#[SQLiteIndex(unique, where = "builder IS NULL")]
+struct IdxPlanJobs(Jobs::workspace, Jobs::asset, Jobs::kind);
+"#;
+        let result = SchemaParser::parse(code);
+        let idx = result.index("IdxPlanJobs", Dialect::SQLite).unwrap();
+        assert!(idx.is_unique());
+        assert_eq!(idx.where_clause().as_deref(), Some("builder IS NULL"));
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
     fn test_parse_postgres_index_where_clause_with_commas() {
         let code = r#"
 #[PostgresIndex(where = "coalesce(first_name, last_name) IS NOT NULL")]

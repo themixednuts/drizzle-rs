@@ -245,8 +245,10 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// ```
     pub fn on_conflict<C: ConflictTarget<T>>(self, target: C) -> OnConflictBuilder<'a, S, T> {
         let columns = target.conflict_columns();
+        let target_where = target.conflict_where_clause().map(SQL::raw);
         let target_sql = SQL::join(columns.iter().map(|c| SQL::ident(*c)), Token::COMMA);
         OnConflictBuilder::new(self.sql, PostgresConflictTarget::columns(target_sql))
+            .with_target_where_sql(target_where)
     }
 
     /// Begins a typed ON CONFLICT ON CONSTRAINT clause (PostgreSQL-only).

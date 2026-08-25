@@ -1871,10 +1871,21 @@ pub(crate) fn index_spec(
                             }
                         }
                         IndexArg::NameValue(key, lit)
-                            if dialect == Dialect::PostgreSQL && key == "where" =>
+                            if matches!(dialect, Dialect::PostgreSQL | Dialect::SQLite)
+                                && key == "where" =>
                         {
                             if let Some(value) = str_of(&lit) {
-                                spec.where_clause = Some(value);
+                                if value.trim().is_empty() {
+                                    diags.errors.push(format!(
+                                        "{desc}: partial-index predicate cannot be empty"
+                                    ));
+                                } else if spec.where_clause.is_some() {
+                                    diags.errors.push(format!(
+                                        "{desc}: index accepts only one partial-index predicate"
+                                    ));
+                                } else {
+                                    spec.where_clause = Some(value);
+                                }
                             } else {
                                 diags.errors.push(format!(
                                     "{desc}: expected string literal for index where clause"
@@ -1946,7 +1957,6 @@ pub(crate) fn index_spec(
             ));
         }
     }
-
     spec
 }
 

@@ -50,7 +50,20 @@ impl Parse for IndexAttributes {
                 input.parse::<Token![where]>()?;
                 input.parse::<Token![=]>()?;
                 let lit: syn::LitStr = input.parse()?;
-                attrs.where_clause = Some(lit.value());
+                let value = lit.value();
+                if value.trim().is_empty() {
+                    return Err(Error::new_spanned(
+                        lit,
+                        "PostgreSQL partial-index predicate cannot be empty",
+                    ));
+                }
+                if attrs.where_clause.is_some() {
+                    return Err(Error::new_spanned(
+                        lit,
+                        "PostgreSQL index accepts only one partial-index predicate",
+                    ));
+                }
+                attrs.where_clause = Some(value);
                 continue;
             }
 
@@ -252,6 +265,16 @@ pub fn postgres_index_attr_macro(
         || quote! {},
         |where_clause| quote! { .where_clause(#where_clause) },
     );
+    let conflict_where_clause = attr.where_clause.as_ref().map_or_else(
+        || quote! {},
+        |predicate| {
+            quote! {
+                fn conflict_where_clause(&self) -> ::std::option::Option<&'static str> {
+                    ::std::option::Option::Some(#predicate)
+                }
+            }
+        },
+    );
 
     let is_unique = attr.unique;
 
@@ -392,6 +415,7 @@ pub fn postgres_index_attr_macro(
         expanded.extend(quote! {
             impl #conflict_target<#table_type> for #struct_ident {
                 fn conflict_columns(&self) -> &'static [&'static str] { Self::COLUMN_NAMES }
+                #conflict_where_clause
             }
             impl #named_constraint<#table_type> for #struct_ident {
                 fn constraint_name(&self) -> &'static str { #index_name }
@@ -404,7 +428,7 @@ pub fn postgres_index_attr_macro(
 
 #[cfg(test)]
 mod tests {
-    use super::create_index_prefix;
+    use super::{IndexAttributes, create_index_prefix};
 
     #[test]
     fn create_index_prefix_places_concurrently_after_index() {
@@ -412,6 +436,18 @@ mod tests {
             create_index_prefix(true, true, "users_email_idx"),
             "CREATE UNIQUE INDEX CONCURRENTLY \"users_email_idx\" ON \""
         );
+    }
+
+    #[test]
+    fn duplicate_partial_index_predicates_are_rejected() {
+        assert!(
+            syn::parse_str::<IndexAttributes>("where = \"active\", where = \"current\"").is_err()
+        );
+    }
+
+    #[test]
+    fn empty_partial_index_predicate_is_rejected() {
+        assert!(syn::parse_str::<IndexAttributes>("where = \"  \"").is_err());
     }
 }
 

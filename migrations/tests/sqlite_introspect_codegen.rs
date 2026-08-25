@@ -1621,6 +1621,7 @@ fn test_various_index_types() {
         .expect("Should have IdxCPositive index");
     assert!(!idx_c.is_unique(), "IdxCPositive should not be unique");
     assert_eq!(idx_c.columns, vec!["MultiIndexed::col_c"]);
+    assert_eq!(idx_c.where_clause(), Some("col_c > 0".to_string()));
 }
 
 #[test]
