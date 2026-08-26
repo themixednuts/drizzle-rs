@@ -1,0 +1,5 @@
+error[E0599]: no associated function or constant named `default` found for struct `QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>` in the current scope
+ --> tests/ui/mysql_builder/fail/default_bypass.rs:4:48
+  |
+4 |     let _ = QueryBuilder::<(), SelectFromSet>::default();
+  |                                                ^^^^^^^ associated function or constant not found in `QueryBuilder<'_, (), SelectFromSet>`

@@ -717,6 +717,14 @@ pub(crate) fn chunk_needs_space<V: SQLParam>(
         (SQLChunk::Token(Token::COMMA), _) => true,
         // Space after closing paren if next is word-like (e.g., ") FROM")
         (SQLChunk::Token(Token::RPAREN), next) => next.is_word_like(),
+        // MySQL requires built-in function names to touch the opening
+        // parenthesis unless the session enables IGNORE_SPACE. SQL::func uses
+        // a raw static function name followed by LPAREN.
+        (SQLChunk::Raw(_), SQLChunk::Token(Token::LPAREN))
+            if V::DIALECT == crate::Dialect::MySQL =>
+        {
+            false
+        }
         // Space before opening paren if preceded by word-like (e.g., "AS (")
         (current, SQLChunk::Token(Token::LPAREN)) => current.is_word_like(),
         // Space around comparison/arithmetic operators

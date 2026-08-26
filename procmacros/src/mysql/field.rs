@@ -392,6 +392,26 @@ impl FieldInfo {
         )
     }
 
+    pub fn is_numeric(&self) -> bool {
+        matches!(
+            self.column_type,
+            MySQLType::Tinyint
+                | MySQLType::TinyintUnsigned
+                | MySQLType::Smallint
+                | MySQLType::SmallintUnsigned
+                | MySQLType::Mediumint
+                | MySQLType::MediumintUnsigned
+                | MySQLType::Int
+                | MySQLType::IntUnsigned
+                | MySQLType::Bigint
+                | MySQLType::BigintUnsigned
+                | MySQLType::Decimal
+                | MySQLType::Float
+                | MySQLType::Double
+                | MySQLType::Year
+        )
+    }
+
     pub fn direct_index_error(&self) -> &'static str {
         if matches!(self.column_type, MySQLType::Json) {
             "MySQL JSON columns cannot be indexed directly; index a generated scalar column instead"

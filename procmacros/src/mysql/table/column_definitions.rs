@@ -1,5 +1,5 @@
 use super::context::MacroContext;
-use crate::common::{generate_expr_impl, rust_type_to_nullability};
+use crate::common::{generate_arithmetic_ops, generate_expr_impl, rust_type_to_nullability};
 use crate::generators::{generate_impl, generate_sql_column_info};
 use crate::mysql::field::FieldInfo;
 use crate::mysql::generators::{
@@ -208,6 +208,16 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             &sql_type_marker,
             &sql_nullable_marker,
         );
+        let arithmetic_ops = if info.is_numeric() {
+            generate_arithmetic_ops(
+                &zst_ident,
+                mysql_value.clone(),
+                sql_type_marker.clone(),
+                sql_nullable_marker.clone(),
+            )
+        } else {
+            TokenStream::new()
+        };
         let assignment_validation = quote! {
             const _: () = {
                 fn assert_mysql_assignment<T, Expected>()
@@ -313,6 +323,7 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
                 type Columns = #group_by_columns_ty;
             }
             #expr_impl
+            #arithmetic_ops
             #assignment_validation
         };
         all_column_code.extend(column_code);

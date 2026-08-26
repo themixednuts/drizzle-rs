@@ -4,7 +4,7 @@ mod table;
 #[doc(hidden)]
 pub use column::optional_str_eq;
 pub use column::{MySQLColumn, MySQLIndexColumn};
-pub use table::MySQLTable;
+pub use table::{MySQLInsertSelectTarget, MySQLTable};
 
 use drizzle_core::error::DrizzleError;
 

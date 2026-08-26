@@ -389,12 +389,14 @@ where
 }
 
 // ColumnBinOp: identity is self (complex expressions won't match GROUP BY)
-impl<Lhs, Rhs, Op> GroupByIdentity for crate::expr::ColumnBinOp<Lhs, Rhs, Op> {
+impl<Lhs, Rhs, Op, D, SQLType, Nullable> GroupByIdentity
+    for crate::expr::ColumnBinOp<Lhs, Rhs, Op, D, SQLType, Nullable>
+{
     type Identity = Self;
 }
 
 // ColumnNeg: identity is self
-impl<T> GroupByIdentity for crate::expr::ColumnNeg<T> {
+impl<T, D, SQLType, Nullable> GroupByIdentity for crate::expr::ColumnNeg<T, D, SQLType, Nullable> {
     type Identity = Self;
 }
 
@@ -526,6 +528,16 @@ pub trait RowColumnList<Row: ?Sized> {
 /// Type-level column-list representation for selected column tuples.
 pub trait SelectedColumnList {
     type Columns: crate::TypeSet;
+}
+
+/// Type-level expression list for an explicit SELECT projection.
+///
+/// Unlike [`SelectedColumnList`], this preserves each expression type so a
+/// dialect can validate SQL types and nullability at a later boundary such as
+/// `INSERT ... SELECT`.
+#[doc(hidden)]
+pub trait SelectedExpressionList {
+    type Expressions: crate::TypeSet;
 }
 
 trait SameType<T> {}
@@ -1532,6 +1544,15 @@ macro_rules! selected_columns_cons {
     };
 }
 
+macro_rules! selected_expressions_cons {
+    () => {
+        crate::Nil
+    };
+    ($head:ident $(, $tail:ident)*) => {
+        crate::Cons<$head, selected_expressions_cons!($($tail),*)>
+    };
+}
+
 macro_rules! impl_selected_column_list_tuple {
     ($($T:ident),+; $($idx:tt),+) => {
         impl<$($T: ExprValueType),+> SelectedColumnList for ($($T,)+) {
@@ -1540,7 +1561,16 @@ macro_rules! impl_selected_column_list_tuple {
     };
 }
 
+macro_rules! impl_selected_expression_list_tuple {
+    ($($T:ident),+; $($idx:tt),+) => {
+        impl<$($T),+> SelectedExpressionList for ($($T,)+) {
+            type Expressions = selected_expressions_cons!($($T),+);
+        }
+    };
+}
+
 with_col_sizes_8!(impl_selected_column_list_tuple);
+with_col_sizes_8!(impl_selected_expression_list_tuple);
 
 #[cfg(any(
     feature = "col16",
@@ -1550,6 +1580,14 @@ with_col_sizes_8!(impl_selected_column_list_tuple);
     feature = "col200"
 ))]
 with_col_sizes_16!(impl_selected_column_list_tuple);
+#[cfg(any(
+    feature = "col16",
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_16!(impl_selected_expression_list_tuple);
 
 #[cfg(any(
     feature = "col32",
@@ -1558,15 +1596,28 @@ with_col_sizes_16!(impl_selected_column_list_tuple);
     feature = "col200"
 ))]
 with_col_sizes_32!(impl_selected_column_list_tuple);
+#[cfg(any(
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_32!(impl_selected_expression_list_tuple);
 
 #[cfg(any(feature = "col64", feature = "col128", feature = "col200"))]
 with_col_sizes_64!(impl_selected_column_list_tuple);
+#[cfg(any(feature = "col64", feature = "col128", feature = "col200"))]
+with_col_sizes_64!(impl_selected_expression_list_tuple);
 
 #[cfg(any(feature = "col128", feature = "col200"))]
 with_col_sizes_128!(impl_selected_column_list_tuple);
+#[cfg(any(feature = "col128", feature = "col200"))]
+with_col_sizes_128!(impl_selected_expression_list_tuple);
 
 #[cfg(feature = "col200")]
 with_col_sizes_200!(impl_selected_column_list_tuple);
+#[cfg(feature = "col200")]
+with_col_sizes_200!(impl_selected_expression_list_tuple);
 
 // =============================================================================
 // AfterJoin — how joins transform the row type

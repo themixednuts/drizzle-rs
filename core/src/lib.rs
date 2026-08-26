@@ -103,7 +103,7 @@ pub use row::{
     FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy, IntoSelectTarget,
     MarkerAggValidFor, MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, PkGroup,
     ResolveRow, RowColumnList, SQLTypeToRust, ScopePush, Scoped, SelectAs, SelectAsFrom,
-    SelectCols, SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
+    SelectCols, SelectExpr, SelectRequiredTables, SelectStar, SelectedExpressionList, WrapNullable,
 };
 pub use schema::{OrderBy, asc, desc};
 pub use sql::{

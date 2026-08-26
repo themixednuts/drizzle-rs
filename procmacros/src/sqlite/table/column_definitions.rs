@@ -260,7 +260,10 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             generate_column_comparison_operand_impls(info, &zst_ident, &sqlite_value);
 
         // Generate arithmetic operators for numeric columns
-        let arithmetic_ops = if sqlite_column_type_is_numeric(&info.column_type) {
+        let arithmetic_ops = if !info.is_enum
+            && !info.is_custom_type
+            && sqlite_column_type_is_numeric(&info.column_type)
+        {
             generate_arithmetic_ops(
                 &zst_ident,
                 sqlite_value.clone(),

@@ -1,0 +1,5 @@
+error[E0599]: no method named `full_join` found for struct `QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>` in the current scope
+  --> tests/ui/mysql_builder/fail/full_join.rs:14:50
+   |
+14 |     let _ = builder.select(users.id).from(users).full_join((posts, eq(posts.user_id, users.id)));
+   |                                                  ^^^^^^^^^ method not found in `QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (u64,)>`

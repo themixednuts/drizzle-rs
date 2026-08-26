@@ -7,9 +7,17 @@ use core::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
-use crate::types::{ArithmeticOutput, Numeric};
+use crate::types::{AddOp, ArithmeticOutput, DivOp, MulOp, NegOutput, Numeric, RemOp, SubOp};
 
-use super::{AggOr, AggregateKind, Expr, NullOr, Nullability, SQLExpr};
+use super::{AggOr, AggregateKind, Expr, Nullability, ResolveArithmeticNullability, SQLExpr};
+
+type ArithmeticNullable<'a, V, T, N, Rhs, Op> = <<T as ArithmeticOutput<
+    <Rhs as Expr<'a, V>>::SQLType,
+    Op,
+>>::Nullability as ResolveArithmeticNullability<
+    N,
+    <Rhs as Expr<'a, V>>::Nullable,
+>>::Output;
 
 #[inline]
 fn binary_op_sql<'a, V, L, R>(left: L, operator: Token, right: R) -> SQL<'a, V>
@@ -30,18 +38,20 @@ where
 impl<'a, V, T, N, A, Rhs> Add<Rhs> for SQLExpr<'a, V, T, N, A>
 where
     V: SQLParam + 'a,
-    T: ArithmeticOutput<Rhs::SQLType>,
-    N: Nullability + NullOr<Rhs::Nullable>,
+    T: ArithmeticOutput<Rhs::SQLType, AddOp>,
+    N: Nullability,
     A: AggOr<Rhs::Aggregate>,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: Numeric,
     Rhs::Nullable: Nullability,
+    <T as ArithmeticOutput<Rhs::SQLType, AddOp>>::Nullability:
+        ResolveArithmeticNullability<N, Rhs::Nullable>,
 {
     type Output = SQLExpr<
         'a,
         V,
-        T::Output,
-        <N as NullOr<Rhs::Nullable>>::Output,
+        <T as ArithmeticOutput<Rhs::SQLType, AddOp>>::Output,
+        ArithmeticNullable<'a, V, T, N, Rhs, AddOp>,
         <A as AggOr<Rhs::Aggregate>>::Output,
     >;
 
@@ -57,18 +67,20 @@ where
 impl<'a, V, T, N, A, Rhs> Sub<Rhs> for SQLExpr<'a, V, T, N, A>
 where
     V: SQLParam + 'a,
-    T: ArithmeticOutput<Rhs::SQLType>,
-    N: Nullability + NullOr<Rhs::Nullable>,
+    T: ArithmeticOutput<Rhs::SQLType, SubOp>,
+    N: Nullability,
     A: AggOr<Rhs::Aggregate>,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: Numeric,
     Rhs::Nullable: Nullability,
+    <T as ArithmeticOutput<Rhs::SQLType, SubOp>>::Nullability:
+        ResolveArithmeticNullability<N, Rhs::Nullable>,
 {
     type Output = SQLExpr<
         'a,
         V,
-        T::Output,
-        <N as NullOr<Rhs::Nullable>>::Output,
+        <T as ArithmeticOutput<Rhs::SQLType, SubOp>>::Output,
+        ArithmeticNullable<'a, V, T, N, Rhs, SubOp>,
         <A as AggOr<Rhs::Aggregate>>::Output,
     >;
 
@@ -84,18 +96,20 @@ where
 impl<'a, V, T, N, A, Rhs> Mul<Rhs> for SQLExpr<'a, V, T, N, A>
 where
     V: SQLParam + 'a,
-    T: ArithmeticOutput<Rhs::SQLType>,
-    N: Nullability + NullOr<Rhs::Nullable>,
+    T: ArithmeticOutput<Rhs::SQLType, MulOp>,
+    N: Nullability,
     A: AggOr<Rhs::Aggregate>,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: Numeric,
     Rhs::Nullable: Nullability,
+    <T as ArithmeticOutput<Rhs::SQLType, MulOp>>::Nullability:
+        ResolveArithmeticNullability<N, Rhs::Nullable>,
 {
     type Output = SQLExpr<
         'a,
         V,
-        T::Output,
-        <N as NullOr<Rhs::Nullable>>::Output,
+        <T as ArithmeticOutput<Rhs::SQLType, MulOp>>::Output,
+        ArithmeticNullable<'a, V, T, N, Rhs, MulOp>,
         <A as AggOr<Rhs::Aggregate>>::Output,
     >;
 
@@ -111,18 +125,20 @@ where
 impl<'a, V, T, N, A, Rhs> Div<Rhs> for SQLExpr<'a, V, T, N, A>
 where
     V: SQLParam + 'a,
-    T: ArithmeticOutput<Rhs::SQLType>,
-    N: Nullability + NullOr<Rhs::Nullable>,
+    T: ArithmeticOutput<Rhs::SQLType, DivOp>,
+    N: Nullability,
     A: AggOr<Rhs::Aggregate>,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: Numeric,
     Rhs::Nullable: Nullability,
+    <T as ArithmeticOutput<Rhs::SQLType, DivOp>>::Nullability:
+        ResolveArithmeticNullability<N, Rhs::Nullable>,
 {
     type Output = SQLExpr<
         'a,
         V,
-        T::Output,
-        <N as NullOr<Rhs::Nullable>>::Output,
+        <T as ArithmeticOutput<Rhs::SQLType, DivOp>>::Output,
+        ArithmeticNullable<'a, V, T, N, Rhs, DivOp>,
         <A as AggOr<Rhs::Aggregate>>::Output,
     >;
 
@@ -138,18 +154,20 @@ where
 impl<'a, V, T, N, A, Rhs> Rem<Rhs> for SQLExpr<'a, V, T, N, A>
 where
     V: SQLParam + 'a,
-    T: ArithmeticOutput<Rhs::SQLType>,
-    N: Nullability + NullOr<Rhs::Nullable>,
+    T: ArithmeticOutput<Rhs::SQLType, RemOp>,
+    N: Nullability,
     A: AggOr<Rhs::Aggregate>,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: Numeric,
     Rhs::Nullable: Nullability,
+    <T as ArithmeticOutput<Rhs::SQLType, RemOp>>::Nullability:
+        ResolveArithmeticNullability<N, Rhs::Nullable>,
 {
     type Output = SQLExpr<
         'a,
         V,
-        T::Output,
-        <N as NullOr<Rhs::Nullable>>::Output,
+        <T as ArithmeticOutput<Rhs::SQLType, RemOp>>::Output,
+        ArithmeticNullable<'a, V, T, N, Rhs, RemOp>,
         <A as AggOr<Rhs::Aggregate>>::Output,
     >;
 
@@ -165,11 +183,11 @@ where
 impl<'a, V, T, N, A> Neg for SQLExpr<'a, V, T, N, A>
 where
     V: SQLParam + 'a,
-    T: Numeric,
+    T: Numeric + NegOutput,
     N: Nullability,
     A: AggregateKind,
 {
-    type Output = Self;
+    type Output = SQLExpr<'a, V, T::Output, N, A>;
 
     fn neg(self) -> Self::Output {
         SQLExpr::new(SQL::from(Token::MINUS).append(self.into_expr_sql().parens()))

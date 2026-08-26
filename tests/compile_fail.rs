@@ -17,6 +17,13 @@ fn mysql_macros_ui() {
     must_fail("tests/ui/mysql_macros/fail/*.rs");
 }
 
+#[cfg(feature = "mysql")]
+#[test]
+fn mysql_builder_ui() {
+    must_pass("tests/ui/mysql_builder/pass/*.rs");
+    must_fail("tests/ui/mysql_builder/fail/*.rs");
+}
+
 #[cfg(all(feature = "rusqlite", feature = "uuid"))]
 #[test]
 fn strict_decode_ui() {

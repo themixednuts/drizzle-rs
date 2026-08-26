@@ -1,0 +1,33 @@
+error[E0277]: SQL type `drizzle::mysql::types::Text` is not assignable from `drizzle::mysql::types::BigIntUnsigned`
+  --> tests/ui/mysql_builder/fail/insert_select_type_mismatch.rs:19:42
+   |
+19 |     let _ = builder.insert(users).select(wrong_types);
+   |                                   ------ ^^^^^^^^^^^ this value type cannot be bound to the placeholder/column type
+   |                                   |
+   |                                   required by a bound introduced by this call
+   |
+   = help: the trait `Assignable<drizzle::mysql::types::BigIntUnsigned>` is not implemented for `drizzle::mysql::types::Text`
+   = note: assignment is stricter than comparison compatibility; use a value matching the target SQL marker
+   = help: `drizzle::mysql::types::Text` implements trait `Assignable<Rhs>`:
+             Assignable<drizzle::mysql::types::Char>
+             Assignable<drizzle::mysql::types::Enum>
+             Assignable<drizzle::mysql::types::LongText>
+             Assignable<drizzle::mysql::types::MediumText>
+             Assignable<drizzle::mysql::types::Set>
+             Assignable<drizzle::mysql::types::TinyText>
+             Assignable<drizzle::mysql::types::Varchar>
+             Assignable
+   = note: required for `Cons<UsersName, Nil>` to implement `drizzle::mysql::builder::insert::InsertSelectColumns<'_, Cons<UsersId, Nil>>`
+   = note: 1 redundant requirement hidden
+   = note: required for `Cons<UsersId, Cons<UsersName, Nil>>` to implement `drizzle::mysql::builder::insert::InsertSelectColumns<'_, Cons<UsersId, Cons<UsersId, Nil>>>`
+   = note: required for `SelectCols<(UsersId, UsersId)>` to implement `drizzle::mysql::builder::insert::InsertSelectCompatible<'_, Users, (u64, u64)>`
+   = note: 1 redundant requirement hidden
+   = note: required for `Scoped<SelectCols<(UsersId, UsersId)>, Cons<Users, Nil>>` to implement `drizzle::mysql::builder::insert::InsertSelectCompatible<'_, Users, (u64, u64)>`
+note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, InsertInitial, Table>>::select`
+  --> mysql/src/builder/insert.rs
+   |
+   |     pub fn select<Q, R>(self, query: Q) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+   |            ------ required by a bound in this associated function
+...
+   |         Q::Marker: InsertSelectCompatible<'a, Table, R>,
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, InsertInitial, Table>>::select`

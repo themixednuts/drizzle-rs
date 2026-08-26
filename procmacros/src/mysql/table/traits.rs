@@ -474,6 +474,10 @@ pub(super) fn generate_table_impls(
     let has_select_model = core_paths::has_select_model();
     let into_select_target = core_paths::into_select_target();
     let select_star = core_paths::select_star();
+    let insert_select_columns = column_zst_idents.iter().rev().fold(
+        quote! { #type_set_nil },
+        |tail, column| quote! { #type_set_cons<#column, #tail> },
+    );
 
     Ok(quote! {
         #foreign_key_impls
@@ -511,6 +515,9 @@ pub(super) fn generate_table_impls(
         }
         impl #into_select_target for #struct_ident {
             type Marker = #select_star;
+        }
+        impl drizzle::mysql::traits::MySQLInsertSelectTarget for #struct_ident {
+            type Columns = #insert_select_columns;
         }
         #mysql_table_impl
         #to_sql_impl

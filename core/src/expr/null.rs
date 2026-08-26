@@ -8,10 +8,10 @@
 //! - `coalesce`, `ifnull`: Require compatible types between expression and default
 //! - `nullif`: Requires compatible types between the two arguments
 
-use crate::PostgresDialect;
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
 use crate::types::Compatible;
+use crate::{MySQLDialect, PostgresDialect};
 
 use super::{AggOr, AggregateKind, Expr, NonNull, Null, Nullability, SQLExpr};
 
@@ -239,20 +239,39 @@ where
 // GREATEST / LEAST
 // =============================================================================
 
-/// Marker trait for dialects that support GREATEST/LEAST (`PostgreSQL`).
+/// Dialect-specific NULL propagation for `GREATEST` and `LEAST`.
 ///
-/// `SQLite` does not have `GREATEST`/`LEAST`. While its multi-argument
-/// `MAX`/`MIN` are superficially similar, they have different NULL semantics:
-/// `PostgreSQL` ignores NULLs (`GREATEST(1, NULL)` = `1`) while `SQLite`
-/// propagates them (`MAX(1, NULL)` = `NULL`).
-pub trait PostgresNullSupport {}
-impl PostgresNullSupport for PostgresDialect {}
+/// PostgreSQL ignores NULL arguments, while MySQL returns NULL when either
+/// argument is NULL. SQLite does not provide these functions.
+#[diagnostic::on_unimplemented(
+    message = "GREATEST/LEAST are not available for this dialect",
+    label = "use a dialect-specific extrema expression"
+)]
+pub trait GreatestLeastPolicy<L: Nullability, R: Nullability> {
+    type Nullable: Nullability;
+}
 
-/// GREATEST - returns the largest of the given values (`PostgreSQL`).
+impl<L, R> GreatestLeastPolicy<L, R> for PostgresDialect
+where
+    L: NullAnd<R>,
+    R: Nullability,
+{
+    type Nullable = <L as NullAnd<R>>::Output;
+}
+
+impl<L, R> GreatestLeastPolicy<L, R> for MySQLDialect
+where
+    L: NullOr<R>,
+    R: Nullability,
+{
+    type Nullable = <L as NullOr<R>>::Output;
+}
+
+/// GREATEST - returns the largest of the given values (`PostgreSQL` and `MySQL`).
 ///
 /// Both arguments must have compatible types. `PostgreSQL` ignores NULL inputs,
 /// so `GREATEST(1, NULL)` returns `1`. The result is only NULL when all
-/// inputs are NULL.
+/// inputs are NULL. MySQL returns NULL if either input is NULL.
 ///
 /// # Example
 ///
@@ -272,16 +291,15 @@ pub fn greatest<'a, V, L, R>(
     'a,
     V,
     L::SQLType,
-    <L::Nullable as NullAnd<R::Nullable>>::Output,
+    <V::DialectMarker as GreatestLeastPolicy<L::Nullable, R::Nullable>>::Nullable,
     <L::Aggregate as AggOr<R::Aggregate>>::Output,
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresNullSupport,
+    V::DialectMarker: GreatestLeastPolicy<L::Nullable, R::Nullable>,
     L: Expr<'a, V>,
     R: Expr<'a, V>,
     L::SQLType: Compatible<R::SQLType>,
-    L::Nullable: NullAnd<R::Nullable>,
     R::Nullable: Nullability,
     L::Aggregate: AggOr<R::Aggregate>,
     R::Aggregate: AggregateKind,
@@ -294,11 +312,11 @@ where
     ))
 }
 
-/// LEAST - returns the smallest of the given values (`PostgreSQL`).
+/// LEAST - returns the smallest of the given values (`PostgreSQL` and `MySQL`).
 ///
 /// Both arguments must have compatible types. `PostgreSQL` ignores NULL inputs,
 /// so `LEAST(1, NULL)` returns `1`. The result is only NULL when all
-/// inputs are NULL.
+/// inputs are NULL. MySQL returns NULL if either input is NULL.
 ///
 /// # Example
 ///
@@ -318,16 +336,15 @@ pub fn least<'a, V, L, R>(
     'a,
     V,
     L::SQLType,
-    <L::Nullable as NullAnd<R::Nullable>>::Output,
+    <V::DialectMarker as GreatestLeastPolicy<L::Nullable, R::Nullable>>::Nullable,
     <L::Aggregate as AggOr<R::Aggregate>>::Output,
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresNullSupport,
+    V::DialectMarker: GreatestLeastPolicy<L::Nullable, R::Nullable>,
     L: Expr<'a, V>,
     R: Expr<'a, V>,
     L::SQLType: Compatible<R::SQLType>,
-    L::Nullable: NullAnd<R::Nullable>,
     R::Nullable: Nullability,
     L::Aggregate: AggOr<R::Aggregate>,
     R::Aggregate: AggregateKind,

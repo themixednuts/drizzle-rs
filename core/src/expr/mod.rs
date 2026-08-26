@@ -225,6 +225,10 @@ pub trait HasAggStatus {
     type Status;
 }
 
+impl<T: HasAggStatus + ?Sized> HasAggStatus for &T {
+    type Status = T::Status;
+}
+
 // =============================================================================
 // Core Expression Trait
 // =============================================================================

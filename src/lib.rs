@@ -443,7 +443,9 @@ pub mod mysql {
     #[doc(inline)]
     pub use drizzle_mysql::values::{MySQLValue, OwnedMySQLValue};
     #[doc(inline)]
-    pub use drizzle_mysql::{MySQLDialect, ParamBind, attrs, common, traits, types, values};
+    pub use drizzle_mysql::{
+        MySQLDialect, ParamBind, attrs, builder, common, helpers, traits, types, values,
+    };
 
     /// `MySQL` prelude for schema declarations.
     pub mod prelude {
@@ -452,11 +454,12 @@ pub mod mysql {
         pub use crate::core::{Joinable, Relation, SchemaHasTable};
         pub use crate::core::{
             OrderBy, Param, ParamBind, ParamSet, Placeholder, SQL, SQLChunk, Token,
-            TypedPlaceholder, asc, desc,
+            TypedPlaceholder,
         };
         pub use crate::core::{OwnedPreparedStatement, PreparedStatement};
         pub use drizzle_core::tag;
         pub use drizzle_core::traits::*;
+        pub use drizzle_mysql::helpers::{asc, desc, output_alias};
         // MySQL macros
         pub use drizzle_macros::{MySQLEnum, MySQLFromRow, MySQLIndex, MySQLSchema, MySQLTable};
         // MySQL types

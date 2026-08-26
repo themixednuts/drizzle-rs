@@ -280,7 +280,11 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
             generate_custom_comparison_operand_impls(field_info, &zst_ident, &postgres_value);
 
         // Generate arithmetic operators for numeric columns
-        let arithmetic_ops = if postgres_column_type_is_numeric(&field_info.column_type) {
+        let arithmetic_ops = if !field_info.is_enum
+            && !field_info.is_pgenum
+            && field_info.dimensions.is_none()
+            && postgres_column_type_is_numeric(&field_info.column_type)
+        {
             generate_arithmetic_ops(
                 &zst_ident,
                 postgres_value,

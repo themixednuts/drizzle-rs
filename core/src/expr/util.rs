@@ -1,6 +1,6 @@
 //! Utility SQL functions (alias, cast, distinct, typeof, concat, excluded).
 
-use crate::dialect::{PostgresDialect, SQLiteDialect};
+use crate::dialect::{MySQLDialect, PostgresDialect, SQLiteDialect};
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLColumnInfo, SQLParam, ToSQL};
 use crate::types::{Compatible, DataType, Textual};
@@ -281,6 +281,43 @@ impl DefaultCastTypeName for drizzle_types::postgres::types::Enum {
     const CAST_TYPE_NAME: &'static str = "TEXT";
 }
 
+impl DefaultCastTypeName for drizzle_types::mysql::types::BigInt {
+    const CAST_TYPE_NAME: &'static str = "SIGNED";
+}
+impl DefaultCastTypeName for drizzle_types::mysql::types::BigIntUnsigned {
+    const CAST_TYPE_NAME: &'static str = "UNSIGNED";
+}
+impl DefaultCastTypeName for drizzle_types::mysql::types::Float {
+    const CAST_TYPE_NAME: &'static str = "FLOAT";
+}
+impl DefaultCastTypeName for drizzle_types::mysql::types::Double {
+    const CAST_TYPE_NAME: &'static str = "DOUBLE";
+}
+impl DefaultCastTypeName for drizzle_types::mysql::types::Decimal {
+    const CAST_TYPE_NAME: &'static str = "DECIMAL";
+}
+impl DefaultCastTypeName for drizzle_types::mysql::types::Varchar {
+    const CAST_TYPE_NAME: &'static str = "CHAR";
+}
+impl DefaultCastTypeName for drizzle_types::mysql::types::Varbinary {
+    const CAST_TYPE_NAME: &'static str = "BINARY";
+}
+impl DefaultCastTypeName for drizzle_types::mysql::types::Json {
+    const CAST_TYPE_NAME: &'static str = "JSON";
+}
+impl DefaultCastTypeName for drizzle_types::mysql::types::Date {
+    const CAST_TYPE_NAME: &'static str = "DATE";
+}
+impl DefaultCastTypeName for drizzle_types::mysql::types::Time {
+    const CAST_TYPE_NAME: &'static str = "TIME";
+}
+impl DefaultCastTypeName for drizzle_types::mysql::types::DateTime {
+    const CAST_TYPE_NAME: &'static str = "DATETIME";
+}
+impl DefaultCastTypeName for drizzle_types::mysql::types::Year {
+    const CAST_TYPE_NAME: &'static str = "YEAR";
+}
+
 /// Input accepted by [`cast`].
 ///
 /// You can pass:
@@ -294,18 +331,95 @@ pub trait CastTarget<'a, T: DataType, D> {
 #[diagnostic::on_unimplemented(
     message = "cannot cast `{Source}` to `{Target}` for this dialect",
     label = "cast target is incompatible with source type",
-    note = "for SQLite strict typing, use a compatible cast target or cast through ANY/raw sql intentionally"
+    note = "use a supported target marker, or raw SQL when the conversion is intentionally dialect-specific"
 )]
 pub trait CastTypePolicy<D, Source: DataType, Target: DataType> {}
+
+/// Dialect policy for casts that may produce `NULL` from a non-NULL input.
+#[doc(hidden)]
+pub trait CastNullabilityPolicy<D, Input: Nullability>: DataType {
+    type Output: Nullability;
+}
+
+macro_rules! mysql_cast_policies {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl<Source: DataType> CastTypePolicy<MySQLDialect, Source, $ty> for () {}
+        )+
+    };
+}
+
+mysql_cast_policies!(
+    drizzle_types::mysql::types::BigInt,
+    drizzle_types::mysql::types::BigIntUnsigned,
+    drizzle_types::mysql::types::Float,
+    drizzle_types::mysql::types::Double,
+    drizzle_types::mysql::types::Decimal,
+    drizzle_types::mysql::types::Varchar,
+    drizzle_types::mysql::types::Varbinary,
+    drizzle_types::mysql::types::Json,
+    drizzle_types::mysql::types::Date,
+    drizzle_types::mysql::types::Time,
+    drizzle_types::mysql::types::DateTime,
+    drizzle_types::mysql::types::Year,
+);
+
+macro_rules! mysql_preserving_cast_nullability {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl<Input: Nullability> CastNullabilityPolicy<MySQLDialect, Input> for $ty {
+                type Output = Input;
+            }
+        )+
+    };
+}
+
+mysql_preserving_cast_nullability!(
+    drizzle_types::mysql::types::BigInt,
+    drizzle_types::mysql::types::BigIntUnsigned,
+    drizzle_types::mysql::types::Float,
+    drizzle_types::mysql::types::Double,
+    drizzle_types::mysql::types::Decimal,
+    drizzle_types::mysql::types::Varchar,
+    drizzle_types::mysql::types::Varbinary,
+    drizzle_types::mysql::types::Json,
+);
+
+macro_rules! mysql_nullable_cast_result {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl<Input: Nullability> CastNullabilityPolicy<MySQLDialect, Input> for $ty {
+                type Output = Null;
+            }
+        )+
+    };
+}
+
+mysql_nullable_cast_result!(
+    drizzle_types::mysql::types::Date,
+    drizzle_types::mysql::types::Time,
+    drizzle_types::mysql::types::DateTime,
+    drizzle_types::mysql::types::Year,
+);
 
 impl<Source: DataType + Compatible<Target>, Target: DataType>
     CastTypePolicy<PostgresDialect, Source, Target> for ()
 {
 }
 
+impl<Input: Nullability, Target: DataType> CastNullabilityPolicy<PostgresDialect, Input>
+    for Target
+{
+    type Output = Input;
+}
+
 impl<Source: DataType + Compatible<Target>, Target: DataType>
     CastTypePolicy<SQLiteDialect, Source, Target> for ()
 {
+}
+
+impl<Input: Nullability, Target: DataType> CastNullabilityPolicy<SQLiteDialect, Input> for Target {
+    type Output = Input;
 }
 
 impl<'a, T: DataType, D> CastTarget<'a, T, D> for &'a str {
@@ -330,7 +444,9 @@ where
 /// - a SQL type string (`"INTEGER"`, `"int4"`, `"VARCHAR(255)"`), or
 /// - a type marker value (`Int`, `Text`, `drizzle::sqlite::types::Integer`, ...).
 ///
-/// Preserves the input expression's nullability and aggregate marker.
+/// Preserves the aggregate marker. Nullability follows the dialect and target
+/// type because MySQL temporal casts can return `NULL` for invalid non-NULL
+/// input.
 ///
 /// # Example
 ///
@@ -347,14 +463,21 @@ where
 /// let age_int = cast::<_, _, Int>(users.age, "int4");
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn cast<'a, V, E, Target>(
     expr: E,
     target_type: impl CastTarget<'a, Target, V::DialectMarker>,
-) -> SQLExpr<'a, V, Target, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    Target,
+    <Target as CastNullabilityPolicy<V::DialectMarker, E::Nullable>>::Output,
+    E::Aggregate,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
-    Target: DataType,
+    Target: DataType + CastNullabilityPolicy<V::DialectMarker, E::Nullable>,
     (): CastTypePolicy<V::DialectMarker, E::SQLType, Target>,
 {
     SQLExpr::new(SQL::func(

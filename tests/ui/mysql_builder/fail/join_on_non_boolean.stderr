@@ -1,0 +1,38 @@
+error[E0277]: the trait bound `(Posts, PostsUserId): JoinArg<'_, Users>` is not satisfied
+  --> tests/ui/mysql_builder/fail/join_on_non_boolean.rs:28:21
+   |
+28 |         .inner_join((posts, posts.user_id));
+   |          ---------- ^^^^^^^^^^^^^^^^^^^^^^ the trait `JoinArg<'_, Users>` is not implemented for `(Posts, PostsUserId)`
+   |          |
+   |          required by a bound introduced by this call
+   |
+help: the trait `JoinArg<'_, T>` is implemented for `(U, C)`
+  --> core/src/join.rs
+   |
+   | /         impl<'a, U, C, T> JoinArg<'a, T> for (U, C)
+   | |         where
+   | |             U: $TableTrait,
+   | |             C: $ConditionTrait,
+   | |_______________________________^
+   |
+  ::: mysql/src/helpers.rs
+   |
+   | / drizzle_core::impl_join_arg_trait!(
+   | |     table_trait: MySQLTable<'a>,
+   | |     table_info_trait: SQLTableInfo,
+   | |     condition_trait: JoinCondition<'a>,
+   | |     value_type: MySQLValue<'a>,
+   | | );
+   | |_- in this macro invocation
+note: required by a bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::inner_join`
+  --> mysql/src/builder/select.rs
+   |
+   |         pub fn $name<J: helpers::JoinArg<'a, T>>(
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::inner_join`
+...
+   |     join_on_method!(inner_join, drizzle_core::Join::new().inner(), AfterJoin);
+   |     -------------------------------------------------------------------------
+   |     |               |
+   |     |               required by a bound in this associated function
+   |     in this macro invocation
+   = note: this error originates in the macro `drizzle_core::impl_join_arg_trait` which comes from the expansion of the macro `join_on_method` (in Nightly builds, run with -Z macro-backtrace for more info)
