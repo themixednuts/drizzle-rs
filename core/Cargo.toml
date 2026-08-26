@@ -41,6 +41,7 @@ default = ["std", "col16"]
 
 # Standard library support (enabled by default)
 std = ["compact_str/std", "smallvec/write", "thiserror/std", "drizzle-types/std", "percent-encoding/std"]
+driver-error = ["std"]
 
 # Allocator support for no_std environments. Kept for API clarity;
 # `drizzle-types/alloc` and `percent-encoding/alloc` are always enabled

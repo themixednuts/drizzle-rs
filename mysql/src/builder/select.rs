@@ -444,13 +444,13 @@ macro_rules! set_operation {
     ($name:ident, $token:expr, $all:expr) => {
         pub fn $name(
             self,
-            other: impl IntoSelect<'a, S, R>,
+            other: impl IntoSelectQuery<'a, S, R>,
         ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
             SelectBuilder::from_sql(helpers::set_op(
                 self.sql,
                 $token,
                 $all,
-                other.into_select_sql(),
+                other.into_select_query().into_select_sql(),
             ))
         }
     };
@@ -494,6 +494,18 @@ pub trait IntoSelect<'a, S, R>: private::SealedSelect {
     fn into_select_sql(self) -> drizzle_core::SQL<'a, MySQLValue<'a>>;
 }
 
+/// Safe extension seam for driver wrappers around a completed MySQL select.
+///
+/// Implementations must unwrap to the sealed [`IntoSelect`] type; they cannot
+/// manufacture an arbitrary SQL fragment or row marker.
+#[doc(hidden)]
+pub trait IntoSelectQuery<'a, S, R> {
+    type Marker;
+    type Select: IntoSelect<'a, S, R, Marker = Self::Marker>;
+
+    fn into_select_query(self) -> Self::Select;
+}
+
 macro_rules! impl_completed_select {
     ($state:ty) => {
         impl<'a, S, T, M, R, G> private::SealedSelect for SelectBuilder<'a, S, $state, T, M, R, G> {}
@@ -503,6 +515,17 @@ macro_rules! impl_completed_select {
 
             fn into_select_sql(self) -> drizzle_core::SQL<'a, MySQLValue<'a>> {
                 self.sql
+            }
+        }
+
+        impl<'a, S, T, M, R, G> IntoSelectQuery<'a, S, R>
+            for SelectBuilder<'a, S, $state, T, M, R, G>
+        {
+            type Marker = M;
+            type Select = Self;
+
+            fn into_select_query(self) -> Self::Select {
+                self
             }
         }
 

@@ -18,10 +18,10 @@ pub use insert::{
     InsertBuilder, InsertIgnoreSet, InsertInitial, InsertOnDuplicateKeyUpdateSet, InsertValuesSet,
 };
 pub use select::{
-    ForShare, ForUpdate, IntoSelect, NoWait, SelectBuilder, SelectForSet, SelectFromSet,
-    SelectGroupSet, SelectHavingSet, SelectIndexHintSet, SelectInitial, SelectJoinSet,
-    SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectSetOpSet, SelectWhereSet, SkipLocked,
-    Wait,
+    ForShare, ForUpdate, IntoSelect, IntoSelectQuery, NoWait, SelectBuilder, SelectForSet,
+    SelectFromSet, SelectGroupSet, SelectHavingSet, SelectIndexHintSet, SelectInitial,
+    SelectJoinSet, SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectSetOpSet, SelectWhereSet,
+    SkipLocked, Wait,
 };
 pub use update::{
     UpdateBuilder, UpdateInitial, UpdateLimitSet, UpdateOrderSet, UpdateSetClauseSet,

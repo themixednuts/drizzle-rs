@@ -165,6 +165,18 @@ pub enum DrizzleError {
     #[error("Database error: {0}")]
     Other(compact_str::CompactString),
 
+    /// Error returned by a wire driver whose concrete type is intentionally
+    /// kept out of drizzle-core's public dependency graph.
+    #[cfg(feature = "driver-error")]
+    #[error("{driver} error: {source}")]
+    Driver {
+        /// Stable adapter name used in diagnostics.
+        driver: CompactString,
+        /// Original driver error, retained as the error source.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
     /// Rusqlite specific errors
     #[cfg(feature = "rusqlite")]
     #[error("Rusqlite error: {0}")]
@@ -202,6 +214,21 @@ pub enum DrizzleError {
     /// Infallible conversion error (should never happen)
     #[error("Infallible conversion error")]
     Infallible(#[from] core::convert::Infallible),
+}
+
+impl DrizzleError {
+    /// Wraps a concrete wire-driver error without exposing its type in the
+    /// public error enum.
+    #[cfg(feature = "driver-error")]
+    pub fn driver(
+        driver: impl Into<CompactString>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self::Driver {
+            driver: driver.into(),
+            source: Box::new(source),
+        }
+    }
 }
 
 /// Result type for database operations

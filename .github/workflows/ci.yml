@@ -131,6 +131,54 @@ jobs:
       - name: Run tests
         run: just test::pg "${{ matrix.features }}"
 
+  test-mysql-sync:
+    name: Test MySQL Sync
+    runs-on: ubuntu-latest
+    needs: lint
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: mysql
+          MYSQL_DATABASE: drizzle_test
+          MYSQL_USER: drizzle
+          MYSQL_PASSWORD: drizzle
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pmysql --silent"
+          --health-interval=2s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      DRIZZLE_MYSQL_URL: mysql://drizzle:drizzle@127.0.0.1:3306/drizzle_test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: stable
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Check isolated blocking feature
+        run: cargo check -p drizzle --no-default-features --features mysql-sync
+
+      - name: Reject async runtime dependencies
+        shell: bash
+        run: |
+          if cargo tree -p drizzle --no-default-features --features mysql-sync --edges normal \
+            | grep -E '(^|[[:space:]])(tokio|mysql_async) v'; then
+            echo "mysql-sync pulled an async runtime dependency"
+            exit 1
+          fi
+
+      - name: Run live MySQL tests
+        run: cargo test -p drizzle --test mysql_sync --no-default-features --features mysql-sync
+
   test-turso:
     name: Test (Turso - Experimental)
     runs-on: ubuntu-latest

@@ -1,3 +1,4 @@
+use super::select::IntoSelect;
 use crate::{
     traits::{MySQLInsertSelectTarget, MySQLTable},
     values::MySQLValue,
@@ -158,9 +159,9 @@ where
     pub fn select<Q, R>(self, query: Q) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
     where
         Table: MySQLInsertSelectTarget,
-        Q: super::select::IntoSelect<'a, Schema, R>,
+        Q: super::select::IntoSelectQuery<'a, Schema, R>,
         Q::Marker: InsertSelectCompatible<'a, Table, R>,
     {
-        InsertBuilder::from_sql(self.sql.append(query.into_select_sql()))
+        InsertBuilder::from_sql(self.sql.append(query.into_select_query().into_select_sql()))
     }
 }

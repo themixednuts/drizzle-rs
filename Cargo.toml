@@ -14,6 +14,11 @@ name = "compile_fail"
 path = "tests/compile_fail.rs"
 required-features = ["serde"]
 
+[[test]]
+name = "mysql_sync"
+path = "tests/mysql_sync.rs"
+required-features = ["mysql-sync"]
+
 [workspace]
 resolver = "3"
 members = [
@@ -108,6 +113,7 @@ postgres = { version = ">=0.19.11, <0.20" }
 postgres-native-tls = { version = ">=0.5.3, <0.6" }
 native-tls = { version = ">=0.2.18, <0.3", features = ["vendored"] }
 mysql_common = { version = ">=0.37.1, <0.38", default-features = false }
+mysql = { version = ">=28.0.0, <29", default-features = false, features = ["minimal-rust", "native-tls"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 # `runtime` is deliberately NOT enabled here. It pulls `tokio/net` + `tokio/time`,
 # neither of which builds for wasm32-unknown-unknown, and it only gates
@@ -325,6 +331,17 @@ sqlite = ["drizzle-seed/sqlite", "drizzle-macros/sqlite", "dep:drizzle-sqlite"]
 postgres = ["drizzle-seed/postgres", "drizzle-macros/postgres", "dep:drizzle-postgres"]
 mysql = ["drizzle-macros/mysql", "dep:drizzle-mysql"]
 
+# Blocking MySQL adapter. The upstream `mysql` client owns connections and
+# pool checkout; Drizzle accepts either `Conn` or `PooledConn` as its concrete
+# runner and adds no async runtime.
+mysql-sync = [
+  "std",
+  "mysql",
+  "dep:mysql",
+  "drizzle-core/driver-error",
+  "drizzle-mysql/mysql-common",
+]
+
 # PostgreSQL driver feature flags
 postgres-sync = [
   "postgres",
@@ -407,6 +424,7 @@ uuid = { workspace = true, optional = true }
 puffin = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 postgres = { workspace = true, optional = true }
+mysql = { workspace = true, optional = true }
 tokio-postgres = { workspace = true, optional = true }
 aws-sdk-rdsdata = { workspace = true, optional = true }
 aws-config = { workspace = true, optional = true }
