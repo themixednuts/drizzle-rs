@@ -6,6 +6,7 @@
 //! - [`Dialect`] - Database dialect enum (`SQLite`, `PostgreSQL`, `MySQL`)
 //! - `SQLite` types in the [`sqlite`] module
 //! - `PostgreSQL` types in the [`postgres`] module
+//! - `MySQL` types in the [`mysql`] module
 //!
 //! # Features
 //!
@@ -52,6 +53,8 @@ mod dialect;
 #[cfg(any(feature = "std", feature = "alloc"))]
 mod migration;
 #[cfg(any(feature = "std", feature = "alloc"))]
+pub mod mysql;
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod postgres;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod serde_helpers;
@@ -71,6 +74,8 @@ pub use sql::*;
 /// Prelude module for commonly used types
 pub mod prelude {
     pub use crate::Dialect;
+    #[cfg(any(feature = "std", feature = "alloc"))]
+    pub use crate::mysql::{MySQLType, MySQLTypeCategory, TypeCategory as MySQLRustTypeCategory};
     #[cfg(any(feature = "std", feature = "alloc"))]
     pub use crate::postgres::{PgTypeCategory, PostgreSQLType, TypeCategory as PgRustTypeCategory};
     #[cfg(any(feature = "std", feature = "alloc"))]

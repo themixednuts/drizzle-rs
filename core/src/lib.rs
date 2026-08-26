@@ -90,7 +90,7 @@ pub use builder::{
     BuilderInit, ExecutableState, GroupByAllowed, GroupByApplied, HavingAllowed, JoinAllowed,
     LimitAllowed, OffsetAllowed, OrderByAllowed, WhereAllowed,
 };
-pub use dialect::{Dialect, DialectTypes, PostgresDialect, SQLiteDialect};
+pub use dialect::{Dialect, DialectTypes, MySQLDialect, PostgresDialect, SQLiteDialect};
 pub use join::{Join, JoinType};
 pub use pagination::PaginationArg;
 pub use param::{OwnedParam, Param, ParamBind, ParamSet};

@@ -154,6 +154,42 @@ impl_reflexive_compat!(
     crate::postgres::types::Polygon,
     crate::postgres::types::Circle,
     crate::postgres::types::Enum,
+    crate::mysql::types::TinyInt,
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::SmallInt,
+    crate::mysql::types::SmallIntUnsigned,
+    crate::mysql::types::MediumInt,
+    crate::mysql::types::MediumIntUnsigned,
+    crate::mysql::types::Int,
+    crate::mysql::types::IntUnsigned,
+    crate::mysql::types::BigInt,
+    crate::mysql::types::BigIntUnsigned,
+    crate::mysql::types::Float,
+    crate::mysql::types::Double,
+    crate::mysql::types::Decimal,
+    crate::mysql::types::Boolean,
+    crate::mysql::types::Char,
+    crate::mysql::types::Varchar,
+    crate::mysql::types::TinyText,
+    crate::mysql::types::Text,
+    crate::mysql::types::MediumText,
+    crate::mysql::types::LongText,
+    crate::mysql::types::Binary,
+    crate::mysql::types::Varbinary,
+    crate::mysql::types::TinyBlob,
+    crate::mysql::types::Blob,
+    crate::mysql::types::MediumBlob,
+    crate::mysql::types::LongBlob,
+    crate::mysql::types::Json,
+    crate::mysql::types::Date,
+    crate::mysql::types::Time,
+    crate::mysql::types::DateTime,
+    crate::mysql::types::Timestamp,
+    crate::mysql::types::Year,
+    crate::mysql::types::Enum,
+    crate::mysql::types::Set,
+    crate::mysql::types::Bit,
+    crate::mysql::types::Any,
 );
 
 impl_reflexive_assign!(
@@ -197,6 +233,42 @@ impl_reflexive_assign!(
     crate::postgres::types::Polygon,
     crate::postgres::types::Circle,
     crate::postgres::types::Enum,
+    crate::mysql::types::TinyInt,
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::SmallInt,
+    crate::mysql::types::SmallIntUnsigned,
+    crate::mysql::types::MediumInt,
+    crate::mysql::types::MediumIntUnsigned,
+    crate::mysql::types::Int,
+    crate::mysql::types::IntUnsigned,
+    crate::mysql::types::BigInt,
+    crate::mysql::types::BigIntUnsigned,
+    crate::mysql::types::Float,
+    crate::mysql::types::Double,
+    crate::mysql::types::Decimal,
+    crate::mysql::types::Boolean,
+    crate::mysql::types::Char,
+    crate::mysql::types::Varchar,
+    crate::mysql::types::TinyText,
+    crate::mysql::types::Text,
+    crate::mysql::types::MediumText,
+    crate::mysql::types::LongText,
+    crate::mysql::types::Binary,
+    crate::mysql::types::Varbinary,
+    crate::mysql::types::TinyBlob,
+    crate::mysql::types::Blob,
+    crate::mysql::types::MediumBlob,
+    crate::mysql::types::LongBlob,
+    crate::mysql::types::Json,
+    crate::mysql::types::Date,
+    crate::mysql::types::Time,
+    crate::mysql::types::DateTime,
+    crate::mysql::types::Timestamp,
+    crate::mysql::types::Year,
+    crate::mysql::types::Enum,
+    crate::mysql::types::Set,
+    crate::mysql::types::Bit,
+    crate::mysql::types::Any,
 );
 
 // =============================================================================
@@ -409,6 +481,204 @@ impl_placeholder_compat!(
 );
 
 // =============================================================================
+// MySQL compatibility (category-based)
+// =============================================================================
+
+// Keep signed and unsigned integer families distinct. MySQL can coerce between
+// them, but negative signed values have surprising comparison semantics with
+// unsigned values; callers can opt into that behavior with an explicit cast.
+mutual_compat!(
+    crate::mysql::types::TinyInt,
+    crate::mysql::types::SmallInt,
+    crate::mysql::types::MediumInt,
+    crate::mysql::types::Int,
+    crate::mysql::types::BigInt
+);
+mutual_compat!(
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::SmallIntUnsigned,
+    crate::mysql::types::MediumIntUnsigned,
+    crate::mysql::types::IntUnsigned,
+    crate::mysql::types::BigIntUnsigned
+);
+
+// YEAR is numeric and has a restricted domain, so it may be compared with
+// either integer family without implying compatibility between those families.
+cross_compat!(
+    [crate::mysql::types::Year],
+    [
+        crate::mysql::types::TinyInt,
+        crate::mysql::types::SmallInt,
+        crate::mysql::types::MediumInt,
+        crate::mysql::types::Int,
+        crate::mysql::types::BigInt,
+        crate::mysql::types::TinyIntUnsigned,
+        crate::mysql::types::SmallIntUnsigned,
+        crate::mysql::types::MediumIntUnsigned,
+        crate::mysql::types::IntUnsigned,
+        crate::mysql::types::BigIntUnsigned
+    ]
+);
+
+// Exact and approximate numeric types can be compared with every integer
+// marker; FLOAT, DOUBLE, and DECIMAL are also mutually compatible.
+cross_compat!(
+    [
+        crate::mysql::types::TinyInt,
+        crate::mysql::types::SmallInt,
+        crate::mysql::types::MediumInt,
+        crate::mysql::types::Int,
+        crate::mysql::types::BigInt,
+        crate::mysql::types::TinyIntUnsigned,
+        crate::mysql::types::SmallIntUnsigned,
+        crate::mysql::types::MediumIntUnsigned,
+        crate::mysql::types::IntUnsigned,
+        crate::mysql::types::BigIntUnsigned,
+        crate::mysql::types::Year
+    ],
+    [
+        crate::mysql::types::Decimal,
+        crate::mysql::types::Float,
+        crate::mysql::types::Double
+    ]
+);
+mutual_compat!(
+    crate::mysql::types::Decimal,
+    crate::mysql::types::Float,
+    crate::mysql::types::Double
+);
+
+// Text families are mutually comparable. ENUM and SET are textual values, but
+// remain distinct from each other because SET's comma-separated representation
+// has different semantics.
+mutual_compat!(
+    crate::mysql::types::Char,
+    crate::mysql::types::Varchar,
+    crate::mysql::types::TinyText,
+    crate::mysql::types::Text,
+    crate::mysql::types::MediumText,
+    crate::mysql::types::LongText
+);
+cross_compat!(
+    [crate::mysql::types::Enum],
+    [
+        crate::mysql::types::Char,
+        crate::mysql::types::Varchar,
+        crate::mysql::types::TinyText,
+        crate::mysql::types::Text,
+        crate::mysql::types::MediumText,
+        crate::mysql::types::LongText
+    ]
+);
+cross_compat!(
+    [crate::mysql::types::Set],
+    [
+        crate::mysql::types::Char,
+        crate::mysql::types::Varchar,
+        crate::mysql::types::TinyText,
+        crate::mysql::types::Text,
+        crate::mysql::types::MediumText,
+        crate::mysql::types::LongText
+    ]
+);
+
+// All binary families, including BIT's packed bytes, are mutually comparable.
+mutual_compat!(
+    crate::mysql::types::Binary,
+    crate::mysql::types::Varbinary,
+    crate::mysql::types::TinyBlob,
+    crate::mysql::types::Blob,
+    crate::mysql::types::MediumBlob,
+    crate::mysql::types::LongBlob,
+    crate::mysql::types::Bit
+);
+
+// DATETIME and TIMESTAMP represent the same wall-clock shape at the SQL type
+// level, while preserving their distinct storage semantics elsewhere.
+mutual_compat!(
+    crate::mysql::types::DateTime,
+    crate::mysql::types::Timestamp
+);
+
+// Any ↔ all MySQL types.
+any_compat!(crate::mysql::types::Any;
+    crate::mysql::types::TinyInt,
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::SmallInt,
+    crate::mysql::types::SmallIntUnsigned,
+    crate::mysql::types::MediumInt,
+    crate::mysql::types::MediumIntUnsigned,
+    crate::mysql::types::Int,
+    crate::mysql::types::IntUnsigned,
+    crate::mysql::types::BigInt,
+    crate::mysql::types::BigIntUnsigned,
+    crate::mysql::types::Float,
+    crate::mysql::types::Double,
+    crate::mysql::types::Decimal,
+    crate::mysql::types::Boolean,
+    crate::mysql::types::Char,
+    crate::mysql::types::Varchar,
+    crate::mysql::types::TinyText,
+    crate::mysql::types::Text,
+    crate::mysql::types::MediumText,
+    crate::mysql::types::LongText,
+    crate::mysql::types::Binary,
+    crate::mysql::types::Varbinary,
+    crate::mysql::types::TinyBlob,
+    crate::mysql::types::Blob,
+    crate::mysql::types::MediumBlob,
+    crate::mysql::types::LongBlob,
+    crate::mysql::types::Json,
+    crate::mysql::types::Date,
+    crate::mysql::types::Time,
+    crate::mysql::types::DateTime,
+    crate::mysql::types::Timestamp,
+    crate::mysql::types::Year,
+    crate::mysql::types::Enum,
+    crate::mysql::types::Set,
+    crate::mysql::types::Bit
+);
+
+impl_placeholder_compat!(
+    crate::mysql::types::TinyInt,
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::SmallInt,
+    crate::mysql::types::SmallIntUnsigned,
+    crate::mysql::types::MediumInt,
+    crate::mysql::types::MediumIntUnsigned,
+    crate::mysql::types::Int,
+    crate::mysql::types::IntUnsigned,
+    crate::mysql::types::BigInt,
+    crate::mysql::types::BigIntUnsigned,
+    crate::mysql::types::Float,
+    crate::mysql::types::Double,
+    crate::mysql::types::Decimal,
+    crate::mysql::types::Boolean,
+    crate::mysql::types::Char,
+    crate::mysql::types::Varchar,
+    crate::mysql::types::TinyText,
+    crate::mysql::types::Text,
+    crate::mysql::types::MediumText,
+    crate::mysql::types::LongText,
+    crate::mysql::types::Binary,
+    crate::mysql::types::Varbinary,
+    crate::mysql::types::TinyBlob,
+    crate::mysql::types::Blob,
+    crate::mysql::types::MediumBlob,
+    crate::mysql::types::LongBlob,
+    crate::mysql::types::Json,
+    crate::mysql::types::Date,
+    crate::mysql::types::Time,
+    crate::mysql::types::DateTime,
+    crate::mysql::types::Timestamp,
+    crate::mysql::types::Year,
+    crate::mysql::types::Enum,
+    crate::mysql::types::Set,
+    crate::mysql::types::Bit,
+    crate::mysql::types::Any
+);
+
+// =============================================================================
 // Assignment compatibility (bind-time)
 // =============================================================================
 // Assignment is stricter than comparison: only wider types accept narrower values.
@@ -505,6 +775,229 @@ any_assign!(crate::postgres::types::Any;
     crate::postgres::types::Polygon,
     crate::postgres::types::Circle,
     crate::postgres::types::Enum
+);
+
+// MySQL integer widening. Unsigned sources are accepted by a signed target
+// only when the entire source range fits in that target. The reverse direction
+// is deliberately absent because negative values cannot be represented.
+assign_to!(crate::mysql::types::SmallInt;
+    crate::mysql::types::TinyInt,
+    crate::mysql::types::TinyIntUnsigned
+);
+assign_to!(crate::mysql::types::MediumInt;
+    crate::mysql::types::TinyInt,
+    crate::mysql::types::SmallInt,
+    // Rust has no 24-bit integer. Selected MEDIUMINT values use i32, whose
+    // dialect marker is INT, and the server validates the column range.
+    crate::mysql::types::Int,
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::SmallIntUnsigned,
+    crate::mysql::types::Year
+);
+assign_to!(crate::mysql::types::Int;
+    crate::mysql::types::TinyInt,
+    crate::mysql::types::SmallInt,
+    crate::mysql::types::MediumInt,
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::SmallIntUnsigned,
+    crate::mysql::types::MediumIntUnsigned,
+    crate::mysql::types::Year
+);
+assign_to!(crate::mysql::types::BigInt;
+    crate::mysql::types::TinyInt,
+    crate::mysql::types::SmallInt,
+    crate::mysql::types::MediumInt,
+    crate::mysql::types::Int,
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::SmallIntUnsigned,
+    crate::mysql::types::MediumIntUnsigned,
+    crate::mysql::types::IntUnsigned,
+    crate::mysql::types::Year
+);
+assign_to!(crate::mysql::types::SmallIntUnsigned;
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::Year
+);
+assign_to!(crate::mysql::types::MediumIntUnsigned;
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::SmallIntUnsigned,
+    // Rust has no 24-bit unsigned integer; see the signed case above.
+    crate::mysql::types::IntUnsigned,
+    crate::mysql::types::Year
+);
+assign_to!(crate::mysql::types::IntUnsigned;
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::SmallIntUnsigned,
+    crate::mysql::types::MediumIntUnsigned,
+    crate::mysql::types::Year
+);
+assign_to!(crate::mysql::types::BigIntUnsigned;
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::SmallIntUnsigned,
+    crate::mysql::types::MediumIntUnsigned,
+    crate::mysql::types::IntUnsigned,
+    crate::mysql::types::Year
+);
+// Rust represents YEAR as u16, whose dialect value marker is
+// SmallIntUnsigned. The server remains responsible for YEAR's narrower
+// calendar domain (the same way it validates VARCHAR lengths and DECIMAL
+// precision).
+assign_to!(crate::mysql::types::Year; crate::mysql::types::SmallIntUnsigned);
+
+// Numeric targets follow the existing PostgreSQL policy: exact integers may be
+// bound to floating and decimal columns, and FLOAT widens to DOUBLE. DECIMAL
+// also accepts approximate values because MySQL performs that conversion.
+assign_to!(crate::mysql::types::Float;
+    crate::mysql::types::TinyInt,
+    crate::mysql::types::SmallInt,
+    crate::mysql::types::MediumInt,
+    crate::mysql::types::Int,
+    crate::mysql::types::BigInt,
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::SmallIntUnsigned,
+    crate::mysql::types::MediumIntUnsigned,
+    crate::mysql::types::IntUnsigned,
+    crate::mysql::types::BigIntUnsigned,
+    crate::mysql::types::Year
+);
+assign_to!(crate::mysql::types::Double;
+    crate::mysql::types::TinyInt,
+    crate::mysql::types::SmallInt,
+    crate::mysql::types::MediumInt,
+    crate::mysql::types::Int,
+    crate::mysql::types::BigInt,
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::SmallIntUnsigned,
+    crate::mysql::types::MediumIntUnsigned,
+    crate::mysql::types::IntUnsigned,
+    crate::mysql::types::BigIntUnsigned,
+    crate::mysql::types::Year,
+    crate::mysql::types::Float
+);
+assign_to!(crate::mysql::types::Decimal;
+    crate::mysql::types::TinyInt,
+    crate::mysql::types::SmallInt,
+    crate::mysql::types::MediumInt,
+    crate::mysql::types::Int,
+    crate::mysql::types::BigInt,
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::SmallIntUnsigned,
+    crate::mysql::types::MediumIntUnsigned,
+    crate::mysql::types::IntUnsigned,
+    crate::mysql::types::BigIntUnsigned,
+    crate::mysql::types::Year,
+    crate::mysql::types::Float,
+    crate::mysql::types::Double
+);
+
+// When optional domain crates are disabled, rows decode these values as
+// strings. Accepting Text closes that intentional feature-off round trip; the
+// MySQL server remains the parser and validator at the database boundary.
+assign_to!(crate::mysql::types::Decimal; crate::mysql::types::Text);
+assign_to!(crate::mysql::types::Json; crate::mysql::types::Text);
+assign_to!(crate::mysql::types::Date; crate::mysql::types::Text);
+assign_to!(crate::mysql::types::Time; crate::mysql::types::Text);
+assign_to!(crate::mysql::types::DateTime; crate::mysql::types::Text);
+assign_to!(crate::mysql::types::Timestamp; crate::mysql::types::Text);
+
+// Text and binary storage families are interchangeable at bind time. MySQL
+// validates inline ENUM and SET membership at the column boundary, so their
+// generated Rust string values must be accepted as text inputs here.
+mutual_assign!(
+    crate::mysql::types::Char,
+    crate::mysql::types::Varchar,
+    crate::mysql::types::TinyText,
+    crate::mysql::types::Text,
+    crate::mysql::types::MediumText,
+    crate::mysql::types::LongText
+);
+assign_to!(crate::mysql::types::Char;
+    crate::mysql::types::Enum,
+    crate::mysql::types::Set
+);
+assign_to!(crate::mysql::types::Varchar;
+    crate::mysql::types::Enum,
+    crate::mysql::types::Set
+);
+assign_to!(crate::mysql::types::TinyText;
+    crate::mysql::types::Enum,
+    crate::mysql::types::Set
+);
+assign_to!(crate::mysql::types::Text;
+    crate::mysql::types::Enum,
+    crate::mysql::types::Set
+);
+assign_to!(crate::mysql::types::MediumText;
+    crate::mysql::types::Enum,
+    crate::mysql::types::Set
+);
+assign_to!(crate::mysql::types::LongText;
+    crate::mysql::types::Enum,
+    crate::mysql::types::Set
+);
+assign_to!(crate::mysql::types::Enum;
+    crate::mysql::types::Char,
+    crate::mysql::types::Varchar,
+    crate::mysql::types::TinyText,
+    crate::mysql::types::Text,
+    crate::mysql::types::MediumText,
+    crate::mysql::types::LongText
+);
+assign_to!(crate::mysql::types::Set;
+    crate::mysql::types::Char,
+    crate::mysql::types::Varchar,
+    crate::mysql::types::TinyText,
+    crate::mysql::types::Text,
+    crate::mysql::types::MediumText,
+    crate::mysql::types::LongText
+);
+mutual_assign!(
+    crate::mysql::types::Binary,
+    crate::mysql::types::Varbinary,
+    crate::mysql::types::TinyBlob,
+    crate::mysql::types::Blob,
+    crate::mysql::types::MediumBlob,
+    crate::mysql::types::LongBlob,
+    crate::mysql::types::Bit
+);
+
+// Any accepts all concrete MySQL markers.
+any_assign!(crate::mysql::types::Any;
+    crate::mysql::types::TinyInt,
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::SmallInt,
+    crate::mysql::types::SmallIntUnsigned,
+    crate::mysql::types::MediumInt,
+    crate::mysql::types::MediumIntUnsigned,
+    crate::mysql::types::Int,
+    crate::mysql::types::IntUnsigned,
+    crate::mysql::types::BigInt,
+    crate::mysql::types::BigIntUnsigned,
+    crate::mysql::types::Float,
+    crate::mysql::types::Double,
+    crate::mysql::types::Decimal,
+    crate::mysql::types::Boolean,
+    crate::mysql::types::Char,
+    crate::mysql::types::Varchar,
+    crate::mysql::types::TinyText,
+    crate::mysql::types::Text,
+    crate::mysql::types::MediumText,
+    crate::mysql::types::LongText,
+    crate::mysql::types::Binary,
+    crate::mysql::types::Varbinary,
+    crate::mysql::types::TinyBlob,
+    crate::mysql::types::Blob,
+    crate::mysql::types::MediumBlob,
+    crate::mysql::types::LongBlob,
+    crate::mysql::types::Json,
+    crate::mysql::types::Date,
+    crate::mysql::types::Time,
+    crate::mysql::types::DateTime,
+    crate::mysql::types::Timestamp,
+    crate::mysql::types::Year,
+    crate::mysql::types::Enum,
+    crate::mysql::types::Set,
+    crate::mysql::types::Bit
 );
 
 // =============================================================================
@@ -727,3 +1220,59 @@ with_dual_col_sizes_128!(impl_tuple_assignable);
 
 #[cfg(feature = "col200")]
 with_dual_col_sizes_200!(impl_tuple_assignable);
+
+#[cfg(test)]
+mod tests {
+    use super::{Assignable, Compatible, DataType};
+
+    fn assert_compatible<L, R>()
+    where
+        L: Compatible<R>,
+        R: DataType,
+    {
+    }
+
+    fn assert_assignable<Target, Source>()
+    where
+        Target: Assignable<Source>,
+        Source: DataType,
+    {
+    }
+
+    #[test]
+    fn mysql_compatibility_covers_the_intended_type_families() {
+        assert_compatible::<crate::mysql::types::TinyInt, crate::mysql::types::BigInt>();
+        assert_compatible::<
+            crate::mysql::types::TinyIntUnsigned,
+            crate::mysql::types::BigIntUnsigned,
+        >();
+        assert_compatible::<crate::mysql::types::Year, crate::mysql::types::Int>();
+        assert_compatible::<crate::mysql::types::Decimal, crate::mysql::types::Double>();
+        assert_compatible::<crate::mysql::types::Enum, crate::mysql::types::Text>();
+        assert_compatible::<crate::mysql::types::Set, crate::mysql::types::Varchar>();
+        assert_compatible::<crate::mysql::types::Bit, crate::mysql::types::Blob>();
+        assert_compatible::<crate::mysql::types::DateTime, crate::mysql::types::Timestamp>();
+        assert_compatible::<crate::mysql::types::Any, crate::mysql::types::Json>();
+        assert_compatible::<crate::Placeholder, crate::mysql::types::Json>();
+    }
+
+    #[test]
+    fn mysql_assignment_allows_widening_and_storage_families() {
+        assert_assignable::<crate::mysql::types::SmallInt, crate::mysql::types::TinyIntUnsigned>();
+        assert_assignable::<crate::mysql::types::MediumInt, crate::mysql::types::Int>();
+        assert_assignable::<crate::mysql::types::MediumIntUnsigned, crate::mysql::types::IntUnsigned>(
+        );
+        assert_assignable::<crate::mysql::types::BigInt, crate::mysql::types::IntUnsigned>();
+        assert_assignable::<crate::mysql::types::BigIntUnsigned, crate::mysql::types::IntUnsigned>(
+        );
+        assert_assignable::<crate::mysql::types::Decimal, crate::mysql::types::BigIntUnsigned>();
+        assert_assignable::<crate::mysql::types::Text, crate::mysql::types::Enum>();
+        assert_assignable::<crate::mysql::types::Enum, crate::mysql::types::Text>();
+        assert_assignable::<crate::mysql::types::Set, crate::mysql::types::Text>();
+        assert_assignable::<crate::mysql::types::Year, crate::mysql::types::SmallIntUnsigned>();
+        assert_assignable::<crate::mysql::types::Bit, crate::mysql::types::Blob>();
+        assert_assignable::<crate::mysql::types::Json, crate::mysql::types::Text>();
+        assert_assignable::<crate::mysql::types::Time, crate::mysql::types::Text>();
+        assert_assignable::<crate::mysql::types::Any, crate::mysql::types::Json>();
+    }
+}

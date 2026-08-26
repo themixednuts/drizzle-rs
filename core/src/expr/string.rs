@@ -9,7 +9,7 @@
 //! - `length`: Dialect-aware integer output from text input
 //! - `substr`, `replace`, `instr`: Require `Textual` types
 
-use crate::dialect::DialectTypes;
+use crate::dialect::{Dialect, DialectTypes};
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::{DataType, Integral, Textual};
@@ -213,14 +213,13 @@ where
     E: Expr<'a, V>,
     E::SQLType: Textual,
 {
-    // `(expr COLLATE "name")` — always quote-wrap the name, since
-    // PostgreSQL's parser requires it and SQLite accepts the quoted form
-    // for its built-in collations as well.
     let inner = expr.into_sql().parens_if_subquery();
     SQLExpr::new(
-        SQL::raw("(")
+        SQL::token(Token::LPAREN)
             .append(inner)
-            .append(SQL::raw(format!(" COLLATE \"{name}\")"))),
+            .push(Token::COLLATE)
+            .append(SQL::ident(name))
+            .push(Token::RPAREN),
     )
 }
 
@@ -441,10 +440,12 @@ where
 // CONCAT (with NULL propagation)
 // =============================================================================
 
-/// Concatenate two string expressions using || operator.
+/// Concatenate two string expressions.
 ///
 /// Nullability follows SQL concatenation rules: if either input is nullable,
 /// the result is nullable. `string_concat` is a compatibility alias.
+/// `MySQL` renders `CONCAT(left, right)` because its default SQL mode treats
+/// `||` as logical OR. `SQLite` and `PostgreSQL` use `||`.
 ///
 /// # Type Safety
 ///
@@ -493,12 +494,13 @@ where
     E2::Aggregate: AggregateKind,
     E1::Aggregate: AggOr<E2::Aggregate>,
 {
-    SQLExpr::new(
-        expr1
-            .into_sql()
-            .push(Token::CONCAT)
-            .append(expr2.into_sql()),
-    )
+    let left = expr1.into_sql();
+    let right = expr2.into_sql();
+    let sql = match V::DIALECT {
+        Dialect::MySQL => SQL::func("CONCAT", left.push(Token::COMMA).append(right)),
+        Dialect::SQLite | Dialect::PostgreSQL => left.push(Token::CONCAT).append(right),
+    };
+    SQLExpr::new(sql)
 }
 
 // =============================================================================

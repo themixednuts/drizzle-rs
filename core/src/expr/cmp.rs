@@ -21,7 +21,7 @@
 //! - `between`: Requires expr compatible with both bounds
 //! - `is_null`, `is_not_null`: No type constraint (any type can be null-checked)
 
-use crate::dialect::DialectTypes;
+use crate::dialect::{Dialect, DialectTypes};
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
 use crate::types::{Compatible, DataType, Textual};
@@ -491,7 +491,8 @@ where
 /// - `NULL IS DISTINCT FROM 5` → true
 /// - `5 IS DISTINCT FROM NULL` → true
 ///
-/// Supported by both `SQLite` (3.39+) and `PostgreSQL`.
+/// SQLite and PostgreSQL render `IS DISTINCT FROM`; MySQL renders the inverse
+/// of its null-safe equality operator, `NOT (left <=> right)`.
 #[allow(clippy::type_complexity)]
 pub fn is_distinct_from<'a, V, L, R>(
     left: L,
@@ -510,13 +511,22 @@ where
     L::SQLType: Compatible<<R as ComparisonOperand<'a, V, L>>::SQLType>,
     L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
 {
-    SQLExpr::new(
-        operand_sql(left)
+    let left = operand_sql(left);
+    let right = ComparisonOperand::into_comparison_sql(right);
+    let sql = match V::DIALECT {
+        Dialect::MySQL => SQL::from(Token::NOT)
+            .push(Token::LPAREN)
+            .append(left)
+            .append(SQL::raw("<=>"))
+            .append(right)
+            .push(Token::RPAREN),
+        Dialect::SQLite | Dialect::PostgreSQL => left
             .push(Token::IS)
             .push(Token::DISTINCT)
             .push(Token::FROM)
-            .append(ComparisonOperand::into_comparison_sql(right)),
-    )
+            .append(right),
+    };
+    SQLExpr::new(sql)
 }
 
 /// IS NOT DISTINCT FROM - NULL-safe equality comparison.
@@ -525,7 +535,8 @@ where
 /// - `NULL IS NOT DISTINCT FROM NULL` → true
 /// - `NULL IS NOT DISTINCT FROM 5` → false
 ///
-/// Supported by both `SQLite` (3.39+) and `PostgreSQL`.
+/// SQLite and PostgreSQL render `IS NOT DISTINCT FROM`; MySQL renders its
+/// null-safe equality operator, `<=>`.
 #[allow(clippy::type_complexity)]
 pub fn is_not_distinct_from<'a, V, L, R>(
     left: L,
@@ -544,14 +555,18 @@ where
     L::SQLType: Compatible<<R as ComparisonOperand<'a, V, L>>::SQLType>,
     L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
 {
-    SQLExpr::new(
-        operand_sql(left)
+    let left = operand_sql(left);
+    let right = ComparisonOperand::into_comparison_sql(right);
+    let sql = match V::DIALECT {
+        Dialect::MySQL => left.append(SQL::raw("<=>")).append(right),
+        Dialect::SQLite | Dialect::PostgreSQL => left
             .push(Token::IS)
             .push(Token::NOT)
             .push(Token::DISTINCT)
             .push(Token::FROM)
-            .append(ComparisonOperand::into_comparison_sql(right)),
-    )
+            .append(right),
+    };
+    SQLExpr::new(sql)
 }
 
 // =============================================================================

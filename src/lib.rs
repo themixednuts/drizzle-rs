@@ -131,6 +131,8 @@ pub mod error {
 /// DDL types and schema definitions.
 pub mod ddl {
     #[doc(inline)]
+    pub use drizzle_types::mysql;
+    #[doc(inline)]
     pub use drizzle_types::postgres;
     #[doc(inline)]
     pub use drizzle_types::sqlite;
@@ -426,10 +428,20 @@ pub mod postgres {
     }
 }
 
-/// `MySQL` types and macros (WIP).
+/// `MySQL` dialect types and driver-neutral values.
+///
+/// ```
+/// use drizzle::ddl::mysql::{MySQLType, MySQLTypeCategory};
+/// use drizzle::mysql::{MySQLDialect, MySQLValue, OwnedMySQLValue};
+/// ```
 #[cfg(feature = "mysql")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mysql")))]
-pub mod mysql {}
+pub mod mysql {
+    #[doc(inline)]
+    pub use drizzle_mysql::values::{MySQLValue, OwnedMySQLValue};
+    #[doc(inline)]
+    pub use drizzle_mysql::{MySQLDialect, ParamBind, types, values};
+}
 
 // =============================================================================
 // Compile-fail tests (verified during `cargo test --doc`)

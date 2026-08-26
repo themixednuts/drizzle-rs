@@ -1054,7 +1054,7 @@ pub trait SQLTypeToRust<D> {
 
 // -- Dialect-native mappings ---------------------------------------------------
 
-use crate::dialect::{PostgresDialect, SQLiteDialect};
+use crate::dialect::{MySQLDialect, PostgresDialect, SQLiteDialect};
 
 impl<D, T> SQLTypeToRust<D> for crate::types::Array<T>
 where
@@ -1086,6 +1086,95 @@ impl SQLTypeToRust<SQLiteDialect> for drizzle_types::sqlite::types::Numeric {
 impl SQLTypeToRust<SQLiteDialect> for drizzle_types::sqlite::types::Any {
     type RustType = crate::prelude::String;
 }
+
+macro_rules! impl_mysql_sql_type_to_rust {
+    ($rust:ty => $($sql:ty),+ $(,)?) => {
+        $(
+            impl SQLTypeToRust<MySQLDialect> for $sql {
+                type RustType = $rust;
+            }
+        )+
+    };
+}
+
+impl_mysql_sql_type_to_rust!(i8 => drizzle_types::mysql::types::TinyInt);
+impl_mysql_sql_type_to_rust!(u8 => drizzle_types::mysql::types::TinyIntUnsigned);
+impl_mysql_sql_type_to_rust!(i16 => drizzle_types::mysql::types::SmallInt);
+impl_mysql_sql_type_to_rust!(u16 => drizzle_types::mysql::types::SmallIntUnsigned);
+impl_mysql_sql_type_to_rust!(i32 =>
+    drizzle_types::mysql::types::MediumInt,
+    drizzle_types::mysql::types::Int,
+);
+impl_mysql_sql_type_to_rust!(u32 =>
+    drizzle_types::mysql::types::MediumIntUnsigned,
+    drizzle_types::mysql::types::IntUnsigned,
+);
+impl_mysql_sql_type_to_rust!(i64 => drizzle_types::mysql::types::BigInt);
+impl_mysql_sql_type_to_rust!(u64 => drizzle_types::mysql::types::BigIntUnsigned);
+impl_mysql_sql_type_to_rust!(f32 => drizzle_types::mysql::types::Float);
+impl_mysql_sql_type_to_rust!(f64 => drizzle_types::mysql::types::Double);
+impl_mysql_sql_type_to_rust!(bool => drizzle_types::mysql::types::Boolean);
+impl_mysql_sql_type_to_rust!(crate::prelude::String =>
+    drizzle_types::mysql::types::Char,
+    drizzle_types::mysql::types::Varchar,
+    drizzle_types::mysql::types::TinyText,
+    drizzle_types::mysql::types::Text,
+    drizzle_types::mysql::types::MediumText,
+    drizzle_types::mysql::types::LongText,
+    drizzle_types::mysql::types::Enum,
+    drizzle_types::mysql::types::Set,
+    drizzle_types::mysql::types::Any,
+);
+impl_mysql_sql_type_to_rust!(crate::prelude::Vec<u8> =>
+    drizzle_types::mysql::types::Binary,
+    drizzle_types::mysql::types::Varbinary,
+    drizzle_types::mysql::types::TinyBlob,
+    drizzle_types::mysql::types::Blob,
+    drizzle_types::mysql::types::MediumBlob,
+    drizzle_types::mysql::types::LongBlob,
+    drizzle_types::mysql::types::Bit,
+);
+impl_mysql_sql_type_to_rust!(u16 => drizzle_types::mysql::types::Year);
+
+#[cfg(feature = "rust-decimal")]
+impl_mysql_sql_type_to_rust!(rust_decimal::Decimal => drizzle_types::mysql::types::Decimal);
+#[cfg(not(feature = "rust-decimal"))]
+impl_mysql_sql_type_to_rust!(crate::prelude::String => drizzle_types::mysql::types::Decimal);
+
+#[cfg(feature = "serde")]
+impl_mysql_sql_type_to_rust!(serde_json::Value => drizzle_types::mysql::types::Json);
+#[cfg(not(feature = "serde"))]
+impl_mysql_sql_type_to_rust!(crate::prelude::String => drizzle_types::mysql::types::Json);
+
+#[cfg(feature = "chrono")]
+impl_mysql_sql_type_to_rust!(chrono::NaiveDate => drizzle_types::mysql::types::Date);
+#[cfg(all(not(feature = "chrono"), feature = "time"))]
+impl_mysql_sql_type_to_rust!(time::Date => drizzle_types::mysql::types::Date);
+#[cfg(not(any(feature = "chrono", feature = "time")))]
+impl_mysql_sql_type_to_rust!(crate::prelude::String => drizzle_types::mysql::types::Date);
+
+// Unlike SQL TIME in SQLite/PostgreSQL, MySQL TIME is a signed duration that
+// can exceed 24 hours (up to 838:59:59). Clock-only chrono/time values cannot
+// represent its full domain, so the canonical selected value remains text,
+// matching Drizzle ORM's MySQL TIME mapping.
+impl_mysql_sql_type_to_rust!(crate::prelude::String => drizzle_types::mysql::types::Time);
+
+#[cfg(feature = "chrono")]
+impl_mysql_sql_type_to_rust!(chrono::NaiveDateTime => drizzle_types::mysql::types::DateTime);
+// MySQL TIMESTAMP is session-time-zone aware. Wire adapters must establish a
+// UTC session before executing typed queries, so the public value is an
+// explicit UTC instant rather than an ambiguous naive datetime.
+#[cfg(feature = "chrono")]
+impl_mysql_sql_type_to_rust!(chrono::DateTime<chrono::Utc> => drizzle_types::mysql::types::Timestamp);
+#[cfg(all(not(feature = "chrono"), feature = "time"))]
+impl_mysql_sql_type_to_rust!(time::PrimitiveDateTime => drizzle_types::mysql::types::DateTime);
+#[cfg(all(not(feature = "chrono"), feature = "time"))]
+impl_mysql_sql_type_to_rust!(time::OffsetDateTime => drizzle_types::mysql::types::Timestamp);
+#[cfg(not(any(feature = "chrono", feature = "time")))]
+impl_mysql_sql_type_to_rust!(crate::prelude::String =>
+    drizzle_types::mysql::types::DateTime,
+    drizzle_types::mysql::types::Timestamp,
+);
 
 impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Int2 {
     type RustType = i16;

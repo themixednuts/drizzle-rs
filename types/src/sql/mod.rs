@@ -246,6 +246,129 @@ impl Temporal for crate::postgres::types::Interval {}
 impl BooleanLike for crate::postgres::types::Boolean {}
 
 // =============================================================================
+// MySQL dialect marker impls
+// =============================================================================
+
+macro_rules! impl_mysql_data_types {
+    ($($marker:ident),+ $(,)?) => {
+        $(
+            impl private::Sealed for crate::mysql::types::$marker {}
+            impl DataType for crate::mysql::types::$marker {}
+        )+
+    };
+}
+
+impl_mysql_data_types!(
+    TinyInt,
+    TinyIntUnsigned,
+    SmallInt,
+    SmallIntUnsigned,
+    MediumInt,
+    MediumIntUnsigned,
+    Int,
+    IntUnsigned,
+    BigInt,
+    BigIntUnsigned,
+    Float,
+    Double,
+    Decimal,
+    Boolean,
+    Char,
+    Varchar,
+    TinyText,
+    Text,
+    MediumText,
+    LongText,
+    Binary,
+    Varbinary,
+    TinyBlob,
+    Blob,
+    MediumBlob,
+    LongBlob,
+    Json,
+    Date,
+    Time,
+    DateTime,
+    Timestamp,
+    Year,
+    Enum,
+    Set,
+    Bit,
+    Any,
+);
+
+macro_rules! impl_mysql_numeric {
+    ($($marker:ident),+ $(,)?) => {
+        $(impl Numeric for crate::mysql::types::$marker {})+
+    };
+}
+
+impl_mysql_numeric!(
+    TinyInt,
+    TinyIntUnsigned,
+    SmallInt,
+    SmallIntUnsigned,
+    MediumInt,
+    MediumIntUnsigned,
+    Int,
+    IntUnsigned,
+    BigInt,
+    BigIntUnsigned,
+    Year,
+    Float,
+    Double,
+    Decimal,
+);
+
+macro_rules! impl_mysql_integral {
+    ($($marker:ident),+ $(,)?) => {
+        $(impl Integral for crate::mysql::types::$marker {})+
+    };
+}
+
+impl_mysql_integral!(
+    TinyInt,
+    TinyIntUnsigned,
+    SmallInt,
+    SmallIntUnsigned,
+    MediumInt,
+    MediumIntUnsigned,
+    Int,
+    IntUnsigned,
+    BigInt,
+    BigIntUnsigned,
+    Year,
+);
+
+impl Floating for crate::mysql::types::Float {}
+impl Floating for crate::mysql::types::Double {}
+
+macro_rules! impl_mysql_textual {
+    ($($marker:ident),+ $(,)?) => {
+        $(impl Textual for crate::mysql::types::$marker {})+
+    };
+}
+
+impl_mysql_textual!(
+    Char, Varchar, TinyText, Text, MediumText, LongText, Enum, Set,
+);
+
+macro_rules! impl_mysql_binary {
+    ($($marker:ident),+ $(,)?) => {
+        $(impl Binary for crate::mysql::types::$marker {})+
+    };
+}
+
+impl_mysql_binary!(Binary, Varbinary, TinyBlob, Blob, MediumBlob, LongBlob, Bit,);
+
+impl Temporal for crate::mysql::types::Date {}
+impl Temporal for crate::mysql::types::Time {}
+impl Temporal for crate::mysql::types::DateTime {}
+impl Temporal for crate::mysql::types::Timestamp {}
+
+impl BooleanLike for crate::mysql::types::Boolean {}
+
+// =============================================================================
 // Tuple SQL type markers
 // =============================================================================
 
@@ -426,3 +549,31 @@ with_col_sizes_128!(impl_tuple_datatype);
 
 #[cfg(feature = "col200")]
 with_col_sizes_200!(impl_tuple_datatype);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_data_type<T: DataType>() {}
+    fn assert_integral<T: Integral>() {}
+    fn assert_floating<T: Floating>() {}
+    fn assert_textual<T: Textual>() {}
+    fn assert_binary<T: Binary>() {}
+    fn assert_temporal<T: Temporal>() {}
+    fn assert_boolean_like<T: BooleanLike>() {}
+
+    #[test]
+    fn mysql_markers_have_their_expected_type_capabilities() {
+        assert_data_type::<crate::mysql::types::Any>();
+        assert_integral::<crate::mysql::types::IntUnsigned>();
+        assert_integral::<crate::mysql::types::Year>();
+        assert_floating::<crate::mysql::types::Float>();
+        assert_floating::<crate::mysql::types::Double>();
+        assert_textual::<crate::mysql::types::Enum>();
+        assert_textual::<crate::mysql::types::Set>();
+        assert_binary::<crate::mysql::types::Varbinary>();
+        assert_binary::<crate::mysql::types::Bit>();
+        assert_temporal::<crate::mysql::types::DateTime>();
+        assert_boolean_like::<crate::mysql::types::Boolean>();
+    }
+}

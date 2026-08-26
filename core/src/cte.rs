@@ -19,7 +19,7 @@ macro_rules! impl_cte_types {
             name: &'static str,
             /// The defining query.
             query: Query,
-            _phantom: ::core::marker::PhantomData<$ValueType>,
+            _phantom: ::core::marker::PhantomData<(&'a (), $ValueType)>,
         }
 
         impl<'a, Table, Query> CTEView<'a, Table, Query>
@@ -52,7 +52,7 @@ macro_rules! impl_cte_types {
             Query: $crate::ToSQL<'a, $ValueType>,
         {
             fn cte_definition(&self) -> $crate::SQL<'a, $ValueType> {
-                $crate::SQL::raw(self.name)
+                $crate::SQL::ident(self.name)
                     .push($crate::Token::AS)
                     .append(self.query.to_sql().parens())
             }
@@ -63,7 +63,7 @@ macro_rules! impl_cte_types {
             Query: $crate::ToSQL<'a, $ValueType>,
         {
             fn cte_definition(&self) -> $crate::SQL<'a, $ValueType> {
-                $crate::SQL::raw(self.name)
+                $crate::SQL::ident(self.name)
                     .push($crate::Token::AS)
                     .append(self.query.to_sql().parens())
             }

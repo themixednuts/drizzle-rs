@@ -3,6 +3,7 @@
 //! These implementations allow using Rust literals directly in type-safe
 //! SQL expressions.
 
+use crate::bind::ValueTypeForDialect;
 use crate::dialect::DialectTypes;
 use crate::prelude::*;
 use crate::sql::SQL;
@@ -17,8 +18,9 @@ use super::{Expr, NonNull, Null, Nullability, Scalar};
 impl<'a, V> Expr<'a, V> for i8
 where
     V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
 {
-    type SQLType = <V::DialectMarker as DialectTypes>::SmallInt;
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -26,8 +28,9 @@ where
 impl<'a, V> Expr<'a, V> for i16
 where
     V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
 {
-    type SQLType = <V::DialectMarker as DialectTypes>::SmallInt;
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -35,8 +38,9 @@ where
 impl<'a, V> Expr<'a, V> for i32
 where
     V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
 {
-    type SQLType = <V::DialectMarker as DialectTypes>::Int;
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -44,8 +48,9 @@ where
 impl<'a, V> Expr<'a, V> for i64
 where
     V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
 {
-    type SQLType = <V::DialectMarker as DialectTypes>::BigInt;
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -53,8 +58,9 @@ where
 impl<'a, V> Expr<'a, V> for isize
 where
     V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
 {
-    type SQLType = <V::DialectMarker as DialectTypes>::BigInt;
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -66,8 +72,9 @@ where
 impl<'a, V> Expr<'a, V> for u8
 where
     V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
 {
-    type SQLType = <V::DialectMarker as DialectTypes>::SmallInt;
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -75,8 +82,9 @@ where
 impl<'a, V> Expr<'a, V> for u16
 where
     V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
 {
-    type SQLType = <V::DialectMarker as DialectTypes>::Int;
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -84,8 +92,9 @@ where
 impl<'a, V> Expr<'a, V> for u32
 where
     V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
 {
-    type SQLType = <V::DialectMarker as DialectTypes>::BigInt;
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -93,8 +102,9 @@ where
 impl<'a, V> Expr<'a, V> for u64
 where
     V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
 {
-    type SQLType = <V::DialectMarker as DialectTypes>::BigInt;
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -102,8 +112,9 @@ where
 impl<'a, V> Expr<'a, V> for usize
 where
     V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
 {
-    type SQLType = <V::DialectMarker as DialectTypes>::BigInt;
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -115,8 +126,9 @@ where
 impl<'a, V> Expr<'a, V> for f32
 where
     V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
 {
-    type SQLType = <V::DialectMarker as DialectTypes>::Float;
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -124,8 +136,9 @@ where
 impl<'a, V> Expr<'a, V> for f64
 where
     V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
 {
-    type SQLType = <V::DialectMarker as DialectTypes>::Double;
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -137,8 +150,9 @@ where
 impl<'a, V> Expr<'a, V> for bool
 where
     V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
 {
-    type SQLType = <V::DialectMarker as DialectTypes>::Bool;
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -150,8 +164,9 @@ where
 impl<'a, V> Expr<'a, V> for &'a str
 where
     V: SQLParam + 'a + From<&'a str> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
 {
-    type SQLType = <V::DialectMarker as DialectTypes>::Text;
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }
@@ -159,8 +174,9 @@ where
 impl<'a, V> Expr<'a, V> for String
 where
     V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
 {
-    type SQLType = <V::DialectMarker as DialectTypes>::Text;
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
     type Nullable = NonNull;
     type Aggregate = Scalar;
 }

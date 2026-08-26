@@ -105,6 +105,14 @@ pub const fn alias<E>(expr: E, name: &'static str) -> AliasedExpr<E> {
 // TYPEOF
 // =============================================================================
 
+#[diagnostic::on_unimplemented(
+    message = "TYPEOF is not available for this dialect",
+    label = "use a dialect-specific type inspection expression"
+)]
+pub trait TypeofSupport {}
+
+impl TypeofSupport for SQLiteDialect {}
+
 /// Get the SQL type of an expression.
 ///
 /// Returns the data type name as text.
@@ -124,6 +132,7 @@ pub fn typeof_<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as crate::dialect::DialectTypes>::Text, NonNull, E::Aggregate>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: TypeofSupport,
     E: Expr<'a, V>,
 {
     SQLExpr::new(SQL::func("TYPEOF", expr.into_expr_sql()))
@@ -135,6 +144,7 @@ pub fn r#typeof<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as crate::dialect::DialectTypes>::Text, NonNull, E::Aggregate>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: TypeofSupport,
     E: Expr<'a, V>,
 {
     typeof_(expr)
@@ -477,6 +487,12 @@ pub struct Excluded<C> {
     column: C,
 }
 
+/// Dialects whose upsert syntax exposes the proposed row as `EXCLUDED`.
+pub trait ExcludedSupport {}
+
+impl ExcludedSupport for SQLiteDialect {}
+impl ExcludedSupport for PostgresDialect {}
+
 /// Reference a column's value from the proposed insert row (EXCLUDED).
 ///
 /// Used in ON CONFLICT DO UPDATE SET to reference the value that would
@@ -499,6 +515,7 @@ pub const fn excluded<C>(column: C) -> Excluded<C> {
 impl<'a, V, C> Expr<'a, V> for Excluded<C>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: ExcludedSupport,
     C: Expr<'a, V> + SQLColumnInfo,
 {
     type SQLType = C::SQLType;
@@ -509,6 +526,7 @@ where
 impl<'a, V, C> ToSQL<'a, V> for Excluded<C>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: ExcludedSupport,
     C: SQLColumnInfo,
 {
     fn to_sql(&self) -> SQL<'a, V> {

@@ -1,4 +1,4 @@
-use crate::dialect::{PostgresDialect, SQLiteDialect};
+use crate::dialect::{MySQLDialect, PostgresDialect, SQLiteDialect};
 use crate::traits::SQLParam;
 use crate::types::{Assignable, DataType};
 
@@ -303,3 +303,94 @@ impl_value_type!(PostgresDialect, drizzle_types::Array<pg_ty::Timestamptz> => Ve
 
 #[cfg(all(any(feature = "alloc", feature = "std"), feature = "rust-decimal"))]
 impl_value_type!(PostgresDialect, drizzle_types::Array<pg_ty::Numeric> => Vec<rust_decimal::Decimal>);
+
+// =============================================================================
+// MySQL mappings
+// =============================================================================
+
+use drizzle_types::mysql::types as mysql_ty;
+
+impl_value_type!(MySQLDialect, mysql_ty::TinyInt => i8);
+impl_value_type!(MySQLDialect, mysql_ty::SmallInt => i16);
+impl_value_type!(MySQLDialect, mysql_ty::Int => i32);
+impl_value_type!(MySQLDialect, mysql_ty::BigInt => i64, isize);
+impl_value_type!(MySQLDialect, mysql_ty::TinyIntUnsigned => u8);
+impl_value_type!(MySQLDialect, mysql_ty::SmallIntUnsigned => u16);
+impl_value_type!(MySQLDialect, mysql_ty::IntUnsigned => u32);
+impl_value_type!(MySQLDialect, mysql_ty::BigIntUnsigned => u64, usize);
+impl_value_type!(MySQLDialect, mysql_ty::Float => f32);
+impl_value_type!(MySQLDialect, mysql_ty::Double => f64);
+impl_value_type!(MySQLDialect, mysql_ty::Boolean => bool);
+
+impl_value_type!(MySQLDialect, mysql_ty::Text => &str);
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl_value_type!(MySQLDialect, mysql_ty::Text =>
+    Cow<'_, str>,
+    String,
+    Box<String>,
+    Rc<String>,
+    Arc<String>,
+    Box<str>,
+    Rc<str>,
+    Arc<str>,
+);
+
+#[cfg(feature = "compact-str")]
+impl_value_type!(MySQLDialect, mysql_ty::Text => compact_str::CompactString);
+
+#[cfg(feature = "arrayvec")]
+impl_value_type_const_n!(MySQLDialect, mysql_ty::Text => arrayvec::ArrayString<N>);
+
+impl_value_type!(MySQLDialect, mysql_ty::Blob => &[u8]);
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl_value_type!(MySQLDialect, mysql_ty::Blob =>
+    Cow<'_, [u8]>,
+    Vec<u8>,
+    Box<Vec<u8>>,
+    Rc<Vec<u8>>,
+    Arc<Vec<u8>>,
+);
+
+#[cfg(feature = "arrayvec")]
+impl_value_type_const_n!(MySQLDialect, mysql_ty::Blob => arrayvec::ArrayVec<u8, N>);
+
+#[cfg(feature = "bytes")]
+impl_value_type!(MySQLDialect, mysql_ty::Blob => bytes::Bytes, bytes::BytesMut);
+
+#[cfg(feature = "smallvec-types")]
+impl_value_type_const_n!(MySQLDialect, mysql_ty::Blob => smallvec::SmallVec<[u8; N]>);
+
+#[cfg(feature = "uuid")]
+impl_value_type!(MySQLDialect, mysql_ty::Binary => uuid::Uuid, &uuid::Uuid);
+
+#[cfg(feature = "rust-decimal")]
+impl_value_type!(MySQLDialect, mysql_ty::Decimal =>
+    rust_decimal::Decimal,
+    &rust_decimal::Decimal,
+);
+
+#[cfg(feature = "serde")]
+impl_value_type!(MySQLDialect, mysql_ty::Json => serde_json::Value);
+
+#[cfg(feature = "chrono")]
+impl_value_type!(MySQLDialect, mysql_ty::Date => chrono::NaiveDate);
+#[cfg(feature = "chrono")]
+impl_value_type!(MySQLDialect, mysql_ty::Time => chrono::NaiveTime);
+#[cfg(feature = "chrono")]
+impl_value_type!(MySQLDialect, mysql_ty::DateTime => chrono::NaiveDateTime);
+#[cfg(feature = "chrono")]
+impl_value_type!(MySQLDialect, mysql_ty::Timestamp =>
+    chrono::DateTime<chrono::FixedOffset>,
+    chrono::DateTime<chrono::Utc>,
+);
+
+#[cfg(feature = "time")]
+impl_value_type!(MySQLDialect, mysql_ty::Date => time::Date);
+#[cfg(feature = "time")]
+impl_value_type!(MySQLDialect, mysql_ty::Time => time::Time);
+#[cfg(feature = "time")]
+impl_value_type!(MySQLDialect, mysql_ty::DateTime => time::PrimitiveDateTime);
+#[cfg(feature = "time")]
+impl_value_type!(MySQLDialect, mysql_ty::Timestamp => time::OffsetDateTime);

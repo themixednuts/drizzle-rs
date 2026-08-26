@@ -543,9 +543,13 @@ impl<'a, V: SQLParam> SQL<'a, V> {
             if i > 0 {
                 let _ = buf.write_str(", ");
             }
-            chunk::write_quoted_ident(buf, table.name);
+            if let Some(schema) = table.schema {
+                chunk::write_dialect_quoted_ident(V::DIALECT, buf, schema);
+                let _ = buf.write_char('.');
+            }
+            chunk::write_dialect_quoted_ident(V::DIALECT, buf, table.name);
             let _ = buf.write_char('.');
-            chunk::write_quoted_ident(buf, col_name);
+            chunk::write_dialect_quoted_ident(V::DIALECT, buf, col_name);
         }
     }
 

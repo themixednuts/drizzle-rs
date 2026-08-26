@@ -177,10 +177,7 @@ std = [
   "drizzle-types/std",
   "drizzle-sqlite?/std",
   "drizzle-postgres?/std",
-  # TODO(mysql): re-add `"drizzle-mysql?/std"` once drizzle-mysql is
-  # published with the `std` feature. Currently publish=false so the
-  # only crates.io-visible version (0.1.5) lacks std/alloc features
-  # and the umbrella can't reference them.
+  "drizzle-mysql?/std",
   "dep:drizzle-migrations",
 ]
 
@@ -190,8 +187,7 @@ alloc = [
   "drizzle-types/alloc",
   "drizzle-sqlite?/alloc",
   "drizzle-postgres?/alloc",
-  # TODO(mysql): re-add `"drizzle-mysql?/alloc"` once drizzle-mysql is
-  # published with the `alloc` feature exposed.
+  "drizzle-mysql?/alloc",
 ]
 
 rusqlite = [
@@ -260,6 +256,7 @@ serde = [
   "drizzle-mysql?/serde",
   "drizzle-macros/serde",
   "drizzle-core/serde",
+  "drizzle-types/serde",
   "rusqlite?/serde_json",
   "uuid?/serde",
 ]
@@ -271,13 +268,14 @@ uuid = [
   "drizzle-mysql?/uuid",
   "drizzle-macros/uuid",
   "drizzle-core/uuid",
+  "drizzle-types/uuid",
   "rusqlite?/uuid",
 ]
 
-# PostgreSQL feature flags for optional types
-chrono = ["drizzle-core/chrono", "drizzle-seed/chrono", "drizzle-postgres?/chrono", "drizzle-sqlite?/chrono", "drizzle-macros/chrono"]
-time = ["drizzle-core/time", "drizzle-postgres?/time", "drizzle-sqlite?/time", "drizzle-macros/time"]
-rust-decimal = ["drizzle-core/rust-decimal", "drizzle-postgres?/rust-decimal", "drizzle-sqlite?/rust-decimal"]
+# Optional Rust value-type integrations shared by dialect crates
+chrono = ["drizzle-core/chrono", "drizzle-seed/chrono", "drizzle-postgres?/chrono", "drizzle-sqlite?/chrono", "drizzle-mysql?/chrono", "drizzle-macros/chrono"]
+time = ["drizzle-core/time", "drizzle-postgres?/time", "drizzle-sqlite?/time", "drizzle-mysql?/time", "drizzle-macros/time"]
+rust-decimal = ["drizzle-core/rust-decimal", "drizzle-postgres?/rust-decimal", "drizzle-sqlite?/rust-decimal", "drizzle-mysql?/rust-decimal"]
 cidr = ["drizzle-core/cidr", "drizzle-seed/cidr", "drizzle-postgres?/cidr", "drizzle-macros/cidr"]
 geo-types = ["drizzle-core/geo-types", "drizzle-seed/geo-types", "drizzle-postgres?/geo-types", "drizzle-macros/geo-types"]
 bit-vec = ["drizzle-core/bit-vec", "drizzle-seed/bit-vec", "drizzle-postgres?/bit-vec", "drizzle-macros/bit-vec"]
@@ -285,15 +283,17 @@ arrayvec = [
   "dep:arrayvec",
   "drizzle-postgres?/arrayvec",
   "drizzle-sqlite?/arrayvec",
+  "drizzle-mysql?/arrayvec",
   "drizzle-macros/arrayvec",
   "drizzle-core/arrayvec",
 ]
-compact-str = ["drizzle-core/compact-str", "drizzle-postgres?/compact-str", "drizzle-macros/compact-str"]
-bytes = ["drizzle-core/bytes", "drizzle-postgres?/bytes", "drizzle-sqlite?/bytes", "drizzle-macros/bytes"]
+compact-str = ["drizzle-core/compact-str", "drizzle-postgres?/compact-str", "drizzle-mysql?/compact-str", "drizzle-macros/compact-str"]
+bytes = ["drizzle-core/bytes", "drizzle-postgres?/bytes", "drizzle-sqlite?/bytes", "drizzle-mysql?/bytes", "drizzle-macros/bytes"]
 smallvec-types = [
   "drizzle-core/smallvec-types",
   "drizzle-postgres?/smallvec",
   "drizzle-sqlite?/smallvec",
+  "drizzle-mysql?/smallvec",
   "drizzle-macros/smallvec",
 ]
 

@@ -22,6 +22,16 @@ pub struct SQLiteDialect;
 #[derive(Debug, Clone, Copy)]
 pub struct PostgresDialect;
 
+/// Type-level marker for `MySQL`.
+///
+/// MySQL keeps signed and unsigned integer markers distinct, uses backtick
+/// identifiers, and has one native JSON type. It has no native UUID or
+/// time-zone-bearing datetime type: UUIDs use `BINARY(16)`, while
+/// `TimestampTz` maps to session-time-zone-aware `TIMESTAMP`. Concrete
+/// wire-driver behavior remains outside this marker.
+#[derive(Debug, Clone, Copy)]
+pub struct MySQLDialect;
+
 // =============================================================================
 // DialectTypes — maps conceptual SQL types to dialect-native markers
 // =============================================================================
@@ -30,7 +40,8 @@ use crate::types::{Binary, BooleanLike, DataType, Floating, Integral, Temporal, 
 
 /// Maps conceptual SQL types (Int, Text, Bool, ...) to dialect-native markers.
 ///
-/// Implemented for [`SQLiteDialect`] and [`PostgresDialect`] so that
+/// Implemented for [`SQLiteDialect`], [`PostgresDialect`], and
+/// [`MySQLDialect`] so that
 /// expressions like `i32` can resolve to `sqlite::types::Integer` or
 /// `postgres::types::Int4` depending on the value type `V`.
 pub trait DialectTypes {
@@ -88,6 +99,25 @@ impl DialectTypes for PostgresDialect {
     type Json = drizzle_types::postgres::types::Json;
     type Jsonb = drizzle_types::postgres::types::Jsonb;
     type Any = drizzle_types::postgres::types::Any;
+}
+
+impl DialectTypes for MySQLDialect {
+    type SmallInt = drizzle_types::mysql::types::SmallInt;
+    type Int = drizzle_types::mysql::types::Int;
+    type BigInt = drizzle_types::mysql::types::BigInt;
+    type Float = drizzle_types::mysql::types::Float;
+    type Double = drizzle_types::mysql::types::Double;
+    type Text = drizzle_types::mysql::types::Text;
+    type Bool = drizzle_types::mysql::types::Boolean;
+    type Bytes = drizzle_types::mysql::types::Blob;
+    type Date = drizzle_types::mysql::types::Date;
+    type Time = drizzle_types::mysql::types::Time;
+    type Timestamp = drizzle_types::mysql::types::DateTime;
+    type TimestampTz = drizzle_types::mysql::types::Timestamp;
+    type Uuid = drizzle_types::mysql::types::Binary;
+    type Json = drizzle_types::mysql::types::Json;
+    type Jsonb = drizzle_types::mysql::types::Json;
+    type Any = drizzle_types::mysql::types::Any;
 }
 
 /// Parameter placeholder rendering style.
