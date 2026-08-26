@@ -651,6 +651,21 @@ struct IdxUsersEmail(Users::email);
     }
 
     #[test]
+    fn test_parse_mysql_index_options() {
+        let code = r#"
+#[MySQLIndex(unique, using = "HASH", algorithm = "INPLACE", lock = "NONE")]
+struct IdxUsersEmail(Users::email);
+"#;
+        let result = SchemaParser::parse(code);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let idx = result.index("IdxUsersEmail", Dialect::MySQL).unwrap();
+        assert!(idx.is_unique());
+        assert_eq!(idx.mysql_using().as_deref(), Some("hash"));
+        assert_eq!(idx.mysql_algorithm().as_deref(), Some("inplace"));
+        assert_eq!(idx.mysql_lock().as_deref(), Some("none"));
+    }
+
+    #[test]
     fn test_parse_schema() {
         let code = r#"
 #[SQLiteTable]

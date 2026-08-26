@@ -1860,6 +1860,72 @@ pub(crate) fn index_spec(
                             }
                         }
                         IndexArg::NameValue(key, lit)
+                            if dialect == Dialect::MySQL
+                                && key.eq_ignore_ascii_case("using") =>
+                        {
+                            match str_of(&lit).map(|value| value.to_ascii_lowercase()) {
+                                Some(value) if matches!(value.as_str(), "btree" | "hash") => {
+                                    if spec.mysql_using.replace(value).is_some() {
+                                        diags.errors.push(format!(
+                                            "{desc}: MySQL index accepts `using` only once"
+                                        ));
+                                    }
+                                }
+                                Some(other) => diags.errors.push(format!(
+                                    "{desc}: invalid MySQL index `using` `{other}`; supported: btree, hash"
+                                )),
+                                None => diags.errors.push(format!(
+                                    "{desc}: MySQL index `using` expects a string literal"
+                                )),
+                            }
+                        }
+                        IndexArg::NameValue(key, lit)
+                            if dialect == Dialect::MySQL
+                                && key.eq_ignore_ascii_case("algorithm") =>
+                        {
+                            match str_of(&lit).map(|value| value.to_ascii_lowercase()) {
+                                Some(value)
+                                    if matches!(value.as_str(), "default" | "inplace" | "copy") =>
+                                {
+                                    if spec.mysql_algorithm.replace(value).is_some() {
+                                        diags.errors.push(format!(
+                                            "{desc}: MySQL index accepts `algorithm` only once"
+                                        ));
+                                    }
+                                }
+                                Some(other) => diags.errors.push(format!(
+                                    "{desc}: invalid MySQL index `algorithm` `{other}`; supported: default, inplace, copy"
+                                )),
+                                None => diags.errors.push(format!(
+                                    "{desc}: MySQL index `algorithm` expects a string literal"
+                                )),
+                            }
+                        }
+                        IndexArg::NameValue(key, lit)
+                            if dialect == Dialect::MySQL && key.eq_ignore_ascii_case("lock") =>
+                        {
+                            match str_of(&lit).map(|value| value.to_ascii_lowercase()) {
+                                Some(value)
+                                    if matches!(
+                                        value.as_str(),
+                                        "default" | "none" | "shared" | "exclusive"
+                                    ) =>
+                                {
+                                    if spec.mysql_lock.replace(value).is_some() {
+                                        diags.errors.push(format!(
+                                            "{desc}: MySQL index accepts `lock` only once"
+                                        ));
+                                    }
+                                }
+                                Some(other) => diags.errors.push(format!(
+                                    "{desc}: invalid MySQL index `lock` `{other}`; supported: default, none, shared, exclusive"
+                                )),
+                                None => diags.errors.push(format!(
+                                    "{desc}: MySQL index `lock` expects a string literal"
+                                )),
+                            }
+                        }
+                        IndexArg::NameValue(key, lit)
                             if dialect == Dialect::PostgreSQL && key == "tablespace" =>
                         {
                             if let Some(value) = str_of(&lit) {
@@ -1891,6 +1957,13 @@ pub(crate) fn index_spec(
                                     "{desc}: expected string literal for index where clause"
                                 ));
                             }
+                        }
+                        IndexArg::NameValue(key, _)
+                            if dialect == Dialect::MySQL && key == "where" =>
+                        {
+                            diags.errors.push(format!(
+                                "{desc}: MySQL does not support partial indexes; remove `where = ...`"
+                            ));
                         }
                         // Parser extension: the macros derive the name from
                         // the struct ident and accept no `name` attribute,

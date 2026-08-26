@@ -7,6 +7,7 @@ use drizzle::mysql::{builder::QueryBuilder, prelude::*};
 struct Users {
     #[column(PRIMARY, AUTO_INCREMENT)]
     id: u64,
+    #[column(VARCHAR(255))]
     name: String,
 }
 
@@ -18,6 +19,9 @@ struct Posts {
     user_id: u64,
     title: String,
 }
+
+#[MySQLIndex]
+struct UsersNameIdx(Users::name);
 
 #[derive(MySQLSchema)]
 struct Schema {
@@ -64,6 +68,14 @@ fn main() {
         .offset(2)
         .prepare();
     let _ = builder.insert(users).value(InsertUsers::new("Alice"));
+    let _ = builder
+        .insert(users)
+        .ignore()
+        .value(InsertUsers::new("Alice"));
+    let _ = builder
+        .insert(users)
+        .value(InsertUsers::new("Alice"))
+        .on_duplicate_key_update(UpdateUsers::default().with_name("updated"));
     let selected = builder.select((users.id, users.name)).from(users);
     let _ = builder.insert(users).select(selected);
     let _ = builder
@@ -72,6 +84,12 @@ fn main() {
         .order_by(asc(users.id))
         .limit(1);
     let _ = builder.delete(users).order_by(asc(users.id)).limit(1);
+    let _ = builder
+        .select(users.id)
+        .from(users)
+        .use_index(UsersNameIdx::new())
+        .for_update()
+        .skip_locked();
 
     let Schema { users, posts } = Schema::new();
     let _ = builder

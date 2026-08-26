@@ -14,10 +14,14 @@ pub mod update;
 
 pub use cte::{CTEDefinition, CTEView};
 pub use delete::{DeleteBuilder, DeleteInitial, DeleteLimitSet, DeleteOrderSet, DeleteWhereSet};
-pub use insert::{InsertBuilder, InsertInitial, InsertValuesSet};
+pub use insert::{
+    InsertBuilder, InsertIgnoreSet, InsertInitial, InsertOnDuplicateKeyUpdateSet, InsertValuesSet,
+};
 pub use select::{
-    IntoSelect, SelectBuilder, SelectFromSet, SelectGroupSet, SelectHavingSet, SelectInitial,
-    SelectJoinSet, SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectSetOpSet, SelectWhereSet,
+    ForShare, ForUpdate, IntoSelect, NoWait, SelectBuilder, SelectForSet, SelectFromSet,
+    SelectGroupSet, SelectHavingSet, SelectIndexHintSet, SelectInitial, SelectJoinSet,
+    SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectSetOpSet, SelectWhereSet, SkipLocked,
+    Wait,
 };
 pub use update::{
     UpdateBuilder, UpdateInitial, UpdateLimitSet, UpdateOrderSet, UpdateSetClauseSet,

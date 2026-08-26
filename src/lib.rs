@@ -444,7 +444,7 @@ pub mod mysql {
     pub use drizzle_mysql::values::{MySQLValue, OwnedMySQLValue};
     #[doc(inline)]
     pub use drizzle_mysql::{
-        MySQLDialect, ParamBind, attrs, builder, common, helpers, traits, types, values,
+        MySQLDialect, ParamBind, attrs, builder, common, helpers, index, traits, types, values,
     };
 
     /// `MySQL` prelude for schema declarations.
@@ -459,15 +459,19 @@ pub mod mysql {
         pub use crate::core::{OwnedPreparedStatement, PreparedStatement};
         pub use drizzle_core::tag;
         pub use drizzle_core::traits::*;
-        pub use drizzle_mysql::helpers::{asc, desc, output_alias};
+        pub use drizzle_mysql::helpers::{MySQLIndexHintExt, asc, desc, output_alias};
         // MySQL macros
         pub use drizzle_macros::{MySQLEnum, MySQLFromRow, MySQLIndex, MySQLSchema, MySQLTable};
         // MySQL types
+        pub use drizzle_mysql::MySQLMutationResult;
         pub use drizzle_mysql::attrs::*;
         pub use drizzle_mysql::common::MySQLSchemaType;
         pub use drizzle_mysql::traits::{MySQLColumn, MySQLEnum, MySQLIndexColumn, MySQLTable};
         pub use drizzle_mysql::values::{
             MySQLInsertValue, MySQLUpdateValue, MySQLValue, OwnedMySQLValue,
+        };
+        pub use drizzle_mysql::{
+            MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMetadata, MySQLIndexMethod,
         };
     }
 }

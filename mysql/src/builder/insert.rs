@@ -5,6 +5,16 @@ use crate::{
 
 pub use drizzle_core::builder::{InsertInitial, InsertValuesSet};
 
+/// Marker for `INSERT IGNORE` before its row source is supplied.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct InsertIgnoreSet;
+
+/// Marker for a completed `ON DUPLICATE KEY UPDATE` insert.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct InsertOnDuplicateKeyUpdateSet;
+
+impl drizzle_core::ExecutableState for InsertOnDuplicateKeyUpdateSet {}
+
 pub type InsertBuilder<'a, Schema, State, Table, Marker = (), Row = ()> =
     super::QueryBuilder<'a, Schema, State, Table, Marker, Row>;
 
@@ -71,10 +81,58 @@ impl<'a, S, T, M, R> InsertBuilder<'a, S, InsertValuesSet, T, M, R> {
     pub fn prepare(&self) -> drizzle_core::prepared::PreparedStatement<'a, MySQLValue<'a>> {
         self.prepared_statement()
     }
+
+    /// Updates columns when any primary or unique key conflicts.
+    ///
+    /// MySQL chooses the conflicting key. There is deliberately no conflict
+    /// target parameter because MySQL cannot express one in this clause.
+    #[track_caller]
+    pub fn on_duplicate_key_update(
+        self,
+        values: T::Update,
+    ) -> InsertBuilder<'a, S, InsertOnDuplicateKeyUpdateSet, T, M, R>
+    where
+        T: MySQLTable<'a>,
+    {
+        let sql = crate::helpers::on_duplicate_key_update::<T>(&values);
+        drop(values);
+        InsertBuilder::from_sql(self.sql.append(sql))
+    }
+}
+
+impl<'a, S, T, M, R> InsertBuilder<'a, S, InsertOnDuplicateKeyUpdateSet, T, M, R> {
+    /// Compiles this upsert into MySQL's ordered positional bind plan.
+    #[must_use]
+    pub fn prepare(&self) -> drizzle_core::prepared::PreparedStatement<'a, MySQLValue<'a>> {
+        self.prepared_statement()
+    }
 }
 
 impl<'a, Schema, Table> InsertBuilder<'a, Schema, InsertInitial, Table>
 where
+    Table: MySQLTable<'a>,
+{
+    /// Changes this statement to `INSERT IGNORE`.
+    ///
+    /// This is MySQL's broad warning/error suppression form. It is not a
+    /// target-bearing conflict clause and should only be used when those
+    /// wider semantics are intended.
+    #[must_use]
+    pub fn ignore(self) -> InsertBuilder<'a, Schema, InsertIgnoreSet, Table> {
+        InsertBuilder::from_sql(crate::helpers::insert_ignore(self.sql))
+    }
+}
+
+/// Insert states that can still receive a VALUES or SELECT row source.
+#[doc(hidden)]
+pub trait InsertRowSourceState {}
+
+impl InsertRowSourceState for InsertInitial {}
+impl InsertRowSourceState for InsertIgnoreSet {}
+
+impl<'a, Schema, State, Table> InsertBuilder<'a, Schema, State, Table>
+where
+    State: InsertRowSourceState,
     Table: MySQLTable<'a>,
 {
     pub fn value<T>(

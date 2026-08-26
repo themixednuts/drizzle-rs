@@ -16,14 +16,60 @@ impl ExecutableState for SelectHavingSet {}
 impl drizzle_core::GroupByApplied for SelectHavingSet {}
 impl AsCteState for SelectHavingSet {}
 
+/// Marker for a base table that already carries one MySQL index hint.
+///
+/// MySQL rejects some mixed hint kinds for the same scope. Keeping the chosen
+/// kind in the select state prevents an invalid second hint from being added.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SelectIndexHintSet<Kind>(core::marker::PhantomData<Kind>);
+
+impl<Kind> ExecutableState for SelectIndexHintSet<Kind> {}
+impl<Kind> AsCteState for SelectIndexHintSet<Kind> {}
+impl<Kind> drizzle_core::JoinAllowed for SelectIndexHintSet<Kind> {}
+impl<Kind> drizzle_core::GroupByAllowed for SelectIndexHintSet<Kind> {}
+
+/// Marker for the MySQL `FOR UPDATE` lock strength.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ForUpdate;
+
+/// Marker for the MySQL `FOR SHARE` lock strength.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ForShare;
+
+/// Marker for a locking read without a wait modifier.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Wait;
+
+/// Marker for a locking read with `NOWAIT`.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoWait;
+
+/// Marker for a locking read with `SKIP LOCKED`.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SkipLocked;
+
+/// Terminal MySQL locking-read state.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SelectForSet<Strength, Modifier = Wait>(core::marker::PhantomData<(Strength, Modifier)>);
+
+impl<Strength, Modifier> ExecutableState for SelectForSet<Strength, Modifier> {}
+
 #[doc(hidden)]
 pub trait SelectWhereAllowed {}
 impl SelectWhereAllowed for SelectFromSet {}
+impl<Kind> SelectWhereAllowed for SelectIndexHintSet<Kind> {}
 impl SelectWhereAllowed for SelectJoinSet {}
 
 #[doc(hidden)]
 pub trait SelectLimitAllowed {}
 impl SelectLimitAllowed for SelectFromSet {}
+impl<Kind> SelectLimitAllowed for SelectIndexHintSet<Kind> {}
 impl SelectLimitAllowed for SelectJoinSet {}
 impl SelectLimitAllowed for SelectWhereSet {}
 impl SelectLimitAllowed for SelectGroupSet {}
@@ -35,8 +81,8 @@ pub type SelectBuilder<'a, Schema, State, Table = (), Marker = (), Row = (), Gro
     super::QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>;
 
 macro_rules! select_prepare {
-    ($state:ty) => {
-        impl<'a, S, T, M, R, G> SelectBuilder<'a, S, $state, T, M, R, G> {
+    ($state:ty $(, $extra:ident)*) => {
+        impl<'a, S, T, M, R, G, $($extra),*> SelectBuilder<'a, S, $state, T, M, R, G> {
             /// Compiles named or anonymous placeholders into MySQL's ordered
             /// positional bind plan after validating scope and grouping.
             #[must_use]
@@ -54,6 +100,7 @@ macro_rules! select_prepare {
 }
 
 select_prepare!(SelectFromSet);
+select_prepare!(SelectIndexHintSet<Kind>, Kind);
 select_prepare!(SelectJoinSet);
 select_prepare!(SelectWhereSet);
 select_prepare!(SelectGroupSet);
@@ -62,6 +109,22 @@ select_prepare!(SelectOrderSet);
 select_prepare!(SelectLimitSet);
 select_prepare!(SelectOffsetSet);
 select_prepare!(SelectSetOpSet);
+
+impl<'a, S, T, M, R, G, Strength, Modifier>
+    SelectBuilder<'a, S, SelectForSet<Strength, Modifier>, T, M, R, G>
+{
+    /// Compiles a locking read into MySQL's ordered positional bind plan.
+    #[must_use]
+    pub fn prepare<ScopeProof, AggProof>(
+        &self,
+    ) -> drizzle_core::prepared::PreparedStatement<'a, MySQLValue<'a>>
+    where
+        M: drizzle_core::row::MarkerScopeValidFor<ScopeProof>
+            + drizzle_core::row::MarkerAggValidFor<G, AggProof>,
+    {
+        self.prepared_statement()
+    }
+}
 
 impl<'a, S, M> SelectBuilder<'a, S, SelectInitial, (), M> {
     #[allow(clippy::type_complexity)]
@@ -81,6 +144,57 @@ impl<'a, S, M> SelectBuilder<'a, S, SelectInitial, (), M> {
         M: drizzle_core::ResolveRow<T>,
     {
         SelectBuilder::from_sql(self.sql.append(helpers::from(table)))
+    }
+}
+
+impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectFromSet, T, M, R, G>
+where
+    T: crate::traits::MySQLTable<'a>,
+{
+    /// Advises MySQL to consider this table's generated index.
+    #[must_use]
+    pub fn use_index<Index>(
+        self,
+        index: Index,
+    ) -> SelectBuilder<'a, S, SelectIndexHintSet<helpers::UseIndex>, T, M, R, G>
+    where
+        Index: drizzle_core::SQLIndex<'a, MySQLSchemaType, MySQLValue<'a>, Table = T>,
+    {
+        SelectBuilder::from_sql(
+            self.sql
+                .append(helpers::index_hint::<T, Index, helpers::UseIndex>(&index)),
+        )
+    }
+
+    /// Advises MySQL to strongly prefer this table's generated index.
+    #[must_use]
+    pub fn force_index<Index>(
+        self,
+        index: Index,
+    ) -> SelectBuilder<'a, S, SelectIndexHintSet<helpers::ForceIndex>, T, M, R, G>
+    where
+        Index: drizzle_core::SQLIndex<'a, MySQLSchemaType, MySQLValue<'a>, Table = T>,
+    {
+        SelectBuilder::from_sql(
+            self.sql
+                .append(helpers::index_hint::<T, Index, helpers::ForceIndex>(&index)),
+        )
+    }
+
+    /// Advises MySQL not to use this table's generated index.
+    #[must_use]
+    pub fn ignore_index<Index>(
+        self,
+        index: Index,
+    ) -> SelectBuilder<'a, S, SelectIndexHintSet<helpers::IgnoreIndex>, T, M, R, G>
+    where
+        Index: drizzle_core::SQLIndex<'a, MySQLSchemaType, MySQLValue<'a>, Table = T>,
+    {
+        SelectBuilder::from_sql(self.sql.append(helpers::index_hint::<
+            T,
+            Index,
+            helpers::IgnoreIndex,
+        >(&index)))
     }
 }
 
@@ -175,8 +289,8 @@ where
 }
 
 macro_rules! select_order_by {
-    ($state:ty) => {
-        impl<'a, S, T, M, R, G> SelectBuilder<'a, S, $state, T, M, R, G> {
+    ($state:ty $(, $extra:ident)*) => {
+        impl<'a, S, T, M, R, G, $($extra),*> SelectBuilder<'a, S, $state, T, M, R, G> {
             pub fn order_by<O>(self, order: O) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R, G>
             where
                 O: ToSQL<'a, MySQLValue<'a>>,
@@ -188,6 +302,7 @@ macro_rules! select_order_by {
 }
 
 select_order_by!(SelectFromSet);
+select_order_by!(SelectIndexHintSet<Kind>, Kind);
 select_order_by!(SelectJoinSet);
 select_order_by!(SelectWhereSet);
 select_order_by!(SelectGroupSet);
@@ -216,8 +331,8 @@ where
 }
 
 macro_rules! standalone_offset {
-    ($state:ty) => {
-        impl<'a, S, T, M, R, G> SelectBuilder<'a, S, $state, T, M, R, G> {
+    ($state:ty $(, $extra:ident)*) => {
+        impl<'a, S, T, M, R, G, $($extra),*> SelectBuilder<'a, S, $state, T, M, R, G> {
             #[track_caller]
             pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
             where
@@ -230,6 +345,7 @@ macro_rules! standalone_offset {
 }
 
 standalone_offset!(SelectFromSet);
+standalone_offset!(SelectIndexHintSet<Kind>, Kind);
 standalone_offset!(SelectJoinSet);
 standalone_offset!(SelectWhereSet);
 standalone_offset!(SelectGroupSet);
@@ -244,6 +360,65 @@ impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G> {
         P: drizzle_core::PaginationArg<'a, MySQLValue<'a>>,
     {
         SelectBuilder::from_sql(self.sql.append(drizzle_core::helpers::offset(offset)))
+    }
+}
+
+/// Select states on which MySQL permits a terminal locking clause.
+#[doc(hidden)]
+pub trait LockingReadAllowed {}
+
+impl LockingReadAllowed for SelectFromSet {}
+impl<Kind> LockingReadAllowed for SelectIndexHintSet<Kind> {}
+impl LockingReadAllowed for SelectJoinSet {}
+impl LockingReadAllowed for SelectWhereSet {}
+impl LockingReadAllowed for SelectGroupSet {}
+impl LockingReadAllowed for SelectHavingSet {}
+impl LockingReadAllowed for SelectOrderSet {}
+impl LockingReadAllowed for SelectLimitSet {}
+impl LockingReadAllowed for SelectOffsetSet {}
+
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: LockingReadAllowed,
+{
+    /// Locks matching rows for update.
+    #[must_use]
+    pub fn for_update(self) -> SelectBuilder<'a, S, SelectForSet<ForUpdate>, T, M, R, G> {
+        SelectBuilder::from_sql(
+            self.sql
+                .push(drizzle_core::Token::FOR)
+                .push(drizzle_core::Token::UPDATE),
+        )
+    }
+
+    /// Acquires shared locks on matching rows.
+    #[must_use]
+    pub fn for_share(self) -> SelectBuilder<'a, S, SelectForSet<ForShare>, T, M, R, G> {
+        SelectBuilder::from_sql(
+            self.sql
+                .push(drizzle_core::Token::FOR)
+                .push(drizzle_core::Token::SHARE),
+        )
+    }
+}
+
+impl<'a, S, Strength, T, M, R, G> SelectBuilder<'a, S, SelectForSet<Strength, Wait>, T, M, R, G> {
+    /// Fails immediately instead of waiting for a conflicting row lock.
+    #[must_use]
+    pub fn nowait(self) -> SelectBuilder<'a, S, SelectForSet<Strength, NoWait>, T, M, R, G> {
+        SelectBuilder::from_sql(self.sql.push(drizzle_core::Token::NOWAIT))
+    }
+
+    /// Skips rows currently held by another transaction.
+    #[must_use]
+    pub fn skip_locked(
+        self,
+    ) -> SelectBuilder<'a, S, SelectForSet<Strength, SkipLocked>, T, M, R, G> {
+        SelectBuilder::from_sql(
+            self.sql
+                .push(drizzle_core::Token::SKIP)
+                .push(drizzle_core::Token::LOCKED),
+        )
     }
 }
 

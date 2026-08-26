@@ -7,6 +7,9 @@ use syn::{DeriveInput, Error, Expr, Meta, Result, Token, Type, parse::Parse};
 #[derive(Clone, Default)]
 pub struct IndexAttributes {
     pub unique: bool,
+    pub using: Option<String>,
+    pub algorithm: Option<String>,
+    pub lock: Option<String>,
 }
 
 impl Parse for IndexAttributes {
@@ -46,6 +49,39 @@ impl Parse for IndexAttributes {
                     }
                     attrs.unique = true;
                 }
+                Meta::NameValue(name_value)
+                    if name_value
+                        .path
+                        .get_ident()
+                        .is_some_and(|ident| ident.to_string().eq_ignore_ascii_case("using")) =>
+                {
+                    set_option(&mut attrs.using, &name_value, "using", &["btree", "hash"])?;
+                }
+                Meta::NameValue(name_value)
+                    if name_value.path.get_ident().is_some_and(|ident| {
+                        ident.to_string().eq_ignore_ascii_case("algorithm")
+                    }) =>
+                {
+                    set_option(
+                        &mut attrs.algorithm,
+                        &name_value,
+                        "algorithm",
+                        &["default", "inplace", "copy"],
+                    )?;
+                }
+                Meta::NameValue(name_value)
+                    if name_value
+                        .path
+                        .get_ident()
+                        .is_some_and(|ident| ident.to_string().eq_ignore_ascii_case("lock")) =>
+                {
+                    set_option(
+                        &mut attrs.lock,
+                        &name_value,
+                        "lock",
+                        &["default", "none", "shared", "exclusive"],
+                    )?;
+                }
                 Meta::Path(path)
                     if path.get_ident().is_some_and(|ident| {
                         matches!(
@@ -62,7 +98,7 @@ impl Parse for IndexAttributes {
                 unsupported => {
                     return Err(Error::new_spanned(
                         unsupported,
-                        "unsupported MySQL index option; only `unique` is accepted",
+                        "unsupported MySQL index option; accepted options are `unique`, `using`, `algorithm`, and `lock`",
                     ));
                 }
             }
@@ -70,6 +106,44 @@ impl Parse for IndexAttributes {
 
         Ok(attrs)
     }
+}
+
+fn set_option(
+    slot: &mut Option<String>,
+    name_value: &syn::MetaNameValue,
+    name: &str,
+    accepted: &[&str],
+) -> Result<()> {
+    let syn::Expr::Lit(literal) = &name_value.value else {
+        return Err(Error::new_spanned(
+            &name_value.value,
+            format!("MySQL index `{name}` expects a string literal"),
+        ));
+    };
+    let syn::Lit::Str(value) = &literal.lit else {
+        return Err(Error::new_spanned(
+            &literal.lit,
+            format!("MySQL index `{name}` expects a string literal"),
+        ));
+    };
+    if slot.is_some() {
+        return Err(Error::new_spanned(
+            name_value,
+            format!("MySQLIndex accepts `{name}` only once"),
+        ));
+    }
+    let normalized = value.value().to_ascii_lowercase();
+    if !accepted.contains(&normalized.as_str()) {
+        return Err(Error::new_spanned(
+            value,
+            format!(
+                "invalid MySQL index `{name}`; supported values: {}",
+                accepted.join(", ")
+            ),
+        ));
+    }
+    *slot = Some(normalized);
+    Ok(())
 }
 
 /// Generate the driver-neutral implementation for a MySQL index declaration.
@@ -108,7 +182,23 @@ pub fn mysql_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Res
     let mysql_table = quote!(drizzle::mysql::traits::MySQLTable);
     let index_name = heck::AsSnakeCase(struct_ident.to_string()).to_string();
     let unique_keyword = if attr.unique { "UNIQUE " } else { "" };
-    let create_prefix = format!("CREATE {unique_keyword}INDEX `{index_name}` ON ");
+    let using_sql = attr
+        .using
+        .as_deref()
+        .map(|using| format!(" USING {}", using.to_ascii_uppercase()))
+        .unwrap_or_default();
+    let create_prefix = format!("CREATE {unique_keyword}INDEX `{index_name}`{using_sql} ON ");
+    let algorithm_sql = attr
+        .algorithm
+        .as_deref()
+        .map(|algorithm| format!(" ALGORITHM={}", algorithm.to_ascii_uppercase()))
+        .unwrap_or_default();
+    let lock_sql = attr
+        .lock
+        .as_deref()
+        .map(|lock| format!(" LOCK={}", lock.to_ascii_uppercase()))
+        .unwrap_or_default();
+    let ddl_suffix = format!("){algorithm_sql}{lock_sql};");
 
     let column_names: Vec<_> = columns
         .iter()
@@ -153,8 +243,48 @@ pub fn mysql_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Res
             <#table_type as #mysql_table<'static>>::DDL_QUALIFIED_NAME,
             "(",
             #(#column_sql_parts,)*
-            ");"
+            #ddl_suffix
         )
+    };
+
+    let method = match attr.using.as_deref() {
+        Some("btree") => quote!(::core::option::Option::Some(
+            drizzle::mysql::index::MySQLIndexMethod::BTree
+        )),
+        Some("hash") => quote!(::core::option::Option::Some(
+            drizzle::mysql::index::MySQLIndexMethod::Hash
+        )),
+        None => quote!(::core::option::Option::None),
+        Some(_) => unreachable!("validated MySQL index method"),
+    };
+    let algorithm = match attr.algorithm.as_deref() {
+        Some("default") => quote!(::core::option::Option::Some(
+            drizzle::mysql::index::MySQLIndexAlgorithm::Default
+        )),
+        Some("inplace") => quote!(::core::option::Option::Some(
+            drizzle::mysql::index::MySQLIndexAlgorithm::Inplace
+        )),
+        Some("copy") => quote!(::core::option::Option::Some(
+            drizzle::mysql::index::MySQLIndexAlgorithm::Copy
+        )),
+        None => quote!(::core::option::Option::None),
+        Some(_) => unreachable!("validated MySQL index algorithm"),
+    };
+    let lock = match attr.lock.as_deref() {
+        Some("default") => quote!(::core::option::Option::Some(
+            drizzle::mysql::index::MySQLIndexLock::Default
+        )),
+        Some("none") => quote!(::core::option::Option::Some(
+            drizzle::mysql::index::MySQLIndexLock::None
+        )),
+        Some("shared") => quote!(::core::option::Option::Some(
+            drizzle::mysql::index::MySQLIndexLock::Shared
+        )),
+        Some("exclusive") => quote!(::core::option::Option::Some(
+            drizzle::mysql::index::MySQLIndexLock::Exclusive
+        )),
+        None => quote!(::core::option::Option::None),
+        Some(_) => unreachable!("validated MySQL index lock"),
     };
 
     Ok(quote! {
@@ -164,6 +294,9 @@ pub fn mysql_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Res
         impl #struct_ident {
             pub const COLUMN_NAMES: &'static [&'static str] = &[#(#column_names),*];
             pub const DDL_SQL: &'static str = #const_sql;
+            pub const METHOD: ::core::option::Option<drizzle::mysql::index::MySQLIndexMethod> = #method;
+            pub const ALGORITHM: ::core::option::Option<drizzle::mysql::index::MySQLIndexAlgorithm> = #algorithm;
+            pub const LOCK: ::core::option::Option<drizzle::mysql::index::MySQLIndexLock> = #lock;
 
             pub const fn new() -> Self {
                 Self
@@ -196,6 +329,12 @@ pub fn mysql_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Res
             fn table_ref() -> &'static drizzle::core::TableRef {
                 &<#table_type as drizzle::core::DrizzleTable>::TABLE_REF
             }
+        }
+
+        impl drizzle::mysql::index::MySQLIndexMetadata for #struct_ident {
+            const METHOD: ::core::option::Option<drizzle::mysql::index::MySQLIndexMethod> = Self::METHOD;
+            const ALGORITHM: ::core::option::Option<drizzle::mysql::index::MySQLIndexAlgorithm> = Self::ALGORITHM;
+            const LOCK: ::core::option::Option<drizzle::mysql::index::MySQLIndexLock> = Self::LOCK;
         }
 
         impl<'a> #sql_schema<'a, #mysql_schema_type, #mysql_value<'a>> for #struct_ident {

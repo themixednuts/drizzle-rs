@@ -45,10 +45,14 @@ struct AccountEvents {
 #[MySQLIndex(unique)]
 struct AccountsEmailIdx(Accounts::email);
 
+#[MySQLIndex(using = "btree", algorithm = "inplace", lock = "none")]
+struct AccountsStatusIdx(Accounts::email);
+
 #[derive(MySQLSchema)]
 struct AppSchema {
     accounts: Accounts,
     accounts_email_idx: AccountsEmailIdx,
+    accounts_status_idx: AccountsStatusIdx,
     account_events: AccountEvents,
 }
 
@@ -354,12 +358,23 @@ fn enum_index_schema_and_from_row_are_generated_for_mysql() {
     assert_eq!(<Accounts as DrizzleTable>::NAME, "accounts");
     assert_eq!(<AccountEvents as DrizzleTable>::NAME, "account_events");
     let _ = schema.accounts_email_idx;
+    let _ = schema.accounts_status_idx;
 
     let index_sql = AccountsEmailIdx::new().to_sql().sql();
     assert_eq!(
         index_sql,
         "CREATE UNIQUE INDEX `accounts_email_idx` ON `app_db`.`accounts`(`email`);"
     );
+    assert_eq!(
+        AccountsStatusIdx::DDL_SQL,
+        "CREATE INDEX `accounts_status_idx` USING BTREE ON `app_db`.`accounts`(`email`) ALGORITHM=INPLACE LOCK=NONE;"
+    );
+    assert_eq!(AccountsStatusIdx::METHOD, Some(MySQLIndexMethod::BTree));
+    assert_eq!(
+        AccountsStatusIdx::ALGORITHM,
+        Some(MySQLIndexAlgorithm::Inplace)
+    );
+    assert_eq!(AccountsStatusIdx::LOCK, Some(MySQLIndexLock::None));
 
     assert_mysql_selector::<AccountRow>();
     assert_mysql_selector_value(AccountRow::Select);

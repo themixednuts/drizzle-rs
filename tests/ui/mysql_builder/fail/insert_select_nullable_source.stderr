@@ -12,11 +12,11 @@ error[E0271]: type mismatch resolving `<NonNull as NullAnd<Null>>::Output == Nul
    = note: required for `SelectCols<(ImportedUsersId, ImportedUsersName)>` to implement `drizzle::mysql::builder::insert::InsertSelectCompatible<'_, Users, (u64, std::option::Option<std::string::String>)>`
    = note: 1 redundant requirement hidden
    = note: required for `Scoped<SelectCols<(ImportedUsersId, ImportedUsersName)>, Cons<ImportedUsers, Nil>>` to implement `drizzle::mysql::builder::insert::InsertSelectCompatible<'_, Users, (u64, std::option::Option<std::string::String>)>`
-note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, InsertInitial, Table>>::select`
+note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
   --> mysql/src/builder/insert.rs
    |
    |     pub fn select<Q, R>(self, query: Q) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
    |            ------ required by a bound in this associated function
 ...
    |         Q::Marker: InsertSelectCompatible<'a, Table, R>,
-   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, InsertInitial, Table>>::select`
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`

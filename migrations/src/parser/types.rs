@@ -245,6 +245,12 @@ pub struct IndexSpec {
     /// PostgreSQL's implicit btree default is never materialized (the macro
     /// and the renderer both treat absence as btree).
     pub method: Option<String>,
+    /// Explicit `using = "..."` (`MySQL` only): `btree` or `hash`.
+    pub mysql_using: Option<String>,
+    /// Explicit online-DDL `algorithm = "..."` (`MySQL` only).
+    pub mysql_algorithm: Option<String>,
+    /// Explicit metadata `lock = "..."` policy (`MySQL` only).
+    pub mysql_lock: Option<String>,
     /// `where = "..."` partial-index predicate.
     pub where_clause: Option<String>,
     /// `tablespace = "..."` (`PostgreSQL` only).
@@ -501,6 +507,24 @@ impl ParsedIndex {
     #[must_use]
     pub fn method(&self) -> Option<String> {
         self.spec.method.clone()
+    }
+
+    /// Get the explicit MySQL index access method.
+    #[must_use]
+    pub fn mysql_using(&self) -> Option<String> {
+        self.spec.mysql_using.clone()
+    }
+
+    /// Get the explicit MySQL online-DDL algorithm.
+    #[must_use]
+    pub fn mysql_algorithm(&self) -> Option<String> {
+        self.spec.mysql_algorithm.clone()
+    }
+
+    /// Get the explicit MySQL metadata-lock policy.
+    #[must_use]
+    pub fn mysql_lock(&self) -> Option<String> {
+        self.spec.mysql_lock.clone()
     }
 
     /// Get the partial-index `WHERE` clause if explicitly set.

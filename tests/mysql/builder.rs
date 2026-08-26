@@ -23,6 +23,7 @@ type MySQLAggregateRow = (
 struct Users {
     #[column(PRIMARY, AUTO_INCREMENT)]
     id: u64,
+    #[column(VARCHAR(255))]
     name: String,
     #[column(DEFAULT = true)]
     active: bool,
@@ -42,6 +43,12 @@ struct DefaultsOnly {
     #[column(PRIMARY, AUTO_INCREMENT)]
     id: u64,
 }
+
+#[MySQLIndex]
+struct UsersNameIdx(Users::name);
+
+#[MySQLIndex]
+struct PostsUserIdIdx(Posts::user_id);
 
 #[derive(MySQLSchema)]
 struct Schema {
@@ -435,6 +442,126 @@ fn insert_update_and_delete_follow_mysql_clause_order() {
         delete.to_sql().sql(),
         "DELETE FROM `users` WHERE `users`.`active` = ? ORDER BY `users`.`id` ASC LIMIT ?"
     );
+}
+
+#[test]
+fn native_insert_conflict_forms_preserve_mysql_semantics() {
+    let Schema { users, .. } = Schema::new();
+
+    let ignored = builder()
+        .insert(users)
+        .ignore()
+        .value(InsertUsers::new("Alice"));
+    assert_eq!(
+        ignored.to_sql().sql(),
+        "INSERT IGNORE INTO `users` (`name`) VALUES (?)"
+    );
+
+    let upsert = builder()
+        .insert(users)
+        .value(InsertUsers::new("Alice"))
+        .on_duplicate_key_update(UpdateUsers::default().with_name("updated"));
+    assert_eq!(
+        upsert.to_sql().sql(),
+        "INSERT INTO `users` (`name`) VALUES (?) ON DUPLICATE KEY UPDATE `name` = ?"
+    );
+    assert_eq!(upsert.prepare().params.len(), 2);
+}
+
+#[test]
+fn select_index_hints_are_tied_to_their_generated_table_metadata() {
+    let Schema { users, posts } = Schema::new();
+    let base = builder()
+        .select(users.id)
+        .from(users)
+        .use_index(UsersNameIdx::new());
+    assert_eq!(
+        base.to_sql().sql(),
+        "SELECT `users`.`id` FROM `users` USE INDEX (`users_name_idx`)"
+    );
+
+    let forced = builder()
+        .select(users.id)
+        .from(users)
+        .force_index(UsersNameIdx::new());
+    assert_eq!(
+        forced.to_sql().sql(),
+        "SELECT `users`.`id` FROM `users` FORCE INDEX (`users_name_idx`)"
+    );
+
+    let ignored = builder()
+        .select(users.id)
+        .from(users)
+        .ignore_index(UsersNameIdx::new());
+    assert_eq!(
+        ignored.to_sql().sql(),
+        "SELECT `users`.`id` FROM `users` IGNORE INDEX (`users_name_idx`)"
+    );
+
+    let explicit_join = builder()
+        .select((users.id, posts.id))
+        .from(users)
+        .inner_join((
+            posts.use_index(PostsUserIdIdx::new()),
+            eq(posts.user_id, users.id),
+        ));
+    assert_eq!(
+        explicit_join.to_sql().sql(),
+        "SELECT `users`.`id`, `posts`.`id` FROM `users` INNER JOIN `posts` USE INDEX (`posts_user_id_idx`) ON `posts`.`user_id` = `users`.`id`"
+    );
+
+    let automatic_join = builder()
+        .select((users.id, posts.id))
+        .from(users)
+        .inner_join(posts.force_index(PostsUserIdIdx::new()));
+    assert_eq!(
+        automatic_join.to_sql().sql(),
+        "SELECT `users`.`id`, `posts`.`id` FROM `users` INNER JOIN `posts` FORCE INDEX (`posts_user_id_idx`) ON `posts`.`user_id` = `users`.`id`"
+    );
+}
+
+#[test]
+fn locking_reads_offer_only_mysql_strengths_and_one_wait_policy() {
+    let Schema { users, .. } = Schema::new();
+
+    assert_eq!(
+        builder()
+            .select(users.id)
+            .from(users)
+            .for_update()
+            .to_sql()
+            .sql(),
+        "SELECT `users`.`id` FROM `users` FOR UPDATE"
+    );
+    assert_eq!(
+        builder()
+            .select(users.id)
+            .from(users)
+            .for_share()
+            .nowait()
+            .to_sql()
+            .sql(),
+        "SELECT `users`.`id` FROM `users` FOR SHARE NOWAIT"
+    );
+    assert_eq!(
+        builder()
+            .select(users.id)
+            .from(users)
+            .limit(2)
+            .for_update()
+            .skip_locked()
+            .to_sql()
+            .sql(),
+        "SELECT `users`.`id` FROM `users` LIMIT ? FOR UPDATE SKIP LOCKED"
+    );
+}
+
+#[test]
+fn mutation_results_are_driver_independent_execution_metadata() {
+    let result = MySQLMutationResult::new(3, Some(41));
+    assert_eq!(result.affected_rows(), 3);
+    assert_eq!(result.last_insert_id(), Some(41));
+    assert_eq!(MySQLMutationResult::default().last_insert_id(), None);
 }
 
 #[test]

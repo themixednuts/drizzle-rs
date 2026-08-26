@@ -41,6 +41,8 @@ pub mod attrs;
 pub mod builder;
 pub mod common;
 pub mod helpers;
+pub mod index;
+pub mod result;
 pub mod traits;
 pub mod types {
     pub use drizzle_types::mysql::types::*;
@@ -49,3 +51,5 @@ pub mod types {
 pub mod values;
 
 pub use drizzle_core::{MySQLDialect, ParamBind};
+pub use index::{MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMetadata, MySQLIndexMethod};
+pub use result::MySQLMutationResult;
