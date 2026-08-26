@@ -34,7 +34,7 @@ error[E0277]: cannot deserialize `()` from a database row
    |                                                 ^^^ this type does not implement FromDrizzleRow
    |
    = help: the trait `for<'r> FromDrizzleRow<Row<'r>>` is not implemented for `()`
-   = note: derive #[SQLiteFromRow] or #[PostgresFromRow]
+   = note: derive #[SQLiteFromRow], #[PostgresFromRow], or #[MySQLFromRow]
    = help: the following other types implement trait `FromDrizzleRow<Row>`:
              (T0, T1)
              (T0, T1, T2)

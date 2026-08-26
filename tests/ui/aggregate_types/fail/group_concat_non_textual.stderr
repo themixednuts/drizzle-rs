@@ -9,12 +9,14 @@ error[E0277]: `drizzle::sqlite::types::Integer` is not a text SQL type
    = help: the trait `Textual` is not implemented for `drizzle::sqlite::types::Integer`
    = help: the following other types implement trait `Textual`:
              drizzle::core::types::Placeholder
-             drizzle::ddl::postgres::types::Char
-             drizzle::ddl::postgres::types::Enum
-             drizzle::ddl::postgres::types::Text
-             drizzle::ddl::postgres::types::Varchar
-             drizzle::sqlite::types::Any
-             drizzle::sqlite::types::Text
+             drizzle::ddl::mysql::types::Char
+             drizzle::ddl::mysql::types::Enum
+             drizzle::ddl::mysql::types::LongText
+             drizzle::ddl::mysql::types::MediumText
+             drizzle::ddl::mysql::types::Set
+             drizzle::ddl::mysql::types::Text
+             drizzle::ddl::mysql::types::TinyText
+           and $N others
 note: required by a bound in `group_concat`
   --> core/src/expr/agg.rs
    |

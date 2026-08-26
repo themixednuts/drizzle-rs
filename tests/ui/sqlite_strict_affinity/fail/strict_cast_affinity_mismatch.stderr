@@ -26,7 +26,7 @@ help: `drizzle::sqlite::types::Text` implements trait `Compatible<Rhs>`
    | |     crate::sqlite::types::Text,
    | |     crate::sqlite::types::Real,
 ...  |
-   | |     crate::postgres::types::Enum,
+   | |     crate::mysql::types::Any,
    | | );
    | |_- in this macro invocation
 ...

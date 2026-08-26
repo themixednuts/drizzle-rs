@@ -18,6 +18,9 @@ help: the following other types implement trait `BooleanLike`
 ...
    | impl BooleanLike for crate::postgres::types::Boolean {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::postgres::types::Boolean`
+...
+   | impl BooleanLike for crate::mysql::types::Boolean {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::mysql::types::Boolean`
    = note: required for `(UserActive, UserName)` to implement `ConditionList<'_, SQLiteValue<'_>>`
    = note: required for `(UserActive, UserName)` to implement `Expr<'_, SQLiteValue<'_>>`
 note: required by a bound in `drizzle::builder::sqlite::common::DrizzleBuilder::<'d, Runner, Schema, drizzle::sqlite::builder::QueryBuilder<'a, Schema, SelectFromSet, T, M, R, G>, SelectFromSet>::r#where`
