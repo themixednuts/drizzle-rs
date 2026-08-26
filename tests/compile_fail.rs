@@ -17,7 +17,11 @@ fn mysql_macros_ui() {
     must_fail("tests/ui/mysql_macros/fail/*.rs");
 }
 
-#[cfg(feature = "mysql")]
+// Enabling relational queries exposes a second public `QueryBuilder`, which
+// changes only rustc's path formatting for the dialect-builder diagnostics.
+// CI runs this suite once on the native MySQL builder feature graph and runs
+// the shared relational suite separately with `query` enabled.
+#[cfg(all(feature = "mysql", not(feature = "query")))]
 #[test]
 fn mysql_builder_ui() {
     must_pass("tests/ui/mysql_builder/pass/*.rs");

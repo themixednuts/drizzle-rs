@@ -19,6 +19,7 @@ mysql-up:
 
 # Run the blocking MySQL adapter integration tests.
 test-mysql-sync: mysql-up
+    cargo test --no-default-features --features mysql-sync,serde --test compile_fail mysql_builder_ui
     cargo test --no-default-features --features mysql-sync,query,serde
 
 # Run the Tokio MySQL adapter integration tests.
@@ -27,6 +28,7 @@ test-mysql-async: mysql-up
 
 # Run both adapters together, including feature-unification coverage.
 test-mysql: mysql-up
+    cargo test --no-default-features --features mysql-sync,serde --test compile_fail mysql_builder_ui
     cargo test --no-default-features --features mysql-sync,mysql-async,query,serde,chrono,time,rust-decimal
 
 # Stop the MySQL integration-test container.

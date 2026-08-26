@@ -190,10 +190,25 @@ jobs:
             exit 1
           fi
 
+      - name: Run MySQL builder compile-time tests
+        if: matrix.features == 'mysql-sync'
+        # The relational `query` feature exposes a second public
+        # `QueryBuilder`. That only changes how rustc qualifies type names in
+        # diagnostics, so keep the dialect builder snapshots on their native
+        # feature graph and exercise them once rather than maintaining two
+        # equivalent sets of compiler output.
+        run: >-
+          cargo test -p drizzle --no-default-features
+          --features mysql-sync,serde
+          --test compile_fail mysql_builder_ui
+
       - name: Run live MySQL tests
         # `query` runs the same relational behavior suite against both MySQL
         # adapters. The unified row also executes optional codec projections
         # against a real MySQL server instead of merely compiling them in lint.
+        # The dialect builder UI suite is feature-gated and runs above without
+        # `query`, where its diagnostics are stable; every other test remains
+        # in this full run.
         run: cargo test -p drizzle --no-default-features --features "${{ matrix.test-features }}"
 
   test-turso:
