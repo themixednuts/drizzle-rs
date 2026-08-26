@@ -1,12 +1,12 @@
-error[E0277]: the trait bound `QueryBuilder<'_, Schema, DeleteWhereSet, Users>: drizzle::mysql::builder::IntoSelect<'_, Schema, _>` is not satisfied
+error[E0277]: the trait bound `QueryBuilder<'_, Schema, DeleteWhereSet, Users>: drizzle::mysql::builder::IntoSelectQuery<'_, Schema, _>` is not satisfied
   --> tests/ui/mysql_builder/fail/insert_select_dml.rs:20:42
    |
 20 |     let _ = builder.insert(users).select(delete);
-   |                                   ------ ^^^^^^ the trait `drizzle::mysql::builder::IntoSelect<'_, Schema, _>` is not implemented for `QueryBuilder<'_, Schema, DeleteWhereSet, Users>`
+   |                                   ------ ^^^^^^ the trait `drizzle::mysql::builder::IntoSelectQuery<'_, Schema, _>` is not implemented for `QueryBuilder<'_, Schema, DeleteWhereSet, Users>`
    |                                   |
    |                                   required by a bound introduced by this call
    |
-   = help: the following other types implement trait `drizzle::mysql::builder::IntoSelect<'a, S, R>`:
+   = help: the following other types implement trait `drizzle::mysql::builder::IntoSelectQuery<'a, S, R>`:
              QueryBuilder<'_, S, SelectFromSet, T, M, R, G>
              QueryBuilder<'_, S, SelectGroupSet, T, M, R, G>
              QueryBuilder<'_, S, SelectHavingSet, T, M, R, G>
@@ -22,16 +22,16 @@ note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Tabl
    |     pub fn select<Q, R>(self, query: Q) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
    |            ------ required by a bound in this associated function
 ...
-   |         Q: super::select::IntoSelect<'a, Schema, R>,
-   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
+   |         Q: super::select::IntoSelectQuery<'a, Schema, R>,
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
 
-error[E0277]: the trait bound `QueryBuilder<'_, Schema, DeleteWhereSet, Users>: drizzle::mysql::builder::IntoSelect<'_, Schema, _>` is not satisfied
+error[E0277]: the trait bound `QueryBuilder<'_, Schema, DeleteWhereSet, Users>: drizzle::mysql::builder::IntoSelectQuery<'_, Schema, _>` is not satisfied
   --> tests/ui/mysql_builder/fail/insert_select_dml.rs:20:13
    |
 20 |     let _ = builder.insert(users).select(delete);
-   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `drizzle::mysql::builder::IntoSelect<'_, Schema, _>` is not implemented for `QueryBuilder<'_, Schema, DeleteWhereSet, Users>`
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `drizzle::mysql::builder::IntoSelectQuery<'_, Schema, _>` is not implemented for `QueryBuilder<'_, Schema, DeleteWhereSet, Users>`
    |
-   = help: the following other types implement trait `drizzle::mysql::builder::IntoSelect<'a, S, R>`:
+   = help: the following other types implement trait `drizzle::mysql::builder::IntoSelectQuery<'a, S, R>`:
              QueryBuilder<'_, S, SelectFromSet, T, M, R, G>
              QueryBuilder<'_, S, SelectGroupSet, T, M, R, G>
              QueryBuilder<'_, S, SelectHavingSet, T, M, R, G>

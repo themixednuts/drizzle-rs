@@ -19,7 +19,7 @@ mysql-up:
 
 # Run the blocking MySQL adapter integration tests.
 test-mysql-sync: mysql-up
-    cargo test --no-default-features --features mysql-sync
+    cargo test --no-default-features --features mysql-sync,serde
 
 # Stop the MySQL integration-test container.
 mysql-down:

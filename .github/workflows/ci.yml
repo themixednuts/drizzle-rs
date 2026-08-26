@@ -177,7 +177,9 @@ jobs:
           fi
 
       - name: Run live MySQL tests
-        run: cargo test -p drizzle --no-default-features --features mysql-sync
+        # `serde` activates the root trybuild target, so MySQL's macro and
+        # builder UI contracts run alongside the live adapter suite.
+        run: cargo test -p drizzle --no-default-features --features mysql-sync,serde
 
   test-turso:
     name: Test (Turso - Experimental)
