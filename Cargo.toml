@@ -14,11 +14,6 @@ name = "compile_fail"
 path = "tests/compile_fail.rs"
 required-features = ["serde"]
 
-[[test]]
-name = "mysql_sync"
-path = "tests/mysql_sync.rs"
-required-features = ["mysql-sync"]
-
 [workspace]
 resolver = "3"
 members = [

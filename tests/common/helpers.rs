@@ -618,6 +618,132 @@ pub mod test_db {
 // Driver-specific setup modules
 // =============================================================================
 
+#[cfg(feature = "mysql-sync")]
+pub mod mysql_sync_setup {
+    use super::test_db;
+    use drizzle::mysql::mysql_sync::Drizzle;
+    use mysql::prelude::Queryable as _;
+    use std::ops::{Deref, DerefMut};
+    use std::sync::{Mutex, MutexGuard};
+
+    static MYSQL_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    pub fn options() -> mysql::Opts {
+        let url = std::env::var("DRIZZLE_MYSQL_URL")
+            .unwrap_or_else(|_| "mysql://drizzle:drizzle@127.0.0.1:3307/drizzle_test".to_owned());
+        mysql::Opts::from_url(&url).expect("valid DRIZZLE_MYSQL_URL")
+    }
+
+    pub fn acquire_lock() -> MutexGuard<'static, ()> {
+        MYSQL_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub fn reset_schema<S: drizzle::core::SQLSchemaImpl>(
+        connection: &mut impl mysql::prelude::Queryable,
+        schema: &S,
+    ) {
+        connection
+            .query_drop("SET FOREIGN_KEY_CHECKS = 0")
+            .expect("disable MySQL foreign-key checks for test cleanup");
+        for table in schema.table_refs().iter().rev() {
+            let name = table.name.replace('`', "``");
+            connection
+                .query_drop(format!("DROP TABLE IF EXISTS `{name}`"))
+                .unwrap_or_else(|error| panic!("drop MySQL test table `{name}`: {error}"));
+        }
+        connection
+            .query_drop("SET FOREIGN_KEY_CHECKS = 1")
+            .expect("restore MySQL foreign-key checks after test cleanup");
+    }
+
+    pub struct TestDb<S> {
+        inner: test_db::TestDb<Drizzle<mysql::Conn, S>>,
+        table_names: Vec<&'static str>,
+        _guard: MutexGuard<'static, ()>,
+    }
+
+    impl<S> Deref for TestDb<S> {
+        type Target = test_db::TestDb<Drizzle<mysql::Conn, S>>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+
+    impl<S> DerefMut for TestDb<S> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.inner
+        }
+    }
+
+    impl<S> Drop for TestDb<S> {
+        fn drop(&mut self) {
+            if self
+                .inner
+                .db
+                .conn_mut()
+                .query_drop("SET FOREIGN_KEY_CHECKS = 0")
+                .is_ok()
+            {
+                for table in self.table_names.iter().rev() {
+                    let name = table.replace('`', "``");
+                    let _ = self
+                        .inner
+                        .db
+                        .conn_mut()
+                        .query_drop(format!("DROP TABLE IF EXISTS `{name}`"));
+                }
+                let _ = self
+                    .inner
+                    .db
+                    .conn_mut()
+                    .query_drop("SET FOREIGN_KEY_CHECKS = 1");
+            }
+        }
+    }
+
+    pub fn setup_db<S>() -> (TestDb<S>, S)
+    where
+        S: Default + drizzle::core::SQLSchemaImpl + Copy,
+    {
+        let guard = acquire_lock();
+        let schema = S::default();
+        let schema_ddl = schema
+            .create_statements()
+            .expect("generate MySQL test schema")
+            .collect::<Vec<_>>();
+        let table_names = schema
+            .table_refs()
+            .iter()
+            .map(|table| table.name)
+            .collect::<Vec<_>>();
+        let mut connection = mysql::Conn::new(options()).expect("connect to MySQL test database");
+        reset_schema(&mut connection, &schema);
+        let (mut db, schema) = Drizzle::new(connection, schema);
+
+        if let Err(error) = db.create() {
+            let test_db = test_db::TestDb::new(db, "mysql-sync", schema_ddl);
+            test_db.fail(
+                "schema_creation",
+                &error,
+                Some("Schema created successfully"),
+                None,
+            );
+        }
+
+        (
+            TestDb {
+                inner: test_db::TestDb::new(db, "mysql-sync", schema_ddl),
+                table_names,
+                _guard: guard,
+            },
+            schema,
+        )
+    }
+}
+
 #[cfg(feature = "rusqlite")]
 pub mod rusqlite_setup {
     use super::temp_db_path;

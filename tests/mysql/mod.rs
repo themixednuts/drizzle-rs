@@ -2,3 +2,14 @@
 
 pub mod builder;
 pub mod macros;
+
+#[cfg(feature = "mysql-sync")]
+pub mod crud;
+#[cfg(feature = "mysql-sync")]
+pub mod joins;
+#[cfg(feature = "mysql-sync")]
+pub mod mysql_sync;
+#[cfg(feature = "mysql-sync")]
+pub mod prepare;
+#[cfg(feature = "mysql-sync")]
+pub mod transaction;

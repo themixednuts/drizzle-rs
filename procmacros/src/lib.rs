@@ -2401,40 +2401,37 @@ pub fn include_migrations(input: TokenStream) -> TokenStream {
 
 /// Attribute-style integration test macro with dependency injection.
 ///
-/// Apply to a plain `fn` whose signature declares the two resources needed:
-/// `db` (the driver-bound test handle) and `schema` (the schema instance).
+/// Apply to a plain `fn` whose signature declares `db`, the driver-bound test
+/// handle. The schema instance is injected into the body as `schema`.
 /// The macro expands into per-driver test modules: one gated on each enabled
 /// driver feature (`rusqlite`, `libsql`, `turso`, `postgres-sync`,
-/// `tokio-postgres`). Body-local helper macros (`drizzle_exec!`,
-/// `drizzle_try!`, `drizzle_tx!`, `drizzle_assert_eq!`, etc.) are injected
-/// into the scope so sync and async drivers share a single test body.
+/// `tokio-postgres`, `mysql-sync`). Body-local `result!` and `catch!` helper
+/// macros provide explicit access to fallible results and panic assertions.
 ///
 /// # Dialect selection
 ///
 /// - `#[drizzle::test]` — dialect is auto-detected from the call-site file
 ///   path: tests living under a `sqlite` directory emit `SQLite` drivers,
-///   tests under a `postgres` directory emit `PostgreSQL` drivers. If the
-///   path is ambiguous, the macro emits a compile error asking for an
-///   explicit override.
+///   tests under a `postgres` directory emit `PostgreSQL` drivers, and tests
+///   under a `mysql` directory emit `MySQL` drivers. If the path is ambiguous,
+///   the macro emits a compile error asking for an explicit override.
 /// - `#[drizzle::test(sqlite)]` — force `SQLite` driver expansion.
 /// - `#[drizzle::test(postgres)]` — force `PostgreSQL` driver expansion.
+/// - `#[drizzle::test(mysql)]` — force `MySQL` driver expansion.
 ///
 /// # Signature requirements
 ///
 /// ```ignore
 /// #[drizzle::test]
-/// fn my_test(db: &mut TestDb<MySchema>, schema: MySchema) {
+/// fn my_test(db: &mut TestDb<MySchema>) {
 ///     let MySchema { users } = schema;
-///     drizzle_exec!(db.insert(users).values([/* ... */]) => execute);
+///     db.insert(users).values([/* ... */]).execute();
 /// }
 /// ```
 ///
-/// - Function must be synchronous; async operations flow through the
-///   injected `drizzle_exec!` / `drizzle_try!` / `drizzle_tx!` macros.
-/// - First parameter must be named `db` and the second `schema`. Both
-///   parameter forms are honored: `&mut TestDb<S>`, `&TestDb<S>`,
-///   `mut TestDb<S>`, and owned `TestDb<S>` all produce appropriate
-///   local bindings in each generated driver test.
+/// - The function must be synchronous; async is injected for async drivers.
+/// - Its only parameter must be named `db`. The forms `&mut TestDb<S>`,
+///   `&TestDb<S>`, `mut TestDb<S>`, and owned `TestDb<S>` are honored.
 #[proc_macro_attribute]
 pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
     crate::drizzle_test::attribute_impl(args, item)

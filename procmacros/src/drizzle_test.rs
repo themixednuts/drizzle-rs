@@ -45,6 +45,7 @@ use syn::{
 enum Dialect {
     Sqlite,
     Postgres,
+    Mysql,
 }
 
 #[derive(Clone, Copy)]
@@ -52,6 +53,7 @@ enum DialectOverride {
     None,
     Sqlite,
     Postgres,
+    Mysql,
 }
 
 impl syn::parse::Parse for DialectOverride {
@@ -61,14 +63,15 @@ impl syn::parse::Parse for DialectOverride {
         }
         let ident: Ident = input.parse()?;
         if !input.is_empty() {
-            return Err(input.error("unexpected tokens; expected `sqlite` or `postgres`"));
+            return Err(input.error("unexpected tokens; expected `sqlite`, `postgres`, or `mysql`"));
         }
         match ident.to_string().as_str() {
             "sqlite" => Ok(Self::Sqlite),
             "postgres" => Ok(Self::Postgres),
+            "mysql" => Ok(Self::Mysql),
             other => Err(syn::Error::new(
                 ident.span(),
-                format!("expected `sqlite` or `postgres`, got `{other}`"),
+                format!("expected `sqlite`, `postgres`, or `mysql`, got `{other}`"),
             )),
         }
     }
@@ -105,6 +108,7 @@ fn attribute_impl_inner(args: TokenStream2, item: TokenStream2) -> syn::Result<T
     let specs = match dialect {
         Dialect::Sqlite => sqlite_driver_specs(),
         Dialect::Postgres => postgres_driver_specs(),
+        Dialect::Mysql => mysql_driver_specs(),
     };
     let parts: Vec<TokenStream2> = specs
         .iter()
@@ -239,19 +243,22 @@ fn resolve_dialect(overrid: DialectOverride, fn_input: &FnInput) -> syn::Result<
     match overrid {
         DialectOverride::Sqlite => Ok(Dialect::Sqlite),
         DialectOverride::Postgres => Ok(Dialect::Postgres),
+        DialectOverride::Mysql => Ok(Dialect::Mysql),
         DialectOverride::None => {
             let file = proc_macro::Span::call_site().file();
             let normalized = file.replace('\\', "/");
             let in_sqlite = normalized.contains("/sqlite/") || normalized.starts_with("sqlite/");
             let in_postgres =
                 normalized.contains("/postgres/") || normalized.starts_with("postgres/");
-            match (in_sqlite, in_postgres) {
-                (true, false) => Ok(Dialect::Sqlite),
-                (false, true) => Ok(Dialect::Postgres),
+            let in_mysql = normalized.contains("/mysql/") || normalized.starts_with("mysql/");
+            match (in_sqlite, in_postgres, in_mysql) {
+                (true, false, false) => Ok(Dialect::Sqlite),
+                (false, true, false) => Ok(Dialect::Postgres),
+                (false, false, true) => Ok(Dialect::Mysql),
                 _ => Err(syn::Error::new(
                     fn_input.fn_name.span(),
                     format!(
-                        "could not auto-detect dialect from file path `{file}` — add `#[drizzle::test(sqlite)]` or `#[drizzle::test(postgres)]`"
+                        "could not auto-detect dialect from file path `{file}` — add `#[drizzle::test(sqlite)]`, `#[drizzle::test(postgres)]`, or `#[drizzle::test(mysql)]`"
                     ),
                 )),
             }
@@ -286,7 +293,7 @@ struct DriverSpec {
     /// the setup-module identifier (`{mod_suffix}_setup` in `common::helpers`).
     mod_suffix: &'static str,
     async_mode: bool,
-    /// Per-driver `drizzle_client!()` expansion (postgres only; empty for sqlite).
+    /// Per-driver `drizzle_client!()` expansion for prepared statements.
     client_expr: TokenStream2,
 }
 
@@ -330,6 +337,15 @@ fn postgres_driver_specs() -> Vec<DriverSpec> {
             client_expr: quote!(db.conn()),
         },
     ]
+}
+
+fn mysql_driver_specs() -> Vec<DriverSpec> {
+    vec![DriverSpec {
+        feature: "mysql-sync",
+        mod_suffix: "mysql_sync",
+        async_mode: false,
+        client_expr: quote!(db.conn_mut()),
+    }]
 }
 
 fn emit_driver_module(fn_input: &FnInput, spec: &DriverSpec) -> TokenStream2 {

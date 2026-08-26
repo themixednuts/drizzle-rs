@@ -2,7 +2,8 @@
     feature = "rusqlite",
     feature = "turso",
     feature = "libsql",
-    feature = "postgres"
+    feature = "postgres",
+    feature = "mysql"
 ))]
 
 pub mod helpers;

@@ -177,7 +177,7 @@ jobs:
           fi
 
       - name: Run live MySQL tests
-        run: cargo test -p drizzle --test mysql_sync --no-default-features --features mysql-sync
+        run: cargo test -p drizzle --no-default-features --features mysql-sync
 
   test-turso:
     name: Test (Turso - Experimental)
