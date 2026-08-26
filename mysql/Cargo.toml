@@ -37,6 +37,7 @@ std = ["drizzle-core/std", "drizzle-types/std", "compact_str?/std"]
 alloc = ["drizzle-types/alloc"]
 
 serde = ["dep:serde_json", "dep:serde", "drizzle-core/serde", "drizzle-types/serde"]
+query = ["std", "serde", "drizzle-core/query"]
 uuid = ["dep:uuid", "uuid/js", "drizzle-core/uuid", "drizzle-types/uuid"]
 chrono = ["dep:chrono", "drizzle-core/chrono", "mysql_common?/chrono"]
 time = ["dep:time", "drizzle-core/time", "mysql_common?/time"]

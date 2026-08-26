@@ -57,6 +57,15 @@ pub trait MySQLRowAccess {
     ///
     /// Returns an adapter error when the underlying row cannot be inspected.
     fn value_at(&self, offset: usize) -> Result<Option<MySQLValue<'_>>, DrizzleError>;
+
+    /// Returns whether the cell uses MySQL's packed `BIT` wire representation.
+    ///
+    /// Client-neutral rows return `false`; wire adapters override this from
+    /// their column metadata so the requested Rust decoder decides whether to
+    /// interpret the bytes numerically or preserve them as bytes.
+    fn is_bit_at(&self, _offset: usize) -> bool {
+        false
+    }
 }
 
 /// Borrowed, non-owning view used by [`FromDrizzleRow`] implementations.
@@ -78,6 +87,15 @@ impl<'row, R: MySQLRowAccess + ?Sized> MySQLRow<'row, R> {
                 format!("MySQL row has no available column at offset {offset}").into(),
             )
         })
+    }
+
+    fn decode_at<T: DecodeMySQLValue>(&self, offset: usize) -> Result<T, DrizzleError> {
+        let value = self.value_at(offset)?;
+        if self.inner.is_bit_at(offset) {
+            T::decode_bit(value)
+        } else {
+            T::decode(value)
+        }
     }
 
     /// Returns whether the cell at `offset` is SQL `NULL`.
@@ -109,10 +127,85 @@ impl MySQLRowAccess for [MySQLValue<'_>] {
     }
 }
 
-trait DecodeMySQLValue: Sized {
+#[doc(hidden)]
+pub trait DecodeMySQLValue: Sized {
     const EXPECTED: &'static str;
 
     fn decode(value: MySQLValue<'_>) -> Result<Self, DrizzleError>;
+
+    fn decode_bit(value: MySQLValue<'_>) -> Result<Self, DrizzleError> {
+        Self::decode(value)
+    }
+}
+
+/// Decodes a binary value emitted by the MySQL relational JSON projection.
+///
+/// This is a macro/runtime seam, not an application-level codec API. The SQL
+/// renderer tags binary values and carries their bytes as hexadecimal text so
+/// MySQL's JSON constructors never reinterpret the binary character set.
+#[cfg(feature = "query")]
+#[doc(hidden)]
+pub fn decode_projected_mysql_value<T: DecodeMySQLValue>(
+    projected: &serde_json::Value,
+) -> Result<T, DrizzleError> {
+    let object = projected.as_object().ok_or_else(|| {
+        DrizzleError::ConversionError("projected MySQL binary value is not an object".into())
+    })?;
+    if object
+        .get("$drizzle_storage")
+        .and_then(serde_json::Value::as_str)
+        != Some("blob")
+    {
+        return Err(DrizzleError::ConversionError(
+            "projected MySQL binary value has an invalid storage tag".into(),
+        ));
+    }
+    let hex = object
+        .get("$drizzle_value")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            DrizzleError::ConversionError(
+                "projected MySQL binary value is missing its hexadecimal payload".into(),
+            )
+        })?;
+    if hex.len() % 2 != 0 {
+        return Err(DrizzleError::ConversionError(
+            "projected MySQL binary value has an odd-length hexadecimal payload".into(),
+        ));
+    }
+
+    let mut bytes = Vec::with_capacity(hex.len() / 2);
+    for pair in hex.as_bytes().chunks(2) {
+        let high = decode_hex_nibble(pair[0])?;
+        let low = decode_hex_nibble(pair[1])?;
+        bytes.push((high << 4) | low);
+    }
+    T::decode(MySQLValue::from(bytes))
+}
+
+/// Decodes a text scalar emitted by MySQL's JSON projection using the same
+/// codec as a value returned by the binary protocol.
+#[cfg(feature = "query")]
+#[doc(hidden)]
+pub fn decode_projected_mysql_text<T: DecodeMySQLValue>(
+    projected: &serde_json::Value,
+) -> Result<T, DrizzleError> {
+    let text = projected.as_str().ok_or_else(|| {
+        DrizzleError::ConversionError("projected MySQL text value is not a string".into())
+    })?;
+    T::decode(MySQLValue::from(text))
+}
+
+#[cfg(feature = "query")]
+fn decode_hex_nibble(value: u8) -> Result<u8, DrizzleError> {
+    match value {
+        b'0'..=b'9' => Ok(value - b'0'),
+        b'a'..=b'f' => Ok(value - b'a' + 10),
+        b'A'..=b'F' => Ok(value - b'A' + 10),
+        _ => Err(DrizzleError::ConversionError(
+            "projected MySQL binary value contains non-hexadecimal text".into(),
+        )),
+    }
 }
 
 fn conversion_error(expected: &str, value: &MySQLValue<'_>) -> DrizzleError {
@@ -152,6 +245,14 @@ macro_rules! impl_integer_decode {
                         .parse::<Self>()
                         .map_err(Into::into),
                     other => Err(conversion_error(Self::EXPECTED, &other)),
+                }
+            }
+
+            fn decode_bit(value: MySQLValue<'_>) -> Result<Self, DrizzleError> {
+                match value {
+                    MySQLValue::Bytes(value) => Self::try_from(mysql_bit_to_u64(value.as_ref())?)
+                        .map_err(Into::into),
+                    other => Self::decode(other),
                 }
             }
         }
@@ -195,6 +296,13 @@ impl DecodeMySQLValue for bool {
             MySQLValue::Bytes(value) if value.as_ref() == b"0" => Ok(false),
             MySQLValue::Bytes(value) if value.as_ref() == b"1" => Ok(true),
             other => Err(conversion_error(Self::EXPECTED, &other)),
+        }
+    }
+
+    fn decode_bit(value: MySQLValue<'_>) -> Result<Self, DrizzleError> {
+        match value {
+            MySQLValue::Bytes(value) => Ok(mysql_bit_to_u64(value.as_ref())? != 0),
+            other => Self::decode(other),
         }
     }
 }
@@ -272,7 +380,7 @@ macro_rules! impl_row_decode {
                 row: &MySQLRow<'row, R>,
                 offset: usize,
             ) -> Result<Self, DrizzleError> {
-                <$ty as DecodeMySQLValue>::decode(row.value_at(offset)?)
+                row.decode_at::<$ty>(offset)
             }
         }
     )+};
@@ -303,7 +411,7 @@ impl<'row, R: MySQLRowAccess + ?Sized, const N: usize> FromDrizzleRow<MySQLRow<'
     const COLUMN_COUNT: usize = 1;
 
     fn from_row_at(row: &MySQLRow<'row, R>, offset: usize) -> Result<Self, DrizzleError> {
-        Self::decode(row.value_at(offset)?)
+        row.decode_at::<Self>(offset)
     }
 }
 
@@ -313,7 +421,7 @@ impl<'row, R: MySQLRowAccess + ?Sized, const N: usize> FromDrizzleRow<MySQLRow<'
     const COLUMN_COUNT: usize = 1;
 
     fn from_row_at(row: &MySQLRow<'row, R>, offset: usize) -> Result<Self, DrizzleError> {
-        Self::decode(row.value_at(offset)?)
+        row.decode_at::<Self>(offset)
     }
 }
 
@@ -363,7 +471,18 @@ impl<'row, R: MySQLRowAccess + ?Sized, const N: usize> FromDrizzleRow<MySQLRow<'
     const COLUMN_COUNT: usize = 1;
 
     fn from_row_at(row: &MySQLRow<'row, R>, offset: usize) -> Result<Self, DrizzleError> {
-        Self::decode(row.value_at(offset)?)
+        row.decode_at::<Self>(offset)
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<const N: usize> DecodeMySQLValue for arrayvec::ArrayVec<u8, N> {
+    const EXPECTED: &'static str = "bounded bytes";
+
+    fn decode(value: MySQLValue<'_>) -> Result<Self, DrizzleError> {
+        let value = Vec::<u8>::decode(value)?;
+        Self::try_from(value.as_slice())
+            .map_err(|error| DrizzleError::ConversionError(error.to_string().into()))
     }
 }
 
@@ -374,9 +493,16 @@ impl<'row, R: MySQLRowAccess + ?Sized, const N: usize> FromDrizzleRow<MySQLRow<'
     const COLUMN_COUNT: usize = 1;
 
     fn from_row_at(row: &MySQLRow<'row, R>, offset: usize) -> Result<Self, DrizzleError> {
-        let value = Vec::<u8>::decode(row.value_at(offset)?)?;
-        Self::try_from(value.as_slice())
-            .map_err(|error| DrizzleError::ConversionError(error.to_string().into()))
+        row.decode_at::<Self>(offset)
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<const N: usize> DecodeMySQLValue for smallvec::SmallVec<[u8; N]> {
+    const EXPECTED: &'static str = "bytes";
+
+    fn decode(value: MySQLValue<'_>) -> Result<Self, DrizzleError> {
+        Ok(Vec::<u8>::decode(value)?.into())
     }
 }
 
@@ -387,7 +513,7 @@ impl<'row, R: MySQLRowAccess + ?Sized, const N: usize> FromDrizzleRow<MySQLRow<'
     const COLUMN_COUNT: usize = 1;
 
     fn from_row_at(row: &MySQLRow<'row, R>, offset: usize) -> Result<Self, DrizzleError> {
-        Ok(Vec::<u8>::decode(row.value_at(offset)?)?.into())
+        row.decode_at::<Self>(offset)
     }
 }
 
@@ -571,8 +697,9 @@ impl DecodeMySQLValue for chrono::NaiveDateTime {
                 )
                 .ok_or_else(|| DrizzleError::ConversionError("invalid MySQL datetime".into())),
             MySQLValue::Bytes(value) => {
-                utf8(value.as_ref())?
-                    .parse()
+                let value = utf8(value.as_ref())?;
+                chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S%.f")
+                    .or_else(|_| value.parse())
                     .map_err(|error: chrono::ParseError| {
                         DrizzleError::ConversionError(error.to_string().into())
                     })
@@ -580,6 +707,17 @@ impl DecodeMySQLValue for chrono::NaiveDateTime {
             other => Err(conversion_error(Self::EXPECTED, &other)),
         }
     }
+}
+
+fn mysql_bit_to_u64(value: &[u8]) -> Result<u64, DrizzleError> {
+    if value.len() > core::mem::size_of::<u64>() {
+        return Err(DrizzleError::ConversionError(
+            format!("MySQL BIT value exceeds 64 bits: {} bytes", value.len()).into(),
+        ));
+    }
+    Ok(value
+        .iter()
+        .fold(0_u64, |result, byte| (result << 8) | u64::from(*byte)))
 }
 
 #[cfg(feature = "chrono")]
@@ -752,7 +890,10 @@ impl_row_decode!(
 #[cfg(feature = "mysql-common")]
 impl MySQLRowAccess for mysql_common::Row {
     fn value_at(&self, offset: usize) -> Result<Option<MySQLValue<'_>>, DrizzleError> {
-        Ok(self.as_ref(offset).map(|value| match value {
+        let Some(value) = self.as_ref(offset) else {
+            return Ok(None);
+        };
+        Ok(Some(match value {
             mysql_common::Value::NULL => MySQLValue::Null,
             mysql_common::Value::Bytes(value) => MySQLValue::from(value.as_slice()),
             mysql_common::Value::Int(value) => MySQLValue::Int(*value),
@@ -781,6 +922,12 @@ impl MySQLRowAccess for mysql_common::Row {
                 }
             }
         }))
+    }
+
+    fn is_bit_at(&self, offset: usize) -> bool {
+        self.columns_ref().get(offset).is_some_and(|column| {
+            column.column_type() == mysql_common::constants::ColumnType::MYSQL_TYPE_BIT
+        })
     }
 }
 
@@ -877,6 +1024,33 @@ mod tests {
         assert!(decode::<String>(&values).is_err());
     }
 
+    #[cfg(feature = "query")]
+    #[test]
+    fn projected_binary_values_follow_the_checked_wire_codec() {
+        let tagged = serde_json::json!({
+            "$drizzle_storage": "blob",
+            "$drizzle_value": "0001FEFF"
+        });
+        assert_eq!(
+            decode_projected_mysql_value::<Vec<u8>>(&tagged).unwrap(),
+            [0, 1, 254, 255]
+        );
+        assert!(
+            decode_projected_mysql_value::<Vec<u8>>(&serde_json::json!({
+                "$drizzle_storage": "text",
+                "$drizzle_value": "00"
+            }))
+            .is_err()
+        );
+        assert!(
+            decode_projected_mysql_value::<Vec<u8>>(&serde_json::json!({
+                "$drizzle_storage": "blob",
+                "$drizzle_value": "0"
+            }))
+            .is_err()
+        );
+    }
+
     #[cfg(all(
         feature = "arrayvec",
         feature = "bytes",
@@ -953,6 +1127,13 @@ mod tests {
             decode::<chrono::NaiveDateTime>(&[OwnedMySQLValue::from(expected)]).unwrap(),
             expected
         );
+        assert_eq!(
+            decode::<chrono::NaiveDateTime>(&[OwnedMySQLValue::Bytes(
+                b"2026-08-26 12:34:56.000789".to_vec(),
+            )])
+            .unwrap(),
+            expected
+        );
         assert!(
             decode::<chrono::NaiveDate>(&[OwnedMySQLValue::Date {
                 year: 0,
@@ -1026,5 +1207,36 @@ mod tests {
 
         let (_, empty) = MySQLPreparedRequest::new("SELECT 1", []).into_common_parts();
         assert_eq!(empty, mysql_common::params::Params::Empty);
+    }
+
+    #[cfg(feature = "mysql-common")]
+    #[test]
+    fn mysql_bit_bytes_decode_as_big_endian_unsigned_values() {
+        assert_eq!(mysql_bit_to_u64(&[]).unwrap(), 0);
+        assert_eq!(mysql_bit_to_u64(&[0xff]).unwrap(), 255);
+        assert_eq!(mysql_bit_to_u64(&[0x01, 0x00]).unwrap(), 256);
+        assert_eq!(mysql_bit_to_u64(&[0xff; 8]).unwrap(), u64::MAX);
+        assert!(mysql_bit_to_u64(&[0; 9]).is_err());
+    }
+
+    #[test]
+    fn bit_metadata_preserves_binary_targets_and_enables_numeric_targets() {
+        struct PackedBitRow(OwnedMySQLValue);
+
+        impl MySQLRowAccess for PackedBitRow {
+            fn value_at(&self, offset: usize) -> Result<Option<MySQLValue<'_>>, DrizzleError> {
+                Ok((offset == 0).then(|| MySQLValue::from(&self.0)))
+            }
+
+            fn is_bit_at(&self, offset: usize) -> bool {
+                offset == 0
+            }
+        }
+
+        let row = PackedBitRow(OwnedMySQLValue::Bytes(vec![0xa5]));
+        let row = MySQLRow::new(&row);
+        assert_eq!(u64::from_row(&row).unwrap(), 0xa5);
+        assert!(bool::from_row(&row).unwrap());
+        assert_eq!(Vec::<u8>::from_row(&row).unwrap(), [0xa5]);
     }
 }

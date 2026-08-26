@@ -160,6 +160,8 @@ glob = { workspace = true }
 
 # External crates for type inference tests
 chrono = { version = "0.4", features = ["serde"] }
+time = { workspace = true }
+rust_decimal = { workspace = true }
 geo-types = { workspace = true, features = ["serde"] }
 cidr = { workspace = true, features = ["serde"] }
 bit-vec = { workspace = true }
@@ -320,6 +322,7 @@ query = [
   "drizzle-macros/query",
   "drizzle-sqlite?/query",
   "drizzle-postgres?/query",
+  "drizzle-mysql?/query",
 ]
 
 # Add dialect-specific features back for gating re-exports

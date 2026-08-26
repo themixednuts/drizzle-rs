@@ -303,19 +303,19 @@ fn sqlite_driver_specs() -> Vec<DriverSpec> {
             feature: "rusqlite",
             mod_suffix: "rusqlite",
             async_mode: false,
-            client_expr: TokenStream2::new(),
+            client_expr: quote!(db.conn()),
         },
         DriverSpec {
             feature: "libsql",
             mod_suffix: "libsql",
             async_mode: true,
-            client_expr: TokenStream2::new(),
+            client_expr: quote!(db.conn()),
         },
         DriverSpec {
             feature: "turso",
             mod_suffix: "turso",
             async_mode: true,
-            client_expr: TokenStream2::new(),
+            client_expr: quote!(db.conn()),
         },
     ]
 }
@@ -446,8 +446,7 @@ fn helper_macros(async_mode: bool, client_expr: &TokenStream2) -> TokenStream2 {
         TokenStream2::new()
     } else {
         quote! {
-            /// Per-driver client expression: resolves to `db.conn_mut()`
-            /// (postgres-sync) or `db.conn()` (tokio-postgres).
+            /// Per-driver client expression for prepared statements.
             #[allow(unused_macros)]
             macro_rules! drizzle_client {
                 () => { #client_expr };

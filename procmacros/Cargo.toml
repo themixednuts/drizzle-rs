@@ -117,4 +117,5 @@ query = [
     "drizzle-core?/query",
     "drizzle-sqlite?/query",
     "drizzle-postgres?/query",
+    "drizzle-mysql?/query",
 ]

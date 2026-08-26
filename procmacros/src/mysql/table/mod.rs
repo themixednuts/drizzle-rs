@@ -158,6 +158,11 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     // Generate const DDL entities
     let const_ddl = generate_const_ddl(&ctx, &column_zst_idents);
 
+    #[cfg(feature = "query")]
+    let query_api_impls = generate_query_api_impls(&ctx);
+    #[cfg(not(feature = "query"))]
+    let query_api_impls = TokenStream::new();
+
     // Get the table name from the context for use in generated code
     let table_name = &ctx.table_name;
 
@@ -199,9 +204,124 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         #model_definitions
         #alias_definitions
         #const_ddl
+        #query_api_impls
     };
 
     Ok(expanded)
+}
+
+/// Generate relational-query metadata, accessors, and JSON decoders for MySQL.
+#[cfg(feature = "query")]
+fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
+    use crate::common::query::{
+        EnumStorage, FieldJsonInfo, FieldProjectionKind, FieldStorageKind, FkInfo,
+        generate_query_api,
+    };
+    use crate::common::{
+        type_is_array_char, type_is_array_u8, type_is_arrayvec_u8, type_is_bool, type_is_uuid,
+        type_is_vec_u8,
+    };
+
+    let fk_infos = ctx
+        .field_infos
+        .iter()
+        .filter_map(|field| {
+            let reference = field.foreign_key.as_ref()?;
+            Some(FkInfo {
+                source_column: field.column_name.clone(),
+                target_table_ident: reference.table.clone(),
+                target_column_ident: reference.column.clone(),
+                is_nullable: field.is_nullable,
+                relation_name: field.relation_name.clone(),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let field_json_infos = ctx
+        .field_infos
+        .iter()
+        .map(|field| {
+            let is_bit = matches!(&field.column_type, drizzle_types::mysql::MySQLType::Bit);
+            let is_binary_rust_type = type_is_vec_u8(&field.base_type)
+                || type_is_array_u8(&field.base_type)
+                || type_is_arrayvec_u8(&field.base_type);
+            let is_binary = type_is_uuid(&field.base_type)
+                || (is_bit && is_binary_rust_type)
+                || matches!(
+                    &field.column_type,
+                    drizzle_types::mysql::MySQLType::Binary
+                        | drizzle_types::mysql::MySQLType::Varbinary
+                        | drizzle_types::mysql::MySQLType::Tinyblob
+                        | drizzle_types::mysql::MySQLType::Blob
+                        | drizzle_types::mysql::MySQLType::Mediumblob
+                        | drizzle_types::mysql::MySQLType::Longblob
+                );
+            let is_text_cast = matches!(
+                &field.column_type,
+                drizzle_types::mysql::MySQLType::Decimal
+                    | drizzle_types::mysql::MySQLType::Date
+                    | drizzle_types::mysql::MySQLType::Time
+                    | drizzle_types::mysql::MySQLType::Datetime
+                    | drizzle_types::mysql::MySQLType::Timestamp
+            );
+            let storage = if is_binary {
+                FieldStorageKind::MySQLBlob
+            } else if is_text_cast {
+                FieldStorageKind::MySQLText
+            } else if type_is_bool(&field.base_type) {
+                FieldStorageKind::Bool
+            } else if type_is_array_char(&field.base_type) {
+                FieldStorageKind::MySQLText
+            } else {
+                FieldStorageKind::Plain
+            };
+            let projection = if is_binary {
+                FieldProjectionKind::TaggedHex
+            } else if is_text_cast {
+                FieldProjectionKind::Text
+            } else if is_bit {
+                FieldProjectionKind::Unsigned
+            } else {
+                FieldProjectionKind::Native
+            };
+            FieldJsonInfo {
+                ident: field.ident.clone(),
+                column_name: field.column_name.clone(),
+                is_nullable: field.is_nullable,
+                is_json: matches!(&field.column_type, drizzle_types::mysql::MySQLType::Json),
+                storage,
+                projection,
+                enum_storage: field.is_enum.then_some(EnumStorage::Text),
+                base_type: field.base_type.clone(),
+                select_type: MacroContext::get_field_type_for_model(
+                    field,
+                    crate::common::ModelType::Select,
+                ),
+                partial_select_type: MacroContext::get_field_type_for_model(
+                    field,
+                    crate::common::ModelType::PartialSelect,
+                ),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let column_names = ctx
+        .field_infos
+        .iter()
+        .map(|field| field.column_name.clone())
+        .collect::<Vec<_>>();
+
+    generate_query_api(
+        ctx.struct_ident,
+        ctx.struct_vis,
+        ctx.attrs.database.as_deref(),
+        &ctx.table_name,
+        &ctx.select_model_ident,
+        &ctx.select_model_partial_ident,
+        &fk_infos,
+        &field_json_infos,
+        &column_names,
+    )
 }
 
 fn doc_comment_from_attrs(attrs: &[syn::Attribute]) -> Option<String> {

@@ -960,6 +960,17 @@ mutual_assign!(
     crate::mysql::types::LongBlob,
     crate::mysql::types::Bit
 );
+// BIT may retain its packed bytes through the binary family above or decode as
+// an unsigned integer (and as bool for BIT(1)). MySQL validates the declared
+// bit width at the column boundary.
+assign_to!(crate::mysql::types::Bit;
+    crate::mysql::types::Boolean,
+    crate::mysql::types::TinyIntUnsigned,
+    crate::mysql::types::SmallIntUnsigned,
+    crate::mysql::types::MediumIntUnsigned,
+    crate::mysql::types::IntUnsigned,
+    crate::mysql::types::BigIntUnsigned
+);
 
 // Any accepts all concrete MySQL markers.
 any_assign!(crate::mysql::types::Any;
@@ -1271,6 +1282,8 @@ mod tests {
         assert_assignable::<crate::mysql::types::Set, crate::mysql::types::Text>();
         assert_assignable::<crate::mysql::types::Year, crate::mysql::types::SmallIntUnsigned>();
         assert_assignable::<crate::mysql::types::Bit, crate::mysql::types::Blob>();
+        assert_assignable::<crate::mysql::types::Bit, crate::mysql::types::Boolean>();
+        assert_assignable::<crate::mysql::types::Bit, crate::mysql::types::BigIntUnsigned>();
         assert_assignable::<crate::mysql::types::Json, crate::mysql::types::Text>();
         assert_assignable::<crate::mysql::types::Time, crate::mysql::types::Text>();
         assert_assignable::<crate::mysql::types::Any, crate::mysql::types::Json>();

@@ -403,6 +403,21 @@ impl<Schema> Drizzle<Conn, Schema> {
         self.query_first_rendered(query).await?.decode_first_row()
     }
 
+    #[cfg(feature = "query")]
+    pub fn query<'db, 'q, Table>(
+        &'db mut self,
+        _table: Table,
+    ) -> common::DrizzleQueryBuilder<'db, 'q, &'db mut Self, Schema, Table>
+    where
+        Table: drizzle_core::query::QueryTable,
+    {
+        common::DrizzleQueryBuilder {
+            runner: self,
+            builder: drizzle_core::query::QueryBuilder::new(),
+            state: core::marker::PhantomData,
+        }
+    }
+
     mysql_async_conn_constructors!();
 }
 
@@ -463,12 +478,277 @@ impl<Schema> Drizzle<Pool, Schema> {
         self.query_first_rendered(query).await?.decode_first_row()
     }
 
+    #[cfg(feature = "query")]
+    pub fn query<'db, 'q, Table>(
+        &'db self,
+        _table: Table,
+    ) -> common::DrizzleQueryBuilder<'db, 'q, &'db Self, Schema, Table>
+    where
+        Table: drizzle_core::query::QueryTable,
+    {
+        common::DrizzleQueryBuilder {
+            runner: self,
+            builder: drizzle_core::query::QueryBuilder::new(),
+            state: core::marker::PhantomData,
+        }
+    }
+
     /// Gracefully closes the pool after all checked-out connections return.
     pub async fn disconnect(self) -> Result<()> {
         self.connection.disconnect().await.map_err(driver_error)
     }
 
     mysql_shared_builder_constructors!(&'db Drizzle<Pool, Schema>);
+}
+
+#[cfg(feature = "query")]
+#[doc(hidden)]
+pub struct RelationalPrepared;
+
+#[cfg(feature = "query")]
+impl<Schema> common::RelationalPreparedDriver for &mut Drizzle<Conn, Schema> {
+    type PreparedDriver = RelationalPrepared;
+}
+
+#[cfg(feature = "query")]
+impl<Schema> common::RelationalPreparedDriver for &Drizzle<Pool, Schema> {
+    type PreparedDriver = RelationalPrepared;
+}
+
+macro_rules! async_relational_terminals {
+    ($runner:ty) => {
+        #[cfg(feature = "query")]
+        impl<'db, 'q, Schema, Table, Relations, Clauses>
+            common::DrizzleQueryBuilder<
+                'db,
+                'q,
+                $runner,
+                Schema,
+                Table,
+                Relations,
+                drizzle_core::query::AllColumns,
+                Clauses,
+            >
+        {
+            pub async fn find_many(
+                self,
+            ) -> Result<Vec<<Relations as drizzle_core::query::BuildRow<Table::Select>>::Row>>
+            where
+                Table: drizzle_core::query::QueryTable,
+                for<'row> Table::Select: FromDrizzleRow<MySQLRow<'row, Row>>,
+                Relations: drizzle_core::query::BuildRow<Table::Select>
+                    + drizzle_core::query::RenderRelations<'q, MySQLValue<'q>>,
+                Relations::Store: drizzle_core::query::DeserializeStore,
+            {
+                let query = common::render_relational_all(self.builder);
+                self.runner
+                    .query_rendered(query)
+                    .await?
+                    .decode_relational_all::<Table, Relations>()
+            }
+        }
+
+        #[cfg(feature = "query")]
+        impl<'db, 'q, Schema, Table, Relations, Where, Order>
+            common::DrizzleQueryBuilder<
+                'db,
+                'q,
+                $runner,
+                Schema,
+                Table,
+                Relations,
+                drizzle_core::query::AllColumns,
+                drizzle_core::query::Clauses<Where, Order, drizzle_core::query::NoLimit>,
+            >
+        {
+            pub async fn find_first(
+                self,
+            ) -> Result<Option<<Relations as drizzle_core::query::BuildRow<Table::Select>>::Row>>
+            where
+                Table: drizzle_core::query::QueryTable,
+                for<'row> Table::Select: FromDrizzleRow<MySQLRow<'row, Row>>,
+                Relations: drizzle_core::query::BuildRow<Table::Select>
+                    + drizzle_core::query::RenderRelations<'q, MySQLValue<'q>>,
+                Relations::Store: drizzle_core::query::DeserializeStore,
+            {
+                Ok(self.limit(1).find_many().await?.into_iter().next())
+            }
+        }
+
+        #[cfg(feature = "query")]
+        impl<'db, 'q, Schema, Table, Relations, Clauses>
+            common::DrizzleQueryBuilder<
+                'db,
+                'q,
+                $runner,
+                Schema,
+                Table,
+                Relations,
+                drizzle_core::query::PartialColumns,
+                Clauses,
+            >
+        {
+            pub async fn find_many(
+                self,
+            ) -> Result<
+                Vec<
+                    <Relations as drizzle_core::query::BuildRow<Table::PartialSelect>>::Row,
+                >,
+            >
+            where
+                Table: drizzle_core::query::QueryTable,
+                Table::PartialSelect: drizzle_core::query::FromJsonObject,
+                Relations: drizzle_core::query::BuildRow<Table::PartialSelect>
+                    + drizzle_core::query::RenderRelations<'q, MySQLValue<'q>>,
+                Relations::Store: drizzle_core::query::DeserializeStore,
+            {
+                let query = common::render_relational_partial(self.builder);
+                self.runner
+                    .query_rendered(query)
+                    .await?
+                    .decode_relational_partial::<Table, Relations>()
+            }
+        }
+
+        #[cfg(feature = "query")]
+        impl<'db, 'q, Schema, Table, Relations, Where, Order>
+            common::DrizzleQueryBuilder<
+                'db,
+                'q,
+                $runner,
+                Schema,
+                Table,
+                Relations,
+                drizzle_core::query::PartialColumns,
+                drizzle_core::query::Clauses<Where, Order, drizzle_core::query::NoLimit>,
+            >
+        {
+            pub async fn find_first(
+                self,
+            ) -> Result<
+                Option<
+                    <Relations as drizzle_core::query::BuildRow<Table::PartialSelect>>::Row,
+                >,
+            >
+            where
+                Table: drizzle_core::query::QueryTable,
+                Table::PartialSelect: drizzle_core::query::FromJsonObject,
+                Relations: drizzle_core::query::BuildRow<Table::PartialSelect>
+                    + drizzle_core::query::RenderRelations<'q, MySQLValue<'q>>,
+                Relations::Store: drizzle_core::query::DeserializeStore,
+            {
+                Ok(self.limit(1).find_many().await?.into_iter().next())
+            }
+        }
+    };
+}
+
+async_relational_terminals!(&'db mut Drizzle<Conn, Schema>);
+async_relational_terminals!(&'db Drizzle<Pool, Schema>);
+
+#[cfg(feature = "query")]
+impl<'q, Table, Relations>
+    common::DrizzlePreparedQuery<
+        'q,
+        RelationalPrepared,
+        Table,
+        Relations,
+        drizzle_core::query::AllColumns,
+    >
+{
+    pub async fn find_many<'connection, 'transaction, Connection>(
+        &self,
+        connection: Connection,
+        params: impl IntoIterator<Item = drizzle_core::ParamBind<'q, MySQLValue<'q>>>,
+    ) -> Result<Vec<<Relations as drizzle_core::query::BuildRow<Table::Select>>::Row>>
+    where
+        'transaction: 'connection,
+        Connection: mysql_async::prelude::ToConnection<'connection, 'transaction>,
+        Table: drizzle_core::query::QueryTable,
+        for<'row> Table::Select: FromDrizzleRow<MySQLRow<'row, Row>>,
+        Relations: drizzle_core::query::BuildRow<Table::Select>,
+        Relations::Store: drizzle_core::query::DeserializeStore,
+    {
+        let mut connection = connection
+            .to_connection()
+            .resolve()
+            .await
+            .map_err(driver_error)?;
+        initialize_session(&mut connection).await?;
+        let (sql, values) = self.inner.bind(params)?;
+        let values = values.collect::<Vec<_>>();
+        let rows = query_request(&mut connection, sql, &values).await?;
+        QueryOutput::new(sql.to_owned(), values, rows).decode_relational_all::<Table, Relations>()
+    }
+
+    pub async fn find_first<'connection, 'transaction, Connection>(
+        &self,
+        connection: Connection,
+        params: impl IntoIterator<Item = drizzle_core::ParamBind<'q, MySQLValue<'q>>>,
+    ) -> Result<Option<<Relations as drizzle_core::query::BuildRow<Table::Select>>::Row>>
+    where
+        'transaction: 'connection,
+        Connection: mysql_async::prelude::ToConnection<'connection, 'transaction>,
+        Table: drizzle_core::query::QueryTable,
+        for<'row> Table::Select: FromDrizzleRow<MySQLRow<'row, Row>>,
+        Relations: drizzle_core::query::BuildRow<Table::Select>,
+        Relations::Store: drizzle_core::query::DeserializeStore,
+    {
+        Ok(self.find_many(connection, params).await?.into_iter().next())
+    }
+}
+
+#[cfg(feature = "query")]
+impl<'q, Table, Relations>
+    common::DrizzlePreparedQuery<
+        'q,
+        RelationalPrepared,
+        Table,
+        Relations,
+        drizzle_core::query::PartialColumns,
+    >
+{
+    pub async fn find_many<'connection, 'transaction, Connection>(
+        &self,
+        connection: Connection,
+        params: impl IntoIterator<Item = drizzle_core::ParamBind<'q, MySQLValue<'q>>>,
+    ) -> Result<Vec<<Relations as drizzle_core::query::BuildRow<Table::PartialSelect>>::Row>>
+    where
+        'transaction: 'connection,
+        Connection: mysql_async::prelude::ToConnection<'connection, 'transaction>,
+        Table: drizzle_core::query::QueryTable,
+        Table::PartialSelect: drizzle_core::query::FromJsonObject,
+        Relations: drizzle_core::query::BuildRow<Table::PartialSelect>,
+        Relations::Store: drizzle_core::query::DeserializeStore,
+    {
+        let mut connection = connection
+            .to_connection()
+            .resolve()
+            .await
+            .map_err(driver_error)?;
+        initialize_session(&mut connection).await?;
+        let (sql, values) = self.inner.bind(params)?;
+        let values = values.collect::<Vec<_>>();
+        let rows = query_request(&mut connection, sql, &values).await?;
+        QueryOutput::new(sql.to_owned(), values, rows)
+            .decode_relational_partial::<Table, Relations>()
+    }
+
+    pub async fn find_first<'connection, 'transaction, Connection>(
+        &self,
+        connection: Connection,
+        params: impl IntoIterator<Item = drizzle_core::ParamBind<'q, MySQLValue<'q>>>,
+    ) -> Result<Option<<Relations as drizzle_core::query::BuildRow<Table::PartialSelect>>::Row>>
+    where
+        'transaction: 'connection,
+        Connection: mysql_async::prelude::ToConnection<'connection, 'transaction>,
+        Table: drizzle_core::query::QueryTable,
+        Table::PartialSelect: drizzle_core::query::FromJsonObject,
+        Relations: drizzle_core::query::BuildRow<Table::PartialSelect>,
+        Relations::Store: drizzle_core::query::DeserializeStore,
+    {
+        Ok(self.find_many(connection, params).await?.into_iter().next())
+    }
 }
 
 impl<Schema: Copy> Drizzle<Conn, Schema> {

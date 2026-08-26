@@ -16,6 +16,37 @@ use uuid::Uuid;
 
 use crate::common::schema::postgres::{ComplexId, ComplexWithInvitedBy, ComplexWithPosts};
 
+crate::shared_relational_query_suite!(
+    postgres,
+    PostgresTable,
+    PostgresSchema,
+    drizzle::postgres::types::Int4
+);
+
+#[PostgresTable(TEMPORARY, NAME = "query_temp_metadata")]
+struct QueryTempMetadata {
+    #[column(PRIMARY)]
+    id: i32,
+}
+
+#[PostgresTable(SCHEMA = "tenant", NAME = "query_tenant_metadata")]
+struct QueryTenantMetadata {
+    #[column(PRIMARY)]
+    id: i32,
+}
+
+#[test]
+fn query_table_metadata_only_qualifies_explicit_postgres_schemas() {
+    assert_eq!(
+        <QueryTempMetadata as drizzle::core::query::QueryTable>::TABLE.schema,
+        None
+    );
+    assert_eq!(
+        <QueryTenantMetadata as drizzle::core::query::QueryTable>::TABLE.schema,
+        Some("tenant")
+    );
+}
+
 // =============================================================================
 // Schemas for different test scenarios
 // =============================================================================

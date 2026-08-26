@@ -253,6 +253,7 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
                 is_nullable: f.is_nullable,
                 is_json: f.is_json,
                 storage,
+                projection: crate::common::query::FieldProjectionKind::Native,
                 enum_storage,
                 base_type: f.base_type.clone(),
                 select_type:
@@ -279,6 +280,7 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
     generate_query_api(
         struct_ident,
         ctx.struct_vis,
+        ctx.attrs.schema.as_deref(),
         table_name,
         select_model_ident,
         partial_select_model_ident,

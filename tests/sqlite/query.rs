@@ -17,6 +17,13 @@ use crate::common::schema::sqlite::{
 
 use crate::common::schema::sqlite::{ComplexId, ComplexWithInvitedBy, ComplexWithPosts};
 
+crate::shared_relational_query_suite!(
+    sqlite,
+    SQLiteTable,
+    SQLiteSchema,
+    drizzle::sqlite::types::Integer
+);
+
 // =============================================================================
 // Schemas for different test scenarios
 // =============================================================================

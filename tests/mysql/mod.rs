@@ -13,5 +13,7 @@ pub mod mysql_async;
 pub mod mysql_sync;
 #[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
 pub mod prepare;
+#[cfg(feature = "query")]
+pub mod query;
 #[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
 pub mod transaction;

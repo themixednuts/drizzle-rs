@@ -288,6 +288,19 @@ fn table_metadata_preserves_mysql_database_unsigned_and_generated_details() {
     assert_eq!(Accounts::new().to_sql().sql(), "`app_db`.`accounts`");
 }
 
+#[cfg(feature = "query")]
+#[test]
+fn relational_metadata_preserves_mysql_database_boundaries() {
+    use drizzle::core::query::QueryTable;
+
+    assert_eq!(Accounts::TABLE.schema, Some("app_db"));
+    assert_eq!(Accounts::TABLE.name, "accounts");
+    assert_eq!(QualifiedChild::TABLE.schema, Some("billing"));
+    assert_eq!(QualifiedParent::TABLE.schema, Some("billing"));
+    assert_eq!(CrossDatabaseChild::TABLE.schema, Some("a_child_db"));
+    assert_eq!(CrossDatabaseParent::TABLE.schema, Some("z_parent_db"));
+}
+
 #[test]
 fn generated_models_have_the_expected_mysql_surface() {
     use drizzle::core::SQLModel as _;

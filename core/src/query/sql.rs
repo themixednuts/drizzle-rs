@@ -10,9 +10,11 @@ use crate::SQLParam;
 use crate::dialect::Dialect;
 use crate::prelude::*;
 use crate::relation::{CardWrap, JunctionMeta, RelationDef};
-use crate::sql::{SQLChunk, Token, write_dialect_quoted_ident};
+use crate::sql::{SQLChunk, TableSqlRef, Token, write_dialect_quoted_ident};
 
-use super::builder::{AllColumns, PartialColumns, QueryTable};
+use super::builder::{
+    AllColumns, JsonColumnProjection, JsonProjectionKind, PartialColumns, QueryTable,
+};
 use super::handle::RelationHandle;
 
 /// Cardinality for runtime SQL generation decisions.
@@ -30,13 +32,15 @@ pub enum RelCardinality {
 ///
 /// Produced by `RenderRelations::render_into()` at query execution time.
 pub struct RenderedRelation<'a, V: SQLParam> {
-    /// Target table name (e.g., "post").
-    pub table_name: &'static str,
+    /// Structured target table identity.
+    pub table: TableSqlRef,
     /// Target table columns for SELECT (e.g., `["id", "content", "author_id"]`).
     pub column_names: Vec<&'static str>,
     /// Column names that store or may store BLOB data and need tagged,
     /// storage-class-aware JSON projection.
     pub blob_columns: &'static [&'static str],
+    /// Column normalization required before relational JSON construction.
+    pub json_projections: &'static [JsonColumnProjection],
     /// FK column pairs for the join condition.
     /// Each pair `(a, b)` generates `target_alias."a" = parent_alias."b"`.
     pub fk_columns: &'static [(&'static str, &'static str)],
@@ -83,9 +87,10 @@ where
         let mut nested = Vec::new();
         handle.nested.render_into(&mut nested);
         out.push(RenderedRelation {
-            table_name: <R::Target as QueryTable>::TABLE_NAME,
+            table: <R::Target as QueryTable>::TABLE,
             column_names: <R::Target as QueryTable>::COLUMN_NAMES.to_vec(),
             blob_columns: <R::Target as QueryTable>::BLOB_COLUMNS,
+            json_projections: <R::Target as QueryTable>::JSON_PROJECTIONS,
             fk_columns: R::fk_columns(),
             cardinality: <R::Card as CardWrap>::CARDINALITY,
             rel_name: R::NAME,
@@ -114,9 +119,10 @@ where
         let mut nested = Vec::new();
         handle.nested.render_into(&mut nested);
         out.push(RenderedRelation {
-            table_name: <R::Target as QueryTable>::TABLE_NAME,
+            table: <R::Target as QueryTable>::TABLE,
             column_names: handle.cols.columns,
             blob_columns: <R::Target as QueryTable>::BLOB_COLUMNS,
+            json_projections: <R::Target as QueryTable>::JSON_PROJECTIONS,
             fk_columns: R::fk_columns(),
             cardinality: <R::Card as CardWrap>::CARDINALITY,
             rel_name: R::NAME,
@@ -144,9 +150,10 @@ where
 /// Uses `V::DIALECT` to select the correct JSON functions and placeholder style.
 #[allow(clippy::too_many_arguments)]
 pub fn build_query_sql<'a, V: SQLParam>(
-    table_name: &str,
+    table: TableSqlRef,
     column_names: &[&str],
     blob_columns: &[&str],
+    json_projections: &[JsonColumnProjection],
     relations: Vec<RenderedRelation<'a, V>>,
     where_sql: SQL<'a, V>,
     order_by_sql: SQL<'a, V>,
@@ -157,6 +164,7 @@ pub fn build_query_sql<'a, V: SQLParam>(
     let mut sql = QuerySql::new();
     let alias = "t0";
     let dialect = V::DIALECT;
+    let table_name = table.name;
 
     // PostgreSQL evaluates SELECT-list subqueries for every row the plan
     // produces before LIMIT/OFFSET discard it — an OFFSET of N runs each
@@ -199,7 +207,14 @@ pub fn build_query_sql<'a, V: SQLParam>(
             }
             write_json_key(dialect, c, sql.buf_mut());
             sql.push_str(", ");
-            write_json_column(alias, c, blob_columns, dialect, sql.buf_mut());
+            write_json_column(
+                alias,
+                c,
+                blob_columns,
+                json_projections,
+                dialect,
+                sql.buf_mut(),
+            );
         }
         sql.push(')');
         if dialect == Dialect::PostgreSQL {
@@ -248,7 +263,7 @@ pub fn build_query_sql<'a, V: SQLParam>(
             write_qualified_column(dialect, alias, c, sql.buf_mut());
         }
         sql.push_str(" FROM ");
-        write_dialect_quoted_ident(dialect, sql.buf_mut(), table_name);
+        write_qualified_table(dialect, table, sql.buf_mut());
         sql.push_str(" AS ");
         write_dialect_quoted_ident(dialect, sql.buf_mut(), alias);
 
@@ -288,7 +303,7 @@ pub fn build_query_sql<'a, V: SQLParam>(
     }
 
     sql.push_str(" FROM ");
-    write_dialect_quoted_ident(dialect, sql.buf_mut(), table_name);
+    write_qualified_table(dialect, table, sql.buf_mut());
     sql.push_str(" AS ");
     write_dialect_quoted_ident(dialect, sql.buf_mut(), alias);
 
@@ -400,9 +415,10 @@ fn write_inner_subquery_select_list(
     dialect: Dialect,
     sql: &mut String,
 ) {
-    // PostgreSQL requires LATERAL for derived tables that reference columns
-    // from the outer query (the parent alias).
-    if dialect == Dialect::PostgreSQL {
+    // PostgreSQL and MySQL require LATERAL for derived tables that reference
+    // columns from the outer query (the parent alias). MySQL supports this
+    // syntax from 8.0.14; drizzle-rs targets MySQL 8.4.
+    if matches!(dialect, Dialect::PostgreSQL | Dialect::MySQL) {
         sql.push_str("LATERAL ");
     }
     sql.push_str("(SELECT ");
@@ -446,6 +462,7 @@ fn collect_nested_extra_cols<V: SQLParam>(
 /// as named subqueries. Emits the trailing `)` that closes the object.
 fn write_json_object_body<'a, V: SQLParam>(
     blob_columns: &[&str],
+    json_projections: &[JsonColumnProjection],
     nested: Vec<RenderedRelation<'a, V>>,
     alias: &str,
     target_columns: &[&'static str],
@@ -461,7 +478,14 @@ fn write_json_object_body<'a, V: SQLParam>(
         first_arg = false;
         write_json_key(dialect, c, ctx.sql.buf_mut());
         ctx.sql.push_str(", ");
-        write_json_column(alias, c, blob_columns, dialect, ctx.sql.buf_mut());
+        write_json_column(
+            alias,
+            c,
+            blob_columns,
+            json_projections,
+            dialect,
+            ctx.sql.buf_mut(),
+        );
     }
 
     // Nested relation subqueries as additional json_object args.
@@ -613,9 +637,10 @@ fn write_relation_subquery<'a, V: SQLParam>(
     sql: &mut QuerySql<'a, V>,
 ) {
     let RenderedRelation {
-        table_name: target_table,
+        table: target,
         column_names: target_columns,
         blob_columns,
+        json_projections,
         fk_columns,
         cardinality,
         where_sql,
@@ -626,6 +651,7 @@ fn write_relation_subquery<'a, V: SQLParam>(
         offset,
         ..
     } = rel;
+    let target_table = target.name;
 
     let alias_buf = alloc_alias(alias_counter);
     let alias = &alias_buf;
@@ -675,6 +701,7 @@ fn write_relation_subquery<'a, V: SQLParam>(
 
     write_json_object_body::<V>(
         blob_columns,
+        json_projections,
         nested,
         alias,
         &target_columns,
@@ -721,9 +748,9 @@ fn write_relation_subquery<'a, V: SQLParam>(
             write_dialect_quoted_ident(dialect, sql.buf_mut(), &mysql_order_column);
         }
         sql.push_str(" FROM ");
-        write_dialect_quoted_ident(dialect, sql.buf_mut(), target_table);
+        write_qualified_table(dialect, target, sql.buf_mut());
     } else {
-        write_dialect_quoted_ident(dialect, sql.buf_mut(), target_table);
+        write_qualified_table(dialect, target, sql.buf_mut());
     }
     sql.push_str(" AS ");
     write_dialect_quoted_ident(dialect, sql.buf_mut(), alias);
@@ -784,6 +811,15 @@ fn write_qualified_column(dialect: Dialect, alias: &str, column: &str, sql: &mut
     write_dialect_quoted_ident(dialect, sql, column);
 }
 
+/// Writes an independently quoted `[schema.]table` reference.
+fn write_qualified_table(dialect: Dialect, table: TableSqlRef, sql: &mut String) {
+    if let Some(schema) = table.schema {
+        write_dialect_quoted_ident(dialect, sql, schema);
+        sql.push('.');
+    }
+    write_dialect_quoted_ident(dialect, sql, table.name);
+}
+
 /// Writes a JSON object key without depending on MySQL's backslash SQL mode.
 fn write_json_key(dialect: Dialect, value: &str, sql: &mut String) {
     if dialect == Dialect::MySQL {
@@ -817,7 +853,7 @@ fn write_junction_join(
     sql: &mut String,
 ) {
     sql.push_str(" INNER JOIN ");
-    write_dialect_quoted_ident(dialect, sql, junction.table_name);
+    write_qualified_table(dialect, junction.table, sql);
     sql.push_str(" AS ");
     write_dialect_quoted_ident(dialect, sql, junc_alias);
     sql.push_str(" ON ");
@@ -846,6 +882,7 @@ fn write_json_column(
     alias: &str,
     column: &str,
     blob_columns: &[&str],
+    json_projections: &[JsonColumnProjection],
     dialect: Dialect,
     sql: &mut String,
 ) {
@@ -865,17 +902,34 @@ fn write_json_column(
         return;
     }
 
-    if dialect == Dialect::MySQL && is_blob {
-        // MySQL JSON constructors reject binary-character-set strings. Keep
-        // the same tagged-value contract used by SQLite while encoding the
-        // payload as hexadecimal text for lossless driver-side decoding.
-        sql.push_str("CASE WHEN ");
-        write_qualified_column(dialect, alias, column, sql);
-        sql.push_str(
-            " IS NULL THEN NULL ELSE JSON_OBJECT('$drizzle_storage', 'blob', '$drizzle_value', HEX(",
-        );
-        write_qualified_column(dialect, alias, column, sql);
-        sql.push_str(")) END");
+    if dialect == Dialect::MySQL
+        && let Some(projection) = json_projections
+            .iter()
+            .find(|projection| projection.column == column)
+    {
+        match projection.kind {
+            JsonProjectionKind::TaggedHex => {
+                // MySQL JSON constructors reject binary-character-set strings.
+                // Tag and hex-encode them for lossless driver-side decoding.
+                sql.push_str("CASE WHEN ");
+                write_qualified_column(dialect, alias, column, sql);
+                sql.push_str(
+                    " IS NULL THEN NULL ELSE JSON_OBJECT('$drizzle_storage', 'blob', '$drizzle_value', HEX(",
+                );
+                write_qualified_column(dialect, alias, column, sql);
+                sql.push_str(")) END");
+            }
+            JsonProjectionKind::Text => {
+                sql.push_str("CAST(");
+                write_qualified_column(dialect, alias, column, sql);
+                sql.push_str(" AS CHAR)");
+            }
+            JsonProjectionKind::Unsigned => {
+                sql.push_str("CAST(");
+                write_qualified_column(dialect, alias, column, sql);
+                sql.push_str(" AS UNSIGNED)");
+            }
+        }
         return;
     }
 
@@ -928,6 +982,18 @@ mod tests {
         }
     }
 
+    const fn table(
+        schema: Option<&'static str>,
+        name: &'static str,
+        column_names: &'static [&'static str],
+    ) -> TableSqlRef {
+        TableSqlRef {
+            schema,
+            name,
+            column_names,
+        }
+    }
+
     #[test]
     fn mysql_qualified_column_escapes_backticks() {
         let mut sql = String::new();
@@ -964,7 +1030,17 @@ mod tests {
     #[test]
     fn mysql_binary_json_values_use_the_tagged_hex_contract() {
         let mut sql = String::new();
-        write_json_column("account", "avatar", &["avatar"], Dialect::MySQL, &mut sql);
+        write_json_column(
+            "account",
+            "avatar",
+            &[],
+            &[JsonColumnProjection {
+                column: "avatar",
+                kind: JsonProjectionKind::TaggedHex,
+            }],
+            Dialect::MySQL,
+            &mut sql,
+        );
 
         assert_eq!(
             sql,
@@ -973,10 +1049,46 @@ mod tests {
     }
 
     #[test]
+    fn mysql_json_projection_casts_exact_text_and_bit_values() {
+        let projections = [
+            JsonColumnProjection {
+                column: "amount",
+                kind: JsonProjectionKind::Text,
+            },
+            JsonColumnProjection {
+                column: "permissions",
+                kind: JsonProjectionKind::Unsigned,
+            },
+        ];
+        let mut sql = String::new();
+        write_json_column(
+            "account",
+            "amount",
+            &[],
+            &projections,
+            Dialect::MySQL,
+            &mut sql,
+        );
+        assert_eq!(sql, "CAST(`account`.`amount` AS CHAR)");
+
+        sql.clear();
+        write_json_column(
+            "account",
+            "permissions",
+            &[],
+            &projections,
+            Dialect::MySQL,
+            &mut sql,
+        );
+        assert_eq!(sql, "CAST(`account`.`permissions` AS UNSIGNED)");
+    }
+
+    #[test]
     fn mysql_offset_only_uses_the_unbounded_limit_sentinel() {
         let sql = build_query_sql::<MySQLTestValue>(
-            "account",
+            table(None, "account", &["id"]),
             &["id"],
+            &[],
             &[],
             vec![],
             SQL::empty(),
@@ -996,9 +1108,10 @@ mod tests {
     #[test]
     fn mysql_relation_offset_only_uses_the_unbounded_limit_sentinel() {
         let relation = RenderedRelation::<MySQLTestValue> {
-            table_name: "post",
+            table: table(None, "post", &["id"]),
             column_names: vec!["id"],
             blob_columns: &[],
+            json_projections: &[],
             fk_columns: &[("author_id", "id")],
             cardinality: RelCardinality::Many,
             rel_name: "posts",
@@ -1011,8 +1124,9 @@ mod tests {
         };
 
         let sql = build_query_sql::<MySQLTestValue>(
-            "user",
+            table(None, "user", &["id"]),
             &["id"],
+            &[],
             &[],
             vec![relation],
             SQL::empty(),
@@ -1025,16 +1139,17 @@ mod tests {
 
         assert_eq!(
             sql,
-            "SELECT `t0`.`id`, (SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(CONVERT(X'6964' USING utf8mb4), `t1`.`id`)), JSON_ARRAY()) FROM (SELECT `t1`.`id` FROM `post` AS `t1` WHERE `t1`.`author_id` = `t0`.`id` LIMIT 18446744073709551615 OFFSET ?) AS `t1`) AS `__rel_posts` FROM `user` AS `t0`"
+            "SELECT `t0`.`id`, (SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(CONVERT(X'6964' USING utf8mb4), `t1`.`id`)), JSON_ARRAY()) FROM LATERAL (SELECT `t1`.`id` FROM `post` AS `t1` WHERE `t1`.`author_id` = `t0`.`id` LIMIT 18446744073709551615 OFFSET ?) AS `t1`) AS `__rel_posts` FROM `user` AS `t0`"
         );
     }
 
     #[test]
     fn mysql_ordered_relation_uses_an_explicit_ordered_window_aggregate() {
         let relation = RenderedRelation::<MySQLTestValue> {
-            table_name: "post",
+            table: table(None, "post", &["id"]),
             column_names: vec!["id"],
             blob_columns: &[],
+            json_projections: &[],
             fk_columns: &[("author_id", "id")],
             cardinality: RelCardinality::Many,
             rel_name: "posts",
@@ -1047,8 +1162,9 @@ mod tests {
         };
 
         let sql = build_query_sql::<MySQLTestValue>(
-            "user",
+            table(None, "user", &["id"]),
             &["id"],
+            &[],
             &[],
             vec![relation],
             SQL::empty(),
@@ -1078,9 +1194,14 @@ mod tests {
     #[test]
     fn mysql_ordered_relation_avoids_internal_column_name_collisions() {
         let relation = RenderedRelation::<MySQLTestValue> {
-            table_name: "post",
+            table: table(
+                None,
+                "post",
+                &["id", "__DRIZZLE_ORDER", "__Drizzle_Order_1"],
+            ),
             column_names: vec!["id", "__DRIZZLE_ORDER", "__Drizzle_Order_1"],
             blob_columns: &[],
+            json_projections: &[],
             fk_columns: &[("author_id", "id")],
             cardinality: RelCardinality::Many,
             rel_name: "posts",
@@ -1093,8 +1214,9 @@ mod tests {
         };
 
         let sql = build_query_sql::<MySQLTestValue>(
-            "user",
+            table(None, "user", &["id"]),
             &["id"],
+            &[],
             &[],
             vec![relation],
             SQL::empty(),
@@ -1118,9 +1240,10 @@ mod tests {
     #[test]
     fn mysql_relational_query_quotes_every_identifier_and_json_key() {
         let relation = RenderedRelation::<MySQLTestValue> {
-            table_name: "role`table",
+            table: table(Some("odd`db"), "role`table", &["role`id", "label"]),
             column_names: vec!["role`id", "label"],
             blob_columns: &[],
+            json_projections: &[],
             fk_columns: &[("role`id", "account`id")],
             cardinality: RelCardinality::Many,
             rel_name: "roles'\\`",
@@ -1130,15 +1253,20 @@ mod tests {
             offset: None,
             nested: vec![],
             junction: Some(JunctionMeta {
-                table_name: "account`roles",
+                table: table(Some("odd`db"), "account`roles", &[]),
                 source_fk: &[("account`fk", "account`id")],
                 target_fk: &[("role`fk", "role`id")],
             }),
         };
 
         let sql = build_query_sql::<MySQLTestValue>(
-            "account`table",
+            table(
+                Some("odd`db"),
+                "account`table",
+                &["account`id", "display`name"],
+            ),
             &["account`id", "display`name"],
+            &[],
             &[],
             vec![relation],
             SQL::empty(),
@@ -1151,7 +1279,7 @@ mod tests {
 
         assert_eq!(
             sql,
-            r#"SELECT `t0`.`account``id`, `t0`.`display``name`, (SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(CONVERT(X'726F6C65606964' USING utf8mb4), `t1`.`role``id`, CONVERT(X'6C6162656C' USING utf8mb4), `t1`.`label`)), JSON_ARRAY()) FROM `role``table` AS `t1` INNER JOIN `account``roles` AS `t2` ON `t2`.`role``fk` = `t1`.`role``id` WHERE `t2`.`account``fk` = `t0`.`account``id`) AS `__rel_roles'\``` FROM `account``table` AS `t0`"#
+            r#"SELECT `t0`.`account``id`, `t0`.`display``name`, (SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(CONVERT(X'726F6C65606964' USING utf8mb4), `t1`.`role``id`, CONVERT(X'6C6162656C' USING utf8mb4), `t1`.`label`)), JSON_ARRAY()) FROM `odd``db`.`role``table` AS `t1` INNER JOIN `odd``db`.`account``roles` AS `t2` ON `t2`.`role``fk` = `t1`.`role``id` WHERE `t2`.`account``fk` = `t0`.`account``id`) AS `__rel_roles'\``` FROM `odd``db`.`account``table` AS `t0`"#
         );
     }
 }

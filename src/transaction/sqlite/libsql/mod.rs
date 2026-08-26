@@ -389,9 +389,10 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         let mut rendered = Vec::new();
         builder.relations.render_into(&mut rendered);
         let query_sql = drizzle_core::query::build_query_sql(
-            T::TABLE_NAME,
+            T::TABLE,
             T::COLUMN_NAMES,
             T::BLOB_COLUMNS,
+            T::JSON_PROJECTIONS,
             rendered,
             builder.where_sql,
             builder.order_by_sql,
@@ -515,9 +516,10 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         let mut rendered = Vec::new();
         builder.relations.render_into(&mut rendered);
         let query_sql = drizzle_core::query::build_query_sql(
-            T::TABLE_NAME,
+            T::TABLE,
             &col_refs,
             T::BLOB_COLUMNS,
+            T::JSON_PROJECTIONS,
             rendered,
             builder.where_sql,
             builder.order_by_sql,

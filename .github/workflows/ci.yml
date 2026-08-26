@@ -141,10 +141,13 @@ jobs:
         include:
           - name: sync
             features: mysql-sync
+            test-features: mysql-sync,query,serde
           - name: async
             features: mysql-async
+            test-features: mysql-async,query,serde
           - name: unified
             features: mysql-sync,mysql-async
+            test-features: mysql-sync,mysql-async,query,serde,chrono,time,rust-decimal
     services:
       mysql:
         image: mysql:8.4
@@ -175,22 +178,23 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check adapter features
-        run: cargo check -p drizzle --no-default-features --features "${{ matrix.features }}"
+        run: cargo check -p drizzle --no-default-features --features "${{ matrix.features }},query"
 
       - name: Reject async runtime dependencies
         if: matrix.features == 'mysql-sync'
         shell: bash
         run: |
-          if cargo tree -p drizzle --no-default-features --features mysql-sync --edges normal \
+          if cargo tree -p drizzle --no-default-features --features mysql-sync,query --edges normal \
             | grep -E '(^|[[:space:]])(tokio|mysql_async) v'; then
             echo "mysql-sync pulled an async runtime dependency"
             exit 1
           fi
 
       - name: Run live MySQL tests
-        # `serde` activates the root trybuild target, so MySQL's macro and
-        # builder UI contracts run alongside the live adapter suite.
-        run: cargo test -p drizzle --no-default-features --features "${{ matrix.features }},serde"
+        # `query` runs the same relational behavior suite against both MySQL
+        # adapters. The unified row also executes optional codec projections
+        # against a real MySQL server instead of merely compiling them in lint.
+        run: cargo test -p drizzle --no-default-features --features "${{ matrix.test-features }}"
 
   test-turso:
     name: Test (Turso - Experimental)
@@ -213,7 +217,7 @@ jobs:
         id: test
         run: |
           mkdir -p test-output
-          cargo test --workspace --features "turso,uuid,serde" 2>&1 | tee test-output/output.txt || true
+          cargo test --workspace --features "turso,query,uuid,serde" 2>&1 | tee test-output/output.txt || true
 
           if grep -q "FAILED" test-output/output.txt; then
             echo "has_failures=true" >> $GITHUB_OUTPUT

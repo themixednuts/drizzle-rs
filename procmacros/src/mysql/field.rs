@@ -66,6 +66,7 @@ pub struct FieldInfo {
     pub default_fn: Option<TokenStream>,
     pub check_constraint: Option<String>,
     pub foreign_key: Option<MySQLReference>,
+    pub relation_name: Option<String>,
     pub has_default: bool,
     pub marker_exprs: Vec<ExprPath>,
     pub constraint: Constraint,
@@ -89,6 +90,7 @@ struct ParsedColumn {
     generated: Option<GeneratedColumn>,
     check: Option<String>,
     reference: Option<MySQLReference>,
+    relation_name: Option<String>,
     reference_on_delete: Option<String>,
     reference_on_update: Option<String>,
     name: Option<String>,
@@ -141,6 +143,12 @@ impl FieldInfo {
             .cloned()
             .unwrap_or_else(|| field_type.clone());
         let mut parsed = parse_column_attrs(field)?;
+        if parsed.relation_name.is_some() && parsed.reference.is_none() {
+            return Err(Error::new_spanned(
+                field,
+                crate::common::relation_requires_references_message(),
+            ));
+        }
         let rust_category = mysql_rust_category(&base_type);
 
         let column_type = if parsed.is_enum {
@@ -278,6 +286,7 @@ impl FieldInfo {
             default_fn: parsed.default_fn,
             check_constraint: parsed.check,
             foreign_key: parsed.reference,
+            relation_name: parsed.relation_name,
             has_default,
             marker_exprs: parsed.marker_exprs,
             constraint,
@@ -524,10 +533,14 @@ fn parse_column_meta(field: &Field, meta: Meta, out: &mut ParsedColumn) -> Resul
             "CHECK" => out.check = Some(expect_string(&value.value, "CHECK")?),
             "REFERENCES" => out.reference = Some(parse_reference_expr(&value.value)?),
             "RELATION" => {
-                return Err(Error::new_spanned(
-                    value,
-                    "RELATION metadata requires the MySQL relational-query ticket; use REFERENCES for foreign-key semantics",
-                ));
+                let name = expect_string(&value.value, "RELATION")?;
+                if syn::parse_str::<Ident>(&name).is_err() {
+                    return Err(Error::new_spanned(
+                        value,
+                        format!("RELATION = \"{name}\" must be a valid Rust identifier"),
+                    ));
+                }
+                out.relation_name = Some(name);
             }
             "ON_DELETE" => {
                 out.reference_on_delete = Some(parse_referential_action(&value.value)?);

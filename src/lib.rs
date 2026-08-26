@@ -155,7 +155,7 @@ pub mod core {
     pub use drizzle_core::{
         ColumnDialect, ColumnFlags, ColumnRef, ConstraintRef, ForeignKeyRef, OrderBy, Param,
         ParamBind, ParamSet, Placeholder, PrimaryKeyRef, SQL, SQLChunk, TableDialect, TableRef,
-        Token, TypedPlaceholder, asc, desc,
+        TableSqlRef, Token, TypedPlaceholder, asc, desc,
     };
 
     /// Conversion trait for SQL generation.

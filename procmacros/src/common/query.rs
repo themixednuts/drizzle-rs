@@ -1,4 +1,4 @@
-//! Shared query API code generation for both `SQLite` and `PostgreSQL`.
+//! Shared relational-query API code generation for all SQL dialects.
 //!
 //! Generates relation ZSTs, `RelationDef` impls, inherent builder accessors,
 //! concrete `*With*` result row structs, JSON decoder impls, and column
@@ -56,9 +56,29 @@ pub enum FieldStorageKind {
     Bool,
     /// Raw blob (`Vec<u8>`).
     Blob,
+    /// Binary MySQL value read from the tagged hexadecimal JSON projection.
+    MySQLBlob,
+    /// MySQL text decoded through the same checked codec as a wire row.
+    MySQLText,
     /// A SQLite column whose storage and decoding are owned by
     /// `DrizzleSQLiteColumn`.
     SQLiteColumn,
+}
+
+/// SQL normalization applied before a field enters a relational JSON object.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum FieldProjectionKind {
+    /// Use the SQL value as-is.
+    Native,
+    /// Preserve bytes in a tagged hexadecimal object.
+    #[cfg(feature = "mysql")]
+    TaggedHex,
+    /// Cast to text before JSON construction.
+    #[cfg(feature = "mysql")]
+    Text,
+    /// Cast to an unsigned integer before JSON construction.
+    #[cfg(feature = "mysql")]
+    Unsigned,
 }
 
 /// Info about a field for generating JSON decoders.
@@ -74,6 +94,9 @@ pub struct FieldJsonInfo {
     pub is_json: bool,
     /// How this field is stored and therefore how it should be read back.
     pub storage: FieldStorageKind,
+    /// How SQL must normalize this field before JSON construction.
+    #[cfg_attr(not(feature = "mysql"), allow(dead_code))]
+    pub projection: FieldProjectionKind,
     /// Direct enum storage used by dialects without a SQLite column codec.
     pub enum_storage: Option<EnumStorage>,
     /// The unwrapped base type (e.g., `i32` even if the field is `Option<i32>`).
@@ -97,6 +120,7 @@ pub struct FieldJsonInfo {
 pub fn generate_query_api(
     struct_ident: &Ident,
     struct_vis: &Visibility,
+    table_schema: Option<&str>,
     table_name: &str,
     select_model_ident: &Ident,
     partial_select_model_ident: &Ident,
@@ -125,9 +149,13 @@ pub fn generate_query_api(
         struct_ident,
         select_model_ident,
         partial_select_model_ident,
-        table_name,
-        column_names,
-        &blob_column_names,
+        QueryTableMetadata {
+            schema: table_schema,
+            name: table_name,
+            columns: column_names,
+            blob_columns: &blob_column_names,
+            fields: field_json_infos,
+        },
     ));
 
     // 1b. Type alias for a query result row with no relations loaded.
@@ -158,7 +186,6 @@ pub fn generate_query_api(
     tokens.extend(generate_many_to_many_relations(
         struct_ident,
         struct_vis,
-        table_name,
         fk_infos,
     ));
 
@@ -187,18 +214,31 @@ pub fn generate_query_api(
 }
 
 /// Generates `QueryTable` impl for the table ZST.
+struct QueryTableMetadata<'a> {
+    schema: Option<&'a str>,
+    name: &'a str,
+    columns: &'a [String],
+    blob_columns: &'a [&'a str],
+    fields: &'a [FieldJsonInfo],
+}
+
 fn generate_query_table(
     struct_ident: &Ident,
     select_model_ident: &Ident,
     partial_select_model_ident: &Ident,
-    table_name: &str,
-    column_names: &[String],
-    blob_column_names: &[&str],
+    metadata: QueryTableMetadata<'_>,
 ) -> TokenStream {
-    let column_name_literals: Vec<&str> = column_names
+    let table_schema = metadata.schema.map_or_else(
+        || quote!(::core::option::Option::None),
+        |schema| quote!(::core::option::Option::Some(#schema)),
+    );
+    let table_name = metadata.name;
+    let column_name_literals: Vec<&str> = metadata
+        .columns
         .iter()
         .map(std::string::String::as_str)
         .collect();
+    let blob_column_names = metadata.blob_columns;
 
     let blob_const = if blob_column_names.is_empty() {
         // Use default (empty slice) — no override needed
@@ -209,13 +249,47 @@ fn generate_query_table(
         }
     };
 
+    #[cfg(feature = "mysql")]
+    let projections: Vec<TokenStream> = metadata
+        .fields
+        .iter()
+        .filter_map(|field| {
+            let column = field.column_name.as_str();
+            let kind = match field.projection {
+                FieldProjectionKind::Native => return None,
+                FieldProjectionKind::TaggedHex => {
+                    quote!(drizzle::core::query::JsonProjectionKind::TaggedHex)
+                }
+                FieldProjectionKind::Text => quote!(drizzle::core::query::JsonProjectionKind::Text),
+                FieldProjectionKind::Unsigned => {
+                    quote!(drizzle::core::query::JsonProjectionKind::Unsigned)
+                }
+            };
+            Some(quote! {
+                drizzle::core::query::JsonColumnProjection {
+                    column: #column,
+                    kind: #kind,
+                }
+            })
+        })
+        .collect();
+    #[cfg(not(feature = "mysql"))]
+    let projections = {
+        let _ = metadata.fields;
+        Vec::<TokenStream>::new()
+    };
+
     quote! {
         impl drizzle::core::query::QueryTable for #struct_ident {
             type Select = #select_model_ident;
             type PartialSelect = #partial_select_model_ident;
             const TABLE_NAME: &'static str = #table_name;
+            const TABLE_SCHEMA: ::core::option::Option<&'static str> = #table_schema;
             const COLUMN_NAMES: &'static [&'static str] = &[#(#column_name_literals),*];
             #blob_const
+            const JSON_PROJECTIONS: &'static [drizzle::core::query::JsonColumnProjection] = &[
+                #(#projections),*
+            ];
         }
     }
 }
@@ -584,7 +658,6 @@ fn generate_reverse_relations(
 fn generate_many_to_many_relations(
     struct_ident: &Ident,
     vis: &Visibility,
-    table_name: &str,
     fk_infos: &[FkInfo],
 ) -> TokenStream {
     // Junction detection: exactly 2 FKs to 2 different external tables
@@ -634,7 +707,7 @@ fn generate_many_to_many_relations(
                 fk_columns_body: quote!(&[]),
                 junction_body: Some(quote! {
                     Some(drizzle::core::relation::JunctionMeta {
-                        table_name: #table_name,
+                        table: <#struct_ident as drizzle::core::query::QueryTable>::TABLE,
                         source_fk: &[(#source_col_name, #source_target_col)],
                         target_fk: &[(#target_col_name, #target_target_col)],
                     })
@@ -702,6 +775,12 @@ fn generate_json_decoder(
                 FieldStorageKind::Bool => generate_bool_decode(ident, col_name, is_nullable),
                 FieldStorageKind::Blob => {
                     generate_blob_decode(ident, col_name, &f.base_type, is_nullable, f.is_json)
+                }
+                FieldStorageKind::MySQLBlob => {
+                    generate_mysql_blob_decode(ident, col_name, &f.base_type, is_nullable)
+                }
+                FieldStorageKind::MySQLText => {
+                    generate_mysql_text_decode(ident, col_name, &f.base_type, is_nullable)
                 }
                 FieldStorageKind::SQLiteColumn => {
                     generate_sqlite_column_decode(ident, col_name, &f.base_type, is_nullable)
@@ -1021,6 +1100,80 @@ fn generate_blob_decode(
             );
         };
         #convert
+    };
+
+    if is_nullable {
+        quote! {
+            #col_name => {
+                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
+                state.#ident = ::std::option::Option::Some(match raw {
+                    drizzle::core::serde_json::Value::Null => ::std::option::Option::None,
+                    raw => ::std::option::Option::Some({ #decode }),
+                });
+                ::std::result::Result::Ok(true)
+            }
+        }
+    } else {
+        quote! {
+            #col_name => {
+                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
+                state.#ident = ::std::option::Option::Some({ #decode });
+                ::std::result::Result::Ok(true)
+            }
+        }
+    }
+}
+
+fn generate_mysql_blob_decode(
+    ident: &Ident,
+    col_name: &str,
+    base_type: &syn::Type,
+    is_nullable: bool,
+) -> TokenStream {
+    let decode = quote! {
+        drizzle::mysql::driver::decode_projected_mysql_value::<#base_type>(&raw)
+            .map_err(|e| {
+                <__A::Error as drizzle::core::serde::de::Error>::custom(
+                    ::std::format!("field '{}': {e}", #col_name)
+                )
+            })?
+    };
+
+    if is_nullable {
+        quote! {
+            #col_name => {
+                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
+                state.#ident = ::std::option::Option::Some(match raw {
+                    drizzle::core::serde_json::Value::Null => ::std::option::Option::None,
+                    raw => ::std::option::Option::Some({ #decode }),
+                });
+                ::std::result::Result::Ok(true)
+            }
+        }
+    } else {
+        quote! {
+            #col_name => {
+                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
+                state.#ident = ::std::option::Option::Some({ #decode });
+                ::std::result::Result::Ok(true)
+            }
+        }
+    }
+}
+
+fn generate_mysql_text_decode(
+    ident: &Ident,
+    col_name: &str,
+    base_type: &syn::Type,
+    is_nullable: bool,
+) -> TokenStream {
+    let decode = quote! {
+        drizzle::mysql::driver::decode_projected_mysql_text::<#base_type>(&raw)
+            .map_err(|e| {
+                <__A::Error as drizzle::core::serde::de::Error>::custom(
+                    ::std::format!("field '{}': {e}", #col_name)
+                )
+            })?
     };
 
     if is_nullable {

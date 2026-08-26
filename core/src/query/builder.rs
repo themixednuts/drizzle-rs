@@ -394,6 +394,32 @@ where
 // QueryTable
 // =============================================================================
 
+/// SQL normalization applied before a relational JSON value is decoded.
+///
+/// Table macros choose this from the declared SQL type. The shared renderer
+/// owns the dialect syntax, while the driver-owned codec remains responsible
+/// for converting the normalized JSON value into the Rust field type.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JsonProjectionKind {
+    /// Preserve binary bytes as a tagged hexadecimal JSON object.
+    TaggedHex,
+    /// Cast the SQL value to text before JSON construction.
+    Text,
+    /// Cast the SQL value to an unsigned integer before JSON construction.
+    Unsigned,
+}
+
+/// Per-column relational JSON normalization metadata.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JsonColumnProjection {
+    /// SQL column name.
+    pub column: &'static str,
+    /// Normalization performed by the dialect renderer.
+    pub kind: JsonProjectionKind,
+}
+
 /// Dialect-agnostic table metadata for the query API.
 ///
 /// Provides the table name, column names, and select model types
@@ -403,10 +429,23 @@ pub trait QueryTable {
     type Select;
     /// The partial select model type (all fields `Option<T>`).
     type PartialSelect;
-    /// The SQL table name.
+    /// The unqualified SQL table name.
     const TABLE_NAME: &'static str;
+    /// The optional schema/database namespace.
+    const TABLE_SCHEMA: Option<&'static str> = None;
     /// All column names in SELECT order.
     const COLUMN_NAMES: &'static [&'static str];
+    /// Structured SQL table identity and all columns in SELECT order.
+    ///
+    /// Keeping the namespace separate from the name lets renderers quote each
+    /// identifier independently instead of treating `schema.table` as one
+    /// identifier. The default preserves manual implementations of the older
+    /// `TABLE_NAME` and `COLUMN_NAMES` contract.
+    const TABLE: crate::TableSqlRef = crate::TableSqlRef {
+        schema: Self::TABLE_SCHEMA,
+        name: Self::TABLE_NAME,
+        column_names: Self::COLUMN_NAMES,
+    };
     /// Column names that store or may store BLOB data (for example UUID bytes
     /// and columns backed by a type-owned SQLite codec).
     ///
@@ -414,4 +453,29 @@ pub trait QueryTable {
     /// JSON value and hex-encodes BLOB payloads. The owning codec decodes that
     /// tag, so malformed or affinity-mismatched cells fail closed.
     const BLOB_COLUMNS: &'static [&'static str] = &[];
+    /// Columns requiring dialect-specific normalization before they enter a
+    /// relational JSON object.
+    #[doc(hidden)]
+    const JSON_PROJECTIONS: &'static [JsonColumnProjection] = &[];
+}
+
+#[cfg(test)]
+mod tests {
+    use super::QueryTable;
+
+    struct LegacyManualTable;
+
+    impl QueryTable for LegacyManualTable {
+        type Select = ();
+        type PartialSelect = ();
+        const TABLE_NAME: &'static str = "legacy";
+        const COLUMN_NAMES: &'static [&'static str] = &["id"];
+    }
+
+    #[test]
+    fn structured_table_identity_defaults_from_legacy_constants() {
+        assert_eq!(LegacyManualTable::TABLE.schema, None);
+        assert_eq!(LegacyManualTable::TABLE.name, "legacy");
+        assert_eq!(LegacyManualTable::TABLE.column_names, ["id"]);
+    }
 }

@@ -83,4 +83,68 @@ impl<'q> QueryOutput<'q> {
         R::from_row(&MySQLRow::new(row))
             .with_query(|| QueryContext::new(&self.sql, &context_values))
     }
+
+    #[cfg(feature = "query")]
+    pub(crate) fn decode_relational_all<Table, Relations>(
+        self,
+    ) -> Result<Vec<<Relations as drizzle_core::query::BuildRow<Table::Select>>::Row>>
+    where
+        Table: drizzle_core::query::QueryTable,
+        for<'row> Table::Select: FromDrizzleRow<MySQLRow<'row, Row>>,
+        Relations: drizzle_core::query::BuildRow<Table::Select>,
+        Relations::Store: drizzle_core::query::DeserializeStore,
+    {
+        self.decode_relational::<Relations, Table::Select>(Table::COLUMN_NAMES.len(), |row| {
+            Table::Select::from_row(row)
+        })
+    }
+
+    #[cfg(feature = "query")]
+    pub(crate) fn decode_relational_partial<Table, Relations>(
+        self,
+    ) -> Result<Vec<<Relations as drizzle_core::query::BuildRow<Table::PartialSelect>>::Row>>
+    where
+        Table: drizzle_core::query::QueryTable,
+        Table::PartialSelect: drizzle_core::query::FromJsonObject,
+        Relations: drizzle_core::query::BuildRow<Table::PartialSelect>,
+        Relations::Store: drizzle_core::query::DeserializeStore,
+    {
+        use drizzle_core::query::FromJsonObject as _;
+
+        self.decode_relational::<Relations, Table::PartialSelect>(1, |row| {
+            let json = String::from_row_at(row, 0)?;
+            Table::PartialSelect::from_json_str(&json, "base")
+        })
+    }
+
+    #[cfg(feature = "query")]
+    fn decode_relational<Relations, Base>(
+        self,
+        relation_offset: usize,
+        mut decode_base: impl for<'row> FnMut(&MySQLRow<'row, Row>) -> Result<Base>,
+    ) -> Result<Vec<<Relations as drizzle_core::query::BuildRow<Base>>::Row>>
+    where
+        Relations: drizzle_core::query::BuildRow<Base>,
+        Relations::Store: drizzle_core::query::DeserializeStore,
+    {
+        use drizzle_core::query::DeserializeStore as _;
+
+        let context_values = self.values.iter().collect::<Vec<_>>();
+        self.rows
+            .iter()
+            .map(|raw_row| {
+                let row = MySQLRow::new(raw_row);
+                let base = decode_base(&row)?;
+                let mut offset = relation_offset;
+                let mut next_relation = || {
+                    let value = Option::<String>::from_row_at(&row, offset)?;
+                    offset += 1;
+                    Ok(value)
+                };
+                let store = Relations::Store::from_json_columns(&mut next_relation)?;
+                Ok(Relations::assemble(base, store))
+            })
+            .collect::<Result<Vec<_>>>()
+            .with_query(|| QueryContext::new(&self.sql, &context_values))
+    }
 }
