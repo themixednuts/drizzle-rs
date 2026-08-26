@@ -70,6 +70,7 @@ arrayvec = ["drizzle-core?/arrayvec", "drizzle-mysql?/arrayvec"]
 # PostgreSQL optional type features
 chrono = ["drizzle-core?/chrono", "drizzle-sqlite?/chrono", "drizzle-postgres?/chrono", "drizzle-mysql?/chrono"]
 time = ["drizzle-core?/time", "drizzle-sqlite?/time", "drizzle-postgres?/time", "drizzle-mysql?/time"]
+rust-decimal = ["drizzle-core?/rust-decimal", "drizzle-postgres?/rust-decimal", "drizzle-mysql?/rust-decimal"]
 cidr = ["drizzle-core?/cidr", "drizzle-postgres?/cidr"]
 geo-types = ["drizzle-core?/geo-types", "drizzle-postgres?/geo-types"]
 bit-vec = ["drizzle-core?/bit-vec", "drizzle-postgres?/bit-vec"]

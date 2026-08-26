@@ -23,33 +23,33 @@ pub(crate) mod prelude {
     pub use std::{borrow::Cow, boxed::Box, rc::Rc, string::String, sync::Arc, vec::Vec};
 
     #[cfg(not(feature = "std"))]
-    pub use alloc::{borrow::Cow, boxed::Box, rc::Rc, string::String, sync::Arc, vec::Vec};
-
-    #[cfg(all(
-        not(feature = "std"),
-        any(
-            feature = "chrono",
-            feature = "time",
-            feature = "serde",
-            feature = "rust-decimal"
-        )
-    ))]
-    pub use alloc::string::ToString;
+    pub use alloc::{
+        borrow::Cow,
+        boxed::Box,
+        rc::Rc,
+        string::{String, ToString},
+        sync::Arc,
+        vec::Vec,
+    };
 }
 
 pub mod attrs;
 pub mod builder;
 pub mod common;
+pub mod driver;
 pub mod helpers;
 pub mod index;
 pub mod result;
 pub mod traits;
+pub mod transaction;
 pub mod types {
     pub use drizzle_types::mysql::types::*;
 }
 
 pub mod values;
 
+pub use driver::{MySQLPreparedRequest, MySQLRow, MySQLRowAccess};
 pub use drizzle_core::{MySQLDialect, ParamBind};
 pub use index::{MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMetadata, MySQLIndexMethod};
 pub use result::MySQLMutationResult;
+pub use transaction::{MySQLAccessMode, MySQLIsolationLevel, MySQLTransactionConfig};

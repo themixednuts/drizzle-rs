@@ -1,4 +1,5 @@
 use super::super::context::{MacroContext, ModelType};
+use crate::paths::core as core_paths;
 use proc_macro2::TokenStream;
 use quote::quote;
 
@@ -34,6 +35,25 @@ pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
     }
     let select_model_derive = quote! { #[derive(Debug, Clone)] };
     let partial_select_model_derive = quote! { #[derive(Debug, Clone, Default)] };
+    let field_count = select_types.len();
+    let row_field_inits = select_field_names
+        .iter()
+        .zip(select_types.iter())
+        .enumerate()
+        .map(|(index, (field_name, field_type))| {
+            quote! {
+                #field_name: <#field_type as drizzle::core::FromDrizzleRow<
+                    drizzle::mysql::driver::MySQLRow<'__drizzle_row, __DrizzleRow>
+                >>::from_row_at(row, offset + #index)?,
+            }
+        })
+        .collect::<Vec<_>>();
+    let type_set_cons = core_paths::type_set_cons();
+    let type_set_nil = core_paths::type_set_nil();
+    let column_list = select_types.iter().rev().fold(
+        quote!(#type_set_nil),
+        |tail, ty| quote!(#type_set_cons<#ty, #tail>),
+    );
 
     quote! {
         #select_model_derive
@@ -47,6 +67,44 @@ pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
                     #(#select_field_names: tuple.#tuple_indices,)*
                 }
             }
+        }
+
+        impl<'__drizzle_row, __DrizzleRow: drizzle::mysql::driver::MySQLRowAccess + ?Sized>
+            drizzle::core::FromDrizzleRow<
+                drizzle::mysql::driver::MySQLRow<'__drizzle_row, __DrizzleRow>
+            > for #select_ident
+        {
+            const COLUMN_COUNT: usize = #field_count;
+
+            fn from_row_at(
+                row: &drizzle::mysql::driver::MySQLRow<'__drizzle_row, __DrizzleRow>,
+                offset: usize,
+            ) -> ::std::result::Result<Self, drizzle::error::DrizzleError> {
+                ::std::result::Result::Ok(Self {
+                    #(#row_field_inits)*
+                })
+            }
+        }
+
+        impl<'__drizzle_row, __DrizzleRow: drizzle::mysql::driver::MySQLRowAccess + ?Sized>
+            drizzle::core::NullProbeRow<
+                drizzle::mysql::driver::MySQLRow<'__drizzle_row, __DrizzleRow>
+            > for #select_ident
+        {
+            fn is_null_at(
+                row: &drizzle::mysql::driver::MySQLRow<'__drizzle_row, __DrizzleRow>,
+                offset: usize,
+            ) -> ::std::result::Result<bool, drizzle::error::DrizzleError> {
+                row.is_null_at(offset)
+            }
+        }
+
+        impl<'__drizzle_row, __DrizzleRow: drizzle::mysql::driver::MySQLRowAccess + ?Sized>
+            drizzle::core::RowColumnList<
+                drizzle::mysql::driver::MySQLRow<'__drizzle_row, __DrizzleRow>
+            > for #select_ident
+        {
+            type Columns = #column_list;
         }
 
         #partial_select_model_derive

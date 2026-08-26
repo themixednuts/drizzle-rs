@@ -1,8 +1,8 @@
 //! Driver-neutral acceptance tests for the MySQL procedural macros.
 //!
-//! These deliberately exercise generated metadata and models rather than a
-//! live connection. Wire-level decoding belongs with the concrete MySQL
-//! drivers; the macro contract is still useful and testable without one.
+//! These deliberately exercise generated metadata, models, and the shared
+//! row-codec contract rather than a live connection. Concrete drivers retain
+//! connection and row ownership while reusing this decoding policy.
 
 use drizzle::core::{ColumnDialect, DrizzleTable, SQLSchemaImpl, TableDialect, ToSQL};
 use drizzle::mysql::prelude::*;
@@ -339,6 +339,9 @@ fn generated_models_have_the_expected_mysql_surface() {
 
 #[test]
 fn enum_index_schema_and_from_row_are_generated_for_mysql() {
+    use drizzle::core::FromDrizzleRow as _;
+    use drizzle::mysql::OwnedMySQLValue;
+    use drizzle::mysql::driver::MySQLRow;
     use drizzle::mysql::traits::MySQLEnum as _;
 
     assert_eq!(AccountStatus::VARIANTS, &["Draft", "Published"]);
@@ -385,6 +388,44 @@ fn enum_index_schema_and_from_row_are_generated_for_mysql() {
     };
     assert_eq!(row.id, 42);
     assert_eq!(row.email, "row@example.test");
+
+    let raw = [
+        OwnedMySQLValue::UInt(42),
+        OwnedMySQLValue::Bytes(b"decoded@example.test".to_vec()),
+    ];
+    let decoded = AccountRow::from_row(&MySQLRow::new(raw.as_slice())).unwrap();
+    assert_eq!(decoded.id, 42);
+    assert_eq!(decoded.email, "decoded@example.test");
+
+    let with_prefix = [
+        OwnedMySQLValue::UInt(9),
+        OwnedMySQLValue::UInt(42),
+        OwnedMySQLValue::Bytes(b"offset@example.test".to_vec()),
+    ];
+    let (prefix, decoded) =
+        <(u8, AccountRow)>::from_row(&MySQLRow::new(with_prefix.as_slice())).unwrap();
+    assert_eq!(prefix, 9);
+    assert_eq!(decoded.email, "offset@example.test");
+
+    let selected = [
+        OwnedMySQLValue::UInt(7),
+        OwnedMySQLValue::Bytes(b"selected@example.test".to_vec()),
+        OwnedMySQLValue::Bytes(b"Published".to_vec()),
+        OwnedMySQLValue::UInt(3),
+        OwnedMySQLValue::UInt(21),
+        OwnedMySQLValue::UInt(21),
+    ];
+    let selected = SelectAccounts::from_row(&MySQLRow::new(selected.as_slice())).unwrap();
+    assert_eq!(selected.id, 7);
+    assert_eq!(selected.status, AccountStatus::Published);
+    assert_eq!(selected.login_count, 3);
+
+    let absent: [OwnedMySQLValue; 6] = core::array::from_fn(|_| OwnedMySQLValue::Null);
+    assert!(
+        Option::<SelectAccounts>::from_row(&MySQLRow::new(absent.as_slice()))
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]

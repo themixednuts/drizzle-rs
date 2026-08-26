@@ -26,6 +26,8 @@ arrayvec = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
 bytes = { workspace = true, optional = true }
 compact_str = { workspace = true, optional = true }
+mysql_common = { workspace = true, optional = true }
+flate2 = { workspace = true, optional = true }
 
 [features]
 default = ["std"]
@@ -36,10 +38,14 @@ alloc = ["drizzle-types/alloc"]
 
 serde = ["dep:serde_json", "dep:serde", "drizzle-core/serde", "drizzle-types/serde"]
 uuid = ["dep:uuid", "uuid/js", "drizzle-core/uuid", "drizzle-types/uuid"]
-chrono = ["dep:chrono", "drizzle-core/chrono"]
-time = ["dep:time", "drizzle-core/time"]
-rust-decimal = ["dep:rust_decimal", "drizzle-core/rust-decimal"]
+chrono = ["dep:chrono", "drizzle-core/chrono", "mysql_common?/chrono"]
+time = ["dep:time", "drizzle-core/time", "mysql_common?/time"]
+rust-decimal = ["dep:rust_decimal", "drizzle-core/rust-decimal", "mysql_common?/rust_decimal"]
 arrayvec = ["dep:arrayvec", "drizzle-core/arrayvec"]
 smallvec = ["dep:smallvec", "drizzle-core/smallvec-types"]
 bytes = ["dep:bytes", "drizzle-core/bytes"]
 compact-str = ["dep:compact_str", "drizzle-core/compact-str"]
+# Shared protocol types used by both `mysql` and `mysql_async` adapters. This
+# does not select a concrete client and is deliberately absent from the base
+# no_std dialect build.
+mysql-common = ["std", "dep:mysql_common", "dep:flate2"]

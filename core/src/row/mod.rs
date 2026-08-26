@@ -945,7 +945,7 @@ where
 #[diagnostic::on_unimplemented(
     message = "cannot deserialize `{Self}` from a database row",
     label = "this type does not implement FromDrizzleRow",
-    note = "derive #[SQLiteFromRow] or #[PostgresFromRow]"
+    note = "derive #[SQLiteFromRow], #[PostgresFromRow], or #[MySQLFromRow]"
 )]
 pub trait FromDrizzleRow<Row: ?Sized>: Sized {
     /// Number of columns this type reads from the row.

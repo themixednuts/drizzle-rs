@@ -522,6 +522,14 @@ pub mod mysql {
         quote!(drizzle::mysql::common::MySQLSchemaType)
     }
 
+    pub fn mysql_row() -> TokenStream {
+        quote!(drizzle::mysql::driver::MySQLRow)
+    }
+
+    pub fn mysql_row_access() -> TokenStream {
+        quote!(drizzle::mysql::driver::MySQLRowAccess)
+    }
+
     pub fn mysql_table() -> TokenStream {
         quote!(drizzle::mysql::traits::MySQLTable)
     }

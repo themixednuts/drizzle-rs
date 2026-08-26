@@ -198,6 +198,24 @@ pub fn generate_enum_impl(
         impl drizzle::core::ValueTypeForDialect<drizzle::mysql::MySQLDialect> for &#name {
             type SQLType = drizzle::mysql::types::Enum;
         }
+
+        impl<'__drizzle_row, __DrizzleRow: drizzle::mysql::driver::MySQLRowAccess + ?Sized>
+            drizzle::core::FromDrizzleRow<
+                drizzle::mysql::driver::MySQLRow<'__drizzle_row, __DrizzleRow>
+            > for #name
+        {
+            const COLUMN_COUNT: usize = 1;
+
+            fn from_row_at(
+                row: &drizzle::mysql::driver::MySQLRow<'__drizzle_row, __DrizzleRow>,
+                offset: usize,
+            ) -> ::std::result::Result<Self, drizzle::error::DrizzleError> {
+                let value = <::std::string::String as drizzle::core::FromDrizzleRow<
+                    drizzle::mysql::driver::MySQLRow<'__drizzle_row, __DrizzleRow>
+                >>::from_row_at(row, offset)?;
+                <Self as drizzle::mysql::traits::MySQLEnum>::try_from_str(&value)
+            }
+        }
     })
 }
 

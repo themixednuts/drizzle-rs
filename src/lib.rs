@@ -444,7 +444,8 @@ pub mod mysql {
     pub use drizzle_mysql::values::{MySQLValue, OwnedMySQLValue};
     #[doc(inline)]
     pub use drizzle_mysql::{
-        MySQLDialect, ParamBind, attrs, builder, common, helpers, index, traits, types, values,
+        MySQLDialect, ParamBind, attrs, builder, common, driver, helpers, index, traits,
+        transaction, types, values,
     };
 
     /// `MySQL` prelude for schema declarations.
@@ -470,6 +471,7 @@ pub mod mysql {
         pub use drizzle_mysql::values::{
             MySQLInsertValue, MySQLUpdateValue, MySQLValue, OwnedMySQLValue,
         };
+        pub use drizzle_mysql::{MySQLAccessMode, MySQLIsolationLevel, MySQLTransactionConfig};
         pub use drizzle_mysql::{
             MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMetadata, MySQLIndexMethod,
         };
