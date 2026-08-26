@@ -19,6 +19,13 @@
 //! - [`PostgresIndex`] - Define indexes on `PostgreSQL` tables
 //! - [`PostgresSchema`] - Derive macro to group tables and indexes into a schema
 //!
+//! ### `MySQL`
+//! - [`MySQLTable`] - Define `MySQL` table schemas with type safety
+//! - [`MySQLEnum`] - Define inline enums stored in `MySQL` columns
+//! - [`MySQLIndex`] - Define indexes on `MySQL` tables
+//! - [`MySQLSchema`] - Derive macro to group tables and indexes into a schema
+//! - [`MySQLFromRow`] - Derive a driver-neutral `MySQL` row selector
+//!
 //! ### Shared
 //! - [`SQLiteFromRow`] - Derive automatic row-to-struct conversion
 //! - [`sql!`] - Build SQL queries with embedded expressions
@@ -123,6 +130,9 @@ mod sqlite;
 
 #[cfg(feature = "postgres")]
 mod postgres;
+
+#[cfg(feature = "mysql")]
+mod mysql;
 
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
@@ -3212,6 +3222,77 @@ pub fn PostgresPolicy(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr_input = syn::parse_macro_input!(attr as crate::postgres::policy::PolicyAttributes);
 
     match crate::postgres::policy::postgres_policy_attr_macro(&attr_input, &input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Derive metadata and conversions for an inline `MySQL` enum.
+#[cfg(feature = "mysql")]
+#[proc_macro_derive(MySQLEnum)]
+pub fn mysql_enum_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+
+    match &input.data {
+        syn::Data::Enum(data) => {
+            match crate::mysql::r#enum::generate_enum_impl(&input.ident, data, &input.attrs) {
+                Ok(tokens) => tokens.into(),
+                Err(err) => err.to_compile_error().into(),
+            }
+        }
+        _ => syn::Error::new_spanned(input, "#[derive(MySQLEnum)] can only be applied to enums")
+            .to_compile_error()
+            .into(),
+    }
+}
+
+/// Define a `MySQL` table schema with type-safe column definitions.
+#[cfg(feature = "mysql")]
+#[allow(non_snake_case)]
+#[proc_macro_attribute]
+pub fn MySQLTable(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as syn::DeriveInput);
+    let attrs = parse_macro_input!(attr as crate::mysql::table::TableAttributes);
+
+    match crate::mysql::table::table_attr_macro(&input, &attrs) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Define a driver-neutral `MySQL` index.
+#[cfg(feature = "mysql")]
+#[allow(non_snake_case)]
+#[proc_macro_attribute]
+pub fn MySQLIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as syn::DeriveInput);
+    let attrs = parse_macro_input!(attr as crate::mysql::index::IndexAttributes);
+
+    match crate::mysql::index::mysql_index_attr_macro(attrs, &input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Derive a `MySQL` schema from named table and index fields.
+#[cfg(feature = "mysql")]
+#[proc_macro_derive(MySQLSchema)]
+pub fn mysql_schema_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+
+    match crate::mysql::generate_mysql_schema_derive_impl(&input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Derive a driver-neutral row selector for `MySQL` queries.
+#[cfg(feature = "mysql")]
+#[proc_macro_derive(MySQLFromRow, attributes(column, from))]
+pub fn mysql_from_row_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+
+    match crate::fromrow::generate_mysql_from_row_impl(&input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }

@@ -1,0 +1,5 @@
+error: unsupported Rust type `MyUuid` for MySQL; add #[derive(MySQLEnum)] and #[column(ENUM)], or specify a supported MySQL type
+ --> tests/ui/mysql_macros/fail/lookalike_rust_type.rs:7:12
+  |
+7 |     value: MyUuid,
+  |            ^^^^^^

@@ -54,6 +54,12 @@ impl From<&bool> for MySQLValue<'_> {
     }
 }
 
+impl From<char> for MySQLValue<'_> {
+    fn from(value: char) -> Self {
+        Self::from(String::from(value))
+    }
+}
+
 impl From<f32> for MySQLValue<'_> {
     fn from(value: f32) -> Self {
         Self::Float(value)
@@ -180,6 +186,30 @@ impl<'a> From<Cow<'a, [u8]>> for MySQLValue<'a> {
 impl From<Vec<u8>> for MySQLValue<'_> {
     fn from(value: Vec<u8>) -> Self {
         Self::Bytes(Cow::Owned(value))
+    }
+}
+
+impl<const N: usize> From<[u8; N]> for MySQLValue<'_> {
+    fn from(value: [u8; N]) -> Self {
+        Self::Bytes(Cow::Owned(value.to_vec()))
+    }
+}
+
+impl<'a, const N: usize> From<&'a [u8; N]> for MySQLValue<'a> {
+    fn from(value: &'a [u8; N]) -> Self {
+        Self::Bytes(Cow::Borrowed(value))
+    }
+}
+
+impl<const N: usize> From<[char; N]> for MySQLValue<'_> {
+    fn from(value: [char; N]) -> Self {
+        Self::from(value.into_iter().collect::<String>())
+    }
+}
+
+impl<const N: usize> From<&[char; N]> for MySQLValue<'_> {
+    fn from(value: &[char; N]) -> Self {
+        Self::from(value.iter().collect::<String>())
     }
 }
 

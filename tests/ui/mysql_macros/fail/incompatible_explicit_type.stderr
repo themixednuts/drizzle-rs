@@ -1,0 +1,23 @@
+error[E0277]: SQL type `drizzle::mysql::types::Int` is not assignable from `drizzle::mysql::types::Text`
+ --> tests/ui/mysql_macros/fail/incompatible_explicit_type.rs:3:1
+  |
+3 | #[MySQLTable]
+  | ^^^^^^^^^^^^^ this value type cannot be bound to the placeholder/column type
+  |
+  = help: the trait `Assignable<drizzle::mysql::types::Text>` is not implemented for `drizzle::mysql::types::Int`
+  = note: assignment is stricter than comparison compatibility; use a value matching the target SQL marker
+  = help: `drizzle::mysql::types::Int` implements trait `Assignable<Rhs>`:
+            Assignable<drizzle::mysql::types::MediumInt>
+            Assignable<drizzle::mysql::types::MediumIntUnsigned>
+            Assignable<drizzle::mysql::types::SmallInt>
+            Assignable<drizzle::mysql::types::SmallIntUnsigned>
+            Assignable<drizzle::mysql::types::TinyInt>
+            Assignable<drizzle::mysql::types::TinyIntUnsigned>
+            Assignable<drizzle::mysql::types::Year>
+            Assignable
+note: required by a bound in `assert_mysql_assignment`
+ --> tests/ui/mysql_macros/fail/incompatible_explicit_type.rs:3:1
+  |
+3 | #[MySQLTable]
+  | ^^^^^^^^^^^^^ required by this bound in `assert_mysql_assignment`
+  = note: this error originates in the attribute macro `MySQLTable` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,4 +1,4 @@
-//! Common utilities shared across `SQLite` and `PostgreSQL` macro implementations.
+//! Common utilities shared across SQL dialect macro implementations.
 //!
 //! This module provides shared abstractions to reduce code duplication between
 //! the dialect-specific macro implementations.
@@ -34,6 +34,8 @@ pub use type_mapping::{generate_arithmetic_ops, generate_expr_impl, rust_type_to
 pub use type_mapping::{postgres_column_type_is_numeric, postgres_column_type_to_sql_type};
 #[cfg(feature = "sqlite")]
 pub use type_mapping::{sqlite_column_type_is_numeric, sqlite_column_type_to_sql_type};
+#[cfg(any(feature = "postgres", feature = "mysql"))]
+pub use type_utils::type_is_array_char;
 #[cfg(feature = "sqlite")]
 pub use type_utils::type_is_byte_slice;
 pub use type_utils::{
@@ -45,8 +47,8 @@ pub use type_utils::{
 };
 #[cfg(feature = "postgres")]
 pub use type_utils::{
-    type_is_array_char, type_is_bit_vec, type_is_geo_linestring, type_is_geo_point,
-    type_is_geo_rect, type_is_ip_addr, type_is_ip_cidr, type_is_mac_addr, vec_inner_type,
+    type_is_bit_vec, type_is_geo_linestring, type_is_geo_point, type_is_geo_rect, type_is_ip_addr,
+    type_is_ip_cidr, type_is_mac_addr, vec_inner_type,
 };
 
 // Re-export dialect traits (always available)
@@ -59,3 +61,6 @@ pub use generators::SqliteDialect;
 
 #[cfg(feature = "postgres")]
 pub use generators::PostgresDialect;
+
+#[cfg(feature = "mysql")]
+pub use generators::MySQLDialect;

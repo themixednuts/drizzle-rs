@@ -10,6 +10,13 @@ fn must_fail(glob: &str) {
     t.compile_fail(glob);
 }
 
+#[cfg(feature = "mysql")]
+#[test]
+fn mysql_macros_ui() {
+    must_pass("tests/ui/mysql_macros/pass/*.rs");
+    must_fail("tests/ui/mysql_macros/fail/*.rs");
+}
+
 #[cfg(all(feature = "rusqlite", feature = "uuid"))]
 #[test]
 fn strict_decode_ui() {

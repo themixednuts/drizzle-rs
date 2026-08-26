@@ -1,0 +1,5 @@
+error: MySQL does not support partial indexes; remove `where = ...`
+  --> tests/ui/mysql_macros/fail/partial_index_where.rs:11:22
+   |
+11 | #[MySQLIndex(unique, where = "email <> ''")]
+   |                      ^^^^^

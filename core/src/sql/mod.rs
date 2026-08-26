@@ -372,6 +372,31 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         SQL { chunks }
     }
 
+    /// Own every borrowed SQL fragment while mapping parameter values.
+    ///
+    /// This is used by generated models that outlive their source values. It
+    /// preserves identifiers, raw fragments, placeholders, tables, and columns
+    /// instead of assuming the fragment consists of a single parameter.
+    pub fn map_params_into_owned<U: SQLParam>(self, mut f: impl FnMut(V) -> U) -> SQL<'static, U> {
+        let chunks = self
+            .chunks
+            .into_iter()
+            .map(|chunk| match chunk {
+                SQLChunk::Token(token) => SQLChunk::Token(token),
+                SQLChunk::Ident(value) => SQLChunk::Ident(Cow::Owned(value.into_owned())),
+                SQLChunk::Raw(value) => SQLChunk::Raw(Cow::Owned(value.into_owned())),
+                SQLChunk::Number(value) => SQLChunk::Number(value),
+                SQLChunk::Param(param) => SQLChunk::Param(Param::new(
+                    param.placeholder,
+                    param.value.map(|value| Cow::Owned(f(value.into_owned()))),
+                )),
+                SQLChunk::Table(table) => SQLChunk::Table(table),
+                SQLChunk::Column(column) => SQLChunk::Column(column),
+            })
+            .collect();
+        SQL { chunks }
+    }
+
     /// Converts to owned version (consuming self to avoid clone)
     #[inline]
     pub fn into_owned(self) -> OwnedSQL<V> {

@@ -2486,6 +2486,7 @@ dependencies = [
  "const_format",
  "drizzle-core",
  "drizzle-migrations",
+ "drizzle-mysql",
  "drizzle-postgres",
  "drizzle-sqlite",
  "drizzle-types",

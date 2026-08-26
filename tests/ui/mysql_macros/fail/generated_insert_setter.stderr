@@ -1,0 +1,14 @@
+error[E0599]: no method named `with_email_length` found for struct `InsertAccounts<'a, T>` in the current scope
+  --> tests/ui/mysql_macros/fail/generated_insert_setter.rs:13:55
+   |
+ 3 | #[MySQLTable]
+   | ------------- method `with_email_length` not found for this struct
+...
+13 |     let _ = InsertAccounts::new("hello@example.test").with_email_length(18_u32);
+   |                                                       ^^^^^^^^^^^^^^^^^
+   |
+help: there is a method `with_email` with a similar name
+   |
+13 -     let _ = InsertAccounts::new("hello@example.test").with_email_length(18_u32);
+13 +     let _ = InsertAccounts::new("hello@example.test").with_email(18_u32);
+   |

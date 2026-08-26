@@ -1,6 +1,6 @@
 //! # Drizzle for Rust
 //!
-//! A type-safe SQL query builder for Rust, supporting `SQLite` and `PostgreSQL`.
+//! A type-safe SQL query builder for Rust, supporting `SQLite`, `PostgreSQL`, and `MySQL`.
 //!
 //! ## Quick Start
 //!
@@ -52,6 +52,7 @@
 //! For schema declarations, import the database prelude:
 //! - `drizzle::sqlite::prelude::*`
 //! - `drizzle::postgres::prelude::*`
+//! - `drizzle::mysql::prelude::*`
 //!
 //! For expressions and conditions, import from `drizzle::core::expr`.
 
@@ -438,9 +439,34 @@ pub mod postgres {
 #[cfg_attr(docsrs, doc(cfg(feature = "mysql")))]
 pub mod mysql {
     #[doc(inline)]
+    pub use drizzle_macros::{MySQLEnum, MySQLFromRow, MySQLIndex, MySQLSchema, MySQLTable};
+    #[doc(inline)]
     pub use drizzle_mysql::values::{MySQLValue, OwnedMySQLValue};
     #[doc(inline)]
-    pub use drizzle_mysql::{MySQLDialect, ParamBind, types, values};
+    pub use drizzle_mysql::{MySQLDialect, ParamBind, attrs, common, traits, types, values};
+
+    /// `MySQL` prelude for schema declarations.
+    pub mod prelude {
+        // Core types and traits
+        pub use crate::core::ToSQL;
+        pub use crate::core::{Joinable, Relation, SchemaHasTable};
+        pub use crate::core::{
+            OrderBy, Param, ParamBind, ParamSet, Placeholder, SQL, SQLChunk, Token,
+            TypedPlaceholder, asc, desc,
+        };
+        pub use crate::core::{OwnedPreparedStatement, PreparedStatement};
+        pub use drizzle_core::tag;
+        pub use drizzle_core::traits::*;
+        // MySQL macros
+        pub use drizzle_macros::{MySQLEnum, MySQLFromRow, MySQLIndex, MySQLSchema, MySQLTable};
+        // MySQL types
+        pub use drizzle_mysql::attrs::*;
+        pub use drizzle_mysql::common::MySQLSchemaType;
+        pub use drizzle_mysql::traits::{MySQLColumn, MySQLEnum, MySQLIndexColumn, MySQLTable};
+        pub use drizzle_mysql::values::{
+            MySQLInsertValue, MySQLUpdateValue, MySQLValue, OwnedMySQLValue,
+        };
+    }
 }
 
 // =============================================================================

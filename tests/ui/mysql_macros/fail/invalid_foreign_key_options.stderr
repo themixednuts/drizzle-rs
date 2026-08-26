@@ -1,0 +1,14 @@
+error: MySQL temporary tables cannot declare foreign keys
+  --> tests/ui/mysql_macros/fail/invalid_foreign_key_options.rs:10:1
+   |
+10 | / struct TemporaryChildren {
+11 | |     #[column(REFERENCES = Parents::id)]
+12 | |     parent_id: u64,
+13 | | }
+   | |_^
+
+error: SET_NULL requires a nullable MySQL foreign-key column
+  --> tests/ui/mysql_macros/fail/invalid_foreign_key_options.rs:18:5
+   |
+18 |     parent_id: u64,
+   |     ^^^^^^^^^

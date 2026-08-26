@@ -219,6 +219,74 @@ where
     }
 }
 
+#[cfg(any(feature = "compact-str", feature = "bytes"))]
+macro_rules! impl_tosql_param_clone {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl<'a, V> ToSQL<'a, V> for $ty
+            where
+                V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+            {
+                fn to_sql(&self) -> SQL<'a, V> {
+                    SQL::param(V::from(self.clone()))
+                }
+
+                fn into_sql(self) -> SQL<'a, V> {
+                    SQL::param(V::from(self))
+                }
+            }
+        )+
+    };
+}
+
+#[cfg(feature = "compact-str")]
+impl_tosql_param_clone!(compact_str::CompactString);
+
+#[cfg(feature = "bytes")]
+impl_tosql_param_clone!(bytes::Bytes, bytes::BytesMut);
+
+#[cfg(feature = "arrayvec")]
+impl<'a, V, const N: usize> ToSQL<'a, V> for arrayvec::ArrayString<N>
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(*self))
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        SQL::param(V::from(self))
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<'a, V, const N: usize> ToSQL<'a, V> for arrayvec::ArrayVec<u8, N>
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(self.clone()))
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        SQL::param(V::from(self))
+    }
+}
+
+#[cfg(feature = "smallvec-types")]
+impl<'a, V, const N: usize> ToSQL<'a, V> for smallvec::SmallVec<[u8; N]>
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(self.clone()))
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        SQL::param(V::from(self))
+    }
+}
+
 impl<'a, V> ToSQL<'a, V> for Cow<'a, str>
 where
     V: SQLParam + 'a + From<&'a str> + From<String> + Into<Cow<'a, V>>,
@@ -293,7 +361,7 @@ macro_rules! impl_tosql_param_copy {
 }
 
 impl_tosql_param_copy!(
-    i8, i16, i32, i64, f32, f64, bool, u8, u16, u32, u64, isize, usize
+    i8, i16, i32, i64, f32, f64, bool, char, u8, u16, u32, u64, isize, usize
 );
 
 impl<'a, V, T> ToSQL<'a, V> for Option<T>

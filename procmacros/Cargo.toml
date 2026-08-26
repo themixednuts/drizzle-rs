@@ -29,6 +29,7 @@ drizzle-types = { workspace = true, features = ["std"] }
 drizzle-core = { workspace = true, default-features = true, optional = true }
 drizzle-sqlite = { workspace = true, default-features = true, optional = true }
 drizzle-postgres = { workspace = true, default-features = true, optional = true }
+drizzle-mysql = { workspace = true, default-features = true, optional = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
@@ -43,6 +44,7 @@ bytes = { workspace = true, optional = true }
 drizzle-core = { workspace = true, default-features = true }
 drizzle-sqlite = { workspace = true, default-features = true }
 drizzle-postgres = { workspace = true, default-features = true }
+drizzle-mysql = { workspace = true, default-features = true }
 uuid = { workspace = true }
 const_format = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
@@ -53,34 +55,37 @@ default = []
 # whichever dialect crates are already activated. Using `foo/bar` (non-weak)
 # would activate optional dialect deps — e.g. `uuid` pulling in drizzle-postgres
 # for a rusqlite-only consumer.
-serde = ["drizzle-core?/serde", "drizzle-sqlite?/serde", "drizzle-postgres?/serde"]
+serde = ["drizzle-core?/serde", "drizzle-sqlite?/serde", "drizzle-postgres?/serde", "drizzle-mysql?/serde"]
 sqlite = ["dep:drizzle-core", "dep:drizzle-sqlite"]
 postgres = ["dep:drizzle-core", "dep:drizzle-postgres"]
-mysql = []
+mysql = ["dep:drizzle-core", "dep:drizzle-mysql"]
 uuid = [
     "drizzle-core?/uuid",
     "drizzle-sqlite?/uuid",
     "drizzle-postgres?/uuid",
+    "drizzle-mysql?/uuid",
     "rusqlite?/uuid",
 ]
-arrayvec = ["drizzle-core?/arrayvec"]
+arrayvec = ["drizzle-core?/arrayvec", "drizzle-mysql?/arrayvec"]
 # PostgreSQL optional type features
-chrono = ["drizzle-core?/chrono", "drizzle-sqlite?/chrono", "drizzle-postgres?/chrono"]
-time = ["drizzle-core?/time", "drizzle-sqlite?/time", "drizzle-postgres?/time"]
+chrono = ["drizzle-core?/chrono", "drizzle-sqlite?/chrono", "drizzle-postgres?/chrono", "drizzle-mysql?/chrono"]
+time = ["drizzle-core?/time", "drizzle-sqlite?/time", "drizzle-postgres?/time", "drizzle-mysql?/time"]
 cidr = ["drizzle-core?/cidr", "drizzle-postgres?/cidr"]
 geo-types = ["drizzle-core?/geo-types", "drizzle-postgres?/geo-types"]
 bit-vec = ["drizzle-core?/bit-vec", "drizzle-postgres?/bit-vec"]
-compact-str = ["drizzle-core?/compact-str", "drizzle-postgres?/compact-str"]
+compact-str = ["drizzle-core?/compact-str", "drizzle-postgres?/compact-str", "drizzle-mysql?/compact-str"]
 bytes = [
     "dep:bytes",
     "drizzle-core?/bytes",
     "drizzle-sqlite?/bytes",
     "drizzle-postgres?/bytes",
+    "drizzle-mysql?/bytes",
 ]
 smallvec = [
     "drizzle-core?/smallvec-types",
     "drizzle-sqlite?/smallvec",
     "drizzle-postgres?/smallvec",
+    "drizzle-mysql?/smallvec",
 ]
 rusqlite = ["sqlite", "dep:rusqlite", "drizzle-core/rusqlite", "drizzle-sqlite/rusqlite"]
 libsql = ["sqlite", "dep:libsql", "drizzle-core/libsql", "drizzle-sqlite/libsql"]

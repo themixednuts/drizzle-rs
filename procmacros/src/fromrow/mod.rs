@@ -693,3 +693,47 @@ pub fn generate_postgres_from_row_impl(input: &DeriveInput) -> Result<TokenStrea
         }
     })
 }
+
+/// Generate the driver-neutral selector contract for `MySQLFromRow`.
+///
+/// Concrete `mysql` and `mysql_async` row decoding is intentionally supplied
+/// by their adapters once the shared MySQL codec port is available.
+#[cfg(feature = "mysql")]
+pub fn generate_mysql_from_row_impl(input: &DeriveInput) -> Result<TokenStream> {
+    use crate::paths::mysql as mysql_paths;
+
+    let struct_name = &input.ident;
+    let default_from = parse_default_from_table(input)?;
+    let (fields, is_tuple) = extract_struct_fields(input)?;
+    let mysql_value = mysql_paths::mysql_value();
+    let tosql_impl = generate_tosql_impl(
+        struct_name,
+        &input.vis,
+        default_from.as_ref(),
+        fields,
+        is_tuple,
+        &mysql_value,
+    );
+
+    let select_as_from = quote!(drizzle::core::SelectAsFrom);
+    let select_as_from_impl = default_from.as_ref().map_or_else(
+        || quote!(impl<__Table> #select_as_from<__Table> for #struct_name {}),
+        |default_table| quote!(impl #select_as_from<#default_table> for #struct_name {}),
+    );
+    let select_required_tables = quote!(drizzle::core::SelectRequiredTables);
+    let required_scope =
+        build_scope_list_type(&collect_required_tables(fields, default_from.as_ref()));
+    let into_select_target = core_paths::into_select_target();
+    let select_as = quote!(drizzle::core::SelectAs);
+
+    Ok(quote! {
+        #tosql_impl
+        #select_as_from_impl
+        impl #select_required_tables for #struct_name {
+            type RequiredTables = #required_scope;
+        }
+        impl #into_select_target for #struct_name {
+            type Marker = #select_as<#struct_name>;
+        }
+    })
+}

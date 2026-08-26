@@ -54,6 +54,13 @@ pub enum TableDialect {
         without_rowid: bool,
         strict: bool,
     },
+    MySQL {
+        is_temporary: bool,
+        engine: Option<&'static str>,
+        charset: Option<&'static str>,
+        collate: Option<&'static str>,
+        comment: Option<&'static str>,
+    },
 }
 
 impl Default for TableDialect {

@@ -1,0 +1,201 @@
+//! Insert model generation.
+//!
+//! Generates the `InsertModel` struct with type-safe field tracking using marker types.
+
+use super::super::context::{MacroContext, ModelType};
+use super::convenience::generate_convenience_method;
+use crate::common::model_markers::{
+    generate_empty_pattern_tuple, generate_marker_types, generate_pattern_literal,
+};
+use crate::mysql::field::{FieldInfo, TypeCategory};
+use proc_macro2::TokenStream;
+use quote::quote;
+
+/// Generates the Insert model with convenience methods and constructor
+pub fn generate_insert_model(ctx: &MacroContext, required_fields_pattern: &[bool]) -> TokenStream {
+    let insert_model = &ctx.insert_model_ident;
+    let struct_ident = &ctx.struct_ident;
+
+    // Collect &Ident for the shared marker-helpers (avoids re-importing the
+    // dialect-specific FieldInfo type into common/).
+    let field_idents: Vec<&syn::Ident> = ctx.field_infos.iter().map(|f| &f.ident).collect();
+
+    // Convert bool slice to tuple literal for required fields pattern
+    let required_fields_pattern_literal =
+        generate_pattern_literal(ctx.struct_ident, &field_idents, required_fields_pattern);
+
+    // Generate tuple type with NotSet for each field
+    let empty_pattern_tuple = generate_empty_pattern_tuple(ctx.struct_ident, &field_idents);
+
+    let mut insert_fields = Vec::new();
+    let mut insert_default_fields = Vec::new();
+    let mut insert_field_names = Vec::new();
+    let mut insert_field_indices = Vec::new();
+    let mut insert_convenience_methods = Vec::new();
+    let mut required_constructor_params = Vec::new();
+    let mut required_constructor_assignments = Vec::new();
+
+    for (field_index, info) in ctx.field_infos.iter().enumerate() {
+        let name = &info.ident;
+        let field_type = MacroContext::get_field_type_for_model(info, ModelType::Insert);
+        let is_optional = MacroContext::is_field_optional_in_insert(info);
+
+        insert_fields.push(quote! { #name: #field_type });
+        insert_default_fields.push(get_insert_default_value(info));
+        insert_field_names.push(name);
+        insert_field_indices.push(quote! { #field_index });
+        if should_generate_insert_setter(info) {
+            insert_convenience_methods.push(generate_convenience_method(
+                info,
+                ModelType::Insert,
+                ctx,
+            ));
+        }
+
+        // Generate constructor parameters only for required fields
+        if !is_optional {
+            let (param, assignment) = generate_constructor_param(info);
+            required_constructor_params.push(param);
+            required_constructor_assignments.push(assignment);
+        }
+    }
+
+    // Generate marker types for each field
+    let field_marker_types = generate_marker_types(ctx.struct_ident, &field_idents);
+
+    quote! {
+        // Generate marker types for each field
+        #(#field_marker_types)*
+
+        // Insert Model with PhantomData pattern tracking
+        #[derive(Debug, Clone)]
+        pub struct #insert_model<'a, T = #empty_pattern_tuple> {
+            #(#insert_fields,)*
+            _pattern: ::std::marker::PhantomData<T>,
+        }
+
+        impl<'a, T> Default for #insert_model<'a, T> {
+            fn default() -> Self {
+                Self {
+                    #(#insert_default_fields,)*
+                    _pattern: ::std::marker::PhantomData,
+                }
+            }
+        }
+
+        impl<'a> #insert_model<'a, #empty_pattern_tuple> {
+            #[allow(clippy::too_many_arguments)]
+            pub fn new(#(#required_constructor_params),*) -> #insert_model<'a, #required_fields_pattern_literal> {
+                #insert_model {
+                    #(#required_constructor_assignments,)*
+                    ..Default::default()
+                }
+            }
+        }
+
+        impl<'a, T> #insert_model<'a, T> {
+            /// Converts this insert model to an owned version with 'static lifetime
+            pub fn into_owned(self) -> #insert_model<'static, T> {
+                #insert_model {
+                    #(#insert_field_names: self.#insert_field_names.into_owned(),)*
+                    _pattern: ::std::marker::PhantomData,
+                }
+            }
+        }
+
+        // Convenience methods for setting fields
+        #(#insert_convenience_methods)*
+
+        impl<'a, T> ToSQL<'a, MySQLValue<'a>> for #insert_model<'a, T> {
+            fn to_sql(&self) -> SQL<'a, MySQLValue<'a>> {
+                SQLModel::values(self)
+            }
+        }
+
+        impl<'a, T> SQLModel<'a, MySQLValue<'a>> for #insert_model<'a, T> {
+            fn columns(&self) -> ::std::borrow::Cow<'static, [drizzle::core::ColumnRef]> {
+                let all_columns = <#struct_ident as drizzle::core::DrizzleTable>::TABLE_REF.columns;
+                let mut result_columns = Vec::new();
+
+                #(
+                    match &self.#insert_field_names {
+                        MySQLInsertValue::Omit => {}
+                        _ => {
+                            result_columns.push(all_columns[#insert_field_indices]);
+                        }
+                    }
+                )*
+
+                ::std::borrow::Cow::Owned(result_columns)
+            }
+
+            fn values(&self) -> SQL<'a, MySQLValue<'a>> {
+                let mut sql_parts = Vec::new();
+
+                #(
+                    match &self.#insert_field_names {
+                        MySQLInsertValue::Omit => {}
+                        MySQLInsertValue::Null => {
+                            sql_parts.push(SQL::param(MySQLValue::Null));
+                        }
+                        MySQLInsertValue::Value(wrapper) => {
+                            sql_parts.push(wrapper.value.clone());
+                        }
+                    }
+                )*
+
+                SQL::join(sql_parts, Token::COMMA)
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+/// Gets the default value expression for insert model
+fn get_insert_default_value(field: &FieldInfo) -> TokenStream {
+    let name = &field.ident;
+
+    // Handle runtime function defaults (default_fn)
+    if let Some(f) = &field.default_fn {
+        return quote! { #name: ((#f)()).into() };
+    }
+
+    // Handle compile-time MySQL defaults (SQL defaults - let database handle)
+    if field.default.is_some() {
+        return quote! { #name: MySQLInsertValue::Omit };
+    }
+
+    // Default to Omit so database can handle defaults
+    quote! { #name: MySQLInsertValue::Omit }
+}
+
+fn should_generate_insert_setter(field: &FieldInfo) -> bool {
+    field.generated_column.is_none()
+}
+
+/// Generate constructor parameter and assignment based on field type category.
+fn generate_constructor_param(info: &FieldInfo) -> (TokenStream, TokenStream) {
+    let field_name = &info.ident;
+    let base_type = &info.base_type;
+    let category = info.type_category();
+
+    match category {
+        TypeCategory::String => (
+            quote! { #field_name: impl Into<MySQLInsertValue<'a, MySQLValue<'a>, ::std::string::String>> },
+            quote! { #field_name: #field_name.into() },
+        ),
+        TypeCategory::Blob => (
+            quote! { #field_name: impl Into<MySQLInsertValue<'a, MySQLValue<'a>, ::std::vec::Vec<u8>>> },
+            quote! { #field_name: #field_name.into() },
+        ),
+        // ArrayString, ArrayVec, Uuid, Json, Enum, and primitives use base type directly
+        // Note: Custom JSON types now have TryInto<MySQLValue> impls generated by json.rs
+        _ => (
+            quote! { #field_name: impl Into<MySQLInsertValue<'a, MySQLValue<'a>, #base_type>> },
+            quote! { #field_name: #field_name.into() },
+        ),
+    }
+}

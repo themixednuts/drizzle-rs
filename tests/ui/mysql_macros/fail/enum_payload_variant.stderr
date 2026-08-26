@@ -1,0 +1,5 @@
+error: MySQLEnum only supports fieldless variants
+ --> tests/ui/mysql_macros/fail/enum_payload_variant.rs:5:5
+  |
+5 |     Value(String),
+  |     ^^^^^^^^^^^^^

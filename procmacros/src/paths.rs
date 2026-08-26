@@ -415,6 +415,11 @@ pub mod core {
     pub fn postgres_dialect() -> TokenStream {
         quote!(drizzle::core::dialect::PostgresDialect)
     }
+
+    /// Path to the `MySQLDialect` marker type.
+    pub fn mysql_dialect() -> TokenStream {
+        quote!(drizzle::core::dialect::MySQLDialect)
+    }
 }
 
 // =============================================================================
@@ -486,6 +491,61 @@ pub mod sqlite {
     /// Path to the `SQLite` types module (Any, Integer, Text, Real, Blob, Numeric).
     pub fn types() -> TokenStream {
         quote!(drizzle::sqlite::types)
+    }
+}
+
+// =============================================================================
+// MYSQL TYPES AND TRAITS
+// =============================================================================
+
+#[cfg(feature = "mysql")]
+pub mod mysql {
+    use super::{TokenStream, quote};
+
+    pub fn mysql_value() -> TokenStream {
+        quote!(drizzle::mysql::values::MySQLValue)
+    }
+
+    pub fn mysql_insert_value() -> TokenStream {
+        quote!(drizzle::mysql::values::MySQLInsertValue)
+    }
+
+    pub fn mysql_update_value() -> TokenStream {
+        quote!(drizzle::mysql::values::MySQLUpdateValue)
+    }
+
+    pub fn value_wrapper() -> TokenStream {
+        quote!(drizzle::mysql::values::ValueWrapper)
+    }
+
+    pub fn mysql_schema_type() -> TokenStream {
+        quote!(drizzle::mysql::common::MySQLSchemaType)
+    }
+
+    pub fn mysql_table() -> TokenStream {
+        quote!(drizzle::mysql::traits::MySQLTable)
+    }
+
+    pub fn mysql_column() -> TokenStream {
+        quote!(drizzle::mysql::traits::MySQLColumn)
+    }
+
+    pub fn mysql_index_column() -> TokenStream {
+        quote!(drizzle::mysql::traits::MySQLIndexColumn)
+    }
+
+    /// Path to the `MySQLEnum` trait.
+    pub fn mysql_enum_trait() -> TokenStream {
+        quote!(drizzle::mysql::traits::MySQLEnum)
+    }
+
+    pub fn column_marker() -> TokenStream {
+        quote!(drizzle::mysql::attrs::AttributeMarker)
+    }
+
+    /// Path to the `MySQL` types module (Int, Varchar, Decimal, etc.).
+    pub fn types() -> TokenStream {
+        quote!(drizzle::mysql::types)
     }
 }
 

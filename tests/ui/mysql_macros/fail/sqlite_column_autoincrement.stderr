@@ -1,0 +1,5 @@
+error: AUTOINCREMENT is SQLite-only; MySQL uses AUTO_INCREMENT
+ --> tests/ui/mysql_macros/fail/sqlite_column_autoincrement.rs:5:23
+  |
+5 |     #[column(PRIMARY, AUTOINCREMENT)]
+  |                       ^^^^^^^^^^^^^

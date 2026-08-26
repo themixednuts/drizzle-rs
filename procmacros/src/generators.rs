@@ -7,7 +7,7 @@ use crate::paths::core as core_paths;
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
-#[cfg(feature = "sqlite")]
+#[cfg(any(feature = "sqlite", feature = "mysql"))]
 #[allow(clippy::too_many_arguments)]
 /// Generate `SQLColumnInfo` trait implementation
 pub fn generate_sql_column_info(
@@ -87,7 +87,7 @@ pub fn generate_drizzle_table(config: DrizzleTableConfig<'_>) -> TokenStream {
 }
 
 /// Generate basic impl block
-#[cfg(feature = "sqlite")]
+#[cfg(any(feature = "sqlite", feature = "mysql"))]
 pub fn generate_impl(struct_ident: &Ident, body: &TokenStream) -> TokenStream {
     quote! {
         impl #struct_ident {

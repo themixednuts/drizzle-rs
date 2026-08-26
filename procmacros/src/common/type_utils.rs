@@ -134,7 +134,7 @@ pub fn type_is_array_u8(ty: &Type) -> bool {
     }
 }
 
-#[cfg(feature = "postgres")]
+#[cfg(any(feature = "postgres", feature = "mysql"))]
 pub fn type_is_array_char(ty: &Type) -> bool {
     match ty {
         Type::Array(array) => matches!(

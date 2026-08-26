@@ -1,9 +1,13 @@
 //! Client-neutral MySQL parameter values.
 
 mod conversions;
+mod insert;
 mod owned;
+mod update;
 
+pub use insert::{MySQLInsertValue, ValueWrapper};
 pub use owned::OwnedMySQLValue;
+pub use update::MySQLUpdateValue;
 
 use crate::prelude::*;
 use drizzle_core::{Dialect, MySQLDialect, SQL, SQLParam, ToSQL};

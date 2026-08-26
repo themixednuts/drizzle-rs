@@ -15,7 +15,7 @@ pub trait SQLColumnInfo: Send + Sync {
 /// Column trait tying expression lifetimes to parameter values via `'a`.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a SQL column for this dialect",
-    label = "ensure this column's table was derived with #[SQLiteTable] or #[PostgresTable]"
+    label = "ensure this column's table was derived with #[SQLiteTable], #[PostgresTable], or #[MySQLTable]"
 )]
 pub trait SQLColumn<'a, Value: SQLParam + 'a>:
     SQLColumnInfo + Default + SQLSchema<'a, &'a str, Value> + Expr<'a, Value>

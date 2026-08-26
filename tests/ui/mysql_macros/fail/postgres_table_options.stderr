@@ -1,0 +1,5 @@
+error: UNLOGGED is not a MySQL table option
+ --> tests/ui/mysql_macros/fail/postgres_table_options.rs:3:14
+  |
+3 | #[MySQLTable(UNLOGGED)]
+  |              ^^^^^^^^

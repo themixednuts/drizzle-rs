@@ -52,6 +52,38 @@ fn mysql_uses_positional_question_mark_parameters() {
 }
 
 #[test]
+fn owning_mapped_params_preserves_sql_fragments_and_unbound_placeholders() {
+    use drizzle_core::{Param, Placeholder, SQLChunk, Token};
+
+    let raw = String::from("COALESCE(");
+    let identifier = String::from("display_name");
+    let sql = SQL::raw(raw.as_str())
+        .append(SQL::ident(identifier.as_str()))
+        .push(Token::COMMA)
+        .append(SQL::param(MySQLTestValue))
+        .push(Token::COMMA)
+        .push(Param::<MySQLTestValue>::from(Placeholder::named(
+            "fallback",
+        )))
+        .push(Token::RPAREN);
+
+    let owned = sql.map_params_into_owned(|value| value);
+    drop(raw);
+    drop(identifier);
+
+    assert_eq!(owned.sql(), "COALESCE( `display_name`, ?, ?)");
+    assert_eq!(owned.params().count(), 1);
+    assert_eq!(
+        owned
+            .chunks
+            .iter()
+            .filter(|chunk| matches!(chunk, SQLChunk::Param(param) if param.value.is_none()))
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn mysql_string_expressions_use_mysql_syntax_and_safe_identifiers() {
     let concatenated = concat::<MySQLTestValue, _, _>("first", "last");
     let collated = collate::<MySQLTestValue, _>("name", "utf8mb4_0900_ai`ci");

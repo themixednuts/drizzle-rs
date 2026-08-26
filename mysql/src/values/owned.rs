@@ -289,6 +289,30 @@ impl From<&[u8]> for OwnedMySQLValue {
     }
 }
 
+impl<const N: usize> From<[u8; N]> for OwnedMySQLValue {
+    fn from(value: [u8; N]) -> Self {
+        MySQLValue::from(value).into_owned()
+    }
+}
+
+impl<const N: usize> From<&[u8; N]> for OwnedMySQLValue {
+    fn from(value: &[u8; N]) -> Self {
+        MySQLValue::from(value).into_owned()
+    }
+}
+
+impl<const N: usize> From<[char; N]> for OwnedMySQLValue {
+    fn from(value: [char; N]) -> Self {
+        MySQLValue::from(value).into_owned()
+    }
+}
+
+impl<const N: usize> From<&[char; N]> for OwnedMySQLValue {
+    fn from(value: &[char; N]) -> Self {
+        MySQLValue::from(value).into_owned()
+    }
+}
+
 impl From<Cow<'_, str>> for OwnedMySQLValue {
     fn from(value: Cow<'_, str>) -> Self {
         MySQLValue::from(value).into_owned()

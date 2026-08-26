@@ -1,0 +1,6 @@
+error: MySQL primary-key fields cannot be nullable; remove Option<T>
+ --> tests/ui/mysql_macros/fail/nullable_primary_key.rs:5:5
+  |
+5 | /     #[column(PRIMARY)]
+6 | |     id: Option<u64>,
+  | |___________________^

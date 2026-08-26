@@ -59,9 +59,7 @@ macro_rules! impl_value_type {
 
 /// Same as `impl_value_type!`, but for types generic over `const N: usize`.
 ///
-/// Only referenced under `arrayvec` / `smallvec-types` feature gates, so the
-/// macro definition itself is cfg-gated to match — no broad `#[allow(unused_macros)]`.
-#[cfg(any(feature = "arrayvec", feature = "smallvec-types"))]
+/// Used by optional containers and by fixed-size arrays supported by MySQL.
 macro_rules! impl_value_type_const_n {
     ($dialect:ty, $sql:ty => $($ty:ty),+ $(,)?) => {
         $(
@@ -340,7 +338,7 @@ impl_value_type!(MySQLDialect, mysql_ty::Text =>
 impl_value_type!(MySQLDialect, mysql_ty::Text => compact_str::CompactString);
 
 #[cfg(feature = "arrayvec")]
-impl_value_type_const_n!(MySQLDialect, mysql_ty::Text => arrayvec::ArrayString<N>);
+impl_value_type_const_n!(MySQLDialect, mysql_ty::Varchar => arrayvec::ArrayString<N>);
 
 impl_value_type!(MySQLDialect, mysql_ty::Blob => &[u8]);
 
@@ -354,7 +352,10 @@ impl_value_type!(MySQLDialect, mysql_ty::Blob =>
 );
 
 #[cfg(feature = "arrayvec")]
-impl_value_type_const_n!(MySQLDialect, mysql_ty::Blob => arrayvec::ArrayVec<u8, N>);
+impl_value_type_const_n!(MySQLDialect, mysql_ty::Varbinary => arrayvec::ArrayVec<u8, N>);
+
+impl_value_type_const_n!(MySQLDialect, mysql_ty::Binary => [u8; N]);
+impl_value_type_const_n!(MySQLDialect, mysql_ty::Char => [char; N]);
 
 #[cfg(feature = "bytes")]
 impl_value_type!(MySQLDialect, mysql_ty::Blob => bytes::Bytes, bytes::BytesMut);

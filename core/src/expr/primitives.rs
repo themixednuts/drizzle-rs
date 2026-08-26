@@ -181,6 +181,81 @@ where
     type Aggregate = Scalar;
 }
 
+#[cfg(any(feature = "compact-str", feature = "bytes"))]
+macro_rules! impl_expr_for_value_type {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl<'a, V> Expr<'a, V> for $ty
+            where
+                V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+                Self: ValueTypeForDialect<V::DialectMarker>,
+            {
+                type SQLType =
+                    <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
+                type Nullable = NonNull;
+                type Aggregate = Scalar;
+            }
+        )+
+    };
+}
+
+#[cfg(feature = "compact-str")]
+impl_expr_for_value_type!(compact_str::CompactString);
+
+#[cfg(feature = "bytes")]
+impl_expr_for_value_type!(bytes::Bytes, bytes::BytesMut);
+
+#[cfg(feature = "arrayvec")]
+impl<'a, V, const N: usize> Expr<'a, V> for arrayvec::ArrayString<N>
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
+{
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
+    type Nullable = NonNull;
+    type Aggregate = Scalar;
+}
+
+#[cfg(feature = "arrayvec")]
+impl<'a, V, const N: usize> Expr<'a, V> for arrayvec::ArrayVec<u8, N>
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
+{
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
+    type Nullable = NonNull;
+    type Aggregate = Scalar;
+}
+
+#[cfg(feature = "smallvec-types")]
+impl<'a, V, const N: usize> Expr<'a, V> for smallvec::SmallVec<[u8; N]>
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
+{
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
+    type Nullable = NonNull;
+    type Aggregate = Scalar;
+}
+
+impl<'a, V, const N: usize> Expr<'a, V> for [char; N]
+where
+    V: SQLParam + 'a + From<Self> + From<char> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
+{
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
+    type Nullable = NonNull;
+    type Aggregate = Scalar;
+
+    fn to_expr_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(*self))
+    }
+
+    fn into_expr_sql(self) -> SQL<'a, V> {
+        SQL::param(V::from(self))
+    }
+}
+
 // =============================================================================
 // Binary Types
 // =============================================================================

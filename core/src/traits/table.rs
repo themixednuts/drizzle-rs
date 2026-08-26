@@ -104,7 +104,7 @@ pub trait SQLPartial<'a, Value: SQLParam> {
 
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a SQL table for this dialect",
-    label = "ensure this type was derived with #[SQLiteTable] or #[PostgresTable]"
+    label = "ensure this type was derived with #[SQLiteTable], #[PostgresTable], or #[MySQLTable]"
 )]
 pub trait SQLTable<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
     SQLSchema<'a, Type, Value> + SQLTableInfo + Default + Clone + Copy
@@ -188,7 +188,7 @@ where
 
 #[diagnostic::on_unimplemented(
     message = "`{Self}` does not implement SQLTableInfo",
-    label = "ensure this type was derived with #[SQLiteTable] or #[PostgresTable]"
+    label = "ensure this type was derived with #[SQLiteTable], #[PostgresTable], or #[MySQLTable]"
 )]
 pub trait SQLTableInfo: Send + Sync {
     /// Unqualified table name.
