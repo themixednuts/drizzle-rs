@@ -27,6 +27,7 @@ mod v1 {
         pub id: u64,
         #[column(REFERENCES = Account::id, ON_DELETE = CASCADE)]
         pub account_id: u64,
+        pub attempts: u64,
         #[column(ENUM)]
         pub state: Status,
     }
@@ -74,9 +75,10 @@ mod v2 {
         pub id: u64,
         #[column(REFERENCES = Account::id, ON_DELETE = CASCADE)]
         pub account_id: u64,
+        pub attempts: u64,
         #[column(ENUM)]
         pub status: Status,
-        #[column(generated(STORED, "account_id + 1"))]
+        #[column(generated(STORED, "attempts + 1"))]
         pub account_key: u64,
     }
 

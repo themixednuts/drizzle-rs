@@ -59,8 +59,10 @@ fn comprehensive_schema() -> Snapshot {
         "done",
     ])));
     status.default = Some("'queued'".into());
+    let mut slug_source = Column::new("job`s", "slug_source", "varchar(255)");
+    slug_source.not_null = true;
     let mut slug = Column::new("job`s", "slug", "varchar(255)");
-    slug.generated = Some(Generated::stored("concat(owner_id, '-', id)"));
+    slug.generated = Some(Generated::stored("concat(slug_source, '-job')"));
     slug.charset = Some("utf8mb4".into());
     slug.collation = Some("utf8mb4_bin".into());
 
@@ -85,6 +87,7 @@ fn comprehensive_schema() -> Snapshot {
         MySQLEntity::Column(job_id),
         MySQLEntity::Column(owner_id),
         MySQLEntity::Column(status),
+        MySQLEntity::Column(slug_source),
         MySQLEntity::Column(slug),
         MySQLEntity::PrimaryKey(PrimaryKey::new("job`s", ["id"])),
         MySQLEntity::UniqueConstraint(UniqueConstraint::new(

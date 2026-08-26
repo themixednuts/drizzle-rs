@@ -229,6 +229,33 @@ pub enum DiffError {
         "MySQL foreign key {name:?} references columns without an eligible index on table {table:?}"
     )]
     NonUniqueForeignKeyTarget { name: String, table: String },
+    #[error(
+        "MySQL foreign key {name:?} cannot use {action:?} for ON {event} because {table}.{column} is {role} a stored generated column"
+    )]
+    InvalidGeneratedForeignKeyAction {
+        name: String,
+        table: String,
+        column: String,
+        event: &'static str,
+        action: model::ReferentialAction,
+        role: &'static str,
+    },
+    #[error(
+        "MySQL foreign key {name:?} cannot reference virtual generated column {table}.{column}"
+    )]
+    VirtualGeneratedForeignKeyTarget {
+        name: String,
+        table: String,
+        column: String,
+    },
+    #[error(
+        "MySQL generated column {table}.{column} cannot depend on AUTO_INCREMENT column {dependency}"
+    )]
+    GeneratedColumnReferencesAutoIncrement {
+        table: String,
+        column: String,
+        dependency: String,
+    },
     #[error("invalid MySQL rename hint: {0}")]
     Rename(String),
     #[error("cannot remove explicit MySQL table option {option} from table {table:?}")]
@@ -399,6 +426,140 @@ fn validate_foreign_key_targets(ddl: &MySQLDDL) -> Result<(), DiffError> {
                 name: foreign_key.name.to_string(),
                 table: foreign_key.foreign_table.to_string(),
             });
+        }
+    }
+    Ok(())
+}
+
+fn invalid_generated_action(
+    action: Option<model::ReferentialAction>,
+    event: &'static str,
+    base_column: bool,
+) -> Option<(model::ReferentialAction, &'static str)> {
+    let action = action?;
+    let invalid = if base_column || event == "UPDATE" {
+        matches!(
+            action,
+            model::ReferentialAction::Cascade | model::ReferentialAction::SetNull
+        )
+    } else {
+        matches!(action, model::ReferentialAction::SetNull)
+    };
+    invalid.then_some((
+        action,
+        if base_column {
+            "a base column of"
+        } else {
+            "itself"
+        },
+    ))
+}
+
+fn validate_generated_column_constraints(ddl: &MySQLDDL) -> Result<(), DiffError> {
+    for generated_column in ddl
+        .columns
+        .list()
+        .iter()
+        .filter(|column| column.generated.is_some())
+    {
+        let dependencies = identifier_tokens(
+            &generated_column
+                .generated
+                .as_ref()
+                .expect("filtered generated columns")
+                .expression,
+        );
+        if let Some(dependency) = ddl.columns.list().iter().find(|column| {
+            column.database == generated_column.database
+                && column.table == generated_column.table
+                && column.autoincrement
+                && dependencies.contains(column.name.as_ref())
+        }) {
+            return Err(DiffError::GeneratedColumnReferencesAutoIncrement {
+                table: generated_column.table.to_string(),
+                column: generated_column.name.to_string(),
+                dependency: dependency.name.to_string(),
+            });
+        }
+    }
+
+    for foreign_key in ddl.fks.list() {
+        for column_name in &foreign_key.foreign_columns {
+            let Some(column) = ddl.columns.list().iter().find(|column| {
+                column.database.as_deref()
+                    == foreign_key
+                        .foreign_database
+                        .as_deref()
+                        .or(foreign_key.database.as_deref())
+                    && column.table == foreign_key.foreign_table
+                    && column.name.as_ref() == column_name.as_ref()
+            }) else {
+                continue;
+            };
+            if column
+                .generated
+                .as_ref()
+                .is_some_and(|generated| generated.generation_type == model::GeneratedType::Virtual)
+            {
+                return Err(DiffError::VirtualGeneratedForeignKeyTarget {
+                    name: foreign_key.name.to_string(),
+                    table: foreign_key.foreign_table.to_string(),
+                    column: column_name.to_string(),
+                });
+            }
+        }
+
+        let stored_columns: Vec<_> = ddl
+            .columns
+            .list()
+            .iter()
+            .filter(|column| {
+                column.database == foreign_key.database
+                    && column.table == foreign_key.table
+                    && column.generated.as_ref().is_some_and(|generated| {
+                        generated.generation_type == model::GeneratedType::Stored
+                    })
+            })
+            .collect();
+        for local_column in &foreign_key.columns {
+            let generated_role = stored_columns
+                .iter()
+                .find_map(|column| {
+                    let dependencies = identifier_tokens(
+                        &column
+                            .generated
+                            .as_ref()
+                            .expect("filtered stored generated columns")
+                            .expression,
+                    );
+                    dependencies
+                        .contains(local_column.as_ref())
+                        .then(|| (local_column.to_string(), true))
+                })
+                .or_else(|| {
+                    stored_columns
+                        .iter()
+                        .find(|column| column.name.as_ref() == local_column.as_ref())
+                        .map(|column| (column.name.to_string(), false))
+                });
+            let Some((column, base_column)) = generated_role else {
+                continue;
+            };
+            for (event, action) in [
+                ("DELETE", foreign_key.on_delete),
+                ("UPDATE", foreign_key.on_update),
+            ] {
+                if let Some((action, role)) = invalid_generated_action(action, event, base_column) {
+                    return Err(DiffError::InvalidGeneratedForeignKeyAction {
+                        name: foreign_key.name.to_string(),
+                        table: foreign_key.table.to_string(),
+                        column: column.clone(),
+                        event,
+                        action,
+                        role,
+                    });
+                }
+            }
         }
     }
     Ok(())
@@ -1325,6 +1486,7 @@ pub fn compute_migration_with(
     validate_foreign_key_scope(&prev, selected.as_deref())?;
     validate_foreign_key_scope(&cur, selected.as_deref())?;
     validate_foreign_key_targets(&cur)?;
+    validate_generated_column_constraints(&cur)?;
 
     let (rename_statements, renames) =
         apply_rename_hints(&mut prev, &cur, selected.as_deref(), options)?;
@@ -2000,6 +2162,70 @@ mod tests {
             generated_alter_strategy(Some(Stored), Some(Virtual)),
             Recreate
         );
+    }
+
+    #[test]
+    fn stored_generated_base_columns_reject_cascading_foreign_key_actions() {
+        let mut ddl = schema_with_indexed_foreign_key();
+        let mut generated = model::Column::new("child", "derived_parent_id", "bigint");
+        generated.generated = Some(model::Generated::stored("parent_id + 1"));
+        ddl.columns.push(generated);
+        ddl.fks.list_mut()[0].on_delete = Some(model::ReferentialAction::Cascade);
+
+        assert!(matches!(
+            compute_migration(&MySQLDDL::new(), &ddl),
+            Err(DiffError::InvalidGeneratedForeignKeyAction {
+                event: "DELETE",
+                action: model::ReferentialAction::Cascade,
+                role: "a base column of",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn stored_generated_base_columns_allow_non_cascading_foreign_key_actions() {
+        let mut ddl = schema_with_indexed_foreign_key();
+        let mut generated = model::Column::new("child", "derived_parent_id", "bigint");
+        generated.generated = Some(model::Generated::stored("parent_id + 1"));
+        ddl.columns.push(generated);
+        ddl.fks.list_mut()[0].on_delete = Some(model::ReferentialAction::Restrict);
+
+        compute_migration(&MySQLDDL::new(), &ddl)
+            .expect("RESTRICT is valid for a foreign-key base of a stored generated column");
+    }
+
+    #[test]
+    fn generated_columns_reject_auto_increment_dependencies() {
+        let mut ddl = table_with_columns("jobs", &["id", "derived_id"]);
+        ddl.columns.list_mut()[0].autoincrement = true;
+        ddl.columns.list_mut()[0].primary_key = true;
+        ddl.columns.list_mut()[1].generated = Some(model::Generated::stored("id + 1"));
+
+        assert!(matches!(
+            compute_migration(&MySQLDDL::new(), &ddl),
+            Err(DiffError::GeneratedColumnReferencesAutoIncrement {
+                table,
+                column,
+                dependency,
+            }) if table == "jobs" && column == "derived_id" && dependency == "id"
+        ));
+    }
+
+    #[test]
+    fn foreign_keys_reject_virtual_generated_targets() {
+        let mut ddl = schema_with_indexed_foreign_key();
+        ddl.columns.list_mut()[0].generated =
+            Some(model::Generated::virtual_column("tenant_id + 1"));
+
+        assert!(matches!(
+            compute_migration(&MySQLDDL::new(), &ddl),
+            Err(DiffError::VirtualGeneratedForeignKeyTarget {
+                name,
+                table,
+                column,
+            }) if name == "child_parent_fk" && table == "parent" && column == "id"
+        ));
     }
 
     #[test]
