@@ -646,7 +646,12 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
 
     // Generate query API code (relation ZSTs, accessors, JSON decoders)
     #[cfg(feature = "query")]
-    let query_api_impls = crate::postgres::table::generate_query_api_impls(&ctx);
+    // Unqualified views follow PostgreSQL's active search_path just like
+    // unqualified tables. The DDL model still resolves that default to
+    // `public`, but relational SELECTs must only qualify a schema the user
+    // explicitly requested.
+    let query_api_impls =
+        crate::postgres::table::generate_query_api_impls(&ctx, attrs.schema.as_deref());
     #[cfg(not(feature = "query"))]
     let query_api_impls = quote!();
 

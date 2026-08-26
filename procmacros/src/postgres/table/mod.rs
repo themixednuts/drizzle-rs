@@ -110,7 +110,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
 
     // Generate query API code (relation ZSTs, accessors, JSON decoders)
     #[cfg(feature = "query")]
-    let query_api_impls = generate_query_api_impls(&ctx);
+    let query_api_impls = generate_query_api_impls(&ctx, attrs.schema.as_deref());
     #[cfg(not(feature = "query"))]
     let query_api_impls = quote!();
 
@@ -193,7 +193,7 @@ fn doc_comment_from_attrs(attrs: &[syn::Attribute]) -> Option<String> {
 ///
 /// Shared by both `#[PostgresTable]` and `#[PostgresView]`.
 #[cfg(feature = "query")]
-pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
+pub fn generate_query_api_impls(ctx: &MacroContext, table_schema: Option<&str>) -> TokenStream {
     use crate::common::query::{EnumStorage, FieldJsonInfo, FkInfo, generate_query_api};
     use crate::common::type_is_uuid;
     use crate::postgres::field::PostgreSQLType;
@@ -280,7 +280,7 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
     generate_query_api(
         struct_ident,
         ctx.struct_vis,
-        ctx.attrs.schema.as_deref(),
+        table_schema,
         table_name,
         select_model_ident,
         partial_select_model_ident,

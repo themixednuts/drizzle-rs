@@ -568,6 +568,25 @@ struct PostView {
     author_id: Option<Uuid>,
 }
 
+#[PostgresView(EXISTING, NAME = "qualified_post_view", SCHEMA = "analytics")]
+struct QualifiedPostView {
+    id: Uuid,
+    title: String,
+    author_id: Option<Uuid>,
+}
+
+#[test]
+fn query_view_schema_metadata_only_qualifies_explicit_schemas() {
+    assert_eq!(
+        <PostView as drizzle::core::query::QueryTable>::TABLE_SCHEMA,
+        None
+    );
+    assert_eq!(
+        <QualifiedPostView as drizzle::core::query::QueryTable>::TABLE_SCHEMA,
+        Some("analytics")
+    );
+}
+
 #[derive(PostgresSchema)]
 struct ViewQuerySchema {
     role: Role,
