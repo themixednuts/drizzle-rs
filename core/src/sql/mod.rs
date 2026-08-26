@@ -544,9 +544,39 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     ) {
         let chunks = self.chunks.get(select_index + 1..select_index + 3);
         match chunks {
-            Some([SQLChunk::Token(Token::FROM), SQLChunk::Table(table)]) => {
+            Some([SQLChunk::Token(Token::FROM), SQLChunk::Table(_)]) => {
                 let _ = buf.write_char(' ');
-                Self::write_qualified_columns(buf, table);
+                let mut first = true;
+                let mut depth = 0usize;
+
+                for chunk in self.chunks.iter().skip(select_index + 2) {
+                    match chunk {
+                        SQLChunk::Token(Token::LPAREN) => depth += 1,
+                        SQLChunk::Token(Token::RPAREN) => depth = depth.saturating_sub(1),
+                        SQLChunk::Token(
+                            Token::WHERE
+                            | Token::GROUP
+                            | Token::HAVING
+                            | Token::ORDER
+                            | Token::LIMIT
+                            | Token::OFFSET
+                            | Token::WINDOW
+                            | Token::FOR
+                            | Token::UNION
+                            | Token::INTERSECT
+                            | Token::EXCEPT
+                            | Token::SELECT,
+                        ) if depth == 0 => break,
+                        SQLChunk::Table(table) if depth == 0 => {
+                            if !first {
+                                let _ = buf.write_str(", ");
+                            }
+                            Self::write_qualified_columns(buf, table);
+                            first = false;
+                        }
+                        _ => {}
+                    }
+                }
             }
             Some([SQLChunk::Token(Token::FROM), _]) => {
                 let _ = buf.write_char(' ');

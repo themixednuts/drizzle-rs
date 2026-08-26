@@ -6,7 +6,7 @@
 
 extern crate alloc;
 
-use drizzle_core::{SQL, SQLParam, Token};
+use drizzle_core::{SQL, SQLParam, TableRef, Token};
 
 // Define a mock value type for testing
 #[derive(Clone, Debug)]
@@ -99,6 +99,42 @@ fn test_sql_builder_pattern_no_std() {
     assert_eq!(
         result,
         "SELECT \"id\", \"name\" FROM \"users\" WHERE \"active\" = 1"
+    );
+}
+
+#[test]
+fn test_select_star_expands_joined_tables() {
+    let users = TableRef::sql("users", &["id", "name"]);
+    let posts = TableRef::sql("posts", &["id", "user_id"]);
+    let sql: SQL<'_, TestValue> = SQL::from(Token::SELECT)
+        .push(Token::FROM)
+        .append(SQL::table(users))
+        .append(SQL::raw("INNER JOIN"))
+        .append(SQL::table(posts))
+        .push(Token::ON)
+        .append(SQL::raw("1 = 1"));
+
+    assert_eq!(
+        sql.sql(),
+        "SELECT \"users\".\"id\", \"users\".\"name\", \"posts\".\"id\", \"posts\".\"user_id\" FROM \"users\" INNER JOIN \"posts\" ON 1 = 1"
+    );
+}
+
+#[test]
+fn test_select_star_stops_at_set_operation() {
+    let users = TableRef::sql("users", &["id", "name"]);
+    let posts = TableRef::sql("posts", &["id", "user_id"]);
+    let sql: SQL<'_, TestValue> = SQL::from(Token::SELECT)
+        .push(Token::FROM)
+        .append(SQL::table(users))
+        .push(Token::UNION)
+        .push(Token::SELECT)
+        .push(Token::FROM)
+        .append(SQL::table(posts));
+
+    assert_eq!(
+        sql.sql(),
+        "SELECT \"users\".\"id\", \"users\".\"name\" FROM \"users\" UNION SELECT \"posts\".\"id\", \"posts\".\"user_id\" FROM \"posts\""
     );
 }
 

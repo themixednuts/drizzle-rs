@@ -4,7 +4,7 @@ use core::sync::atomic::AtomicU32;
 use std::cell::{Cell, RefCell};
 
 use drizzle_core::{
-    error::{DrizzleError, Result},
+    error::{DrizzleError, QueryContext, Result, ResultExt},
     row::{
         DecodeSelectedRef, FromDrizzleRow, MarkerAggValidFor, MarkerColumnCountValid,
         MarkerScopeValidFor, StrictDecodeMarker,
@@ -28,7 +28,7 @@ use crate::{
     builder::mysql::{
         common::{self, DrizzleBuilder},
         mysql_sync::{
-            QueryOutput, execute_request_observing, initialize_session_observing,
+            QueryOutput, driver_error, execute_request_observing, initialize_session_observing,
             query_first_request_observing, query_request_observing, render,
         },
     },
@@ -234,10 +234,16 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
     fn execute_raw(&self, sql: &str) -> Result<()> {
         self.ensure_usable()?;
         let mut transaction = self.transaction.borrow_mut();
-        execute_request_observing(transaction.as_mut().ok_or_else(consumed)?, sql, &[], |_| {
-            self.poisoned.set(true)
-        })
-        .map(|_| ())
+        drizzle_core::drizzle_trace_query!(sql, 0);
+        transaction
+            .as_mut()
+            .ok_or_else(consumed)?
+            .query_drop(sql)
+            .map_err(|error| {
+                self.poisoned.set(true);
+                driver_error(error)
+            })
+            .with_query(|| QueryContext::new::<MySQLValue<'_>>(sql, &[]))
     }
 
     /// Commits this transaction. A second completion attempt is an error.

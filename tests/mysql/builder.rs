@@ -201,6 +201,16 @@ fn joins_render_only_mysql_supported_kinds() {
             query.to_sql().sql()
         };
 
+    assert_eq!(
+        builder()
+            .select(())
+            .from(users)
+            .inner_join((posts, condition()))
+            .to_sql()
+            .sql(),
+        "SELECT `users`.`id`, `users`.`name`, `users`.`active`, `posts`.`id`, `posts`.`user_id`, `posts`.`title` FROM `users` INNER JOIN `posts` ON `posts`.`user_id` = `users`.`id`"
+    );
+
     assert!(
         sql(builder()
             .select(users.id)

@@ -229,7 +229,10 @@ fn pooled_checkout_transactions_savepoints_and_drop_rollback() -> drizzle::Resul
                 .execute()?;
             Err(DrizzleError::Other("rollback".into()))
         });
-    assert!(callback_error.is_err());
+    assert!(matches!(
+        callback_error,
+        Err(DrizzleError::Other(message)) if message == "rollback"
+    ));
     assert_eq!(
         db.select(count(users.id)).from(users).get::<i64, _, _>()?,
         0
@@ -254,7 +257,10 @@ fn pooled_checkout_transactions_savepoints_and_drop_rollback() -> drizzle::Resul
                 .execute()?;
             Err(DrizzleError::Other("savepoint rollback".into()))
         });
-        assert!(savepoint_error.is_err());
+        assert!(matches!(
+            savepoint_error,
+            Err(DrizzleError::Other(message)) if message == "savepoint rollback"
+        ));
         assert_eq!(
             tx.select(count(users.id)).from(users).get::<i64, _, _>()?,
             1
