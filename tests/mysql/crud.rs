@@ -1,4 +1,4 @@
-//! Cross-driver CRUD and selection contracts exercised through mysql-sync.
+//! Shared MySQL CRUD and selection contracts exercised through every adapter.
 
 use crate::common::schema::mysql::*;
 use drizzle::core::expr::{count, eq};

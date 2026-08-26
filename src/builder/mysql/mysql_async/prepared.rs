@@ -1,4 +1,4 @@
-//! Detached prepared statements for the blocking MySQL adapter.
+//! Detached prepared statements for the Tokio MySQL adapter.
 
 use core::marker::PhantomData;
 use std::borrow::Cow;
@@ -20,7 +20,7 @@ use drizzle_mysql::{
     MySQLMutationResult, MySQLRow,
     values::{MySQLValue, OwnedMySQLValue},
 };
-use mysql::{Row, prelude::Queryable};
+use mysql_async::{Row, prelude::ToConnection};
 
 use crate::builder::mysql::driver_common::QueryOutput;
 
@@ -41,72 +41,90 @@ impl<'q, Marker, DecodedRow, Grouped> PreparedStatement<'q, Marker, DecodedRow, 
         }
     }
 
-    /// Rendered SQL containing positional `?` placeholders.
     #[must_use]
     pub fn sql(&self) -> &str {
         self.inner.sql()
     }
 
-    /// Number of external bindings required by this statement.
     #[must_use]
     pub fn param_count(&self) -> usize {
         self.inner.external_param_count()
     }
 
-    /// Executes the prepared statement and returns normalized mutation metadata.
-    pub fn execute(
+    pub async fn execute<'connection, 'transaction, Connection>(
         &self,
-        connection: &mut impl Queryable,
+        connection: Connection,
         params: impl IntoIterator<Item = ParamBind<'q, MySQLValue<'q>>>,
-    ) -> Result<MySQLMutationResult> {
-        initialize_session(connection)?;
+    ) -> Result<MySQLMutationResult>
+    where
+        'transaction: 'connection,
+        Connection: ToConnection<'connection, 'transaction>,
+    {
+        let mut connection = connection
+            .to_connection()
+            .resolve()
+            .await
+            .map_err(super::driver_error)?;
+        initialize_session(&mut connection).await?;
         let (sql, values) = self.inner.bind(params)?;
-        execute_request(connection, sql, &values.collect::<Vec<_>>())
+        execute_request(&mut connection, sql, &values.collect::<Vec<_>>()).await
     }
 
-    /// Executes the prepared query and decodes every returned row.
-    pub fn all<R, ScopeProof, AggProof>(
+    pub async fn all<'connection, 'transaction, Connection, R, ScopeProof, AggProof>(
         &self,
-        connection: &mut impl Queryable,
+        connection: Connection,
         params: impl IntoIterator<Item = ParamBind<'q, MySQLValue<'q>>>,
     ) -> Result<Vec<R>>
     where
+        'transaction: 'connection,
+        Connection: ToConnection<'connection, 'transaction>,
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
             + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R>,
         Marker: MarkerAggValidFor<Grouped, AggProof>,
     {
-        initialize_session(connection)?;
+        let mut connection = connection
+            .to_connection()
+            .resolve()
+            .await
+            .map_err(super::driver_error)?;
+        initialize_session(&mut connection).await?;
         let (sql, values) = self.inner.bind(params)?;
         let values = values.collect::<Vec<_>>();
-        let rows = query_request(connection, sql, &values)?;
+        let rows = query_request(&mut connection, sql, &values).await?;
         QueryOutput::new(sql.to_owned(), values, rows).decode_all::<Marker, R>()
     }
 
-    /// Executes the prepared query and decodes its first row.
-    pub fn get<R, ScopeProof, AggProof>(
+    pub async fn get<'connection, 'transaction, Connection, R, ScopeProof, AggProof>(
         &self,
-        connection: &mut impl Queryable,
+        connection: Connection,
         params: impl IntoIterator<Item = ParamBind<'q, MySQLValue<'q>>>,
     ) -> Result<R>
     where
+        'transaction: 'connection,
+        Connection: ToConnection<'connection, 'transaction>,
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
             + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R>,
         Marker: MarkerAggValidFor<Grouped, AggProof>,
     {
-        initialize_session(connection)?;
+        let mut connection = connection
+            .to_connection()
+            .resolve()
+            .await
+            .map_err(super::driver_error)?;
+        initialize_session(&mut connection).await?;
         let (sql, values) = self.inner.bind(params)?;
         let values = values.collect::<Vec<_>>();
-        let rows = query_first_request(connection, sql, &values)?
+        let rows = query_first_request(&mut connection, sql, &values)
+            .await?
             .into_iter()
             .collect();
         QueryOutput::new(sql.to_owned(), values, rows).decode_first::<Marker, R>()
     }
 
-    /// Converts this statement to an owned reusable value.
     #[must_use]
     pub fn into_owned(self) -> OwnedPreparedStatement<Marker, DecodedRow, Grouped> {
         let params = self
@@ -156,57 +174,60 @@ impl<Marker, DecodedRow, Grouped> OwnedPreparedStatement<Marker, DecodedRow, Gro
         })
     }
 
-    /// Rendered SQL containing positional `?` placeholders.
     #[must_use]
     pub fn sql(&self) -> &str {
         self.inner.sql()
     }
 
-    /// Number of external bindings required by this statement.
     #[must_use]
     pub fn param_count(&self) -> usize {
         self.inner.external_param_count()
     }
 
-    /// Executes the prepared statement and returns normalized mutation metadata.
-    pub fn execute<'a>(
+    pub async fn execute<'a, 'connection, 'transaction, Connection>(
         &'a self,
-        connection: &mut impl Queryable,
+        connection: Connection,
         params: impl IntoIterator<Item = ParamBind<'a, MySQLValue<'a>>>,
-    ) -> Result<MySQLMutationResult> {
-        self.borrowed().execute(connection, params)
+    ) -> Result<MySQLMutationResult>
+    where
+        'transaction: 'connection,
+        Connection: ToConnection<'connection, 'transaction>,
+    {
+        self.borrowed().execute(connection, params).await
     }
 
-    /// Executes the prepared query and decodes every returned row.
-    pub fn all<'a, R, ScopeProof, AggProof>(
+    pub async fn all<'a, 'connection, 'transaction, Connection, R, ScopeProof, AggProof>(
         &'a self,
-        connection: &mut impl Queryable,
+        connection: Connection,
         params: impl IntoIterator<Item = ParamBind<'a, MySQLValue<'a>>>,
     ) -> Result<Vec<R>>
     where
+        'transaction: 'connection,
+        Connection: ToConnection<'connection, 'transaction>,
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
             + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R>,
         Marker: MarkerAggValidFor<Grouped, AggProof>,
     {
-        self.borrowed().all(connection, params)
+        self.borrowed().all(connection, params).await
     }
 
-    /// Executes the prepared query and decodes its first row.
-    pub fn get<'a, R, ScopeProof, AggProof>(
+    pub async fn get<'a, 'connection, 'transaction, Connection, R, ScopeProof, AggProof>(
         &'a self,
-        connection: &mut impl Queryable,
+        connection: Connection,
         params: impl IntoIterator<Item = ParamBind<'a, MySQLValue<'a>>>,
     ) -> Result<R>
     where
+        'transaction: 'connection,
+        Connection: ToConnection<'connection, 'transaction>,
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
             + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R>,
         Marker: MarkerAggValidFor<Grouped, AggProof>,
     {
-        self.borrowed().get(connection, params)
+        self.borrowed().get(connection, params).await
     }
 }
 
@@ -247,7 +268,7 @@ impl<Marker, DecodedRow, Grouped> core::fmt::Display
     }
 }
 
-impl<'q, Marker, DecodedRow, Grouped> drizzle_core::traits::ToSQL<'q, MySQLValue<'q>>
+impl<'q, Marker, DecodedRow, Grouped> ToSQL<'q, MySQLValue<'q>>
     for PreparedStatement<'q, Marker, DecodedRow, Grouped>
 {
     fn to_sql(&self) -> drizzle_core::SQL<'q, MySQLValue<'q>> {
@@ -255,7 +276,7 @@ impl<'q, Marker, DecodedRow, Grouped> drizzle_core::traits::ToSQL<'q, MySQLValue
     }
 }
 
-impl<'q, Marker, DecodedRow, Grouped> drizzle_core::traits::ToSQL<'q, OwnedMySQLValue>
+impl<'q, Marker, DecodedRow, Grouped> ToSQL<'q, OwnedMySQLValue>
     for OwnedPreparedStatement<Marker, DecodedRow, Grouped>
 {
     fn to_sql(&self) -> drizzle_core::SQL<'q, OwnedMySQLValue> {
@@ -263,7 +284,7 @@ impl<'q, Marker, DecodedRow, Grouped> drizzle_core::traits::ToSQL<'q, OwnedMySQL
     }
 }
 
-impl<'q, Marker, DecodedRow, Grouped> drizzle_core::traits::ToSQL<'q, MySQLValue<'q>>
+impl<'q, Marker, DecodedRow, Grouped> ToSQL<'q, MySQLValue<'q>>
     for OwnedPreparedStatement<Marker, DecodedRow, Grouped>
 {
     fn to_sql(&self) -> drizzle_core::SQL<'q, MySQLValue<'q>> {

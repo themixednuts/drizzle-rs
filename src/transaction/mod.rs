@@ -1,7 +1,12 @@
-#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql-sync"))]
+#[cfg(any(
+    feature = "sqlite",
+    feature = "postgres",
+    feature = "mysql-sync",
+    feature = "mysql-async"
+))]
 pub(crate) mod savepoint;
 
-#[cfg(feature = "mysql-sync")]
+#[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
 pub mod mysql;
 
 #[cfg(feature = "sqlite")]

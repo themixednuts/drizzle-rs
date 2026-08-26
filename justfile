@@ -21,6 +21,14 @@ mysql-up:
 test-mysql-sync: mysql-up
     cargo test --no-default-features --features mysql-sync,serde
 
+# Run the Tokio MySQL adapter integration tests.
+test-mysql-async: mysql-up
+    cargo test --no-default-features --features mysql-async,serde
+
+# Run both adapters together, including feature-unification coverage.
+test-mysql: mysql-up
+    cargo test --no-default-features --features mysql-sync,mysql-async,serde
+
 # Stop the MySQL integration-test container.
 mysql-down:
     docker compose stop mysql

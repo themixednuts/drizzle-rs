@@ -2405,7 +2405,7 @@ pub fn include_migrations(input: TokenStream) -> TokenStream {
 /// handle. The schema instance is injected into the body as `schema`.
 /// The macro expands into per-driver test modules: one gated on each enabled
 /// driver feature (`rusqlite`, `libsql`, `turso`, `postgres-sync`,
-/// `tokio-postgres`, `mysql-sync`). Body-local `result!` and `catch!` helper
+/// `tokio-postgres`, `mysql-sync`, `mysql-async`). Body-local `result!` and `catch!` helper
 /// macros provide explicit access to fallible results and panic assertions.
 ///
 /// # Dialect selection

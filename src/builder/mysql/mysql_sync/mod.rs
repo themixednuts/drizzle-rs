@@ -65,9 +65,12 @@ use drizzle_mysql::{
     traits::MySQLTable,
     values::MySQLValue,
 };
-use mysql::{Params, Row, Value, prelude::Queryable};
+use mysql::{Row, Value, prelude::Queryable};
 
-use crate::builder::mysql::common;
+use crate::builder::mysql::{
+    common,
+    driver_common::{QueryOutput, positional, render},
+};
 use crate::transaction::{
     mysql::mysql_sync::{Transaction, TransactionConnection},
     savepoint::sync_transaction,
@@ -79,15 +82,6 @@ pub type DrizzleBuilder<'db, Connection, Schema, Builder, State> =
 
 pub(crate) fn driver_error(error: mysql::Error) -> DrizzleError {
     DrizzleError::driver("MySQL", error)
-}
-
-pub(crate) fn positional(values: impl IntoIterator<Item = Value>) -> Params {
-    let values = values.into_iter().collect::<Vec<_>>();
-    if values.is_empty() {
-        Params::Empty
-    } else {
-        Params::Positional(values)
-    }
 }
 
 pub(crate) fn execute_request_observing<C: Queryable>(
@@ -201,74 +195,6 @@ pub(crate) fn query_first_request<C: Queryable>(
     values: &[MySQLValue<'_>],
 ) -> Result<Option<Row>> {
     query_first_request_observing(connection, sql, values, |_| {})
-}
-
-pub(crate) fn render<'q>(query: impl ToSQL<'q, MySQLValue<'q>>) -> (String, Vec<MySQLValue<'q>>) {
-    let sql = query.into_sql();
-    let (text, values) = sql.build();
-    (text, values.into_iter().cloned().collect())
-}
-
-pub(crate) struct QueryOutput<'q> {
-    sql: String,
-    values: Vec<MySQLValue<'q>>,
-    rows: Vec<Row>,
-}
-
-impl<'q> QueryOutput<'q> {
-    pub(crate) fn new(sql: String, values: Vec<MySQLValue<'q>>, rows: Vec<Row>) -> Self {
-        Self { sql, values, rows }
-    }
-
-    pub(crate) fn decode_all<Mk, R>(self) -> Result<Vec<R>>
-    where
-        for<'row> Mk: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>,
-    {
-        let context_values = self.values.iter().collect::<Vec<_>>();
-        self.rows
-            .iter()
-            .map(|row| {
-                let row = MySQLRow::new(row);
-                <Mk as DecodeSelectedRef<&MySQLRow<'_, Row>, R>>::decode(&row)
-                    .with_query(|| QueryContext::new(&self.sql, &context_values))
-            })
-            .collect()
-    }
-
-    pub(crate) fn decode_first<Mk, R>(self) -> Result<R>
-    where
-        for<'row> Mk: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>,
-    {
-        let row = self.rows.first().ok_or(DrizzleError::NotFound)?;
-        let context_values = self.values.iter().collect::<Vec<_>>();
-        let row = MySQLRow::new(row);
-        <Mk as DecodeSelectedRef<&MySQLRow<'_, Row>, R>>::decode(&row)
-            .with_query(|| QueryContext::new(&self.sql, &context_values))
-    }
-
-    pub(crate) fn decode_all_rows<R>(self) -> Result<Vec<R>>
-    where
-        for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
-    {
-        let context_values = self.values.iter().collect::<Vec<_>>();
-        self.rows
-            .iter()
-            .map(|row| {
-                R::from_row(&MySQLRow::new(row))
-                    .with_query(|| QueryContext::new(&self.sql, &context_values))
-            })
-            .collect()
-    }
-
-    pub(crate) fn decode_first_row<R>(self) -> Result<R>
-    where
-        for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
-    {
-        let row = self.rows.first().ok_or(DrizzleError::NotFound)?;
-        let context_values = self.values.iter().collect::<Vec<_>>();
-        R::from_row(&MySQLRow::new(row))
-            .with_query(|| QueryContext::new(&self.sql, &context_values))
-    }
 }
 
 /// Blocking MySQL database wrapper.
@@ -422,6 +348,10 @@ where
     let transaction =
         crate::transaction::mysql::mysql_sync::start_transaction(&mut db.connection, config)
             .map_err(driver_error)?;
+    // Transaction code can change session variables through its raw execute
+    // entrypoint. Re-establish invariants when the parent connection becomes
+    // available again, regardless of how the transaction completes.
+    db.session_ready = false;
     Ok(Transaction::new(transaction, db.schema))
 }
 

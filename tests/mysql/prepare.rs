@@ -1,4 +1,4 @@
-//! Prepared-statement contracts exercised through mysql-sync.
+//! Prepared-statement contracts exercised through every MySQL adapter.
 
 use crate::common::schema::mysql::*;
 use drizzle::core::expr::eq;

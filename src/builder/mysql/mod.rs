@@ -208,5 +208,11 @@ macro_rules! mysql_shared_builder_constructors {
 
 pub mod common;
 
+#[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
+pub(crate) mod driver_common;
+
+#[cfg(feature = "mysql-async")]
+pub mod mysql_async;
+
 #[cfg(feature = "mysql-sync")]
 pub mod mysql_sync;

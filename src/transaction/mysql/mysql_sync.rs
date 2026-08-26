@@ -27,9 +27,10 @@ use mysql::{
 use crate::{
     builder::mysql::{
         common::{self, DrizzleBuilder},
+        driver_common::{QueryOutput, render},
         mysql_sync::{
-            QueryOutput, driver_error, execute_request_observing, initialize_session_observing,
-            query_first_request_observing, query_request_observing, render,
+            driver_error, execute_request_observing, initialize_session_observing,
+            query_first_request_observing, query_request_observing,
         },
     },
     transaction::savepoint::sync_savepoint,

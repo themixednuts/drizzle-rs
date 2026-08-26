@@ -340,12 +340,20 @@ fn postgres_driver_specs() -> Vec<DriverSpec> {
 }
 
 fn mysql_driver_specs() -> Vec<DriverSpec> {
-    vec![DriverSpec {
-        feature: "mysql-sync",
-        mod_suffix: "mysql_sync",
-        async_mode: false,
-        client_expr: quote!(db.conn_mut()),
-    }]
+    vec![
+        DriverSpec {
+            feature: "mysql-sync",
+            mod_suffix: "mysql_sync",
+            async_mode: false,
+            client_expr: quote!(db.conn_mut()),
+        },
+        DriverSpec {
+            feature: "mysql-async",
+            mod_suffix: "mysql_async",
+            async_mode: true,
+            client_expr: quote!(db.conn_mut()),
+        },
+    ]
 }
 
 fn emit_driver_module(fn_input: &FnInput, spec: &DriverSpec) -> TokenStream2 {

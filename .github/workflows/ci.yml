@@ -131,10 +131,20 @@ jobs:
       - name: Run tests
         run: just test::pg "${{ matrix.features }}"
 
-  test-mysql-sync:
-    name: Test MySQL Sync
+  test-mysql:
+    name: "Test MySQL (${{ matrix.name }})"
     runs-on: ubuntu-latest
     needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: sync
+            features: mysql-sync
+          - name: async
+            features: mysql-async
+          - name: unified
+            features: mysql-sync,mysql-async
     services:
       mysql:
         image: mysql:8.4
@@ -164,10 +174,11 @@ jobs:
           shared-key: stable
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Check isolated blocking feature
-        run: cargo check -p drizzle --no-default-features --features mysql-sync
+      - name: Check adapter features
+        run: cargo check -p drizzle --no-default-features --features "${{ matrix.features }}"
 
       - name: Reject async runtime dependencies
+        if: matrix.features == 'mysql-sync'
         shell: bash
         run: |
           if cargo tree -p drizzle --no-default-features --features mysql-sync --edges normal \
@@ -179,7 +190,7 @@ jobs:
       - name: Run live MySQL tests
         # `serde` activates the root trybuild target, so MySQL's macro and
         # builder UI contracts run alongside the live adapter suite.
-        run: cargo test -p drizzle --no-default-features --features mysql-sync,serde
+        run: cargo test -p drizzle --no-default-features --features "${{ matrix.features }},serde"
 
   test-turso:
     name: Test (Turso - Experimental)
@@ -338,7 +349,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check MSRV
-        run: cargo check --workspace --all-targets --all-features
+        run: |
+          cargo check -p drizzle --no-default-features --features mysql-async
+          cargo check -p drizzle --no-default-features --features mysql-sync,mysql-async
+          cargo check --workspace --all-targets --all-features
 
   wasm-drivers:
     name: WASM Driver Checks

@@ -109,6 +109,7 @@ postgres-native-tls = { version = ">=0.5.3, <0.6" }
 native-tls = { version = ">=0.2.18, <0.3", features = ["vendored"] }
 mysql_common = { version = ">=0.37.1, <0.38", default-features = false }
 mysql = { version = ">=28.0.0, <29", default-features = false, features = ["minimal-rust", "native-tls"] }
+mysql_async = { version = ">=0.37.0, <0.38", default-features = false, features = ["minimal-rust", "native-tls-tls"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 # `runtime` is deliberately NOT enabled here. It pulls `tokio/net` + `tokio/time`,
 # neither of which builds for wasm32-unknown-unknown, and it only gates
@@ -333,6 +334,20 @@ mysql-sync = [
   "std",
   "mysql",
   "dep:mysql",
+  "dep:mysql_common",
+  "drizzle-core/driver-error",
+  "drizzle-mysql/mysql-common",
+]
+
+# Tokio MySQL adapter. The pool remains lazy and becomes bound to the first
+# runtime that checks out a connection, matching mysql_async's ownership model.
+mysql-async = [
+  "std",
+  "mysql",
+  "dep:mysql_async",
+  "dep:mysql_common",
+  "dep:futures-util",
+  "dep:tokio",
   "drizzle-core/driver-error",
   "drizzle-mysql/mysql-common",
 ]
@@ -420,6 +435,8 @@ puffin = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 postgres = { workspace = true, optional = true }
 mysql = { workspace = true, optional = true }
+mysql_common = { workspace = true, optional = true }
+mysql_async = { workspace = true, optional = true }
 tokio-postgres = { workspace = true, optional = true }
 aws-sdk-rdsdata = { workspace = true, optional = true }
 aws-config = { workspace = true, optional = true }

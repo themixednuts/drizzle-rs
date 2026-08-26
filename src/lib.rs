@@ -49,6 +49,7 @@
 //! | `PostgreSQL` | tokio-postgres | `tokio-postgres` | ✅     |
 //! | `PostgreSQL` | tokio-postgres over Cloudflare Hyperdrive (wasm32) | `hyperdrive` | ✅     |
 //! | `MySQL`      | mysql          | `mysql-sync`     | ✅     |
+//! | `MySQL`      | mysql_async    | `mysql-async`    | ✅     |
 //!
 //! For schema declarations, import the database prelude:
 //! - `drizzle::sqlite::prelude::*`
@@ -457,6 +458,16 @@ pub mod mysql {
         pub use crate::builder::mysql::mysql_sync::{Drizzle, DrizzleBuilder, prepared};
         #[doc(inline)]
         pub use crate::transaction::mysql::mysql_sync::Transaction;
+    }
+
+    /// Async adapter backed by the `mysql_async` crate.
+    #[cfg(feature = "mysql-async")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "mysql-async")))]
+    pub mod mysql_async {
+        #[doc(inline)]
+        pub use crate::builder::mysql::mysql_async::{Drizzle, DrizzleBuilder, prepared};
+        #[doc(inline)]
+        pub use crate::transaction::mysql::mysql_async::Transaction;
     }
 
     /// `MySQL` prelude for schema declarations.

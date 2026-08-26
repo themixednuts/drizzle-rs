@@ -1,4 +1,4 @@
-//! Transaction and savepoint contracts exercised through mysql-sync.
+//! Transaction and savepoint contracts exercised through every MySQL adapter.
 
 use crate::common::schema::mysql::*;
 use drizzle::core::expr::count;
@@ -83,12 +83,11 @@ fn explicit_completion_drop_and_panic_have_raii_semantics(db: &mut TestDb<TestSc
     let after_rollback: i64 = db.select(count(users.id)).from(users).get();
     assert_eq!(after_rollback, 1);
 
-    let panic = catch!({
-        let _: drizzle::Result<()> = db.transaction(MySQLTransactionConfig::default(), |tx| {
+    let panic: Result<drizzle::Result<()>, _> =
+        catch!(db.transaction(MySQLTransactionConfig::default(), |tx| {
             result!(tx.insert(users).value(user!("panic rollback")).execute())?;
             panic!("rollback transaction after callback panic");
-        });
-    });
+        },));
     assert!(panic.is_err());
     let after_panic: i64 = db.select(count(users.id)).from(users).get();
     assert_eq!(after_panic, 1);
@@ -110,4 +109,15 @@ fn consistent_snapshot_options_execute(db: &mut TestDb<TestSchema>) {
         );
         Ok(())
     });
+}
+
+#[drizzle::test]
+fn transaction_session_changes_are_repaired_on_parent_reuse(db: &mut TestDb<TestSchema>) {
+    db.transaction(MySQLTransactionConfig::default(), |tx| {
+        result!(tx.execute(SQL::raw("SET SESSION time_zone = '+01:00'")))?;
+        Ok(())
+    });
+
+    let timezone: String = db.get(SQL::raw("SELECT @@SESSION.time_zone"));
+    assert_eq!(timezone, "+00:00");
 }
