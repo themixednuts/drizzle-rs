@@ -437,6 +437,13 @@ pub mod postgres {
 /// use drizzle::ddl::mysql::{MySQLType, MySQLTypeCategory};
 /// use drizzle::mysql::{MySQLDialect, MySQLValue, OwnedMySQLValue};
 /// ```
+///
+/// `UPDATE ... FROM` is a PostgreSQL capability and is intentionally absent
+/// from the MySQL builder.
+///
+/// ```compile_fail
+/// use drizzle::mysql::builder::UpdateFromSet;
+/// ```
 #[cfg(feature = "mysql")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mysql")))]
 pub mod mysql {
