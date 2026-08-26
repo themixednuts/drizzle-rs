@@ -105,6 +105,7 @@ fn mysql_relational_projection_preserves_exact_decimal(db: &mut TestDb<MySQLQuer
 struct MySQLQueryChronoValue {
     #[column(PRIMARY, DEFAULT = 0)]
     id: i32,
+    #[column(DATETIME(6))]
     moment: chrono::NaiveDateTime,
 }
 
@@ -141,6 +142,7 @@ fn mysql_relational_projection_decodes_chrono_without_serde(
 struct MySQLQueryTimeValue {
     #[column(PRIMARY, DEFAULT = 0)]
     id: i32,
+    #[column(DATETIME(6))]
     moment: time::PrimitiveDateTime,
 }
 

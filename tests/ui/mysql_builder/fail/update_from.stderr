@@ -1,20 +1,11 @@
-error[E0599]: no method named `from` found for struct `QueryBuilder<'_, Schema, UpdateSetClauseSet, Users>` in the current scope
-  --> tests/ui/mysql_builder/fail/update_from.rs:11:80
-   |
-11 |     let _ = builder.update(users).set(UpdateUsers::default().with_name("Bob")).from(users);
-   |             ------- -------------                                              ^^^^ this is an associated function, not a method
-   |             |       |
-   |             |       method `from` is available on `QueryBuilder<'_, Schema, UpdateInitial, Users>`
-   |             method `from` is available on `&QueryBuilder<'_, Schema, BuilderInit>`
-   |
-   = note: found the following associated functions; to be used as methods, functions must have a `self` parameter
-note: the candidate is defined in the trait `From`
-  --> $RUST/core/src/convert/mod.rs
-   |
-   |     fn from(value: T) -> Self;
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
-help: use associated function syntax instead
-   |
-11 -     let _ = builder.update(users).set(UpdateUsers::default().with_name("Bob")).from(users);
-11 +     let _ = QueryBuilder<'_, Schema, UpdateSetClauseSet, Users>::from(users);
-   |
+error[E0432]: unresolved import `drizzle::mysql::builder::UpdateFromSet`
+ --> tests/ui/mysql_builder/fail/update_from.rs:1:5
+  |
+1 | use drizzle::mysql::builder::UpdateFromSet;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `UpdateFromSet` in `builder`
+  |
+help: a similar name exists in the module
+  |
+1 - use drizzle::mysql::builder::UpdateFromSet;
+1 + use drizzle::mysql::builder::UpdateOrderSet;
+  |
