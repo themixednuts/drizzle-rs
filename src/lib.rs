@@ -448,13 +448,15 @@ pub mod postgres {
 #[cfg_attr(docsrs, doc(cfg(feature = "mysql")))]
 pub mod mysql {
     #[doc(inline)]
-    pub use drizzle_macros::{MySQLEnum, MySQLFromRow, MySQLIndex, MySQLSchema, MySQLTable};
+    pub use drizzle_macros::{
+        MySQLEnum, MySQLFromRow, MySQLIndex, MySQLSchema, MySQLTable, MySQLView,
+    };
     #[doc(inline)]
     pub use drizzle_mysql::values::{MySQLValue, OwnedMySQLValue};
     #[doc(inline)]
     pub use drizzle_mysql::{
-        MySQLDialect, ParamBind, attrs, builder, common, driver, helpers, index, traits,
-        transaction, types, values,
+        MySQLDialect, ParamBind, ViewAlgorithm, ViewCheckOption, ViewSqlSecurity, attrs, builder,
+        common, driver, helpers, index, traits, transaction, types, values,
     };
 
     /// Blocking adapter backed by the `mysql` crate.
@@ -491,11 +493,14 @@ pub mod mysql {
         pub use drizzle_core::traits::*;
         pub use drizzle_mysql::helpers::{MySQLIndexHintExt, asc, desc, output_alias};
         // MySQL macros
-        pub use drizzle_macros::{MySQLEnum, MySQLFromRow, MySQLIndex, MySQLSchema, MySQLTable};
+        pub use drizzle_macros::{
+            MySQLEnum, MySQLFromRow, MySQLIndex, MySQLSchema, MySQLTable, MySQLView,
+        };
         // MySQL types
         pub use drizzle_mysql::MySQLMutationResult;
         pub use drizzle_mysql::attrs::*;
         pub use drizzle_mysql::common::MySQLSchemaType;
+        pub use drizzle_mysql::common::MySQLViewInfo;
         pub use drizzle_mysql::traits::{MySQLColumn, MySQLEnum, MySQLIndexColumn, MySQLTable};
         pub use drizzle_mysql::values::{
             MySQLInsertValue, MySQLUpdateValue, MySQLValue, OwnedMySQLValue,
@@ -504,6 +509,7 @@ pub mod mysql {
         pub use drizzle_mysql::{
             MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMetadata, MySQLIndexMethod,
         };
+        pub use drizzle_mysql::{ViewAlgorithm, ViewCheckOption, ViewSqlSecurity};
     }
 }
 

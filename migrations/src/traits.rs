@@ -11,6 +11,7 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 
 // Import dialect-specific types for associated type definitions
+use crate::mysql::{MySQLDDL, MySQLEntity, MySQLSnapshot, statements::Generator as MySQLGenerator};
 use crate::postgres::{
     PostgresDDL, PostgresSnapshot, ddl::PostgresEntity, statements::Generator as PostgresGenerator,
 };
@@ -68,7 +69,7 @@ impl Version for V8 {
 /// Latest version aliases per dialect
 pub type SqliteLatest = V7;
 pub type PostgresLatest = V8;
-pub type MysqlLatest = V5;
+pub type MysqlLatest = V6;
 
 // =============================================================================
 // Upgradable Trait
@@ -382,7 +383,7 @@ pub trait Dialect: Sized + 'static {
         prev: &Self::Snapshot,
         cur: &Self::Snapshot,
         breakpoints: bool,
-    ) -> DiffResult;
+    ) -> Result<DiffResult, crate::MigrationError>;
 }
 
 /// Marker trait for compile-time upgrade path validation.
@@ -422,6 +423,8 @@ pub struct DiffResult {
     pub sql_statements: Vec<String>,
     /// Whether there are any changes
     pub has_changes: bool,
+    /// Structural warnings produced while planning the migration.
+    pub warnings: Vec<String>,
 }
 
 impl DiffResult {
@@ -431,6 +434,7 @@ impl DiffResult {
         Self {
             sql_statements: Vec::new(),
             has_changes: false,
+            warnings: Vec::new(),
         }
     }
 
@@ -441,6 +445,18 @@ impl DiffResult {
         Self {
             sql_statements,
             has_changes,
+            warnings: Vec::new(),
+        }
+    }
+
+    /// Convert the supported migration plan into the legacy typed result.
+    #[must_use]
+    pub fn from_plan(plan: crate::Plan) -> Self {
+        let has_changes = !plan.statements.is_empty();
+        Self {
+            sql_statements: plan.statements,
+            has_changes,
+            warnings: plan.warnings,
         }
     }
 }
@@ -468,15 +484,13 @@ impl Dialect for Sqlite {
     fn diff_and_generate(
         prev: &Self::Snapshot,
         cur: &Self::Snapshot,
-        breakpoints: bool,
-    ) -> DiffResult {
-        let diff = crate::sqlite::diff_snapshots(prev, cur);
-        if !diff.has_changes() {
-            return DiffResult::empty();
-        }
-        let generator = SqliteGenerator::new().with_breakpoints(breakpoints);
-        let sql = generator.generate_migration(&diff);
-        DiffResult::with_changes(sql)
+        _breakpoints: bool,
+    ) -> Result<DiffResult, crate::MigrationError> {
+        crate::diff(
+            &crate::Snapshot::Sqlite(prev.clone()),
+            &crate::Snapshot::Sqlite(cur.clone()),
+        )
+        .map(DiffResult::from_plan)
     }
 }
 
@@ -509,15 +523,13 @@ impl Dialect for Postgres {
     fn diff_and_generate(
         prev: &Self::Snapshot,
         cur: &Self::Snapshot,
-        breakpoints: bool,
-    ) -> DiffResult {
-        let diff = crate::postgres::diff_snapshots(&prev.ddl, &cur.ddl);
-        if !diff.has_changes() {
-            return DiffResult::empty();
-        }
-        let generator = PostgresGenerator::new().with_breakpoints(breakpoints);
-        let sql = generator.generate(&diff.diffs);
-        DiffResult::with_changes(sql)
+        _breakpoints: bool,
+    ) -> Result<DiffResult, crate::MigrationError> {
+        crate::diff(
+            &crate::Snapshot::Postgres(prev.clone()),
+            &crate::Snapshot::Postgres(cur.clone()),
+        )
+        .map(DiffResult::from_plan)
     }
 }
 
@@ -538,28 +550,31 @@ impl Mysql {
     /// Minimum supported snapshot version (inherent alias)
     pub const MIN_VERSION: u32 = V5::NUMBER;
     /// Latest snapshot version (inherent alias)
-    pub const LATEST_VERSION: u32 = V5::NUMBER;
+    pub const LATEST_VERSION: u32 = V6::NUMBER;
 }
 
 impl Dialect for Mysql {
     const NAME: &'static str = "mysql";
     type MinVersion = V5;
-    type LatestVersion = V5;
-    // MySQL not yet implemented - use placeholder types
-    type Snapshot = ();
-    type DDL = ();
-    type Entity = ();
-    type Generator = ();
+    type LatestVersion = V6;
+    type Snapshot = MySQLSnapshot;
+    type DDL = MySQLDDL;
+    type Entity = MySQLEntity;
+    type Generator = MySQLGenerator;
 
     fn diff_and_generate(
-        _prev: &Self::Snapshot,
-        _cur: &Self::Snapshot,
+        prev: &Self::Snapshot,
+        cur: &Self::Snapshot,
         _breakpoints: bool,
-    ) -> DiffResult {
-        unimplemented!("MySQL migrations not yet supported")
+    ) -> Result<DiffResult, crate::MigrationError> {
+        crate::diff(
+            &crate::Snapshot::MySQL(prev.clone()),
+            &crate::Snapshot::MySQL(cur.clone()),
+        )
+        .map(DiffResult::from_plan)
     }
 }
-// No upgrade paths for MySQL - already at latest
+impl CanUpgrade<V5, V6> for Mysql {}
 
 // =============================================================================
 // Diff Types
@@ -629,9 +644,9 @@ mod tests {
         assert_eq!(Postgres::MIN_VERSION, 5);
         assert_eq!(Postgres::LATEST_VERSION, 8);
 
-        // MySQL: V5 only
+        // MySQL: V5 to V6
         assert_eq!(Mysql::MIN_VERSION, 5);
-        assert_eq!(Mysql::LATEST_VERSION, 5);
+        assert_eq!(Mysql::LATEST_VERSION, 6);
     }
 
     #[test]
@@ -663,6 +678,23 @@ mod tests {
         assert_can_upgrade::<Postgres, V6, V7>();
         assert_can_upgrade::<Postgres, V7, V8>();
         assert_can_upgrade::<Postgres, V5, V8>(); // Transitive
+
+        assert_can_upgrade::<Mysql, V5, V6>();
+    }
+
+    #[test]
+    fn mysql_typed_diff_delegates_to_the_fallible_shared_planner() {
+        let previous = MySQLSnapshot::new();
+        let mut invalid = MySQLSnapshot::new();
+        invalid.add_entity(MySQLEntity::Column(crate::mysql::Column::new(
+            "missing_table",
+            "id",
+            "bigint",
+        )));
+
+        let error = Mysql::diff_and_generate(&previous, &invalid, true)
+            .expect_err("invalid public snapshots must return an error instead of panicking");
+        assert!(error.to_string().contains("missing table"), "{error}");
     }
 
     // This test demonstrates a compile-time error if uncommented:

@@ -21,6 +21,7 @@
 //!
 //! ### `MySQL`
 //! - [`MySQLTable`] - Define `MySQL` table schemas with type safety
+//! - [`MySQLView`] - Define `MySQL` view schemas with type safety
 //! - [`MySQLEnum`] - Define inline enums stored in `MySQL` columns
 //! - [`MySQLIndex`] - Define indexes on `MySQL` tables
 //! - [`MySQLSchema`] - Derive macro to group tables and indexes into a schema
@@ -3252,6 +3253,23 @@ pub fn MySQLTable(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attrs = parse_macro_input!(attr as crate::mysql::table::TableAttributes);
 
     match crate::mysql::table::table_attr_macro(&input, &attrs) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Define a typed `MySQL` view.
+///
+/// Supports `NAME`, `DATABASE`/`SCHEMA`, `DEFINITION` or `query(...)`,
+/// `EXISTING`, `ALGORITHM`, `SQL_SECURITY`, and `CHECK_OPTION`.
+#[cfg(feature = "mysql")]
+#[allow(non_snake_case)]
+#[proc_macro_attribute]
+pub fn MySQLView(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as syn::DeriveInput);
+    let attrs = parse_macro_input!(attr as crate::mysql::view::ViewAttributes);
+
+    match crate::mysql::view::view_attr_macro(&input, &attrs) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }

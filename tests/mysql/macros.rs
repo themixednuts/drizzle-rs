@@ -5,6 +5,7 @@
 //! connection and row ownership while reusing this decoding policy.
 
 use drizzle::core::{ColumnDialect, DrizzleTable, SQLSchemaImpl, TableDialect, ToSQL};
+use drizzle::migrations::Schema as MigrationSchema;
 use drizzle::mysql::prelude::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, MySQLEnum)]
@@ -56,13 +57,78 @@ struct AppSchema {
     account_events: AccountEvents,
 }
 
+#[MySQLView(
+    DATABASE = "app_db",
+    NAME = "account_emails",
+    DEFINITION = "SELECT id, email FROM accounts",
+    ALGORITHM = "merge",
+    SQL_SECURITY = "invoker",
+    CHECK_OPTION = "local"
+)]
+struct AccountEmails {
+    id: u64,
+    #[column(VARCHAR(255))]
+    email: String,
+}
+
+#[MySQLView(
+    DATABASE = "app_db",
+    NAME = "typed_account_emails",
+    ALGORITHM = "undefined",
+    WITH_CHECK_OPTION,
+    query(select(Accounts::id, Accounts::email), from(Accounts))
+)]
+struct TypedAccountEmails {
+    id: u64,
+    #[column(VARCHAR(255))]
+    email: String,
+}
+
+#[MySQLView(DATABASE = "app_db", NAME = "external_accounts", EXISTING)]
+struct ExternalAccounts {
+    id: u64,
+}
+
+#[derive(MySQLSchema)]
+struct ViewSchema {
+    accounts: Accounts,
+    account_emails: AccountEmails,
+    typed_account_emails: TypedAccountEmails,
+    external_accounts: ExternalAccounts,
+}
+
+#[MySQLView(
+    DATABASE = "app_db",
+    NAME = "a_dependent_account_ids",
+    DEFINITION = "SELECT id FROM z_source_account_ids"
+)]
+struct DependentAccountIds {
+    id: u64,
+}
+
+#[MySQLView(
+    DATABASE = "app_db",
+    NAME = "z_source_account_ids",
+    DEFINITION = "SELECT id FROM accounts"
+)]
+struct SourceAccountIds {
+    id: u64,
+}
+
+#[derive(MySQLSchema)]
+struct DependentViewSchema {
+    dependent: DependentAccountIds,
+    source: SourceAccountIds,
+    accounts: Accounts,
+}
+
 // Deliberately declare the dependent table first: MySQLSchema must still emit
 // the same-database parent before its child.
 #[MySQLTable(DATABASE = "billing", NAME = "qualified_children")]
 struct QualifiedChild {
     #[column(PRIMARY, AUTO_INCREMENT)]
     id: u64,
-    #[column(REFERENCES = QualifiedParent::id)]
+    #[column(REFERENCES = QualifiedParent::id, COMMENT = "links to the billing parent")]
     parent_id: u64,
 }
 
@@ -108,6 +174,8 @@ struct ExpressionDefaults {
 struct EscapedParent {
     #[column(NAME = "i`d", PRIMARY)]
     id: u64,
+    #[column(NAME = "pa`th", VARCHAR(255))]
+    path: String,
 }
 
 #[MySQLTable(DATABASE = "odd`db", NAME = "chil`dren")]
@@ -116,6 +184,19 @@ struct EscapedChild {
     id: u64,
     #[column(REFERENCES = EscapedParent::id)]
     parent_id: u64,
+}
+
+#[MySQLView(
+    NAME = "escaped_paths",
+    query(
+        select(EscapedParent::path),
+        from(EscapedParent),
+        filter(eq(EscapedParent::path, "C:\\tmp\\O'Brien"))
+    )
+)]
+struct EscapedPaths {
+    #[column(VARCHAR(255))]
+    path: String,
 }
 
 #[cfg(feature = "uuid")]
@@ -286,6 +367,120 @@ fn table_metadata_preserves_mysql_database_unsigned_and_generated_details() {
         "`email_length_virtual` INT UNSIGNED GENERATED ALWAYS AS (CHAR_LENGTH(email)) VIRTUAL NOT NULL"
     ));
     assert_eq!(Accounts::new().to_sql().sql(), "`app_db`.`accounts`");
+}
+
+#[test]
+fn mysql_views_use_the_standard_typed_table_api_and_render_mysql_ddl() {
+    assert_mysql_selector::<AccountEmails>();
+    assert_mysql_expr::<AccountEmailsEmail>();
+
+    let sql = AccountEmails::create_view_sql();
+    assert_eq!(
+        sql,
+        "CREATE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW `app_db`.`account_emails` AS SELECT id, email FROM accounts WITH LOCAL CHECK OPTION;"
+    );
+    assert_eq!(
+        TypedAccountEmails::ddl_sql(),
+        "CREATE ALGORITHM=UNDEFINED VIEW `app_db`.`typed_account_emails` AS SELECT `app_db`.`accounts`.`id` AS `id`, `app_db`.`accounts`.`email` AS `email` FROM `app_db`.`accounts` WITH CASCADED CHECK OPTION;"
+    );
+
+    let selected = drizzle::mysql::builder::QueryBuilder::new::<ViewSchema>()
+        .select(())
+        .from(AccountEmails::default())
+        .r#where(drizzle::core::expr::eq(AccountEmails::id, 1_u64))
+        .to_sql()
+        .sql();
+    assert!(selected.contains("`app_db`.`account_emails`"));
+
+    assert_eq!(
+        EscapedPaths::ddl_sql(),
+        "CREATE VIEW `escaped_paths` AS SELECT `odd``db`.`par``ents`.`pa``th` AS `path` FROM `odd``db`.`par``ents` WHERE `odd``db`.`par``ents`.`pa``th` = 'C:\\\\tmp\\\\O''Brien';"
+    );
+}
+
+#[test]
+fn mysql_schema_emits_views_last_and_preserves_typed_view_metadata() {
+    let statements = ViewSchema::new()
+        .create_statements()
+        .expect("view schema should be valid")
+        .collect::<Vec<_>>();
+    assert_eq!(statements.len(), 3);
+    assert!(statements[0].starts_with("CREATE TABLE"));
+    assert!(statements[1].starts_with("CREATE ALGORITHM=MERGE"));
+    assert!(statements[2].starts_with("CREATE ALGORITHM=UNDEFINED"));
+
+    let drizzle::migrations::Snapshot::MySQL(snapshot) = ViewSchema::new().to_snapshot() else {
+        panic!("expected MySQL snapshot");
+    };
+    let view = snapshot
+        .ddl
+        .iter()
+        .find_map(|entity| match entity {
+            drizzle::migrations::mysql::MySQLEntity::View(view)
+                if view.name.as_ref() == "account_emails" =>
+            {
+                Some(view)
+            }
+            _ => None,
+        })
+        .expect("account_emails view metadata");
+    assert_eq!(view.database.as_deref(), Some("app_db"));
+    assert_eq!(
+        view.definition.as_deref(),
+        Some("SELECT id, email FROM accounts")
+    );
+    assert_eq!(
+        view.algorithm,
+        Some(drizzle::ddl::mysql::ddl::ViewAlgorithm::Merge)
+    );
+    assert_eq!(view.definer, None);
+    assert_eq!(
+        view.sql_security,
+        Some(drizzle::ddl::mysql::ddl::ViewSqlSecurity::Invoker)
+    );
+    assert_eq!(
+        view.check_option,
+        Some(drizzle::ddl::mysql::ddl::ViewCheckOption::Local)
+    );
+    assert_eq!(view.charset, None);
+    assert_eq!(view.collation, None);
+
+    let existing = snapshot
+        .ddl
+        .iter()
+        .find_map(|entity| match entity {
+            drizzle::migrations::mysql::MySQLEntity::View(view)
+                if view.name.as_ref() == "external_accounts" =>
+            {
+                Some(view)
+            }
+            _ => None,
+        })
+        .expect("external view metadata");
+    assert!(existing.is_existing);
+    assert_eq!(existing.definition, None);
+}
+
+#[test]
+fn mysql_schema_orders_a_source_view_before_its_dependent_view() {
+    let statements = DependentViewSchema::new()
+        .create_statements()
+        .expect("dependent view schema should be valid")
+        .collect::<Vec<_>>();
+
+    let source_position = statements
+        .iter()
+        .position(|statement| statement.contains("VIEW `app_db`.`z_source_account_ids`"))
+        .expect("source view CREATE statement");
+    let dependent_position = statements
+        .iter()
+        .position(|statement| statement.contains("VIEW `app_db`.`a_dependent_account_ids`"))
+        .expect("dependent view CREATE statement");
+
+    assert!(
+        source_position < dependent_position,
+        "source view must be created before its dependent: {statements:?}"
+    );
 }
 
 #[cfg(feature = "query")]
@@ -466,6 +661,50 @@ fn schema_orders_same_database_qualified_foreign_key_parents_before_children() {
     assert!(
         statements[child_position]
             .contains("FOREIGN KEY (`parent_id`) REFERENCES `billing`.`qualified_parents` (`id`)")
+    );
+}
+
+#[test]
+fn mysql_schema_snapshot_retains_column_comment_in_canonical_order() {
+    let snapshot = QualifiedForeignKeySchema::new().to_snapshot();
+    let drizzle::migrations::Snapshot::MySQL(snapshot) = snapshot else {
+        panic!("expected MySQL snapshot");
+    };
+
+    let parent_id = snapshot
+        .ddl
+        .iter()
+        .find_map(|entity| match entity {
+            drizzle::migrations::mysql::MySQLEntity::Column(column)
+                if column.table.as_ref() == "qualified_children"
+                    && column.name.as_ref() == "parent_id" =>
+            {
+                Some(column)
+            }
+            _ => None,
+        })
+        .expect("qualified_children.parent_id column");
+    assert_eq!(
+        parent_id.comment.as_deref(),
+        Some("links to the billing parent")
+    );
+
+    let category = |entity: &drizzle::migrations::mysql::MySQLEntity| match entity {
+        drizzle::migrations::mysql::MySQLEntity::Table(_) => 0,
+        drizzle::migrations::mysql::MySQLEntity::Column(_) => 1,
+        drizzle::migrations::mysql::MySQLEntity::PrimaryKey(_) => 2,
+        drizzle::migrations::mysql::MySQLEntity::UniqueConstraint(_) => 3,
+        drizzle::migrations::mysql::MySQLEntity::Index(_) => 4,
+        drizzle::migrations::mysql::MySQLEntity::ForeignKey(_) => 5,
+        drizzle::migrations::mysql::MySQLEntity::CheckConstraint(_) => 6,
+        drizzle::migrations::mysql::MySQLEntity::View(_) => 7,
+    };
+    assert!(
+        snapshot
+            .ddl
+            .windows(2)
+            .all(|pair| category(&pair[0]) <= category(&pair[1])),
+        "MySQL macro snapshot entities must use canonical category order"
     );
 }
 

@@ -4,5 +4,6 @@ pub mod generators;
 pub mod index;
 pub mod schema;
 pub mod table;
+pub mod view;
 
 pub use schema::generate_mysql_schema_derive_impl;

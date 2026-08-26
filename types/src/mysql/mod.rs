@@ -4,6 +4,7 @@
 //! native type families without treating PostgreSQL-only concepts such as
 //! arrays, `JSONB`, or named enum types as portable.
 
+pub mod ddl;
 mod sql_type;
 mod type_category;
 

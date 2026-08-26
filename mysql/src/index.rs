@@ -63,3 +63,49 @@ pub trait MySQLIndexMetadata {
     const ALGORITHM: Option<MySQLIndexAlgorithm>;
     const LOCK: Option<MySQLIndexLock>;
 }
+
+/// Internal sealing marker for generated MySQL schema items.
+///
+/// The module is public only because procedural-macro output is expanded in a
+/// downstream crate. Consumers should use [`MySQLSchemaItemMetadata`] rather
+/// than implementing this marker themselves.
+#[doc(hidden)]
+pub mod __private {
+    pub trait MySQLSchemaItemSealed {}
+}
+
+/// Inline MySQL column-type metadata retained separately from rendered SQL.
+///
+/// `ENUM` and `SET` values affect migration safety analysis, so schema
+/// producers carry them as values instead of reverse-engineering a generated
+/// DDL string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MySQLInlineTypeMetadata {
+    Enum(&'static [&'static str]),
+    Set(&'static [&'static str]),
+}
+
+/// MySQL metadata shared by table and index schema items.
+///
+/// Migration snapshot producers inspect this trait rather than reparsing an
+/// item's generated SQL. Tables use the default empty index settings; index
+/// derives provide their declared method, online-DDL algorithm, and lock.
+pub trait MySQLSchemaItemMetadata: __private::MySQLSchemaItemSealed {
+    const INDEX_METHOD: Option<MySQLIndexMethod> = None;
+    const INDEX_ALGORITHM: Option<MySQLIndexAlgorithm> = None;
+    const INDEX_LOCK: Option<MySQLIndexLock> = None;
+
+    /// Inline type values for a named table column, if this item is a table
+    /// with an `ENUM` or `SET` declaration.
+    fn inline_type(_column: &str) -> Option<MySQLInlineTypeMetadata> {
+        None
+    }
+
+    /// A MySQL `COMMENT` attached to a named table column.
+    ///
+    /// This stays separate from generated DDL so migration snapshots can
+    /// distinguish a comment change from a column-definition change.
+    fn column_comment(_column: &str) -> Option<&'static str> {
+        None
+    }
+}

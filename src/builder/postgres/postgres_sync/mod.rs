@@ -1192,7 +1192,8 @@ impl<Schema> Drizzle<Schema> {
         // and will fail if a concurrent session drops objects.
         let target_schemas: Vec<String> = match &desired {
             drizzle_migrations::schema::Snapshot::Postgres(pg) => pg.schema_names(),
-            drizzle_migrations::schema::Snapshot::Sqlite(_) => Vec::new(),
+            drizzle_migrations::schema::Snapshot::Sqlite(_)
+            | drizzle_migrations::schema::Snapshot::MySQL(_) => Vec::new(),
         };
         let live = self.introspect_impl(if target_schemas.is_empty() {
             None

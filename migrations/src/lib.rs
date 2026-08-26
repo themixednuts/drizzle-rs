@@ -122,6 +122,7 @@ pub mod dir;
 pub mod generate;
 pub mod journal;
 pub mod migrator;
+pub mod mysql;
 pub mod naming;
 pub mod parser;
 pub mod postgres;
@@ -176,8 +177,8 @@ pub use schema::{Schema, Snapshot};
 
 // Programmatic migration generation
 pub use generate::{
-    ColumnRenameHint, DiffOptions, Plan, RenameHints, SchemaRenameHint, TableRenameHint, diff,
-    diff_schemas, diff_schemas_with, diff_with,
+    ColumnRenameHint, DiffOptions, Plan, RenameHints, SchemaRenameHint, TableRenameHint,
+    ViewRenameHint, diff, diff_schemas, diff_schemas_with, diff_with,
 };
 
 // Build-time generation helpers (no CLI)

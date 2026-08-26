@@ -48,6 +48,7 @@
 //! # Ok::<(), drizzle_migrations::MigrationError>(())
 //! ```
 
+use crate::mysql::collection::MySQLDDL;
 use crate::postgres::collection::PostgresDDL;
 use crate::schema::{Schema, Snapshot};
 use crate::sqlite::collection::SQLiteDDL;
@@ -98,12 +99,15 @@ impl Plan {
 /// Explicit rename hints used during migration generation.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RenameHints {
-    /// PostgreSQL schema rename hints.
+    /// PostgreSQL schema rename hints. MySQL rejects these because databases
+    /// are migration scope rather than managed schema entities.
     pub schema_renames: Vec<SchemaRenameHint>,
     /// Table rename hints.
     pub table_renames: Vec<TableRenameHint>,
     /// Column rename hints.
     pub column_renames: Vec<ColumnRenameHint>,
+    /// View rename hints.
+    pub view_renames: Vec<ViewRenameHint>,
 }
 
 impl RenameHints {
@@ -178,6 +182,31 @@ impl RenameHints {
         });
         self
     }
+
+    #[must_use]
+    pub fn rename_view(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
+        self.view_renames.push(ViewRenameHint {
+            schema: None,
+            from: from.into(),
+            to: to.into(),
+        });
+        self
+    }
+
+    #[must_use]
+    pub fn rename_view_in(
+        mut self,
+        schema: impl Into<String>,
+        from: impl Into<String>,
+        to: impl Into<String>,
+    ) -> Self {
+        self.view_renames.push(ViewRenameHint {
+            schema: Some(schema.into()),
+            from: from.into(),
+            to: to.into(),
+        });
+        self
+    }
 }
 
 /// PostgreSQL schema rename hint.
@@ -192,7 +221,7 @@ pub struct SchemaRenameHint {
 /// Table rename hint.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TableRenameHint {
-    /// Optional schema (`PostgreSQL` only). If omitted, defaults to `public`.
+    /// Optional namespace: PostgreSQL schema or selected MySQL database.
     pub schema: Option<String>,
     /// Current table name.
     pub from: String,
@@ -203,13 +232,24 @@ pub struct TableRenameHint {
 /// Column rename hint.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ColumnRenameHint {
-    /// Optional schema (`PostgreSQL` only). If omitted, defaults to `public`.
+    /// Optional namespace: PostgreSQL schema or selected MySQL database.
     pub schema: Option<String>,
     /// Table containing the column.
     pub table: String,
     /// Current column name.
     pub from: String,
     /// New column name.
+    pub to: String,
+}
+
+/// View rename hint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ViewRenameHint {
+    /// Optional namespace: PostgreSQL schema or selected MySQL database.
+    pub schema: Option<String>,
+    /// Current view name.
+    pub from: String,
+    /// New view name.
     pub to: String,
 }
 
@@ -303,11 +343,28 @@ impl DiffOptions {
         self.renames = self.renames.rename_column_in(schema, table, from, to);
         self
     }
+
+    #[must_use]
+    pub fn rename_view(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
+        self.renames = self.renames.rename_view(from, to);
+        self
+    }
+
+    #[must_use]
+    pub fn rename_view_in(
+        mut self,
+        schema: impl Into<String>,
+        from: impl Into<String>,
+        to: impl Into<String>,
+    ) -> Self {
+        self.renames = self.renames.rename_view_in(schema, from, to);
+        self
+    }
 }
 
 /// Diff two snapshots and return the migration SQL statements.
 ///
-/// Both snapshots must be for the same dialect (e.g., both `SQLite` or both `PostgreSQL`).
+/// Both snapshots must use the same SQLite, PostgreSQL, or MySQL dialect.
 /// Returns `Ok(vec![])` if no changes are detected.
 ///
 /// This is a pure function — no file I/O, no side effects.
@@ -318,8 +375,8 @@ impl DiffOptions {
 /// # Errors
 ///
 /// Returns [`MigrationError::DialectMismatch`] if the two snapshots use
-/// different dialects, or a [`MigrationError::ConfigError`] if applying
-/// rename hints fails under strict mode.
+/// different dialects, or a [`MigrationError::ConfigError`] if snapshot
+/// validation, SQL rendering, or strict rename handling fails.
 pub fn diff(prev: &Snapshot, current: &Snapshot) -> Result<Plan, MigrationError> {
     diff_with(prev, current, &DiffOptions::default())
 }
@@ -332,8 +389,8 @@ pub fn diff(prev: &Snapshot, current: &Snapshot) -> Result<Plan, MigrationError>
 /// # Errors
 ///
 /// Returns [`MigrationError::DialectMismatch`] if the two snapshots use
-/// different dialects, or a [`MigrationError::ConfigError`] if applying
-/// rename hints fails under strict mode.
+/// different dialects, or a [`MigrationError::ConfigError`] if snapshot
+/// validation, SQL rendering, or strict rename handling fails.
 pub fn diff_with(
     prev: &Snapshot,
     current: &Snapshot,
@@ -371,6 +428,63 @@ pub fn diff_with(
             let diff = crate::postgres::diff::compute_migration(&prev_ddl, &cur_ddl);
             statements.extend(diff.sql_statements);
             (statements, diff.warnings)
+        }
+        (Snapshot::MySQL(p), Snapshot::MySQL(c)) => {
+            if options.sqlite_rebuild_data.is_some() {
+                return Err(MigrationError::ConfigError(
+                    "SQLite rebuild-data plan cannot be used for a MySQL migration".to_string(),
+                ));
+            }
+            if !options.renames.schema_renames.is_empty() {
+                return Err(MigrationError::ConfigError(
+                    "MySQL migration scope is a selected database; database rename hints are not supported"
+                        .to_string(),
+                ));
+            }
+            let prev_ddl = MySQLDDL::try_from_entities(p.ddl.clone())
+                .map_err(|error| MigrationError::ConfigError(error.to_string()))?;
+            let cur_ddl = MySQLDDL::try_from_entities(c.ddl.clone())
+                .map_err(|error| MigrationError::ConfigError(error.to_string()))?;
+            let mysql_options = crate::mysql::diff::DiffOptions {
+                strict_renames: options.strict_renames,
+                renames: crate::mysql::diff::RenameHints {
+                    tables: options
+                        .renames
+                        .table_renames
+                        .iter()
+                        .map(|hint| crate::mysql::diff::TableRename {
+                            database: hint.schema.clone(),
+                            from: hint.from.clone(),
+                            to: hint.to.clone(),
+                        })
+                        .collect(),
+                    columns: options
+                        .renames
+                        .column_renames
+                        .iter()
+                        .map(|hint| crate::mysql::diff::ColumnRename {
+                            database: hint.schema.clone(),
+                            table: hint.table.clone(),
+                            from: hint.from.clone(),
+                            to: hint.to.clone(),
+                        })
+                        .collect(),
+                    views: options
+                        .renames
+                        .view_renames
+                        .iter()
+                        .map(|hint| crate::mysql::diff::ViewRename {
+                            database: hint.schema.clone(),
+                            from: hint.from.clone(),
+                            to: hint.to.clone(),
+                        })
+                        .collect(),
+                },
+            };
+            let diff =
+                crate::mysql::diff::compute_migration_with(&prev_ddl, &cur_ddl, &mysql_options)
+                    .map_err(|error| MigrationError::ConfigError(error.to_string()))?;
+            (diff.sql_statements, diff.warnings)
         }
         _ => return Err(MigrationError::DialectMismatch),
     };
@@ -554,6 +668,48 @@ fn apply_sqlite_rename_hints(
         apply_sqlite_column_rename(prev, &hint.table, &hint.from, &hint.to);
     }
 
+    for hint in &options.renames.view_renames {
+        if hint.schema.is_some() {
+            if options.strict_renames {
+                return Err(MigrationError::ConfigError(
+                    "sqlite rename_view hint does not support schema".to_string(),
+                ));
+            }
+            continue;
+        }
+        let current = cur.views.one(&hint.to).cloned();
+        let can_apply = valid_rename_name(&hint.from)
+            && valid_rename_name(&hint.to)
+            && hint.from != hint.to
+            && prev.views.one(&hint.from).is_some()
+            && current.is_some()
+            && prev.views.one(&hint.to).is_none();
+        if !can_apply {
+            if options.strict_renames {
+                return Err(MigrationError::ConfigError(format!(
+                    "sqlite view rename hint did not match snapshots: {} -> {}",
+                    hint.from, hint.to
+                )));
+            }
+            continue;
+        }
+
+        let current = current.expect("validated current SQLite view");
+        statements.push(format!(
+            "DROP VIEW IF EXISTS `{}`;",
+            hint.from.replace('`', "``")
+        ));
+        statements.push(current.create_view_sql());
+        if let Some(previous) = prev
+            .views
+            .list_mut()
+            .iter_mut()
+            .find(|view| view.name.as_ref() == hint.from)
+        {
+            *previous = current;
+        }
+    }
+
     Ok(statements)
 }
 
@@ -669,6 +825,48 @@ fn apply_postgres_rename_hints(
             schema, hint.table, hint.from, hint.to
         ));
         apply_postgres_column_rename(prev, schema, &hint.table, &hint.from, &hint.to);
+    }
+
+    for hint in &options.renames.view_renames {
+        let schema = hint.schema.as_deref().unwrap_or("public");
+        let current = cur.views.one(schema, &hint.to);
+        let previous = prev.views.one(schema, &hint.from);
+        let can_apply = valid_rename_name(schema)
+            && valid_rename_name(&hint.from)
+            && valid_rename_name(&hint.to)
+            && hint.from != hint.to
+            && previous.is_some()
+            && current.is_some()
+            && prev.views.one(schema, &hint.to).is_none();
+        if !can_apply {
+            if options.strict_renames {
+                return Err(MigrationError::ConfigError(format!(
+                    "postgres view rename hint did not match snapshots: {}.{} -> {}",
+                    schema, hint.from, hint.to
+                )));
+            }
+            continue;
+        }
+
+        let kind = if previous.is_some_and(|view| view.materialized) {
+            "MATERIALIZED VIEW"
+        } else {
+            "VIEW"
+        };
+        statements.push(format!(
+            "ALTER {kind} \"{}\".\"{}\" RENAME TO \"{}\";",
+            schema.replace('"', "\"\""),
+            hint.from.replace('"', "\"\""),
+            hint.to.replace('"', "\"\"")
+        ));
+        if let Some(previous) = prev
+            .views
+            .list_mut()
+            .iter_mut()
+            .find(|view| view.schema.as_ref() == schema && view.name.as_ref() == hint.from)
+        {
+            previous.name = Cow::Owned(hint.to.clone());
+        }
     }
 
     Ok(statements)
@@ -1053,13 +1251,14 @@ fn valid_rename_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mysql::{MySQLEntity, MySQLSnapshot, View as MySQLView};
     use crate::postgres::PostgresSnapshot;
     use crate::postgres::ddl::{
-        Column as PgColumn, PostgresEntity, Schema as PgSchema, Table as PgTable,
+        Column as PgColumn, PostgresEntity, Schema as PgSchema, Table as PgTable, View as PgView,
     };
     use crate::schema::Schema as MigrationSchema;
     use crate::sqlite::SQLiteSnapshot;
-    use crate::sqlite::ddl::{Column, SqliteEntity, Table};
+    use crate::sqlite::ddl::{Column, SqliteEntity, Table, View as SqliteView};
 
     #[derive(Default)]
     struct EmptySqliteSchema;
@@ -1075,11 +1274,79 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_empty_to_empty() {
-        let prev = Snapshot::empty(drizzle_types::Dialect::SQLite);
-        let cur = Snapshot::empty(drizzle_types::Dialect::SQLite);
-        let migration = diff(&prev, &cur).unwrap();
-        assert!(migration.statements.is_empty());
+    fn test_generate_empty_to_empty_for_every_dialect() {
+        for dialect in [
+            drizzle_types::Dialect::SQLite,
+            drizzle_types::Dialect::PostgreSQL,
+            drizzle_types::Dialect::MySQL,
+        ] {
+            let prev = Snapshot::empty(dialect);
+            let cur = Snapshot::empty(dialect);
+            let migration = diff(&prev, &cur).unwrap();
+            assert!(
+                migration.statements.is_empty(),
+                "{dialect:?} empty snapshots must have no diff"
+            );
+        }
+    }
+
+    #[test]
+    fn shared_view_rename_hint_uses_each_dialects_supported_operation() {
+        let mut sqlite_previous = SQLiteSnapshot::new();
+        let mut sqlite_old = SqliteView::new("old_view");
+        sqlite_old.definition = Some(Cow::Borrowed("SELECT 1"));
+        sqlite_previous.add_entity(SqliteEntity::View(sqlite_old));
+        let mut sqlite_current = SQLiteSnapshot::new();
+        let mut sqlite_new = SqliteView::new("new_view");
+        sqlite_new.definition = Some(Cow::Borrowed("SELECT 1"));
+        sqlite_current.add_entity(SqliteEntity::View(sqlite_new));
+
+        let mut postgres_previous = PostgresSnapshot::new();
+        let mut postgres_old = PgView::new("public", "old_view");
+        postgres_old.definition = Some(Cow::Borrowed("SELECT 1"));
+        postgres_previous.add_entity(PostgresEntity::View(postgres_old));
+        let mut postgres_current = PostgresSnapshot::new();
+        let mut postgres_new = PgView::new("public", "new_view");
+        postgres_new.definition = Some(Cow::Borrowed("SELECT 1"));
+        postgres_current.add_entity(PostgresEntity::View(postgres_new));
+
+        let mut mysql_previous = MySQLSnapshot::new();
+        mysql_previous.add_entity(MySQLEntity::View(MySQLView::new("old_view", "SELECT 1")));
+        let mut mysql_current = MySQLSnapshot::new();
+        mysql_current.add_entity(MySQLEntity::View(MySQLView::new("new_view", "SELECT 1")));
+
+        let cases = [
+            (
+                Snapshot::Sqlite(sqlite_previous),
+                Snapshot::Sqlite(sqlite_current),
+                vec![
+                    "DROP VIEW IF EXISTS `old_view`;".to_string(),
+                    "CREATE VIEW `new_view` AS SELECT 1;".to_string(),
+                ],
+            ),
+            (
+                Snapshot::Postgres(postgres_previous),
+                Snapshot::Postgres(postgres_current),
+                vec!["ALTER VIEW \"public\".\"old_view\" RENAME TO \"new_view\";".to_string()],
+            ),
+            (
+                Snapshot::MySQL(mysql_previous),
+                Snapshot::MySQL(mysql_current),
+                vec!["RENAME TABLE `old_view` TO `new_view`;".to_string()],
+            ),
+        ];
+
+        for (previous, current, expected) in cases {
+            let plan = diff_with(
+                &previous,
+                &current,
+                &DiffOptions::new()
+                    .rename_view("old_view", "new_view")
+                    .strict_renames(true),
+            )
+            .expect("view rename hint");
+            assert_eq!(plan.statements, expected, "{:?}", previous.dialect());
+        }
     }
 
     #[test]
@@ -1108,14 +1375,6 @@ mod tests {
         let cur = Snapshot::empty(drizzle_types::Dialect::PostgreSQL);
         let result = diff(&prev, &cur);
         assert!(matches!(result, Err(MigrationError::DialectMismatch)));
-    }
-
-    #[test]
-    fn test_generate_postgres_empty() {
-        let prev = Snapshot::empty(drizzle_types::Dialect::PostgreSQL);
-        let cur = Snapshot::empty(drizzle_types::Dialect::PostgreSQL);
-        let migration = diff(&prev, &cur).unwrap();
-        assert!(migration.statements.is_empty());
     }
 
     #[test]

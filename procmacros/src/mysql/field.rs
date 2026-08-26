@@ -73,6 +73,9 @@ pub struct FieldInfo {
     pub charset: Option<String>,
     pub collate: Option<String>,
     pub on_update: Option<String>,
+    /// MySQL column `COMMENT`, retained as structured schema metadata for
+    /// migration snapshots as well as rendered DDL.
+    pub comment: Option<String>,
 }
 
 #[derive(Default)]
@@ -293,6 +296,7 @@ impl FieldInfo {
             charset: parsed.charset,
             collate: parsed.collate,
             on_update: parsed.on_update,
+            comment: parsed.comment,
         })
     }
 

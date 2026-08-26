@@ -7,6 +7,7 @@ use crate::mysql::generators::{
 };
 use crate::paths::core as core_paths;
 use crate::paths::mysql as mysql_paths;
+use drizzle_types::mysql::MySQLType;
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -478,6 +479,43 @@ pub(super) fn generate_table_impls(
         quote! { #type_set_nil },
         |tail, column| quote! { #type_set_cons<#column, #tail> },
     );
+    let mysql_inline_type_match_arms: Vec<TokenStream> = ctx
+        .field_infos
+        .iter()
+        .filter_map(|field| {
+            let column_name = &field.column_name;
+            if field.is_enum {
+                let enum_type = &field.base_type;
+                Some(quote! {
+                    #column_name => ::core::option::Option::Some(
+                        drizzle::mysql::index::MySQLInlineTypeMetadata::Enum(
+                            <#enum_type as drizzle::mysql::traits::MySQLEnum>::VARIANTS,
+                        ),
+                    ),
+                })
+            } else if let MySQLType::Set(values) = &field.column_type {
+                Some(quote! {
+                    #column_name => ::core::option::Option::Some(
+                        drizzle::mysql::index::MySQLInlineTypeMetadata::Set(&[#(#values),*]),
+                    ),
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+    let mysql_column_comment_match_arms: Vec<TokenStream> = ctx
+        .field_infos
+        .iter()
+        .filter_map(|field| {
+            let column_name = &field.column_name;
+            field.comment.as_ref().map(|comment| {
+                quote! {
+                    #column_name => ::core::option::Option::Some(#comment),
+                }
+            })
+        })
+        .collect();
 
     Ok(quote! {
         #foreign_key_impls
@@ -508,6 +546,24 @@ pub(super) fn generate_table_impls(
             const TABLE_REF_CONST: ::core::option::Option<&'static #table_ref> = {
                 ::core::option::Option::Some(&<#struct_ident as drizzle::core::DrizzleTable>::TABLE_REF)
             };
+        }
+        impl drizzle::mysql::index::__private::MySQLSchemaItemSealed for #struct_ident {}
+        impl drizzle::mysql::index::MySQLSchemaItemMetadata for #struct_ident {
+            fn inline_type(
+                column: &str,
+            ) -> ::core::option::Option<drizzle::mysql::index::MySQLInlineTypeMetadata> {
+                match column {
+                    #(#mysql_inline_type_match_arms)*
+                    _ => ::core::option::Option::None,
+                }
+            }
+
+            fn column_comment(column: &str) -> ::core::option::Option<&'static str> {
+                match column {
+                    #(#mysql_column_comment_match_arms)*
+                    _ => ::core::option::Option::None,
+                }
+            }
         }
         impl #has_select_model for #struct_ident {
             type SelectModel = #select_model;

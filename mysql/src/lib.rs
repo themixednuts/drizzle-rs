@@ -48,8 +48,10 @@ pub mod types {
 
 pub mod values;
 
+pub use common::MySQLViewInfo;
 pub use driver::{MySQLPreparedRequest, MySQLRow, MySQLRowAccess};
 pub use drizzle_core::{MySQLDialect, ParamBind};
+pub use drizzle_types::mysql::ddl::{ViewAlgorithm, ViewCheckOption, ViewSqlSecurity};
 pub use index::{MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMetadata, MySQLIndexMethod};
 pub use result::MySQLMutationResult;
 pub use transaction::{MySQLAccessMode, MySQLIsolationLevel, MySQLTransactionConfig};

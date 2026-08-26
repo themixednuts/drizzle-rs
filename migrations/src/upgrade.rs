@@ -17,10 +17,14 @@ use std::borrow::Cow;
 
 use serde_json::{Map, Value};
 
+use crate::mysql::{MySQLDDL, MySQLSnapshot};
 use crate::postgres::PostgresSnapshot;
 use crate::sqlite::SQLiteSnapshot;
-use crate::version::{ORIGIN_UUID, POSTGRES_SNAPSHOT_VERSION, SQLITE_SNAPSHOT_VERSION};
+use crate::version::{
+    MYSQL_SNAPSHOT_VERSION, ORIGIN_UUID, POSTGRES_SNAPSHOT_VERSION, SQLITE_SNAPSHOT_VERSION,
+};
 use drizzle_types::Dialect;
+use drizzle_types::mysql::ddl as mysql;
 use drizzle_types::postgres::ddl as pg;
 use drizzle_types::sqlite::ddl as lite;
 
@@ -329,6 +333,519 @@ fn carry_identity(obj: &Map<String, Value>) -> (String, Vec<String>) {
         .unwrap_or(ORIGIN_UUID)
         .to_string();
     (id, vec![prev_id])
+}
+
+/// Preserve a MySQL v5 `prevIds` chain when that newer legacy spelling is
+/// present, while retaining the original `prevId` fallback used by v5 files.
+fn carry_mysql_identity(obj: &Map<String, Value>) -> (String, Vec<String>) {
+    let id = str_of(obj, "id")
+        .filter(|id| !id.is_empty())
+        .unwrap_or(ORIGIN_UUID)
+        .to_string();
+    let prev_ids = obj
+        .get("prevIds")
+        .and_then(Value::as_array)
+        .map(|ids| {
+            ids.iter()
+                .filter_map(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_else(|| {
+            vec![
+                str_of(obj, "prevId")
+                    .filter(|id| !id.is_empty())
+                    .unwrap_or(ORIGIN_UUID)
+                    .to_string(),
+            ]
+        });
+    (id, prev_ids)
+}
+
+// =============================================================================
+// MySQL v5 -> v6 (structural)
+// =============================================================================
+
+/// Upgrade a legacy MySQL v5 object snapshot into the v6 entity-array
+/// snapshot format.
+///
+/// The old document keeps child objects inside each table. The v6 format
+/// serializes the same facts as independently keyed entities, so this
+/// converter deliberately sorts every legacy dictionary before adding it to
+/// [`MySQLDDL`]. That gives repeatable JSON regardless of serde_json map
+/// configuration, while `MySQLDDL::to_entities()` supplies the stable entity
+/// category order used by new snapshots.
+#[must_use]
+pub fn upgrade_mysql_v5_to_v6(json: Value) -> Value {
+    let Some(obj) = json.as_object() else {
+        return json;
+    };
+
+    let mut snapshot = MySQLSnapshot::new();
+    snapshot.version = MYSQL_SNAPSHOT_VERSION.to_string();
+    let (id, prev_ids) = carry_mysql_identity(obj);
+    snapshot.id = id;
+    snapshot.prev_ids = prev_ids;
+
+    // A legacy config/snapshot may carry the selected database once at the
+    // top level. Every table child inherits that scope unless its table
+    // explicitly selects another database.
+    let selected_database = str_of(obj, "database")
+        .or_else(|| str_of(obj, "schema"))
+        .filter(|database| !database.is_empty())
+        .map(str::to_string);
+    let mut ddl = MySQLDDL::new();
+
+    for (table_key, table) in sorted_objects(obj.get("tables")) {
+        let (key_database, key_name) = split_mysql_table_key(table_key);
+        let table_database = mysql_database(table, selected_database.as_deref().or(key_database));
+        let table_name = str_of(table, "name").unwrap_or(key_name).to_string();
+
+        let mut entity = mysql::Table::new(table_name.clone());
+        entity.database = table_database.clone();
+        entity.temporary = bool_of(table, "temporary");
+        entity.engine = mysql_optional_string(table, "engine");
+        entity.charset = mysql_optional_string_any(table, &["charset", "characterSet"]);
+        entity.collation = mysql_optional_string_any(table, &["collation", "collate"]);
+        entity.comment = mysql_optional_string(table, "comment");
+        entity.options = mysql_table_options(table);
+        ddl.push_entity(mysql::MySQLEntity::Table(entity));
+
+        let mut inline_primary_key_columns = Vec::new();
+        for (column_key, column) in sorted_objects(table.get("columns")) {
+            let column_name = str_of(column, "name").unwrap_or(column_key).to_string();
+            let sql_type = str_of(column, "type").unwrap_or_default().to_string();
+            let mut entity = mysql::Column::new(table_name.clone(), column_name, sql_type.clone());
+            entity.database = table_database.clone();
+            entity.not_null = bool_of(column, "notNull");
+            entity.autoincrement =
+                bool_of(column, "autoincrement") || bool_of(column, "autoIncrement");
+            entity.primary_key = bool_of(column, "primaryKey");
+            entity.unique = bool_of(column, "unique");
+            entity.default = column.get("default").and_then(default_literal);
+            entity.on_update = mysql_optional_string_any(column, &["onUpdate", "on_update"]);
+            entity.generated = column
+                .get("generated")
+                .and_then(Value::as_object)
+                .and_then(mysql_generated);
+            entity.inline_type = mysql_inline_type(&sql_type);
+            entity.charset = mysql_optional_string_any(column, &["charset", "characterSet"]);
+            entity.collation = mysql_optional_string_any(column, &["collation", "collate"]);
+            entity.comment = mysql_optional_string(column, "comment");
+            if entity.primary_key {
+                inline_primary_key_columns.push(entity.name.to_string());
+            }
+            ddl.push_entity(mysql::MySQLEntity::Column(entity));
+        }
+
+        let mut primary_keys = sorted_objects(table.get("compositePrimaryKeys"));
+        if primary_keys.is_empty() {
+            primary_keys = sorted_objects(table.get("primaryKeys"));
+        }
+        let has_table_primary_key = !primary_keys.is_empty();
+        for (primary_key_key, primary_key) in primary_keys {
+            let name = str_of(primary_key, "name")
+                .filter(|name| !name.is_empty())
+                .or_else(|| (!primary_key_key.is_empty()).then_some(primary_key_key))
+                .map(|name| Cow::Owned(name.to_string()));
+            ddl.push_entity(mysql::MySQLEntity::PrimaryKey(mysql::PrimaryKey {
+                database: table_database.clone(),
+                table: Cow::Owned(table_name.clone()),
+                name,
+                columns: to_cow_list(string_list(primary_key, "columns")),
+            }));
+        }
+        if !has_table_primary_key && !inline_primary_key_columns.is_empty() {
+            ddl.push_entity(mysql::MySQLEntity::PrimaryKey(mysql::PrimaryKey {
+                database: table_database.clone(),
+                table: Cow::Owned(table_name.clone()),
+                name: None,
+                columns: to_cow_list(inline_primary_key_columns),
+            }));
+        }
+
+        for (unique_key, unique) in sorted_objects(table.get("uniqueConstraints")) {
+            ddl.push_entity(mysql::MySQLEntity::UniqueConstraint(
+                mysql::UniqueConstraint {
+                    database: table_database.clone(),
+                    table: Cow::Owned(table_name.clone()),
+                    name: Cow::Owned(str_of(unique, "name").unwrap_or(unique_key).to_string()),
+                    columns: to_cow_list(string_list(unique, "columns")),
+                },
+            ));
+        }
+
+        for (index_key, index) in sorted_objects(table.get("indexes")) {
+            ddl.push_entity(mysql::MySQLEntity::Index(mysql::Index {
+                database: table_database.clone(),
+                table: Cow::Owned(
+                    str_of(index, "table")
+                        .or_else(|| str_of(index, "tableFrom"))
+                        .unwrap_or(&table_name)
+                        .to_string(),
+                ),
+                name: Cow::Owned(str_of(index, "name").unwrap_or(index_key).to_string()),
+                columns: mysql_index_columns(index.get("columns")),
+                unique: bool_of(index, "isUnique") || bool_of(index, "unique"),
+                using: mysql_index_method(
+                    str_of(index, "using").or_else(|| str_of(index, "method")),
+                ),
+                algorithm: mysql_index_algorithm(str_of(index, "algorithm")),
+                lock: mysql_index_lock(str_of(index, "lock")),
+                comment: mysql_optional_string(index, "comment"),
+                visible: index
+                    .get("visible")
+                    .or_else(|| index.get("isVisible"))
+                    .and_then(Value::as_bool),
+            }));
+        }
+
+        for (foreign_key_key, foreign_key) in sorted_objects(table.get("foreignKeys")) {
+            ddl.push_entity(mysql::MySQLEntity::ForeignKey(mysql::ForeignKey {
+                database: table_database.clone(),
+                table: Cow::Owned(
+                    str_of(foreign_key, "tableFrom")
+                        .unwrap_or(&table_name)
+                        .to_string(),
+                ),
+                name: Cow::Owned(
+                    str_of(foreign_key, "name")
+                        .unwrap_or(foreign_key_key)
+                        .to_string(),
+                ),
+                columns: to_cow_list(string_list(foreign_key, "columnsFrom")),
+                foreign_database: mysql_optional_string_any(
+                    foreign_key,
+                    &["foreignDatabase", "databaseTo", "schemaTo"],
+                ),
+                foreign_table: Cow::Owned(
+                    str_of(foreign_key, "tableTo")
+                        .or_else(|| str_of(foreign_key, "foreignTable"))
+                        .unwrap_or_default()
+                        .to_string(),
+                ),
+                foreign_columns: to_cow_list(if foreign_key.get("columnsTo").is_some() {
+                    string_list(foreign_key, "columnsTo")
+                } else {
+                    string_list(foreign_key, "foreignColumns")
+                }),
+                on_delete: mysql_referential_action(str_of(foreign_key, "onDelete")),
+                on_update: mysql_referential_action(str_of(foreign_key, "onUpdate")),
+            }));
+        }
+
+        let checks = table
+            .get("checkConstraints")
+            .or_else(|| table.get("checkConstraint"));
+        for (check_key, check) in sorted_objects(checks) {
+            ddl.push_entity(mysql::MySQLEntity::CheckConstraint(
+                mysql::CheckConstraint {
+                    database: table_database.clone(),
+                    table: Cow::Owned(table_name.clone()),
+                    name: Cow::Owned(str_of(check, "name").unwrap_or(check_key).to_string()),
+                    expression: Cow::Owned(
+                        str_of(check, "value")
+                            .or_else(|| str_of(check, "expression"))
+                            .unwrap_or_default()
+                            .to_string(),
+                    ),
+                    enforced: check.get("enforced").and_then(Value::as_bool),
+                },
+            ));
+        }
+    }
+
+    for (view_key, view) in sorted_objects(obj.get("views")) {
+        let (key_database, key_name) = split_mysql_table_key(view_key);
+        ddl.push_entity(mysql::MySQLEntity::View(mysql::View {
+            database: mysql_database(view, selected_database.as_deref().or(key_database)),
+            name: Cow::Owned(str_of(view, "name").unwrap_or(key_name).to_string()),
+            definition: mysql_optional_string(view, "definition"),
+            algorithm: mysql_view_algorithm(str_of(view, "algorithm")),
+            definer: mysql_optional_string(view, "definer"),
+            sql_security: mysql_view_security(
+                str_of(view, "sqlSecurity").or_else(|| str_of(view, "security")),
+            ),
+            check_option: mysql_view_check_option(str_of(view, "checkOption")),
+            charset: mysql_optional_string_any(view, &["charset", "characterSet"]),
+            collation: mysql_optional_string_any(view, &["collation", "collate"]),
+            is_existing: bool_of(view, "isExisting"),
+        }));
+    }
+
+    snapshot.ddl = ddl.to_entities();
+    serde_json::to_value(snapshot).unwrap_or(Value::Null)
+}
+
+fn split_mysql_table_key(key: &str) -> (Option<&str>, &str) {
+    match key.rsplit_once('.') {
+        Some((database, name)) if !database.is_empty() && !name.is_empty() => {
+            (Some(database), name)
+        }
+        _ => (None, key),
+    }
+}
+
+fn mysql_database(obj: &Map<String, Value>, fallback: Option<&str>) -> Option<Cow<'static, str>> {
+    str_of(obj, "database")
+        .or_else(|| str_of(obj, "schema"))
+        .filter(|database| !database.is_empty())
+        .or(fallback)
+        .filter(|database| !database.is_empty())
+        .map(|database| Cow::Owned(database.to_string()))
+}
+
+fn mysql_optional_string(obj: &Map<String, Value>, key: &str) -> Option<Cow<'static, str>> {
+    obj.get(key).and_then(mysql_value_string).map(Cow::Owned)
+}
+
+fn mysql_optional_string_any(obj: &Map<String, Value>, keys: &[&str]) -> Option<Cow<'static, str>> {
+    keys.iter().find_map(|key| mysql_optional_string(obj, key))
+}
+
+fn mysql_value_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(value) => Some(value.clone()),
+        Value::Number(value) => Some(value.to_string()),
+        Value::Bool(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+fn mysql_generated(generated: &Map<String, Value>) -> Option<mysql::Generated> {
+    let expression = str_of(generated, "as").or_else(|| str_of(generated, "expression"))?;
+    let generation_type = match str_of(generated, "type")
+        .or_else(|| str_of(generated, "kind"))
+        .unwrap_or("stored")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "virtual" => mysql::GeneratedType::Virtual,
+        _ => mysql::GeneratedType::Stored,
+    };
+    Some(mysql::Generated {
+        expression: Cow::Owned(expression.to_string()),
+        generation_type,
+    })
+}
+
+fn mysql_inline_type(sql_type: &str) -> Option<mysql::InlineType> {
+    let sql_type = sql_type.trim();
+    let (kind, values) = match (sql_type.get(..4), sql_type.get(4..)) {
+        (Some(prefix), Some(values)) if prefix.eq_ignore_ascii_case("enum") => ("enum", values),
+        _ => match (sql_type.get(..3), sql_type.get(3..)) {
+            (Some(prefix), Some(values)) if prefix.eq_ignore_ascii_case("set") => ("set", values),
+            _ => return None,
+        },
+    };
+    let values = mysql_inline_values(values)?;
+    let values = mysql::InlineEnum {
+        values: to_cow_list(values),
+    };
+    match kind {
+        "enum" => Some(mysql::InlineType::Enum(values)),
+        "set" => Some(mysql::InlineType::Set(values)),
+        _ => None,
+    }
+}
+
+fn mysql_inline_values(input: &str) -> Option<Vec<String>> {
+    let input = input.trim_start();
+    let body = input.strip_prefix('(')?;
+    let end = body.rfind(')')?;
+    if !body[end + 1..].trim().is_empty() {
+        return None;
+    }
+    let body = &body[..end];
+    let mut values = Vec::new();
+    let mut start = 0;
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in body.char_indices() {
+        if let Some(delimiter) = quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == delimiter {
+                quote = None;
+            }
+        } else if matches!(character, '\'' | '"') {
+            quote = Some(character);
+        } else if character == ',' {
+            values.push(mysql_unquote_inline_value(&body[start..index]));
+            start = index + character.len_utf8();
+        }
+    }
+    quote.is_none().then(|| {
+        values.push(mysql_unquote_inline_value(&body[start..]));
+        values
+    })
+}
+
+fn mysql_unquote_inline_value(value: &str) -> String {
+    let value = value.trim();
+    let Some(delimiter) = value
+        .chars()
+        .next()
+        .filter(|delimiter| matches!(delimiter, '\'' | '"'))
+    else {
+        return value.to_string();
+    };
+    let Some(inner) = value
+        .strip_prefix(delimiter)
+        .and_then(|value| value.strip_suffix(delimiter))
+    else {
+        return value.to_string();
+    };
+
+    let mut output = String::new();
+    let mut characters = inner.chars().peekable();
+    while let Some(character) = characters.next() {
+        if character == '\\' {
+            if let Some(escaped) = characters.next() {
+                output.push(escaped);
+            }
+        } else if character == delimiter && characters.peek() == Some(&delimiter) {
+            output.push(delimiter);
+            characters.next();
+        } else {
+            output.push(character);
+        }
+    }
+    output
+}
+
+fn mysql_index_columns(value: Option<&Value>) -> Vec<mysql::IndexColumn> {
+    let Some(columns) = value.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    columns
+        .iter()
+        .filter_map(|column| match column {
+            Value::String(name) => Some(mysql::IndexColumn {
+                expression: Cow::Owned(name.clone()),
+                is_expression: false,
+                length: None,
+                ascending: None,
+            }),
+            Value::Object(column) => {
+                let expression = str_of(column, "expression")
+                    .or_else(|| str_of(column, "name"))
+                    .or_else(|| str_of(column, "value"))?;
+                let ascending = column.get("asc").and_then(Value::as_bool).or_else(|| {
+                    str_of(column, "order").and_then(|order| {
+                        match order.to_ascii_lowercase().as_str() {
+                            "asc" => Some(true),
+                            "desc" => Some(false),
+                            _ => None,
+                        }
+                    })
+                });
+                Some(mysql::IndexColumn {
+                    expression: Cow::Owned(expression.to_string()),
+                    is_expression: bool_of(column, "isExpression"),
+                    length: column.get("length").and_then(|length| match length {
+                        Value::Number(length) => length
+                            .as_u64()
+                            .and_then(|length| u32::try_from(length).ok()),
+                        Value::String(length) => length.parse().ok(),
+                        _ => None,
+                    }),
+                    ascending,
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn mysql_index_method(value: Option<&str>) -> Option<mysql::IndexMethod> {
+    match value?.trim().to_ascii_lowercase().as_str() {
+        "btree" => Some(mysql::IndexMethod::Btree),
+        "hash" => Some(mysql::IndexMethod::Hash),
+        _ => None,
+    }
+}
+
+fn mysql_index_algorithm(value: Option<&str>) -> Option<mysql::IndexAlgorithm> {
+    match value?.trim().to_ascii_lowercase().as_str() {
+        "default" => Some(mysql::IndexAlgorithm::Default),
+        "inplace" => Some(mysql::IndexAlgorithm::Inplace),
+        "copy" => Some(mysql::IndexAlgorithm::Copy),
+        _ => None,
+    }
+}
+
+fn mysql_index_lock(value: Option<&str>) -> Option<mysql::IndexLock> {
+    match value?.trim().to_ascii_lowercase().as_str() {
+        "default" => Some(mysql::IndexLock::Default),
+        "none" => Some(mysql::IndexLock::None),
+        "shared" => Some(mysql::IndexLock::Shared),
+        "exclusive" => Some(mysql::IndexLock::Exclusive),
+        _ => None,
+    }
+}
+
+fn mysql_referential_action(value: Option<&str>) -> Option<mysql::ReferentialAction> {
+    match value?
+        .trim()
+        .to_ascii_uppercase()
+        .replace('_', " ")
+        .as_str()
+    {
+        "CASCADE" => Some(mysql::ReferentialAction::Cascade),
+        "SET NULL" => Some(mysql::ReferentialAction::SetNull),
+        "RESTRICT" => Some(mysql::ReferentialAction::Restrict),
+        "NO ACTION" => Some(mysql::ReferentialAction::NoAction),
+        // MySQL does not support SET DEFAULT. The v6 typed model deliberately
+        // has no variant, so an invalid historical value cannot be emitted.
+        _ => None,
+    }
+}
+
+fn mysql_view_algorithm(value: Option<&str>) -> Option<mysql::ViewAlgorithm> {
+    match value?.trim().to_ascii_lowercase().as_str() {
+        "undefined" => Some(mysql::ViewAlgorithm::Undefined),
+        "merge" => Some(mysql::ViewAlgorithm::Merge),
+        "temptable" | "temp_table" => Some(mysql::ViewAlgorithm::Temptable),
+        _ => None,
+    }
+}
+
+fn mysql_view_security(value: Option<&str>) -> Option<mysql::ViewSqlSecurity> {
+    match value?.trim().to_ascii_lowercase().as_str() {
+        "definer" => Some(mysql::ViewSqlSecurity::Definer),
+        "invoker" => Some(mysql::ViewSqlSecurity::Invoker),
+        _ => None,
+    }
+}
+
+fn mysql_view_check_option(value: Option<&str>) -> Option<mysql::ViewCheckOption> {
+    match value?.trim().to_ascii_lowercase().as_str() {
+        "cascaded" => Some(mysql::ViewCheckOption::Cascaded),
+        "local" => Some(mysql::ViewCheckOption::Local),
+        _ => None,
+    }
+}
+
+fn mysql_table_options(table: &Map<String, Value>) -> Vec<mysql::TableOption> {
+    let Some(options) = table.get("options").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    let mut options: Vec<_> = options
+        .iter()
+        .filter_map(|(name, value)| mysql_value_string(value).map(|value| (name, value)))
+        .collect();
+    options.sort_unstable_by_key(|(name, _)| *name);
+    options
+        .into_iter()
+        .map(|(name, value)| mysql::TableOption {
+            name: Cow::Owned(name.to_string()),
+            value: Cow::Owned(value),
+        })
+        .collect()
 }
 
 // =============================================================================
@@ -1021,7 +1538,12 @@ pub fn upgrade_to_latest(json: Value, dialect: Dialect) -> Value {
             }
             current
         }
-        Dialect::MySQL => current, // MySQL v5 is current, no upgrades needed
+        Dialect::MySQL => {
+            if version == "5" {
+                current = upgrade_mysql_v5_to_v6(current);
+            }
+            current
+        }
     }
 }
 
@@ -1772,5 +2294,339 @@ mod tests {
             })
             .expect("users table");
         assert_eq!(table.is_rls_enabled, Some(true));
+    }
+
+    #[test]
+    fn mysql_v5_converts_to_loadable_v6_entities() {
+        let v5 = json!({
+            "version": "5",
+            "dialect": "mysql",
+            "id": "66666666-6666-6666-6666-666666666666",
+            "prevIds": [
+                "55555555-5555-5555-5555-555555555555",
+                "44444444-4444-4444-4444-444444444444"
+            ],
+            "database": "app",
+            "tables": {
+                "users": {
+                    "name": "users",
+                    "temporary": true,
+                    "engine": "InnoDB",
+                    "charset": "utf8mb4",
+                    "collation": "utf8mb4_0900_ai_ci",
+                    "comment": "application users",
+                    "options": {"rowFormat": "DYNAMIC", "autoIncrement": 42},
+                    "columns": {
+                        "id": {
+                            "name": "id",
+                            "type": "bigint unsigned",
+                            "primaryKey": true,
+                            "notNull": true,
+                            "autoincrement": true
+                        },
+                        "state": {
+                            "name": "state",
+                            "type": "enum('draft,review','it\\'s','published')",
+                            "notNull": true,
+                            "default": "'published'",
+                            "onUpdate": "CURRENT_TIMESTAMP"
+                        },
+                        "tags": {
+                            "name": "tags",
+                            "type": "set('one','two,three')"
+                        },
+                        "email": {
+                            "name": "email",
+                            "type": "varchar(255)"
+                        },
+                        "role_id": {
+                            "name": "role_id",
+                            "type": "int"
+                        },
+                        "email_lower": {
+                            "name": "email_lower",
+                            "type": "varchar(255)",
+                            "generated": {"as": "lower(email)", "type": "virtual"}
+                        }
+                    },
+                    "indexes": {
+                        "users_email_idx": {
+                            "name": "users_email_idx",
+                            "columns": [
+                                {"expression": "email", "isExpression": false, "length": 16, "asc": false},
+                                {"expression": "lower(email)", "isExpression": true, "order": "asc"}
+                            ],
+                            "isUnique": true,
+                            "using": "BTREE",
+                            "algorithm": "INPLACE",
+                            "lock": "NONE",
+                            "visible": false,
+                            "comment": "lookup"
+                        }
+                    },
+                    "foreignKeys": {
+                        "users_role_fk": {
+                            "name": "users_role_fk",
+                            "tableFrom": "users",
+                            "tableTo": "roles",
+                            "columnsFrom": ["role_id"],
+                            "columnsTo": ["id"],
+                            "onDelete": "CASCADE",
+                            "onUpdate": "NO ACTION"
+                        }
+                    },
+                    "compositePrimaryKeys": {},
+                    "uniqueConstraints": {
+                        "users_email_unique": {"name": "users_email_unique", "columns": ["email"]}
+                    },
+                    "checkConstraint": {
+                        "users_state_check": {"name": "users_state_check", "value": "state <> ''", "enforced": true}
+                    }
+                },
+                "roles": {
+                    "name": "roles",
+                    "columns": {
+                        "tenant_id": {"name": "tenant_id", "type": "int", "primaryKey": true, "notNull": true},
+                        "id": {"name": "id", "type": "int", "primaryKey": true, "notNull": true}
+                    },
+                    "indexes": {},
+                    "foreignKeys": {},
+                    "compositePrimaryKeys": {
+                        "roles_tenant_id_id_pk": {
+                            "name": "roles_tenant_id_id_pk",
+                            "columns": ["tenant_id", "id"]
+                        }
+                    },
+                    "uniqueConstraints": {},
+                    "checkConstraints": {}
+                }
+            },
+            "views": {
+                "active_users": {
+                    "name": "active_users",
+                    "definition": "select * from users",
+                    "algorithm": "MERGE",
+                    "definer": "root@localhost",
+                    "sqlSecurity": "INVOKER",
+                    "checkOption": "CASCADED",
+                    "charset": "utf8mb4",
+                    "collation": "utf8mb4_0900_ai_ci"
+                }
+            }
+        });
+
+        let upgraded = upgrade_mysql_v5_to_v6(v5.clone());
+        assert_eq!(upgraded["version"], MYSQL_SNAPSHOT_VERSION);
+        assert_eq!(upgraded["dialect"], "mysql");
+        assert_eq!(upgraded["id"], "66666666-6666-6666-6666-666666666666");
+        assert_eq!(
+            upgraded["prevIds"],
+            json!([
+                "55555555-5555-5555-5555-555555555555",
+                "44444444-4444-4444-4444-444444444444"
+            ])
+        );
+
+        let snapshot: MySQLSnapshot = serde_json::from_value(upgraded.clone())
+            .expect("the v6 MySQL entity document must deserialize");
+        assert!(MySQLDDL::try_from_entities(snapshot.ddl.clone()).is_ok());
+
+        let state = snapshot
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                mysql::MySQLEntity::Column(column) if column.name == "state" => Some(column),
+                _ => None,
+            })
+            .expect("state column");
+        assert_eq!(state.database.as_deref(), Some("app"));
+        assert_eq!(state.on_update.as_deref(), Some("CURRENT_TIMESTAMP"));
+        assert_eq!(
+            state.inline_type,
+            Some(mysql::InlineType::Enum(mysql::InlineEnum {
+                values: to_cow_list(vec![
+                    "draft,review".into(),
+                    "it's".into(),
+                    "published".into()
+                ]),
+            }))
+        );
+
+        let id = snapshot
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                mysql::MySQLEntity::Column(column)
+                    if column.name == "id" && column.table == "users" =>
+                {
+                    Some(column)
+                }
+                _ => None,
+            })
+            .expect("inline primary-key column");
+        assert!(id.primary_key);
+        assert!(id.autoincrement);
+
+        let primary_keys: Vec<_> = snapshot
+            .ddl
+            .iter()
+            .filter_map(|entity| match entity {
+                mysql::MySQLEntity::PrimaryKey(primary_key) => Some(primary_key),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(primary_keys.len(), 2, "one primary-key entity per table");
+        let inline_primary_key = primary_keys
+            .iter()
+            .find(|primary_key| primary_key.table == "users")
+            .expect("inline primary key must become a table entity");
+        assert_eq!(inline_primary_key.columns, to_cow_list(vec!["id".into()]));
+
+        let tags = snapshot
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                mysql::MySQLEntity::Column(column) if column.name == "tags" => Some(column),
+                _ => None,
+            })
+            .expect("set column");
+        assert_eq!(
+            tags.inline_type,
+            Some(mysql::InlineType::Set(mysql::InlineEnum {
+                values: to_cow_list(vec!["one".into(), "two,three".into()]),
+            }))
+        );
+
+        let composite_primary_key = snapshot
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                mysql::MySQLEntity::PrimaryKey(primary_key) if primary_key.table == "roles" => {
+                    Some(primary_key)
+                }
+                _ => None,
+            })
+            .expect("composite primary key entity");
+        assert_eq!(
+            composite_primary_key.columns,
+            to_cow_list(vec!["tenant_id".into(), "id".into()])
+        );
+
+        let unique = snapshot
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                mysql::MySQLEntity::UniqueConstraint(unique) => Some(unique),
+                _ => None,
+            })
+            .expect("unique entity");
+        assert_eq!(unique.name, "users_email_unique");
+
+        let check = snapshot
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                mysql::MySQLEntity::CheckConstraint(check) => Some(check),
+                _ => None,
+            })
+            .expect("singular legacy check constraint entity");
+        assert_eq!(check.expression, "state <> ''");
+        assert_eq!(check.enforced, Some(true));
+
+        let table = snapshot
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                mysql::MySQLEntity::Table(table) if table.name == "users" => Some(table),
+                _ => None,
+            })
+            .expect("users table");
+        assert!(table.temporary);
+        assert_eq!(table.engine.as_deref(), Some("InnoDB"));
+        assert_eq!(table.options[0].name, "autoIncrement");
+        assert_eq!(table.options[1].name, "rowFormat");
+
+        let generated = snapshot
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                mysql::MySQLEntity::Column(column) if column.name == "email_lower" => {
+                    column.generated.as_ref()
+                }
+                _ => None,
+            })
+            .expect("generated column metadata");
+        assert_eq!(generated.expression, "lower(email)");
+        assert_eq!(generated.generation_type, mysql::GeneratedType::Virtual);
+
+        let index = snapshot
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                mysql::MySQLEntity::Index(index) => Some(index),
+                _ => None,
+            })
+            .expect("index entity");
+        assert_eq!(index.database.as_deref(), Some("app"));
+        assert!(!index.columns[0].is_expression);
+        assert_eq!(index.columns[0].length, Some(16));
+        assert_eq!(index.columns[0].ascending, Some(false));
+        assert!(index.columns[1].is_expression);
+        assert_eq!(index.columns[1].ascending, Some(true));
+
+        let foreign_key = snapshot
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                mysql::MySQLEntity::ForeignKey(foreign_key) => Some(foreign_key),
+                _ => None,
+            })
+            .expect("foreign key entity");
+        assert_eq!(
+            foreign_key.on_delete,
+            Some(mysql::ReferentialAction::Cascade)
+        );
+        assert_eq!(
+            foreign_key.on_update,
+            Some(mysql::ReferentialAction::NoAction)
+        );
+
+        let view = snapshot
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                mysql::MySQLEntity::View(view) => Some(view),
+                _ => None,
+            })
+            .expect("view entity");
+        assert_eq!(view.database.as_deref(), Some("app"));
+        assert_eq!(view.algorithm, Some(mysql::ViewAlgorithm::Merge));
+        assert_eq!(view.sql_security, Some(mysql::ViewSqlSecurity::Invoker));
+
+        let again = upgrade_mysql_v5_to_v6(v5);
+        assert_eq!(
+            serde_json::to_string(&upgraded).unwrap(),
+            serde_json::to_string(&again).unwrap(),
+            "legacy dictionary order must not leak into v6 output"
+        );
+    }
+
+    #[test]
+    fn mysql_upgrade_to_latest_only_converts_v5_objects() {
+        let v5 = json!({
+            "version": "5",
+            "dialect": "mysql",
+            "id": "77777777-7777-7777-7777-777777777777",
+            "prevId": "00000000-0000-0000-0000-000000000000",
+            "tables": {},
+            "views": {}
+        });
+        let upgraded = upgrade_to_latest(v5, Dialect::MySQL);
+        let snapshot: MySQLSnapshot = serde_json::from_value(upgraded).unwrap();
+        assert_eq!(snapshot.version, MYSQL_SNAPSHOT_VERSION);
+        assert!(snapshot.ddl.is_empty());
+
+        let current = serde_json::to_value(MySQLSnapshot::new()).unwrap();
+        assert_eq!(upgrade_to_latest(current.clone(), Dialect::MySQL), current);
     }
 }

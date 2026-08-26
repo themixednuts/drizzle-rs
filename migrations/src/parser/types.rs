@@ -90,7 +90,11 @@ pub struct ColumnSpec {
     pub primary: bool,
     /// `unique` marker.
     pub unique: bool,
-    /// `autoincrement` marker (`SQLite` only).
+    /// Explicit `NOT_NULL` marker (used by MySQL in addition to Rust
+    /// `Option<T>` nullability).
+    pub not_null: bool,
+    /// `autoincrement` / `AUTO_INCREMENT` marker. The dialect-specific
+    /// producer decides which spelling and restrictions apply.
     pub autoincrement: bool,
     /// `json` marker.
     pub json: bool,
@@ -118,11 +122,12 @@ pub struct ColumnSpec {
     /// Normalized ON DELETE action (`CASCADE`, `SET NULL`, ...), exactly as
     /// the macros normalize (`SET_NULL` → `SET NULL`).
     pub on_delete: Option<String>,
-    /// Normalized ON UPDATE action.
+    /// Normalized foreign-key ON UPDATE action.
     pub on_update: Option<String>,
     /// ON DELETE action exactly as written in source (compat accessor).
     pub on_delete_raw: Option<String>,
-    /// ON UPDATE action exactly as written in source (compat accessor).
+    /// Foreign-key ON UPDATE action exactly as written in source (compat
+    /// accessor).
     pub on_update_raw: Option<String>,
     /// `deferrable` FK marker (`PostgreSQL` only).
     pub deferrable: bool,
@@ -130,9 +135,16 @@ pub struct ColumnSpec {
     pub initially_deferred: bool,
     /// Explicit column name from `name = "..."`.
     pub explicit_name: Option<String>,
-    /// `collate = ...` (SQLite uppercases bare idents; Postgres keeps them
-    /// verbatim — mirrored from the respective macros).
+    /// `collate = ...` / `COLLATE = "..."` (SQLite uppercases bare idents;
+    /// PostgreSQL and MySQL keep string values verbatim — mirrored from the
+    /// respective macros).
     pub collate: Option<String>,
+    /// MySQL `CHARSET` / `CHARACTER_SET` column option.
+    pub charset: Option<String>,
+    /// MySQL automatic column-update expression (`ON_UPDATE = "..."`). This
+    /// is deliberately separate from [`Self::on_update`], which is a
+    /// foreign-key referential action.
+    pub mysql_on_update: Option<String>,
     /// `relation = "..."` reverse-relation accessor name (no DDL impact).
     pub relation: Option<String>,
     /// Whether the Rust type is `Option<T>` (matched by last path segment,
@@ -152,6 +164,16 @@ pub struct ColumnSpec {
     pub pg_type: Option<String>,
     /// `PostgreSQL` array dimensions (`Some(1)` for `Vec<T>`).
     pub pg_dimensions: Option<i32>,
+    /// Resolved MySQL type declaration, including any width / precision
+    /// arguments (for example `VARCHAR(255)` or `DECIMAL(12, 2)`). `ENUM`
+    /// and `SET` values are retained separately below because they are
+    /// structured parts of the declaration.
+    pub mysql_type: Option<String>,
+    /// `#[column(ENUM)]`: values are resolved from the matching
+    /// `#[derive(MySQLEnum)]` declaration by the snapshot producer.
+    pub mysql_inline_enum: bool,
+    /// `#[column(SET("a", "b"))]` values in declaration order.
+    pub mysql_set_values: Option<Vec<String>>,
     /// The Rust type was unknown to the macro type tables; the macros defer
     /// the SQL type to a trait const the parser cannot evaluate.
     pub is_custom_type: bool,
@@ -208,6 +230,10 @@ pub struct TableSpec {
     pub explicit_name: Option<String>,
     /// `schema = "..."` (`PostgreSQL` only).
     pub schema: Option<String>,
+    /// `database = "..."` / `schema = "..."` (`MySQL` only). MySQL calls
+    /// this a database while PostgreSQL calls its equivalent a schema, so the
+    /// fields intentionally remain distinct.
+    pub database: Option<String>,
     /// `strict` (`SQLite` only).
     pub strict: bool,
     /// `without_rowid` (`SQLite` only).
@@ -222,6 +248,12 @@ pub struct TableSpec {
     pub inherits: Option<String>,
     /// `TABLESPACE = "..."` (`PostgreSQL` only).
     pub tablespace: Option<String>,
+    /// `ENGINE = "..."` (`MySQL` only).
+    pub engine: Option<String>,
+    /// `CHARSET` / `DEFAULT_CHARSET` (`MySQL` only).
+    pub charset: Option<String>,
+    /// `COLLATE` (`MySQL` only).
+    pub collate: Option<String>,
     /// Composite `FOREIGN_KEY(...)` attributes in declaration order.
     pub composite_fks: Vec<CompositeFkSpec>,
     /// Table-level `UNIQUE(...)` attributes in declaration order.
@@ -346,7 +378,7 @@ pub struct ParsedEnum {
     pub(crate) order: usize,
 }
 
-/// Parsed `#[SQLiteView]` / `#[PostgresView]` struct.
+/// Parsed `#[SQLiteView]`, `#[PostgresView]`, or `#[MySQLView]` struct.
 #[derive(Debug, Clone, Default)]
 pub struct ParsedView {
     /// Struct name (`PascalCase`)
@@ -359,6 +391,8 @@ pub struct ParsedView {
     pub explicit_name: Option<String>,
     /// `schema = "..."` (`PostgreSQL` only).
     pub schema: Option<String>,
+    /// `DATABASE = "..."` / `SCHEMA = "..."` (`MySQL` only).
+    pub database: Option<String>,
     /// `definition = "..."` literal SQL. `None` when the view uses the
     /// expression / `query(...)` forms, which the parser cannot evaluate
     /// (a warning is recorded in that case).
@@ -376,6 +410,13 @@ pub struct ParsedView {
     pub using: Option<String>,
     /// `TABLESPACE = "..."` (`PostgreSQL` only).
     pub tablespace: Option<String>,
+    /// `ALGORITHM = "..."` (`MySQL` only).
+    pub mysql_algorithm: Option<String>,
+    /// `SQL_SECURITY = "..."` (`MySQL` only).
+    pub mysql_sql_security: Option<String>,
+    /// `CHECK_OPTION`, `CHECK_OPTION = "..."`, or `WITH_CHECK_OPTION = "..."`
+    /// (`MySQL` only).
+    pub mysql_check_option: Option<String>,
     /// Source position, see [`ParsedTable::order`].
     pub(crate) order: usize,
 }

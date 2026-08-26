@@ -86,7 +86,8 @@ impl Config {
     ///
     /// `out_dir` defaults to `./drizzle`, breakpoints are enabled by default,
     /// and migration tag prefixes default to timestamp mode. Tracking defaults
-    /// to the dialect-appropriate `Tracking::SQLITE` / `Tracking::POSTGRES`.
+    /// to the dialect-appropriate `Tracking::SQLITE`, `Tracking::POSTGRES`, or
+    /// `Tracking::MYSQL` value.
     #[must_use]
     pub fn new(dialect: Dialect) -> Self {
         Self {
@@ -381,8 +382,8 @@ impl Config {
 
     /// Migration tracking table/schema for this config.
     ///
-    /// Defaults to the dialect-appropriate `Tracking::SQLITE` /
-    /// `Tracking::POSTGRES`, with overrides applied from
+    /// Defaults to the dialect-appropriate `Tracking::SQLITE`,
+    /// `Tracking::POSTGRES`, or `Tracking::MYSQL`, with overrides applied from
     /// `[migrations] table = ...` / `schema = ...` in TOML if present.
     #[inline]
     #[must_use]
@@ -395,7 +396,8 @@ impl Config {
 fn default_tracking(dialect: Dialect) -> Tracking {
     match dialect {
         Dialect::PostgreSQL => Tracking::POSTGRES,
-        _ => Tracking::SQLITE,
+        Dialect::MySQL => Tracking::MYSQL,
+        Dialect::SQLite => Tracking::SQLITE,
     }
 }
 
@@ -474,9 +476,6 @@ impl Output {
 /// Errors that can occur while generating migrations in `build.rs`.
 #[derive(Debug, thiserror::Error)]
 pub enum BuildError {
-    #[error("unsupported dialect for build generation: {0:?}")]
-    UnsupportedDialect(Dialect),
-
     #[error("no schema files configured")]
     MissingSchemaFiles,
 
@@ -582,10 +581,9 @@ fn load_sqlite_rebuild_data_plan(
 ///
 /// # Errors
 ///
-/// Returns a [`BuildError`] if the config has no schema files, the dialect is
-/// unsupported, schema parsing fails, snapshot/migration generation fails, or
-/// any filesystem operation (read/write) errors while materializing the
-/// migration folder.
+/// Returns a [`BuildError`] if the config has no schema files, schema parsing
+/// fails, snapshot/migration generation fails, or any filesystem operation
+/// (read/write) errors while materializing the migration folder.
 pub fn run(config: &Config) -> Result<Output, BuildError> {
     if config.files.is_empty() {
         return Err(BuildError::MissingSchemaFiles);
@@ -593,10 +591,6 @@ pub fn run(config: &Config) -> Result<Output, BuildError> {
 
     if config.sqlite_rebuild_data.is_some() && config.transform.is_some() {
         return Err(BuildError::SqliteRebuildDataTransformConflict);
-    }
-
-    if !matches!(config.dialect, Dialect::SQLite | Dialect::PostgreSQL) {
-        return Err(BuildError::UnsupportedDialect(config.dialect));
     }
 
     let parse_result = parse_files(&config.files)?;
@@ -764,15 +758,89 @@ mod tests {
     };
 
     #[test]
-    fn run_creates_then_stabilizes() {
+    fn run_creates_then_stabilizes_for_every_dialect() {
+        for (dialect, table_attribute) in [
+            (Dialect::SQLite, "SQLiteTable"),
+            (Dialect::PostgreSQL, "PostgresTable"),
+            (Dialect::MySQL, "MySQLTable"),
+        ] {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let schema_path = dir.path().join("schema.rs");
+            let out_dir = dir.path().join("drizzle");
+
+            std::fs::write(
+                &schema_path,
+                format!(
+                    r#"
+#[{table_attribute}]
+pub struct Users {{
+    #[column(primary)]
+    pub id: i64,
+}}
+"#
+                ),
+            )
+            .expect("write schema");
+
+            let cfg = Config::new(dialect).file(&schema_path).out(&out_dir);
+
+            let first = run(&cfg).expect("first generation should succeed");
+            assert!(
+                matches!(first, Output::Generated { .. }),
+                "{dialect:?} must generate the initial migration"
+            );
+            assert!(
+                !out_dir.join("meta").join("_journal.json").exists(),
+                "v3 generation should not create legacy journal metadata"
+            );
+
+            let second = run(&cfg).expect("second generation should succeed");
+            assert_eq!(second, Output::NoChanges, "{dialect:?} must stabilize");
+        }
+    }
+
+    #[test]
+    fn mysql_build_uses_legacy_v5_snapshot_as_the_diff_baseline() {
         let dir = tempfile::tempdir().expect("tempdir");
         let schema_path = dir.path().join("schema.rs");
         let out_dir = dir.path().join("drizzle");
-
+        let legacy_dir = out_dir.join("0000_legacy");
+        std::fs::create_dir_all(&legacy_dir).expect("create legacy migration directory");
+        std::fs::write(legacy_dir.join("migration.sql"), "-- legacy migration\n")
+            .expect("write legacy migration");
+        std::fs::write(
+            legacy_dir.join("snapshot.json"),
+            r#"{
+  "version": "5",
+  "dialect": "mysql",
+  "id": "11111111-1111-1111-1111-111111111111",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "users": {
+      "name": "users",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "BIGINT",
+          "primaryKey": true,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    }
+  },
+  "views": {}
+}"#,
+        )
+        .expect("write legacy snapshot");
         std::fs::write(
             &schema_path,
             r#"
-#[SQLiteTable]
+#[MySQLTable]
 pub struct Users {
     #[column(primary)]
     pub id: i64,
@@ -781,19 +849,11 @@ pub struct Users {
         )
         .expect("write schema");
 
-        let cfg = Config::new(Dialect::SQLite)
-            .file(&schema_path)
-            .out(&out_dir);
-
-        let first = run(&cfg).expect("first generation should succeed");
-        assert!(matches!(first, Output::Generated { .. }));
-        assert!(
-            !out_dir.join("meta").join("_journal.json").exists(),
-            "v3 generation should not create legacy journal metadata"
+        let config = Config::new(Dialect::MySQL).file(&schema_path).out(&out_dir);
+        assert_eq!(
+            run(&config).expect("legacy v5 baseline must load and diff"),
+            Output::NoChanges
         );
-
-        let second = run(&cfg).expect("second generation should succeed");
-        assert_eq!(second, Output::NoChanges);
     }
 
     #[test]
