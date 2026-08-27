@@ -19,8 +19,8 @@ error[E0277]: SQL type `drizzle::mysql::types::BigInt` is not assignable from `d
              Assignable<drizzle::mysql::types::TinyIntUnsigned>
              Assignable<drizzle::mysql::types::Year>
              Assignable
-   = note: required for `drizzle::mysql::prelude::MySQLUpdateValue<'_, drizzle::mysql::MySQLValue<'_>, i64, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull>` to implement `From<SQLExpr<'_, drizzle::mysql::MySQLValue<'_>, drizzle::mysql::types::Text>>`
-   = note: required for `SQLExpr<'_, drizzle::mysql::MySQLValue<'_>, drizzle::mysql::types::Text>` to implement `Into<drizzle::mysql::prelude::MySQLUpdateValue<'_, drizzle::mysql::MySQLValue<'_>, i64, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull>>`
+   = note: required for `MySQLUpdateValue<'_, drizzle::mysql::MySQLValue<'_>, i64, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull>` to implement `From<SQLExpr<'_, drizzle::mysql::MySQLValue<'_>, drizzle::mysql::types::Text>>`
+   = note: required for `SQLExpr<'_, drizzle::mysql::MySQLValue<'_>, drizzle::mysql::types::Text>` to implement `Into<MySQLUpdateValue<'_, drizzle::mysql::MySQLValue<'_>, i64, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull>>`
 note: required by a bound in `UpdateUsers::<'a, S>::with_visits`
   --> tests/ui/update_assignments/mysql/fail/expression_type.rs:6:1
    |
@@ -47,8 +47,8 @@ help: the trait `AcceptsNullability<drizzle::core::expr::Null>` is not implement
    | impl AcceptsNullability<NonNull> for NonNull {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    = help: for that trait implementation, expected `drizzle::core::expr::NonNull`, found `drizzle::core::expr::Null`
-   = note: required for `drizzle::mysql::prelude::MySQLUpdateValue<'_, drizzle::mysql::MySQLValue<'_>, i64, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull>` to implement `From<ColumnBinOp<UsersOptionalVisits, i64, drizzle::core::types::AddOp, MySQLDialect, drizzle::mysql::types::BigInt, drizzle::core::expr::Null>>`
-   = note: required for `ColumnBinOp<UsersOptionalVisits, i64, drizzle::core::types::AddOp, MySQLDialect, drizzle::mysql::types::BigInt, drizzle::core::expr::Null>` to implement `Into<drizzle::mysql::prelude::MySQLUpdateValue<'_, drizzle::mysql::MySQLValue<'_>, i64, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull>>`
+   = note: required for `MySQLUpdateValue<'_, drizzle::mysql::MySQLValue<'_>, i64, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull>` to implement `From<ColumnBinOp<UsersOptionalVisits, i64, drizzle::core::types::AddOp, MySQLDialect, drizzle::mysql::types::BigInt, drizzle::core::expr::Null>>`
+   = note: required for `ColumnBinOp<UsersOptionalVisits, i64, drizzle::core::types::AddOp, MySQLDialect, drizzle::mysql::types::BigInt, drizzle::core::expr::Null>` to implement `Into<MySQLUpdateValue<'_, drizzle::mysql::MySQLValue<'_>, i64, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull>>`
 note: required by a bound in `UpdateUsers::<'a, S>::with_visits`
   --> tests/ui/update_assignments/mysql/fail/expression_type.rs:6:1
    |

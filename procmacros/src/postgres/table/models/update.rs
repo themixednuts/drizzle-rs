@@ -1,6 +1,6 @@
 use super::super::context::{MacroContext, ModelType};
 use super::convenience::generate_convenience_method;
-use crate::paths::core as core_paths;
+use crate::paths::{core as core_paths, postgres as pg_paths};
 use crate::postgres::field::FieldInfo;
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -11,6 +11,7 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
     let struct_vis = ctx.struct_vis;
     let empty_marker = core_paths::empty_marker();
     let non_empty_marker = core_paths::non_empty_marker();
+    let postgres_update_value = pg_paths::postgres_update_value();
 
     let mut field_names: Vec<&syn::Ident> = Vec::new();
     let mut field_types: Vec<TokenStream> = Vec::new();
@@ -50,7 +51,7 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
         impl<'a> ::std::default::Default for #update_ident<'a> {
             fn default() -> Self {
                 Self {
-                    #(#field_names2: PostgresUpdateValue::Skip,)*
+                    #(#field_names2: #postgres_update_value::Skip,)*
                     _state: ::std::marker::PhantomData,
                 }
             }
@@ -75,14 +76,15 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
 fn get_update_field_conversion(field_info: &FieldInfo) -> TokenStream {
     let name = &field_info.ident;
     let column_name = &field_info.column_name;
+    let postgres_update_value = pg_paths::postgres_update_value();
 
     quote! {
         match &self.#name {
-            PostgresUpdateValue::Skip => {},
-            PostgresUpdateValue::Null => {
+            #postgres_update_value::Skip => {},
+            #postgres_update_value::Null => {
                 assignments.push((#column_name, SQL::param(PostgresValue::Null)));
             },
-            PostgresUpdateValue::Value(wrapper) => {
+            #postgres_update_value::Value(wrapper) => {
                 assignments.push((#column_name, wrapper.value.clone()));
             },
         }

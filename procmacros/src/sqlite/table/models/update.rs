@@ -14,6 +14,7 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
     let sql = core_paths::sql();
     let to_sql = core_paths::to_sql();
     let sqlite_value = sqlite_paths::sqlite_value();
+    let sqlite_update_value = sqlite_paths::sqlite_update_value();
 
     let mut field_names: Vec<&syn::Ident> = Vec::new();
     let mut field_types: Vec<TokenStream> = Vec::new();
@@ -49,7 +50,7 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
         impl<'a> ::std::default::Default for #update_model<'a> {
             fn default() -> Self {
                 Self {
-                    #(#field_names2: SQLiteUpdateValue::Skip,)*
+                    #(#field_names2: #sqlite_update_value::Skip,)*
                     _state: ::std::marker::PhantomData,
                 }
             }

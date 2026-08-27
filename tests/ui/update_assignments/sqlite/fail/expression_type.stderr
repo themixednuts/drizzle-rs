@@ -1,4 +1,4 @@
-error[E0277]: the trait bound `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, i64, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull>: From<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Text>>` is not satisfied
+error[E0277]: the trait bound `SQLiteUpdateValue<'_, SQLiteValue<'_>, i64, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull>: From<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Text>>` is not satisfied
   --> tests/ui/update_assignments/sqlite/fail/expression_type.rs:16:48
    |
 16 |     let _ = UpdateUsers::default().with_visits(lower(users.name));
@@ -6,17 +6,17 @@ error[E0277]: the trait bound `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, S
    |                                    |
    |                                    required by a bound introduced by this call
    |
-   = help: the trait `From<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Text>>` is not implemented for `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, i64, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull>`
+   = help: the trait `From<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Text>>` is not implemented for `SQLiteUpdateValue<'_, SQLiteValue<'_>, i64, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull>`
    = help: the following other types implement trait `From<T>`:
-             `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<ColumnBinOp<L, R, Op, SQLiteDialect, Actual, ActualNull>>`
-             `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<ColumnNeg<E, SQLiteDialect, Actual, ActualNull>>`
-             `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<SQLExpr<'_, SQLiteValue<'_>, Actual, ActualNull>>`
-             `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<TypedPlaceholder<M, N>>`
-             `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<drizzle::core::Placeholder>`
-             `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<drizzle::core::expr::Excluded<C>>`
-             `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, U, Target, TargetNull>` implements `From<T>`
-             `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, Vec<u8>, Target, TargetNull>` implements `From<[u8; N]>`
-   = note: required for `SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Text>` to implement `Into<drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, i64, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull>>`
+             `SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<ColumnBinOp<L, R, Op, SQLiteDialect, Actual, ActualNull>>`
+             `SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<ColumnNeg<E, SQLiteDialect, Actual, ActualNull>>`
+             `SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<SQLExpr<'_, SQLiteValue<'_>, Actual, ActualNull>>`
+             `SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<TypedPlaceholder<M, N>>`
+             `SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<drizzle::core::Placeholder>`
+             `SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<drizzle::core::expr::Excluded<C>>`
+             `SQLiteUpdateValue<'_, SQLiteValue<'_>, U, Target, TargetNull>` implements `From<T>`
+             `SQLiteUpdateValue<'_, SQLiteValue<'_>, Vec<u8>, Target, TargetNull>` implements `From<[u8; N]>`
+   = note: required for `SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Text>` to implement `Into<SQLiteUpdateValue<'_, SQLiteValue<'_>, i64, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull>>`
 note: required by a bound in `UpdateUsers::<'a, S>::with_visits`
   --> tests/ui/update_assignments/sqlite/fail/expression_type.rs:6:1
    |
@@ -27,7 +27,7 @@ note: required by a bound in `UpdateUsers::<'a, S>::with_visits`
    |     ------ required by a bound in this associated function
    = note: this error originates in the attribute macro `SQLiteTable` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0277]: the trait bound `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, i64, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull>: From<ColumnBinOp<UsersOptionalVisits, i64, drizzle::core::types::AddOp, SQLiteDialect, drizzle::sqlite::types::Integer, drizzle::core::expr::Null>>` is not satisfied
+error[E0277]: the trait bound `SQLiteUpdateValue<'_, SQLiteValue<'_>, i64, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull>: From<ColumnBinOp<UsersOptionalVisits, i64, drizzle::core::types::AddOp, SQLiteDialect, drizzle::sqlite::types::Integer, drizzle::core::expr::Null>>` is not satisfied
   --> tests/ui/update_assignments/sqlite/fail/expression_type.rs:17:48
    |
 17 |     let _ = UpdateUsers::default().with_visits(users.optional_visits + 1_i64);
@@ -35,17 +35,17 @@ error[E0277]: the trait bound `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, S
    |                                    |
    |                                    required by a bound introduced by this call
    |
-   = help: the trait `From<ColumnBinOp<UsersOptionalVisits, i64, drizzle::core::types::AddOp, SQLiteDialect, drizzle::sqlite::types::Integer, drizzle::core::expr::Null>>` is not implemented for `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, i64, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull>`
+   = help: the trait `From<ColumnBinOp<UsersOptionalVisits, i64, drizzle::core::types::AddOp, SQLiteDialect, drizzle::sqlite::types::Integer, drizzle::core::expr::Null>>` is not implemented for `SQLiteUpdateValue<'_, SQLiteValue<'_>, i64, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull>`
    = help: the following other types implement trait `From<T>`:
-             `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<ColumnBinOp<L, R, Op, SQLiteDialect, Actual, ActualNull>>`
-             `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<ColumnNeg<E, SQLiteDialect, Actual, ActualNull>>`
-             `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<SQLExpr<'_, SQLiteValue<'_>, Actual, ActualNull>>`
-             `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<TypedPlaceholder<M, N>>`
-             `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<drizzle::core::Placeholder>`
-             `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<drizzle::core::expr::Excluded<C>>`
-             `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, U, Target, TargetNull>` implements `From<T>`
-             `drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, Vec<u8>, Target, TargetNull>` implements `From<[u8; N]>`
-   = note: required for `ColumnBinOp<UsersOptionalVisits, i64, drizzle::core::types::AddOp, SQLiteDialect, drizzle::sqlite::types::Integer, drizzle::core::expr::Null>` to implement `Into<drizzle::sqlite::prelude::SQLiteUpdateValue<'_, SQLiteValue<'_>, i64, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull>>`
+             `SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<ColumnBinOp<L, R, Op, SQLiteDialect, Actual, ActualNull>>`
+             `SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<ColumnNeg<E, SQLiteDialect, Actual, ActualNull>>`
+             `SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<SQLExpr<'_, SQLiteValue<'_>, Actual, ActualNull>>`
+             `SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<TypedPlaceholder<M, N>>`
+             `SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<drizzle::core::Placeholder>`
+             `SQLiteUpdateValue<'_, SQLiteValue<'_>, T, Target, TargetNull>` implements `From<drizzle::core::expr::Excluded<C>>`
+             `SQLiteUpdateValue<'_, SQLiteValue<'_>, U, Target, TargetNull>` implements `From<T>`
+             `SQLiteUpdateValue<'_, SQLiteValue<'_>, Vec<u8>, Target, TargetNull>` implements `From<[u8; N]>`
+   = note: required for `ColumnBinOp<UsersOptionalVisits, i64, drizzle::core::types::AddOp, SQLiteDialect, drizzle::sqlite::types::Integer, drizzle::core::expr::Null>` to implement `Into<SQLiteUpdateValue<'_, SQLiteValue<'_>, i64, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull>>`
 note: required by a bound in `UpdateUsers::<'a, S>::with_visits`
   --> tests/ui/update_assignments/sqlite/fail/expression_type.rs:6:1
    |

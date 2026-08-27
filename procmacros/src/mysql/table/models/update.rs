@@ -1,7 +1,7 @@
 use super::super::context::{MacroContext, ModelType};
 use super::convenience::generate_convenience_method;
 use crate::mysql::field::FieldInfo;
-use crate::paths::core as core_paths;
+use crate::paths::{core as core_paths, mysql as mysql_paths};
 use proc_macro2::TokenStream;
 use quote::quote;
 
@@ -11,6 +11,7 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
     let struct_vis = ctx.struct_vis;
     let empty_marker = core_paths::empty_marker();
     let non_empty_marker = core_paths::non_empty_marker();
+    let mysql_update_value = mysql_paths::mysql_update_value();
 
     let mut field_names: Vec<&syn::Ident> = Vec::new();
     let mut field_types: Vec<TokenStream> = Vec::new();
@@ -52,7 +53,7 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
         impl<'a> ::std::default::Default for #update_ident<'a> {
             fn default() -> Self {
                 Self {
-                    #(#field_names2: MySQLUpdateValue::Skip,)*
+                    #(#field_names2: #mysql_update_value::Skip,)*
                     _state: ::std::marker::PhantomData,
                 }
             }
@@ -77,14 +78,15 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
 fn get_update_field_conversion(field_info: &FieldInfo) -> TokenStream {
     let name = &field_info.ident;
     let column_name = &field_info.column_name;
+    let mysql_update_value = mysql_paths::mysql_update_value();
 
     quote! {
         match &self.#name {
-            MySQLUpdateValue::Skip => {},
-            MySQLUpdateValue::Null => {
+            #mysql_update_value::Skip => {},
+            #mysql_update_value::Null => {
                 assignments.push((#column_name, SQL::param(MySQLValue::Null)));
             },
-            MySQLUpdateValue::Value(wrapper) => {
+            #mysql_update_value::Value(wrapper) => {
                 assignments.push((#column_name, wrapper.value.clone()));
             },
         }

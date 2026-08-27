@@ -4,7 +4,10 @@
 
 use super::super::context::{MacroContext, ModelType};
 use crate::mysql::field::{FieldInfo, TypeCategory};
-use crate::{common::rust_type_to_nullability, paths::core as core_paths};
+use crate::{
+    common::rust_type_to_nullability,
+    paths::{core as core_paths, mysql as mysql_paths},
+};
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -178,6 +181,8 @@ fn generate_update_convenience_method(
     method_name: &syn::Ident,
     ctx: &MacroContext,
 ) -> TokenStream {
+    let mysql_update_value = mysql_paths::mysql_update_value();
+    let mysql_value = mysql_paths::mysql_value();
     let field_name = &field.ident;
     let update_model = &ctx.update_model_ident;
     let non_empty_marker = core_paths::non_empty_marker();
@@ -211,7 +216,7 @@ fn generate_update_convenience_method(
     // Accepts any state S, always returns NonEmpty.
     quote! {
         impl<'a, S> #update_model<'a, S> {
-            pub fn #method_name<V: Into<MySQLUpdateValue<'a, MySQLValue<'a>, #inner_type, #sql_type, #nullable>>>(self, value: V) -> #update_model<'a, #non_empty_marker> {
+            pub fn #method_name<V: Into<#mysql_update_value<'a, #mysql_value<'a>, #inner_type, #sql_type, #nullable>>>(self, value: V) -> #update_model<'a, #non_empty_marker> {
                 #update_model {
                     #(#field_assignments,)*
                     _state: ::std::marker::PhantomData,

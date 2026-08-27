@@ -31,18 +31,21 @@ fn mysql_builder_ui() {
 #[cfg(feature = "mysql")]
 #[test]
 fn update_assignments_mysql_ui() {
+    must_pass("tests/ui/update_assignments/mysql/pass/*.rs");
     must_fail("tests/ui/update_assignments/mysql/fail/*.rs");
 }
 
 #[cfg(feature = "postgres")]
 #[test]
 fn update_assignments_postgres_ui() {
+    must_pass("tests/ui/update_assignments/postgres/pass/*.rs");
     must_fail("tests/ui/update_assignments/postgres/fail/*.rs");
 }
 
 #[cfg(feature = "rusqlite")]
 #[test]
 fn update_assignments_sqlite_ui() {
+    must_pass("tests/ui/update_assignments/sqlite/pass/*.rs");
     must_fail("tests/ui/update_assignments/sqlite/fail/*.rs");
 }
 
