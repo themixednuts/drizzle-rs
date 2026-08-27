@@ -48,7 +48,13 @@ struct DefaultsOnly {
 struct UsersNameIdx(Users::name);
 
 #[MySQLIndex]
+struct UsersActiveIdx(Users::active);
+
+#[MySQLIndex]
 struct PostsUserIdIdx(Posts::user_id);
+
+#[MySQLIndex]
+struct PostsIdIdx(Posts::id);
 
 #[derive(MySQLSchema)]
 struct Schema {
@@ -490,6 +496,15 @@ fn select_index_hints_are_tied_to_their_generated_table_metadata() {
         "SELECT `users`.`id` FROM `users` USE INDEX (`users_name_idx`)"
     );
 
+    let multiple = builder()
+        .select(users.id)
+        .from(users)
+        .use_index((UsersNameIdx::new(), UsersActiveIdx::new()));
+    assert_eq!(
+        multiple.to_sql().sql(),
+        "SELECT `users`.`id` FROM `users` USE INDEX (`users_name_idx`, `users_active_idx`)"
+    );
+
     let forced = builder()
         .select(users.id)
         .from(users)
@@ -518,16 +533,27 @@ fn select_index_hints_are_tied_to_their_generated_table_metadata() {
         "(SELECT `users`.`id` FROM `users` USE INDEX (`users_name_idx`)) UNION (SELECT `users`.`id` FROM `users`)"
     );
 
+    let hinted_insert = builder().insert(users).select(
+        builder()
+            .select((users.id, users.name, users.active))
+            .from(users)
+            .use_index(UsersNameIdx::new()),
+    );
+    assert_eq!(
+        hinted_insert.to_sql().sql(),
+        "INSERT INTO `users` SELECT `users`.`id`, `users`.`name`, `users`.`active` FROM `users` USE INDEX (`users_name_idx`)"
+    );
+
     let explicit_join = builder()
         .select((users.id, posts.id))
         .from(users)
         .inner_join((
-            posts.use_index(PostsUserIdIdx::new()),
+            posts.use_index((PostsUserIdIdx::new(), PostsIdIdx::new())),
             eq(posts.user_id, users.id),
         ));
     assert_eq!(
         explicit_join.to_sql().sql(),
-        "SELECT `users`.`id`, `posts`.`id` FROM `users` INNER JOIN `posts` USE INDEX (`posts_user_id_idx`) ON `posts`.`user_id` = `users`.`id`"
+        "SELECT `users`.`id`, `posts`.`id` FROM `users` INNER JOIN `posts` USE INDEX (`posts_user_id_idx`, `posts_id_idx`) ON `posts`.`user_id` = `users`.`id`"
     );
 
     let automatic_join = builder()

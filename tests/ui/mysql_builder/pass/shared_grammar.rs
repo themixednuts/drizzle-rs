@@ -1,5 +1,5 @@
-use drizzle::core::expr::{alias, avg, char_length, eq, sum};
 use drizzle::core::HasSelectModel;
+use drizzle::core::expr::{alias, avg, char_length, eq, sum};
 use drizzle::mysql::builder::select::SelectBuilder;
 use drizzle::mysql::{builder::QueryBuilder, prelude::*};
 
@@ -22,6 +22,9 @@ struct Posts {
 
 #[MySQLIndex]
 struct UsersNameIdx(Users::name);
+
+#[MySQLIndex]
+struct UsersIdIdx(Users::id);
 
 #[derive(MySQLSchema)]
 struct Schema {
@@ -87,9 +90,15 @@ fn main() {
     let _ = builder
         .select(users.id)
         .from(users)
-        .use_index(UsersNameIdx::new())
+        .use_index((UsersNameIdx::new(), UsersIdIdx::new()))
         .for_update()
         .skip_locked();
+
+    let hinted = builder
+        .select((users.id, users.name))
+        .from(users)
+        .use_index(UsersNameIdx::new());
+    let _ = builder.insert(users).select(hinted);
 
     let Schema { users, posts } = Schema::new();
     let _ = builder

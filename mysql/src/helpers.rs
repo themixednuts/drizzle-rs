@@ -60,7 +60,8 @@ drizzle_core::impl_join_arg_trait!(
 );
 
 mod index_hint_private {
-    pub trait Sealed {}
+    pub trait Kind {}
+    pub trait List<'a, Table> {}
 }
 
 /// Marker for a MySQL `USE INDEX` hint.
@@ -78,12 +79,12 @@ pub struct ForceIndex;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct IgnoreIndex;
 
-impl index_hint_private::Sealed for UseIndex {}
-impl index_hint_private::Sealed for ForceIndex {}
-impl index_hint_private::Sealed for IgnoreIndex {}
+impl index_hint_private::Kind for UseIndex {}
+impl index_hint_private::Kind for ForceIndex {}
+impl index_hint_private::Kind for IgnoreIndex {}
 
 #[doc(hidden)]
-pub trait IndexHintKind: index_hint_private::Sealed {
+pub trait IndexHintKind: index_hint_private::Kind {
     const SQL: &'static str;
 }
 
@@ -99,27 +100,77 @@ impl IndexHintKind for IgnoreIndex {
     const SQL: &'static str = "IGNORE INDEX ";
 }
 
-/// A table source carrying one typed MySQL index hint.
+/// One or more generated indexes belonging to the same MySQL table.
+#[doc(hidden)]
+pub trait IndexHintList<'a, Table>: index_hint_private::List<'a, Table> {
+    fn names(&self) -> SQL<'a, MySQLValue<'a>>;
+}
+
+impl<'a, Table, Index> index_hint_private::List<'a, Table> for Index where
+    Index: SQLIndex<'a, crate::common::MySQLSchemaType, MySQLValue<'a>, Table = Table>
+{
+}
+
+impl<'a, Table, Index> IndexHintList<'a, Table> for Index
+where
+    Index: SQLIndex<'a, crate::common::MySQLSchemaType, MySQLValue<'a>, Table = Table>,
+{
+    fn names(&self) -> SQL<'a, MySQLValue<'a>> {
+        SQL::ident(SQLIndexInfo::name(self))
+    }
+}
+
+macro_rules! index_hint_tuple {
+    ($($index:ident: $field:tt),+) => {
+        impl<'a, Table, $($index),+> index_hint_private::List<'a, Table> for ($($index,)+)
+        where
+            $($index: SQLIndex<'a, crate::common::MySQLSchemaType, MySQLValue<'a>, Table = Table>,)+
+        {
+        }
+
+        impl<'a, Table, $($index),+> IndexHintList<'a, Table> for ($($index,)+)
+        where
+            $($index: SQLIndex<'a, crate::common::MySQLSchemaType, MySQLValue<'a>, Table = Table>,)+
+        {
+            fn names(&self) -> SQL<'a, MySQLValue<'a>> {
+                SQL::join(
+                    [$(SQL::ident(SQLIndexInfo::name(&self.$field)),)+],
+                    Token::COMMA,
+                )
+            }
+        }
+    };
+}
+
+index_hint_tuple!(A: 0, B: 1);
+index_hint_tuple!(A: 0, B: 1, C: 2);
+index_hint_tuple!(A: 0, B: 1, C: 2, D: 3);
+index_hint_tuple!(A: 0, B: 1, C: 2, D: 3, E: 4);
+index_hint_tuple!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5);
+index_hint_tuple!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6);
+index_hint_tuple!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7);
+
+/// A table source carrying one typed MySQL index-hint clause.
 ///
 /// Values of this type are created through [`MySQLIndexHintExt`].
 #[derive(Debug, Clone, Copy)]
-pub struct IndexHintedTable<Table, Index, Kind> {
+pub struct IndexHintedTable<Table, Indexes, Kind> {
     table: Table,
-    index: Index,
+    indexes: Indexes,
     kind: core::marker::PhantomData<Kind>,
 }
 
-impl<Table, Index, Kind> IndexHintedTable<Table, Index, Kind> {
+impl<Table, Indexes, Kind> IndexHintedTable<Table, Indexes, Kind> {
     fn into_sql<'a>(self) -> SQL<'a, MySQLValue<'a>>
     where
         Table: MySQLTable<'a>,
-        Index: SQLIndex<'a, crate::common::MySQLSchemaType, MySQLValue<'a>, Table = Table>,
+        Indexes: IndexHintList<'a, Table>,
         Kind: IndexHintKind,
     {
         self.table
             .into_sql()
             .append(SQL::raw(Kind::SQL))
-            .append(SQL::ident(SQLIndexInfo::name(&self.index)).parens())
+            .append(self.indexes.names().parens())
     }
 }
 
@@ -129,35 +180,35 @@ impl<Table, Index, Kind> IndexHintedTable<Table, Index, Kind> {
 /// index's generated metadata must name the same table, so hints cannot be
 /// accidentally applied across tables.
 pub trait MySQLIndexHintExt: Sized {
-    fn use_index<Index>(self, index: Index) -> IndexHintedTable<Self, Index, UseIndex>
+    fn use_index<Indexes>(self, indexes: Indexes) -> IndexHintedTable<Self, Indexes, UseIndex>
     where
-        Index: for<'a> SQLIndex<'a, crate::common::MySQLSchemaType, MySQLValue<'a>, Table = Self>,
+        Indexes: for<'a> IndexHintList<'a, Self>,
     {
         IndexHintedTable {
             table: self,
-            index,
+            indexes,
             kind: core::marker::PhantomData,
         }
     }
 
-    fn force_index<Index>(self, index: Index) -> IndexHintedTable<Self, Index, ForceIndex>
+    fn force_index<Indexes>(self, indexes: Indexes) -> IndexHintedTable<Self, Indexes, ForceIndex>
     where
-        Index: for<'a> SQLIndex<'a, crate::common::MySQLSchemaType, MySQLValue<'a>, Table = Self>,
+        Indexes: for<'a> IndexHintList<'a, Self>,
     {
         IndexHintedTable {
             table: self,
-            index,
+            indexes,
             kind: core::marker::PhantomData,
         }
     }
 
-    fn ignore_index<Index>(self, index: Index) -> IndexHintedTable<Self, Index, IgnoreIndex>
+    fn ignore_index<Indexes>(self, indexes: Indexes) -> IndexHintedTable<Self, Indexes, IgnoreIndex>
     where
-        Index: for<'a> SQLIndex<'a, crate::common::MySQLSchemaType, MySQLValue<'a>, Table = Self>,
+        Indexes: for<'a> IndexHintList<'a, Self>,
     {
         IndexHintedTable {
             table: self,
-            index,
+            indexes,
             kind: core::marker::PhantomData,
         }
     }
@@ -165,13 +216,13 @@ pub trait MySQLIndexHintExt: Sized {
 
 impl<Table> MySQLIndexHintExt for Table where Table: for<'a> MySQLTable<'a> {}
 
-pub(crate) fn index_hint<'a, Table, Index, Kind>(index: &Index) -> SQL<'a, MySQLValue<'a>>
+pub(crate) fn index_hint<'a, Table, Indexes, Kind>(indexes: &Indexes) -> SQL<'a, MySQLValue<'a>>
 where
     Table: MySQLTable<'a>,
-    Index: SQLIndex<'a, crate::common::MySQLSchemaType, MySQLValue<'a>, Table = Table>,
+    Indexes: IndexHintList<'a, Table>,
     Kind: IndexHintKind,
 {
-    SQL::raw(Kind::SQL).append(SQL::ident(SQLIndexInfo::name(index)).parens())
+    SQL::raw(Kind::SQL).append(indexes.names().parens())
 }
 
 fn auto_join_condition<'a, Joined, From>() -> SQL<'a, MySQLValue<'a>>
@@ -202,11 +253,11 @@ where
     condition
 }
 
-impl<'a, Joined, Index, Kind, From> JoinArg<'a, From> for IndexHintedTable<Joined, Index, Kind>
+impl<'a, Joined, Indexes, Kind, From> JoinArg<'a, From> for IndexHintedTable<Joined, Indexes, Kind>
 where
     Joined: MySQLTable<'a> + drizzle_core::Joinable<From> + Default,
     From: SQLTableInfo + Default,
-    Index: SQLIndex<'a, crate::common::MySQLSchemaType, MySQLValue<'a>, Table = Joined>,
+    Indexes: IndexHintList<'a, Joined>,
     Kind: IndexHintKind,
 {
     type JoinedTable = Joined;
@@ -219,11 +270,11 @@ where
     }
 }
 
-impl<'a, Joined, Index, Kind, Condition, From> JoinArg<'a, From>
-    for (IndexHintedTable<Joined, Index, Kind>, Condition)
+impl<'a, Joined, Indexes, Kind, Condition, From> JoinArg<'a, From>
+    for (IndexHintedTable<Joined, Indexes, Kind>, Condition)
 where
     Joined: MySQLTable<'a>,
-    Index: SQLIndex<'a, crate::common::MySQLSchemaType, MySQLValue<'a>, Table = Joined>,
+    Indexes: IndexHintList<'a, Joined>,
     Kind: IndexHintKind,
     Condition: JoinCondition<'a>,
 {

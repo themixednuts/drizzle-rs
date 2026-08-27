@@ -138,6 +138,7 @@ mod private {
     impl<Strength, Modifier> Prepare for SelectForSet<Strength, Modifier> {}
 
     impl Completed for SelectFromSet {}
+    impl<Kind> Completed for SelectIndexHintSet<Kind> {}
     impl Completed for SelectJoinSet {}
     impl Completed for SelectWhereSet {}
     impl Completed for SelectGroupSet {}
@@ -193,48 +194,48 @@ where
 {
     /// Advises MySQL to consider this table's generated index.
     #[must_use]
-    pub fn use_index<Index>(
+    pub fn use_index<Indexes>(
         self,
-        index: Index,
+        indexes: Indexes,
     ) -> SelectBuilder<'a, S, SelectIndexHintSet<helpers::UseIndex>, T, M, R, G>
     where
-        Index: drizzle_core::SQLIndex<'a, MySQLSchemaType, MySQLValue<'a>, Table = T>,
+        Indexes: helpers::IndexHintList<'a, T>,
     {
-        SelectBuilder::from_sql(
-            self.sql
-                .append(helpers::index_hint::<T, Index, helpers::UseIndex>(&index)),
-        )
+        SelectBuilder::from_sql(self.sql.append(
+            helpers::index_hint::<T, Indexes, helpers::UseIndex>(&indexes),
+        ))
     }
 
     /// Advises MySQL to strongly prefer this table's generated index.
     #[must_use]
-    pub fn force_index<Index>(
+    pub fn force_index<Indexes>(
         self,
-        index: Index,
+        indexes: Indexes,
     ) -> SelectBuilder<'a, S, SelectIndexHintSet<helpers::ForceIndex>, T, M, R, G>
     where
-        Index: drizzle_core::SQLIndex<'a, MySQLSchemaType, MySQLValue<'a>, Table = T>,
+        Indexes: helpers::IndexHintList<'a, T>,
     {
-        SelectBuilder::from_sql(
-            self.sql
-                .append(helpers::index_hint::<T, Index, helpers::ForceIndex>(&index)),
-        )
+        SelectBuilder::from_sql(self.sql.append(helpers::index_hint::<
+            T,
+            Indexes,
+            helpers::ForceIndex,
+        >(&indexes)))
     }
 
     /// Advises MySQL not to use this table's generated index.
     #[must_use]
-    pub fn ignore_index<Index>(
+    pub fn ignore_index<Indexes>(
         self,
-        index: Index,
+        indexes: Indexes,
     ) -> SelectBuilder<'a, S, SelectIndexHintSet<helpers::IgnoreIndex>, T, M, R, G>
     where
-        Index: drizzle_core::SQLIndex<'a, MySQLSchemaType, MySQLValue<'a>, Table = T>,
+        Indexes: helpers::IndexHintList<'a, T>,
     {
         SelectBuilder::from_sql(self.sql.append(helpers::index_hint::<
             T,
-            Index,
+            Indexes,
             helpers::IgnoreIndex,
-        >(&index)))
+        >(&indexes)))
     }
 }
 

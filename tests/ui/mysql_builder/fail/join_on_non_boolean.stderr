@@ -17,14 +17,14 @@ help: the following other types implement trait `JoinArg<'a, FromTable>`
    | | );
    | |_- in this macro invocation
 ...
-   | / impl<'a, Joined, Index, Kind, Condition, From> JoinArg<'a, From>
-   | |     for (IndexHintedTable<Joined, Index, Kind>, Condition)
+   | / impl<'a, Joined, Indexes, Kind, Condition, From> JoinArg<'a, From>
+   | |     for (IndexHintedTable<Joined, Indexes, Kind>, Condition)
    | | where
    | |     Joined: MySQLTable<'a>,
-   | |     Index: SQLIndex<'a, crate::common::MySQLSchemaType, MySQLValue<'a>, Table = Joined>,
+   | |     Indexes: IndexHintList<'a, Joined>,
    | |     Kind: IndexHintKind,
    | |     Condition: JoinCondition<'a>,
-   | |_________________________________^ `(IndexHintedTable<Joined, Index, Kind>, Condition)` implements `JoinArg<'_, From>`
+   | |_________________________________^ `(IndexHintedTable<Joined, Indexes, Kind>, Condition)` implements `JoinArg<'_, From>`
    |
   ::: core/src/join.rs
    |

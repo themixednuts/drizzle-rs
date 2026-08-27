@@ -11,12 +11,13 @@ note: expected this to be `Users`
    |
 13 | #[MySQLIndex]
    | ^^^^^^^^^^^^^
+   = note: required for `PostsIdIdx` to implement `drizzle::mysql::helpers::IndexHintList<'_, Users>`
 note: required by a bound in `select::<impl QueryBuilder<'a, S, SelectFromSet, T, M, R, G>>::use_index`
   --> mysql/src/builder/select.rs
    |
-   |     pub fn use_index<Index>(
+   |     pub fn use_index<Indexes>(
    |            --------- required by a bound in this associated function
 ...
-   |         Index: drizzle_core::SQLIndex<'a, MySQLSchemaType, MySQLValue<'a>, Table = T>,
-   |                                                                            ^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, SelectFromSet, T, M, R, G>>::use_index`
+   |         Indexes: helpers::IndexHintList<'a, T>,
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, SelectFromSet, T, M, R, G>>::use_index`
    = note: this error originates in the attribute macro `MySQLIndex` (in Nightly builds, run with -Z macro-backtrace for more info)
