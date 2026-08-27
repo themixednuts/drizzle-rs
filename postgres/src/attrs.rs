@@ -1075,6 +1075,9 @@ pub const TEXT: TypeMarker = TypeMarker;
 ///
 /// VARCHAR stores variable-length character strings.
 /// In `PostgreSQL`, VARCHAR without length limit is equivalent to TEXT.
+/// Use `#[column(VARCHAR(255))]` to preserve a bounded physical column while
+/// keeping the Rust field type as `String`; `Vec<String>` preserves the same
+/// bound for each array element.
 ///
 /// See: <https://www.postgresql.org/docs/current/datatype-character.html>
 pub const VARCHAR: TypeMarker = TypeMarker;
@@ -1085,6 +1088,8 @@ pub const CHARACTER_VARYING: TypeMarker = TypeMarker;
 /// Specifies a CHAR column type.
 ///
 /// CHAR stores fixed-length character strings.
+/// Use `#[column(CHAR(8))]` to declare its required physical length. The same
+/// marker on `Vec<String>` declares an array of bounded CHAR elements.
 ///
 /// See: <https://www.postgresql.org/docs/current/datatype-character.html>
 pub const CHAR: TypeMarker = TypeMarker;

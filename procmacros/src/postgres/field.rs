@@ -584,6 +584,21 @@ impl PostgreSQLType {
     }
 }
 
+fn render_type(ty: &PostgreSQLType, args: &[u32]) -> String {
+    if args.is_empty() {
+        ty.to_sql_type().to_string()
+    } else {
+        format!(
+            "{}({})",
+            ty.to_sql_type(),
+            args.iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
 /// `PostgreSQL` column constraint flags
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -717,6 +732,8 @@ pub struct FieldInfo {
     /// SQL column definition string (e.g., "name TEXT NOT NULL")
     pub sql_definition: String,
     pub column_type: PostgreSQLType,
+    /// Length supplied by an explicit bounded character type marker.
+    pub type_args: Vec<u32>,
     /// PostgreSQL array dimensions. Present for `Vec<T>` columns.
     pub dimensions: Option<i32>,
     pub flags: HashSet<PostgreSQLFlag>,
@@ -849,6 +866,10 @@ impl FieldInfo {
         let type_category = TypeCategory::from_type(&ty);
         let array_type = postgres_array_info(&ty);
         let dimensions = array_type.as_ref().map(|_| 1);
+        let supports_bounded_character_type = matches!(
+            type_category,
+            TypeCategory::String | TypeCategory::ArrayString
+        ) || matches!(array_type, Some(PostgreSQLType::Text));
 
         // Initialize constraint-related fields
         let mut flags = HashSet::new();
@@ -865,6 +886,8 @@ impl FieldInfo {
         let mut generated_column = None;
         let mut is_pgenum = false;
         let mut marker_exprs = Vec::new();
+        let mut explicit_type = None;
+        let mut type_args = Vec::new();
 
         // Track whether this is a custom type (unknown to the macro, validated via trait bounds)
         let mut is_custom_type = false;
@@ -876,9 +899,12 @@ impl FieldInfo {
         let mut collate: Option<String> = None;
         let mut relation_name: Option<String> = None;
         for attr in &field.attrs {
-            if let Some(column_info) =
-                Self::parse_column_attribute(attr, type_category, name.span())?
-            {
+            if let Some(column_info) = Self::parse_column_attribute(
+                attr,
+                type_category,
+                supports_bounded_character_type,
+                name.span(),
+            )? {
                 flags = column_info.flags;
                 default = column_info.default;
                 default_fn = column_info.default_fn;
@@ -898,8 +924,17 @@ impl FieldInfo {
                 collate = column_info.collate;
                 relation_name = column_info.relation_name;
                 marker_exprs = column_info.marker_exprs;
+                explicit_type = column_info.explicit_type;
+                type_args = column_info.type_args;
                 break;
             }
+        }
+
+        if explicit_type.is_some() && (is_explicit_json || is_explicit_jsonb || is_pgenum) {
+            return Err(Error::new_spanned(
+                field,
+                "VARCHAR/CHAR cannot be combined with JSON, JSONB, or ENUM",
+            ));
         }
 
         // Determine the PostgreSQL column type
@@ -910,6 +945,8 @@ impl FieldInfo {
             PostgreSQLType::Serial
         } else if is_bigserial {
             PostgreSQLType::Bigserial
+        } else if let Some(explicit_type) = explicit_type.clone() {
+            explicit_type
         } else if let Some(array_type) = array_type.clone() {
             array_type
         } else if is_pgenum {
@@ -940,6 +977,8 @@ impl FieldInfo {
             PostgreSQLType::Serial
         } else if is_bigserial {
             PostgreSQLType::Bigserial
+        } else if let Some(explicit_type) = explicit_type {
+            explicit_type
         } else if let Some(array_type) = array_type.clone() {
             array_type
         } else if is_pgenum {
@@ -983,6 +1022,7 @@ impl FieldInfo {
         let sql_definition = build_sql_definition(&SqlDefinitionContext {
             column_name: &column_name,
             column_type: &column_type,
+            type_args: &type_args,
             is_primary_single: is_primary && !is_composite_pk,
             is_not_null: !is_nullable,
             is_unique,
@@ -1004,6 +1044,7 @@ impl FieldInfo {
             column_name,
             sql_definition,
             column_type,
+            type_args,
             dimensions,
             flags,
             is_nullable,
@@ -1043,6 +1084,7 @@ impl FieldInfo {
     fn parse_column_attribute(
         attr: &Attribute,
         type_category: TypeCategory,
+        supports_bounded_character_type: bool,
         span: proc_macro2::Span,
     ) -> Result<Option<ColumnInfo>> {
         // Only process #[column(...)] attributes
@@ -1077,6 +1119,8 @@ impl FieldInfo {
         let mut collate: Option<String> = None;
         let mut relation_name: Option<String> = None;
         let mut marker_exprs = Vec::new();
+        let mut explicit_type = None;
+        let mut type_args = Vec::new();
 
         // Parse attribute arguments: #[column(primary, unique, default = "foo")]
         if attr.meta.require_list().is_ok() {
@@ -1089,6 +1133,43 @@ impl FieldInfo {
                 let path = path_ident.to_string().to_ascii_uppercase();
 
                 match path.as_str() {
+                    "VARCHAR" | "CHAR" => {
+                        if !supports_bounded_character_type {
+                            return Err(syn::Error::new(
+                                span,
+                                "VARCHAR/CHAR SQL type overrides require a Rust string type",
+                            ));
+                        }
+                        if explicit_type.is_some() {
+                            return Err(syn::Error::new_spanned(
+                                path_ident,
+                                "a PostgreSQL column may specify only one SQL type",
+                            ));
+                        }
+                        let content;
+                        syn::parenthesized!(content in meta.input);
+                        let length: syn::LitInt = content.parse()?;
+                        if !content.is_empty() {
+                            return Err(syn::Error::new_spanned(
+                                content.parse::<proc_macro2::TokenStream>()?,
+                                "VARCHAR/CHAR require exactly one length argument",
+                            ));
+                        }
+                        let length = length.base10_parse::<u32>()?;
+                        if length == 0 {
+                            return Err(syn::Error::new_spanned(
+                                path_ident,
+                                "VARCHAR/CHAR length must be greater than zero",
+                            ));
+                        }
+                        explicit_type = Some(if path == "VARCHAR" {
+                            PostgreSQLType::Varchar
+                        } else {
+                            PostgreSQLType::Char
+                        });
+                        type_args.push(length);
+                        marker_exprs.push(make_uppercase_path(path_ident, &path));
+                    }
                     "SERIAL" => {
                         // Validate: serial only valid on i32
                         if !type_category.is_valid_constraint("serial") {
@@ -1544,6 +1625,8 @@ impl FieldInfo {
             column_name,
             collate,
             marker_exprs,
+            explicit_type,
+            type_args,
         }))
     }
 
@@ -1634,7 +1717,7 @@ impl FieldInfo {
             let drizzle_postgres_column = crate::paths::postgres::drizzle_postgres_column();
             quote!(<#base_type as #drizzle_postgres_column>::SQL_TYPE)
         } else {
-            let sql_type = self.column_type.to_sql_type();
+            let sql_type = render_type(&self.column_type, &self.type_args);
             quote!(#sql_type)
         }
     }
@@ -1682,7 +1765,10 @@ impl FieldInfo {
 
 impl FieldInfo {
     pub(crate) fn sql_type_with_dimensions(&self) -> String {
-        sql_type_with_dimensions(self.column_type.to_sql_type(), self.dimensions)
+        sql_type_with_dimensions(
+            &render_type(&self.column_type, &self.type_args),
+            self.dimensions,
+        )
     }
 }
 
@@ -1713,7 +1799,7 @@ impl FieldInfo {
             schema.to_string(),
             table_name.to_string(),
             self.column_name.clone(),
-            self.column_type.to_sql_type().to_string(),
+            render_type(&self.column_type, &self.type_args),
         );
 
         if !self.is_nullable {
@@ -1872,6 +1958,7 @@ pub fn generate_table_meta_json(
 struct SqlDefinitionContext<'a> {
     column_name: &'a str,
     column_type: &'a PostgreSQLType,
+    type_args: &'a [u32],
     is_primary_single: bool,
     is_not_null: bool,
     is_unique: bool,
@@ -1890,7 +1977,7 @@ fn build_sql_definition(ctx: &SqlDefinitionContext<'_>) -> String {
     let mut sql = format!(
         "\"{}\" {}",
         ctx.column_name,
-        sql_type_with_dimensions(ctx.column_type.to_sql_type(), ctx.dimensions)
+        sql_type_with_dimensions(&render_type(ctx.column_type, ctx.type_args), ctx.dimensions)
     );
 
     if let Some(collate) = ctx.collate {
@@ -2016,6 +2103,8 @@ struct ColumnInfo {
     /// PostgreSQL collation name, from `#[column(COLLATE = "en_US")]`.
     collate: Option<String>,
     marker_exprs: Vec<syn::ExprPath>,
+    explicit_type: Option<PostgreSQLType>,
+    type_args: Vec<u32>,
 }
 
 /// Inherent accessors that delegate to the `Constraint` enum so callers
@@ -2129,6 +2218,7 @@ mod tests {
         SqlDefinitionContext {
             column_name,
             column_type,
+            type_args: &[],
             is_primary_single: false,
             is_not_null: true,
             is_unique: false,

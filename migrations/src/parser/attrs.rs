@@ -1706,6 +1706,11 @@ pub(crate) fn postgres_column_spec(
         .map_or_else(|| "<unnamed>".to_string(), std::string::ToString::to_string);
     let field_desc = format!("{table_desc}.{field_name}");
     let base_type = unwrap_option(&field.ty).clone();
+    let postgres_array_type = infer_postgres_array(&field.ty);
+    let supports_bounded_character_type = is_string_like(&base_type)
+        || is_array_string(&base_type)
+        || postgres_array_type == Some("TEXT");
+    let mut explicit_pg_type = None;
 
     // The Postgres macro only processes the *first* `#[column(...)]`
     // attribute (it breaks out of the attribute loop).
@@ -1725,6 +1730,36 @@ pub(crate) fn postgres_column_spec(
             };
             let key = path_ident.to_string();
             match key.to_ascii_uppercase().as_str() {
+                "VARCHAR" | "CHAR" => {
+                    if !supports_bounded_character_type {
+                        return Err(meta.error(
+                            "VARCHAR/CHAR SQL type overrides require a Rust string type",
+                        ));
+                    }
+                    if explicit_pg_type.is_some() {
+                        return Err(meta.error(
+                            "a PostgreSQL column may specify only one SQL type",
+                        ));
+                    }
+                    let content;
+                    syn::parenthesized!(content in meta.input);
+                    let length: syn::LitInt = content.parse()?;
+                    if !content.is_empty() {
+                        return Err(meta.error(
+                            "VARCHAR/CHAR require exactly one length argument",
+                        ));
+                    }
+                    let length = length.base10_parse::<u32>()?;
+                    if length == 0 {
+                        return Err(meta.error(
+                            "VARCHAR/CHAR length must be greater than zero",
+                        ));
+                    }
+                    explicit_pg_type = Some(format!(
+                        "{}({length})",
+                        key.to_ascii_uppercase()
+                    ));
+                }
                 "SERIAL" | "BIGSERIAL" | "SMALLSERIAL" => {
                     let (kind, required) = match key.to_ascii_uppercase().as_str() {
                         "SERIAL" => (SerialKind::Serial, "i32"),
@@ -2028,6 +2063,11 @@ pub(crate) fn postgres_column_spec(
                 "{field_desc}: relation requires a `references = Table::column` attribute"
             ));
         }
+        if explicit_pg_type.is_some() && (spec.json || spec.jsonb || spec.enum_marker) {
+            diags.errors.push(format!(
+                "{field_desc}: VARCHAR/CHAR cannot be combined with JSON, JSONB, or ENUM"
+            ));
+        }
     }
 
     // Resolve the PostgreSQL type exactly like the macro's precedence chain.
@@ -2041,7 +2081,9 @@ pub(crate) fn postgres_column_spec(
             .to_string(),
             None,
         )
-    } else if let Some(elem) = infer_postgres_array(&field.ty) {
+    } else if let Some(explicit) = explicit_pg_type {
+        (explicit, postgres_array_type.map(|_| 1))
+    } else if let Some(elem) = postgres_array_type {
         (elem.to_string(), Some(1))
     } else if spec.enum_marker {
         (type_token_string(&base_type), None)
@@ -3537,6 +3579,24 @@ mod tests {
         let (blob, _) = pg_spec("data: Vec<u8>");
         assert_eq!(blob.pg_type.as_deref(), Some("BYTEA"));
         assert_eq!(blob.pg_dimensions, None);
+    }
+
+    #[test]
+    fn pg_bounded_character_overrides_preserve_rust_shape() {
+        let (string, string_diags) = pg_spec("#[column(VARCHAR(255))] value: String");
+        assert!(string_diags.errors.is_empty(), "{:#?}", string_diags.errors);
+        assert_eq!(string.pg_type.as_deref(), Some("VARCHAR(255)"));
+        assert_eq!(string.pg_dimensions, None);
+
+        let (_, chars_diags) = pg_spec("#[column(CHAR(8))] value: [char; 8]");
+        assert!(chars_diags.errors.iter().any(|error| {
+            error.contains("VARCHAR/CHAR SQL type overrides require a Rust string type")
+        }));
+
+        let (array, array_diags) = pg_spec("#[column(VARCHAR(64))] value: Vec<String>");
+        assert!(array_diags.errors.is_empty(), "{:#?}", array_diags.errors);
+        assert_eq!(array.pg_type.as_deref(), Some("VARCHAR(64)"));
+        assert_eq!(array.pg_dimensions, Some(1));
     }
 
     #[test]

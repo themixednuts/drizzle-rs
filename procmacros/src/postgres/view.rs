@@ -411,7 +411,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         .iter()
         .map(|f| {
             let col_name = &f.column_name;
-            let pg_type = f.column_type.to_sql_type();
+            let pg_type = f.sql_type_expr();
             let flag_bits = ColumnRefFlags::new()
                 .with(ColumnRefFlags::NOT_NULL, !f.is_nullable)
                 .with(ColumnRefFlags::PRIMARY_KEY, f.is_primary())

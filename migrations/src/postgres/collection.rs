@@ -845,7 +845,7 @@ fn collapse_sql_whitespace(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn normalize_type_for_compare(sql_type: &str) -> String {
+pub(crate) fn normalize_type_for_compare(sql_type: &str) -> String {
     let mut ty = collapse_sql_whitespace(&sql_type.trim().to_ascii_lowercase());
     let mut dimensions = String::new();
 

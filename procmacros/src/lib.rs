@@ -2672,6 +2672,9 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// - Column types are inferred from Rust field types by default
 /// - Use `#[column(...)]` to add markers like `serial`, `smallserial`, `bigserial`,
 ///   `json`, `jsonb`, or `enum`
+/// - Use `#[column(VARCHAR(length))]` or `#[column(CHAR(length))]` on `String`
+///   or `Vec<String>` fields when the physical character-length constraint must
+///   be preserved
 ///
 /// ## Constraints
 /// - `primary` - Primary key constraint

@@ -220,6 +220,7 @@ mod tests {
             column_name: name.to_string(),
             sql_definition: format!("\"{name}\" INTEGER"),
             column_type: PostgreSQLType::Integer,
+            type_args: Vec::new(),
             dimensions: None,
             flags: HashSet::new(),
             is_nullable: false,

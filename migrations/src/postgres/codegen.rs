@@ -640,6 +640,10 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
     // Build column attributes
     let mut attrs = Vec::new();
 
+    if let Some(physical_type) = bounded_character_type_attr(column) {
+        attrs.push(physical_type);
+    }
+
     // For SERIAL columns (auto-increment via nextval), use "serial" attribute
     if is_serial {
         attrs.push("serial".to_string());
@@ -738,6 +742,25 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
 
     let _ = writeln!(result, "    {vis}{field_name}: {rust_type},");
     result
+}
+
+fn bounded_character_type_attr(column: &Column) -> Option<String> {
+    let normalized = super::collection::normalize_type_for_compare(&column.sql_type);
+    for (prefix, marker) in [("character varying", "VARCHAR"), ("character", "CHAR")] {
+        let Some(arguments) = normalized
+            .strip_prefix(prefix)
+            .and_then(|value| value.strip_prefix('('))
+        else {
+            continue;
+        };
+        let Some(length) = arguments.strip_suffix(')') else {
+            continue;
+        };
+        if !length.is_empty() && length.chars().all(|character| character.is_ascii_digit()) {
+            return Some(format!("{marker}({length})"));
+        }
+    }
+    None
 }
 
 /// Generate a Rust enum definition from a `PostgreSQL` enum
@@ -1228,6 +1251,40 @@ mod tests {
         // Nullable types
         assert_eq!(sql_type_to_rust_type("int4", false), "Option<i32>");
         assert_eq!(sql_type_to_rust_type("text", false), "Option<String>");
+    }
+
+    #[test]
+    fn bounded_character_types_round_trip_without_becoming_text() {
+        let mut ddl = PostgresDDL::new();
+        ddl.schemas.push(Schema::new("public"));
+        ddl.tables.push(Table::new("public", "users"));
+        ddl.columns
+            .push(Column::new("public", "users", "name", "varchar(255)"));
+        ddl.columns
+            .push(Column::new("public", "users", "code", "character(8)"));
+        let mut aliases = Column::new("public", "users", "aliases", "varchar(64)");
+        aliases.dimensions = Some(1);
+        ddl.columns.push(aliases);
+
+        let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+
+        assert!(
+            generated.code.contains("#[column(VARCHAR(255))]"),
+            "generated schema must preserve the VARCHAR length:\n{}",
+            generated.code
+        );
+        assert!(
+            generated.code.contains("#[column(CHAR(8))]"),
+            "generated schema must preserve the CHAR length:\n{}",
+            generated.code
+        );
+        assert!(
+            generated.code.contains("#[column(VARCHAR(64))]"),
+            "generated schema must preserve bounded array element types:\n{}",
+            generated.code
+        );
+        assert!(generated.code.contains("aliases: Option<Vec<String>>"));
+        assert_round_trips(&ddl, &generated);
     }
 
     #[test]
