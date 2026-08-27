@@ -104,6 +104,20 @@ impl TransactionConfig {
         self
     }
 
+    /// Requests a deferrable transaction for runtime-derived configuration.
+    ///
+    /// PostgreSQL only gives `DEFERRABLE` meaning for a `SERIALIZABLE READ
+    /// ONLY` transaction, so this establishes that valid combination. Prefer
+    /// the typestated builder when the choices are known in code.
+    #[must_use]
+    pub const fn deferrable(mut self) -> Self {
+        self.isolation_level = Some(IsolationLevel::Serializable);
+        self.access_mode = Some(AccessMode::ReadOnly);
+        self.deferrable = true;
+        self.legacy_read_committed = false;
+        self
+    }
+
     /// Configured isolation level, or `None` to use the server default.
     #[must_use]
     pub const fn isolation(&self) -> Option<IsolationLevel> {
@@ -327,6 +341,16 @@ mod tests {
             .isolation_level(IsolationLevel::ReadCommitted);
 
         assert!(!config.is_deferrable());
+        assert!(!config.uses_server_default_isolation());
+    }
+
+    #[test]
+    fn runtime_deferrable_selects_valid_modes() {
+        let config = TransactionConfig::new().deferrable();
+
+        assert_eq!(config.isolation(), Some(IsolationLevel::Serializable));
+        assert_eq!(config.access(), Some(AccessMode::ReadOnly));
+        assert!(config.is_deferrable());
         assert!(!config.uses_server_default_isolation());
     }
 }
