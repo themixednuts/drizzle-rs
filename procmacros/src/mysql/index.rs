@@ -13,6 +13,19 @@ pub struct IndexAttributes {
     pub lock: Option<String>,
 }
 
+#[derive(Clone, Copy)]
+enum IndexOrder {
+    Asc,
+    Desc,
+}
+
+struct IndexKeyPart {
+    column: Expr,
+    prefix: Option<u32>,
+    order: Option<IndexOrder>,
+    expression: Option<String>,
+}
+
 impl Parse for IndexAttributes {
     fn parse(input: syn::parse::ParseStream<'_>) -> Result<Self> {
         let mut attrs = Self::default();
@@ -190,16 +203,21 @@ pub fn mysql_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Res
     let struct_ident = &input.ident;
     let struct_vis = &input.vis;
     let columns = index_columns(input)?;
-    let table_type = extract_table_from_column(columns.first().ok_or_else(|| {
-        Error::new_spanned(struct_ident, "MySQLIndex requires at least one column")
-    })?)?;
+    let table_type = extract_table_from_column(
+        &columns
+            .first()
+            .ok_or_else(|| {
+                Error::new_spanned(struct_ident, "MySQLIndex requires at least one column")
+            })?
+            .column,
+    )?;
 
     let expected_table = table_type.to_token_stream().to_string();
     for column in &columns {
-        let column_table = extract_table_from_column(column)?;
+        let column_table = extract_table_from_column(&column.column)?;
         if column_table.to_token_stream().to_string() != expected_table {
             return Err(Error::new_spanned(
-                column,
+                &column.column,
                 "all columns in a MySQL index must belong to the same table",
             ));
         }
@@ -212,6 +230,7 @@ pub fn mysql_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Res
     let schema_item_tables = core_paths::schema_item_tables();
     let type_set_nil = core_paths::type_set_nil();
     let to_sql = core_paths::to_sql();
+    let expr = core_paths::expr();
     let const_format = crate::common::paths::const_format();
 
     let mysql_value = quote!(drizzle::mysql::values::MySQLValue);
@@ -246,11 +265,12 @@ pub fn mysql_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Res
 
     let column_names: Vec<_> = columns
         .iter()
-        .map(|column| {
+        .map(|part| {
+            let column = &part.column;
             quote! {{
                 const fn column_name<'a, C>(_: &C) -> &'a str
                 where
-                    C: #sql_schema<'a, &'static str, #mysql_value<'a>> + #mysql_index_column,
+                    C: #sql_schema<'a, &'static str, #mysql_value<'a>>,
                 {
                     C::NAME
                 }
@@ -258,26 +278,88 @@ pub fn mysql_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Res
             }}
         })
         .collect();
-    let column_ddl_names: Vec<_> = columns
-        .iter()
-        .map(|column| {
-            quote! {{
-                const fn column_ddl_name<C>(_: &C) -> &'static str
-                where
-                    C: #mysql_column<'static> + #mysql_index_column,
-                {
-                    C::DDL_NAME
-                }
-                column_ddl_name(&#column)
-            }}
-        })
-        .collect();
-    let column_sql_parts: Vec<_> = column_ddl_names
+    let column_sql_parts: Vec<_> = columns
         .iter()
         .enumerate()
-        .map(|(index, column_name)| {
-            let prefix = if index == 0 { "" } else { ", " };
-            quote!(#prefix, #column_name)
+        .map(|(index, part)| {
+            let separator = if index == 0 { "" } else { ", " };
+            let order = match part.order {
+                None => "",
+                Some(IndexOrder::Asc) => " ASC",
+                Some(IndexOrder::Desc) => " DESC",
+            };
+            if let Some(expression) = &part.expression {
+                let sql = format!("({expression}){order}");
+                quote!(#separator, #sql)
+            } else {
+                let column = &part.column;
+                let suffix = part
+                    .prefix
+                    .map_or_else(|| order.to_string(), |length| format!("({length}){order}"));
+                let column_name = if part.prefix.is_some() {
+                    quote! {{
+                        const fn column_ddl_name<C>(_: &C) -> &'static str
+                        where
+                            C: #mysql_column<'static>,
+                    <C as #expr::Expr<'static, #mysql_value<'static>>>::SQLType:
+                                drizzle::mysql::index::IndexPrefixType,
+                        {
+                            C::DDL_NAME
+                        }
+                        column_ddl_name(&#column)
+                    }}
+                } else {
+                    quote! {{
+                        const fn column_ddl_name<C>(_: &C) -> &'static str
+                        where
+                            C: #mysql_column<'static> + #mysql_index_column,
+                        {
+                            C::DDL_NAME
+                        }
+                        column_ddl_name(&#column)
+                    }}
+                };
+                quote!(#separator, #column_name, #suffix)
+            }
+        })
+        .collect();
+    let key_parts: Vec<_> = columns
+        .iter()
+        .map(|part| {
+            let order = match part.order {
+                None => quote!(::core::option::Option::None),
+                Some(IndexOrder::Asc) => quote!(::core::option::Option::Some(
+                    drizzle::mysql::index::IndexOrder::Asc
+                )),
+                Some(IndexOrder::Desc) => quote!(::core::option::Option::Some(
+                    drizzle::mysql::index::IndexOrder::Desc
+                )),
+            };
+            if let Some(expression) = &part.expression {
+                quote!(drizzle::mysql::index::IndexKeyPart::Expression {
+                    sql: #expression,
+                    order: #order,
+                })
+            } else {
+                let column = &part.column;
+                let length = part.prefix.map_or_else(
+                    || quote!(::core::option::Option::None),
+                    |length| quote!(::core::option::Option::Some(#length)),
+                );
+                quote!(drizzle::mysql::index::IndexKeyPart::Column {
+                    name: {
+                        const fn column_name<'a, C>(_: &C) -> &'a str
+                        where
+                            C: #sql_schema<'a, &'static str, #mysql_value<'a>>,
+                        {
+                            C::NAME
+                        }
+                        column_name(&#column)
+                    },
+                    length: #length,
+                    order: #order,
+                })
+            }
         })
         .collect();
     let is_unique = attr.unique;
@@ -337,6 +419,7 @@ pub fn mysql_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Res
 
         impl #struct_ident {
             pub const COLUMN_NAMES: &'static [&'static str] = &[#(#column_names),*];
+            pub const KEY_PARTS: &'static [drizzle::mysql::index::IndexKeyPart] = &[#(#key_parts),*];
             pub const DDL_SQL: &'static str = #const_sql;
             pub const METHOD: ::core::option::Option<drizzle::mysql::index::MySQLIndexMethod> = #method;
             pub const ALGORITHM: ::core::option::Option<drizzle::mysql::index::MySQLIndexAlgorithm> = #algorithm;
@@ -376,6 +459,7 @@ pub fn mysql_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Res
         }
 
         impl drizzle::mysql::index::MySQLIndexMetadata for #struct_ident {
+            const KEY_PARTS: &'static [drizzle::mysql::index::IndexKeyPart] = Self::KEY_PARTS;
             const METHOD: ::core::option::Option<drizzle::mysql::index::MySQLIndexMethod> = Self::METHOD;
             const ALGORITHM: ::core::option::Option<drizzle::mysql::index::MySQLIndexAlgorithm> = Self::ALGORITHM;
             const LOCK: ::core::option::Option<drizzle::mysql::index::MySQLIndexLock> = Self::LOCK;
@@ -384,6 +468,7 @@ pub fn mysql_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Res
         impl drizzle::mysql::index::__private::MySQLSchemaItemSealed for #struct_ident {}
 
         impl drizzle::mysql::index::MySQLSchemaItemMetadata for #struct_ident {
+            const INDEX_KEY_PARTS: &'static [drizzle::mysql::index::IndexKeyPart] = Self::KEY_PARTS;
             const INDEX_METHOD: ::core::option::Option<drizzle::mysql::index::MySQLIndexMethod> = Self::METHOD;
             const INDEX_ALGORITHM: ::core::option::Option<drizzle::mysql::index::MySQLIndexAlgorithm> = Self::ALGORITHM;
             const INDEX_LOCK: ::core::option::Option<drizzle::mysql::index::MySQLIndexLock> = Self::LOCK;
@@ -410,7 +495,7 @@ pub fn mysql_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Res
     })
 }
 
-fn index_columns(input: &DeriveInput) -> Result<Vec<Expr>> {
+fn index_columns(input: &DeriveInput) -> Result<Vec<IndexKeyPart>> {
     let syn::Data::Struct(data) = &input.data else {
         return Err(Error::new_spanned(
             input,
@@ -427,16 +512,88 @@ fn index_columns(input: &DeriveInput) -> Result<Vec<Expr>> {
     fields
         .unnamed
         .iter()
-        .map(|field| match &field.ty {
-            Type::Path(path) if path.qself.is_none() => Ok(Expr::Path(syn::ExprPath {
-                attrs: Vec::new(),
-                qself: None,
-                path: path.path.clone(),
-            })),
-            _ => Err(Error::new_spanned(
-                &field.ty,
-                "MySQL index columns must be paths such as `Users::email`",
-            )),
+        .map(|field| {
+            let column = match &field.ty {
+                Type::Path(path) if path.qself.is_none() => Expr::Path(syn::ExprPath {
+                    attrs: Vec::new(),
+                    qself: None,
+                    path: path.path.clone(),
+                }),
+                _ => {
+                    return Err(Error::new_spanned(
+                        &field.ty,
+                        "MySQL index columns must be paths such as `Users::email`",
+                    ));
+                }
+            };
+            let mut part = IndexKeyPart {
+                column,
+                prefix: None,
+                order: None,
+                expression: None,
+            };
+            for attr in &field.attrs {
+                if !attr.path().is_ident("index") {
+                    continue;
+                }
+                attr.parse_nested_meta(|meta| {
+                    if meta.path.is_ident("asc") || meta.path.is_ident("desc") {
+                        if part.order.is_some() {
+                            return Err(meta.error("MySQL index key part accepts one direction"));
+                        }
+                        part.order = Some(if meta.path.is_ident("asc") {
+                            IndexOrder::Asc
+                        } else {
+                            IndexOrder::Desc
+                        });
+                        return Ok(());
+                    }
+                    if meta.path.is_ident("prefix") {
+                        if part.prefix.is_some() {
+                            return Err(meta.error(
+                                "MySQL index key part accepts `prefix` only once",
+                            ));
+                        }
+                        let value: syn::LitInt = meta.value()?.parse()?;
+                        let length = value.base10_parse::<u32>()?;
+                        if length == 0 {
+                            return Err(Error::new_spanned(
+                                value,
+                                "MySQL index prefix length must be greater than zero",
+                            ));
+                        }
+                        part.prefix = Some(length);
+                        return Ok(());
+                    }
+                    if meta.path.is_ident("expr") {
+                        if part.expression.is_some() {
+                            return Err(meta.error(
+                                "MySQL index key part accepts `expr` only once",
+                            ));
+                        }
+                        let value: syn::LitStr = meta.value()?.parse()?;
+                        let expression = value.value();
+                        if expression.trim().is_empty() {
+                            return Err(Error::new_spanned(
+                                value,
+                                "MySQL index expression cannot be empty",
+                            ));
+                        }
+                        part.expression = Some(expression.trim().to_string());
+                        return Ok(());
+                    }
+                    Err(meta.error(
+                        "unsupported MySQL index key-part option; accepted options are `expr`, `prefix`, `asc`, and `desc`",
+                    ))
+                })?;
+            }
+            if part.expression.is_some() && part.prefix.is_some() {
+                return Err(Error::new_spanned(
+                    &field.ty,
+                    "MySQL functional index expressions cannot have a prefix length",
+                ));
+            }
+            Ok(part)
         })
         .collect()
 }

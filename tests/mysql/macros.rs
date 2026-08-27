@@ -56,12 +56,25 @@ struct AccountsEmailIdx(Accounts::email);
 #[MySQLIndex(using = "btree", algorithm = "inplace", lock = "none")]
 struct AccountsStatusIdx(Accounts::email);
 
+#[MySQLIndex]
+struct AccountsSearchIdx(
+    #[index(prefix = 24, desc)] Accounts::email,
+    #[index(expr = "lower(email)", asc)] Accounts::id,
+);
+
 #[derive(MySQLSchema)]
 struct AppSchema {
     accounts: Accounts,
     accounts_email_idx: AccountsEmailIdx,
+    accounts_search_idx: AccountsSearchIdx,
     accounts_status_idx: AccountsStatusIdx,
     account_events: AccountEvents,
+}
+
+#[derive(MySQLSchema)]
+struct AccountsIndexSchema {
+    accounts: Accounts,
+    accounts_search_idx: AccountsSearchIdx,
 }
 
 #[MySQLView(
@@ -601,6 +614,44 @@ fn enum_index_schema_and_from_row_are_generated_for_mysql() {
         Some(MySQLIndexAlgorithm::Inplace)
     );
     assert_eq!(AccountsStatusIdx::LOCK, Some(MySQLIndexLock::None));
+    assert_eq!(
+        AccountsSearchIdx::DDL_SQL,
+        "CREATE INDEX `accounts_search_idx` ON `app_db`.`accounts`(`email`(24) DESC, (lower(email)) ASC);"
+    );
+    assert_eq!(
+        AccountsSearchIdx::KEY_PARTS,
+        &[
+            IndexKeyPart::Column {
+                name: "email",
+                length: Some(24),
+                order: Some(IndexOrder::Desc),
+            },
+            IndexKeyPart::Expression {
+                sql: "lower(email)",
+                order: Some(IndexOrder::Asc),
+            },
+        ]
+    );
+
+    let snapshot = AccountsIndexSchema::new().to_snapshot();
+    let drizzle::migrations::Snapshot::MySQL(snapshot) = snapshot else {
+        panic!("MySQL schema produced another snapshot dialect");
+    };
+    let ddl = drizzle::migrations::mysql::MySQLDDL::try_from_entities(snapshot.ddl)
+        .expect("generated MySQL index metadata is valid");
+    let index = ddl
+        .indexes
+        .one(Some("app_db"), "accounts", "accounts_search_idx")
+        .expect("rich index is present in the generated snapshot");
+    assert_eq!(index.columns.len(), 2);
+    assert_eq!(index.columns[0].expression, "email");
+    assert!(!index.columns[0].is_expression);
+    assert_eq!(index.columns[0].length, Some(24));
+    assert_eq!(index.columns[0].ascending, Some(false));
+    assert_eq!(index.columns[1].expression, "lower(email)");
+    assert!(index.columns[1].is_expression);
+    assert_eq!(index.columns[1].length, None);
+    assert_eq!(index.columns[1].ascending, Some(true));
 
     assert_mysql_selector::<AccountRow>();
     assert_mysql_selector_value(AccountRow::Select);

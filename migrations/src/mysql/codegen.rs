@@ -122,8 +122,10 @@ impl IdentifierAllocator {
 struct NameMaps {
     tables: HashMap<TableKey, String>,
     columns: HashMap<ColumnKey, String>,
+    table_columns: HashMap<TableKey, Vec<String>>,
     enum_types: HashMap<ColumnKey, String>,
     indexable_columns: HashMap<ColumnKey, bool>,
+    prefix_columns: HashMap<ColumnKey, bool>,
 }
 
 impl NameMaps {
@@ -149,6 +151,19 @@ impl NameMaps {
         self.indexable_columns
             .get(&column_key(database, table, column))
             .copied()
+    }
+
+    fn supports_prefix(&self, database: Option<&str>, table: &str, column: &str) -> Option<bool> {
+        self.prefix_columns
+            .get(&column_key(database, table, column))
+            .copied()
+    }
+
+    fn first_column(&self, database: Option<&str>, table: &str) -> Option<&str> {
+        self.table_columns
+            .get(&table_key(database, table))
+            .and_then(|columns| columns.first())
+            .map(String::as_str)
     }
 }
 
@@ -331,11 +346,19 @@ fn build_name_maps(
             let rust_name = fields.allocate(&preferred, "column");
             maps.columns.insert(
                 column_key(column.database.as_deref(), &column.table, &column.name),
-                rust_name,
+                rust_name.clone(),
             );
+            maps.table_columns
+                .entry(table_key(table.database.as_deref(), &table.name))
+                .or_default()
+                .push(rust_name);
             maps.indexable_columns.insert(
                 column_key(column.database.as_deref(), &column.table, &column.name),
                 column_is_indexable(column),
+            );
+            maps.prefix_columns.insert(
+                column_key(column.database.as_deref(), &column.table, &column.name),
+                column_supports_index_prefix(column),
             );
         }
     }
@@ -712,10 +735,10 @@ fn generate_index_struct(
     if index
         .columns
         .iter()
-        .any(|column| column.is_expression || column.length.is_some() || column.ascending.is_some())
+        .any(|column| column.is_expression && column.length.is_some() || column.length == Some(0))
     {
         warnings.push(format!(
-            "index {} uses expression, prefix-length, or sort-order metadata unsupported by MySQLIndex; index was not generated",
+            "index {} has an invalid functional or zero-length prefix key part; index was not generated",
             index.name
         ));
         return None;
@@ -732,32 +755,73 @@ fn generate_index_struct(
     };
     let mut columns = Vec::with_capacity(index.columns.len());
     for index_column in &index.columns {
-        let Some(field) = maps.column(
-            index.database.as_deref(),
-            &index.table,
-            &index_column.expression,
-        ) else {
-            warnings.push(format!(
-                "index {} references missing column {}; index was not generated",
-                index.name, index_column.expression
+        let mut key_attrs = Vec::new();
+        let field = if index_column.is_expression {
+            key_attrs.push(format!(
+                "expr = \"{}\"",
+                rust_literal(&index_column.expression)
             ));
-            return None;
-        };
-        if !maps
-            .is_indexable(
+            let Some(field) = maps.first_column(index.database.as_deref(), &index.table) else {
+                warnings.push(format!(
+                    "functional index {} belongs to a table with no witness column; index was not generated",
+                    index.name
+                ));
+                return None;
+            };
+            field
+        } else {
+            let Some(field) = maps.column(
                 index.database.as_deref(),
                 &index.table,
                 &index_column.expression,
-            )
-            .unwrap_or(false)
-        {
-            warnings.push(format!(
-                "index {} references {} which needs an unsupported MySQL index prefix; index was not generated",
-                index.name, index_column.expression
-            ));
-            return None;
+            ) else {
+                warnings.push(format!(
+                    "index {} references missing column {}; index was not generated",
+                    index.name, index_column.expression
+                ));
+                return None;
+            };
+            if let Some(length) = index_column.length {
+                if !maps
+                    .supports_prefix(
+                        index.database.as_deref(),
+                        &index.table,
+                        &index_column.expression,
+                    )
+                    .unwrap_or(false)
+                {
+                    warnings.push(format!(
+                        "index {} uses a prefix length on unsupported column {}; index was not generated",
+                        index.name, index_column.expression
+                    ));
+                    return None;
+                }
+                key_attrs.push(format!("prefix = {length}"));
+            } else if !maps
+                .is_indexable(
+                    index.database.as_deref(),
+                    &index.table,
+                    &index_column.expression,
+                )
+                .unwrap_or(false)
+            {
+                warnings.push(format!(
+                    "index {} references {} which needs an explicit MySQL index prefix; index was not generated",
+                    index.name, index_column.expression
+                ));
+                return None;
+            }
+            field
+        };
+        if let Some(ascending) = index_column.ascending {
+            key_attrs.push(if ascending { "asc" } else { "desc" }.to_string());
         }
-        columns.push(format!("{table_type}::{field}"));
+        let column = format!("{table_type}::{field}");
+        columns.push(if key_attrs.is_empty() {
+            column
+        } else {
+            format!("#[index({})] {column}", key_attrs.join(", "))
+        });
     }
 
     let type_name = type_names.allocate(&candidate, "GeneratedIndex");
@@ -1605,6 +1669,29 @@ fn column_is_indexable(column: &Column) -> bool {
         None => parse_standard_type(&column.sql_type)
             .is_some_and(|info| type_is_indexable(&info.category)),
     }
+}
+
+fn column_supports_index_prefix(column: &Column) -> bool {
+    if column.inline_type.is_some() {
+        return false;
+    }
+    parse_standard_type(&column.sql_type).is_some_and(|info| {
+        matches!(
+            info.category,
+            MySQLTypeCategory::Char
+                | MySQLTypeCategory::Varchar
+                | MySQLTypeCategory::TinyText
+                | MySQLTypeCategory::Text
+                | MySQLTypeCategory::MediumText
+                | MySQLTypeCategory::LongText
+                | MySQLTypeCategory::Binary
+                | MySQLTypeCategory::Varbinary
+                | MySQLTypeCategory::TinyBlob
+                | MySQLTypeCategory::Blob
+                | MySQLTypeCategory::MediumBlob
+                | MySQLTypeCategory::LongBlob
+        )
+    })
 }
 
 fn type_is_indexable(category: &MySQLTypeCategory) -> bool {

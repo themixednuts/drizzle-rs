@@ -24,8 +24,8 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Expr, Ident, Lit, Meta, Token, Type};
 
 use super::types::{
-    ColumnSpec, CompositeFkSpec, IndexSpec, ParsedDefault, ParsedGenerated, ParsedIdentity,
-    ParsedReference, SerialKind, TableCheckSpec, TableSpec, TableUniqueSpec,
+    ColumnSpec, CompositeFkSpec, IndexSpec, MySQLIndexKeyPartSpec, ParsedDefault, ParsedGenerated,
+    ParsedIdentity, ParsedReference, SerialKind, TableCheckSpec, TableSpec, TableUniqueSpec,
 };
 
 /// Warning / error sinks threaded through interpretation.
@@ -2922,7 +2922,73 @@ pub(crate) fn index_spec(
         }
         let table = segments.first().unwrap().ident.to_string();
         let column = segments.last().unwrap().ident.to_string();
-        spec.column_refs.push((table, column));
+        spec.column_refs.push((table.clone(), column.clone()));
+        if dialect != Dialect::MySQL {
+            continue;
+        }
+
+        let mut part = MySQLIndexKeyPartSpec {
+            table,
+            column,
+            ..MySQLIndexKeyPartSpec::default()
+        };
+        for attr in &field.attrs {
+            if !attr.path().is_ident("index") {
+                continue;
+            }
+            if let Err(error) = attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("asc") || meta.path.is_ident("desc") {
+                    if part.ascending.is_some() {
+                        return Err(meta.error("MySQL index key part accepts one direction"));
+                    }
+                    part.ascending = Some(meta.path.is_ident("asc"));
+                    return Ok(());
+                }
+                if meta.path.is_ident("prefix") {
+                    if part.prefix.is_some() {
+                        return Err(meta.error(
+                            "MySQL index key part accepts `prefix` only once",
+                        ));
+                    }
+                    let value: syn::LitInt = meta.value()?.parse()?;
+                    let length = value.base10_parse::<u32>()?;
+                    if length == 0 {
+                        return Err(syn::Error::new_spanned(
+                            value,
+                            "MySQL index prefix length must be greater than zero",
+                        ));
+                    }
+                    part.prefix = Some(length);
+                    return Ok(());
+                }
+                if meta.path.is_ident("expr") {
+                    if part.expression.is_some() {
+                        return Err(meta.error("MySQL index key part accepts `expr` only once"));
+                    }
+                    let value: syn::LitStr = meta.value()?.parse()?;
+                    let expression = value.value();
+                    if expression.trim().is_empty() {
+                        return Err(syn::Error::new_spanned(
+                            value,
+                            "MySQL index expression cannot be empty",
+                        ));
+                    }
+                    part.expression = Some(expression.trim().to_string());
+                    return Ok(());
+                }
+                Err(meta.error(
+                    "unsupported MySQL index key-part option; accepted options are `expr`, `prefix`, `asc`, and `desc`",
+                ))
+            }) {
+                diags.errors.push(format!("{desc}: {error}"));
+            }
+        }
+        if part.expression.is_some() && part.prefix.is_some() {
+            diags.errors.push(format!(
+                "{desc}: MySQL functional index expressions cannot have a prefix length"
+            ));
+        }
+        spec.mysql_key_parts.push(part);
     }
 
     if spec.column_refs.is_empty() {

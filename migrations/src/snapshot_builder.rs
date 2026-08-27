@@ -1271,9 +1271,17 @@ fn build_mysql_snapshot(result: &ParseResult) -> MySQLSnapshot {
             .unwrap_or_else(|| crate::parser::mysql_index_name(&index.name));
         let columns = index
             .spec
-            .column_refs
+            .mysql_key_parts
             .iter()
-            .map(|(table, column)| IndexColumn::column(maps.field(table, column)))
+            .map(|part| {
+                let mut column = part.expression.as_ref().map_or_else(
+                    || IndexColumn::column(maps.field(&part.table, &part.column)),
+                    |expression| IndexColumn::expression(expression.clone()),
+                );
+                column.length = part.prefix;
+                column.ascending = part.ascending;
+                column
+            })
             .collect();
         snapshot.add_entity(MySQLEntity::Index(Index {
             database,

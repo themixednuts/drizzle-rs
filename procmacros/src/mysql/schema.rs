@@ -632,6 +632,39 @@ fn generate_migration_schema_impl(
                         }
                         #mysql_schema_type::Index(index_info) => {
                             let table_ref = #sql_index_info::table(index_info);
+                            let columns = <#field_types as drizzle::mysql::index::MySQLSchemaItemMetadata>::INDEX_KEY_PARTS
+                                .iter()
+                                .map(|part| match *part {
+                                    drizzle::mysql::index::IndexKeyPart::Column {
+                                        name,
+                                        length,
+                                        order,
+                                    } => {
+                                        let mut column = MigIndexColumn::column(name);
+                                        column.length = length;
+                                        column.ascending = order.map(|order| {
+                                            matches!(
+                                                order,
+                                                drizzle::mysql::index::IndexOrder::Asc
+                                            )
+                                        });
+                                        column
+                                    }
+                                    drizzle::mysql::index::IndexKeyPart::Expression {
+                                        sql,
+                                        order,
+                                    } => {
+                                        let mut column = MigIndexColumn::expression(sql);
+                                        column.ascending = order.map(|order| {
+                                            matches!(
+                                                order,
+                                                drizzle::mysql::index::IndexOrder::Asc
+                                            )
+                                        });
+                                        column
+                                    }
+                                })
+                                .collect();
                             let using = <#field_types as drizzle::mysql::index::MySQLSchemaItemMetadata>::INDEX_METHOD
                                 .map(|method| match method {
                                     drizzle::mysql::index::MySQLIndexMethod::BTree => MigIndexMethod::Btree,
@@ -654,7 +687,7 @@ fn generate_migration_schema_impl(
                                 database: table_ref.schema.map(::std::borrow::Cow::Borrowed),
                                 table: ::std::borrow::Cow::Borrowed(table_ref.name),
                                 name: ::std::borrow::Cow::Borrowed(#sql_index_info::name(index_info)),
-                                columns: #sql_index_info::columns(index_info).iter().copied().map(MigIndexColumn::column).collect(),
+                                columns,
                                 unique: #sql_index_info::is_unique(index_info),
                                 using,
                                 algorithm,

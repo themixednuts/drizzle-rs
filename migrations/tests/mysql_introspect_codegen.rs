@@ -301,6 +301,51 @@ fn mysql_codegen_preserves_index_names_that_do_not_round_trip_through_rust() {
 }
 
 #[test]
+fn mysql_codegen_round_trips_expression_prefix_and_direction_key_parts() {
+    let mut original = rich_ddl();
+    let mut email = IndexColumn::column("email");
+    email.length = Some(24);
+    email.ascending = Some(false);
+    let expression_sql = r#"concat(email, 'quoted "value"', 'path\segment')"#;
+    let mut expression = IndexColumn::expression(expression_sql);
+    expression.ascending = Some(true);
+    let mut login_count = IndexColumn::column("login_count");
+    login_count.ascending = Some(false);
+    let mut index = Index::new(
+        "accounts",
+        "accounts_search_idx",
+        vec![email, expression, login_count],
+    );
+    index.database = Some(DATABASE.into());
+    original.indexes.push(index);
+
+    let generated = generate_rust_schema(&original, &CodegenOptions::default())
+        .expect("rich MySQL index key parts are representable");
+
+    assert!(
+        generated
+            .code
+            .contains("#[index(prefix = 24, desc)] Accounts::email")
+    );
+    assert!(generated.code.contains(
+        r#"#[index(expr = "concat(email, 'quoted \"value\"', 'path\\segment')", asc)] Accounts::id"#
+    ));
+    assert!(
+        generated
+            .code
+            .contains("#[index(desc)] Accounts::login_count")
+    );
+    let reparsed = parse_generated_ddl(&generated.code);
+    let diff = compute_migration(&original, &reparsed).expect("equivalent DDL must diff");
+    assert!(
+        diff.statements.is_empty(),
+        "round-trip changed rich MySQL index key parts:\nsource:\n{}\nSQL: {:#?}",
+        generated.code,
+        diff.sql_statements
+    );
+}
+
+#[test]
 fn mysql_codegen_warns_and_keeps_source_parseable_for_unrepresentable_metadata() {
     let mut ddl = rich_ddl();
     ddl.tables.list_mut()[0].options.push(TableOption {

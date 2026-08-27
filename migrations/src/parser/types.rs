@@ -293,6 +293,23 @@ pub struct IndexSpec {
     pub explicit_name: Option<String>,
     /// `(table struct ident, field ident)` pairs in declaration order.
     pub column_refs: Vec<(String, String)>,
+    /// MySQL key-part metadata in declaration order.
+    pub mysql_key_parts: Vec<MySQLIndexKeyPartSpec>,
+}
+
+/// One parsed MySQL index key part.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MySQLIndexKeyPartSpec {
+    /// Table witness from the tuple field path.
+    pub table: String,
+    /// Column witness from the tuple field path.
+    pub column: String,
+    /// Trusted functional-index SQL from `expr = "..."`.
+    pub expression: Option<String>,
+    /// Prefix length from `prefix = N`.
+    pub prefix: Option<u32>,
+    /// Explicit direction: `Some(true)` for ascending, `Some(false)` for descending.
+    pub ascending: Option<bool>,
 }
 
 // =============================================================================
