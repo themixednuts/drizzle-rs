@@ -552,6 +552,8 @@ pub(crate) fn columns_equivalent(left: &Column, right: &Column) -> bool {
     right.sql_type = Cow::Owned(normalize_column_type_for_compare(&right));
     left.dimensions = None;
     right.dimensions = None;
+    normalize_type_schema_for_compare(&mut left);
+    normalize_type_schema_for_compare(&mut right);
     left.ordinal_position = None;
     right.ordinal_position = None;
     left.default = left
@@ -565,6 +567,16 @@ pub(crate) fn columns_equivalent(left: &Column, right: &Column) -> bool {
     normalize_identity_for_compare(&mut left);
     normalize_identity_for_compare(&mut right);
     left == right
+}
+
+fn normalize_type_schema_for_compare(column: &mut Column) {
+    if column
+        .type_schema
+        .as_deref()
+        .is_some_and(|schema| schema.eq_ignore_ascii_case("pg_catalog"))
+    {
+        column.type_schema = None;
+    }
 }
 
 /// Fill unset identity sequence options with `PostgreSQL`'s defaults so a
@@ -933,6 +945,28 @@ mod tests {
                 "expected {left_type:?} and {right_type:?} to compare equal, got {diffs:?}"
             );
         }
+    }
+
+    #[test]
+    fn pg_catalog_builtin_type_schema_matches_generated_builtin() {
+        let mut introspected = column_with_type("int4");
+        introspected.type_schema = Some("pg_catalog".into());
+        let generated = column_with_type("INTEGER");
+
+        let left = PostgresDDL::from_entities(vec![
+            PostgresEntity::Table(Table::new("public", "users")),
+            PostgresEntity::Column(introspected),
+        ]);
+        let right = PostgresDDL::from_entities(vec![
+            PostgresEntity::Table(Table::new("public", "users")),
+            PostgresEntity::Column(generated),
+        ]);
+
+        let diffs = diff_ddl(&left, &right);
+        assert!(
+            diffs.is_empty(),
+            "pg_catalog built-ins must match generated built-ins: {diffs:?}"
+        );
     }
 
     #[test]

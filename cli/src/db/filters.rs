@@ -154,14 +154,12 @@ fn apply_postgres_snapshot_filters(
         .iter()
         .map(|(schema, _)| schema.clone())
         .collect::<HashSet<_>>();
-    if schema_patterns.is_some() || table_patterns.is_none() {
-        keep_schemas.extend(snapshot.ddl.iter().filter_map(|entity| match entity {
-            PostgresEntity::Schema(schema) if is_schema_allowed(schema.name.as_ref()) => {
-                Some(schema.name.to_string())
-            }
-            _ => None,
-        }));
-    }
+    keep_schemas.extend(snapshot.ddl.iter().filter_map(|entity| match entity {
+        PostgresEntity::Schema(schema) if is_schema_allowed(schema.name.as_ref()) => {
+            Some(schema.name.to_string())
+        }
+        _ => None,
+    }));
 
     snapshot.ddl.retain(|entity| match entity {
         PostgresEntity::Schema(schema) => keep_schemas.contains(schema.name.as_ref()),
@@ -337,7 +335,7 @@ mod tests {
             Dialect::Postgresql,
             &SnapshotFilters {
                 tables: Some(vec!["new_table".to_string()]),
-                schemas: Some(vec!["public".to_string()]),
+                schemas: None,
                 extensions: None,
             },
         )
