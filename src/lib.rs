@@ -431,15 +431,29 @@ pub mod postgres {
     }
 }
 
-/// `MySQL` dialect types and driver-neutral values.
+/// `MySQL` dialect, query builders, values, and adapters.
 ///
 /// ```
 /// use drizzle::ddl::mysql::{MySQLType, MySQLTypeCategory};
-/// use drizzle::mysql::{MySQLDialect, MySQLValue, OwnedMySQLValue};
+/// use drizzle::mysql::{
+///     MySQLDialect, MySQLMutationResult, MySQLTransactionConfig, MySQLValue,
+///     OwnedMySQLValue,
+/// };
 /// ```
 ///
-/// `UPDATE ... FROM` is a PostgreSQL capability and is intentionally absent
-/// from the MySQL builder.
+/// First-class compatibility targets Oracle MySQL 8.0.31 and newer. MariaDB
+/// and SingleStore are not part of this compatibility contract. The concrete
+/// adapters inherit TLS configuration from the upstream `mysql` or
+/// `mysql_async` resource supplied by the application.
+///
+/// Both adapters set each connection's session time zone to UTC and remove
+/// `NO_UNSIGNED_SUBTRACTION` before typed queries. This makes temporal decoding
+/// and unsigned arithmetic agree with the static Rust types.
+///
+/// MySQL upserts use `InsertBuilder::on_duplicate_key_update`. SQL `RETURNING`,
+/// full joins, partial-index predicates, and PostgreSQL `UPDATE ... FROM` are
+/// intentionally absent. Offset-only queries render MySQL's maximum-limit
+/// sentinel, and typed string concatenation renders `CONCAT(...)`, never `||`.
 ///
 /// ```compile_fail
 /// use drizzle::mysql::builder::UpdateFromSet;
@@ -455,11 +469,16 @@ pub mod mysql {
     pub use drizzle_mysql::values::{MySQLValue, OwnedMySQLValue};
     #[doc(inline)]
     pub use drizzle_mysql::{
-        MySQLDialect, ParamBind, ViewAlgorithm, ViewCheckOption, ViewSqlSecurity, attrs, builder,
-        common, driver, helpers, index, traits, transaction, types, values,
+        MySQLAccessMode, MySQLDialect, MySQLIsolationLevel, MySQLMutationResult,
+        MySQLTransactionConfig, ParamBind, ViewAlgorithm, ViewCheckOption, ViewSqlSecurity, attrs,
+        builder, common, driver, helpers, index, traits, transaction, types, values,
     };
 
     /// Blocking adapter backed by the `mysql` crate.
+    ///
+    /// It owns the exact `mysql::Conn` or checked-out `mysql::PooledConn` passed
+    /// to `Drizzle::new`; construction does not perform I/O. See
+    /// [`Drizzle`](mysql_sync::Drizzle) for connection and transaction examples.
     #[cfg(feature = "mysql-sync")]
     #[cfg_attr(docsrs, doc(cfg(feature = "mysql-sync")))]
     pub mod mysql_sync {
@@ -470,6 +489,11 @@ pub mod mysql {
     }
 
     /// Async adapter backed by the `mysql_async` crate.
+    ///
+    /// It accepts an owned `mysql_async::Conn` or lazy `mysql_async::Pool`.
+    /// Pool-backed operations check out a connection per operation; call
+    /// [`Drizzle::disconnect`](mysql_async::Drizzle::disconnect) before the
+    /// owning Tokio runtime stops.
     #[cfg(feature = "mysql-async")]
     #[cfg_attr(docsrs, doc(cfg(feature = "mysql-async")))]
     pub mod mysql_async {

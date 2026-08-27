@@ -43,7 +43,7 @@ async fn turso_transaction_query_cached(
 }
 
 /// Turso-specific transaction builder. See
-/// [`crate::transaction::sqlite::typestate::TransactionBuilder`] for the
+/// `TransactionBuilder` for the
 /// typestate-advancing methods; executor methods live below in this module.
 pub type TransactionBuilder<'tx, 'conn, Schema, Builder, State> =
     crate::transaction::sqlite::typestate::TransactionBuilder<

@@ -38,6 +38,7 @@ A type-safe SQL query builder and ORM for Rust, inspired by Drizzle ORM.
 - [Transactions](#transactions)
 - [Prepared Statements](#prepared-statements)
 - [PostgreSQL](#postgresql)
+- [MySQL](#mysql)
 - [CLI Reference](#cli-reference)
 - [License](#license)
 
@@ -49,7 +50,7 @@ A type-safe SQL query builder and ORM for Rust, inspired by Drizzle ORM.
 [dependencies]
 drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["rusqlite"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
-# drivers: rusqlite | libsql | turso | postgres-sync | tokio-postgres
+# drivers: rusqlite | libsql | turso | postgres-sync | tokio-postgres | mysql-sync | mysql-async
 ```
 
 ```bash
@@ -732,6 +733,114 @@ let client = postgres::Client::connect(
 )?;
 let (mut db, Schema { accounts }) = Drizzle::new(client, Schema::new());
 ```
+
+## MySQL
+
+MySQL uses the same `select`, `insert`, `update`, `delete`, prepared-statement,
+relational-query, transaction, and seed workflows as the other dialects.
+Migration generation, push, and apply are available through the Drizzle CLI;
+the MySQL adapters do not yet expose a programmatic `migrate` method. Enable
+`mysql-sync` for the blocking [`mysql`](https://crates.io/crates/mysql)
+client or `mysql-async` for [`mysql_async`](https://crates.io/crates/mysql_async).
+The driver crates remain explicit dependencies because your application creates
+and owns the connection or pool.
+
+```toml
+[dependencies]
+drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["mysql-sync"] }
+mysql = "28"
+```
+
+```rust
+use drizzle::mysql::{mysql_sync::Drizzle, prelude::*};
+
+#[MySQLTable]
+struct User {
+    #[column(PRIMARY, AUTO_INCREMENT)]
+    id: u64,
+    #[column(VARCHAR(255))]
+    name: String,
+}
+
+#[derive(MySQLSchema)]
+struct Schema {
+    users: User,
+}
+
+let options = mysql::Opts::from_url(
+    "mysql://drizzle:drizzle@127.0.0.1:3307/drizzle_test",
+)?;
+let connection = mysql::Conn::new(options)?;
+let (mut db, Schema { users, .. }) = Drizzle::new(connection, Schema::new());
+```
+
+The async adapter accepts either an owned `mysql_async::Conn` or a lazy pool:
+
+```toml
+[dependencies]
+drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["mysql-async"] }
+mysql_async = "0.37"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+```rust
+use drizzle::mysql::{mysql_async::Drizzle, prelude::*};
+
+let options = mysql_async::Opts::from_url(
+    "mysql://drizzle:drizzle@127.0.0.1:3307/drizzle_test",
+)?;
+let pool = mysql_async::Pool::new(options);
+let (db, _) = Drizzle::new(pool, Schema::new());
+// Calls on a pool-backed adapter are async and check out one connection per operation.
+db.disconnect().await?;
+```
+
+Start the documented MySQL 8.4 container and run the complete adapter matrix or
+the runnable blocking example:
+
+```bash
+just mysql-up
+just test-mysql
+cargo run --example mysql --features mysql-sync
+```
+
+`DRIZZLE_MYSQL_URL` overrides the example and test URL. First-class support
+targets Oracle MySQL 8.0.31 or newer; CI uses MySQL 8.4. MariaDB and SingleStore
+compatibility are not promised. TLS configuration belongs to the upstream
+`mysql`/`mysql_async` options supplied to Drizzle. The workspace enables their
+native-TLS backends, and Drizzle neither disables certificate validation nor
+silently changes the caller's transport policy.
+
+Before its first typed query on a connection, the adapter sets the session time
+zone to UTC and removes `NO_UNSIGNED_SUBTRACTION` from the session SQL mode.
+Those invariants keep temporal decoding and unsigned arithmetic consistent with
+the Rust types; using `conn_mut()` causes them to be restored before the next
+Drizzle query.
+
+Transactions use `MySQLTransactionConfig` for isolation level, access mode, and
+consistent snapshots. The blocking adapter takes a closure synchronously; the
+async connection and pool adapters expose the same transaction configuration on
+their async methods. MySQL upserts use the native
+`.on_duplicate_key_update(...)` builder (or `.ignore()`), not PostgreSQL's
+`.on_conflict(...)` spelling.
+
+```rust
+db.transaction(MySQLTransactionConfig::default(), |tx| {
+    tx.insert(users).value(InsertUser::new("Alice")).execute()?;
+    Ok(())
+})?;
+```
+
+The type surface deliberately leaves unsupported SQL unavailable:
+
+- MySQL mutations return `MySQLMutationResult` metadata, not SQL `RETURNING` rows.
+- Full joins and partial-index predicates are rejected; MySQL does not support them.
+- `.offset(n)` without an explicit limit is rendered with MySQL's documented
+  maximum-limit sentinel, because MySQL has no standalone `OFFSET` syntax.
+- String concatenation uses `concat(...)`; the builder never emits `||`, whose
+  default MySQL meaning is logical OR.
+
+See [`examples/mysql.rs`](examples/mysql.rs) for the complete blocking example.
 
 ## CLI Reference
 

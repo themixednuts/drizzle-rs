@@ -752,6 +752,12 @@ impl<'q, Table, Relations>
 }
 
 impl<Schema: Copy> Drizzle<Conn, Schema> {
+    /// Begins a transaction on this owned connection.
+    ///
+    /// The returned transaction borrows the connection until it is committed,
+    /// rolled back, or dropped. Dropping delegates delayed rollback to
+    /// `mysql_async`; the adapter restores its session invariants before the
+    /// next attached query.
     pub async fn begin_transaction(
         &mut self,
         config: drizzle_mysql::MySQLTransactionConfig,
@@ -769,6 +775,13 @@ impl<Schema: Copy> Drizzle<Conn, Schema> {
         Ok(Transaction::new(transaction, self.schema, true))
     }
 
+    /// Runs `body` in a transaction, committing its value on success and
+    /// rolling back on error.
+    ///
+    /// A callback error is returned unchanged when rollback succeeds. If
+    /// rollback also fails, [`DrizzleError::TransactionError`] reports both
+    /// failures; commit failures are returned directly. Cancelling the future
+    /// drops the transaction and delegates delayed rollback to `mysql_async`.
     pub async fn transaction<F, R>(
         &mut self,
         config: drizzle_mysql::MySQLTransactionConfig,
@@ -801,6 +814,10 @@ impl<Schema: Copy> Drizzle<Conn, Schema> {
 }
 
 impl<Schema: Copy> Drizzle<Pool, Schema> {
+    /// Checks out a pooled connection and begins a transaction on it.
+    ///
+    /// The owned transaction returns its connection to the pool after explicit
+    /// completion or the upstream driver's delayed-drop cleanup.
     pub async fn begin_transaction(
         &self,
         config: drizzle_mysql::MySQLTransactionConfig,
@@ -824,6 +841,14 @@ impl<Schema: Copy> Drizzle<Pool, Schema> {
         Ok(transaction)
     }
 
+    /// Runs `body` on one pooled connection, committing its value on success
+    /// and rolling back on error.
+    ///
+    /// A callback error is returned unchanged when rollback succeeds. If
+    /// rollback also fails, [`DrizzleError::TransactionError`] reports both
+    /// failures; commit failures are returned directly. Cancelling the future
+    /// drops the transaction so `mysql_async` can roll it back before returning
+    /// the connection to the pool.
     pub async fn transaction<F, R>(
         &self,
         config: drizzle_mysql::MySQLTransactionConfig,

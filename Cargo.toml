@@ -9,6 +9,10 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [[test]]
 name = "compile_fail"
 path = "tests/compile_fail.rs"

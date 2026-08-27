@@ -28,7 +28,7 @@ use drizzle_sqlite::{
 use crate::builder::sqlite::durable::sqlite_value_to_storage;
 
 /// Query builder scoped to a [`Transaction`]. See
-/// [`crate::transaction::sqlite::typestate::TransactionBuilder`] for the
+/// `TransactionBuilder` for the
 /// typestate-advancing methods; executor methods live below in this module.
 pub type TransactionBuilder<'tx, Schema, Builder, State> =
     crate::transaction::sqlite::typestate::TransactionBuilder<

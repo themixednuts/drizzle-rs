@@ -492,10 +492,12 @@ where
 // STRING CONCATENATION
 // =============================================================================
 
-/// Concatenate two string expressions using || operator.
+/// Concatenate two string expressions using dialect-appropriate SQL.
 ///
 /// Requires both operands to be `Textual` (Text or `VarChar`).
 /// Nullability follows SQL concatenation rules: nullable input -> nullable output.
+/// SQLite and PostgreSQL render `left || right`; MySQL renders
+/// `CONCAT(left, right)` because `||` is logical OR under its default SQL mode.
 ///
 /// # Type Safety
 ///
@@ -518,7 +520,8 @@ where
 /// # let _ = r####"
 /// use drizzle_core::expr::string_concat;
 ///
-/// // SELECT users.first_name || ' ' || users.last_name
+/// // SQLite/PostgreSQL: first_name || ' ' || last_name
+/// // MySQL: CONCAT(CONCAT(first_name, ' '), last_name)
 /// let full_name = string_concat(string_concat(users.first_name, " "), users.last_name);
 /// # "####;
 /// ```
