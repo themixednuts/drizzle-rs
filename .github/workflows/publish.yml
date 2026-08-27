@@ -181,7 +181,7 @@ jobs:
 
           # The sparse index can lag the publish by a little; retry.
           for attempt in $(seq 1 20); do
-            if cargo add "drizzle@=$VERSION" --features rusqlite,postgres-sync >/dev/null 2>&1; then
+            if cargo add "drizzle@=$VERSION" --features rusqlite,postgres-sync,mysql-sync,mysql-async >/dev/null 2>&1; then
               break
             fi
             if [[ "$attempt" == 20 ]]; then

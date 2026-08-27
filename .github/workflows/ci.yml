@@ -141,13 +141,13 @@ jobs:
         include:
           - name: sync
             features: mysql-sync
-            test-features: mysql-sync,query,serde
+            test-features: mysql-sync,query,serde,uuid,chrono,time,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
           - name: async
             features: mysql-async
-            test-features: mysql-async,query,serde
+            test-features: mysql-async,query,serde,uuid,chrono,time,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
           - name: unified
             features: mysql-sync,mysql-async
-            test-features: mysql-sync,mysql-async,query,serde,chrono,time,rust-decimal
+            test-features: mysql-sync,mysql-async,query,serde,uuid,chrono,time,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
     services:
       mysql:
         image: mysql:8.4
@@ -159,7 +159,7 @@ jobs:
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pmysql --silent"
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -udrizzle -pdrizzle --silent && mysql -h 127.0.0.1 -udrizzle -pdrizzle drizzle_test -e 'SELECT 1'"
           --health-interval=2s
           --health-timeout=5s
           --health-retries=30
@@ -179,6 +179,10 @@ jobs:
 
       - name: Check adapter features
         run: cargo check -p drizzle --no-default-features --features "${{ matrix.features }},query"
+
+      - name: Check driver-neutral dialect surface
+        if: matrix.features == 'mysql-sync'
+        run: cargo check -p drizzle --no-default-features --features mysql
 
       - name: Reject async runtime dependencies
         if: matrix.features == 'mysql-sync'
@@ -207,14 +211,23 @@ jobs:
           --features mysql-sync,serde
           --test compile_fail mysql_builder_ui
 
-      - name: Run live MySQL tests
+      - name: Run minimal MySQL adapter tests
+        # The bare adapter graph proves that optional query and value-codec
+        # integrations are additions, not hidden requirements.
+        run: cargo test -p drizzle --no-default-features --features "${{ matrix.features }}"
+
+      - name: Run full MySQL adapter tests
         # `query` runs the same relational behavior suite against both MySQL
-        # adapters. The unified row also executes optional codec projections
-        # against a real MySQL server instead of merely compiling them in lint.
+        # adapters. Every row also executes optional codec projections against
+        # a real MySQL server instead of merely compiling them in lint.
         # The dialect builder UI suite is feature-gated and runs above without
         # `query`, where its diagnostics are stable; every other test remains
         # in this full run.
         run: cargo test -p drizzle --no-default-features --features "${{ matrix.test-features }}"
+
+      - name: Run MySQL example
+        if: matrix.features == 'mysql-sync'
+        run: cargo run --example mysql --no-default-features --features mysql-sync
 
       - name: Run shared CLI parity contract
         # CLI feature names match the adapter features, but the CLI does not
@@ -223,6 +236,72 @@ jobs:
           cargo test -p drizzle-cli --no-default-features
           --features "${{ matrix.features }}"
           --test parity_integration
+
+  test-all-features:
+    name: Test All-Feature Cross-Driver Contracts
+    runs-on: ubuntu-latest
+    needs: lint
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: drizzle_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d drizzle_test"
+          --health-interval=2s
+          --health-timeout=5s
+          --health-retries=30
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: mysql
+          MYSQL_DATABASE: drizzle_test
+          MYSQL_USER: drizzle
+          MYSQL_PASSWORD: drizzle
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -udrizzle -pdrizzle --silent && mysql -h 127.0.0.1 -udrizzle -pdrizzle drizzle_test -e 'SELECT 1'"
+          --health-interval=2s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      DRIZZLE_MYSQL_URL: mysql://drizzle:drizzle@127.0.0.1:3306/drizzle_test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: stable
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Compile every workspace target with every feature
+        # Turso remains experimental and has its own non-blocking runtime job.
+        # This still proves that its feature unifies with every stable driver.
+        run: cargo test --workspace --all-features --no-run
+
+      - name: Run all-feature library and driver-neutral contracts
+        run: |
+          cargo test --workspace --all-features --lib -- --test-threads=1
+          cargo test -p drizzle-core -p drizzle-mysql -p drizzle-migrations --all-features --tests
+
+      - name: Run stable cross-driver integration contracts
+        # One root suite executes the shared contracts with SQLite, PostgreSQL,
+        # and MySQL adapters simultaneously. A single thread satisfies libSQL's
+        # connection-safety requirement and avoids shared server-schema races.
+        run: >-
+          cargo test -p drizzle --test lib
+          --features
+          "rusqlite,libsql,postgres-sync,tokio-postgres,mysql-sync,mysql-async,query,serde,uuid,chrono,time,rust-decimal,arrayvec,compact-str,bytes,smallvec-types,cidr,geo-types,bit-vec"
+          -- --test-threads=1
 
   test-turso:
     name: Test (Turso - Experimental)
@@ -382,6 +461,7 @@ jobs:
 
       - name: Check MSRV
         run: |
+          cargo check -p drizzle --no-default-features --features mysql-sync
           cargo check -p drizzle --no-default-features --features mysql-async
           cargo check -p drizzle --no-default-features --features mysql-sync,mysql-async
           cargo check --workspace --all-targets --all-features

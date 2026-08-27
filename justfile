@@ -14,7 +14,7 @@ default:
 mysql-up:
     docker compose up -d mysql
     @echo "Waiting for MySQL to be ready..."
-    @docker compose exec -T mysql sh -c 'until mysqladmin ping -h 127.0.0.1 -uroot -pmysql --silent; do sleep 1; done'
+    @docker compose exec -T mysql sh -c 'until mysql -h 127.0.0.1 -udrizzle -pdrizzle drizzle_test -e "SELECT 1" >/dev/null 2>&1; do sleep 1; done'
     @echo "MySQL is ready!"
 
 # Run the blocking MySQL adapter integration tests.
