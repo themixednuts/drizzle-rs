@@ -26,6 +26,7 @@ pub mod prepare;
 #[cfg(feature = "query")]
 pub mod query;
 pub mod schema;
+pub mod seed;
 pub mod select;
 pub mod subquery;
 pub mod transaction;

@@ -328,7 +328,7 @@ query = [
 # Add dialect-specific features back for gating re-exports
 sqlite = ["drizzle-seed/sqlite", "drizzle-macros/sqlite", "dep:drizzle-sqlite"]
 postgres = ["drizzle-seed/postgres", "drizzle-macros/postgres", "dep:drizzle-postgres"]
-mysql = ["drizzle-macros/mysql", "dep:drizzle-mysql"]
+mysql = ["drizzle-seed/mysql", "drizzle-macros/mysql", "dep:drizzle-mysql"]
 
 # Blocking MySQL adapter. The upstream `mysql` client owns connections and
 # pool checkout; Drizzle accepts either `Conn` or `PooledConn` as its concrete

@@ -9,3 +9,4 @@
 pub mod helpers;
 pub mod query;
 pub mod schema;
+pub mod seed;

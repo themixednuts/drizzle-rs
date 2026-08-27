@@ -1,8 +1,205 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 
 use crate::common::schema::sqlite::*;
+use crate::common::seed::{
+    ConstantName, NameGenerator, Param, RelatedOptions, SeedContract, SimpleOptions, Statement,
+};
 use crate::sqlite::foreign_keys::{CompositeFkSchema, FkCascadeSchema};
-use drizzle_seed::{Generator, GeneratorKind, RngCore, SeedConfig, SeedValue};
+use drizzle::sqlite::prelude::*;
+use drizzle_seed::{Generator, GeneratorKind, RngCore, SeedConfig, SeedError, SeedValue};
+
+#[SQLiteTable(NAME = "seed_simple")]
+struct ContractSimple {
+    #[column(PRIMARY)]
+    id: i32,
+    name: String,
+}
+
+#[SQLiteTable(NAME = "seed_parent")]
+struct ContractParent {
+    #[column(PRIMARY)]
+    id: i32,
+    name: String,
+}
+
+#[SQLiteTable(NAME = "seed_child")]
+struct ContractChild {
+    #[column(PRIMARY)]
+    id: i32,
+    #[column(REFERENCES = ContractParent::id)]
+    parent_id: i32,
+    value: String,
+}
+
+#[SQLiteTable(NAME = "seed_profile")]
+struct ContractProfile {
+    #[column(PRIMARY)]
+    id: i32,
+    email: String,
+    name: String,
+    description: String,
+}
+
+#[SQLiteTable(NAME = "seed_self_reference")]
+struct ContractSelfReference {
+    #[column(PRIMARY)]
+    id: i32,
+    #[column(REFERENCES = ContractSelfReference::id)]
+    parent_id: Option<i32>,
+}
+
+#[derive(SQLiteSchema)]
+struct ContractSimpleSchema {
+    simple: ContractSimple,
+}
+
+#[derive(SQLiteSchema)]
+struct ContractRelatedSchema {
+    parent: ContractParent,
+    child: ContractChild,
+}
+
+#[derive(SQLiteSchema)]
+struct ContractProfileSchema {
+    profile: ContractProfile,
+}
+
+#[derive(SQLiteSchema)]
+struct ContractAllSchema {
+    simple: ContractSimple,
+    parent: ContractParent,
+    child: ContractChild,
+    profile: ContractProfile,
+}
+
+#[derive(SQLiteSchema)]
+struct ContractSelfReferenceSchema {
+    nodes: ContractSelfReference,
+}
+
+struct SQLiteSeedContract;
+
+impl SeedContract for SQLiteSeedContract {
+    fn simple(options: SimpleOptions) -> Vec<Statement> {
+        let schema = ContractSimpleSchema::new();
+        let mut config = SeedConfig::sqlite(&schema).seed(options.seed);
+        if let Some(count) = options.count {
+            config = config.count(&schema.simple, count);
+        }
+        if let Some(count) = options.default_count {
+            config = config.default_count(count);
+        }
+        if let Some(max_params) = options.max_params {
+            config = config.max_params(max_params);
+        }
+        config = match options.name_generator {
+            NameGenerator::Inferred => config,
+            NameGenerator::Email => config.kind(&ContractSimple::name, GeneratorKind::Email),
+            NameGenerator::Constant => config.generator(&ContractSimple::name, ConstantName),
+            NameGenerator::Column => config.generator(&ContractSimple::name, &ContractSimple::name),
+        };
+        config.generate().into_iter().map(normalize).collect()
+    }
+
+    fn related(options: RelatedOptions) -> Vec<Statement> {
+        let schema = ContractRelatedSchema::new();
+        let mut config = SeedConfig::sqlite(&schema).seed(options.seed);
+        if let Some(count) = options.parent_count {
+            config = config.count(&schema.parent, count);
+        }
+        if let Some(count) = options.child_count {
+            config = config.count(&schema.child, count);
+        }
+        if let Some(count) = options.children_per_parent {
+            config = config.relation(&schema.parent, &schema.child, count);
+        }
+        if options.skip_parent {
+            config = config.skip(&schema.parent);
+        }
+        if options.skip_child {
+            config = config.skip(&schema.child);
+        }
+        config.generate().into_iter().map(normalize).collect()
+    }
+
+    fn reset_related() -> Vec<String> {
+        let schema = ContractRelatedSchema::new();
+        SeedConfig::sqlite(&schema)
+            .reset_plan()
+            .unwrap()
+            .into_iter()
+            .map(|statement| statement.sql())
+            .collect()
+    }
+
+    fn reset_self_referential() -> Vec<String> {
+        let schema = ContractSelfReferenceSchema::new();
+        SeedConfig::sqlite(&schema)
+            .reset_plan()
+            .unwrap()
+            .into_iter()
+            .map(|statement| statement.sql())
+            .collect()
+    }
+
+    fn parameter_limit_error() -> SeedError {
+        let schema = ContractSimpleSchema::new();
+        SeedConfig::sqlite(&schema)
+            .count(&schema.simple, 1)
+            .max_params(1)
+            .try_generate()
+            .unwrap_err()
+    }
+
+    fn unsafe_reset_error() -> SeedError {
+        let schema = ContractRelatedSchema::new();
+        SeedConfig::sqlite(&schema)
+            .skip(&schema.child)
+            .reset_plan()
+            .unwrap_err()
+    }
+
+    fn all_tables(seed: u64, count: usize) -> Vec<Statement> {
+        let schema = ContractAllSchema::new();
+        SeedConfig::sqlite(&schema)
+            .seed(seed)
+            .default_count(count)
+            .generate()
+            .into_iter()
+            .map(normalize)
+            .collect()
+    }
+
+    fn profiles(seed: u64, count: usize) -> Vec<Statement> {
+        let schema = ContractProfileSchema::new();
+        SeedConfig::sqlite(&schema)
+            .seed(seed)
+            .count(&schema.profile, count)
+            .generate()
+            .into_iter()
+            .map(normalize)
+            .collect()
+    }
+}
+
+fn normalize(statement: drizzle_seed::SQLiteSeedStatement) -> Statement {
+    let (sql, params) = statement.build();
+    Statement {
+        sql,
+        params: params
+            .into_iter()
+            .map(|param| match param {
+                drizzle::sqlite::values::OwnedSQLiteValue::Integer(value) => {
+                    Param::Integer(i128::from(value))
+                }
+                drizzle::sqlite::values::OwnedSQLiteValue::Text(value) => Param::Text(value),
+                other => Param::Other(format!("{other:?}")),
+            })
+            .collect(),
+    }
+}
+
+crate::common::seed::seed_contract_tests!(SQLiteSeedContract);
 
 // ---------------------------------------------------------------------------
 // SeedConfig type-safe builder tests

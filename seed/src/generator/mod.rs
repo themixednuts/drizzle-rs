@@ -10,6 +10,8 @@ pub mod temporal;
 pub enum SeedValue {
     Default,
     Null,
+    /// Signed integer IR. Dialects may bind nonnegative values as unsigned,
+    /// but generated values remain limited to `i64::MAX`.
     Integer(i64),
     Float(f64),
     Text(String),

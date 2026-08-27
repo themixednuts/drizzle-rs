@@ -2630,8 +2630,10 @@ version = "0.1.16"
 dependencies = [
  "chrono",
  "drizzle-core",
+ "drizzle-mysql",
  "drizzle-postgres",
  "drizzle-sqlite",
+ "drizzle-types",
  "rand 0.9.2",
 ]
 

@@ -2,6 +2,7 @@
 
 pub mod builder;
 pub mod macros;
+pub mod seed;
 
 #[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
 pub mod crud;
