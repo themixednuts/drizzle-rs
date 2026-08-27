@@ -1,0 +1,72 @@
+error[E0277]: SQL type `Int8` is not assignable from `drizzle::postgres::types::Text`
+  --> tests/ui/update_assignments/postgres/fail/expression_type.rs:16:48
+   |
+16 |     let _ = UpdateUsers::default().with_visits(lower(users.name));
+   |                                    ----------- ^^^^^^^^^^^^^^^^^ this value type cannot be bound to the placeholder/column type
+   |                                    |
+   |                                    required by a bound introduced by this call
+   |
+   = help: the trait `Assignable<drizzle::postgres::types::Text>` is not implemented for `Int8`
+   = note: assignment is stricter than comparison compatibility; use a value matching the target SQL marker
+help: `Int8` implements trait `Assignable<Rhs>`
+  --> types/src/sql/coerce.rs
+   |
+   |           $(impl Assignable<$ty> for $ty {})+
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Assignable`
+...
+   |           $(impl Assignable<$src> for $target {})+
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |             |
+   |             `Assignable<Int2>`
+   |             `Assignable<Int4>`
+...
+   | / impl_reflexive_assign!(
+   | |     crate::sqlite::types::Integer,
+   | |     crate::sqlite::types::Text,
+   | |     crate::sqlite::types::Real,
+...  |
+   | |     crate::mysql::types::Any,
+   | | );
+   | |_- in this macro invocation
+...
+   |   assign_to!(crate::postgres::types::Int8; crate::postgres::types::Int2, crate::postgres::types::Int4);
+   |   ---------------------------------------------------------------------------------------------------- in this macro invocation
+   = note: required for `drizzle::postgres::prelude::PostgresUpdateValue<'_, drizzle::postgres::prelude::PostgresValue<'_>, i64, Int8, drizzle::core::expr::NonNull>` to implement `From<SQLExpr<'_, drizzle::postgres::prelude::PostgresValue<'_>, drizzle::postgres::types::Text>>`
+   = note: required for `SQLExpr<'_, drizzle::postgres::prelude::PostgresValue<'_>, drizzle::postgres::types::Text>` to implement `Into<drizzle::postgres::prelude::PostgresUpdateValue<'_, drizzle::postgres::prelude::PostgresValue<'_>, i64, Int8, drizzle::core::expr::NonNull>>`
+note: required by a bound in `UpdateUsers::<'a, S>::with_visits`
+  --> tests/ui/update_assignments/postgres/fail/expression_type.rs:6:1
+   |
+ 6 | #[PostgresTable]
+   | ^^^^^^^^^^^^^^^^ required by this bound in `UpdateUsers::<'a, S>::with_visits`
+ 7 | struct Users {
+ 8 |     visits: i64,
+   |     ------ required by a bound in this associated function
+   = note: this error originates in the macro `impl_reflexive_assign` which comes from the expansion of the attribute macro `PostgresTable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: a nullable expression cannot be assigned to a non-null column
+  --> tests/ui/update_assignments/postgres/fail/expression_type.rs:17:48
+   |
+17 |     let _ = UpdateUsers::default().with_visits(users.optional_visits + 1_i64);
+   |                                    ----------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this assignment could produce NULL
+   |                                    |
+   |                                    required by a bound introduced by this call
+   |
+   = note: handle the NULL case in the expression or make the target column nullable
+help: the trait `AcceptsNullability<drizzle::core::expr::Null>` is not implemented for `drizzle::core::expr::NonNull`
+      but trait `AcceptsNullability<drizzle::core::expr::NonNull>` is implemented for it
+  --> core/src/expr/mod.rs
+   |
+   | impl AcceptsNullability<NonNull> for NonNull {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `drizzle::core::expr::NonNull`, found `drizzle::core::expr::Null`
+   = note: required for `drizzle::postgres::prelude::PostgresUpdateValue<'_, drizzle::postgres::prelude::PostgresValue<'_>, i64, Int8, drizzle::core::expr::NonNull>` to implement `From<ColumnBinOp<UsersOptionalVisits, i64, drizzle::core::types::AddOp, PostgresDialect, Int8, drizzle::core::expr::Null>>`
+   = note: required for `ColumnBinOp<UsersOptionalVisits, i64, drizzle::core::types::AddOp, PostgresDialect, Int8, drizzle::core::expr::Null>` to implement `Into<drizzle::postgres::prelude::PostgresUpdateValue<'_, drizzle::postgres::prelude::PostgresValue<'_>, i64, Int8, drizzle::core::expr::NonNull>>`
+note: required by a bound in `UpdateUsers::<'a, S>::with_visits`
+  --> tests/ui/update_assignments/postgres/fail/expression_type.rs:6:1
+   |
+ 6 | #[PostgresTable]
+   | ^^^^^^^^^^^^^^^^ required by this bound in `UpdateUsers::<'a, S>::with_visits`
+ 7 | struct Users {
+ 8 |     visits: i64,
+   |     ------ required by a bound in this associated function
+   = note: this error originates in the attribute macro `PostgresTable` (in Nightly builds, run with -Z macro-backtrace for more info)

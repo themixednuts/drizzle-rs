@@ -28,6 +28,24 @@ fn mysql_builder_ui() {
     must_fail("tests/ui/mysql_builder/fail/*.rs");
 }
 
+#[cfg(feature = "mysql")]
+#[test]
+fn update_assignments_mysql_ui() {
+    must_fail("tests/ui/update_assignments/mysql/fail/*.rs");
+}
+
+#[cfg(feature = "postgres")]
+#[test]
+fn update_assignments_postgres_ui() {
+    must_fail("tests/ui/update_assignments/postgres/fail/*.rs");
+}
+
+#[cfg(feature = "rusqlite")]
+#[test]
+fn update_assignments_sqlite_ui() {
+    must_fail("tests/ui/update_assignments/sqlite/fail/*.rs");
+}
+
 #[cfg(all(feature = "rusqlite", feature = "uuid"))]
 #[test]
 fn strict_decode_ui() {

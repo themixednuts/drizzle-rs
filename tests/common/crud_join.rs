@@ -7,7 +7,10 @@ macro_rules! shared_crud_join_suite {
     ($dialect:ident, $table:ident, $schema:ident) => {
         mod shared_crud_join_contract {
             use super::*;
-            use drizzle::core::{asc, expr::eq};
+            use drizzle::core::{
+                asc,
+                expr::{eq, lower},
+            };
 
             #[$table(NAME = "shared_crud_users")]
             struct SharedCrudUser {
@@ -16,6 +19,8 @@ macro_rules! shared_crud_join_suite {
                 name: String,
                 active: bool,
                 nickname: Option<String>,
+                #[column(DEFAULT = 0)]
+                visits: i64,
             }
 
             #[$table(NAME = "shared_crud_posts")]
@@ -74,6 +79,20 @@ macro_rules! shared_crud_join_suite {
                 assert_eq!(robert.name, "Robert");
                 assert!(robert.active);
                 assert_eq!(robert.nickname.as_deref(), Some("Bobby"));
+
+                db.update(users)
+                    .set(
+                        UpdateSharedCrudUser::default()
+                            .with_visits(users.visits + 1_i64)
+                            .with_nickname(lower(users.name)),
+                    )
+                    .r#where(eq(users.id, 2))
+                    .execute();
+
+                let visited: SelectSharedCrudUser =
+                    db.select(()).from(users).r#where(eq(users.id, 2)).get();
+                assert_eq!(visited.visits, 1);
+                assert_eq!(visited.nickname.as_deref(), Some("robert"));
 
                 db.delete(posts)
                     .r#where(eq(posts.title, "Second"))

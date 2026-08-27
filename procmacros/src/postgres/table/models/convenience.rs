@@ -3,6 +3,7 @@
 //! Generates `with_*` methods for Insert, Update, and `PartialSelect` models.
 
 use super::super::context::{MacroContext, ModelType};
+use crate::common::rust_type_to_nullability;
 use crate::paths::core as core_paths;
 use crate::postgres::field::{FieldInfo, TypeCategory};
 use heck::ToUpperCamelCase;
@@ -182,6 +183,8 @@ fn generate_update_convenience_method(
     let update_model = &ctx.update_model_ident;
     let non_empty_marker = core_paths::non_empty_marker();
     let category = field.type_category();
+    let sql_type = field.sql_type_marker();
+    let nullable = rust_type_to_nullability(&field.field_type);
 
     // Determine the inner type for the UpdateValue wrapper
     let inner_type = match category {
@@ -209,7 +212,7 @@ fn generate_update_convenience_method(
     // Accepts any state S, always returns NonEmpty.
     quote! {
         impl<'a, S> #update_model<'a, S> {
-            pub fn #method_name<V: Into<PostgresUpdateValue<'a, PostgresValue<'a>, #inner_type>>>(self, value: V) -> #update_model<'a, #non_empty_marker> {
+            pub fn #method_name<V: Into<PostgresUpdateValue<'a, PostgresValue<'a>, #inner_type, #sql_type, #nullable>>>(self, value: V) -> #update_model<'a, #non_empty_marker> {
                 #update_model {
                     #(#field_assignments,)*
                     _state: ::std::marker::PhantomData,

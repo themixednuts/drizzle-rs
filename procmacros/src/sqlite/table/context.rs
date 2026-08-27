@@ -5,6 +5,7 @@
 //! single source of truth for field analysis decisions.
 
 use super::attributes::TableAttributes;
+use crate::common::rust_type_to_nullability;
 use crate::paths::sqlite as sqlite_paths;
 use crate::sqlite::field::{FieldInfo, SQLiteType};
 use proc_macro2::{Ident, TokenStream};
@@ -95,7 +96,9 @@ impl MacroContext<'_> {
             }
             ModelType::Update => {
                 let sqlite_update_value = sqlite_paths::sqlite_update_value();
-                quote!(#sqlite_update_value<'a, #sqlite_value<'a>, #base_type>)
+                let sql_type = field.sql_type_marker();
+                let nullable = rust_type_to_nullability(field.field_type);
+                quote!(#sqlite_update_value<'a, #sqlite_value<'a>, #base_type, #sql_type, #nullable>)
             }
             ModelType::PartialSelect => {
                 quote!(::std::option::Option<#base_type>)

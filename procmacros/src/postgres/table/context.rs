@@ -1,4 +1,5 @@
 use super::attributes::TableAttributes;
+use crate::common::rust_type_to_nullability;
 use crate::paths::postgres as pg_paths;
 use crate::postgres::field::FieldInfo;
 use proc_macro2::TokenStream;
@@ -71,7 +72,9 @@ impl MacroContext<'_> {
             ModelType::Update => {
                 let postgres_update_value = pg_paths::postgres_update_value();
                 let postgres_value = pg_paths::postgres_value();
-                quote!(#postgres_update_value<'a, #postgres_value<'a>, #base_type>)
+                let sql_type = field.sql_type_marker();
+                let nullable = rust_type_to_nullability(&field.field_type);
+                quote!(#postgres_update_value<'a, #postgres_value<'a>, #base_type, #sql_type, #nullable>)
             }
         }
     }

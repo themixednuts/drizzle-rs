@@ -3,6 +3,7 @@ use quote::quote;
 use syn::{Ident, Visibility};
 
 use super::attributes::TableAttributes;
+use crate::common::rust_type_to_nullability;
 use crate::mysql::field::FieldInfo;
 
 pub use crate::common::ModelType;
@@ -44,7 +45,9 @@ impl MacroContext<'_> {
                 quote!(drizzle::mysql::values::MySQLInsertValue<'a, drizzle::mysql::values::MySQLValue<'a>, #base_type>)
             }
             ModelType::Update => {
-                quote!(drizzle::mysql::values::MySQLUpdateValue<'a, drizzle::mysql::values::MySQLValue<'a>, #base_type>)
+                let sql_type = field.sql_type_marker();
+                let nullable = rust_type_to_nullability(&field.field_type);
+                quote!(drizzle::mysql::values::MySQLUpdateValue<'a, drizzle::mysql::values::MySQLValue<'a>, #base_type, #sql_type, #nullable>)
             }
         }
     }
