@@ -1420,6 +1420,10 @@ pub trait ExprValueType {
     type ValueType;
 }
 
+impl<T: ExprValueType + ?Sized> ExprValueType for &T {
+    type ValueType = T::ValueType;
+}
+
 impl<V: crate::SQLParam, T, N, A> ExprValueType for crate::expr::SQLExpr<'_, V, T, N, A>
 where
     T: crate::types::DataType + SQLTypeToRust<V::DialectMarker>,
@@ -1448,6 +1452,12 @@ impl<V: crate::SQLParam> ExprValueType for crate::sql::SQL<'_, V> {
 pub trait HasSelectModel {
     type SelectModel;
     const COLUMN_COUNT: usize;
+}
+
+impl<T: HasSelectModel + ?Sized> HasSelectModel for &T {
+    type SelectModel = T::SelectModel;
+
+    const COLUMN_COUNT: usize = T::COLUMN_COUNT;
 }
 
 // =============================================================================
@@ -1633,6 +1643,25 @@ pub trait AfterLeftJoin<CurrentRow, JoinedTable> {
     type NewRow;
 }
 
+/// Select projections whose row type can represent an unmatched lateral row.
+///
+/// `SELECT *` decodes the joined source as `Option<JoinedTable::SelectModel>`.
+/// Explicit projections currently cannot adjust only the expressions that
+/// originate from the nullable side, so they are rejected instead of
+/// producing an unsound non-null row type.
+#[doc(hidden)]
+pub trait LeftLateralSelection: left_lateral_private::Sealed {}
+
+mod left_lateral_private {
+    pub trait Sealed {}
+
+    impl Sealed for super::SelectStar {}
+    impl<Scope> Sealed for super::Scoped<super::SelectStar, Scope> {}
+}
+
+impl LeftLateralSelection for SelectStar {}
+impl<Scope> LeftLateralSelection for Scoped<SelectStar, Scope> {}
+
 /// Determines the new row type after a RIGHT JOIN.
 pub trait AfterRightJoin<CurrentRow, JoinedTable> {
     type NewRow;
@@ -1767,6 +1796,10 @@ where
 )]
 pub trait IntoSelectTarget {
     type Marker;
+}
+
+impl<T: IntoSelectTarget + ?Sized> IntoSelectTarget for &T {
+    type Marker = T::Marker;
 }
 
 /// `select(())` → `SelectStar` — infer row type from the table.

@@ -3,6 +3,7 @@
 use drizzle::sqlite::{TransactionConfig, prelude::*};
 
 crate::common::crud_join::shared_crud_join_suite!(sqlite, SQLiteTable, SQLiteSchema);
+crate::common::derived::shared_derived_table_suite!(sqlite, SQLiteTable, SQLiteSchema);
 crate::common::prepared::shared_prepared_statement_suite!(
     sqlite,
     SQLiteTable,

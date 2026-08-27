@@ -101,6 +101,103 @@ pub const fn alias<E>(expr: E, name: &'static str) -> AliasedExpr<E> {
     AliasedExpr { expr, name }
 }
 
+/// An expression whose output name is represented by a type-level tag.
+///
+/// Unlike [`AliasedExpr`], this form can be projected from a derived table
+/// because the output name remains available in the expression's type.
+#[derive(Clone, Copy, Debug)]
+pub struct NamedExpr<E, Name> {
+    pub(crate) expr: E,
+    pub(crate) name: core::marker::PhantomData<Name>,
+}
+
+impl<E, Name> NamedExpr<E, Name> {
+    /// Returns the wrapped expression.
+    pub const fn expression(&self) -> &E {
+        &self.expr
+    }
+
+    /// Returns the wrapped expression by value.
+    pub fn into_expression(self) -> E {
+        self.expr
+    }
+}
+
+impl<'a, V, E, Name> ToSQL<'a, V> for NamedExpr<E, Name>
+where
+    V: SQLParam + 'a,
+    E: ToSQL<'a, V>,
+    Name: crate::Tag,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        self.expr.to_sql().alias(Name::NAME)
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        self.expr.into_sql().alias(Name::NAME)
+    }
+}
+
+impl<'a, V, E, Name> Expr<'a, V> for NamedExpr<E, Name>
+where
+    V: SQLParam + 'a,
+    E: Expr<'a, V>,
+    Name: crate::Tag,
+{
+    type SQLType = E::SQLType;
+    type Nullable = E::Nullable;
+    type Aggregate = E::Aggregate;
+
+    fn to_expr_sql(&self) -> SQL<'a, V> {
+        self.expr.to_expr_sql().alias(Name::NAME)
+    }
+
+    fn into_expr_sql(self) -> SQL<'a, V> {
+        self.expr.into_expr_sql().alias(Name::NAME)
+    }
+}
+
+impl<E, Name> super::HasAggStatus for NamedExpr<E, Name>
+where
+    E: super::HasAggStatus,
+{
+    type Status = E::Status;
+}
+
+impl<E, Name> crate::row::ExprValueType for NamedExpr<E, Name>
+where
+    E: crate::row::ExprValueType,
+{
+    type ValueType = E::ValueType;
+}
+
+impl<E, Name> crate::row::IntoSelectTarget for NamedExpr<E, Name>
+where
+    E: crate::row::ExprValueType,
+{
+    type Marker = crate::row::SelectCols<(Self,)>;
+}
+
+impl<E, Name> crate::row::GroupByIdentity for NamedExpr<E, Name>
+where
+    E: crate::row::GroupByIdentity,
+{
+    type Identity = E::Identity;
+}
+
+/// Extension trait providing a static output name for derived projections.
+pub trait NamedExt: Sized {
+    /// Names this expression with a type-level [`crate::Tag`].
+    fn named<Name: crate::Tag>(self) -> NamedExpr<Self, Name> {
+        NamedExpr {
+            expr: self,
+            name: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<T: crate::row::ExprValueType> NamedExt for T {}
+
 // =============================================================================
 // TYPEOF
 // =============================================================================

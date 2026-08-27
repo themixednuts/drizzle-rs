@@ -273,6 +273,45 @@ fn joins_render_only_mysql_supported_kinds() {
 }
 
 #[test]
+fn derived_sources_support_lateral_joins() {
+    struct UserPosts;
+    impl drizzle::core::Tag for UserPosts {
+        const NAME: &'static str = "user_posts";
+    }
+
+    let Schema { users, posts } = Schema::new();
+    let posts_for_user = || {
+        builder()
+            .select((posts.user_id, posts.title))
+            .from(posts)
+            .r#where(eq(posts.user_id, users.id))
+            .alias(UserPosts)
+    };
+
+    let source = posts_for_user();
+    let (post_user_id, title) = source.fields();
+    let inner = builder()
+        .select((users.id, title))
+        .from(users)
+        .inner_join_lateral((source, eq(post_user_id, users.id)));
+    assert_eq!(
+        inner.to_sql().sql(),
+        "SELECT `users`.`id`, `user_posts`.`title` FROM `users` INNER JOIN LATERAL (SELECT `posts`.`user_id`, `posts`.`title` FROM `posts` WHERE `posts`.`user_id` = `users`.`id`) AS `user_posts` ON `user_posts`.`user_id` = `users`.`id`"
+    );
+
+    let source = posts_for_user();
+    let (_, title) = source.fields();
+    let cross = builder()
+        .select((users.id, title))
+        .from(users)
+        .cross_join_lateral(source);
+    assert_eq!(
+        cross.to_sql().sql(),
+        "SELECT `users`.`id`, `user_posts`.`title` FROM `users` CROSS JOIN LATERAL (SELECT `posts`.`user_id`, `posts`.`title` FROM `posts` WHERE `posts`.`user_id` = `users`.`id`) AS `user_posts`"
+    );
+}
+
+#[test]
 fn arithmetic_uses_mysql_result_types_nullability_and_row_inference() {
     let Schema { users, .. } = Schema::new();
     let added = users.id + users.id;

@@ -13,10 +13,112 @@ pub(crate) use helpers::{
 // Re-export Join from core
 pub use drizzle_core::Join;
 
+/// A table-like source accepted by an explicit JOIN tuple.
+#[doc(hidden)]
+pub trait JoinSource<'a>: join_source_private::Sealed {
+    type JoinedTable;
+
+    fn into_join_source_sql(self) -> SQL<'a, PostgresValue<'a>>;
+}
+
+mod join_source_private {
+    pub trait Sealed {}
+}
+
+impl<'a, Table> join_source_private::Sealed for Table where Table: PostgresTable<'a> {}
+
+impl<'a, Name, Projection, Query> join_source_private::Sealed
+    for drizzle_core::Derived<'a, PostgresValue<'a>, Name, Projection, Query>
+where
+    Name: drizzle_core::Tag,
+    Projection: drizzle_core::DerivedProjection<Name>,
+    Query: ToSQL<'a, PostgresValue<'a>>,
+{
+}
+
+impl<'a, Table> JoinSource<'a> for Table
+where
+    Table: PostgresTable<'a>,
+{
+    type JoinedTable = Table;
+
+    fn into_join_source_sql(self) -> SQL<'a, PostgresValue<'a>> {
+        self.into_sql()
+    }
+}
+
+impl<'a, Name, Projection, Query> JoinSource<'a>
+    for drizzle_core::Derived<'a, PostgresValue<'a>, Name, Projection, Query>
+where
+    Name: drizzle_core::Tag,
+    Projection: drizzle_core::DerivedProjection<Name>,
+    Query: ToSQL<'a, PostgresValue<'a>>,
+{
+    type JoinedTable = Self;
+
+    fn into_join_source_sql(self) -> SQL<'a, PostgresValue<'a>> {
+        self.into_sql()
+    }
+}
+
+/// A source or legacy tuple accepted by a cross join.
+#[doc(hidden)]
+pub trait CrossJoinArg<'a, FromTable>: cross_join_arg_private::Sealed {
+    type JoinedTable;
+
+    fn into_cross_join_sql(self) -> SQL<'a, PostgresValue<'a>>;
+}
+
+mod cross_join_arg_private {
+    pub trait Sealed {}
+
+    impl<'a, Source> Sealed for Source where Source: super::JoinSource<'a> {}
+
+    impl<'a, Source, Condition> Sealed for (Source, Condition)
+    where
+        Source: super::JoinSource<'a>,
+        Condition: drizzle_core::ToSQL<'a, crate::values::PostgresValue<'a>>,
+    {
+    }
+}
+
+impl<'a, Source, FromTable> CrossJoinArg<'a, FromTable> for Source
+where
+    Source: JoinSource<'a>,
+{
+    type JoinedTable = Source::JoinedTable;
+
+    fn into_cross_join_sql(self) -> SQL<'a, PostgresValue<'a>> {
+        Join::new()
+            .cross()
+            .into_sql()
+            .append(self.into_join_source_sql())
+    }
+}
+
+impl<'a, Source, Condition, FromTable> CrossJoinArg<'a, FromTable> for (Source, Condition)
+where
+    Source: JoinSource<'a>,
+    Condition: ToSQL<'a, PostgresValue<'a>>,
+{
+    type JoinedTable = Source::JoinedTable;
+
+    fn into_cross_join_sql(self) -> SQL<'a, PostgresValue<'a>> {
+        let (source, condition) = self;
+        Join::new()
+            .cross()
+            .into_sql()
+            .append(source.into_join_source_sql())
+            .push(Token::ON)
+            .append(condition.into_sql())
+    }
+}
+
 drizzle_core::impl_join_arg_trait!(
     table_trait: PostgresTable<'a>,
     table_info_trait: SQLTableInfo,
     condition_trait: ToSQL<'a, PostgresValue<'a>>,
+    join_source_trait: JoinSource<'a>,
     value_type: PostgresValue<'a>,
 );
 

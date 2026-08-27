@@ -1047,6 +1047,34 @@ macro_rules! impl_select_methods {
         }
 
         crate::drizzle_builder_join_impl!();
+
+        /// Adds a cross join without an ON condition.
+        #[inline]
+        pub fn cross_join<Arg: drizzle_sqlite::helpers::CrossJoinArg<'a, T>>(
+            self,
+            arg: Arg,
+        ) -> DrizzleBuilder<
+            'd,
+            Runner,
+            Schema,
+            SelectBuilder<
+                'a,
+                Schema,
+                SelectJoinSet,
+                Arg::JoinedTable,
+                <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
+                <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+                G,
+            >,
+            SelectJoinSet,
+        >
+        where
+            M: drizzle_core::AfterJoin<R, Arg::JoinedTable>
+                + drizzle_core::ScopePush<Arg::JoinedTable>,
+        {
+            let builder = self.builder.cross_join(arg);
+            DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
+        }
     };
 }
 
@@ -1230,8 +1258,44 @@ where
     }
 }
 
-impl<'a, Runner, Schema, State, T, M, R>
-    DrizzleBuilder<'_, Runner, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
+impl<'a, Runner, Schema, State, T, M, R, G>
+    DrizzleBuilder<'_, Runner, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
+where
+    State: drizzle_sqlite::builder::ExecutableState,
+    M: drizzle_core::DerivedSelection<'a, SQLiteValue<'a>, SQLiteSchemaType, T>,
+{
+    /// Names this completed query so it can be used as a derived source.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the projection contains duplicate output names. Name a
+    /// computed expression with [`drizzle_core::expr::NamedExt::named`] to
+    /// make each output unique.
+    #[inline]
+    #[must_use]
+    pub fn alias<Name, ScopeProof, AggProof>(
+        self,
+        name: Name,
+    ) -> drizzle_core::Derived<
+        'a,
+        SQLiteValue<'a>,
+        Name,
+        <M as drizzle_core::DerivedSelection<'a, SQLiteValue<'a>, SQLiteSchemaType, T>>::Projection,
+        SelectBuilder<'a, Schema, State, T, M, R, G>,
+    >
+    where
+        Name: drizzle_core::Tag,
+        <M as drizzle_core::DerivedSelection<'a, SQLiteValue<'a>, SQLiteSchemaType, T>>::Projection:
+            drizzle_core::DerivedProjection<Name>,
+        M: drizzle_core::row::MarkerScopeValidFor<ScopeProof>
+            + drizzle_core::row::MarkerAggValidFor<G, AggProof>,
+    {
+        self.builder.alias(name)
+    }
+}
+
+impl<'a, Runner, Schema, State, T, M, R, G>
+    DrizzleBuilder<'_, Runner, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
 where
     State: AsCteState,
     T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
@@ -1243,7 +1307,7 @@ where
     ) -> CTEView<
         'a,
         <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased<Tag>,
-        SelectBuilder<'a, Schema, State, T, M, R>,
+        SelectBuilder<'a, Schema, State, T, M, R, G>,
     > {
         self.builder.into_cte::<Tag>()
     }

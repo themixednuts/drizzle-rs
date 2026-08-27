@@ -16,10 +16,112 @@ pub(crate) use core_helpers::{
 // Re-export Join from core
 pub use drizzle_core::Join;
 
+/// A table-like source accepted by an explicit JOIN tuple.
+#[doc(hidden)]
+pub trait JoinSource<'a>: join_source_private::Sealed {
+    type JoinedTable;
+
+    fn into_join_source_sql(self) -> SQL<'a, SQLiteValue<'a>>;
+}
+
+mod join_source_private {
+    pub trait Sealed {}
+}
+
+impl<'a, Table> join_source_private::Sealed for Table where Table: SQLiteTable<'a> {}
+
+impl<'a, Name, Projection, Query> join_source_private::Sealed
+    for drizzle_core::Derived<'a, SQLiteValue<'a>, Name, Projection, Query>
+where
+    Name: drizzle_core::Tag,
+    Projection: drizzle_core::DerivedProjection<Name>,
+    Query: ToSQL<'a, SQLiteValue<'a>>,
+{
+}
+
+impl<'a, Table> JoinSource<'a> for Table
+where
+    Table: SQLiteTable<'a>,
+{
+    type JoinedTable = Table;
+
+    fn into_join_source_sql(self) -> SQL<'a, SQLiteValue<'a>> {
+        self.into_sql()
+    }
+}
+
+impl<'a, Name, Projection, Query> JoinSource<'a>
+    for drizzle_core::Derived<'a, SQLiteValue<'a>, Name, Projection, Query>
+where
+    Name: drizzle_core::Tag,
+    Projection: drizzle_core::DerivedProjection<Name>,
+    Query: ToSQL<'a, SQLiteValue<'a>>,
+{
+    type JoinedTable = Self;
+
+    fn into_join_source_sql(self) -> SQL<'a, SQLiteValue<'a>> {
+        self.into_sql()
+    }
+}
+
+/// A source or legacy tuple accepted by a cross join.
+#[doc(hidden)]
+pub trait CrossJoinArg<'a, FromTable>: cross_join_arg_private::Sealed {
+    type JoinedTable;
+
+    fn into_cross_join_sql(self) -> SQL<'a, SQLiteValue<'a>>;
+}
+
+mod cross_join_arg_private {
+    pub trait Sealed {}
+
+    impl<'a, Source> Sealed for Source where Source: super::JoinSource<'a> {}
+
+    impl<'a, Source, Condition> Sealed for (Source, Condition)
+    where
+        Source: super::JoinSource<'a>,
+        Condition: drizzle_core::ToSQL<'a, crate::values::SQLiteValue<'a>>,
+    {
+    }
+}
+
+impl<'a, Source, FromTable> CrossJoinArg<'a, FromTable> for Source
+where
+    Source: JoinSource<'a>,
+{
+    type JoinedTable = Source::JoinedTable;
+
+    fn into_cross_join_sql(self) -> SQL<'a, SQLiteValue<'a>> {
+        Join::new()
+            .cross()
+            .into_sql()
+            .append(self.into_join_source_sql())
+    }
+}
+
+impl<'a, Source, Condition, FromTable> CrossJoinArg<'a, FromTable> for (Source, Condition)
+where
+    Source: JoinSource<'a>,
+    Condition: ToSQL<'a, SQLiteValue<'a>>,
+{
+    type JoinedTable = Source::JoinedTable;
+
+    fn into_cross_join_sql(self) -> SQL<'a, SQLiteValue<'a>> {
+        let (source, condition) = self;
+        Join::new()
+            .cross()
+            .into_sql()
+            .append(source.into_join_source_sql())
+            .push(Token::ON)
+            .append(condition.into_sql())
+    }
+}
+
 drizzle_core::impl_join_arg_trait!(
     table_trait: SQLiteTable<'a>,
     table_info_trait: drizzle_core::SQLTableInfo,
     condition_trait: ToSQL<'a, SQLiteValue<'a>>,
+    join_source_trait: JoinSource<'a>,
     value_type: SQLiteValue<'a>,
 );
 

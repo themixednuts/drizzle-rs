@@ -40,7 +40,6 @@ macro_rules! join_impl {
         join_impl!(full_outer, Join::new().full().outer(), drizzle_core::AfterFullJoin);
         join_impl!(natural_full_outer, Join::new().natural().full().outer(), drizzle_core::AfterFullJoin);
         join_impl!(inner, Join::new().inner(), drizzle_core::AfterJoin);
-        join_impl!(cross, Join::new().cross(), drizzle_core::AfterJoin);
     };
     ($type:ident, $join_expr:expr, $join_trait:path) => {
         paste! {
@@ -389,6 +388,34 @@ where
     }
 
     join_impl!();
+
+    /// Adds a cross join without an ON condition.
+    #[allow(clippy::type_complexity)]
+    pub fn cross_join<Arg: helpers::CrossJoinArg<'a, T>>(
+        self,
+        arg: Arg,
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectJoinSet,
+        Arg::JoinedTable,
+        <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
+        <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+        G,
+    >
+    where
+        M: drizzle_core::AfterJoin<R, Arg::JoinedTable> + drizzle_core::ScopePush<Arg::JoinedTable>,
+    {
+        SelectBuilder {
+            sql: self.sql.append(arg.into_cross_join_sql()),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
+            grouped: PhantomData,
+        }
+    }
 }
 
 // WHERE (available from SelectFromSet and SelectJoinSet)
@@ -606,6 +633,52 @@ where
 //------------------------------------------------------------------------------
 // CTE support
 //------------------------------------------------------------------------------
+
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: drizzle_core::ExecutableState,
+    M: drizzle_core::DerivedSelection<'a, SQLiteValue<'a>, crate::common::SQLiteSchemaType, T>,
+{
+    /// Names this completed query so it can be used as a derived source.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the projection contains duplicate output names. Name a
+    /// computed expression with [`drizzle_core::expr::NamedExt::named`] to
+    /// make each output unique.
+    #[inline]
+    #[must_use]
+    pub fn alias<Name, ScopeProof, AggProof>(
+        self,
+        _name: Name,
+    ) -> drizzle_core::Derived<
+        'a,
+        SQLiteValue<'a>,
+        Name,
+        <M as drizzle_core::DerivedSelection<
+            'a,
+            SQLiteValue<'a>,
+            crate::common::SQLiteSchemaType,
+            T,
+        >>::Projection,
+        Self,
+    >
+    where
+        Name: drizzle_core::Tag,
+        <M as drizzle_core::DerivedSelection<
+            'a,
+            SQLiteValue<'a>,
+            crate::common::SQLiteSchemaType,
+            T,
+        >>::Projection: drizzle_core::DerivedProjection<Name>,
+        M: drizzle_core::row::MarkerScopeValidFor<ScopeProof>
+            + drizzle_core::row::MarkerAggValidFor<G, AggProof>,
+    {
+        // SAFETY: The executable-state, scope, aggregate, and projection
+        // bounds above prove that this query matches the derived projection.
+        unsafe { drizzle_core::Derived::new_unchecked(self) }
+    }
+}
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where

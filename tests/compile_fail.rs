@@ -49,6 +49,17 @@ fn update_assignments_sqlite_ui() {
     must_fail("tests/ui/update_assignments/sqlite/fail/*.rs");
 }
 
+#[cfg(feature = "rusqlite")]
+#[test]
+fn derived_tables_ui() {
+    must_fail("tests/ui/derived_tables/fail/*.rs");
+}
+
+#[test]
+fn derived_left_lateral_ui() {
+    must_fail("tests/ui/derived_tables/shared/fail/*.rs");
+}
+
 #[cfg(all(feature = "rusqlite", feature = "uuid"))]
 #[test]
 fn strict_decode_ui() {

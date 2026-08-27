@@ -126,6 +126,80 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Join {
     }
 }
 
+/// An explicit derived source and boolean condition for `JOIN LATERAL`.
+#[doc(hidden)]
+pub trait LateralArg<'a, V: SQLParam>: lateral_private::Arg {
+    type JoinedTable;
+
+    fn into_lateral_sql(self, join: Join) -> SQL<'a, V>;
+}
+
+impl<'a, V, Name, Projection, Query, Condition> LateralArg<'a, V>
+    for (crate::Derived<'a, V, Name, Projection, Query>, Condition)
+where
+    V: SQLParam + 'a,
+    Name: crate::Tag,
+    Projection: crate::DerivedProjection<Name>,
+    Query: ToSQL<'a, V>,
+    Condition: crate::expr::Expr<'a, V>,
+    Condition::SQLType: crate::types::BooleanLike,
+{
+    type JoinedTable = crate::Derived<'a, V, Name, Projection, Query>;
+
+    fn into_lateral_sql(self, join: Join) -> SQL<'a, V> {
+        let (source, condition) = self;
+        join.to_sql()
+            .append(SQL::raw(" LATERAL "))
+            .append(source.into_sql())
+            .push(crate::Token::ON)
+            .append(condition.into_sql())
+    }
+}
+
+/// A derived source accepted by `CROSS JOIN LATERAL`.
+#[doc(hidden)]
+pub trait LateralSource<'a, V: SQLParam>: lateral_private::Source {
+    type JoinedTable;
+
+    fn into_cross_lateral_sql(self) -> SQL<'a, V>;
+}
+
+impl<'a, V, Name, Projection, Query> LateralSource<'a, V>
+    for crate::Derived<'a, V, Name, Projection, Query>
+where
+    V: SQLParam + 'a,
+    Name: crate::Tag,
+    Projection: crate::DerivedProjection<Name>,
+    Query: ToSQL<'a, V>,
+{
+    type JoinedTable = Self;
+
+    fn into_cross_lateral_sql(self) -> SQL<'a, V> {
+        Join::new()
+            .cross()
+            .to_sql()
+            .append(SQL::raw(" LATERAL "))
+            .append(self.into_sql())
+    }
+}
+
+mod lateral_private {
+    pub trait Arg {}
+    pub trait Source {}
+
+    impl<V, Name, Projection, Query, Condition> Arg
+        for (crate::Derived<'_, V, Name, Projection, Query>, Condition)
+    where
+        V: crate::SQLParam,
+    {
+    }
+
+    impl<V, Name, Projection, Query> Source for crate::Derived<'_, V, Name, Projection, Query> where
+        V: crate::SQLParam
+    {
+    }
+}
+
 // =============================================================================
 // Join Helper Macro
 // =============================================================================
@@ -356,6 +430,7 @@ macro_rules! impl_join_arg_trait {
         table_trait: $TableTrait:path,
         table_info_trait: $TableInfoTrait:path,
         condition_trait: $ConditionTrait:path,
+        join_source_trait: $JoinSourceTrait:path,
         value_type: $ValueType:ty $(,)?
     ) => {
         /// Trait for arguments accepted by `.join()` and related join methods.
@@ -408,14 +483,18 @@ macro_rules! impl_join_arg_trait {
         /// Tuple `(table, condition)`: explicit ON condition.
         impl<'a, U, C, T> JoinArg<'a, T> for (U, C)
         where
-            U: $TableTrait,
+            U: $JoinSourceTrait,
             C: $ConditionTrait,
         {
-            type JoinedTable = U;
+            type JoinedTable = U::JoinedTable;
 
             fn into_join_sql(self, join: $crate::Join) -> $crate::SQL<'a, $ValueType> {
-                let (table, condition) = self;
-                join_internal(table, join, condition)
+                let (source, condition) = self;
+                join.to_sql()
+                    .append($crate::SQL::raw(" "))
+                    .append(source.into_join_source_sql())
+                    .push($crate::Token::ON)
+                    .append(condition.into_sql())
             }
         }
     };

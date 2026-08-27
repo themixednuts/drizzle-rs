@@ -50,8 +50,6 @@ macro_rules! join_impl {
         join_impl!(full_outer, Join::new().full().outer(), drizzle_core::AfterFullJoin);
         join_impl!(natural_full_outer, Join::new().natural().full().outer(), drizzle_core::AfterFullJoin);
         join_impl!(inner, Join::new().inner(), drizzle_core::AfterJoin);
-        join_impl!(cross, Join::new().cross(), drizzle_core::AfterJoin);
-
         // USING variants only for non-natural, non-cross joins
         join_using_impl!(left, drizzle_core::AfterLeftJoin);
         join_using_impl!(left_outer, drizzle_core::AfterLeftJoin);
@@ -239,6 +237,130 @@ where
     }
 
     join_impl!();
+
+    /// Adds a cross join without an ON condition.
+    #[inline]
+    #[allow(clippy::type_complexity)]
+    pub fn cross_join<Arg: crate::helpers::CrossJoinArg<'a, T>>(
+        self,
+        arg: Arg,
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectJoinSet,
+        Arg::JoinedTable,
+        <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
+        <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+        G,
+    >
+    where
+        M: drizzle_core::AfterJoin<R, Arg::JoinedTable> + drizzle_core::ScopePush<Arg::JoinedTable>,
+    {
+        SelectBuilder {
+            sql: self.sql.append(arg.into_cross_join_sql()),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
+            grouped: PhantomData,
+        }
+    }
+
+    /// Adds an INNER JOIN LATERAL clause.
+    #[inline]
+    #[allow(clippy::type_complexity)]
+    pub fn inner_join_lateral<J>(
+        self,
+        arg: J,
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectJoinSet,
+        J::JoinedTable,
+        <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
+        <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+        G,
+    >
+    where
+        J: drizzle_core::LateralArg<'a, PostgresValue<'a>>,
+        M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
+    {
+        use drizzle_core::Join;
+        SelectBuilder {
+            sql: self.sql.append(arg.into_lateral_sql(Join::new().inner())),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
+            grouped: PhantomData,
+        }
+    }
+
+    /// Adds a LEFT JOIN LATERAL clause.
+    #[inline]
+    #[allow(clippy::type_complexity)]
+    pub fn left_join_lateral<J>(
+        self,
+        arg: J,
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectJoinSet,
+        J::JoinedTable,
+        <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
+        <M as drizzle_core::AfterLeftJoin<R, J::JoinedTable>>::NewRow,
+        G,
+    >
+    where
+        J: drizzle_core::LateralArg<'a, PostgresValue<'a>>,
+        M: drizzle_core::AfterLeftJoin<R, J::JoinedTable>
+            + drizzle_core::ScopePush<J::JoinedTable>
+            + drizzle_core::LeftLateralSelection,
+    {
+        use drizzle_core::Join;
+        SelectBuilder {
+            sql: self.sql.append(arg.into_lateral_sql(Join::new().left())),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
+            grouped: PhantomData,
+        }
+    }
+
+    /// Adds a CROSS JOIN LATERAL clause without an ON condition.
+    #[inline]
+    #[allow(clippy::type_complexity)]
+    pub fn cross_join_lateral<Source>(
+        self,
+        source: Source,
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectJoinSet,
+        Source::JoinedTable,
+        <M as drizzle_core::ScopePush<Source::JoinedTable>>::Out,
+        <M as drizzle_core::AfterJoin<R, Source::JoinedTable>>::NewRow,
+        G,
+    >
+    where
+        Source: drizzle_core::LateralSource<'a, PostgresValue<'a>>,
+        M: drizzle_core::AfterJoin<R, Source::JoinedTable>
+            + drizzle_core::ScopePush<Source::JoinedTable>,
+    {
+        SelectBuilder {
+            sql: self.sql.append(source.into_cross_lateral_sql()),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
+            grouped: PhantomData,
+        }
+    }
 }
 
 // WHERE (available from SelectFromSet and SelectJoinSet)
@@ -408,6 +530,52 @@ where
 //------------------------------------------------------------------------------
 // CTE support
 //------------------------------------------------------------------------------
+
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: ExecutableState,
+{
+    /// Names this completed projection for use as a derived table.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the projection contains duplicate output names. Name a
+    /// computed expression with [`drizzle_core::expr::NamedExt::named`] to
+    /// make each output unique.
+    #[inline]
+    #[must_use]
+    pub fn alias<Tag, ScopeProof, AggProof>(
+        self,
+        _tag: Tag,
+    ) -> drizzle_core::Derived<
+        'a,
+        PostgresValue<'a>,
+        Tag,
+        <M as drizzle_core::DerivedSelection<
+            'a,
+            PostgresValue<'a>,
+            PostgresSchemaType,
+            T,
+        >>::Projection,
+        Self,
+    >
+    where
+        Tag: drizzle_core::Tag,
+        M: drizzle_core::DerivedSelection<'a, PostgresValue<'a>, PostgresSchemaType, T>
+            + drizzle_core::row::MarkerScopeValidFor<ScopeProof>
+            + drizzle_core::row::MarkerAggValidFor<G, AggProof>,
+        <M as drizzle_core::DerivedSelection<
+            'a,
+            PostgresValue<'a>,
+            PostgresSchemaType,
+            T,
+        >>::Projection: drizzle_core::DerivedProjection<Tag>,
+{
+        // SAFETY: The executable-state, scope, aggregate, and projection
+        // bounds above prove that this query matches the derived projection.
+        unsafe { drizzle_core::Derived::new_unchecked(self) }
+    }
+}
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where

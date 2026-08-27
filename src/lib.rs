@@ -153,9 +153,9 @@ pub mod core {
     /// SQL building blocks.
     #[doc(inline)]
     pub use drizzle_core::{
-        ColumnDialect, ColumnFlags, ColumnRef, ConstraintRef, ForeignKeyRef, OrderBy, Param,
-        ParamBind, ParamSet, Placeholder, PrimaryKeyRef, SQL, SQLChunk, TableDialect, TableRef,
-        TableSqlRef, Token, TypedPlaceholder, asc, desc,
+        ColumnDialect, ColumnFlags, ColumnRef, ConstraintRef, Derived, DerivedField, ForeignKeyRef,
+        OrderBy, Param, ParamBind, ParamSet, Placeholder, PrimaryKeyRef, SQL, SQLChunk,
+        TableDialect, TableRef, TableSqlRef, Token, TypedPlaceholder, asc, desc,
     };
 
     /// Conversion trait for SQL generation.
@@ -224,9 +224,9 @@ pub mod core {
     pub use drizzle_core::row::{
         AfterFullJoin, AfterJoin, AfterLeftJoin, AfterRightJoin, DecodeSelectedRef, ExprValueType,
         FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy, IntoSelectTarget,
-        MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, PkGroup, ResolveRow,
-        RowColumnList, SQLTypeToRust, ScopePush, Scoped, SelectAs, SelectAsFrom, SelectCols,
-        SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
+        LeftLateralSelection, MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, PkGroup,
+        ResolveRow, RowColumnList, SQLTypeToRust, ScopePush, Scoped, SelectAs, SelectAsFrom,
+        SelectCols, SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
     };
 }
 

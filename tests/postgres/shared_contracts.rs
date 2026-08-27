@@ -4,6 +4,12 @@ use drizzle::postgres::TransactionConfig;
 use drizzle::postgres::prelude::*;
 
 crate::common::crud_join::shared_crud_join_suite!(postgres, PostgresTable, PostgresSchema);
+crate::common::derived::shared_derived_table_suite!(postgres, PostgresTable, PostgresSchema);
+crate::common::derived::shared_lateral_derived_table_suite!(
+    postgres,
+    PostgresTable,
+    PostgresSchema
+);
 crate::common::prepared::shared_prepared_statement_suite!(
     postgres,
     PostgresTable,

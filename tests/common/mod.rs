@@ -7,6 +7,7 @@
 ))]
 
 pub mod crud_join;
+pub mod derived;
 pub mod helpers;
 pub mod prepared;
 pub mod query;

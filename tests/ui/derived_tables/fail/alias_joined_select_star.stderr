@@ -1,0 +1,40 @@
+error[E0277]: the trait bound `Scoped<SelectStar, Cons<Posts, Cons<Users, Nil>>>: drizzle_core::DerivedSelection<'_, drizzle::sqlite::prelude::SQLiteValue<'_>, drizzle::sqlite::prelude::SQLiteSchemaType, Posts>` is not satisfied
+  --> tests/ui/derived_tables/fail/alias_joined_select_star.rs:27:33
+   |
+27 |     require_derived_selection::<JoinedSelectStar>();
+   |                                 ^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+   = help: the trait `drizzle_core::DerivedSelection<'_, drizzle::sqlite::prelude::SQLiteValue<'_>, drizzle::sqlite::prelude::SQLiteSchemaType, Posts>` is not implemented for `Scoped<SelectStar, Cons<Posts, Cons<Users, Nil>>>`
+help: the following other types implement trait `drizzle_core::DerivedSelection<'a, V, Schema, Table>`
+  --> core/src/derived.rs
+   |
+   | / impl<'a, V, Schema, Table> DerivedSelection<'a, V, Schema, Table>
+   | |     for Scoped<SelectStar, Cons<Table, Nil>>
+   | | where
+   | |     V: SQLParam + 'a,
+   | |     Schema: SQLSchemaType,
+   | |     Table: SQLTable<'a, Schema, V>,
+   | |___________________________________^ `Scoped<SelectStar, Cons<Table, Nil>>` implements `drizzle_core::DerivedSelection<'_, V, Schema, Table>`
+...
+   | / impl<'a, V, Schema, Name, Projection, Query>
+   | |     DerivedSelection<'a, V, Schema, Derived<'a, V, Name, Projection, Query>>
+   | |     for Scoped<SelectStar, Cons<Derived<'a, V, Name, Projection, Query>, Nil>>
+   | | where
+   | |     V: SQLParam,
+   | |     Name: Tag,
+   | |     Projection: DerivedProjection<Name>,
+   | |________________________________________^ `Scoped<SelectStar, Cons<Derived<'_, V, Name, Projection, Query>, Nil>>` implements `drizzle_core::DerivedSelection<'_, V, Schema, Derived<'_, V, Name, Projection, Query>>`
+...
+   | / impl<'a, V, Schema, Table, Columns, Scope> DerivedSelection<'a, V, Schema, Table>
+   | |     for Scoped<SelectCols<Columns>, Scope>
+   | | where
+   | |     V: SQLParam,
+   | |________________^ `Scoped<SelectCols<Columns>, Scope>` implements `drizzle_core::DerivedSelection<'_, V, Schema, Table>`
+note: required by a bound in `require_derived_selection`
+  --> tests/ui/derived_tables/fail/alias_joined_select_star.rs:22:16
+   |
+20 | fn require_derived_selection<'a, Selection>()
+   |    ------------------------- required by a bound in this function
+21 | where
+22 |     Selection: DerivedSelection<'a, SQLiteValue<'a>, SQLiteSchemaType, Posts>,
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `require_derived_selection`

@@ -802,9 +802,9 @@ macro_rules! select_method {
             self.map(|builder| builder.inner_join(arg))
         }
 
-        pub fn cross_join<J>(
+        pub fn cross_join<Arg>(
             self,
-            arg: J,
+            arg: Arg,
         ) -> DrizzleBuilder<
             'db,
             Runner,
@@ -813,18 +813,98 @@ macro_rules! select_method {
                 'q,
                 Schema,
                 SelectJoinSet,
-                J::JoinedTable,
-                <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
-                <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+                Arg::JoinedTable,
+                <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
+                <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
                 G,
             >,
             SelectJoinSet,
         >
         where
-            J: drizzle_mysql::helpers::JoinArg<'q, T>,
-            M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
+            Arg: drizzle_mysql::helpers::CrossJoinArg<'q, T>,
+            M: drizzle_core::AfterJoin<R, Arg::JoinedTable>
+                + drizzle_core::ScopePush<Arg::JoinedTable>,
         {
             self.map(|builder| builder.cross_join(arg))
+        }
+
+        pub fn inner_join_lateral<Arg>(
+            self,
+            arg: Arg,
+        ) -> DrizzleBuilder<
+            'db,
+            Runner,
+            Schema,
+            SelectBuilder<
+                'q,
+                Schema,
+                SelectJoinSet,
+                Arg::JoinedTable,
+                <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
+                <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+                G,
+            >,
+            SelectJoinSet,
+        >
+        where
+            Arg: drizzle_core::LateralArg<'q, MySQLValue<'q>>,
+            M: drizzle_core::AfterJoin<R, Arg::JoinedTable>
+                + drizzle_core::ScopePush<Arg::JoinedTable>,
+        {
+            self.map(|builder| builder.inner_join_lateral(arg))
+        }
+
+        pub fn left_join_lateral<Arg>(
+            self,
+            arg: Arg,
+        ) -> DrizzleBuilder<
+            'db,
+            Runner,
+            Schema,
+            SelectBuilder<
+                'q,
+                Schema,
+                SelectJoinSet,
+                Arg::JoinedTable,
+                <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
+                <M as drizzle_core::AfterLeftJoin<R, Arg::JoinedTable>>::NewRow,
+                G,
+            >,
+            SelectJoinSet,
+        >
+        where
+            Arg: drizzle_core::LateralArg<'q, MySQLValue<'q>>,
+            M: drizzle_core::AfterLeftJoin<R, Arg::JoinedTable>
+                + drizzle_core::ScopePush<Arg::JoinedTable>
+                + drizzle_core::LeftLateralSelection,
+        {
+            self.map(|builder| builder.left_join_lateral(arg))
+        }
+
+        pub fn cross_join_lateral<Source>(
+            self,
+            source: Source,
+        ) -> DrizzleBuilder<
+            'db,
+            Runner,
+            Schema,
+            SelectBuilder<
+                'q,
+                Schema,
+                SelectJoinSet,
+                Source::JoinedTable,
+                <M as drizzle_core::ScopePush<Source::JoinedTable>>::Out,
+                <M as drizzle_core::AfterJoin<R, Source::JoinedTable>>::NewRow,
+                G,
+            >,
+            SelectJoinSet,
+        >
+        where
+            Source: drizzle_core::LateralSource<'q, MySQLValue<'q>>,
+            M: drizzle_core::AfterJoin<R, Source::JoinedTable>
+                + drizzle_core::ScopePush<Source::JoinedTable>,
+        {
+            self.map(|builder| builder.cross_join_lateral(source))
         }
 
         pub fn left_join<J>(
@@ -1203,6 +1283,41 @@ where
         SelectBuilder<'q, Schema, State, T, M, R, G>,
     > {
         self.builder.into_cte::<Tag>()
+    }
+}
+
+impl<'db, 'q, Runner, Schema, State, T, M, R, G>
+    DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, State, T, M, R, G>, State>
+where
+    State: builder::ExecutableState,
+{
+    /// Names this completed projection for use as a derived table.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the projection contains duplicate output names. Name a
+    /// computed expression with [`drizzle_core::expr::NamedExt::named`] to
+    /// make each output unique.
+    #[must_use]
+    pub fn alias<Tag, ScopeProof, AggProof>(
+        self,
+        tag: Tag,
+    ) -> drizzle_core::Derived<
+        'q,
+        MySQLValue<'q>,
+        Tag,
+        <M as drizzle_core::DerivedSelection<'q, MySQLValue<'q>, MySQLSchemaType, T>>::Projection,
+        SelectBuilder<'q, Schema, State, T, M, R, G>,
+    >
+    where
+        Tag: drizzle_core::Tag,
+        M: drizzle_core::DerivedSelection<'q, MySQLValue<'q>, MySQLSchemaType, T>
+            + drizzle_core::row::MarkerScopeValidFor<ScopeProof>
+            + drizzle_core::row::MarkerAggValidFor<G, AggProof>,
+        <M as drizzle_core::DerivedSelection<'q, MySQLValue<'q>, MySQLSchemaType, T>>::Projection:
+            drizzle_core::DerivedProjection<Tag>,
+    {
+        self.builder.alias(tag)
     }
 }
 

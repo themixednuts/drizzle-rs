@@ -269,7 +269,6 @@ where
 {
     join_on_method!(join, drizzle_core::Join::new(), AfterJoin);
     join_on_method!(inner_join, drizzle_core::Join::new().inner(), AfterJoin);
-    join_on_method!(cross_join, drizzle_core::Join::new().cross(), AfterJoin);
     join_on_method!(left_join, drizzle_core::Join::new().left(), AfterLeftJoin);
     join_on_method!(
         left_outer_join,
@@ -286,6 +285,98 @@ where
         drizzle_core::Join::new().right().outer(),
         AfterRightJoin
     );
+
+    /// Adds a cross join without an ON condition.
+    #[allow(clippy::type_complexity)]
+    pub fn cross_join<Arg: helpers::CrossJoinArg<'a, T>>(
+        self,
+        arg: Arg,
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectJoinSet,
+        Arg::JoinedTable,
+        <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
+        <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+        G,
+    >
+    where
+        M: drizzle_core::AfterJoin<R, Arg::JoinedTable> + drizzle_core::ScopePush<Arg::JoinedTable>,
+    {
+        SelectBuilder::from_sql(self.sql.append(arg.into_cross_join_sql()))
+    }
+
+    /// Adds an INNER JOIN LATERAL clause.
+    #[allow(clippy::type_complexity)]
+    pub fn inner_join_lateral<Arg>(
+        self,
+        arg: Arg,
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectJoinSet,
+        Arg::JoinedTable,
+        <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
+        <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+        G,
+    >
+    where
+        Arg: drizzle_core::LateralArg<'a, MySQLValue<'a>>,
+        M: drizzle_core::AfterJoin<R, Arg::JoinedTable> + drizzle_core::ScopePush<Arg::JoinedTable>,
+    {
+        SelectBuilder::from_sql(
+            self.sql
+                .append(arg.into_lateral_sql(drizzle_core::Join::new().inner())),
+        )
+    }
+
+    /// Adds a LEFT JOIN LATERAL clause.
+    #[allow(clippy::type_complexity)]
+    pub fn left_join_lateral<Arg>(
+        self,
+        arg: Arg,
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectJoinSet,
+        Arg::JoinedTable,
+        <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
+        <M as drizzle_core::AfterLeftJoin<R, Arg::JoinedTable>>::NewRow,
+        G,
+    >
+    where
+        Arg: drizzle_core::LateralArg<'a, MySQLValue<'a>>,
+        M: drizzle_core::AfterLeftJoin<R, Arg::JoinedTable>
+            + drizzle_core::ScopePush<Arg::JoinedTable>
+            + drizzle_core::LeftLateralSelection,
+    {
+        SelectBuilder::from_sql(
+            self.sql
+                .append(arg.into_lateral_sql(drizzle_core::Join::new().left())),
+        )
+    }
+
+    /// Adds a CROSS JOIN LATERAL clause without an ON condition.
+    #[allow(clippy::type_complexity)]
+    pub fn cross_join_lateral<Source>(
+        self,
+        source: Source,
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectJoinSet,
+        Source::JoinedTable,
+        <M as drizzle_core::ScopePush<Source::JoinedTable>>::Out,
+        <M as drizzle_core::AfterJoin<R, Source::JoinedTable>>::NewRow,
+        G,
+    >
+    where
+        Source: drizzle_core::LateralSource<'a, MySQLValue<'a>>,
+        M: drizzle_core::AfterJoin<R, Source::JoinedTable>
+            + drizzle_core::ScopePush<Source::JoinedTable>,
+    {
+        SelectBuilder::from_sql(self.sql.append(source.into_cross_lateral_sql()))
+    }
 }
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
@@ -464,6 +555,42 @@ where
             Tag::NAME,
             self,
         )
+    }
+}
+
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: ExecutableState,
+{
+    /// Names this completed projection for use as a derived table.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the projection contains duplicate output names. Name a
+    /// computed expression with [`drizzle_core::expr::NamedExt::named`] to
+    /// make each output unique.
+    #[must_use]
+    pub fn alias<Tag, ScopeProof, AggProof>(
+        self,
+        _tag: Tag,
+    ) -> drizzle_core::Derived<
+        'a,
+        MySQLValue<'a>,
+        Tag,
+        <M as drizzle_core::DerivedSelection<'a, MySQLValue<'a>, MySQLSchemaType, T>>::Projection,
+        Self,
+    >
+    where
+        Tag: drizzle_core::Tag,
+        M: drizzle_core::DerivedSelection<'a, MySQLValue<'a>, MySQLSchemaType, T>
+            + drizzle_core::row::MarkerScopeValidFor<ScopeProof>
+            + drizzle_core::row::MarkerAggValidFor<G, AggProof>,
+        <M as drizzle_core::DerivedSelection<'a, MySQLValue<'a>, MySQLSchemaType, T>>::Projection:
+            drizzle_core::DerivedProjection<Tag>,
+    {
+        // SAFETY: The executable-state, scope, aggregate, and projection
+        // bounds above prove that this query matches the derived projection.
+        unsafe { drizzle_core::Derived::new_unchecked(self) }
     }
 }
 

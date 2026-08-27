@@ -733,6 +733,34 @@ macro_rules! impl_select_methods {
 
         crate::drizzle_pg_builder_join_impl!();
         crate::drizzle_pg_builder_join_using_impl!();
+
+        /// Adds a cross join without an ON condition.
+        #[inline]
+        pub fn cross_join<Arg: drizzle_postgres::helpers::CrossJoinArg<'a, T>>(
+            self,
+            arg: Arg,
+        ) -> DrizzleBuilder<
+            'd,
+            Runner,
+            Schema,
+            SelectBuilder<
+                'a,
+                Schema,
+                SelectJoinSet,
+                Arg::JoinedTable,
+                <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
+                <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+                G,
+            >,
+            SelectJoinSet,
+        >
+        where
+            M: drizzle_core::AfterJoin<R, Arg::JoinedTable>
+                + drizzle_core::ScopePush<Arg::JoinedTable>,
+        {
+            let builder = self.builder.cross_join(arg);
+            DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
+        }
     };
 }
 
@@ -932,6 +960,51 @@ where
         SelectBuilder<'a, Schema, State, T, M, R>,
     > {
         self.builder.into_cte::<Tag>()
+    }
+}
+
+impl<'a, Runner, Schema, State, T, M, R, G>
+    DrizzleBuilder<'_, Runner, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
+where
+    State: drizzle_postgres::builder::ExecutableState,
+{
+    /// Names this completed projection for use as a derived table.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the projection contains duplicate output names. Name a
+    /// computed expression with [`drizzle_core::expr::NamedExt::named`] to
+    /// make each output unique.
+    #[inline]
+    #[must_use]
+    pub fn alias<Tag, ScopeProof, AggProof>(
+        self,
+        tag: Tag,
+    ) -> drizzle_core::Derived<
+        'a,
+        PostgresValue<'a>,
+        Tag,
+        <M as drizzle_core::DerivedSelection<
+            'a,
+            PostgresValue<'a>,
+            PostgresSchemaType,
+            T,
+        >>::Projection,
+        SelectBuilder<'a, Schema, State, T, M, R, G>,
+    >
+    where
+        Tag: drizzle_core::Tag,
+        M: drizzle_core::DerivedSelection<'a, PostgresValue<'a>, PostgresSchemaType, T>
+            + drizzle_core::row::MarkerScopeValidFor<ScopeProof>
+            + drizzle_core::row::MarkerAggValidFor<G, AggProof>,
+        <M as drizzle_core::DerivedSelection<
+            'a,
+            PostgresValue<'a>,
+            PostgresSchemaType,
+            T,
+        >>::Projection: drizzle_core::DerivedProjection<Tag>,
+{
+        self.builder.alias(tag)
     }
 }
 

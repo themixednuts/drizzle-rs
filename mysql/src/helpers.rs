@@ -13,20 +13,6 @@ pub(crate) use helpers::{
     r#where,
 };
 
-fn join_internal<'a, Table>(
-    table: Table,
-    join: Join,
-    condition: impl ToSQL<'a, MySQLValue<'a>>,
-) -> SQL<'a, MySQLValue<'a>>
-where
-    Table: MySQLTable<'a>,
-{
-    join.into_sql()
-        .append(table.into_sql())
-        .push(Token::ON)
-        .append(condition.into_sql())
-}
-
 /// A typed boolean expression accepted after a MySQL JOIN ... ON clause.
 #[doc(hidden)]
 pub trait JoinCondition<'a>:
@@ -52,10 +38,112 @@ where
 {
 }
 
+/// A table-like source accepted by an explicit JOIN tuple.
+#[doc(hidden)]
+pub trait JoinSource<'a>: join_source_private::Sealed {
+    type JoinedTable;
+
+    fn into_join_source_sql(self) -> SQL<'a, MySQLValue<'a>>;
+}
+
+mod join_source_private {
+    pub trait Sealed {}
+}
+
+impl<'a, Table> join_source_private::Sealed for Table where Table: MySQLTable<'a> {}
+
+impl<'a, Name, Projection, Query> join_source_private::Sealed
+    for drizzle_core::Derived<'a, MySQLValue<'a>, Name, Projection, Query>
+where
+    Name: drizzle_core::Tag,
+    Projection: drizzle_core::DerivedProjection<Name>,
+    Query: ToSQL<'a, MySQLValue<'a>>,
+{
+}
+
+impl<'a, Table> JoinSource<'a> for Table
+where
+    Table: MySQLTable<'a>,
+{
+    type JoinedTable = Table;
+
+    fn into_join_source_sql(self) -> SQL<'a, MySQLValue<'a>> {
+        self.into_sql()
+    }
+}
+
+impl<'a, Name, Projection, Query> JoinSource<'a>
+    for drizzle_core::Derived<'a, MySQLValue<'a>, Name, Projection, Query>
+where
+    Name: drizzle_core::Tag,
+    Projection: drizzle_core::DerivedProjection<Name>,
+    Query: ToSQL<'a, MySQLValue<'a>>,
+{
+    type JoinedTable = Self;
+
+    fn into_join_source_sql(self) -> SQL<'a, MySQLValue<'a>> {
+        self.into_sql()
+    }
+}
+
+/// A source or legacy tuple accepted by a cross join.
+#[doc(hidden)]
+pub trait CrossJoinArg<'a, FromTable>: cross_join_arg_private::Sealed {
+    type JoinedTable;
+
+    fn into_cross_join_sql(self) -> SQL<'a, MySQLValue<'a>>;
+}
+
+mod cross_join_arg_private {
+    pub trait Sealed {}
+
+    impl<'a, Source> Sealed for Source where Source: super::JoinSource<'a> {}
+
+    impl<'a, Source, Condition> Sealed for (Source, Condition)
+    where
+        Source: super::JoinSource<'a>,
+        Condition: super::JoinCondition<'a>,
+    {
+    }
+}
+
+impl<'a, Source, FromTable> CrossJoinArg<'a, FromTable> for Source
+where
+    Source: JoinSource<'a>,
+{
+    type JoinedTable = Source::JoinedTable;
+
+    fn into_cross_join_sql(self) -> SQL<'a, MySQLValue<'a>> {
+        Join::new()
+            .cross()
+            .into_sql()
+            .append(self.into_join_source_sql())
+    }
+}
+
+impl<'a, Source, Condition, FromTable> CrossJoinArg<'a, FromTable> for (Source, Condition)
+where
+    Source: JoinSource<'a>,
+    Condition: JoinCondition<'a>,
+{
+    type JoinedTable = Source::JoinedTable;
+
+    fn into_cross_join_sql(self) -> SQL<'a, MySQLValue<'a>> {
+        let (source, condition) = self;
+        Join::new()
+            .cross()
+            .into_sql()
+            .append(source.into_join_source_sql())
+            .push(Token::ON)
+            .append(condition.into_sql())
+    }
+}
+
 drizzle_core::impl_join_arg_trait!(
     table_trait: MySQLTable<'a>,
     table_info_trait: SQLTableInfo,
     condition_trait: JoinCondition<'a>,
+    join_source_trait: JoinSource<'a>,
     value_type: MySQLValue<'a>,
 );
 
@@ -160,6 +248,8 @@ pub struct IndexHintedTable<Table, Indexes, Kind> {
     kind: core::marker::PhantomData<Kind>,
 }
 
+impl<Table, Indexes, Kind> join_source_private::Sealed for IndexHintedTable<Table, Indexes, Kind> {}
+
 impl<Table, Indexes, Kind> IndexHintedTable<Table, Indexes, Kind> {
     fn into_sql<'a>(self) -> SQL<'a, MySQLValue<'a>>
     where
@@ -171,6 +261,19 @@ impl<Table, Indexes, Kind> IndexHintedTable<Table, Indexes, Kind> {
             .into_sql()
             .append(SQL::raw(Kind::SQL))
             .append(self.indexes.names().parens())
+    }
+}
+
+impl<'a, Table, Indexes, Kind> JoinSource<'a> for IndexHintedTable<Table, Indexes, Kind>
+where
+    Table: MySQLTable<'a>,
+    Indexes: IndexHintList<'a, Table>,
+    Kind: IndexHintKind,
+{
+    type JoinedTable = Table;
+
+    fn into_join_source_sql(self) -> SQL<'a, MySQLValue<'a>> {
+        self.into_sql()
     }
 }
 
@@ -267,25 +370,6 @@ where
             .append(self.into_sql())
             .push(Token::ON)
             .append(auto_join_condition::<Joined, From>())
-    }
-}
-
-impl<'a, Joined, Indexes, Kind, Condition, From> JoinArg<'a, From>
-    for (IndexHintedTable<Joined, Indexes, Kind>, Condition)
-where
-    Joined: MySQLTable<'a>,
-    Indexes: IndexHintList<'a, Joined>,
-    Kind: IndexHintKind,
-    Condition: JoinCondition<'a>,
-{
-    type JoinedTable = Joined;
-
-    fn into_join_sql(self, join: Join) -> SQL<'a, MySQLValue<'a>> {
-        let (table, condition) = self;
-        join.into_sql()
-            .append(table.into_sql())
-            .push(Token::ON)
-            .append(condition.into_sql())
     }
 }
 
