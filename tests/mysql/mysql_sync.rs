@@ -90,6 +90,7 @@ fn pooled_connection_introspects_and_pushes_on_its_checkout() -> drizzle::Result
     mysql_sync_setup::reset_schema(&mut connection, &schema);
     let (mut db, schema) = Drizzle::new(connection, schema);
 
+    db.create()?;
     db.execute(SQL::raw("DROP TABLE test_posts"))?;
     db.push(&schema)?;
     let Snapshot::MySQL(snapshot) = db.introspect()? else {

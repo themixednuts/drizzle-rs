@@ -562,7 +562,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
                 let mut first = true;
                 let mut depth = 0usize;
 
-                for chunk in self.chunks.iter().skip(select_index + 2) {
+                for (index, chunk) in self.chunks.iter().enumerate().skip(select_index + 2) {
                     match chunk {
                         SQLChunk::Token(Token::LPAREN) => depth += 1,
                         SQLChunk::Token(Token::RPAREN) => depth = depth.saturating_sub(1),
@@ -584,7 +584,13 @@ impl<'a, V: SQLParam> SQL<'a, V> {
                             if !first {
                                 let _ = buf.write_str(", ");
                             }
-                            Self::write_qualified_columns(buf, table);
+                            let alias = match self.chunks.get(index + 1..index + 3) {
+                                Some([SQLChunk::Token(Token::AS), SQLChunk::Ident(alias)]) => {
+                                    Some(alias.as_ref())
+                                }
+                                _ => None,
+                            };
+                            Self::write_qualified_columns_as(buf, table, alias);
                             first = false;
                         }
                         _ => {}
@@ -602,6 +608,15 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     /// Write fully qualified columns for a table
     #[inline]
     pub fn write_qualified_columns(buf: &mut impl core::fmt::Write, table: &TableSqlRef) {
+        Self::write_qualified_columns_as(buf, table, None);
+    }
+
+    #[inline]
+    fn write_qualified_columns_as(
+        buf: &mut impl core::fmt::Write,
+        table: &TableSqlRef,
+        alias: Option<&str>,
+    ) {
         if table.column_names.is_empty() {
             let _ = buf.write_char('*');
             return;
@@ -611,11 +626,15 @@ impl<'a, V: SQLParam> SQL<'a, V> {
             if i > 0 {
                 let _ = buf.write_str(", ");
             }
-            if let Some(schema) = table.schema {
-                chunk::write_dialect_quoted_ident(V::DIALECT, buf, schema);
-                let _ = buf.write_char('.');
+            if let Some(alias) = alias {
+                chunk::write_dialect_quoted_ident(V::DIALECT, buf, alias);
+            } else {
+                if let Some(schema) = table.schema {
+                    chunk::write_dialect_quoted_ident(V::DIALECT, buf, schema);
+                    let _ = buf.write_char('.');
+                }
+                chunk::write_dialect_quoted_ident(V::DIALECT, buf, table.name);
             }
-            chunk::write_dialect_quoted_ident(V::DIALECT, buf, table.name);
             let _ = buf.write_char('.');
             chunk::write_dialect_quoted_ident(V::DIALECT, buf, col_name);
         }
@@ -905,6 +924,19 @@ mod tests {
         assert_eq!(
             SQL::<TestParam>::columns(&columns).sql(),
             "`first`, `last``name`"
+        );
+    }
+
+    #[test]
+    fn select_star_uses_the_table_alias_to_qualify_columns() {
+        let table = TableRef::sql("users", &["id", "name"]);
+        let query = SQL::<TestParam>::from(Token::SELECT)
+            .push(Token::FROM)
+            .append(SQL::table(table).alias("u"));
+
+        assert_eq!(
+            query.sql(),
+            "SELECT `u`.`id`, `u`.`name` FROM `users` AS `u`"
         );
     }
 }

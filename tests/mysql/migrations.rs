@@ -8,7 +8,10 @@ use drizzle::{
     Dialect,
     migrations::{DiffOptions, Schema as MigrationSchema, diff, diff_with},
 };
-use drizzle::{core::SQL, mysql::prelude::*};
+use drizzle::{
+    core::{SQL, expr::eq},
+    mysql::prelude::*,
+};
 #[cfg(feature = "mysql-sync")]
 use mysql::prelude::Queryable as _;
 
@@ -83,7 +86,8 @@ fn introspect_and_push_work_across_connection_adapters(db: &mut TestDb<RuntimeMi
     db.insert(harness)
         .value(InsertMigrationHarness::new(7))
         .execute();
-    let selected: SelectMigrationHarness = db.select(()).from(harness).get();
+    let selected: SelectMigrationHarness =
+        db.select(()).from(harness).r#where(eq(harness.id, 7)).get();
     assert_eq!(selected.id, 7);
 
     for statement in [
