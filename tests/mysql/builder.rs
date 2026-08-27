@@ -508,6 +508,16 @@ fn select_index_hints_are_tied_to_their_generated_table_metadata() {
         "SELECT `users`.`id` FROM `users` IGNORE INDEX (`users_name_idx`)"
     );
 
+    let hinted_union = builder()
+        .select(users.id)
+        .from(users)
+        .use_index(UsersNameIdx::new())
+        .union(builder().select(users.id).from(users));
+    assert_eq!(
+        hinted_union.to_sql().sql(),
+        "(SELECT `users`.`id` FROM `users` USE INDEX (`users_name_idx`)) UNION (SELECT `users`.`id` FROM `users`)"
+    );
+
     let explicit_join = builder()
         .select((users.id, posts.id))
         .from(users)

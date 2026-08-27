@@ -100,6 +100,7 @@ impl SelectOffsetAllowed for SelectSetOpSet {}
 #[doc(hidden)]
 pub trait SetOperationAllowed {}
 impl SetOperationAllowed for SelectFromSet {}
+impl<Kind> SetOperationAllowed for SelectIndexHintSet<Kind> {}
 impl SetOperationAllowed for SelectJoinSet {}
 impl SetOperationAllowed for SelectWhereSet {}
 impl SetOperationAllowed for SelectGroupSet {}
