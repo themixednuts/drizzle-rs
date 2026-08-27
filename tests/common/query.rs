@@ -249,4 +249,62 @@ macro_rules! shared_relational_query_suite {
     };
 }
 
-pub(crate) use shared_relational_query_suite;
+/// Cross-dialect relational Query API coverage for views.
+macro_rules! shared_view_query_suite {
+    ($dialect:ident, $table:ident, $view:ident, $schema:ident) => {
+        mod shared_view_query {
+            use super::*;
+
+            #[$table(NAME = "shared_query_view_source")]
+            struct SharedQueryViewSource {
+                #[column(PRIMARY, DEFAULT = 0)]
+                id: i32,
+                name: String,
+            }
+
+            #[$view(
+                NAME = "shared_query_names",
+                DEFINITION = "SELECT id, name FROM shared_query_view_source"
+            )]
+            struct SharedQueryName {
+                id: i32,
+                name: String,
+            }
+
+            #[derive($schema)]
+            struct SharedViewQuerySchema {
+                source: SharedQueryViewSource,
+                names: SharedQueryName,
+            }
+
+            #[drizzle::test($dialect)]
+            fn relational_query_supports_views(db: &mut TestDb<SharedViewQuerySchema>) {
+                let SharedViewQuerySchema { source, names } = schema;
+
+                db.insert(source)
+                    .values([
+                        InsertSharedQueryViewSource::new("Charlie").with_id(3),
+                        InsertSharedQueryViewSource::new("Alice").with_id(1),
+                        InsertSharedQueryViewSource::new("Bob").with_id(2),
+                    ])
+                    .execute();
+
+                let rows = db.query(names).order_by(asc(names.id)).find_many();
+
+                assert_eq!(rows.len(), 3);
+                assert_eq!(rows[0].name, "Alice");
+                assert_eq!(rows[1].name, "Bob");
+                assert_eq!(rows[2].name, "Charlie");
+
+                let bob = db
+                    .query(names)
+                    .r#where(eq(names.id, 2))
+                    .find_first()
+                    .expect("view row");
+                assert_eq!(bob.name, "Bob");
+            }
+        }
+    };
+}
+
+pub(crate) use {shared_relational_query_suite, shared_view_query_suite};

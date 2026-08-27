@@ -212,7 +212,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
 
 /// Generate relational-query metadata, accessors, and JSON decoders for MySQL.
 #[cfg(feature = "query")]
-fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
+pub(super) fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
     use crate::common::query::{
         EnumStorage, FieldJsonInfo, FieldProjectionKind, FieldStorageKind, FkInfo,
         generate_query_api,

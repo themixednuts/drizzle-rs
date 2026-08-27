@@ -24,6 +24,7 @@ crate::common::query::shared_relational_query_suite!(
     drizzle::sqlite::types::Integer,
     drizzle::sqlite::connection::SQLiteTransactionType::Deferred
 );
+crate::common::query::shared_view_query_suite!(sqlite, SQLiteTable, SQLiteView, SQLiteSchema);
 
 // =============================================================================
 // Schemas for different test scenarios

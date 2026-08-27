@@ -438,6 +438,11 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
     };
     let columns_len = column_zst_idents.len();
 
+    #[cfg(feature = "query")]
+    let query_api_impls = crate::mysql::table::generate_query_api_impls(&ctx);
+    #[cfg(not(feature = "query"))]
+    let query_api_impls = TokenStream::new();
+
     Ok(quote! {
         #view_marker_const
 
@@ -480,6 +485,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         #mysql_table_impl
         #to_sql_impl
         #relations_impl
+        #query_api_impls
 
         impl #schema_item_tables for #struct_ident {
             type Tables = #type_set_nil;

@@ -23,6 +23,12 @@ crate::common::query::shared_relational_query_suite!(
     drizzle::postgres::types::Int4,
     drizzle_postgres::common::PostgresTransactionType::default()
 );
+crate::common::query::shared_view_query_suite!(
+    postgres,
+    PostgresTable,
+    PostgresView,
+    PostgresSchema
+);
 
 #[PostgresTable(TEMPORARY, NAME = "query_temp_metadata")]
 struct QueryTempMetadata {
