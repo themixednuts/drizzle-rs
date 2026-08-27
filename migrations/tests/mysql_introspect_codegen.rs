@@ -276,6 +276,31 @@ fn mysql_codegen_casing_keeps_sql_names_stable() {
 }
 
 #[test]
+fn mysql_codegen_preserves_index_names_that_do_not_round_trip_through_rust() {
+    let mut original = rich_ddl();
+    original.indexes.list_mut()[0].name = "accounts_status_42".into();
+
+    let generated = generate_rust_schema(&original, &CodegenOptions::default())
+        .expect("explicit MySQL index names are representable");
+
+    assert!(
+        generated
+            .code
+            .contains("#[MySQLIndex(NAME = \"accounts_status_42\""),
+        "generated source must preserve the physical index name:\n{}",
+        generated.code
+    );
+    let reparsed = parse_generated_ddl(&generated.code);
+    let diff = compute_migration(&original, &reparsed).expect("equivalent DDL must diff");
+    assert!(
+        diff.statements.is_empty(),
+        "round-trip changed the MySQL index:\nsource:\n{}\nSQL: {:#?}",
+        generated.code,
+        diff.sql_statements
+    );
+}
+
+#[test]
 fn mysql_codegen_warns_and_keeps_source_parseable_for_unrepresentable_metadata() {
     let mut ddl = rich_ddl();
     ddl.tables.list_mut()[0].options.push(TableOption {

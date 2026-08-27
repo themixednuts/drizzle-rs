@@ -2825,12 +2825,21 @@ pub(crate) fn index_spec(
                                 "{desc}: MySQL does not support partial indexes; remove `where = ...`"
                             ));
                         }
-                        // Parser extension: the macros derive the name from
-                        // the struct ident and accept no `name` attribute,
-                        // but hand-written schema annotations may carry one.
-                        IndexArg::NameValue(key, lit) if key == "name" || key == "NAME" => {
-                            if let Some(value) = str_of(&lit) {
-                                spec.explicit_name = Some(value);
+                        IndexArg::NameValue(key, lit) if key.eq_ignore_ascii_case("name") => {
+                            match str_of(&lit) {
+                                Some(value) if value.trim().is_empty() => diags
+                                    .errors
+                                    .push(format!("{desc}: index `name` cannot be empty")),
+                                Some(value) => {
+                                    if spec.explicit_name.replace(value).is_some() {
+                                        diags.errors.push(format!(
+                                            "{desc}: index accepts `name` only once"
+                                        ));
+                                    }
+                                }
+                                None => diags.errors.push(format!(
+                                    "{desc}: index `name` expects a string literal"
+                                )),
                             }
                         }
                         IndexArg::Flag(name) => diags
@@ -3629,6 +3638,42 @@ mod tests {
         let item: syn::ItemStruct =
             syn::parse_str(&format!("{code}\nstruct T {{ id: i64 }}")).expect("valid struct");
         item.attrs.into_iter().next().expect("one attribute")
+    }
+
+    fn parse_index(code: &str, dialect: Dialect) -> (IndexSpec, Diags) {
+        let item: syn::ItemStruct = syn::parse_str(code).expect("valid index struct");
+        let attr = item.attrs.first().expect("one index attribute");
+        let mut diags = Diags::new();
+        let spec = index_spec(attr, &item, dialect, "index", &mut diags);
+        (spec, diags)
+    }
+
+    #[test]
+    fn index_names_are_case_insensitive_and_validated_for_every_dialect() {
+        for (macro_name, dialect) in [
+            ("SQLiteIndex", Dialect::SQLite),
+            ("PostgresIndex", Dialect::PostgreSQL),
+            ("MySQLIndex", Dialect::MySQL),
+        ] {
+            let (spec, diags) = parse_index(
+                &format!("#[{macro_name}(NaMe = \"physical_name\")] struct T(Table::column);"),
+                dialect,
+            );
+            assert_eq!(spec.explicit_name.as_deref(), Some("physical_name"));
+            assert!(diags.errors.is_empty(), "{macro_name}: {:#?}", diags.errors);
+        }
+
+        let (_, duplicate) = parse_index(
+            "#[SQLiteIndex(name = \"first\", NAME = \"second\")] struct T(Table::column);",
+            Dialect::SQLite,
+        );
+        assert_eq!(duplicate.errors.len(), 1);
+
+        let (_, empty) = parse_index(
+            "#[PostgresIndex(NAME = \"  \" )] struct T(Table::column);",
+            Dialect::PostgreSQL,
+        );
+        assert_eq!(empty.errors.len(), 1);
     }
 
     #[test]

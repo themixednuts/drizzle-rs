@@ -743,6 +743,12 @@ fn generate_index_struct(index: &Index, use_pub: bool, field_casing: FieldCasing
     // Keep the generated attribute as the complete schema contract so an
     // introspected partial index survives parse -> snapshot -> diff unchanged.
     let mut attrs = Vec::new();
+    if struct_name.to_snake_case() != index.name.as_ref() {
+        attrs.push(format!(
+            "name = \"{}\"",
+            escape_for_rust_literal(&index.name)
+        ));
+    }
     if index.is_unique {
         attrs.push("unique".to_string());
     }
@@ -865,6 +871,48 @@ mod tests {
     use crate::schema::Snapshot;
     use crate::sqlite::introspect::{RawColumnInfo, RawIntrospection, assemble_ddl};
     use drizzle_types::Dialect;
+
+    #[test]
+    fn index_name_that_does_not_round_trip_through_rust_is_explicit() {
+        let mut ddl = SQLiteDDL::new();
+        ddl.tables.push(Table::new("users"));
+        ddl.columns.push(Column::new("users", "email", "text"));
+        ddl.indexes.push(Index::new(
+            "users",
+            "users_email_42",
+            vec![IndexColumn::new("email")],
+        ));
+
+        let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+
+        assert!(
+            generated
+                .code
+                .contains("#[SQLiteIndex(name = \"users_email_42\")]"),
+            "generated schema must preserve the SQL index name:\n{}",
+            generated.code
+        );
+
+        let parsed = SchemaParser::parse(&generated.code);
+        assert!(
+            parsed.errors.is_empty(),
+            "generated source:\n{}\nerrors: {:#?}",
+            generated.code,
+            parsed.errors
+        );
+        let Snapshot::Sqlite(snapshot) =
+            Snapshot::from_parse_result(&parsed, Dialect::SQLite, None)
+        else {
+            panic!("expected generated SQLite schema snapshot");
+        };
+        let reparsed = SQLiteDDL::from_entities(snapshot.ddl);
+        let migration = crate::sqlite::diff::compute_migration(&ddl, &reparsed);
+        assert!(
+            migration.sql_statements.is_empty(),
+            "generated SQLite schema changed the index: {:#?}",
+            migration.sql_statements
+        );
+    }
 
     #[test]
     fn test_generate_simple_table() {

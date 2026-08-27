@@ -154,7 +154,7 @@ fn apply_postgres_snapshot_filters(
         .iter()
         .map(|(schema, _)| schema.clone())
         .collect::<HashSet<_>>();
-    if table_patterns.is_none() {
+    if schema_patterns.is_some() || table_patterns.is_none() {
         keep_schemas.extend(snapshot.ddl.iter().filter_map(|entity| match entity {
             PostgresEntity::Schema(schema) if is_schema_allowed(schema.name.as_ref()) => {
                 Some(schema.name.to_string())
@@ -320,6 +320,34 @@ mod tests {
         );
         assert!(!snapshot.ddl.iter().any(
             |entity| matches!(entity, MySQLEntity::Table(table) if table.name == "users" || table.name == "audit_log")
+        ));
+    }
+
+    #[test]
+    fn postgres_table_filter_preserves_existing_allowed_schema() {
+        use drizzle_migrations::postgres::PostgresSnapshot;
+        use drizzle_types::postgres::ddl::{PostgresEntity, Schema};
+
+        let mut postgres = PostgresSnapshot::new();
+        postgres.add_entity(PostgresEntity::Schema(Schema::new("public")));
+        let mut snapshot = Snapshot::Postgres(postgres);
+
+        apply_snapshot_filters(
+            &mut snapshot,
+            Dialect::Postgresql,
+            &SnapshotFilters {
+                tables: Some(vec!["new_table".to_string()]),
+                schemas: Some(vec!["public".to_string()]),
+                extensions: None,
+            },
+        )
+        .expect("filter");
+
+        let Snapshot::Postgres(postgres) = snapshot else {
+            panic!("expected PostgreSQL snapshot")
+        };
+        assert!(postgres.ddl.iter().any(
+            |entity| matches!(entity, PostgresEntity::Schema(schema) if schema.name == "public")
         ));
     }
 }

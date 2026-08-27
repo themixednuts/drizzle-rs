@@ -833,6 +833,8 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// # Attributes
 ///
+/// - `name = "..."` / `NAME = "..."` - Set the physical index name; defaults
+///   to the struct name converted to `snake_case`
 /// - `unique` - Create a unique index (enforces uniqueness constraint)
 /// - `where = "..."` - Create a partial index with a raw SQLite SQL predicate;
 ///   database column names inside the string are not rename-checked
@@ -2995,6 +2997,9 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// # Attributes
 ///
+/// - `name = "..."` / `NAME = "..."` - Set the physical index name; defaults
+///   to the struct name converted to `snake_case` with an `_idx` suffix when
+///   needed
 /// - `unique` - Create a unique index
 /// - `concurrent` - Create the index without locking out writes
 /// - `method = "..."` - Select the PostgreSQL index method
@@ -3276,6 +3281,9 @@ pub fn MySQLView(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// Define a driver-neutral `MySQL` index.
+///
+/// Use `name = "..."` or `NAME = "..."` to set the physical index name. When
+/// omitted, the macro converts the struct name to `snake_case`.
 #[cfg(feature = "mysql")]
 #[allow(non_snake_case)]
 #[proc_macro_attribute]

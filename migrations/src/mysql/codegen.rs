@@ -116,11 +116,6 @@ impl IdentifierAllocator {
             suffix += 1;
         }
     }
-
-    fn reserve_exact(&mut self, name: &str) -> Option<String> {
-        let candidate = sanitize_rust_identifier(name, "Generated");
-        (candidate == name && self.used.insert(candidate.clone())).then_some(candidate)
-    }
 }
 
 #[derive(Default)]
@@ -742,14 +737,6 @@ fn generate_index_struct(
 
     let preferred = index.name.to_pascal_case();
     let candidate = sanitize_rust_identifier(&preferred, "GeneratedIndex");
-    if candidate.to_snake_case() != index.name.as_ref() {
-        warnings.push(format!(
-            "index {} cannot be represented because MySQLIndex would emit `{}` as its SQL name",
-            index.name,
-            candidate.to_snake_case()
-        ));
-        return None;
-    }
     let Some(table_type) = maps.table(index.database.as_deref(), &index.table) else {
         warnings.push(format!(
             "index {} belongs to missing table {}; index was not generated",
@@ -787,15 +774,12 @@ fn generate_index_struct(
         columns.push(format!("{table_type}::{field}"));
     }
 
-    let Some(type_name) = type_names.reserve_exact(&candidate) else {
-        warnings.push(format!(
-            "index {} cannot be represented because MySQLIndex derives its SQL name from the Rust type name",
-            index.name
-        ));
-        return None;
-    };
+    let type_name = type_names.allocate(&candidate, "GeneratedIndex");
 
     let mut attrs = Vec::new();
+    if type_name.to_snake_case() != index.name.as_ref() {
+        attrs.push(format!("NAME = \"{}\"", rust_literal(&index.name)));
+    }
     if index.unique {
         attrs.push("unique".to_string());
     }

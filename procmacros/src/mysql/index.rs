@@ -6,6 +6,7 @@ use syn::{DeriveInput, Error, Expr, Meta, Result, Token, Type, parse::Parse};
 /// Options accepted by `MySQLIndex`.
 #[derive(Clone, Default)]
 pub struct IndexAttributes {
+    pub name: Option<String>,
     pub unique: bool,
     pub using: Option<String>,
     pub algorithm: Option<String>,
@@ -36,6 +37,14 @@ impl Parse for IndexAttributes {
 
             let meta: Meta = input.parse()?;
             match meta {
+                Meta::NameValue(name_value)
+                    if name_value
+                        .path
+                        .get_ident()
+                        .is_some_and(|ident| ident.to_string().eq_ignore_ascii_case("name")) =>
+                {
+                    set_name(&mut attrs.name, &name_value)?;
+                }
                 Meta::Path(path)
                     if path
                         .get_ident()
@@ -98,7 +107,7 @@ impl Parse for IndexAttributes {
                 unsupported => {
                     return Err(Error::new_spanned(
                         unsupported,
-                        "unsupported MySQL index option; accepted options are `unique`, `using`, `algorithm`, and `lock`",
+                        "unsupported MySQL index option; accepted options are `name`, `unique`, `using`, `algorithm`, and `lock`",
                     ));
                 }
             }
@@ -106,6 +115,36 @@ impl Parse for IndexAttributes {
 
         Ok(attrs)
     }
+}
+
+fn set_name(slot: &mut Option<String>, name_value: &syn::MetaNameValue) -> Result<()> {
+    let syn::Expr::Lit(literal) = &name_value.value else {
+        return Err(Error::new_spanned(
+            &name_value.value,
+            "MySQL index `name` expects a string literal",
+        ));
+    };
+    let syn::Lit::Str(name) = &literal.lit else {
+        return Err(Error::new_spanned(
+            &literal.lit,
+            "MySQL index `name` expects a string literal",
+        ));
+    };
+    if slot.is_some() {
+        return Err(Error::new_spanned(
+            name_value,
+            "MySQLIndex accepts `name` only once",
+        ));
+    }
+    let value = name.value();
+    if value.trim().is_empty() {
+        return Err(Error::new_spanned(
+            name,
+            "MySQL index `name` cannot be empty",
+        ));
+    }
+    *slot = Some(value);
+    Ok(())
 }
 
 fn set_option(
@@ -180,14 +219,19 @@ pub fn mysql_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Res
     let mysql_index_column = quote!(drizzle::mysql::traits::MySQLIndexColumn);
     let mysql_column = quote!(drizzle::mysql::traits::MySQLColumn);
     let mysql_table = quote!(drizzle::mysql::traits::MySQLTable);
-    let index_name = heck::AsSnakeCase(struct_ident.to_string()).to_string();
+    let index_name = attr
+        .name
+        .clone()
+        .unwrap_or_else(|| heck::AsSnakeCase(struct_ident.to_string()).to_string());
     let unique_keyword = if attr.unique { "UNIQUE " } else { "" };
     let using_sql = attr
         .using
         .as_deref()
         .map(|using| format!(" USING {}", using.to_ascii_uppercase()))
         .unwrap_or_default();
-    let create_prefix = format!("CREATE {unique_keyword}INDEX `{index_name}`{using_sql} ON ");
+    let escaped_index_name = index_name.replace('`', "``");
+    let create_prefix =
+        format!("CREATE {unique_keyword}INDEX `{escaped_index_name}`{using_sql} ON ");
     let algorithm_sql = attr
         .algorithm
         .as_deref()
@@ -413,4 +457,63 @@ fn extract_table_from_column(column: &Expr) -> Result<Type> {
 
     let table = &column.path.segments[0].ident;
     syn::parse_str(&table.to_string()).map_err(|_| Error::new_spanned(table, "invalid table name"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{IndexAttributes, mysql_index_attr_macro};
+    use syn::{DeriveInput, parse_quote};
+
+    #[test]
+    fn parses_case_insensitive_explicit_index_name() {
+        let lower = syn::parse_str::<IndexAttributes>("name = \"users_by_email\"").unwrap();
+        let upper = syn::parse_str::<IndexAttributes>("NAME = \"users_by_email\"").unwrap();
+
+        assert_eq!(lower.name.as_deref(), Some("users_by_email"));
+        assert_eq!(upper.name.as_deref(), Some("users_by_email"));
+    }
+
+    #[test]
+    fn rejects_empty_index_name() {
+        let error = syn::parse_str::<IndexAttributes>("NAME = \"  \"")
+            .err()
+            .expect("empty name should fail");
+
+        assert_eq!(error.to_string(), "MySQL index `name` cannot be empty");
+    }
+
+    #[test]
+    fn rejects_case_insensitive_duplicate_index_names() {
+        let error =
+            syn::parse_str::<IndexAttributes>("name = \"users_by_email\", NAME = \"other_name\"")
+                .err()
+                .expect("duplicate name should fail");
+
+        assert_eq!(error.to_string(), "MySQLIndex accepts `name` only once");
+    }
+
+    #[test]
+    fn explicit_name_reaches_all_generated_index_metadata() {
+        let attrs = syn::parse_str::<IndexAttributes>("NAME = \"users_by_email\"").unwrap();
+        let input: DeriveInput = parse_quote! {
+            pub struct UsersEmailIdx(Users::email);
+        };
+        let expanded = mysql_index_attr_macro(attrs, &input).unwrap().to_string();
+
+        // DDL_SQL, DrizzleIndex::INDEX_NAME, and SQLSchema::NAME.
+        assert_eq!(expanded.matches("users_by_email").count(), 3);
+        assert!(!expanded.contains("users_email_idx"));
+    }
+
+    #[test]
+    fn omitted_name_keeps_derived_name() {
+        let input: DeriveInput = parse_quote! {
+            pub struct UsersEmailIdx(Users::email);
+        };
+        let expanded = mysql_index_attr_macro(IndexAttributes::default(), &input)
+            .unwrap()
+            .to_string();
+
+        assert!(expanded.contains("users_email_idx"));
+    }
 }

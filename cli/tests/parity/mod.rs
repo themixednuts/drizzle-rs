@@ -3,7 +3,10 @@ use predicates::prelude::PredicateBooleanExt as _;
 use std::fs;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    Mutex, MutexGuard,
+    atomic::{AtomicU64, Ordering},
+};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::tempdir;
 
@@ -18,9 +21,19 @@ pub trait DialectCase {
 }
 
 pub trait LiveDriverCase: DialectCase {
+    fn lock_database() -> Option<MutexGuard<'static, ()>> {
+        None
+    }
+
     fn execute_batch(root: &Path, sql: &str);
     fn drop_tables(root: &Path, tables: &[&str]);
 }
+
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+static POSTGRES_DATABASE_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
+static MYSQL_DATABASE_LOCK: Mutex<()> = Mutex::new(());
 
 struct TableCleanup<'a, B: LiveDriverCase> {
     root: &'a Path,
@@ -114,6 +127,14 @@ impl DialectCase for PostgresSync {
 
 #[cfg(feature = "postgres-sync")]
 impl LiveDriverCase for PostgresSync {
+    fn lock_database() -> Option<MutexGuard<'static, ()>> {
+        Some(
+            POSTGRES_DATABASE_LOCK
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+    }
+
     fn execute_batch(_: &Path, sql: &str) {
         postgres::Client::connect(&postgres_url(), postgres::NoTls)
             .expect("connect postgres parity database")
@@ -157,6 +178,14 @@ impl DialectCase for PostgresAsync {
 
 #[cfg(feature = "tokio-postgres")]
 impl LiveDriverCase for PostgresAsync {
+    fn lock_database() -> Option<MutexGuard<'static, ()>> {
+        Some(
+            POSTGRES_DATABASE_LOCK
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+    }
+
     fn execute_batch(_: &Path, sql: &str) {
         block_on(async {
             let (client, connection) =
@@ -212,6 +241,14 @@ impl DialectCase for MySqlSync {
 
 #[cfg(feature = "mysql-sync")]
 impl LiveDriverCase for MySqlSync {
+    fn lock_database() -> Option<MutexGuard<'static, ()>> {
+        Some(
+            MYSQL_DATABASE_LOCK
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+    }
+
     fn execute_batch(_: &Path, sql: &str) {
         use mysql::prelude::Queryable as _;
 
@@ -260,6 +297,14 @@ impl DialectCase for MySqlAsync {
 
 #[cfg(feature = "mysql-async")]
 impl LiveDriverCase for MySqlAsync {
+    fn lock_database() -> Option<MutexGuard<'static, ()>> {
+        Some(
+            MYSQL_DATABASE_LOCK
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+    }
+
     fn execute_batch(_: &Path, sql: &str) {
         use mysql_async::prelude::Queryable as _;
 
@@ -387,6 +432,7 @@ pub fn generate_and_export_honor_overrides<B: DialectCase>() {
 }
 
 pub fn push_honors_table_filters_and_driver<B: LiveDriverCase>() {
+    let _database = B::lock_database();
     let dir = tempdir().expect("create parity temp directory");
     let root = dir.path();
     let suffix = unique_suffix();
@@ -479,6 +525,7 @@ pub fn push_honors_table_filters_and_driver<B: LiveDriverCase>() {
 }
 
 pub fn pull_honors_filters_casing_breakpoints_and_driver<B: LiveDriverCase>() {
+    let _database = B::lock_database();
     let dir = tempdir().expect("create parity temp directory");
     let root = dir.path();
     let suffix = unique_suffix();
@@ -575,6 +622,7 @@ pub fn pull_honors_filters_casing_breakpoints_and_driver<B: LiveDriverCase>() {
 }
 
 pub fn migrate_applies_generated_migration_with_configured_driver<B: LiveDriverCase>() {
+    let _database = B::lock_database();
     let dir = tempdir().expect("create parity temp directory");
     let root = dir.path();
     let suffix = unique_suffix();
@@ -640,6 +688,7 @@ pub fn migrate_applies_generated_migration_with_configured_driver<B: LiveDriverC
 
 #[cfg(any(feature = "rusqlite", feature = "mysql-sync", feature = "mysql-async",))]
 pub fn non_postgres_filters_warn_and_are_ignored<B: LiveDriverCase>() {
+    let _database = B::lock_database();
     let dir = tempdir().expect("create parity temp directory");
     let root = dir.path();
     let suffix = unique_suffix();
