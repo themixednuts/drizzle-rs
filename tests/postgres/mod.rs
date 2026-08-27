@@ -28,6 +28,7 @@ pub mod query;
 pub mod schema;
 pub mod seed;
 pub mod select;
+pub mod shared_contracts;
 pub mod subquery;
 pub mod transaction;
 pub mod type_inference;

@@ -567,7 +567,7 @@ fn locking_reads_offer_only_mysql_strengths_and_one_wait_policy() {
 }
 
 #[test]
-fn mutation_results_are_driver_independent_execution_metadata() {
+fn mysql_mutation_results_expose_ok_packet_metadata() {
     let result = MySQLMutationResult::new(3, Some(41));
     assert_eq!(result.affected_rows(), 3);
     assert_eq!(result.last_insert_id(), Some(41));

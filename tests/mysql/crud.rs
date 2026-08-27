@@ -1,4 +1,4 @@
-//! Shared MySQL CRUD and selection contracts exercised through every adapter.
+//! MySQL value, mutation-result, and detached-builder contracts.
 
 use crate::common::schema::mysql::*;
 use drizzle::core::expr::{count, eq};
@@ -10,7 +10,7 @@ macro_rules! user {
 }
 
 #[drizzle::test]
-fn insert_select_update_and_delete(db: &mut TestDb<TestSchema>) {
+fn mysql_values_and_mutation_metadata_round_trip(db: &mut TestDb<TestSchema>) {
     let TestSchema { users, posts, .. } = schema;
 
     let inserted = db
@@ -61,26 +61,14 @@ fn insert_select_update_and_delete(db: &mut TestDb<TestSchema>) {
 }
 
 #[drizzle::test]
-fn detached_queries_and_set_operations(db: &mut TestDb<TestSchema>) {
+fn detached_builder_executes_through_the_mysql_driver(db: &mut TestDb<TestSchema>) {
     let TestSchema { users, .. } = schema;
     db.insert(users)
-        .values([user!("Alice", Role::Admin), user!("Bob", Role::Member)])
+        .value(user!("Alice", Role::Admin))
         .execute();
 
-    let direct = db.select(()).from(users).detach();
-    let selected: Vec<SelectUser> = db.all(direct);
-    assert_eq!(selected.len(), 2);
-
-    let bob_ids = db
-        .select(users.id)
-        .from(users)
-        .r#where(eq(users.name, "Bob"))
-        .detach();
-    let ids: Vec<u64> = db
-        .select(users.id)
-        .from(users)
-        .r#where(eq(users.name, "Alice"))
-        .union_all(bob_ids)
-        .all();
-    assert_eq!(ids.len(), 2);
+    let detached = db.select(()).from(users).detach();
+    let selected: Vec<SelectUser> = db.all(detached);
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].name, "Alice");
 }

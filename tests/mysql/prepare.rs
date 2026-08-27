@@ -1,4 +1,4 @@
-//! Prepared-statement contracts exercised through every MySQL adapter.
+//! MySQL prepared-statement execution metadata.
 
 use crate::common::schema::mysql::*;
 use drizzle::core::expr::eq;
@@ -11,29 +11,7 @@ macro_rules! user {
 }
 
 #[drizzle::test]
-fn prepared_select_reuses_typed_parameters(db: &mut TestDb<TestSchema>) {
-    let TestSchema { users, .. } = schema;
-    db.insert(users)
-        .values([user!("Alice"), user!("Bob"), user!("Charlie")])
-        .execute();
-
-    let name = users.name.placeholder("name");
-    let prepared = db
-        .select(())
-        .from(users)
-        .r#where(eq(users.name, name))
-        .prepare()
-        .into_owned();
-
-    let alice: Vec<SelectUser> = prepared.all(drizzle_client!(), [name.bind("Alice")]);
-    let bob: SelectUser = prepared.get(drizzle_client!(), [name.bind("Bob")]);
-    assert_eq!(alice.len(), 1);
-    assert_eq!(alice[0].name, "Alice");
-    assert_eq!(bob.name, "Bob");
-}
-
-#[drizzle::test]
-fn prepared_mutation_reports_affected_rows(db: &mut TestDb<TestSchema>) {
+fn prepared_mutation_reports_mysql_execution_metadata(db: &mut TestDb<TestSchema>) {
     let TestSchema { users, .. } = schema;
     let inserted = db.insert(users).value(user!("Alice")).execute();
     let id = inserted.last_insert_id().expect("AUTO_INCREMENT id");

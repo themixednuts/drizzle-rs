@@ -6,8 +6,6 @@ pub mod seed;
 
 #[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
 pub mod crud;
-#[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
-pub mod joins;
 #[cfg(feature = "mysql-sync")]
 pub mod migrations;
 #[cfg(feature = "mysql-async")]
@@ -18,5 +16,7 @@ pub mod mysql_sync;
 pub mod prepare;
 #[cfg(feature = "query")]
 pub mod query;
+#[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
+pub mod shared_contracts;
 #[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
 pub mod transaction;
