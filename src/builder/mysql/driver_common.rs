@@ -1,5 +1,7 @@
 //! Protocol-neutral pieces shared by the blocking and Tokio MySQL adapters.
 
+use core::marker::PhantomData;
+
 use drizzle_core::{
     error::{DrizzleError, QueryContext, Result, ResultExt},
     row::{DecodeSelectedRef, FromDrizzleRow},
@@ -194,6 +196,46 @@ pub(crate) struct QueryOutput<'q> {
     rows: Vec<Row>,
 }
 
+/// Decoded MySQL rows from a fully materialized query result.
+///
+/// The query has finished before this iterator is created. It owns the
+/// materialized driver rows and never holds a connection, transaction, or
+/// native result set open while values are decoded.
+pub struct Rows<R> {
+    rows: std::vec::IntoIter<Row>,
+    context: QueryContext,
+    _marker: PhantomData<R>,
+}
+
+impl<R> Rows<R> {
+    pub(crate) fn new(rows: Vec<Row>, context: QueryContext) -> Self {
+        Self {
+            rows: rows.into_iter(),
+            context,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<R> Iterator for Rows<R>
+where
+    for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
+{
+    type Item = Result<R>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.rows
+            .next()
+            .map(|row| R::from_row(&MySQLRow::new(&row)).with_query(|| self.context.clone()))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.rows.size_hint()
+    }
+}
+
+impl<R> ExactSizeIterator for Rows<R> where for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>> {}
+
 impl<'q> QueryOutput<'q> {
     pub(crate) fn new(sql: String, values: Vec<MySQLValue<'q>>, rows: Vec<Row>) -> Self {
         Self { sql, values, rows }
@@ -225,18 +267,13 @@ impl<'q> QueryOutput<'q> {
             .with_query(|| QueryContext::new(&self.sql, &context_values))
     }
 
-    pub(crate) fn decode_all_rows<R>(self) -> Result<Vec<R>>
+    pub(crate) fn rows<R>(self) -> Rows<R>
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
     {
         let context_values = self.values.iter().collect::<Vec<_>>();
-        self.rows
-            .iter()
-            .map(|row| {
-                R::from_row(&MySQLRow::new(row))
-                    .with_query(|| QueryContext::new(&self.sql, &context_values))
-            })
-            .collect()
+        let context = QueryContext::new(&self.sql, &context_values);
+        Rows::new(self.rows, context)
     }
 
     pub(crate) fn decode_first_row<R>(self) -> Result<R>

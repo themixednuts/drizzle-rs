@@ -25,8 +25,8 @@ use crate::{
         common::{self, DrizzleBuilder},
         driver_common::{QueryOutput, render},
         mysql_async::{
-            AsyncRunner, driver_error, execute_request_observing, initialize_session_observing,
-            query_first_request_observing, query_request_observing,
+            AsyncRunner, Rows, driver_error, execute_request_observing,
+            initialize_session_observing, query_first_request_observing, query_request_observing,
         },
     },
     transaction::savepoint::{AsyncSavepointState, async_savepoint},
@@ -269,7 +269,19 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
     {
-        self.query_rendered(query).await?.decode_all_rows()
+        self.rows::<_, R>(query).await?.collect()
+    }
+
+    /// Executes typed MySQL SQL and returns a decoded iterator over its
+    /// materialized rows.
+    ///
+    /// The database result is fully consumed before this method returns.
+    pub async fn rows<'q, T, R>(&self, query: T) -> Result<Rows<R>>
+    where
+        T: ToSQL<'q, MySQLValue<'q>>,
+        for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
+    {
+        Ok(self.query_rendered(query).await?.rows::<R>())
     }
 
     pub async fn get<'q, R>(&self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<R>

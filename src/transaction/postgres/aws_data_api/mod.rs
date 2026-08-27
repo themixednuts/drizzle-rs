@@ -32,7 +32,6 @@ use drizzle_postgres::values::PostgresValue;
 use crate::builder::postgres::aws_data_api::{
     Rows, aws_error, decode_rows, encode_params, execute_statement_raw,
 };
-use crate::builder::postgres::rows::DecodeRows as _;
 
 /// Returns an error indicating the transaction has already been consumed.
 fn tx_consumed_error() -> DrizzleError {
@@ -237,6 +236,31 @@ impl<Schema> Transaction<Schema> {
             .collect()
     }
 
+    /// Run a query and return a lazy decoded-row cursor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the Data API call fails.
+    pub async fn rows<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    where
+        R: for<'r> TryFrom<&'r Row>,
+        for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
+        T: ToSQL<'q, PostgresValue<'q>>,
+    {
+        let sql = query.to_sql();
+        let (sql_str, params) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.aws_data_api", "tx.rows");
+            let (sql_str, params) = sql.build_with(ParamStyle::ColonNumbered);
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+            (sql_str, params)
+        };
+
+        let sql_params = encode_params(params.as_slice());
+        let out = self.run_statement(&sql_str, sql_params).await?;
+        Ok(Rows::new(decode_rows(out)))
+    }
+
     /// Run a query and return a single row (errors if empty).
     ///
     /// # Errors
@@ -397,6 +421,29 @@ where
             decoded.push(R::try_from(row).map_err(Into::into)?);
         }
         Ok(decoded)
+    }
+
+    /// Run the builder and return a lazy decoded-row cursor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the Data API call fails.
+    pub async fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
+    where
+        Rw: for<'r> TryFrom<&'r Row>,
+        for<'r> <Rw as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
+    {
+        let (sql_str, params) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.aws_data_api", "tx_builder.rows");
+            let (sql_str, params) = self.builder.sql.build_with(ParamStyle::ColonNumbered);
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+            (sql_str, params)
+        };
+
+        let sql_params = encode_params(params.as_slice());
+        let out = self.runner.run_statement(&sql_str, sql_params).await?;
+        Ok(Rows::new(decode_rows(out)))
     }
 
     /// Run the builder and return a single row.

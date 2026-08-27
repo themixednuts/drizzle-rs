@@ -489,7 +489,7 @@ pub mod mysql {
     #[cfg_attr(docsrs, doc(cfg(feature = "mysql-sync")))]
     pub mod mysql_sync {
         #[doc(inline)]
-        pub use crate::builder::mysql::mysql_sync::{Drizzle, DrizzleBuilder, prepared};
+        pub use crate::builder::mysql::mysql_sync::{Drizzle, DrizzleBuilder, Rows, prepared};
         #[doc(inline)]
         pub use crate::transaction::mysql::mysql_sync::Transaction;
     }
@@ -504,7 +504,7 @@ pub mod mysql {
     #[cfg_attr(docsrs, doc(cfg(feature = "mysql-async")))]
     pub mod mysql_async {
         #[doc(inline)]
-        pub use crate::builder::mysql::mysql_async::{Drizzle, DrizzleBuilder, prepared};
+        pub use crate::builder::mysql::mysql_async::{Drizzle, DrizzleBuilder, Rows, prepared};
         #[doc(inline)]
         pub use crate::transaction::mysql::mysql_async::Transaction;
     }

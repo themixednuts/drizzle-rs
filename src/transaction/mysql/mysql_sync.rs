@@ -29,7 +29,7 @@ use crate::{
         common::{self, DrizzleBuilder},
         driver_common::{QueryOutput, render},
         mysql_sync::{
-            driver_error, execute_request_observing, initialize_session_observing,
+            Rows, driver_error, execute_request_observing, initialize_session_observing,
             query_first_request_observing, query_request_observing,
         },
     },
@@ -300,7 +300,19 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
     {
-        self.query_rendered(query)?.decode_all_rows()
+        self.rows::<_, R>(query)?.collect()
+    }
+
+    /// Executes typed MySQL SQL and returns a decoded iterator over its
+    /// materialized rows.
+    ///
+    /// The database result is fully consumed before this method returns.
+    pub fn rows<'q, T, R>(&self, query: T) -> Result<Rows<R>>
+    where
+        T: ToSQL<'q, MySQLValue<'q>>,
+        for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
+    {
+        Ok(self.query_rendered(query)?.rows::<R>())
     }
 
     /// Executes typed MySQL SQL and decodes the first row.
@@ -478,6 +490,18 @@ where
         self.runner
             .query_rendered(self.builder)?
             .decode_all::<Marker, R>()
+    }
+
+    /// Executes this query and returns a decoded iterator over its
+    /// materialized rows.
+    pub fn rows(self) -> Result<Rows<DecodedRow>>
+    where
+        for<'row> DecodedRow: FromDrizzleRow<MySQLRow<'row, Row>>,
+    {
+        Ok(self
+            .runner
+            .query_rendered(self.builder)?
+            .rows::<DecodedRow>())
     }
 
     /// Executes this query and decodes its first row.

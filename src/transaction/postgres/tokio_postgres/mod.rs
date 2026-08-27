@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 use tokio_postgres::{Row, Transaction as TokioPgTransaction};
 
-use crate::builder::postgres::tokio_postgres::prepared::ClientStatementCache;
+use crate::builder::postgres::tokio_postgres::{Rows, prepared::ClientStatementCache};
 use crate::transaction::savepoint::{AsyncSavepointState, async_savepoint};
 
 #[cfg(feature = "query")]
@@ -243,6 +243,43 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         }
 
         Ok(decoded.into_iter().collect())
+    }
+
+    /// Runs the query and returns a lazy decoded-row cursor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the query fails.
+    pub async fn rows<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    where
+        R: for<'r> TryFrom<&'r Row>,
+        for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
+        T: ToSQL<'q, PostgresValue<'q>>,
+    {
+        self.savepoints.ensure_usable()?;
+        let sql = query.to_sql();
+        let (sql_str, params) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx.rows");
+            let (sql_str, params) = sql.build();
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+            (sql_str, params)
+        };
+        let (param_types, param_refs) = materialize_params(&params);
+
+        let tx_ref = self.tx.borrow();
+        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let statement = self
+            .statement_cache
+            .transaction_statement(tx, &sql_str, &param_types)
+            .await
+            .map_err(DrizzleError::from)?;
+        let rows = tx
+            .query(&statement, &param_refs[..])
+            .await
+            .map_err(DrizzleError::from)?;
+
+        Ok(Rows::new(rows))
     }
 
     /// Runs the query and returns a single row (for SELECT queries)
@@ -659,6 +696,38 @@ where
             >>::decode(row)?);
         }
         Ok(decoded)
+    }
+
+    /// Runs the query and returns a lazy decoded-row cursor using the builder's row type.
+    pub async fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
+    where
+        Rw: for<'r> TryFrom<&'r Row>,
+        for<'r> <Rw as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
+    {
+        self.runner.savepoints.ensure_usable()?;
+        let (sql_str, params) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.tokio", "tx_builder.rows");
+            let (sql_str, params) = self.builder.sql.build();
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+            (sql_str, params)
+        };
+        let (param_types, param_refs) = materialize_params(&params);
+
+        let tx_ref = self.runner.tx.borrow();
+        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let statement = self
+            .runner
+            .statement_cache
+            .transaction_statement(tx, &sql_str, &param_types)
+            .await
+            .map_err(DrizzleError::from)?;
+        let rows = tx
+            .query(&statement, &param_refs[..])
+            .await
+            .map_err(DrizzleError::from)?;
+
+        Ok(Rows::new(rows))
     }
 
     /// Runs the query and returns a single row using the builder's row type.

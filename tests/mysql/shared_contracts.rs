@@ -9,6 +9,12 @@ crate::common::prepared::shared_prepared_statement_suite!(
     MySQLSchema,
     drizzle::mysql::types::Int
 );
+crate::common::rows::shared_rows_suite!(
+    mysql,
+    MySQLTable,
+    MySQLSchema,
+    TransactionConfig::default()
+);
 crate::common::transaction::shared_transaction_suite!(
     mysql,
     MySQLTable,

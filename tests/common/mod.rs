@@ -10,6 +10,7 @@ pub mod crud_join;
 pub mod helpers;
 pub mod prepared;
 pub mod query;
+pub mod rows;
 pub mod schema;
 pub mod seed;
 pub mod transaction;

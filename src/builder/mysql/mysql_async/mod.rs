@@ -44,6 +44,12 @@ use crate::{
 pub type DrizzleBuilder<'db, Runner, Schema, Builder, State> =
     common::DrizzleBuilder<'db, Runner, Schema, Builder, State>;
 
+/// Decoded MySQL rows from a fully materialized query result.
+///
+/// The iterator owns its result rows and does not retain a connection or
+/// transaction borrow while callers decode them.
+pub type Rows<R> = crate::builder::mysql::driver_common::Rows<R>;
+
 pub(crate) fn driver_error(error: mysql_async::Error) -> DrizzleError {
     DrizzleError::driver("MySQL", error)
 }
@@ -393,7 +399,19 @@ impl<Schema> Drizzle<Conn, Schema> {
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
     {
-        self.query_rendered(query).await?.decode_all_rows()
+        self.rows::<_, R>(query).await?.collect()
+    }
+
+    /// Executes typed MySQL SQL and returns a decoded iterator over its
+    /// materialized rows.
+    ///
+    /// The database result is fully consumed before this method returns.
+    pub async fn rows<'q, T, R>(&mut self, query: T) -> Result<Rows<R>>
+    where
+        T: ToSQL<'q, MySQLValue<'q>>,
+        for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
+    {
+        Ok(self.query_rendered(query).await?.rows::<R>())
     }
 
     pub async fn get<'q, R>(&mut self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<R>
@@ -516,7 +534,19 @@ impl<Schema> Drizzle<Pool, Schema> {
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
     {
-        self.query_rendered(query).await?.decode_all_rows()
+        self.rows::<_, R>(query).await?.collect()
+    }
+
+    /// Executes typed MySQL SQL and returns a decoded iterator over its
+    /// materialized rows.
+    ///
+    /// The database result is fully consumed before this method returns.
+    pub async fn rows<'q, T, R>(&self, query: T) -> Result<Rows<R>>
+    where
+        T: ToSQL<'q, MySQLValue<'q>>,
+        for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
+    {
+        Ok(self.query_rendered(query).await?.rows::<R>())
     }
 
     pub async fn get<'q, R>(&self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<R>
@@ -1080,6 +1110,19 @@ where
             .query_rendered(self.builder)
             .await?
             .decode_all::<Marker, R>()
+    }
+
+    /// Executes this query and returns a decoded iterator over its
+    /// materialized rows.
+    pub async fn rows(self) -> Result<Rows<DecodedRow>>
+    where
+        for<'row> DecodedRow: FromDrizzleRow<MySQLRow<'row, Row>>,
+    {
+        Ok(self
+            .runner
+            .query_rendered(self.builder)
+            .await?
+            .rows::<DecodedRow>())
     }
 
     pub async fn get<R, ScopeProof, AggProof>(self) -> Result<R>

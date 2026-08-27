@@ -16,12 +16,16 @@
 //!    `.await` injected on the terminal and `async move` on tx/savepoint
 //!    closures.
 //!
-//! 2. **Body-local helpers.** Only two remain, both tiny:
+//! 2. **Body-local helpers.** The generated module supplies small test-only
+//!    adapters:
 //!    - `result!(expr)` — opt out of rewriting for one expression; returns
 //!      the original `Result<T, E>`. Used for `.is_err()` assertions and
 //!      query-level rollback inside tx closures.
 //!    - `catch!(block)` — expect-panic wrapper; sync uses `catch_unwind`,
 //!      async uses `futures_util::future::FutureExt::catch_unwind`.
+//!
+//!    - `next_row!` and `collect_rows!` bridge iterator-backed adapters and
+//!      SQLite's asynchronous row cursors in shared cursor tests.
 //!
 //! A panic hook is installed at the top of each `fn run()` that appends the
 //! captured SQL trail to the panic message, so native `assert_eq!` / `panic!`
@@ -293,6 +297,8 @@ struct DriverSpec {
     /// the setup-module identifier (`{mod_suffix}_setup` in `common::helpers`).
     mod_suffix: &'static str,
     async_mode: bool,
+    /// Whether decoded rows are pulled from an asynchronous driver cursor.
+    async_rows: bool,
     /// Per-driver `drizzle_client!()` expansion for prepared statements.
     client_expr: TokenStream2,
 }
@@ -303,18 +309,21 @@ fn sqlite_driver_specs() -> Vec<DriverSpec> {
             feature: "rusqlite",
             mod_suffix: "rusqlite",
             async_mode: false,
+            async_rows: false,
             client_expr: quote!(db.conn()),
         },
         DriverSpec {
             feature: "libsql",
             mod_suffix: "libsql",
             async_mode: true,
+            async_rows: true,
             client_expr: quote!(db.conn()),
         },
         DriverSpec {
             feature: "turso",
             mod_suffix: "turso",
             async_mode: true,
+            async_rows: true,
             client_expr: quote!(db.conn()),
         },
     ]
@@ -326,6 +335,7 @@ fn postgres_driver_specs() -> Vec<DriverSpec> {
             feature: "postgres-sync",
             mod_suffix: "postgres_sync",
             async_mode: false,
+            async_rows: false,
             // postgres-sync prepared stmts need `&mut Client`
             client_expr: quote!(db.conn_mut()),
         },
@@ -333,6 +343,7 @@ fn postgres_driver_specs() -> Vec<DriverSpec> {
             feature: "tokio-postgres",
             mod_suffix: "tokio_postgres",
             async_mode: true,
+            async_rows: false,
             // tokio-postgres prepared stmts take `&Client`
             client_expr: quote!(db.conn()),
         },
@@ -345,12 +356,14 @@ fn mysql_driver_specs() -> Vec<DriverSpec> {
             feature: "mysql-sync",
             mod_suffix: "mysql_sync",
             async_mode: false,
+            async_rows: false,
             client_expr: quote!(db.conn_mut()),
         },
         DriverSpec {
             feature: "mysql-async",
             mod_suffix: "mysql_async",
             async_mode: true,
+            async_rows: false,
             client_expr: quote!(db.conn_mut()),
         },
     ]
@@ -383,7 +396,7 @@ fn emit_driver_module(fn_input: &FnInput, spec: &DriverSpec) -> TokenStream2 {
     let db_binding = rebind_db_stmt(&fn_input.db_pat, &fn_input.db_ty);
 
     let body = rewrite_body(fn_input.body.clone(), spec.async_mode);
-    let helper_macros = helper_macros(spec.async_mode, &spec.client_expr);
+    let helper_macros = helper_macros(spec.async_mode, spec.async_rows, &spec.client_expr);
     let panic_hook = install_panic_hook();
 
     quote! {
@@ -441,7 +454,7 @@ fn install_panic_hook() -> TokenStream2 {
     }
 }
 
-fn helper_macros(async_mode: bool, client_expr: &TokenStream2) -> TokenStream2 {
+fn helper_macros(async_mode: bool, async_rows: bool, client_expr: &TokenStream2) -> TokenStream2 {
     let client_macro = if client_expr.is_empty() {
         TokenStream2::new()
     } else {
@@ -505,8 +518,40 @@ fn helper_macros(async_mode: bool, client_expr: &TokenStream2) -> TokenStream2 {
             }
         }
     };
+    let rows = if async_rows {
+        quote! {
+            /// Pull one decoded row from an asynchronous cursor.
+            #[allow(unused_macros)]
+            macro_rules! next_row {
+                ($rows:expr) => { $rows.next().await };
+            }
+            /// Collect an asynchronous decoded-row cursor.
+            #[allow(unused_macros)]
+            macro_rules! collect_rows {
+                ($rows:expr) => { $rows.collect::<::std::vec::Vec<_>>().await };
+            }
+        }
+    } else {
+        quote! {
+            /// Pull one decoded row from an iterator-backed cursor.
+            #[allow(unused_macros)]
+            macro_rules! next_row {
+                ($rows:expr) => {
+                    ::core::iter::Iterator::next(&mut $rows).transpose()
+                };
+            }
+            /// Collect an iterator-backed decoded-row cursor.
+            #[allow(unused_macros)]
+            macro_rules! collect_rows {
+                ($rows:expr) => {
+                    ::core::iter::Iterator::collect::<drizzle::Result<::std::vec::Vec<_>>>($rows)
+                };
+            }
+        }
+    };
     quote! {
         #core
+        #rows
         #client_macro
     }
 }

@@ -10,6 +10,12 @@ crate::common::prepared::shared_prepared_statement_suite!(
     PostgresSchema,
     drizzle::postgres::types::Int4
 );
+crate::common::rows::shared_rows_suite!(
+    postgres,
+    PostgresTable,
+    PostgresSchema,
+    TransactionConfig::default()
+);
 crate::common::transaction::shared_transaction_suite!(
     postgres,
     PostgresTable,

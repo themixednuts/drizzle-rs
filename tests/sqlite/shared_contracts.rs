@@ -9,6 +9,12 @@ crate::common::prepared::shared_prepared_statement_suite!(
     SQLiteSchema,
     drizzle::sqlite::types::Integer
 );
+crate::common::rows::shared_rows_suite!(
+    sqlite,
+    SQLiteTable,
+    SQLiteSchema,
+    TransactionConfig::Deferred
+);
 crate::common::transaction::shared_transaction_suite!(
     sqlite,
     SQLiteTable,

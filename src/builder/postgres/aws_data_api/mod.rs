@@ -235,7 +235,7 @@ impl<Schema> Drizzle<Schema> {
         T: ToSQL<'a, PostgresValue<'a>>,
     {
         let mut rows = self.rows::<T, R>(query).await?;
-        rows.next()?.ok_or(DrizzleError::NotFound)
+        rows.next().transpose()?.ok_or(DrizzleError::NotFound)
     }
 
     /// Run a transaction. Returns `Ok(value)` to commit, `Err(...)` to rollback.

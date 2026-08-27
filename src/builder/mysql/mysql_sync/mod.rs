@@ -82,6 +82,12 @@ use crate::transaction::{
 pub type DrizzleBuilder<'db, Connection, Schema, Builder, State> =
     common::DrizzleBuilder<'db, &'db mut Drizzle<Connection, Schema>, Schema, Builder, State>;
 
+/// Decoded MySQL rows from a fully materialized query result.
+///
+/// The iterator owns its result rows and does not retain a connection or
+/// transaction borrow while callers decode them.
+pub type Rows<R> = crate::builder::mysql::driver_common::Rows<R>;
+
 pub(crate) fn driver_error(error: mysql::Error) -> DrizzleError {
     DrizzleError::driver("MySQL", error)
 }
@@ -418,7 +424,19 @@ impl<Connection: Queryable, Schema> Drizzle<Connection, Schema> {
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
     {
-        self.query_rendered(query)?.decode_all_rows()
+        self.rows::<_, R>(query)?.collect()
+    }
+
+    /// Executes typed MySQL SQL and returns a decoded iterator over its
+    /// materialized rows.
+    ///
+    /// The database result is fully consumed before this method returns.
+    pub fn rows<'q, T, R>(&mut self, query: T) -> Result<Rows<R>>
+    where
+        T: ToSQL<'q, MySQLValue<'q>>,
+        for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
+    {
+        Ok(self.query_rendered(query)?.rows::<R>())
     }
 
     /// Executes typed MySQL SQL and decodes the first row.
@@ -801,6 +819,15 @@ where
         self.runner
             .query_rendered(self.builder)?
             .decode_all::<Mk, R>()
+    }
+
+    /// Executes this query and returns a decoded iterator over its
+    /// materialized rows.
+    pub fn rows(self) -> Result<Rows<Rw>>
+    where
+        for<'row> Rw: FromDrizzleRow<MySQLRow<'row, Row>>,
+    {
+        Ok(self.runner.query_rendered(self.builder)?.rows::<Rw>())
     }
 
     /// Executes this query and decodes its first row.
