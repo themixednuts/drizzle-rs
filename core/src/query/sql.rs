@@ -417,7 +417,7 @@ fn write_inner_subquery_select_list(
 ) {
     // PostgreSQL and MySQL require LATERAL for derived tables that reference
     // columns from the outer query (the parent alias). MySQL supports this
-    // syntax from 8.0.14; drizzle-rs targets MySQL 8.4.
+    // syntax from 8.0.14; drizzle-rs targets MySQL 8.0.31 and newer.
     if matches!(dialect, Dialect::PostgreSQL | Dialect::MySQL) {
         sql.push_str("LATERAL ");
     }

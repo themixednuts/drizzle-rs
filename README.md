@@ -805,11 +805,11 @@ cargo run --example mysql --features mysql-sync
 ```
 
 `DRIZZLE_MYSQL_URL` overrides the example and test URL. First-class support
-targets Oracle MySQL 8.0.31 or newer; CI uses MySQL 8.4. MariaDB and SingleStore
-compatibility are not promised. TLS configuration belongs to the upstream
-`mysql`/`mysql_async` options supplied to Drizzle. The workspace enables their
-native-TLS backends, and Drizzle neither disables certificate validation nor
-silently changes the caller's transport policy.
+targets Oracle MySQL 8.0.31 or newer; CI runs both MySQL 8.0.31 and 8.4. MariaDB
+and SingleStore compatibility are not promised. TLS configuration belongs to
+the upstream `mysql`/`mysql_async` options supplied to Drizzle. The workspace
+enables their native-TLS backends, and Drizzle neither disables certificate
+validation nor silently changes the caller's transport policy.
 
 Before its first typed query on a connection, the adapter sets the session time
 zone to UTC and removes `NO_UNSIGNED_SUBTRACTION` from the session SQL mode.

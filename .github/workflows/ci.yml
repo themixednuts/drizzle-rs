@@ -140,17 +140,30 @@ jobs:
       matrix:
         include:
           - name: sync
+            mysql-version: "8.4"
             features: mysql-sync
             test-features: mysql-sync,query,serde,uuid,chrono,time,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
           - name: async
+            mysql-version: "8.4"
             features: mysql-async
             test-features: mysql-async,query,serde,uuid,chrono,time,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
           - name: unified
+            mysql-version: "8.4"
             features: mysql-sync,mysql-async
             test-features: mysql-sync,mysql-async,query,serde,uuid,chrono,time,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
+          # Run the same minimal/full/live contracts through each adapter on
+          # the oldest server in the documented compatibility range.
+          - name: minimum-sync
+            mysql-version: "8.0.31"
+            features: mysql-sync
+            test-features: mysql-sync,query,serde,uuid,chrono,time,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
+          - name: minimum-async
+            mysql-version: "8.0.31"
+            features: mysql-async
+            test-features: mysql-async,query,serde,uuid,chrono,time,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
     services:
       mysql:
-        image: mysql:8.4
+        image: mysql:${{ matrix.mysql-version }}
         env:
           MYSQL_ROOT_PASSWORD: mysql
           MYSQL_DATABASE: drizzle_test
@@ -181,11 +194,11 @@ jobs:
         run: cargo check -p drizzle --no-default-features --features "${{ matrix.features }},query"
 
       - name: Check driver-neutral dialect surface
-        if: matrix.features == 'mysql-sync'
+        if: matrix.name == 'sync'
         run: cargo check -p drizzle --no-default-features --features mysql
 
       - name: Reject async runtime dependencies
-        if: matrix.features == 'mysql-sync'
+        if: matrix.name == 'sync'
         shell: bash
         run: |
           if cargo tree -p drizzle --no-default-features --features mysql-sync,query --edges normal \
@@ -200,7 +213,7 @@ jobs:
           fi
 
       - name: Run MySQL builder compile-time tests
-        if: matrix.features == 'mysql-sync'
+        if: matrix.name == 'sync'
         # The relational `query` feature exposes a second public
         # `QueryBuilder`. That only changes how rustc qualifies type names in
         # diagnostics, so keep the dialect builder snapshots on their native
@@ -226,7 +239,7 @@ jobs:
         run: cargo test -p drizzle --no-default-features --features "${{ matrix.test-features }}"
 
       - name: Run MySQL example
-        if: matrix.features == 'mysql-sync'
+        if: matrix.name == 'sync'
         run: cargo run --example mysql --no-default-features --features mysql-sync
 
       - name: Run shared CLI parity contract
