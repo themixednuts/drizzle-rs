@@ -71,6 +71,7 @@ use mysql::{Row, Value, prelude::Queryable};
 use crate::builder::mysql::{
     common,
     driver_common::{QueryOutput, positional, render},
+    introspect,
 };
 use crate::transaction::{
     mysql::mysql_sync::{Transaction, TransactionConnection},
@@ -198,6 +199,75 @@ pub(crate) fn query_first_request<C: Queryable>(
     query_first_request_observing(connection, sql, values, |_| {})
 }
 
+fn catalog_query<C, T>(
+    connection: &mut C,
+    sql: &str,
+    values: &[MySQLValue<'_>],
+    decode: impl FnOnce(Vec<Row>) -> Result<T>,
+) -> Result<T>
+where
+    C: Queryable,
+{
+    let context_values = values.iter().collect::<Vec<_>>();
+    decode(query_request(connection, sql, values)?)
+        .with_query(|| QueryContext::new(sql, &context_values))
+}
+
+fn catalog<C: Queryable>(connection: &mut C) -> Result<introspect::Catalog> {
+    use drizzle_migrations::mysql::introspect::{
+        RawIntrospection, apply_show_create_view, queries,
+    };
+
+    let database = catalog_query(connection, queries::DATABASE, &[], introspect::database)?;
+    let selected_database = database.name.clone();
+    let values = [MySQLValue::from(selected_database.as_str())];
+    let mut raw = RawIntrospection {
+        database,
+        tables: catalog_query(connection, queries::TABLES, &values, introspect::tables)?,
+        columns: catalog_query(connection, queries::COLUMNS, &values, introspect::columns)?,
+        indexes: catalog_query(connection, queries::INDEXES, &values, introspect::indexes)?,
+        primary_keys: catalog_query(
+            connection,
+            queries::PRIMARY_KEYS,
+            &values,
+            introspect::primary_keys,
+        )?,
+        foreign_keys: catalog_query(
+            connection,
+            queries::FOREIGN_KEYS,
+            &values,
+            introspect::foreign_keys,
+        )?,
+        checks: catalog_query(connection, queries::CHECKS, &values, introspect::checks)?,
+        views: catalog_query(connection, queries::VIEWS, &values, introspect::views)?,
+    };
+
+    for view in &mut raw.views {
+        let sql = introspect::view_sql(&view.database, &view.name);
+        let statement = catalog_query(connection, &sql, &[], |rows| {
+            introspect::view_statement(rows, &view.name)
+        })?;
+        apply_show_create_view(view, &statement);
+    }
+
+    introspect::Catalog::assemble(raw)
+}
+
+fn apply<C, S>(connection: &mut C, schema: &S) -> Result<()>
+where
+    C: Queryable,
+    S: drizzle_migrations::Schema,
+{
+    let catalog = catalog(connection)?;
+    let desired = schema.to_snapshot();
+    for statement in catalog.plan(&desired)?.statements {
+        if !statement.trim().is_empty() {
+            execute_request(connection, &statement, &[])?;
+        }
+    }
+    Ok(())
+}
+
 /// Blocking MySQL database wrapper.
 ///
 /// `Connection` is the exact upstream resource supplied by the caller. A
@@ -274,6 +344,31 @@ impl<Connection: Queryable, Schema> Drizzle<Connection, Schema> {
         initialize_session(&mut self.connection)?;
         self.session_ready = true;
         Ok(())
+    }
+
+    /// Introspects the selected MySQL database.
+    ///
+    /// # Errors
+    ///
+    /// Returns DrizzleError when no database is selected, a catalog query
+    /// fails, or MySQL reports metadata that cannot be represented losslessly.
+    pub fn introspect(&mut self) -> Result<drizzle_migrations::schema::Snapshot> {
+        self.ensure_session()?;
+        catalog(&mut self.connection).map(introspect::Catalog::into_snapshot)
+    }
+
+    /// Brings the selected MySQL database in sync with the desired schema.
+    ///
+    /// MySQL can implicitly commit DDL. If a statement fails, earlier
+    /// statements from this push may already be committed.
+    ///
+    /// # Errors
+    ///
+    /// Returns DrizzleError if introspection, planning, or applying a generated
+    /// statement fails.
+    pub fn push<S: drizzle_migrations::Schema>(&mut self, schema: &S) -> Result<()> {
+        self.ensure_session()?;
+        apply(&mut self.connection, schema)
     }
 
     pub(crate) fn execute_rendered<'q>(

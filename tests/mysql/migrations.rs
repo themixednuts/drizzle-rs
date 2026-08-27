@@ -2,11 +2,11 @@
 
 #[cfg(feature = "mysql-sync")]
 use crate::common::helpers::mysql_sync_setup;
-use drizzle::migrations::{Migration, Tracking};
+use drizzle::migrations::{Migration, Snapshot, Tracking};
 #[cfg(feature = "mysql-sync")]
 use drizzle::{
     Dialect,
-    migrations::{DiffOptions, Schema as MigrationSchema, Snapshot, diff, diff_with},
+    migrations::{DiffOptions, Schema as MigrationSchema, diff, diff_with},
 };
 use drizzle::{core::SQL, mysql::prelude::*};
 #[cfg(feature = "mysql-sync")]
@@ -18,9 +18,81 @@ struct MigrationHarness {
     id: i32,
 }
 
+#[MySQLView(
+    NAME = "mysql_migration_harness_view",
+    DEFINITION = "SELECT id FROM mysql_migration_harness"
+)]
+struct MigrationHarnessView {
+    id: i32,
+}
+
 #[derive(MySQLSchema)]
 struct RuntimeMigrationSchema {
     harness: MigrationHarness,
+    harness_view: MigrationHarnessView,
+}
+
+#[drizzle::test]
+fn introspect_and_push_work_across_connection_adapters(db: &mut TestDb<RuntimeMigrationSchema>) {
+    let RuntimeMigrationSchema { harness, .. } = schema;
+    for statement in [
+        "DROP VIEW IF EXISTS mysql_migration_harness_view",
+        "DROP TABLE IF EXISTS mysql_migration_harness",
+        "DROP TABLE IF EXISTS mysql_migration_harness_view",
+        "DROP VIEW IF EXISTS mysql_push_unmanaged_view",
+        "DROP TABLE IF EXISTS mysql_push_unmanaged",
+        "CREATE TABLE mysql_push_unmanaged (id INT NOT NULL PRIMARY KEY)",
+        "CREATE VIEW mysql_push_unmanaged_view AS SELECT id FROM mysql_push_unmanaged",
+        "CREATE TABLE mysql_migration_harness_view (id INT NOT NULL PRIMARY KEY)",
+    ] {
+        result!(db.execute(SQL::raw(statement))).expect("prepare MySQL push test schema");
+    }
+
+    result!(db.push(&schema)).expect_err("the unmanaged table blocks the desired view");
+    result!(db.execute(SQL::raw(
+        "INSERT INTO mysql_migration_harness (id) VALUES (5)"
+    )))
+    .expect("MySQL keeps DDL applied before a later push statement fails");
+    result!(db.execute(SQL::raw("DROP TABLE mysql_migration_harness_view")))
+        .expect("remove the unmanaged view-name blocker");
+    result!(db.push(&schema)).expect("push the MySQL schema");
+    let snapshot = result!(db.introspect()).expect("introspect the pushed MySQL schema");
+    let Snapshot::MySQL(snapshot) = snapshot else {
+        panic!("MySQL introspection returned another dialect");
+    };
+    let ddl = drizzle::migrations::mysql::MySQLDDL::try_from_entities(snapshot.ddl)
+        .expect("introspection returns a valid MySQL snapshot");
+    assert!(ddl.tables.one(None, "mysql_migration_harness").is_some());
+    assert!(
+        ddl.views
+            .one(None, "mysql_migration_harness_view")
+            .is_some()
+    );
+
+    result!(db.push(&schema)).expect("repeated MySQL push is a no-op");
+    result!(db.execute(SQL::raw(
+        "INSERT INTO mysql_push_unmanaged (id) VALUES (11)"
+    )))
+    .expect("push preserves unmanaged tables");
+    let unmanaged: i32 = result!(db.get(SQL::raw(
+        "SELECT id FROM mysql_push_unmanaged_view WHERE id = 11"
+    )))
+    .expect("push preserves unmanaged views");
+    assert_eq!(unmanaged, 11);
+
+    db.insert(harness)
+        .value(InsertMigrationHarness::new(7))
+        .execute();
+    let selected: SelectMigrationHarness = db.select(()).from(harness).get();
+    assert_eq!(selected.id, 7);
+
+    for statement in [
+        "DROP VIEW mysql_migration_harness_view",
+        "DROP VIEW mysql_push_unmanaged_view",
+        "DROP TABLE mysql_push_unmanaged",
+    ] {
+        result!(db.execute(SQL::raw(statement))).expect("clean up unmanaged MySQL push fixture");
+    }
 }
 
 #[cfg(feature = "mysql-sync")]

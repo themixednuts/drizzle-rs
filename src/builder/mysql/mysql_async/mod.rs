@@ -35,6 +35,7 @@ use crate::{
     builder::mysql::{
         common,
         driver_common::{QueryOutput, positional, render},
+        introspect,
     },
     transaction::mysql::mysql_async::{Transaction, options},
 };
@@ -176,6 +177,77 @@ pub(crate) async fn query_first_request<C: Queryable + ?Sized>(
     query_first_request_observing(connection, sql, values, |_| {}).await
 }
 
+async fn catalog_query<C, T>(
+    connection: &mut C,
+    sql: &str,
+    values: &[MySQLValue<'_>],
+    decode: impl FnOnce(Vec<Row>) -> Result<T>,
+) -> Result<T>
+where
+    C: Queryable + ?Sized,
+{
+    let context_values = values.iter().collect::<Vec<_>>();
+    decode(query_request(connection, sql, values).await?)
+        .with_query(|| QueryContext::new(sql, &context_values))
+}
+
+async fn catalog(connection: &mut (impl Queryable + ?Sized)) -> Result<introspect::Catalog> {
+    use drizzle_migrations::mysql::introspect::{
+        RawIntrospection, apply_show_create_view, queries,
+    };
+
+    let database = catalog_query(connection, queries::DATABASE, &[], introspect::database).await?;
+    let selected_database = database.name.clone();
+    let values = [MySQLValue::from(selected_database.as_str())];
+    let mut raw = RawIntrospection {
+        database,
+        tables: catalog_query(connection, queries::TABLES, &values, introspect::tables).await?,
+        columns: catalog_query(connection, queries::COLUMNS, &values, introspect::columns).await?,
+        indexes: catalog_query(connection, queries::INDEXES, &values, introspect::indexes).await?,
+        primary_keys: catalog_query(
+            connection,
+            queries::PRIMARY_KEYS,
+            &values,
+            introspect::primary_keys,
+        )
+        .await?,
+        foreign_keys: catalog_query(
+            connection,
+            queries::FOREIGN_KEYS,
+            &values,
+            introspect::foreign_keys,
+        )
+        .await?,
+        checks: catalog_query(connection, queries::CHECKS, &values, introspect::checks).await?,
+        views: catalog_query(connection, queries::VIEWS, &values, introspect::views).await?,
+    };
+
+    for view in &mut raw.views {
+        let sql = introspect::view_sql(&view.database, &view.name);
+        let statement = catalog_query(connection, &sql, &[], |rows| {
+            introspect::view_statement(rows, &view.name)
+        })
+        .await?;
+        apply_show_create_view(view, &statement);
+    }
+
+    introspect::Catalog::assemble(raw)
+}
+
+async fn apply(
+    connection: &mut (impl Queryable + ?Sized),
+    schema: &impl drizzle_migrations::Schema,
+) -> Result<()> {
+    let catalog = catalog(connection).await?;
+    let desired = schema.to_snapshot();
+    for statement in catalog.plan(&desired)?.statements {
+        if !statement.trim().is_empty() {
+            execute_request(connection, &statement, &[]).await?;
+        }
+    }
+    Ok(())
+}
+
 /// Async MySQL database wrapper over an exact upstream connection or pool.
 pub struct Drizzle<Connection, Schema = ()> {
     connection: Connection,
@@ -247,6 +319,33 @@ impl<Schema> Drizzle<Conn, Schema> {
             self.session_ready = true;
         }
         Ok(())
+    }
+
+    /// Introspects the selected MySQL database.
+    ///
+    /// # Errors
+    ///
+    /// Returns DrizzleError when no database is selected, a catalog query
+    /// fails, or MySQL reports metadata that cannot be represented losslessly.
+    pub async fn introspect(&mut self) -> Result<drizzle_migrations::schema::Snapshot> {
+        self.ensure_session().await?;
+        catalog(&mut self.connection)
+            .await
+            .map(introspect::Catalog::into_snapshot)
+    }
+
+    /// Brings the selected MySQL database in sync with the desired schema.
+    ///
+    /// MySQL can implicitly commit DDL. If a statement fails, earlier
+    /// statements from this push may already be committed.
+    ///
+    /// # Errors
+    ///
+    /// Returns DrizzleError if introspection, planning, or applying a generated
+    /// statement fails.
+    pub async fn push<S: drizzle_migrations::Schema>(&mut self, schema: &S) -> Result<()> {
+        self.ensure_session().await?;
+        apply(&mut self.connection, schema).await
     }
 
     pub(crate) async fn execute_rendered<'q>(
@@ -349,6 +448,32 @@ impl<Schema> Drizzle<Pool, Schema> {
         let mut connection = self.connection.get_conn().await.map_err(driver_error)?;
         initialize_session(&mut connection).await?;
         Ok(connection)
+    }
+
+    /// Introspects the selected MySQL database on one checked-out connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns DrizzleError when checkout or catalog introspection fails.
+    pub async fn introspect(&self) -> Result<drizzle_migrations::schema::Snapshot> {
+        let mut connection = self.checkout().await?;
+        catalog(&mut connection)
+            .await
+            .map(introspect::Catalog::into_snapshot)
+    }
+
+    /// Brings the selected MySQL database in sync on one checked-out connection.
+    ///
+    /// MySQL can implicitly commit DDL. If a statement fails, earlier
+    /// statements from this push may already be committed.
+    ///
+    /// # Errors
+    ///
+    /// Returns DrizzleError if checkout, introspection, planning, or applying a
+    /// generated statement fails.
+    pub async fn push<S: drizzle_migrations::Schema>(&self, schema: &S) -> Result<()> {
+        let mut connection = self.checkout().await?;
+        apply(&mut connection, schema).await
     }
 
     pub(crate) async fn execute_rendered<'q>(

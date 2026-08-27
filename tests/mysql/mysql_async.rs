@@ -6,7 +6,7 @@ use drizzle::{
         SQL,
         expr::{count, eq},
     },
-    migrations::{Migration, Tracking},
+    migrations::{Migration, Snapshot, Tracking},
     mysql::{mysql_async::Drizzle, prelude::*},
 };
 use mysql_async::{Pool, PoolConstraints, PoolOpts, prelude::Queryable as _};
@@ -129,6 +129,26 @@ async fn prepared_queries_execute_through_one_pool_checkout() -> drizzle::Result
         .into_owned();
     let alice: SelectUser = prepared.get(db.conn(), [name.bind("Alice")]).await?;
     assert_eq!(alice.name, "Alice");
+
+    cleanup(db, &schema).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn pooled_introspection_and_push_work() -> drizzle::Result<()> {
+    let (db, schema, _guard) = setup_pool().await;
+
+    db.execute(SQL::raw("DROP TABLE test_posts")).await?;
+    db.push(&schema).await?;
+
+    let Snapshot::MySQL(snapshot) = db.introspect().await? else {
+        panic!("MySQL pooled introspection returned another dialect");
+    };
+    let ddl = drizzle::migrations::mysql::MySQLDDL::try_from_entities(snapshot.ddl)
+        .expect("pooled introspection returns a valid MySQL snapshot");
+    assert!(ddl.tables.one(None, "test_users").is_some());
+    assert!(ddl.tables.one(None, "test_posts").is_some());
+    db.push(&schema).await?;
 
     cleanup(db, &schema).await;
     Ok(())

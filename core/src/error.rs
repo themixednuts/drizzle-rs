@@ -177,6 +177,17 @@ pub enum DrizzleError {
         source: Box<dyn std::error::Error + Send + Sync>,
     },
 
+    /// Error from a higher-level subsystem kept as a typed source.
+    #[cfg(feature = "driver-error")]
+    #[error("{context}: {source}")]
+    External {
+        /// Operation or subsystem that failed.
+        context: CompactString,
+        /// Original error, retained as the error source.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
     /// Rusqlite specific errors
     #[cfg(feature = "rusqlite")]
     #[error("Rusqlite error: {0}")]
@@ -229,6 +240,18 @@ impl DrizzleError {
             source: Box::new(source),
         }
     }
+
+    /// Wraps an external subsystem error while preserving its source chain.
+    #[cfg(feature = "driver-error")]
+    pub fn external(
+        context: impl Into<CompactString>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self::External {
+            context: context.into(),
+            source: Box::new(source),
+        }
+    }
 }
 
 /// Result type for database operations
@@ -260,5 +283,23 @@ where
                 },
             }
         })
+    }
+}
+
+#[cfg(all(test, feature = "driver-error"))]
+mod tests {
+    use super::*;
+    use std::error::Error as _;
+
+    #[test]
+    fn external_errors_keep_their_source() {
+        let error =
+            DrizzleError::external("schema diff", std::io::Error::other("invalid snapshot"));
+
+        assert_eq!(error.to_string(), "schema diff: invalid snapshot");
+        assert_eq!(
+            error.source().map(ToString::to_string),
+            Some("invalid snapshot".to_string())
+        );
     }
 }

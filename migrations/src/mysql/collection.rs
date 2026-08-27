@@ -164,6 +164,34 @@ impl MySQLDDL {
         ddl
     }
 
+    pub(crate) fn set_database(&mut self, database: Option<Cow<'static, str>>) {
+        for table in self.tables.list_mut() {
+            table.database = database.clone();
+        }
+        for column in self.columns.list_mut() {
+            column.database = database.clone();
+        }
+        for index in self.indexes.list_mut() {
+            index.database = database.clone();
+        }
+        for primary_key in self.pks.list_mut() {
+            primary_key.database = database.clone();
+        }
+        for unique in self.uniques.list_mut() {
+            unique.database = database.clone();
+        }
+        for foreign_key in self.fks.list_mut() {
+            foreign_key.database = database.clone();
+            foreign_key.foreign_database = database.clone();
+        }
+        for check in self.checks.list_mut() {
+            check.database = database.clone();
+        }
+        for view in self.views.list_mut() {
+            view.database = database.clone();
+        }
+    }
+
     /// Build and validate a complete MySQL entity graph.
     pub fn try_from_entities(entities: Vec<MySQLEntity>) -> Result<Self, ValidationError> {
         let mut ddl = Self::from_entities(entities);

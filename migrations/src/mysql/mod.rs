@@ -11,4 +11,4 @@ pub mod statements;
 pub use collection::{MySQLDDL, TableEntities, ValidationError};
 pub use ddl::*;
 pub use diff::*;
-pub use snapshot::MySQLSnapshot;
+pub use snapshot::{MySQLSnapshot, PushError};

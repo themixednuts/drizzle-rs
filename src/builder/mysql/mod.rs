@@ -112,6 +112,9 @@ pub mod common;
 pub(crate) mod driver_common;
 
 #[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
+mod introspect;
+
+#[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
 mod migration;
 
 #[cfg(feature = "mysql-async")]

@@ -320,31 +320,7 @@ pub fn assemble_ddl(mut raw: RawIntrospection) -> Result<MySQLDDL, IntrospectErr
 /// while explicit `DATABASE` attributes remain available for user-authored
 /// qualified DDL.
 fn normalize_selected_database_scope(mut ddl: MySQLDDL) -> MySQLDDL {
-    for table in ddl.tables.list_mut() {
-        table.database = None;
-    }
-    for column in ddl.columns.list_mut() {
-        column.database = None;
-    }
-    for index in ddl.indexes.list_mut() {
-        index.database = None;
-    }
-    for primary_key in ddl.pks.list_mut() {
-        primary_key.database = None;
-    }
-    for unique in ddl.uniques.list_mut() {
-        unique.database = None;
-    }
-    for foreign_key in ddl.fks.list_mut() {
-        foreign_key.database = None;
-        foreign_key.foreign_database = None;
-    }
-    for check in ddl.checks.list_mut() {
-        check.database = None;
-    }
-    for view in ddl.views.list_mut() {
-        view.database = None;
-    }
+    ddl.set_database(None);
     ddl
 }
 
@@ -819,7 +795,9 @@ SELECT c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME, c.COLUMN_TYPE,
        c.CHARACTER_SET_NAME, c.COLLATION_NAME, c.COLUMN_COMMENT,
        c.ORDINAL_POSITION
 FROM information_schema.COLUMNS c
-WHERE c.TABLE_SCHEMA = ?
+JOIN information_schema.TABLES t
+  ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
+WHERE c.TABLE_SCHEMA = ? AND t.TABLE_TYPE = 'BASE TABLE'
 ORDER BY c.TABLE_NAME, c.ORDINAL_POSITION"#;
 
     pub const INDEXES: &str = r#"
