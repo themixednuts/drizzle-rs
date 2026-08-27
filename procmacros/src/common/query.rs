@@ -60,13 +60,16 @@ pub enum FieldStorageKind {
     MySQLBlob,
     /// MySQL text decoded through the same checked codec as a wire row.
     MySQLText,
+    /// A MySQL column whose projection and decoding are owned by
+    /// `DrizzleMySQLColumn` and its SQL type marker.
+    MySQLColumn,
     /// A SQLite column whose storage and decoding are owned by
     /// `DrizzleSQLiteColumn`.
     SQLiteColumn,
 }
 
 /// SQL normalization applied before a field enters a relational JSON object.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone)]
 pub enum FieldProjectionKind {
     /// Use the SQL value as-is.
     Native,
@@ -79,6 +82,9 @@ pub enum FieldProjectionKind {
     /// Cast to an unsigned integer before JSON construction.
     #[cfg(feature = "mysql")]
     Unsigned,
+    /// Use projection metadata from a custom Rust type's MySQL SQL marker.
+    #[cfg(feature = "mysql")]
+    MySQLColumn(Box<syn::Type>),
 }
 
 /// Info about a field for generating JSON decoders.
@@ -255,7 +261,7 @@ fn generate_query_table(
         .iter()
         .filter_map(|field| {
             let column = field.column_name.as_str();
-            let kind = match field.projection {
+            let kind = match &field.projection {
                 FieldProjectionKind::Native => return None,
                 FieldProjectionKind::TaggedHex => {
                     quote!(drizzle::core::query::JsonProjectionKind::TaggedHex)
@@ -264,6 +270,10 @@ fn generate_query_table(
                 FieldProjectionKind::Unsigned => {
                     quote!(drizzle::core::query::JsonProjectionKind::Unsigned)
                 }
+                FieldProjectionKind::MySQLColumn(base_type) => quote!(
+                    <<#base_type as drizzle::mysql::traits::DrizzleMySQLColumn>::SQLType
+                        as drizzle::mysql::traits::MySQLColumnType>::JSON_PROJECTION
+                ),
             };
             Some(quote! {
                 drizzle::core::query::JsonColumnProjection {
@@ -782,6 +792,9 @@ fn generate_json_decoder(
                 FieldStorageKind::MySQLText => {
                     generate_mysql_text_decode(ident, col_name, &f.base_type, is_nullable)
                 }
+                FieldStorageKind::MySQLColumn => {
+                    generate_mysql_column_decode(ident, col_name, &f.base_type, is_nullable)
+                }
                 FieldStorageKind::SQLiteColumn => {
                     generate_sqlite_column_decode(ident, col_name, &f.base_type, is_nullable)
                 }
@@ -1169,6 +1182,43 @@ fn generate_mysql_text_decode(
 ) -> TokenStream {
     let decode = quote! {
         drizzle::mysql::driver::decode_text::<#base_type>(&raw)
+            .map_err(|e| {
+                <__A::Error as drizzle::core::serde::de::Error>::custom(
+                    ::std::format!("field '{}': {e}", #col_name)
+                )
+            })?
+    };
+
+    if is_nullable {
+        quote! {
+            #col_name => {
+                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
+                state.#ident = ::std::option::Option::Some(match raw {
+                    drizzle::core::serde_json::Value::Null => ::std::option::Option::None,
+                    raw => ::std::option::Option::Some({ #decode }),
+                });
+                ::std::result::Result::Ok(true)
+            }
+        }
+    } else {
+        quote! {
+            #col_name => {
+                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
+                state.#ident = ::std::option::Option::Some({ #decode });
+                ::std::result::Result::Ok(true)
+            }
+        }
+    }
+}
+
+fn generate_mysql_column_decode(
+    ident: &Ident,
+    col_name: &str,
+    base_type: &syn::Type,
+    is_nullable: bool,
+) -> TokenStream {
+    let decode = quote! {
+        drizzle::mysql::driver::decode_projected::<#base_type>(&raw)
             .map_err(|e| {
                 <__A::Error as drizzle::core::serde::de::Error>::custom(
                     ::std::format!("field '{}': {e}", #col_name)

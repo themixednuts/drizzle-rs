@@ -36,11 +36,29 @@ pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
     let select_model_derive = quote! { #[derive(Debug, Clone)] };
     let partial_select_model_derive = quote! { #[derive(Debug, Clone, Default)] };
     let field_count = select_types.len();
-    let row_field_inits = select_field_names
+    let row_field_inits = ctx
+        .field_infos
         .iter()
         .zip(select_types.iter())
         .enumerate()
-        .map(|(index, (field_name, field_type))| {
+        .map(|(index, (field, field_type))| {
+            let field_name = &field.ident;
+            if field.is_custom_type {
+                let base_type = &field.base_type;
+                let decode = quote!(row.decode_column::<#base_type>(offset + #index)?);
+                let decode = if field.is_nullable {
+                    quote! {
+                        if row.is_null_at(offset + #index)? {
+                            ::std::option::Option::None
+                        } else {
+                            ::std::option::Option::Some(#decode)
+                        }
+                    }
+                } else {
+                    decode
+                };
+                return quote!(#field_name: #decode,);
+            }
             quote! {
                 #field_name: <#field_type as drizzle::core::FromDrizzleRow<
                     drizzle::mysql::driver::MySQLRow<'__drizzle_row, __DrizzleRow>

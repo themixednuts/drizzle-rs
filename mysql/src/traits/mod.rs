@@ -1,10 +1,15 @@
 mod column;
 mod table;
+mod value;
 
 #[doc(hidden)]
 pub use column::optional_str_eq;
 pub use column::{MySQLColumn, MySQLIndexColumn};
 pub use table::{MySQLInsertSelectTarget, MySQLTable};
+#[cfg(feature = "query")]
+#[doc(hidden)]
+pub use value::MySQLJsonStorage;
+pub use value::{DrizzleMySQLColumn, MySQLColumnType};
 
 use drizzle_core::error::DrizzleError;
 

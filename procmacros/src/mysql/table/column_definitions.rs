@@ -35,6 +35,50 @@ fn generate_marker_const(info: &FieldInfo, _zst_ident: &Ident) -> TokenStream {
     }
 }
 
+pub(super) fn generate_custom_comparison_operand_impls(
+    info: &FieldInfo,
+    zst_ident: &Ident,
+    mysql_value: &TokenStream,
+) -> TokenStream {
+    if !info.is_custom_type {
+        return TokenStream::new();
+    }
+
+    let value_type = &info.base_type;
+    let drizzle_mysql_column = mysql_paths::drizzle_mysql_column();
+
+    quote! {
+        impl<'a> drizzle::core::expr::ComparisonOperand<'a, #mysql_value<'a>, #zst_ident>
+            for #value_type
+        {
+            type SQLType = <#value_type as #drizzle_mysql_column>::SQLType;
+            type Aggregate = drizzle::core::expr::Scalar;
+
+            fn into_comparison_sql(self) -> drizzle::core::SQL<'a, #mysql_value<'a>> {
+                let value: #mysql_value<'a> =
+                    <#value_type as #drizzle_mysql_column>::encode_owned(self).into();
+                drizzle::core::SQL::param(value)
+            }
+        }
+
+        impl<'a, 'value>
+            drizzle::core::expr::ComparisonOperand<'a, #mysql_value<'a>, #zst_ident>
+            for &'value #value_type
+        {
+            type SQLType = <#value_type as #drizzle_mysql_column>::SQLType;
+            type Aggregate = drizzle::core::expr::Scalar;
+
+            fn into_comparison_sql(self) -> drizzle::core::SQL<'a, #mysql_value<'a>> {
+                let value: #mysql_value<'a> =
+                    <#value_type as #drizzle_mysql_column>::encode(self)
+                        .into_owned()
+                        .into();
+                drizzle::core::SQL::param(value)
+            }
+        }
+    }
+}
+
 /// Generates the column ZSTs and their `SQLColumn` implementations.
 pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStream, Vec<Ident>)> {
     let mut all_column_code = TokenStream::new();
@@ -208,7 +252,9 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             &sql_type_marker,
             &sql_nullable_marker,
         );
-        let arithmetic_ops = if info.is_numeric() {
+        let custom_comparison_operand_impls =
+            generate_custom_comparison_operand_impls(info, &zst_ident, &mysql_value);
+        let arithmetic_ops = if !info.is_custom_type && info.is_numeric() {
             generate_arithmetic_ops(
                 &zst_ident,
                 mysql_value.clone(),
@@ -218,7 +264,10 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
         } else {
             TokenStream::new()
         };
-        let assignment_validation = quote! {
+        let assignment_validation = if info.is_custom_type {
+            TokenStream::new()
+        } else {
+            quote! {
             const _: () = {
                 fn assert_mysql_assignment<T, Expected>()
                 where
@@ -233,6 +282,20 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
 
                 let _ = assert_mysql_assignment::<#value_type, #sql_type_marker>;
             };
+            }
+        };
+        let codec_storage_validation = if info.is_custom_type && info.has_explicit_type {
+            let drizzle_mysql_column = mysql_paths::drizzle_mysql_column();
+            quote! {
+                const _: fn() = || {
+                    fn assert_column_storage<
+                        T: #drizzle_mysql_column<SQLType = #sql_type_marker>,
+                    >() {}
+                    assert_column_storage::<#value_type>();
+                };
+            }
+        } else {
+            TokenStream::new()
         };
         let effective_charset = info.charset.as_deref().or(ctx.attrs.charset.as_deref());
         let charset = effective_charset.map_or_else(
@@ -251,7 +314,16 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             &charset,
             &collate,
         );
-        let index_column_impl = if info.is_indexable_without_prefix() {
+        let index_column_impl = if info.is_custom_type {
+            let drizzle_mysql_column = mysql_paths::drizzle_mysql_column();
+            quote! {
+                impl drizzle::mysql::traits::MySQLIndexColumn for #zst_ident
+                where
+                    <#value_type as #drizzle_mysql_column>::SQLType:
+                        drizzle::mysql::index::IndexType,
+                {}
+            }
+        } else if info.is_indexable_without_prefix() {
             quote!(impl drizzle::mysql::traits::MySQLIndexColumn for #zst_ident {})
         } else {
             TokenStream::new()
@@ -323,8 +395,10 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
                 type Columns = #group_by_columns_ty;
             }
             #expr_impl
+            #custom_comparison_operand_impls
             #arithmetic_ops
             #assignment_validation
+            #codec_storage_validation
         };
         all_column_code.extend(column_code);
     }

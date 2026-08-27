@@ -241,6 +241,7 @@ pub(super) fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
         .field_infos
         .iter()
         .map(|field| {
+            let is_custom = field.is_custom_type;
             let is_bit = matches!(&field.column_type, drizzle_types::mysql::MySQLType::Bit);
             let is_binary_rust_type = type_is_vec_u8(&field.base_type)
                 || type_is_array_u8(&field.base_type)
@@ -264,7 +265,9 @@ pub(super) fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
                     | drizzle_types::mysql::MySQLType::Datetime
                     | drizzle_types::mysql::MySQLType::Timestamp
             );
-            let storage = if is_binary {
+            let storage = if is_custom {
+                FieldStorageKind::MySQLColumn
+            } else if is_binary {
                 FieldStorageKind::MySQLBlob
             } else if is_text_cast {
                 FieldStorageKind::MySQLText
@@ -275,7 +278,9 @@ pub(super) fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
             } else {
                 FieldStorageKind::Plain
             };
-            let projection = if is_binary {
+            let projection = if is_custom {
+                FieldProjectionKind::MySQLColumn(Box::new(field.base_type.clone()))
+            } else if is_binary {
                 FieldProjectionKind::TaggedHex
             } else if is_text_cast {
                 FieldProjectionKind::Text

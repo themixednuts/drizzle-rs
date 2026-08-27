@@ -62,6 +62,8 @@ pub struct FieldInfo {
     pub is_nullable: bool,
     pub is_enum: bool,
     pub is_set: bool,
+    pub has_explicit_type: bool,
+    pub is_custom_type: bool,
     pub is_auto_increment: bool,
     pub generated_column: Option<GeneratedColumn>,
     pub default: Option<MySQLDefault>,
@@ -155,6 +157,10 @@ impl FieldInfo {
             ));
         }
         let rust_category = mysql_rust_category(&base_type);
+        let is_custom_type = matches!(rust_category, MySQLRustTypeCategory::Unknown)
+            && !parsed.is_enum
+            && !parsed.is_set;
+        let has_explicit_type = parsed.explicit_type.is_some();
 
         let column_type = if parsed.is_enum {
             if parsed.explicit_type.is_some() {
@@ -171,6 +177,8 @@ impl FieldInfo {
         } else if let Some(explicit) = parsed.explicit_type.take() {
             validate_explicit_signedness(field, rust_category, &explicit)?;
             explicit
+        } else if is_custom_type {
+            MySQLType::Text
         } else {
             let (column_type, inferred_args) = infer_mysql_type(field, &base_type, rust_category)?;
             parsed.type_args = inferred_args;
@@ -190,6 +198,15 @@ impl FieldInfo {
             return Err(Error::new_spanned(
                 field,
                 "MySQL primary-key fields cannot be nullable; remove Option<T>",
+            ));
+        }
+        if is_custom_type
+            && !has_explicit_type
+            && (parsed.charset.is_some() || parsed.collate.is_some())
+        {
+            return Err(Error::new_spanned(
+                field,
+                "CHARACTER_SET/CHARSET and COLLATE on a custom column require an explicit matching MySQL character type",
             ));
         }
         if (parsed.charset.is_some() || parsed.collate.is_some())
@@ -285,6 +302,8 @@ impl FieldInfo {
             is_nullable,
             is_enum: parsed.is_enum,
             is_set: parsed.is_set,
+            has_explicit_type,
+            is_custom_type,
             is_auto_increment: parsed.is_auto_increment,
             generated_column: parsed.generated,
             default: parsed.default,
@@ -330,6 +349,9 @@ impl FieldInfo {
         if self.is_enum {
             let ty = &self.base_type;
             quote!(<#ty as drizzle::mysql::traits::MySQLEnum>::SQL_TYPE)
+        } else if self.is_custom_type {
+            let ty = &self.base_type;
+            quote!(<#ty as drizzle::mysql::traits::DrizzleMySQLColumn>::SQL_TYPE)
         } else {
             let rendered = render_type(&self.column_type, &self.type_args);
             quote!(#rendered)
@@ -337,6 +359,11 @@ impl FieldInfo {
     }
 
     pub fn sql_type_marker(&self) -> TokenStream {
+        if self.is_custom_type {
+            let ty = &self.base_type;
+            return quote!(<#ty as drizzle::mysql::traits::DrizzleMySQLColumn>::SQLType);
+        }
+
         use MySQLType as T;
         match &self.column_type {
             T::Tinyint => quote!(drizzle::mysql::types::TinyInt),
@@ -378,18 +405,31 @@ impl FieldInfo {
     }
 
     pub fn sql_definition_expr(&self) -> TokenStream {
-        if !self.is_enum {
+        if !self.is_enum && !self.is_custom_type {
             let definition = &self.sql_definition;
             return quote!(#definition);
         }
         let const_format = crate::common::paths::const_format();
-        let enum_type = self.sql_type_expr();
-        let placeholder = "__DRIZZLE_MYSQL_INLINE_ENUM__";
-        let (prefix, suffix) = self
-            .sql_definition
-            .split_once(placeholder)
-            .unwrap_or((&self.sql_definition, ""));
-        quote!(#const_format::concatcp!(#prefix, #enum_type, #suffix))
+        let sql_type = self.sql_type_expr();
+        if self.is_enum {
+            let placeholder = "__DRIZZLE_MYSQL_INLINE_ENUM__";
+            let (prefix, suffix) = self
+                .sql_definition
+                .split_once(placeholder)
+                .unwrap_or((&self.sql_definition, ""));
+            quote!(#const_format::concatcp!(#prefix, #sql_type, #suffix))
+        } else {
+            let prefix = format!("`{}` ", self.column_name.replace('`', "``"));
+            let placeholder = format!(
+                "{prefix}{}",
+                render_type(&self.column_type, &self.type_args)
+            );
+            let suffix = self
+                .sql_definition
+                .strip_prefix(&placeholder)
+                .unwrap_or_default();
+            quote!(#const_format::concatcp!(#prefix, #sql_type, #suffix))
+        }
     }
 
     pub fn is_indexable_without_prefix(&self) -> bool {
@@ -739,6 +779,8 @@ fn mysql_rust_category(ty: &Type) -> MySQLRustTypeCategory {
         MySQLRustTypeCategory::F32
     } else if type_is_float(ty, "f64") {
         MySQLRustTypeCategory::F64
+    } else if cfg!(feature = "rust-decimal") && type_is_int(ty, "Decimal") {
+        MySQLRustTypeCategory::Decimal
     } else if type_is_int(ty, "i8") {
         MySQLRustTypeCategory::I8
     } else if type_is_int(ty, "i16") {

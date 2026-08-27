@@ -908,6 +908,9 @@ fn write_json_column(
             .find(|projection| projection.column == column)
     {
         match projection.kind {
+            JsonProjectionKind::Native => {
+                write_qualified_column(dialect, alias, column, sql);
+            }
             JsonProjectionKind::TaggedHex => {
                 // MySQL JSON constructors reject binary-character-set strings.
                 // Tag and hex-encode them for lossless driver-side decoding.

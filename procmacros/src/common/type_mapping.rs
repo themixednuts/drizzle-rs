@@ -166,7 +166,10 @@ pub fn generate_arithmetic_ops(
         quote! {
             impl<Rhs> ::core::ops::#op_trait<Rhs> for #struct_ident
             where
-                Rhs: ::core::marker::Copy,
+                Rhs: ::core::marker::Copy
+                    + #expr::ArithmeticRhs<
+                        <#value_type<'static> as drizzle::core::SQLParam>::DialectMarker,
+                    >,
                 (): #expr::BuildColumnArithmetic<
                     #struct_ident,
                     Rhs,

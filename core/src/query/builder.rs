@@ -402,6 +402,8 @@ where
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JsonProjectionKind {
+    /// Use the SQL value as-is.
+    Native,
     /// Preserve binary bytes as a tagged hexadecimal JSON object.
     TaggedHex,
     /// Cast the SQL value to text before JSON construction.

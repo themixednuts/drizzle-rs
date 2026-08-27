@@ -33,6 +33,7 @@ pub enum TypeCategory {
     Usize,
     F32,
     F64,
+    Decimal,
     Bool,
     NaiveDate,
     NaiveTime,
@@ -117,6 +118,9 @@ impl TypeCategory {
         if type_str.contains("Vec<u8>") {
             return Self::Blob;
         }
+        if type_str == "Decimal" || type_str == "rust_decimal::Decimal" {
+            return Self::Decimal;
+        }
 
         match type_str.as_str() {
             "i8" => Self::I8,
@@ -150,6 +154,7 @@ impl TypeCategory {
             Self::U64 | Self::Usize => Some(MySQLType::BigintUnsigned),
             Self::F32 => Some(MySQLType::Float),
             Self::F64 => Some(MySQLType::Double),
+            Self::Decimal => Some(MySQLType::Decimal),
             Self::Bool => Some(MySQLType::Boolean),
             Self::String => Some(MySQLType::Text),
             Self::ArrayString => Some(MySQLType::Varchar),
@@ -409,6 +414,14 @@ mod tests {
         assert_eq!(
             TypeCategory::classify("chrono::NaiveDateTime").sql_type(),
             Some(MySQLType::Datetime)
+        );
+        assert_eq!(
+            TypeCategory::classify("rust_decimal::Decimal").sql_type(),
+            Some(MySQLType::Decimal)
+        );
+        assert_eq!(
+            TypeCategory::classify("Decimal").sql_type(),
+            Some(MySQLType::Decimal)
         );
     }
 

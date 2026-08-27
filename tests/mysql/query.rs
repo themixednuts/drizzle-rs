@@ -95,6 +95,8 @@ fn mysql_relational_projection_preserves_exact_decimal(db: &mut TestDb<MySQLQuer
 
     let MySQLQueryDecimalSchema { values } = schema;
     let amount = rust_decimal::Decimal::from_str("1234567890.123456789012345678").unwrap();
+    let _comparison = eq(values.amount, amount);
+    let _arithmetic = values.amount + amount;
     db.insert(values)
         .value(InsertMySQLQueryDecimalValue::new(amount).with_id(1))
         .execute();

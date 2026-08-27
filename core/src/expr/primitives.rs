@@ -430,6 +430,17 @@ where
     type Aggregate = Scalar;
 }
 
+#[cfg(feature = "rust-decimal")]
+impl<'a, V> Expr<'a, V> for rust_decimal::Decimal
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
+{
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
+    type Nullable = NonNull;
+    type Aggregate = Scalar;
+}
+
 // =============================================================================
 // SQL Type - Backward Compatibility
 // Allows untyped columns (which return SQL) to work with typed functions.

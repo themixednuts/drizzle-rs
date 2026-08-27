@@ -546,6 +546,10 @@ pub mod mysql {
         quote!(drizzle::mysql::traits::MySQLColumn)
     }
 
+    pub fn drizzle_mysql_column() -> TokenStream {
+        quote!(drizzle::mysql::traits::DrizzleMySQLColumn)
+    }
+
     pub fn mysql_index_column() -> TokenStream {
         quote!(drizzle::mysql::traits::MySQLIndexColumn)
     }

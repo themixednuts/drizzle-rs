@@ -142,6 +142,15 @@ impl<'a> From<MySQLValue<'a>> for SQL<'a, MySQLValue<'a>> {
     }
 }
 
+impl<'a, T> From<T> for MySQLValue<'a>
+where
+    T: crate::traits::DrizzleMySQLColumn,
+{
+    fn from(value: T) -> Self {
+        value.encode_owned().into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

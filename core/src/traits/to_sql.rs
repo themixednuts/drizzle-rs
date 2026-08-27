@@ -400,3 +400,13 @@ where
         SQL::param(V::from(*self))
     }
 }
+
+#[cfg(feature = "rust-decimal")]
+impl<'a, V> ToSQL<'a, V> for rust_decimal::Decimal
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(*self))
+    }
+}

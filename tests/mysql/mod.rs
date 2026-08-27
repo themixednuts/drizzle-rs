@@ -7,6 +7,8 @@ pub mod seed;
 #[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
 pub mod crud;
 #[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
+pub mod custom_column;
+#[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
 pub mod migrations;
 #[cfg(feature = "mysql-async")]
 pub mod mysql_async;

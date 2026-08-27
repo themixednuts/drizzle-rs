@@ -4,8 +4,11 @@
 //! abstraction. It owns only the data that crosses that boundary: a borrowed
 //! row view and checked value decoding.
 
+#[cfg(feature = "query")]
+use crate::traits::MySQLJsonStorage;
 use crate::{
     prelude::*,
+    traits::DrizzleMySQLColumn,
     values::{MySQLValue, OwnedMySQLValue},
 };
 use drizzle_core::{FromDrizzleRow, error::DrizzleError};
@@ -74,6 +77,17 @@ impl<'row, R: MySQLRowAccess + ?Sized> MySQLRow<'row, R> {
     pub fn is_null_at(&self, offset: usize) -> Result<bool, DrizzleError> {
         Ok(self.value_at(offset)?.is_null())
     }
+
+    /// Decodes a custom column through its type-owned codec.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the offset is missing, the adapter cannot inspect
+    /// the row, or the codec rejects the stored value.
+    #[doc(hidden)]
+    pub fn decode_column<T: DrizzleMySQLColumn>(&self, offset: usize) -> Result<T, DrizzleError> {
+        T::decode(self.value_at(offset)?)
+    }
 }
 
 impl MySQLRowAccess for [OwnedMySQLValue] {
@@ -105,6 +119,14 @@ pub trait DecodeMySQLValue: Sized {
     }
 }
 
+impl<T: DrizzleMySQLColumn> DecodeMySQLValue for T {
+    const EXPECTED: &'static str = T::SQL_TYPE;
+
+    fn decode(value: MySQLValue<'_>) -> Result<Self, DrizzleError> {
+        T::decode(value)
+    }
+}
+
 /// Decodes a binary value emitted by the MySQL relational JSON projection.
 ///
 /// This is a macro/runtime seam, not an application-level codec API. The SQL
@@ -113,6 +135,11 @@ pub trait DecodeMySQLValue: Sized {
 #[cfg(feature = "query")]
 #[doc(hidden)]
 pub fn decode_blob<T: DecodeMySQLValue>(projected: &serde_json::Value) -> Result<T, DrizzleError> {
+    T::decode(MySQLValue::from(projected_binary(projected)?))
+}
+
+#[cfg(feature = "query")]
+fn projected_binary(projected: &serde_json::Value) -> Result<Vec<u8>, DrizzleError> {
     let object = projected.as_object().ok_or_else(|| {
         DrizzleError::ConversionError("projected MySQL binary value is not an object".into())
     })?;
@@ -145,7 +172,7 @@ pub fn decode_blob<T: DecodeMySQLValue>(projected: &serde_json::Value) -> Result
         let low = decode_hex_nibble(pair[1])?;
         bytes.push((high << 4) | low);
     }
-    T::decode(MySQLValue::from(bytes))
+    Ok(bytes)
 }
 
 /// Decodes a text scalar emitted by MySQL's JSON projection using the same
@@ -157,6 +184,173 @@ pub fn decode_text<T: DecodeMySQLValue>(projected: &serde_json::Value) -> Result
         DrizzleError::ConversionError("projected MySQL text value is not a string".into())
     })?;
     T::decode(MySQLValue::from(text))
+}
+
+/// Decodes a custom column emitted by MySQL's relational JSON projection.
+#[cfg(feature = "query")]
+#[doc(hidden)]
+pub fn decode_projected<T: DrizzleMySQLColumn>(
+    projected: &serde_json::Value,
+) -> Result<T, DrizzleError> {
+    T::decode_json(projected)
+}
+
+#[cfg(feature = "query")]
+#[doc(hidden)]
+pub fn projected_value(
+    projected: &serde_json::Value,
+    storage: MySQLJsonStorage,
+) -> Result<OwnedMySQLValue, DrizzleError> {
+    match storage {
+        MySQLJsonStorage::Signed => projected
+            .as_i64()
+            .map(OwnedMySQLValue::Int)
+            .ok_or_else(|| projected_error("signed integer")),
+        MySQLJsonStorage::Unsigned => projected
+            .as_u64()
+            .map(OwnedMySQLValue::UInt)
+            .ok_or_else(|| projected_error("unsigned integer")),
+        MySQLJsonStorage::Double => projected
+            .as_f64()
+            .map(OwnedMySQLValue::Double)
+            .ok_or_else(|| projected_error("number")),
+        MySQLJsonStorage::Boolean => projected
+            .as_bool()
+            .map(i64::from)
+            .or_else(|| projected.as_i64().filter(|value| matches!(value, 0 | 1)))
+            .map(OwnedMySQLValue::Int)
+            .ok_or_else(|| projected_error("boolean")),
+        MySQLJsonStorage::Text => projected
+            .as_str()
+            .map(|value| OwnedMySQLValue::Bytes(value.as_bytes().to_vec()))
+            .ok_or_else(|| projected_error("string")),
+        MySQLJsonStorage::SignedText => projected_text(projected)?
+            .parse()
+            .map(OwnedMySQLValue::Int)
+            .map_err(|_| projected_error("signed integer string")),
+        MySQLJsonStorage::UnsignedText => projected_text(projected)?
+            .parse()
+            .map(OwnedMySQLValue::UInt)
+            .map_err(|_| projected_error("unsigned integer string")),
+        MySQLJsonStorage::FloatText => projected_text(projected)?
+            .parse()
+            .map(OwnedMySQLValue::Float)
+            .map_err(|_| projected_error("float string")),
+        MySQLJsonStorage::Binary => projected_binary(projected).map(OwnedMySQLValue::Bytes),
+        MySQLJsonStorage::Json => serde_json::to_vec(projected)
+            .map(OwnedMySQLValue::Bytes)
+            .map_err(Into::into),
+        MySQLJsonStorage::Date => projected_date(projected_text(projected)?),
+        MySQLJsonStorage::Time => projected_time(projected_text(projected)?),
+        MySQLJsonStorage::DateTime => projected_datetime(projected_text(projected)?),
+    }
+}
+
+#[cfg(feature = "query")]
+fn projected_text(projected: &serde_json::Value) -> Result<&str, DrizzleError> {
+    projected.as_str().ok_or_else(|| projected_error("string"))
+}
+
+#[cfg(feature = "query")]
+fn projected_date(value: &str) -> Result<OwnedMySQLValue, DrizzleError> {
+    let mut parts = value.split('-');
+    let year = parse_projected_part(parts.next(), "date")?;
+    let month = parse_projected_part(parts.next(), "date")?;
+    let day = parse_projected_part(parts.next(), "date")?;
+    if parts.next().is_some() {
+        return Err(projected_error("date string"));
+    }
+    Ok(OwnedMySQLValue::Date {
+        year,
+        month,
+        day,
+        hour: 0,
+        minute: 0,
+        second: 0,
+        microseconds: 0,
+    })
+}
+
+#[cfg(feature = "query")]
+fn projected_datetime(value: &str) -> Result<OwnedMySQLValue, DrizzleError> {
+    let (date, time) = value
+        .split_once(' ')
+        .ok_or_else(|| projected_error("datetime string"))?;
+    let OwnedMySQLValue::Date {
+        year, month, day, ..
+    } = projected_date(date)?
+    else {
+        unreachable!();
+    };
+    let (hour, minute, second, microseconds) = projected_clock(time, "datetime")?;
+    let hour = u8::try_from(hour).map_err(|_| projected_error("datetime string"))?;
+    Ok(OwnedMySQLValue::Date {
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        microseconds,
+    })
+}
+
+#[cfg(feature = "query")]
+fn projected_time(value: &str) -> Result<OwnedMySQLValue, DrizzleError> {
+    let (negative, value) = value
+        .strip_prefix('-')
+        .map_or((false, value), |value| (true, value));
+    let (hours, minutes, seconds, microseconds) = projected_clock(value, "time")?;
+    Ok(OwnedMySQLValue::Time {
+        negative,
+        days: hours / 24,
+        hours: u8::try_from(hours % 24).expect("hour remainder is below 24"),
+        minutes,
+        seconds,
+        microseconds,
+    })
+}
+
+#[cfg(feature = "query")]
+fn projected_clock(value: &str, kind: &str) -> Result<(u32, u8, u8, u32), DrizzleError> {
+    let mut parts = value.split(':');
+    let hour = parse_projected_part(parts.next(), kind)?;
+    let minute = parse_projected_part(parts.next(), kind)?;
+    let second = parts.next().ok_or_else(|| projected_error(kind))?;
+    if parts.next().is_some() {
+        return Err(projected_error(kind));
+    }
+    let (second, fraction) = second.split_once('.').unwrap_or((second, ""));
+    let second = second.parse().map_err(|_| projected_error(kind))?;
+    if minute > 59 || second > 59 {
+        return Err(projected_error(kind));
+    }
+    if fraction.len() > 6 || !fraction.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(projected_error(kind));
+    }
+    let microseconds = if fraction.is_empty() {
+        0
+    } else {
+        let value: u32 = fraction.parse().map_err(|_| projected_error(kind))?;
+        value * 10_u32.pow(u32::try_from(6 - fraction.len()).expect("bounded fraction"))
+    };
+    Ok((hour, minute, second, microseconds))
+}
+
+#[cfg(feature = "query")]
+fn parse_projected_part<T: core::str::FromStr>(
+    value: Option<&str>,
+    kind: &str,
+) -> Result<T, DrizzleError> {
+    value
+        .ok_or_else(|| projected_error(kind))?
+        .parse()
+        .map_err(|_| projected_error(kind))
+}
+
+#[cfg(feature = "query")]
+fn projected_error(expected: &str) -> DrizzleError {
+    DrizzleError::ConversionError(format!("projected MySQL value is not a JSON {expected}").into())
 }
 
 #[cfg(feature = "query")]
@@ -988,6 +1182,50 @@ mod tests {
                 "$drizzle_value": "0"
             }))
             .is_err()
+        );
+    }
+
+    #[cfg(feature = "query")]
+    #[test]
+    fn projected_text_values_recover_wire_shapes() {
+        assert_eq!(
+            projected_value(
+                &serde_json::json!("-9223372036854775801"),
+                MySQLJsonStorage::SignedText
+            )
+            .unwrap(),
+            OwnedMySQLValue::Int(-9_223_372_036_854_775_801)
+        );
+        assert_eq!(
+            projected_value(&serde_json::json!("1.25"), MySQLJsonStorage::FloatText).unwrap(),
+            OwnedMySQLValue::Float(1.25)
+        );
+        assert_eq!(
+            projected_value(
+                &serde_json::json!("2026-08-27 12:34:56.1234"),
+                MySQLJsonStorage::DateTime,
+            )
+            .unwrap(),
+            OwnedMySQLValue::Date {
+                year: 2026,
+                month: 8,
+                day: 27,
+                hour: 12,
+                minute: 34,
+                second: 56,
+                microseconds: 123_400,
+            }
+        );
+        assert_eq!(
+            projected_value(&serde_json::json!("-49:02:03.4"), MySQLJsonStorage::Time).unwrap(),
+            OwnedMySQLValue::Time {
+                negative: true,
+                days: 2,
+                hours: 1,
+                minutes: 2,
+                seconds: 3,
+                microseconds: 400_000,
+            }
         );
     }
 

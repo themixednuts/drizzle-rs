@@ -474,10 +474,10 @@ pub mod mysql {
     pub use drizzle_mysql::values::{MySQLValue, OwnedMySQLValue};
     #[doc(inline)]
     pub use drizzle_mysql::{
-        AccessMode, IsolationLevel, MySQLAccessMode, MySQLDialect, MySQLIsolationLevel,
-        MySQLMutationResult, MySQLTransactionConfig, ParamBind, TransactionConfig, ViewAlgorithm,
-        ViewCheckOption, ViewSqlSecurity, attrs, builder, common, driver, helpers, index, traits,
-        transaction, types, values,
+        AccessMode, IndexKeyPart, IndexOrder, IsolationLevel, MySQLAccessMode, MySQLDialect,
+        MySQLIsolationLevel, MySQLMutationResult, MySQLTransactionConfig, ParamBind,
+        TransactionConfig, ViewAlgorithm, ViewCheckOption, ViewSqlSecurity, attrs, builder, common,
+        driver, helpers, index, traits, transaction, types, values,
     };
 
     /// Blocking adapter backed by the `mysql` crate.
@@ -531,7 +531,9 @@ pub mod mysql {
         pub use drizzle_mysql::attrs::*;
         pub use drizzle_mysql::common::MySQLSchemaType;
         pub use drizzle_mysql::common::MySQLViewInfo;
-        pub use drizzle_mysql::traits::{MySQLColumn, MySQLEnum, MySQLIndexColumn, MySQLTable};
+        pub use drizzle_mysql::traits::{
+            DrizzleMySQLColumn, MySQLColumn, MySQLEnum, MySQLIndexColumn, MySQLTable,
+        };
         pub use drizzle_mysql::values::{
             MySQLInsertValue, MySQLUpdateValue, MySQLValue, OwnedMySQLValue,
         };
@@ -540,7 +542,8 @@ pub mod mysql {
             MySQLTransactionConfig, TransactionConfig,
         };
         pub use drizzle_mysql::{
-            MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMetadata, MySQLIndexMethod,
+            IndexKeyPart, IndexOrder, MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMetadata,
+            MySQLIndexMethod,
         };
         pub use drizzle_mysql::{ViewAlgorithm, ViewCheckOption, ViewSqlSecurity};
     }
