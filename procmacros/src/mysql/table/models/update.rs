@@ -11,6 +11,9 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
     let struct_vis = ctx.struct_vis;
     let empty_marker = core_paths::empty_marker();
     let non_empty_marker = core_paths::non_empty_marker();
+    let sql = core_paths::sql();
+    let to_sql = core_paths::to_sql();
+    let mysql_value = mysql_paths::mysql_value();
     let mysql_update_value = mysql_paths::mysql_update_value();
 
     let mut field_names: Vec<&syn::Ident> = Vec::new();
@@ -63,11 +66,11 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
         #(#update_convenience_methods)*
 
         // ToSQL is only implemented for NonEmpty state
-        impl<'a> ToSQL<'a, MySQLValue<'a>> for #update_ident<'a, #non_empty_marker> {
-            fn to_sql(&self) -> SQL<'a, MySQLValue<'a>> {
-                let mut assignments = Vec::new();
+        impl<'a> #to_sql<'a, #mysql_value<'a>> for #update_ident<'a, #non_empty_marker> {
+            fn to_sql(&self) -> #sql<'a, #mysql_value<'a>> {
+                let mut assignments = ::std::vec::Vec::new();
                 #(#update_field_conversions)*
-                SQL::assignments_sql(assignments)
+                #sql::assignments_sql(assignments)
             }
         }
     }
@@ -78,13 +81,15 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
 fn get_update_field_conversion(field_info: &FieldInfo) -> TokenStream {
     let name = &field_info.ident;
     let column_name = &field_info.column_name;
+    let sql = core_paths::sql();
+    let mysql_value = mysql_paths::mysql_value();
     let mysql_update_value = mysql_paths::mysql_update_value();
 
     quote! {
         match &self.#name {
             #mysql_update_value::Skip => {},
             #mysql_update_value::Null => {
-                assignments.push((#column_name, SQL::param(MySQLValue::Null)));
+                assignments.push((#column_name, #sql::param(#mysql_value::Null)));
             },
             #mysql_update_value::Value(wrapper) => {
                 assignments.push((#column_name, wrapper.value.clone()));
