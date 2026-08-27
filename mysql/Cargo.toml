@@ -8,10 +8,10 @@ description.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-# WIP driver, but published in lockstep with the workspace: the umbrella's
-# `mysql` feature depends on this crate with an exact version pin, so keeping
-# it off crates.io would leave that feature resolving a stale stub (releases
-# 0.1.6..0.1.15 resolved drizzle-mysql 0.1.5) and break the release pipeline.
+# Published in lockstep with the workspace: the umbrella's `mysql` feature
+# depends on this crate with an exact version pin, so keeping it off crates.io
+# would leave that feature resolving a stale release (as happened in
+# 0.1.6..0.1.15) and break the release pipeline.
 
 [dependencies]
 drizzle-core = { workspace = true, features = ["alloc"] }
