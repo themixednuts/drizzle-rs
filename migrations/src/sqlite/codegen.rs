@@ -861,6 +861,10 @@ fn generate_schema_struct(
 mod tests {
     use super::super::ddl::*;
     use super::*;
+    use crate::parser::SchemaParser;
+    use crate::schema::Snapshot;
+    use crate::sqlite::introspect::{RawColumnInfo, RawIntrospection, assemble_ddl};
+    use drizzle_types::Dialect;
 
     #[test]
     fn test_generate_simple_table() {
@@ -1194,5 +1198,64 @@ pub struct AppSchema {
         assert_eq!(sql_type_to_rust_type("boolean", true), "bool");
         assert_eq!(sql_type_to_rust_type("boolean", false), "Option<bool>");
         assert_eq!(sql_type_to_rust_type("BOOLEAN", true), "bool");
+    }
+
+    #[test]
+    fn generated_schema_round_trips_sqlite_affinity_and_integer_primary_key() {
+        let ddl = assemble_ddl(RawIntrospection {
+            tables: vec![("audit_logs".to_string(), None)],
+            columns: vec![
+                RawColumnInfo {
+                    table: "audit_logs".to_string(),
+                    cid: 0,
+                    name: "id".to_string(),
+                    column_type: "INTEGER".to_string(),
+                    // SQLite PRAGMA reports 0 for an inline INTEGER PRIMARY KEY.
+                    not_null: false,
+                    default_value: None,
+                    pk: 1,
+                    hidden: 0,
+                    sql: None,
+                },
+                RawColumnInfo {
+                    table: "audit_logs".to_string(),
+                    cid: 1,
+                    name: "user_name".to_string(),
+                    column_type: "VARCHAR(255)".to_string(),
+                    not_null: true,
+                    default_value: None,
+                    pk: 0,
+                    hidden: 0,
+                    sql: None,
+                },
+            ],
+            ..RawIntrospection::default()
+        });
+
+        let generated = generate_rust_schema(
+            &ddl,
+            &CodegenOptions {
+                field_casing: FieldCasing::Camel,
+                include_schema: true,
+                schema_name: "Schema".to_string(),
+                use_pub: true,
+                ..CodegenOptions::default()
+            },
+        );
+        assert!(generated.code.contains("pub userName: String"));
+
+        let parsed = SchemaParser::parse(&generated.code);
+        let Snapshot::Sqlite(snapshot) =
+            Snapshot::from_parse_result(&parsed, Dialect::SQLite, None)
+        else {
+            panic!("expected generated SQLite schema snapshot");
+        };
+        let regenerated = SQLiteDDL::from_entities(snapshot.ddl);
+
+        let diffs = crate::sqlite::collection::diff_ddl(&ddl, &regenerated);
+        assert!(
+            diffs.is_empty(),
+            "generated SQLite schema must round trip without a migration: {diffs:#?}"
+        );
     }
 }

@@ -18,18 +18,16 @@ mysql-up:
     @echo "MySQL is ready!"
 
 # Run the blocking MySQL adapter integration tests.
-test-mysql-sync: mysql-up
-    cargo test --no-default-features --features mysql-sync,serde --test compile_fail mysql_builder_ui
-    cargo test --no-default-features --features mysql-sync,query,serde
+test-mysql-sync:
+    just test::mysql-sync
 
 # Run the Tokio MySQL adapter integration tests.
-test-mysql-async: mysql-up
-    cargo test --no-default-features --features mysql-async,query,serde
+test-mysql-async:
+    just test::mysql-async
 
 # Run both adapters together, including feature-unification coverage.
-test-mysql: mysql-up
-    cargo test --no-default-features --features mysql-sync,serde --test compile_fail mysql_builder_ui
-    cargo test --no-default-features --features mysql-sync,mysql-async,query,serde,chrono,time,rust-decimal
+test-mysql:
+    just test::mysql-matrix
 
 # Stop the MySQL integration-test container.
 mysql-down:

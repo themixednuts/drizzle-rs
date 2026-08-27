@@ -35,7 +35,7 @@
 //! and hand it to [`plan`]. Nothing here touches a connection, so the whole
 //! planner is unit-testable and shared by every driver.
 
-use crate::migrator::{Migration, MigratorError};
+use crate::migrator::{Migration, MigratorError, quote_identifier};
 use drizzle_types::Dialect;
 
 /// Kind of live database object recorded in a [`Catalog`] snapshot.
@@ -216,6 +216,8 @@ pub struct Step {
 pub struct Plan {
     /// Migration tag (folder name) being repaired.
     pub tag: String,
+    /// Dialect controls identifier quoting in manual recovery instructions.
+    pub dialect: Dialect,
     /// Per-statement decisions, in statement order.
     pub steps: Vec<Step>,
 }
@@ -274,11 +276,13 @@ impl Plan {
                     single_line(&step.sql)
                 ));
             }
+            let name_column = quote_identifier(self.dialect, "name");
+            let applied_at_column = quote_identifier(self.dialect, "applied_at");
             message.push_str(&format!(
                 "\nResolve those statements manually, then mark the migration complete:\n  \
-                 UPDATE {table_ident} SET \"applied_at\" = CURRENT_TIMESTAMP WHERE \"name\" = '{}';\n\
+                 UPDATE {table_ident} SET {applied_at_column} = CURRENT_TIMESTAMP WHERE {name_column} = '{}';\n\
                  …or discard the marker and re-run from scratch:\n  \
-                 DELETE FROM {table_ident} WHERE \"name\" = '{}';",
+                 DELETE FROM {table_ident} WHERE {name_column} = '{}';",
                 self.tag.replace('\'', "''"),
                 self.tag.replace('\'', "''"),
             ));
@@ -343,6 +347,7 @@ pub fn plan(dialect: Dialect, migration: &Migration, catalog: &Catalog) -> Plan 
 
     Plan {
         tag: migration.tag().to_string(),
+        dialect,
         steps,
     }
 }
@@ -1312,6 +1317,20 @@ mod tests {
             .expect_err("must refuse");
         assert!(error.to_string().contains("do not match"));
         assert!(error.to_string().contains("UPDATE"));
+    }
+
+    #[test]
+    fn mysql_manual_recovery_uses_backticked_tracking_columns() {
+        let migration = migration(&["ALTER TABLE `a` ADD COLUMN `age` integer"]);
+        let error = plan(Dialect::MySQL, &migration, &Catalog::new())
+            .into_executable("`__drizzle_migrations`")
+            .expect_err("must refuse")
+            .to_string();
+        assert!(
+            error.contains("SET `applied_at` = CURRENT_TIMESTAMP WHERE `name`"),
+            "{error}"
+        );
+        assert!(!error.contains("\"applied_at\""), "{error}");
     }
 
     #[test]

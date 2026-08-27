@@ -73,12 +73,12 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: &PushOptions) -> Result
         effective_dialect.as_str()
     );
 
-    // Get credentials
-    let credentials = overrides::resolve_credentials(db, effective_dialect, &opts.connection)?;
-    let Some(credentials) = credentials else {
+    let connection = overrides::resolve_connection(db, effective_dialect, &opts.connection)?;
+    let Some(connection) = connection else {
         print_missing_credentials_help(effective_dialect);
         return Ok(());
     };
+    println!("  {}: {}", output::label("Driver"), connection.driver);
 
     // Parse schema files
     let parse_result = parse_schema_files(db, opts.schema.as_deref())?;
@@ -114,6 +114,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: &PushOptions) -> Result
             db.schema_filter.as_ref(),
         ),
         extensions: overrides::resolve_extensions_filter(
+            effective_dialect,
             opts.filters.extensions_filters.as_deref(),
             db.extensions_filters.as_deref(),
         ),
@@ -122,11 +123,11 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: &PushOptions) -> Result
 
     // Compute push plan (DB snapshot -> desired snapshot)
     let plan = crate::db::plan_push(
-        &credentials,
-        effective_dialect,
+        &connection,
         &desired_snapshot,
         db.breakpoints,
         &filters,
+        db.migrations_table(),
     )?;
 
     if !plan.warnings.is_empty() {
@@ -164,7 +165,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: &PushOptions) -> Result
     }
 
     // Apply plan
-    crate::db::apply_push(&credentials, effective_dialect, &plan, opts.force)?;
+    crate::db::apply_push(&connection, &plan, opts.force)?;
 
     println!("{}", output::success("Push complete!"));
 

@@ -62,6 +62,9 @@ tokio-postgres = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["rt", "macros"] }
 libsql = { workspace = true, optional = true }
 turso = { workspace = true, optional = true }
+mysql = { workspace = true, optional = true }
+mysql_async = { workspace = true, optional = true }
+mysql_common = { workspace = true, optional = true }
 
 # HTTP client for d1-http driver (Cloudflare REST API).
 # rustls-tls avoids requiring a system openssl on Windows/macOS devs.
@@ -104,6 +107,11 @@ tokio-postgres = [
   "drizzle-seed/postgres",
 ]
 
+# MySQL drivers. Both use mysql_common's value and row boundary types; the
+# async adapter also needs a Tokio runtime for socket I/O.
+mysql-sync = ["dep:mysql", "dep:mysql_common"]
+mysql-async = ["dep:mysql_async", "dep:mysql_common", "dep:tokio"]
+
 # Cloudflare D1 HTTP driver (CLI-only — runtime D1 uses the Worker binding via
 # the main `drizzle` crate's `d1` feature, not this).
 d1-http = ["dep:reqwest", "dep:tokio", "dep:drizzle-seed", "drizzle-seed/sqlite"]
@@ -119,3 +127,4 @@ bit-vec = ["dep:drizzle-seed", "drizzle-seed/bit-vec"]
 # Convenience bundles
 sqlite-all = ["rusqlite", "libsql", "turso", "d1-http"]
 postgres-all = ["postgres-sync", "tokio-postgres"]
+mysql-all = ["mysql-sync", "mysql-async"]

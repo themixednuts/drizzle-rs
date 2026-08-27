@@ -5,26 +5,19 @@
 
 use std::path::Path;
 
+use crate::commands::overrides::ResolvedConnection;
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 use crate::config::PostgresCreds;
-use crate::config::{Credentials, Dialect, Extension, IntrospectCasing};
+use crate::config::{Credentials, Dialect, Driver, Extension, IntrospectCasing};
 use crate::error::CliError;
 use crate::output;
-#[cfg(any(
-    test,
-    feature = "rusqlite",
-    feature = "libsql",
-    feature = "turso",
-    feature = "postgres-sync",
-    feature = "tokio-postgres",
-    feature = "d1-http",
-))]
 use drizzle_migrations::Migrations;
 use drizzle_migrations::schema::Snapshot;
 
 #[cfg(feature = "d1-http")]
 mod d1_http;
 mod filters;
+mod mysql;
 
 pub use filters::apply_snapshot_filters;
 #[cfg(test)]
@@ -59,15 +52,6 @@ pub struct MigrationPlan {
     pub findings: Vec<String>,
 }
 
-#[cfg(any(
-    test,
-    feature = "rusqlite",
-    feature = "libsql",
-    feature = "turso",
-    feature = "postgres-sync",
-    feature = "tokio-postgres",
-    feature = "d1-http",
-))]
 #[derive(Debug, Clone)]
 pub(crate) struct AppliedMigrationRecord {
     pub(crate) hash: String,
@@ -92,6 +76,13 @@ pub struct SnapshotFilters {
     pub extensions: Option<Vec<Extension>>,
 }
 
+fn connection_driver_mismatch(connection: &ResolvedConnection) -> CliError {
+    CliError::Other(format!(
+        "driver '{}' cannot use the resolved {} credentials",
+        connection.driver, connection.dialect
+    ))
+}
+
 impl SnapshotFilters {
     const fn is_empty(&self) -> bool {
         self.tables.is_none() && self.schemas.is_none() && self.extensions.is_none()
@@ -105,22 +96,50 @@ impl SnapshotFilters {
 /// Returns [`CliError`] if introspecting the live database fails, if applying
 /// the given snapshot filters fails, or if generating the diff SQL fails.
 pub fn plan_push(
-    credentials: &Credentials,
-    dialect: Dialect,
+    connection: &ResolvedConnection,
     desired: &Snapshot,
     breakpoints: bool,
     filters: &SnapshotFilters,
+    migrations_table: &str,
 ) -> Result<PushPlan, CliError> {
-    let mut current = introspect_database(credentials, dialect)?.snapshot;
-    apply_snapshot_filters(&mut current, dialect, filters)?;
-    let (sql_statements, warnings) = generate_push_sql(&current, desired, breakpoints)?;
-    let destructive = sql_statements.iter().any(|s| is_destructive_statement(s));
+    let introspected = introspect_database(connection)?;
+    let mut current = introspected.snapshot;
+    exclude_tracking_table(&mut current, connection.dialect, migrations_table)?;
+    apply_snapshot_filters(&mut current, connection.dialect, filters)?;
+    let mut options = drizzle_migrations::DiffOptions::new();
+    if let Some(defaults) = introspected.mysql_catalog_defaults {
+        options = options.mysql_catalog_defaults(defaults);
+    }
+    let (sql_statements, warnings) = generate_push_sql(&current, desired, breakpoints, &options)?;
+    let destructive = push_requires_confirmation(connection.dialect, &sql_statements, &warnings);
 
     Ok(PushPlan {
         sql_statements,
         warnings,
         destructive,
     })
+}
+
+fn exclude_tracking_table(
+    snapshot: &mut Snapshot,
+    dialect: Dialect,
+    migrations_table: &str,
+) -> Result<(), CliError> {
+    if migrations_table.trim().is_empty() {
+        return Ok(());
+    }
+    apply_snapshot_filters(
+        snapshot,
+        dialect,
+        &SnapshotFilters {
+            tables: Some(vec![format!(
+                "!{}",
+                glob::Pattern::escape(migrations_table)
+            )]),
+            schemas: None,
+            extensions: None,
+        },
+    )
 }
 
 /// Apply a previously planned push.
@@ -131,8 +150,7 @@ pub fn plan_push(
 /// fails, or if executing the planned SQL statements against the database
 /// fails.
 pub fn apply_push(
-    credentials: &Credentials,
-    dialect: Dialect,
+    connection: &ResolvedConnection,
     plan: &PushPlan,
     force: bool,
 ) -> Result<(), CliError> {
@@ -147,7 +165,7 @@ pub fn apply_push(
         }
     }
 
-    execute_statements(credentials, dialect, &plan.sql_statements)
+    execute_statements(connection, &plan.sql_statements)
 }
 
 /// Execute migrations against the database
@@ -162,23 +180,19 @@ pub fn apply_push(
 /// table or on-disk migration files fails.
 #[allow(unused_variables)] // params consumed inside feature-gated block
 pub fn plan_migrations(
-    credentials: &Credentials,
-    dialect: Dialect,
+    connection: &ResolvedConnection,
     migrations_dir: &Path,
     migrations_table: &str,
     migrations_schema: &str,
 ) -> Result<MigrationPlan, CliError> {
-    #[cfg(any(
-        feature = "rusqlite",
-        feature = "libsql",
-        feature = "turso",
-        feature = "postgres-sync",
-        feature = "tokio-postgres",
-        feature = "d1-http",
-    ))]
-    let set = load_migration_set(dialect, migrations_dir, migrations_table, migrations_schema)?;
+    let set = load_migration_set(
+        connection.dialect,
+        migrations_dir,
+        migrations_table,
+        migrations_schema,
+    )?;
 
-    match credentials {
+    match &connection.credentials {
         #[cfg(feature = "rusqlite")]
         Credentials::Sqlite { path } => inspect_sqlite_migrations(&set, path),
 
@@ -190,7 +204,7 @@ pub fn plan_migrations(
 
         #[cfg(any(feature = "libsql", feature = "turso"))]
         Credentials::Turso { url, auth_token } => {
-            if is_local_libsql(url) {
+            if connection.driver == Driver::Libsql {
                 #[cfg(feature = "libsql")]
                 {
                     inspect_libsql_local_migrations(&set, url)
@@ -202,7 +216,7 @@ pub fn plan_migrations(
                         feature: "libsql",
                     })
                 }
-            } else {
+            } else if connection.driver == Driver::Turso {
                 #[cfg(feature = "turso")]
                 {
                     inspect_turso_migrations(&set, url, auth_token.as_deref())
@@ -215,6 +229,8 @@ pub fn plan_migrations(
                         feature: "turso",
                     })
                 }
+            } else {
+                Err(connection_driver_mismatch(connection))
             }
         }
 
@@ -226,15 +242,38 @@ pub fn plan_migrations(
 
         Credentials::Postgres(creds) => {
             let _ = creds;
-            core::cfg_select! {
-                feature = "postgres-sync" => inspect_postgres_sync_migrations(&set, creds),
-                feature = "tokio-postgres" => inspect_postgres_async_migrations(&set, creds),
-                _ => Err(CliError::MissingDriver {
-                    dialect: "PostgreSQL",
-                    feature: "postgres-sync or tokio-postgres",
-                }),
+            match connection.driver {
+                Driver::PostgresSync => {
+                    #[cfg(feature = "postgres-sync")]
+                    {
+                        inspect_postgres_sync_migrations(&set, creds)
+                    }
+                    #[cfg(not(feature = "postgres-sync"))]
+                    {
+                        Err(CliError::MissingDriver {
+                            dialect: "PostgreSQL",
+                            feature: "postgres-sync",
+                        })
+                    }
+                }
+                Driver::TokioPostgres => {
+                    #[cfg(feature = "tokio-postgres")]
+                    {
+                        inspect_postgres_async_migrations(&set, creds)
+                    }
+                    #[cfg(not(feature = "tokio-postgres"))]
+                    {
+                        Err(CliError::MissingDriver {
+                            dialect: "PostgreSQL",
+                            feature: "tokio-postgres",
+                        })
+                    }
+                }
+                _ => Err(connection_driver_mismatch(connection)),
             }
         }
+
+        Credentials::MySQL(creds) => mysql::plan_migrations(connection.driver, creds, &set),
 
         #[cfg(feature = "d1-http")]
         Credentials::D1 {
@@ -269,24 +308,20 @@ pub fn plan_migrations(
 /// writing to the tracking table fails.
 #[allow(unused_variables)] // params consumed inside feature-gated block
 pub fn run_migrations(
-    credentials: &Credentials,
-    dialect: Dialect,
+    connection: &ResolvedConnection,
     migrations_dir: &Path,
     migrations_table: &str,
     migrations_schema: &str,
     repair: bool,
 ) -> Result<MigrationResult, CliError> {
-    #[cfg(any(
-        feature = "rusqlite",
-        feature = "libsql",
-        feature = "turso",
-        feature = "postgres-sync",
-        feature = "tokio-postgres",
-        feature = "d1-http",
-    ))]
-    let set = load_migration_set(dialect, migrations_dir, migrations_table, migrations_schema)?;
+    let set = load_migration_set(
+        connection.dialect,
+        migrations_dir,
+        migrations_table,
+        migrations_schema,
+    )?;
 
-    match credentials {
+    match &connection.credentials {
         #[cfg(feature = "rusqlite")]
         Credentials::Sqlite { path } => run_sqlite_migrations(&set, path, repair),
 
@@ -298,7 +333,7 @@ pub fn run_migrations(
 
         #[cfg(any(feature = "libsql", feature = "turso"))]
         Credentials::Turso { url, auth_token } => {
-            if is_local_libsql(url) {
+            if connection.driver == Driver::Libsql {
                 #[cfg(feature = "libsql")]
                 {
                     run_libsql_local_migrations(&set, url, repair)
@@ -310,7 +345,7 @@ pub fn run_migrations(
                         feature: "libsql",
                     })
                 }
-            } else {
+            } else if connection.driver == Driver::Turso {
                 #[cfg(feature = "turso")]
                 {
                     run_turso_migrations(&set, url, auth_token.as_deref(), repair)
@@ -323,6 +358,8 @@ pub fn run_migrations(
                         feature: "turso",
                     })
                 }
+            } else {
+                Err(connection_driver_mismatch(connection))
             }
         }
 
@@ -332,18 +369,40 @@ pub fn run_migrations(
             feature: "turso or libsql",
         }),
 
-        // PostgreSQL - prefer sync driver if available, fall back to async
         Credentials::Postgres(creds) => {
             let _ = creds;
-            core::cfg_select! {
-                feature = "postgres-sync" => run_postgres_sync_migrations(&set, creds, repair),
-                feature = "tokio-postgres" => run_postgres_async_migrations(&set, creds, repair),
-                _ => Err(CliError::MissingDriver {
-                    dialect: "PostgreSQL",
-                    feature: "postgres-sync or tokio-postgres",
-                }),
+            match connection.driver {
+                Driver::PostgresSync => {
+                    #[cfg(feature = "postgres-sync")]
+                    {
+                        run_postgres_sync_migrations(&set, creds, repair)
+                    }
+                    #[cfg(not(feature = "postgres-sync"))]
+                    {
+                        Err(CliError::MissingDriver {
+                            dialect: "PostgreSQL",
+                            feature: "postgres-sync",
+                        })
+                    }
+                }
+                Driver::TokioPostgres => {
+                    #[cfg(feature = "tokio-postgres")]
+                    {
+                        run_postgres_async_migrations(&set, creds, repair)
+                    }
+                    #[cfg(not(feature = "tokio-postgres"))]
+                    {
+                        Err(CliError::MissingDriver {
+                            dialect: "PostgreSQL",
+                            feature: "tokio-postgres",
+                        })
+                    }
+                }
+                _ => Err(connection_driver_mismatch(connection)),
             }
         }
+
+        Credentials::MySQL(creds) => mysql::run_migrations(connection.driver, creds, &set, repair),
 
         #[cfg(feature = "d1-http")]
         Credentials::D1 {
@@ -368,14 +427,6 @@ pub fn run_migrations(
     }
 }
 
-#[cfg(any(
-    feature = "rusqlite",
-    feature = "libsql",
-    feature = "turso",
-    feature = "postgres-sync",
-    feature = "tokio-postgres",
-    feature = "d1-http",
-))]
 fn load_migration_set(
     dialect: Dialect,
     migrations_dir: &Path,
@@ -395,14 +446,6 @@ fn load_migration_set(
     ))
 }
 
-#[cfg(any(
-    feature = "rusqlite",
-    feature = "libsql",
-    feature = "turso",
-    feature = "postgres-sync",
-    feature = "tokio-postgres",
-    feature = "d1-http",
-))]
 fn migration_tracking(
     dialect: Dialect,
     migrations_table: &str,
@@ -410,7 +453,8 @@ fn migration_tracking(
 ) -> drizzle_types::MigrationTracking {
     let mut tracking = match dialect {
         Dialect::Postgresql => drizzle_types::MigrationTracking::POSTGRES,
-        _ => drizzle_types::MigrationTracking::SQLITE,
+        Dialect::Mysql => drizzle_types::MigrationTracking::MYSQL,
+        Dialect::Sqlite | Dialect::Turso => drizzle_types::MigrationTracking::SQLITE,
     };
 
     if !migrations_table.trim().is_empty() {
@@ -424,15 +468,6 @@ fn migration_tracking(
     tracking
 }
 
-#[cfg(any(
-    test,
-    feature = "rusqlite",
-    feature = "libsql",
-    feature = "turso",
-    feature = "postgres-sync",
-    feature = "tokio-postgres",
-    feature = "d1-http",
-))]
 pub(crate) fn build_migration_plan(
     set: &Migrations,
     applied: &[AppliedMigrationRecord],
@@ -466,15 +501,6 @@ pub(crate) fn build_migration_plan(
     })
 }
 
-#[cfg(any(
-    test,
-    feature = "rusqlite",
-    feature = "libsql",
-    feature = "turso",
-    feature = "postgres-sync",
-    feature = "tokio-postgres",
-    feature = "d1-http",
-))]
 /// Collect integrity findings between the tracking table and local files.
 ///
 /// Findings (drift, missing-local rows, duplicate tracking rows, interrupted
@@ -513,10 +539,14 @@ fn collect_integrity_findings(
         }
 
         if applied_row.dirty {
+            let recovery = if set.dialect() == drizzle_types::Dialect::MySQL {
+                "inspect the partially applied DDL and resolve it manually"
+            } else {
+                "run `drizzle migrate --repair` or resolve it manually"
+            };
             findings.push(format!(
-                "`{}` was interrupted mid-apply (started but never finished) — \
-                 run `drizzle migrate --repair` or resolve it manually",
-                applied_row.name
+                "`{}` was interrupted mid-apply (started but never finished) — {recovery}",
+                applied_row.name,
             ));
         }
 
@@ -617,6 +647,7 @@ fn sqlite_execution_cli_error(
     feature = "turso",
     feature = "d1-http",
 ))]
+#[cfg(feature = "d1-http")]
 pub(super) fn reject_sqlite_foreign_key_suspension<'a>(
     migrations: impl IntoIterator<Item = &'a drizzle_migrations::Migration>,
     adapter: &str,
@@ -1392,6 +1423,22 @@ fn is_destructive_statement(sql: &str) -> bool {
         || (s.contains("ALTER TABLE") && s.contains(" DROP "))
 }
 
+fn push_requires_confirmation(
+    dialect: Dialect,
+    statements: &[String],
+    warnings: &[String],
+) -> bool {
+    statements
+        .iter()
+        .any(|statement| is_destructive_statement(statement))
+        // MySQL's ALTER TABLE ... MODIFY COLUMN syntax does not say DROP even
+        // when it can truncate, reject, or recode stored values. Every warning
+        // produced by the typed MySQL diff represents one of those risky
+        // structural operations, so it belongs behind the same confirmation
+        // boundary as explicit DROP/TRUNCATE statements.
+        || (dialect == Dialect::Mysql && !warnings.is_empty())
+}
+
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 fn is_postgres_concurrent_index_statement(sql: &str) -> bool {
     drizzle_migrations::is_postgres_concurrent_index_statement(sql)
@@ -1434,38 +1481,30 @@ fn confirm_destructive() -> Result<bool, CliError> {
 fn generate_push_sql(
     current: &Snapshot,
     desired: &Snapshot,
-    breakpoints: bool,
+    _breakpoints: bool,
+    options: &drizzle_migrations::DiffOptions,
 ) -> Result<(Vec<String>, Vec<String>), CliError> {
-    match (current, desired) {
-        (Snapshot::Sqlite(_), Snapshot::Sqlite(_)) => {
-            let plan = drizzle_migrations::diff(current, desired)
-                .map_err(|error| CliError::MigrationError(error.to_string()))?;
-            Ok((plan.statements, plan.warnings))
-        }
-        (Snapshot::Postgres(prev_snap), Snapshot::Postgres(curr_snap)) => {
-            use drizzle_migrations::postgres::diff_full_snapshots;
-            use drizzle_migrations::postgres::statements::Generator as PostgresGenerator;
-
-            let diff = diff_full_snapshots(prev_snap, curr_snap);
-            let generator = PostgresGenerator::new().with_breakpoints(breakpoints);
-            Ok((generator.generate(&diff.diffs), Vec::new()))
-        }
-        _ => Err(CliError::DialectMismatch),
-    }
+    let plan = drizzle_migrations::diff_with(current, desired, options)
+        .map_err(|error| CliError::MigrationError(error.to_string()))?;
+    Ok((plan.statements, plan.warnings))
 }
 
 fn execute_statements(
-    credentials: &Credentials,
-    _dialect: Dialect,
+    connection: &ResolvedConnection,
     statements: &[String],
 ) -> Result<(), CliError> {
     // In some feature combinations (no drivers), the match arms that would use `statements`
     // are compiled out. Touch it to avoid unused-parameter warnings.
     let _ = statements;
 
-    match credentials {
+    match &connection.credentials {
         #[cfg(feature = "rusqlite")]
-        Credentials::Sqlite { path } => execute_sqlite_statements(path, statements),
+        Credentials::Sqlite { path } if connection.driver == Driver::Rusqlite => {
+            execute_sqlite_statements(path, statements)
+        }
+
+        #[cfg(feature = "rusqlite")]
+        Credentials::Sqlite { .. } => Err(connection_driver_mismatch(connection)),
 
         #[cfg(not(feature = "rusqlite"))]
         Credentials::Sqlite { .. } => Err(CliError::MissingDriver {
@@ -1475,7 +1514,7 @@ fn execute_statements(
 
         #[cfg(any(feature = "libsql", feature = "turso"))]
         Credentials::Turso { url, auth_token } => {
-            if is_local_libsql(url) {
+            if connection.driver == Driver::Libsql {
                 #[cfg(feature = "libsql")]
                 {
                     execute_libsql_local_statements(url, statements)
@@ -1487,7 +1526,7 @@ fn execute_statements(
                         feature: "libsql",
                     })
                 }
-            } else {
+            } else if connection.driver == Driver::Turso {
                 #[cfg(feature = "turso")]
                 {
                     execute_turso_statements(url, auth_token.as_deref(), statements)
@@ -1500,6 +1539,8 @@ fn execute_statements(
                         feature: "turso",
                     })
                 }
+            } else {
+                Err(connection_driver_mismatch(connection))
             }
         }
 
@@ -1510,15 +1551,40 @@ fn execute_statements(
         }),
 
         Credentials::Postgres(creds) => {
-            let _ = (creds, &statements);
-            core::cfg_select! {
-                feature = "postgres-sync" => execute_postgres_sync_statements(creds, statements),
-                feature = "tokio-postgres" => execute_postgres_async_statements(creds, statements),
-                _ => Err(CliError::MissingDriver {
-                    dialect: "PostgreSQL",
-                    feature: "postgres-sync or tokio-postgres",
-                }),
+            let _ = creds;
+            match connection.driver {
+                Driver::PostgresSync => {
+                    #[cfg(feature = "postgres-sync")]
+                    {
+                        execute_postgres_sync_statements(creds, statements)
+                    }
+                    #[cfg(not(feature = "postgres-sync"))]
+                    {
+                        Err(CliError::MissingDriver {
+                            dialect: "PostgreSQL",
+                            feature: "postgres-sync",
+                        })
+                    }
+                }
+                Driver::TokioPostgres => {
+                    #[cfg(feature = "tokio-postgres")]
+                    {
+                        execute_postgres_async_statements(creds, statements)
+                    }
+                    #[cfg(not(feature = "tokio-postgres"))]
+                    {
+                        Err(CliError::MissingDriver {
+                            dialect: "PostgreSQL",
+                            feature: "tokio-postgres",
+                        })
+                    }
+                }
+                _ => Err(connection_driver_mismatch(connection)),
             }
+        }
+
+        Credentials::MySQL(creds) => {
+            mysql::execute_statements(connection.driver, creds, statements)
         }
 
         #[cfg(feature = "d1-http")]
@@ -1526,7 +1592,12 @@ fn execute_statements(
             account_id,
             database_id,
             token,
-        } => d1_http::execute_statements(account_id, database_id, token, statements),
+        } if connection.driver == Driver::D1Http => {
+            d1_http::execute_statements(account_id, database_id, token, statements)
+        }
+
+        #[cfg(feature = "d1-http")]
+        Credentials::D1 { .. } => Err(connection_driver_mismatch(connection)),
 
         #[cfg(not(feature = "d1-http"))]
         Credentials::D1 { .. } => Err(CliError::MissingDriver {
@@ -2141,7 +2212,7 @@ fn query_applied_records_postgres_sync(
 // PostgreSQL (tokio-postgres - async)
 // ============================================================================
 
-#[cfg(all(feature = "tokio-postgres", not(feature = "postgres-sync")))]
+#[cfg(feature = "tokio-postgres")]
 fn execute_postgres_async_statements(
     creds: &PostgresCreds,
     statements: &[String],
@@ -2154,7 +2225,7 @@ fn execute_postgres_async_statements(
     rt.block_on(execute_postgres_async_inner(creds, statements))
 }
 
-#[cfg(all(feature = "tokio-postgres", not(feature = "postgres-sync")))]
+#[cfg(feature = "tokio-postgres")]
 async fn execute_postgres_async_inner(
     creds: &PostgresCreds,
     statements: &[String],
@@ -2941,6 +3012,9 @@ pub struct IntrospectResult {
     pub view_count: usize,
     /// Any warnings during introspection
     pub warnings: Vec<String>,
+    /// Live MySQL defaults used only while comparing an introspected schema
+    /// with a desired schema during push planning.
+    pub mysql_catalog_defaults: Option<drizzle_migrations::mysql::MySQLCatalogDefaults>,
     /// The schema snapshot for migration tracking
     pub snapshot: Snapshot,
     /// Path to the generated snapshot file
@@ -2958,8 +3032,7 @@ pub struct IntrospectResult {
 /// writing the generated schema and snapshot files to disk fails.
 #[allow(clippy::too_many_arguments)]
 pub fn run_introspection(
-    credentials: &Credentials,
-    dialect: Dialect,
+    connection: &ResolvedConnection,
     out_dir: &Path,
     init_metadata: bool,
     breakpoints: bool,
@@ -2971,10 +3044,11 @@ pub fn run_introspection(
     use drizzle_migrations::naming::generate_migration_tag;
 
     // Perform introspection
-    let mut result = introspect_database(credentials, dialect)?;
-    apply_snapshot_filters(&mut result.snapshot, dialect, filters)?;
+    let mut result = introspect_database(connection)?;
+    exclude_tracking_table(&mut result.snapshot, connection.dialect, migrations_table)?;
+    apply_snapshot_filters(&mut result.snapshot, connection.dialect, filters)?;
     if !filters.is_empty() || introspect_casing.is_some() {
-        regenerate_schema_from_snapshot(&mut result, dialect, introspect_casing);
+        regenerate_schema_from_snapshot(&mut result, connection.dialect, introspect_casing);
     }
 
     // Write schema file
@@ -3028,7 +3102,7 @@ pub fn run_introspection(
     })?;
 
     // Generate initial migration SQL by diffing against empty snapshot
-    let base_dialect = dialect.to_base();
+    let base_dialect = connection.dialect.to_base();
     let empty_snapshot = Snapshot::empty(base_dialect);
     let sql_statements =
         generate_introspect_migration(&empty_snapshot, &result.snapshot, breakpoints)?;
@@ -3048,13 +3122,7 @@ pub fn run_introspection(
     result.snapshot_path = snapshot_path;
 
     if init_metadata {
-        apply_init_metadata(
-            credentials,
-            dialect,
-            out_dir,
-            migrations_table,
-            migrations_schema,
-        )?;
+        apply_init_metadata(connection, out_dir, migrations_table, migrations_schema)?;
     }
 
     Ok(result)
@@ -3066,25 +3134,26 @@ pub fn run_introspection(
 
 #[allow(unused_variables)] // params consumed inside feature-gated block
 fn apply_init_metadata(
-    credentials: &Credentials,
-    dialect: Dialect,
+    connection: &ResolvedConnection,
     out_dir: &Path,
     migrations_table: &str,
     migrations_schema: &str,
 ) -> Result<(), CliError> {
-    #[cfg(any(
-        feature = "rusqlite",
-        feature = "libsql",
-        feature = "turso",
-        feature = "postgres-sync",
-        feature = "tokio-postgres",
-        feature = "d1-http",
-    ))]
-    let set = load_migration_set(dialect, out_dir, migrations_table, migrations_schema)?;
+    let set = load_migration_set(
+        connection.dialect,
+        out_dir,
+        migrations_table,
+        migrations_schema,
+    )?;
 
-    match credentials {
+    match &connection.credentials {
         #[cfg(feature = "rusqlite")]
-        Credentials::Sqlite { path } => init_sqlite_metadata(path, &set),
+        Credentials::Sqlite { path } if connection.driver == Driver::Rusqlite => {
+            init_sqlite_metadata(path, &set)
+        }
+
+        #[cfg(feature = "rusqlite")]
+        Credentials::Sqlite { .. } => Err(connection_driver_mismatch(connection)),
 
         #[cfg(not(feature = "rusqlite"))]
         Credentials::Sqlite { .. } => Err(CliError::MissingDriver {
@@ -3094,7 +3163,7 @@ fn apply_init_metadata(
 
         #[cfg(any(feature = "libsql", feature = "turso"))]
         Credentials::Turso { url, auth_token } => {
-            if is_local_libsql(url) {
+            if connection.driver == Driver::Libsql {
                 #[cfg(feature = "libsql")]
                 {
                     init_libsql_local_metadata(url, &set)
@@ -3106,7 +3175,7 @@ fn apply_init_metadata(
                         feature: "libsql",
                     })
                 }
-            } else {
+            } else if connection.driver == Driver::Turso {
                 #[cfg(feature = "turso")]
                 {
                     init_turso_metadata(url, auth_token.as_deref(), &set)
@@ -3119,6 +3188,8 @@ fn apply_init_metadata(
                         feature: "turso",
                     })
                 }
+            } else {
+                Err(connection_driver_mismatch(connection))
             }
         }
 
@@ -3130,22 +3201,50 @@ fn apply_init_metadata(
 
         Credentials::Postgres(creds) => {
             let _ = creds;
-            core::cfg_select! {
-                feature = "postgres-sync" => init_postgres_sync_metadata(creds, &set),
-                feature = "tokio-postgres" => init_postgres_async_metadata(creds, &set),
-                _ => Err(CliError::MissingDriver {
-                    dialect: "PostgreSQL",
-                    feature: "postgres-sync or tokio-postgres",
-                }),
+            match connection.driver {
+                Driver::PostgresSync => {
+                    #[cfg(feature = "postgres-sync")]
+                    {
+                        init_postgres_sync_metadata(creds, &set)
+                    }
+                    #[cfg(not(feature = "postgres-sync"))]
+                    {
+                        Err(CliError::MissingDriver {
+                            dialect: "PostgreSQL",
+                            feature: "postgres-sync",
+                        })
+                    }
+                }
+                Driver::TokioPostgres => {
+                    #[cfg(feature = "tokio-postgres")]
+                    {
+                        init_postgres_async_metadata(creds, &set)
+                    }
+                    #[cfg(not(feature = "tokio-postgres"))]
+                    {
+                        Err(CliError::MissingDriver {
+                            dialect: "PostgreSQL",
+                            feature: "tokio-postgres",
+                        })
+                    }
+                }
+                _ => Err(connection_driver_mismatch(connection)),
             }
         }
+
+        Credentials::MySQL(creds) => mysql::init_metadata(connection.driver, creds, &set),
 
         #[cfg(feature = "d1-http")]
         Credentials::D1 {
             account_id,
             database_id,
             token,
-        } => d1_http::init_metadata(&set, account_id, database_id, token),
+        } if connection.driver == Driver::D1Http => {
+            d1_http::init_metadata(&set, account_id, database_id, token)
+        }
+
+        #[cfg(feature = "d1-http")]
+        Credentials::D1 { .. } => Err(connection_driver_mismatch(connection)),
 
         #[cfg(not(feature = "d1-http"))]
         Credentials::D1 { .. } => Err(CliError::MissingDriver {
@@ -3169,6 +3268,8 @@ fn apply_init_metadata(
     feature = "turso",
     feature = "postgres-sync",
     feature = "tokio-postgres",
+    feature = "mysql-sync",
+    feature = "mysql-async",
     feature = "d1-http",
 ))]
 pub(crate) fn validate_init_metadata(
@@ -3335,7 +3436,7 @@ fn init_postgres_sync_metadata(creds: &PostgresCreds, set: &Migrations) -> Resul
     Ok(())
 }
 
-#[cfg(all(feature = "tokio-postgres", not(feature = "postgres-sync")))]
+#[cfg(feature = "tokio-postgres")]
 fn init_postgres_async_metadata(creds: &PostgresCreds, set: &Migrations) -> Result<(), CliError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -3345,7 +3446,7 @@ fn init_postgres_async_metadata(creds: &PostgresCreds, set: &Migrations) -> Resu
     rt.block_on(init_postgres_async_inner(creds, set))
 }
 
-#[cfg(all(feature = "tokio-postgres", not(feature = "postgres-sync")))]
+#[cfg(feature = "tokio-postgres")]
 async fn init_postgres_async_inner(
     creds: &PostgresCreds,
     set: &Migrations,
@@ -3389,27 +3490,11 @@ async fn init_postgres_async_inner(
 fn generate_introspect_migration(
     prev: &Snapshot,
     current: &Snapshot,
-    breakpoints: bool,
+    _breakpoints: bool,
 ) -> Result<Vec<String>, CliError> {
-    match (prev, current) {
-        (Snapshot::Sqlite(prev_snap), Snapshot::Sqlite(curr_snap)) => {
-            use drizzle_migrations::sqlite::diff_snapshots;
-            use drizzle_migrations::sqlite::statements::Generator as SqliteGenerator;
-
-            let diff = diff_snapshots(prev_snap, curr_snap);
-            let generator = SqliteGenerator::new().with_breakpoints(breakpoints);
-            Ok(generator.generate_migration(&diff))
-        }
-        (Snapshot::Postgres(prev_snap), Snapshot::Postgres(curr_snap)) => {
-            use drizzle_migrations::postgres::diff_full_snapshots;
-            use drizzle_migrations::postgres::statements::Generator as PostgresGenerator;
-
-            let diff = diff_full_snapshots(prev_snap, curr_snap);
-            let generator = PostgresGenerator::new().with_breakpoints(breakpoints);
-            Ok(generator.generate(&diff.diffs))
-        }
-        _ => Err(CliError::DialectMismatch),
-    }
+    drizzle_migrations::diff(prev, current)
+        .map(|plan| plan.statements)
+        .map_err(|error| CliError::MigrationError(error.to_string()))
 }
 
 fn format_migration_sql(sql_statements: &[String], breakpoints: bool) -> String {
@@ -3488,26 +3573,64 @@ fn regenerate_schema_from_snapshot(
             result.view_count = generated.views.len();
             result.warnings = generated.warnings;
         }
+        (Snapshot::MySQL(snap), Dialect::Mysql) => {
+            use drizzle_migrations::mysql::MySQLDDL;
+            use drizzle_migrations::mysql::codegen::{
+                CodegenOptions, FieldCasing, generate_rust_schema,
+            };
+
+            let field_casing = match introspect_casing {
+                Some(IntrospectCasing::Camel) => FieldCasing::Camel,
+                Some(IntrospectCasing::Preserve) => FieldCasing::Preserve,
+                None => FieldCasing::Snake,
+            };
+            let ddl = MySQLDDL::from_entities(snap.ddl.clone());
+            let generated = generate_rust_schema(
+                &ddl,
+                &CodegenOptions {
+                    module_doc: Some("Schema introspected from filtered database objects".into()),
+                    include_schema: true,
+                    schema_name: "Schema".into(),
+                    use_pub: true,
+                    field_casing,
+                },
+            )
+            .expect("initial MySQL introspection already validated lossless code generation");
+
+            result.schema_code = generated.code;
+            result.table_count = generated.tables.len();
+            result.index_count = generated.indexes.len();
+            result.view_count = generated.views.len();
+            result.warnings = generated.warnings;
+        }
         _ => {}
     }
 }
 
 /// Introspect a database and generate schema code
-fn introspect_database(
-    credentials: &Credentials,
-    dialect: Dialect,
-) -> Result<IntrospectResult, CliError> {
-    match dialect {
-        Dialect::Sqlite | Dialect::Turso => introspect_sqlite_dialect(credentials),
-        Dialect::Postgresql => introspect_postgres_dialect(credentials),
+fn introspect_database(connection: &ResolvedConnection) -> Result<IntrospectResult, CliError> {
+    match connection.dialect {
+        Dialect::Sqlite | Dialect::Turso => introspect_sqlite_dialect(connection),
+        Dialect::Postgresql => introspect_postgres_dialect(connection),
+        Dialect::Mysql => match &connection.credentials {
+            Credentials::MySQL(creds) => mysql::introspect(connection.driver, creds),
+            _ => Err(connection_driver_mismatch(connection)),
+        },
     }
 }
 
 /// Introspect SQLite-family databases
-fn introspect_sqlite_dialect(credentials: &Credentials) -> Result<IntrospectResult, CliError> {
-    match credentials {
+fn introspect_sqlite_dialect(
+    connection: &ResolvedConnection,
+) -> Result<IntrospectResult, CliError> {
+    match &connection.credentials {
         #[cfg(feature = "rusqlite")]
-        Credentials::Sqlite { path } => introspect_rusqlite(path),
+        Credentials::Sqlite { path } if connection.driver == Driver::Rusqlite => {
+            introspect_rusqlite(path)
+        }
+
+        #[cfg(feature = "rusqlite")]
+        Credentials::Sqlite { .. } => Err(connection_driver_mismatch(connection)),
 
         #[cfg(not(feature = "rusqlite"))]
         Credentials::Sqlite { .. } => Err(CliError::MissingDriver {
@@ -3517,7 +3640,7 @@ fn introspect_sqlite_dialect(credentials: &Credentials) -> Result<IntrospectResu
 
         #[cfg(any(feature = "libsql", feature = "turso"))]
         Credentials::Turso { url, auth_token } => {
-            if is_local_libsql(url) {
+            if connection.driver == Driver::Libsql {
                 #[cfg(feature = "libsql")]
                 {
                     introspect_libsql_local(url)
@@ -3529,7 +3652,7 @@ fn introspect_sqlite_dialect(credentials: &Credentials) -> Result<IntrospectResu
                         feature: "libsql",
                     })
                 }
-            } else {
+            } else if connection.driver == Driver::Turso {
                 #[cfg(feature = "turso")]
                 {
                     introspect_turso(url, auth_token.as_deref())
@@ -3542,6 +3665,8 @@ fn introspect_sqlite_dialect(credentials: &Credentials) -> Result<IntrospectResu
                         feature: "turso",
                     })
                 }
+            } else {
+                Err(connection_driver_mismatch(connection))
             }
         }
 
@@ -3558,17 +3683,40 @@ fn introspect_sqlite_dialect(credentials: &Credentials) -> Result<IntrospectResu
 }
 
 /// Introspect `PostgreSQL` databases
-fn introspect_postgres_dialect(credentials: &Credentials) -> Result<IntrospectResult, CliError> {
-    match credentials {
+fn introspect_postgres_dialect(
+    connection: &ResolvedConnection,
+) -> Result<IntrospectResult, CliError> {
+    match &connection.credentials {
         Credentials::Postgres(creds) => {
             let _ = creds;
-            core::cfg_select! {
-                feature = "postgres-sync" => introspect_postgres_sync(creds),
-                feature = "tokio-postgres" => introspect_postgres_async(creds),
-                _ => Err(CliError::MissingDriver {
-                    dialect: "PostgreSQL",
-                    feature: "postgres-sync or tokio-postgres",
-                }),
+            match connection.driver {
+                Driver::PostgresSync => {
+                    #[cfg(feature = "postgres-sync")]
+                    {
+                        introspect_postgres_sync(creds)
+                    }
+                    #[cfg(not(feature = "postgres-sync"))]
+                    {
+                        Err(CliError::MissingDriver {
+                            dialect: "PostgreSQL",
+                            feature: "postgres-sync",
+                        })
+                    }
+                }
+                Driver::TokioPostgres => {
+                    #[cfg(feature = "tokio-postgres")]
+                    {
+                        introspect_postgres_async(creds)
+                    }
+                    #[cfg(not(feature = "tokio-postgres"))]
+                    {
+                        Err(CliError::MissingDriver {
+                            dialect: "PostgreSQL",
+                            feature: "tokio-postgres",
+                        })
+                    }
+                }
+                _ => Err(connection_driver_mismatch(connection)),
             }
         }
 
@@ -3838,6 +3986,7 @@ fn introspect_rusqlite(path: &str) -> Result<IntrospectResult, CliError> {
         index_count: generated.indexes.len(),
         view_count: ddl.views.len(),
         warnings: generated.warnings,
+        mysql_catalog_defaults: None,
         snapshot,
         snapshot_path: std::path::PathBuf::new(),
     })
@@ -4135,6 +4284,7 @@ async fn introspect_libsql_inner(
         index_count: generated.indexes.len(),
         view_count: ddl.views.len(),
         warnings: generated.warnings,
+        mysql_catalog_defaults: None,
         snapshot,
         snapshot_path: std::path::PathBuf::new(),
     })
@@ -4197,6 +4347,7 @@ async fn introspect_turso_inner(
         index_count: generated.indexes.len(),
         view_count: ddl.views.len(),
         warnings: generated.warnings,
+        mysql_catalog_defaults: None,
         snapshot,
         snapshot_path: std::path::PathBuf::new(),
     })
@@ -4490,7 +4641,7 @@ fn query_pg_sync_security(
     Ok(())
 }
 
-#[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
+#[cfg(feature = "tokio-postgres")]
 fn introspect_postgres_async(creds: &PostgresCreds) -> Result<IntrospectResult, CliError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -4500,7 +4651,7 @@ fn introspect_postgres_async(creds: &PostgresCreds) -> Result<IntrospectResult, 
     rt.block_on(introspect_postgres_async_inner(creds))
 }
 
-#[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
+#[cfg(feature = "tokio-postgres")]
 async fn introspect_postgres_async_inner(
     creds: &PostgresCreds,
 ) -> Result<IntrospectResult, CliError> {
@@ -4515,7 +4666,7 @@ async fn introspect_postgres_async_inner(
     ))
 }
 
-#[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
+#[cfg(feature = "tokio-postgres")]
 async fn query_postgres_async_raw(
     client: &tokio_postgres::Client,
 ) -> Result<PostgresRawData, CliError> {
@@ -4527,7 +4678,7 @@ async fn query_postgres_async_raw(
     Ok(raw)
 }
 
-#[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
+#[cfg(feature = "tokio-postgres")]
 async fn query_pg_async_core(
     client: &tokio_postgres::Client,
     raw: &mut PostgresRawData,
@@ -4587,7 +4738,7 @@ async fn query_pg_async_core(
     Ok(())
 }
 
-#[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
+#[cfg(feature = "tokio-postgres")]
 async fn query_pg_async_codegen_meta(
     client: &tokio_postgres::Client,
     raw: &mut PostgresRawData,
@@ -4644,7 +4795,7 @@ async fn query_pg_async_codegen_meta(
     Ok(())
 }
 
-#[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
+#[cfg(feature = "tokio-postgres")]
 async fn query_pg_async_constraints(
     client: &tokio_postgres::Client,
     raw: &mut PostgresRawData,
@@ -4740,7 +4891,7 @@ async fn query_pg_async_constraints(
     Ok(())
 }
 
-#[cfg(all(not(feature = "postgres-sync"), feature = "tokio-postgres"))]
+#[cfg(feature = "tokio-postgres")]
 async fn query_pg_async_security(
     client: &tokio_postgres::Client,
     raw: &mut PostgresRawData,
@@ -4870,6 +5021,7 @@ fn finalize_postgres_introspection(
         index_count: ddl.indexes.list().len(),
         view_count: ddl.views.list().len(),
         warnings: generated.warnings,
+        mysql_catalog_defaults: None,
         snapshot: Snapshot::Postgres(snap),
         snapshot_path: std::path::PathBuf::new(),
     }
@@ -4932,6 +5084,26 @@ mod tests {
         assert!(!is_destructive_statement("CREATE TABLE users(id INTEGER);"));
         assert!(!is_destructive_statement(
             "ALTER TABLE users ADD COLUMN email text;"
+        ));
+    }
+
+    #[test]
+    fn mysql_structural_warnings_require_push_confirmation() {
+        let statements =
+            vec!["ALTER TABLE `users` MODIFY COLUMN `email` varchar(32) NOT NULL;".to_string()];
+        let warnings = vec![
+            "changing the type of users.email can truncate or reject existing values".to_string(),
+        ];
+
+        assert!(push_requires_confirmation(
+            Dialect::Mysql,
+            &statements,
+            &warnings,
+        ));
+        assert!(!push_requires_confirmation(
+            Dialect::Mysql,
+            &statements,
+            &[],
         ));
     }
 
@@ -5115,10 +5287,14 @@ mod tests {
         let creds = crate::config::Credentials::Sqlite {
             path: db_path.to_string_lossy().to_string().into_boxed_str(),
         };
+        let connection = ResolvedConnection {
+            dialect: crate::config::Dialect::Sqlite,
+            driver: Driver::Rusqlite,
+            credentials: creds,
+        };
 
         let result = run_migrations(
-            &creds,
-            crate::config::Dialect::Sqlite,
+            &connection,
             &migrations_dir,
             "__drizzle_migrations",
             "drizzle",
@@ -5143,7 +5319,9 @@ mod tests {
         feature = "libsql",
         feature = "turso",
         feature = "postgres-sync",
-        feature = "tokio-postgres"
+        feature = "tokio-postgres",
+        feature = "mysql-sync",
+        feature = "mysql-async"
     ))]
     #[test]
     fn validate_init_metadata_matches_drizzle_orm_semantics() {
@@ -5266,6 +5444,33 @@ mod tests {
             "unexpected finding: {}",
             findings[1]
         );
+    }
+
+    #[test]
+    fn mysql_integrity_findings_do_not_recommend_automatic_repair() {
+        use drizzle_migrations::{Migration, Migrations};
+
+        let set = Migrations::new(
+            vec![Migration::with_hash(
+                "20230331141203_first",
+                "hash_a",
+                1_680_271_923_000,
+                vec!["CREATE TABLE a(id INTEGER PRIMARY KEY)".to_string()],
+            )],
+            drizzle_types::Dialect::MySQL,
+        );
+        let findings = collect_integrity_findings(
+            &set,
+            &[AppliedMigrationRecord {
+                hash: "hash_a".to_string(),
+                name: "20230331141203_first".to_string(),
+                dirty: true,
+            }],
+        )
+        .expect("local set is well-formed");
+
+        assert!(findings[0].contains("resolve it manually"), "{findings:?}");
+        assert!(!findings[0].contains("--repair"), "{findings:?}");
     }
 
     #[test]
@@ -5397,13 +5602,48 @@ pub struct UsersEmailIdx(Users::email);
         let curr =
             Snapshot::from_parse_result(&SchemaParser::parse(current), Dialect::PostgreSQL, None);
 
-        let (sql, warnings) = generate_push_sql(&prev, &curr, false).expect("push sql generation");
+        let (sql, warnings) =
+            generate_push_sql(&prev, &curr, false, &drizzle_migrations::DiffOptions::new())
+                .expect("push sql generation");
         assert!(warnings.is_empty());
         assert_eq!(sql.len(), 1);
         assert_eq!(
             sql[0],
             "CREATE INDEX CONCURRENTLY \"users_email_idx\" ON \"users\"(\"email\");"
         );
+    }
+
+    #[test]
+    fn generate_push_sql_uses_live_mysql_catalog_defaults() {
+        use drizzle_migrations::mysql::MySQLCatalogDefaults;
+        use drizzle_migrations::parser::SchemaParser;
+        use drizzle_types::Dialect;
+
+        let introspected = r#"
+#[MySQLTable(NAME = "users")]
+pub struct Users {
+    #[column(PRIMARY)]
+    pub id: i32,
+}
+"#;
+        let desired = r#"
+#[MySQLTable(NAME = "users", ENGINE = "InnoDB")]
+pub struct Users {
+    #[column(PRIMARY)]
+    pub id: i32,
+}
+"#;
+        let current =
+            Snapshot::from_parse_result(&SchemaParser::parse(introspected), Dialect::MySQL, None);
+        let desired =
+            Snapshot::from_parse_result(&SchemaParser::parse(desired), Dialect::MySQL, None);
+        let options = drizzle_migrations::DiffOptions::new()
+            .mysql_catalog_defaults(MySQLCatalogDefaults::new().engine("InnoDB"));
+
+        let (sql, warnings) = generate_push_sql(&current, &desired, false, &options)
+            .expect("push SQL with live MySQL defaults");
+        assert!(sql.is_empty(), "inherited defaults must not churn: {sql:?}");
+        assert!(warnings.is_empty());
     }
 
     #[test]
@@ -5628,6 +5868,7 @@ pub struct AuditLogs {
             index_count: 0,
             view_count: 0,
             warnings: Vec::new(),
+            mysql_catalog_defaults: None,
             snapshot: snapshot.clone(),
             snapshot_path: std::path::PathBuf::new(),
         };
@@ -5666,6 +5907,7 @@ pub struct Schema {
             index_count: 0,
             view_count: 0,
             warnings: Vec::new(),
+            mysql_catalog_defaults: None,
             snapshot,
             snapshot_path: std::path::PathBuf::new(),
         };
@@ -5724,6 +5966,7 @@ pub struct AuditLogs {
             index_count: 0,
             view_count: 0,
             warnings: Vec::new(),
+            mysql_catalog_defaults: None,
             snapshot: snapshot.clone(),
             snapshot_path: std::path::PathBuf::new(),
         };
@@ -5762,6 +6005,7 @@ pub struct Schema {
             index_count: 0,
             view_count: 0,
             warnings: Vec::new(),
+            mysql_catalog_defaults: None,
             snapshot,
             snapshot_path: std::path::PathBuf::new(),
         };

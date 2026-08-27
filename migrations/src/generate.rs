@@ -263,6 +263,9 @@ pub struct DiffOptions {
     /// Typed data movement for SQLite table rebuilds, bound to the exact
     /// predecessor snapshot.
     pub sqlite_rebuild_data: Option<crate::sqlite::SqliteRebuildDataPlanRegistry>,
+    /// Live MySQL defaults used only when planning a push against an
+    /// introspected database.
+    pub mysql_catalog_defaults: Option<crate::mysql::MySQLCatalogDefaults>,
 }
 
 impl DiffOptions {
@@ -295,6 +298,12 @@ impl DiffOptions {
         registry: crate::sqlite::SqliteRebuildDataPlanRegistry,
     ) -> Self {
         self.sqlite_rebuild_data = Some(registry);
+        self
+    }
+
+    #[must_use]
+    pub fn mysql_catalog_defaults(mut self, defaults: crate::mysql::MySQLCatalogDefaults) -> Self {
+        self.mysql_catalog_defaults = Some(defaults);
         self
     }
 
@@ -398,6 +407,11 @@ pub fn diff_with(
 ) -> Result<Plan, MigrationError> {
     let (statements, warnings) = match (prev, current) {
         (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => {
+            if options.mysql_catalog_defaults.is_some() {
+                return Err(MigrationError::ConfigError(
+                    "MySQL catalog defaults cannot be used for a SQLite migration".to_string(),
+                ));
+            }
             let mut prev_ddl = SQLiteDDL::from_entities(p.ddl.clone());
             let cur_ddl = crate::sqlite::collection::SQLiteDDL::from_entities(c.ddl.clone());
             let mut statements = apply_sqlite_rename_hints(&mut prev_ddl, &cur_ddl, options)?;
@@ -416,6 +430,11 @@ pub fn diff_with(
             (statements, diff.warnings)
         }
         (Snapshot::Postgres(p), Snapshot::Postgres(c)) => {
+            if options.mysql_catalog_defaults.is_some() {
+                return Err(MigrationError::ConfigError(
+                    "MySQL catalog defaults cannot be used for a PostgreSQL migration".to_string(),
+                ));
+            }
             if options.sqlite_rebuild_data.is_some() {
                 return Err(MigrationError::ConfigError(
                     "SQLite rebuild-data plan cannot be used for a PostgreSQL migration"
@@ -447,6 +466,7 @@ pub fn diff_with(
                 .map_err(|error| MigrationError::ConfigError(error.to_string()))?;
             let mysql_options = crate::mysql::diff::DiffOptions {
                 strict_renames: options.strict_renames,
+                catalog_defaults: options.mysql_catalog_defaults.clone(),
                 renames: crate::mysql::diff::RenameHints {
                     tables: options
                         .renames

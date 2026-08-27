@@ -2,7 +2,8 @@
 //!
 //! Runs pending migrations against the database.
 
-use crate::config::{Config, Driver};
+use crate::commands::overrides::{self, ConnectionOverrides};
+use crate::config::{Config, Dialect, Driver};
 use crate::error::CliError;
 use crate::output;
 
@@ -33,10 +34,12 @@ pub struct MigrateOptions {
     /// Reconcile a migration that was interrupted mid-apply, then continue
     ///
     /// Statements of the interrupted migration are classified against the live
-    /// schema: CREATE TABLE / CREATE [UNIQUE] INDEX / CREATE VIEW /
+    /// schema: `CREATE TABLE` / `CREATE [UNIQUE] INDEX` / `CREATE VIEW` /
     /// CREATE TYPE ... AS ENUM statements whose object already exists with a
     /// matching definition are skipped, the rest are executed. Anything that
     /// cannot be proven either way aborts with a manual-resolution list.
+    /// MySQL does not support automatic repair because DDL may have committed
+    /// partially; inspect and reconcile its schema manually instead.
     #[arg(long)]
     pub repair: bool,
 }
@@ -75,18 +78,16 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Resu
         return Ok(());
     }
 
-    // Get credentials
-    let credentials = db.credentials()?;
-
-    let Some(credentials) = credentials else {
-        print_missing_credentials_help();
+    let connection =
+        overrides::resolve_connection(db, db.dialect, &ConnectionOverrides::default())?;
+    let Some(connection) = connection else {
+        print_missing_credentials_help(db.dialect);
         return Ok(());
     };
 
     let plan = if opts.verify || opts.plan || opts.safe {
         Some(crate::db::plan_migrations(
-            &credentials,
-            db.dialect,
+            &connection,
             out_dir,
             db.migrations_table(),
             db.migrations_schema(),
@@ -103,8 +104,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Resu
 
     // Run migrations
     let result = crate::db::run_migrations(
-        &credentials,
-        db.dialect,
+        &connection,
         out_dir,
         db.migrations_table(),
         db.migrations_schema(),
@@ -172,13 +172,19 @@ fn print_durable_sqlite_notice(out_dir: &std::path::Path) {
     );
 }
 
-fn print_missing_credentials_help() {
+fn print_missing_credentials_help(dialect: Dialect) {
     println!("{}", output::warning("No database credentials configured."));
     println!();
     println!("Add credentials to your drizzle.config.toml:");
     println!();
     println!("  {}", output::muted("[dbCredentials]"));
-    println!("  {}", output::muted("url = \"./dev.db\""));
+    let example = match dialect {
+        Dialect::Sqlite => "url = \"./dev.db\"",
+        Dialect::Turso => "url = \"libsql://your-db.turso.io\"",
+        Dialect::Postgresql => "url = \"postgres://user:password@localhost:5432/mydb\"",
+        Dialect::Mysql => "url = \"mysql://user:password@localhost:3306/mydb\"",
+    };
+    println!("  {}", output::muted(example));
     println!();
     println!("Or use an environment variable:");
     println!();

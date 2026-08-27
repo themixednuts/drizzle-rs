@@ -23,8 +23,47 @@ pub fn apply_snapshot_filters(
         (Dialect::Postgresql, Snapshot::Postgres(postgres)) => {
             apply_postgres_snapshot_filters(postgres, filters)
         }
+        (Dialect::Mysql, Snapshot::MySQL(mysql)) => apply_mysql_snapshot_filters(mysql, filters),
         _ => Err(CliError::DialectMismatch),
     }
+}
+
+fn apply_mysql_snapshot_filters(
+    snapshot: &mut drizzle_migrations::mysql::MySQLSnapshot,
+    filters: &SnapshotFilters,
+) -> Result<(), CliError> {
+    use drizzle_types::mysql::ddl::MySQLEntity;
+
+    let table_patterns = compile_patterns(filters.tables.as_deref())?;
+    let Some(table_patterns) = table_patterns.as_deref() else {
+        return Ok(());
+    };
+    let keep_tables = snapshot
+        .ddl
+        .iter()
+        .filter_map(|entity| match entity {
+            MySQLEntity::Table(table) if matches_patterns(&table.name, Some(table_patterns)) => {
+                Some(table.name.to_string())
+            }
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+
+    snapshot.ddl.retain(|entity| match entity {
+        MySQLEntity::Table(table) => keep_tables.contains(table.name.as_ref()),
+        MySQLEntity::Column(column) => keep_tables.contains(column.table.as_ref()),
+        MySQLEntity::Index(index) => keep_tables.contains(index.table.as_ref()),
+        MySQLEntity::PrimaryKey(primary_key) => keep_tables.contains(primary_key.table.as_ref()),
+        MySQLEntity::UniqueConstraint(unique) => keep_tables.contains(unique.table.as_ref()),
+        MySQLEntity::ForeignKey(foreign_key) => {
+            keep_tables.contains(foreign_key.table.as_ref())
+                && keep_tables.contains(foreign_key.foreign_table.as_ref())
+        }
+        MySQLEntity::CheckConstraint(check) => keep_tables.contains(check.table.as_ref()),
+        MySQLEntity::View(view) => matches_patterns(view.name.as_ref(), Some(table_patterns)),
+    });
+
+    Ok(())
 }
 
 fn apply_sqlite_snapshot_filters(
@@ -220,4 +259,67 @@ pub(super) fn matches_patterns(value: &str, patterns: Option<&[FilterPattern]>) 
         || patterns
             .iter()
             .any(|pattern| !pattern.negated && pattern.pattern.matches(value))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use drizzle_migrations::mysql::MySQLSnapshot;
+    use drizzle_types::mysql::ddl::{Column, ForeignKey, MySQLEntity, Table, View};
+
+    #[test]
+    fn mysql_table_filter_projects_complete_entity_graph() {
+        let mut snapshot = MySQLSnapshot::new();
+        for table in ["users", "posts", "audit_log"] {
+            snapshot.add_entity(MySQLEntity::Table(Table::new(table)));
+            snapshot.add_entity(MySQLEntity::Column(Column::new(table, "id", "int")));
+        }
+        snapshot.add_entity(MySQLEntity::ForeignKey(ForeignKey::new(
+            "posts",
+            "posts_user_fk",
+            ["id"],
+            "users",
+            ["id"],
+        )));
+        snapshot.add_entity(MySQLEntity::View(View::new(
+            "post_view",
+            "SELECT id FROM posts",
+        )));
+
+        let mut snapshot = Snapshot::MySQL(snapshot);
+        apply_snapshot_filters(
+            &mut snapshot,
+            Dialect::Mysql,
+            &SnapshotFilters {
+                tables: Some(vec!["posts".to_string(), "post_view".to_string()]),
+                schemas: None,
+                extensions: None,
+            },
+        )
+        .expect("filter");
+
+        let Snapshot::MySQL(snapshot) = snapshot else {
+            panic!("expected MySQL snapshot")
+        };
+        assert!(
+            snapshot
+                .ddl
+                .iter()
+                .any(|entity| matches!(entity, MySQLEntity::Table(table) if table.name == "posts"))
+        );
+        assert!(
+            snapshot.ddl.iter().any(
+                |entity| matches!(entity, MySQLEntity::View(view) if view.name == "post_view")
+            )
+        );
+        assert!(
+            !snapshot
+                .ddl
+                .iter()
+                .any(|entity| matches!(entity, MySQLEntity::ForeignKey(_)))
+        );
+        assert!(!snapshot.ddl.iter().any(
+            |entity| matches!(entity, MySQLEntity::Table(table) if table.name == "users" || table.name == "audit_log")
+        ));
+    }
 }

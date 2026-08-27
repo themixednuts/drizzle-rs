@@ -195,7 +195,7 @@ let migrations = drizzle::include_migrations!("./drizzle");
 db.migrate(&migrations, Tracking::SQLITE)?;
 ```
 
-Use `Tracking::POSTGRES` for PostgreSQL. Override the tracking table or schema when you need to:
+Use `Tracking::POSTGRES` for PostgreSQL and `Tracking::MYSQL` for MySQL. Override the tracking table or schema when you need to:
 
 ```rust
 db.migrate(
@@ -205,6 +205,13 @@ db.migrate(
         .table("__drizzle_migrations"),
 )?;
 ```
+
+MySQL DDL implicitly commits, so MySQL migrations do not pretend to be
+transactional. The CLI takes a database-scoped advisory lock, writes a durable
+dirty marker before the first statement, and marks the migration complete only
+after every statement succeeds. If a migration fails or is interrupted, inspect
+the partially applied DDL before retrying; automatic MySQL repair is deliberately
+unsupported because the server may already have committed some statements.
 
 **During `cargo build`, by extending the `build.rs` from above.** Set `DRIZZLE_MIGRATE=1` in your dev environment and your local database stays in lockstep with the schema:
 

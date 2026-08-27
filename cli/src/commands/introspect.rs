@@ -94,6 +94,7 @@ pub fn run(
             db.schema_filter.as_ref(),
         ),
         extensions: overrides::resolve_extensions_filter(
+            effective_dialect,
             opts.filters.extensions_filters.as_deref(),
             db.extensions_filters.as_deref(),
         ),
@@ -109,9 +110,6 @@ pub fn run(
         output::label("Dialect"),
         effective_dialect.as_str()
     );
-    if let Some(ref driver) = db.driver {
-        println!("  {}: {:?}", output::label("Driver"), driver);
-    }
     println!("  {}: {}", output::label("Output"), effective_out.display());
 
     if opts.init_metadata {
@@ -119,18 +117,16 @@ pub fn run(
     }
     println!();
 
-    // Get credentials
-    let credentials = overrides::resolve_credentials(db, effective_dialect, &opts.connection)?;
-
-    let Some(credentials) = credentials else {
+    let connection = overrides::resolve_connection(db, effective_dialect, &opts.connection)?;
+    let Some(connection) = connection else {
         print_missing_credentials_help(effective_dialect);
         return Ok(());
     };
+    println!("  {}: {}", output::label("Driver"), connection.driver);
 
     // Run introspection
     let result = crate::db::run_introspection(
-        &credentials,
-        effective_dialect,
+        &connection,
         effective_out,
         opts.init_metadata,
         effective_breakpoints,
@@ -162,8 +158,6 @@ fn print_missing_credentials_help(effective_dialect: Dialect) {
             );
         }
         drizzle_types::Dialect::MySQL => {
-            // drizzle-cli doesn't currently support MySQL end-to-end, but the base
-            // dialect type includes it, so keep the match exhaustive.
             println!(
                 "  {}",
                 output::muted("url = \"mysql://user:pass@localhost:3306/db\"")

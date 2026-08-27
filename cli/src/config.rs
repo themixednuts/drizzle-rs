@@ -220,11 +220,12 @@ pub enum Dialect {
     Sqlite,
     #[serde(alias = "postgres")]
     Postgresql,
+    Mysql,
     Turso,
 }
 
 impl Dialect {
-    pub const ALL: &'static [&'static str] = &["sqlite", "postgresql", "turso"];
+    pub const ALL: &'static [&'static str] = &["sqlite", "postgresql", "mysql", "turso"];
 
     #[inline]
     #[must_use]
@@ -232,6 +233,7 @@ impl Dialect {
         match self {
             Self::Sqlite => "sqlite",
             Self::Postgresql => "postgresql",
+            Self::Mysql => "mysql",
             Self::Turso => "turso",
         }
     }
@@ -242,6 +244,7 @@ impl Dialect {
         match self {
             Self::Sqlite | Self::Turso => drizzle_types::Dialect::SQLite,
             Self::Postgresql => drizzle_types::Dialect::PostgreSQL,
+            Self::Mysql => drizzle_types::Dialect::MySQL,
         }
     }
 }
@@ -259,6 +262,7 @@ impl std::str::FromStr for Dialect {
         match s {
             "sqlite" => Ok(Self::Sqlite),
             "postgresql" | "postgres" => Ok(Self::Postgresql),
+            "mysql" => Ok(Self::Mysql),
             "turso" => Ok(Self::Turso),
             _ => Err(format!(
                 "invalid dialect '{}', expected one of: {}",
@@ -294,6 +298,10 @@ pub enum Driver {
     PostgresSync,
     /// tokio-postgres - async `PostgreSQL` driver
     TokioPostgres,
+    /// mysql-sync - blocking MySQL driver
+    MysqlSync,
+    /// mysql-async - Tokio MySQL driver
+    MysqlAsync,
     /// d1-http - Cloudflare D1 over the HTTP API
     ///
     /// Targets a remote D1 database via the Cloudflare REST API. Requires
@@ -333,6 +341,8 @@ impl Driver {
         "turso",
         "postgres-sync",
         "tokio-postgres",
+        "mysql-sync",
+        "mysql-async",
         "d1-http",
         "durable-sqlite",
         "aws-data-api",
@@ -347,6 +357,8 @@ impl Driver {
             Self::Turso => "turso",
             Self::PostgresSync => "postgres-sync",
             Self::TokioPostgres => "tokio-postgres",
+            Self::MysqlSync => "mysql-sync",
+            Self::MysqlAsync => "mysql-async",
             Self::D1Http => "d1-http",
             Self::DurableSqlite => "durable-sqlite",
             Self::AwsDataApi => "aws-data-api",
@@ -362,6 +374,7 @@ impl Driver {
             Dialect::Sqlite => &[Self::Rusqlite, Self::D1Http, Self::DurableSqlite],
             Dialect::Turso => &[Self::Libsql, Self::Turso],
             Dialect::Postgresql => &[Self::PostgresSync, Self::TokioPostgres, Self::AwsDataApi],
+            Dialect::Mysql => &[Self::MysqlSync, Self::MysqlAsync],
         }
     }
 
@@ -378,6 +391,7 @@ impl Driver {
                     Self::PostgresSync | Self::TokioPostgres | Self::AwsDataApi,
                     Dialect::Postgresql
                 )
+                | (Self::MysqlSync | Self::MysqlAsync, Dialect::Mysql)
         )
     }
 
@@ -407,6 +421,8 @@ impl std::str::FromStr for Driver {
             "turso" => Ok(Self::Turso),
             "postgres-sync" => Ok(Self::PostgresSync),
             "tokio-postgres" => Ok(Self::TokioPostgres),
+            "mysql-sync" => Ok(Self::MysqlSync),
+            "mysql-async" => Ok(Self::MysqlAsync),
             "d1-http" => Ok(Self::D1Http),
             "durable-sqlite" => Ok(Self::DurableSqlite),
             "aws-data-api" => Ok(Self::AwsDataApi),
@@ -451,6 +467,9 @@ pub enum Credentials {
     /// `PostgreSQL`
     Postgres(PostgresCreds),
 
+    /// MySQL
+    MySQL(MySQLCreds),
+
     /// Cloudflare D1 over the HTTP API.
     ///
     /// Used by the CLI to hit the Cloudflare REST endpoint for schema ops
@@ -488,6 +507,21 @@ pub enum PostgresCreds {
     },
 }
 
+/// MySQL credentials. Both Rust adapters consume the same resolved shape;
+/// [`Driver`] selects the concrete connection effect later.
+#[derive(Clone)]
+pub enum MySQLCreds {
+    Url(Box<str>),
+    Host {
+        host: Box<str>,
+        port: u16,
+        user: Option<Box<str>>,
+        password: Option<Box<str>>,
+        database: Box<str>,
+        ssl: MySQLSslMode,
+    },
+}
+
 impl std::fmt::Debug for Credentials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -498,6 +532,7 @@ impl std::fmt::Debug for Credentials {
                 .field("auth_token", &auth_token.as_ref().map(|_| "[REDACTED]"))
                 .finish(),
             Self::Postgres(credentials) => f.debug_tuple("Postgres").field(credentials).finish(),
+            Self::MySQL(credentials) => f.debug_tuple("MySQL").field(credentials).finish(),
             Self::D1 {
                 account_id,
                 database_id,
@@ -546,6 +581,30 @@ impl std::fmt::Debug for PostgresCreds {
     }
 }
 
+impl std::fmt::Debug for MySQLCreds {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Url(_) => f.debug_tuple("Url").field(&"[REDACTED]").finish(),
+            Self::Host {
+                host,
+                port,
+                user,
+                password,
+                database,
+                ssl,
+            } => f
+                .debug_struct("Host")
+                .field("host", host)
+                .field("port", port)
+                .field("user", user)
+                .field("password", &password.as_ref().map(|_| "[REDACTED]"))
+                .field("database", database)
+                .field("ssl", ssl)
+                .finish(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PostgresSslMode {
     #[default]
@@ -555,6 +614,28 @@ pub enum PostgresSslMode {
     Require,
     VerifyCa,
     VerifyFull,
+}
+
+/// MySQL TLS policy accepted by URL/host CLI configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MySQLSslMode {
+    #[default]
+    Disable,
+    Required,
+    VerifyCa,
+    VerifyIdentity,
+}
+
+impl MySQLSslMode {
+    pub(crate) fn parse(value: &str) -> Result<Self, String> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "false" | "0" | "no" | "off" | "disable" | "disabled" => Ok(Self::Disable),
+            "true" | "1" | "yes" | "on" | "require" | "required" => Ok(Self::Required),
+            "verify-ca" => Ok(Self::VerifyCa),
+            "verify-identity" | "verify-full" => Ok(Self::VerifyIdentity),
+            _ => Err(format!("invalid MySQL SSL mode `{value}`")),
+        }
+    }
 }
 
 impl PostgresSslMode {
@@ -757,11 +838,19 @@ enum SslVal {
 }
 
 impl SslVal {
-    fn mode(&self) -> Result<PostgresSslMode, String> {
+    fn postgres_mode(&self) -> Result<PostgresSslMode, String> {
         match self {
             Self::Bool(false) => Ok(PostgresSslMode::Disable),
             Self::Bool(true) => Ok(PostgresSslMode::Require),
             Self::Str(value) => PostgresSslMode::parse(value),
+        }
+    }
+
+    fn mysql_mode(&self) -> Result<MySQLSslMode, String> {
+        match self {
+            Self::Bool(false) => Ok(MySQLSslMode::Disable),
+            Self::Bool(true) => Ok(MySQLSslMode::Required),
+            Self::Str(value) => MySQLSslMode::parse(value),
         }
     }
 }
@@ -919,10 +1008,13 @@ impl DatabaseConfig {
         // Enforce dialect/shape pairing. Without this, serde can parse a "host" form for
         // any dialect, and later `credentials()` would silently return None.
         match (self.dialect, raw) {
-            (Dialect::Postgresql, RawCreds::Host { .. } | RawCreds::Url { .. }) => {}
+            (
+                Dialect::Postgresql | Dialect::Mysql,
+                RawCreds::Host { .. } | RawCreds::Url { .. },
+            ) => {}
             (_, RawCreds::Host { .. }) => {
                 return Err(err(
-                    "host-based dbCredentials are only supported for dialect = \"postgresql\"",
+                    "host-based dbCredentials are only supported for dialect = \"postgresql\" or \"mysql\"",
                 ));
             }
             _ => {}
@@ -988,6 +1080,13 @@ impl DatabaseConfig {
                 "SQLite doesn't support authToken (use dialect = \"turso\")",
             )),
             (
+                Dialect::Mysql,
+                RawCreds::Url {
+                    auth_token: Some(_),
+                    ..
+                },
+            ) => Err(err("MySQL doesn't support authToken")),
+            (
                 Dialect::Sqlite,
                 RawCreds::Url {
                     url: ConfigValue::Inline(url),
@@ -1029,6 +1128,17 @@ impl DatabaseConfig {
             ) if !url.starts_with("postgres") => {
                 Err(err("PostgreSQL URL must start with postgres://"))
             }
+            (Dialect::Mysql, RawCreds::Host { ssl: Some(ssl), .. }) => ssl
+                .mysql_mode()
+                .map(|_| ())
+                .map_err(Error::InvalidCredentials),
+            (
+                Dialect::Mysql,
+                RawCreds::Url {
+                    url: ConfigValue::Inline(url),
+                    ..
+                },
+            ) if !url.starts_with("mysql://") => Err(err("MySQL URL must start with mysql://")),
             _ => Ok(()),
         }
     }
@@ -1096,6 +1206,14 @@ impl DatabaseConfig {
             (Dialect::Postgresql, RawCreds::Url { url, .. }) => {
                 Credentials::Postgres(PostgresCreds::Url(url.resolve()?.into_boxed_str()))
             }
+            // MySQL URL
+            (
+                Dialect::Mysql,
+                RawCreds::Url {
+                    url,
+                    auth_token: None,
+                },
+            ) => Credentials::MySQL(MySQLCreds::Url(url.resolve()?.into_boxed_str())),
             // PostgreSQL Host
             (
                 Dialect::Postgresql,
@@ -1115,7 +1233,29 @@ impl DatabaseConfig {
                 database: database.resolve()?.into_boxed_str(),
                 ssl: ssl
                     .as_ref()
-                    .map_or(Ok(PostgresSslMode::Disable), SslVal::mode)
+                    .map_or(Ok(PostgresSslMode::Disable), SslVal::postgres_mode)
+                    .map_err(Error::InvalidCredentials)?,
+            }),
+            // MySQL Host
+            (
+                Dialect::Mysql,
+                RawCreds::Host {
+                    host,
+                    port,
+                    user,
+                    password,
+                    database,
+                    ssl,
+                },
+            ) => Credentials::MySQL(MySQLCreds::Host {
+                host: host.resolve()?.into_boxed_str(),
+                port: port.unwrap_or(3306),
+                user: resolve_opt(user)?,
+                password: resolve_opt(password)?,
+                database: database.resolve()?.into_boxed_str(),
+                ssl: ssl
+                    .as_ref()
+                    .map_or(Ok(MySQLSslMode::Disable), SslVal::mysql_mode)
                     .map_err(Error::InvalidCredentials)?,
             }),
             _ => return Ok(None),
@@ -1633,6 +1773,104 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn mysql_url_credentials_and_driver_parse() {
+        let cfg = Config::load_from_str(
+            r#"
+            dialect = "mysql"
+            driver = "mysql-async"
+            [dbCredentials]
+            url = "mysql://user:secret@localhost:3306/app"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+        let db = cfg.default_database().unwrap();
+        assert_eq!(db.dialect, Dialect::Mysql);
+        assert_eq!(db.driver, Some(Driver::MysqlAsync));
+        assert!(matches!(
+            db.credentials().unwrap(),
+            Some(Credentials::MySQL(MySQLCreds::Url(_)))
+        ));
+    }
+
+    #[test]
+    fn mysql_host_credentials_use_mysql_defaults() {
+        let cfg = Config::load_from_str(
+            r#"
+            dialect = "mysql"
+            driver = "mysql-sync"
+            [dbCredentials]
+            host = "db.example.com"
+            user = "app"
+            password = "secret"
+            database = "app_db"
+            ssl = "verify-identity"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+        match cfg.default_database().unwrap().credentials().unwrap() {
+            Some(Credentials::MySQL(MySQLCreds::Host {
+                port,
+                ssl,
+                database,
+                ..
+            })) => {
+                assert_eq!(port, 3306);
+                assert_eq!(ssl, MySQLSslMode::VerifyIdentity);
+                assert_eq!(database.as_ref(), "app_db");
+            }
+            other => panic!("unexpected credentials: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mysql_host_credentials_reject_unrepresentable_preferred_tls() {
+        let error = Config::load_from_str(
+            r#"
+            dialect = "mysql"
+            [dbCredentials]
+            host = "db.example.com"
+            database = "app_db"
+            ssl = "preferred"
+        "#,
+            Path::new("test.toml"),
+        )
+        .expect_err("host credentials cannot express opportunistic TLS");
+
+        assert!(
+            error.to_string().contains("invalid MySQL SSL mode"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn mysql_rejects_cross_dialect_driver_and_url() {
+        let driver_error = Config::load_from_str(
+            r#"
+            dialect = "mysql"
+            driver = "postgres-sync"
+            [dbCredentials]
+            url = "mysql://localhost/app"
+        "#,
+            Path::new("test.toml"),
+        )
+        .expect_err("postgres driver must not target mysql");
+        assert!(driver_error.to_string().contains("invalid for mysql"));
+
+        let url_error = Config::load_from_str(
+            r#"
+            dialect = "mysql"
+            [dbCredentials]
+            url = "postgres://localhost/app"
+        "#,
+            Path::new("test.toml"),
+        )
+        .expect_err("postgres URL must not target mysql");
+        assert!(url_error.to_string().contains("must start with mysql://"));
+    }
+
     #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
     #[test]
     fn postgres_host_credentials_are_structured_without_url_encoding() {
@@ -1948,7 +2186,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "invalid credentials: host-based dbCredentials are only supported for dialect = \"postgresql\""
+            "invalid credentials: host-based dbCredentials are only supported for dialect = \"postgresql\" or \"mysql\""
         );
     }
 

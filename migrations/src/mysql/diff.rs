@@ -99,6 +99,43 @@ impl RenameHints {
 pub struct DiffOptions {
     pub renames: RenameHints,
     pub strict_renames: bool,
+    pub catalog_defaults: Option<MySQLCatalogDefaults>,
+}
+
+/// Effective defaults reported by the selected MySQL database.
+///
+/// Push planning uses this live catalog context to compare schema options
+/// which introspection intentionally omits when they are inherited.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MySQLCatalogDefaults {
+    pub engine: Option<String>,
+    pub charset: Option<String>,
+    pub collation: Option<String>,
+}
+
+impl MySQLCatalogDefaults {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn engine(mut self, engine: impl Into<String>) -> Self {
+        self.engine = Some(engine.into());
+        self
+    }
+
+    #[must_use]
+    pub fn charset(mut self, charset: impl Into<String>) -> Self {
+        self.charset = Some(charset.into());
+        self
+    }
+
+    #[must_use]
+    pub fn collation(mut self, collation: impl Into<String>) -> Self {
+        self.collation = Some(collation.into());
+        self
+    }
 }
 
 /// A structural migration warning which does not require live row counts.
@@ -391,6 +428,297 @@ fn index_supports_columns<'a>(
             !column.is_expression && column.length.is_none() && column.expression == required
         })
     })
+}
+
+fn index_columns_equivalent(left: &model::IndexColumn, right: &model::IndexColumn) -> bool {
+    left.expression == right.expression
+        && left.is_expression == right.is_expression
+        && left.length == right.length
+        && left.ascending.unwrap_or(true) == right.ascending.unwrap_or(true)
+}
+
+fn indexes_equivalent(left: &model::Index, right: &model::Index) -> bool {
+    // INFORMATION_SCHEMA materializes omitted BTREE, ASC, and visibility defaults.
+    // ALGORITHM and LOCK are execution directives, so the server cannot return them.
+    left.database == right.database
+        && left.table == right.table
+        && left.name == right.name
+        && left.unique == right.unique
+        && left.columns.len() == right.columns.len()
+        && left
+            .columns
+            .iter()
+            .zip(&right.columns)
+            .all(|(left, right)| index_columns_equivalent(left, right))
+        && left.using.unwrap_or(model::IndexMethod::Btree)
+            == right.using.unwrap_or(model::IndexMethod::Btree)
+        && left.comment == right.comment
+        && left.visible.unwrap_or(true) == right.visible.unwrap_or(true)
+}
+
+fn unique_backing_index(
+    database: &Option<Cow<'static, str>>,
+    table: &str,
+    name: &str,
+    columns: impl IntoIterator<Item = Cow<'static, str>>,
+) -> model::Index {
+    let mut index = model::Index::new(
+        table.to_string(),
+        name.to_string(),
+        columns
+            .into_iter()
+            .map(model::IndexColumn::column)
+            .collect(),
+    );
+    index.database = database.clone();
+    index.unique = true;
+    index
+}
+
+fn reconcile_unique_index_representations(current: &mut MySQLDDL, desired: &MySQLDDL) {
+    let mut reconciled_indexes = BTreeSet::new();
+    let mut reconciled_uniques = Vec::new();
+
+    for unique in desired.uniques.list() {
+        if current
+            .uniques
+            .list()
+            .iter()
+            .any(|current| current == unique)
+        {
+            continue;
+        }
+        let expected = unique_backing_index(
+            &unique.database,
+            &unique.table,
+            &unique.name,
+            unique.columns.iter().cloned(),
+        );
+        let key = (unique.table.to_string(), unique.name.to_string());
+        if !reconciled_indexes.contains(&key)
+            && current
+                .indexes
+                .list()
+                .iter()
+                .any(|index| indexes_equivalent(index, &expected))
+        {
+            reconciled_indexes.insert(key);
+            reconciled_uniques.push(unique.clone());
+        }
+    }
+    current.uniques.extend(reconciled_uniques);
+
+    for desired_column in desired.columns.list().iter().filter(|column| column.unique) {
+        let represented_by_constraint = desired.uniques.list().iter().any(|unique| {
+            unique.table == desired_column.table
+                && unique.columns.len() == 1
+                && unique.columns[0] == desired_column.name
+        });
+        if represented_by_constraint {
+            continue;
+        }
+        let key = (
+            desired_column.table.to_string(),
+            desired_column.name.to_string(),
+        );
+        let expected = unique_backing_index(
+            &desired_column.database,
+            &desired_column.table,
+            &desired_column.name,
+            [desired_column.name.clone()],
+        );
+        if !current
+            .indexes
+            .list()
+            .iter()
+            .any(|index| !reconciled_indexes.contains(&key) && indexes_equivalent(index, &expected))
+        {
+            continue;
+        }
+        if let Some(column) = current
+            .columns
+            .list_mut()
+            .iter_mut()
+            .find(|column| column.table == key.0.as_str() && column.name == key.1.as_str())
+        {
+            column.unique = true;
+            reconciled_indexes.insert(key);
+        }
+    }
+
+    current.indexes.list_mut().retain(|index| {
+        !reconciled_indexes.contains(&(index.table.to_string(), index.name.to_string()))
+    });
+}
+
+fn same_option(left: Option<&str>, right: Option<&str>) -> bool {
+    matches!((left, right), (Some(left), Some(right)) if left.eq_ignore_ascii_case(right))
+}
+
+fn reconcile_catalog_defaults(
+    current: &mut MySQLDDL,
+    desired: &MySQLDDL,
+    defaults: &MySQLCatalogDefaults,
+) {
+    for table in current.tables.list_mut() {
+        let Some(desired_table) = desired
+            .tables
+            .one(table.database.as_deref(), table.name.as_ref())
+        else {
+            continue;
+        };
+        if table.engine.is_none()
+            && same_option(desired_table.engine.as_deref(), defaults.engine.as_deref())
+        {
+            table.engine = desired_table.engine.clone();
+        }
+        if table.charset.is_none()
+            && same_option(
+                desired_table.charset.as_deref(),
+                defaults.charset.as_deref(),
+            )
+        {
+            table.charset = desired_table.charset.clone();
+        }
+        if table.collation.is_none()
+            && same_option(
+                desired_table.collation.as_deref(),
+                defaults.collation.as_deref(),
+            )
+        {
+            table.collation = desired_table.collation.clone();
+        }
+    }
+
+    for column in current.columns.list_mut() {
+        let Some(desired_column) = desired.columns.one(
+            column.database.as_deref(),
+            column.table.as_ref(),
+            column.name.as_ref(),
+        ) else {
+            continue;
+        };
+        let Some(table) = current
+            .tables
+            .one(column.database.as_deref(), column.table.as_ref())
+        else {
+            continue;
+        };
+        let inherited_charset = table.charset.as_deref().or(defaults.charset.as_deref());
+        let inherited_collation = table.collation.as_deref().or(defaults.collation.as_deref());
+        if column.charset.is_none()
+            && same_option(desired_column.charset.as_deref(), inherited_charset)
+        {
+            column.charset = desired_column.charset.clone();
+        }
+        if column.collation.is_none()
+            && same_option(desired_column.collation.as_deref(), inherited_collation)
+        {
+            column.collation = desired_column.collation.clone();
+        }
+    }
+}
+
+fn reconcile_primary_key_nullability(current: &mut MySQLDDL, desired: &MySQLDDL) {
+    let current_members: BTreeSet<_> = current
+        .pks
+        .list()
+        .iter()
+        .flat_map(|primary_key| {
+            primary_key.columns.iter().map(|column| {
+                (
+                    primary_key.database.as_deref().map(str::to_string),
+                    primary_key.table.to_string(),
+                    column.to_string(),
+                )
+            })
+        })
+        .collect();
+    let desired_members: BTreeSet<_> = desired
+        .pks
+        .list()
+        .iter()
+        .flat_map(|primary_key| {
+            primary_key.columns.iter().map(|column| {
+                (
+                    primary_key.database.as_deref().map(str::to_string),
+                    primary_key.table.to_string(),
+                    column.to_string(),
+                )
+            })
+        })
+        .collect();
+    for column in current.columns.list_mut() {
+        let key = (
+            column.database.as_deref().map(str::to_string),
+            column.table.to_string(),
+            column.name.to_string(),
+        );
+        if !current_members.contains(&key) && !desired_members.contains(&key) {
+            continue;
+        }
+        if let Some(desired_column) = desired.columns.one(
+            column.database.as_deref(),
+            column.table.as_ref(),
+            column.name.as_ref(),
+        ) {
+            column.primary_key = desired_column.primary_key;
+        }
+    }
+
+    for primary_key in current.pks.list() {
+        let Some(desired_primary_key) = desired
+            .pks
+            .for_table(primary_key.database.as_deref(), primary_key.table.as_ref())
+        else {
+            continue;
+        };
+        if primary_key.columns != desired_primary_key.columns {
+            continue;
+        }
+        for name in &primary_key.columns {
+            let desired_not_null = desired
+                .columns
+                .one(
+                    desired_primary_key.database.as_deref(),
+                    desired_primary_key.table.as_ref(),
+                    name.as_ref(),
+                )
+                .map(|column| column.not_null);
+            let Some(desired_not_null) = desired_not_null else {
+                continue;
+            };
+            if let Some(column) = current.columns.list_mut().iter_mut().find(|column| {
+                column.database == primary_key.database
+                    && column.table == primary_key.table
+                    && column.name == *name
+            }) {
+                column.not_null = desired_not_null;
+            }
+        }
+    }
+}
+
+fn reconcile_column_type_spellings(current: &mut MySQLDDL, desired: &MySQLDDL) {
+    for current_column in current.columns.list_mut() {
+        let Some(desired_column) = desired.columns.one(
+            current_column.database.as_deref(),
+            current_column.table.as_ref(),
+            current_column.name.as_ref(),
+        ) else {
+            continue;
+        };
+        let equivalent = match (&current_column.inline_type, &desired_column.inline_type) {
+            (Some(current), Some(desired)) => current == desired,
+            (None, None) => super::codegen::canonical_sql_type(&current_column.sql_type)
+                .zip(super::codegen::canonical_sql_type(&desired_column.sql_type))
+                .is_some_and(|(current, desired)| current == desired),
+            _ => false,
+        };
+        if equivalent {
+            current_column.sql_type = desired_column.sql_type.clone();
+        }
+    }
 }
 
 fn validate_foreign_key_targets(ddl: &MySQLDDL) -> Result<(), DiffError> {
@@ -999,7 +1327,15 @@ fn view_definition(view: &model::View) -> Option<ViewDefinition> {
 }
 
 fn views_equivalent(left: &model::View, right: &model::View) -> bool {
-    view_definition(left) == view_definition(right)
+    let mut left = view_definition(left);
+    let mut right = view_definition(right);
+    if let Some(left) = &mut left {
+        left.definer = None;
+    }
+    if let Some(right) = &mut right {
+        right.definer = None;
+    }
+    left == right
 }
 
 fn table_definition(table: &model::Table, ddl: &MySQLDDL) -> TableDefinition {
@@ -1490,6 +1826,12 @@ pub fn compute_migration_with(
 
     let (rename_statements, renames) =
         apply_rename_hints(&mut prev, &cur, selected.as_deref(), options)?;
+    reconcile_unique_index_representations(&mut prev, &cur);
+    reconcile_primary_key_nullability(&mut prev, &cur);
+    reconcile_column_type_spellings(&mut prev, &cur);
+    if let Some(defaults) = &options.catalog_defaults {
+        reconcile_catalog_defaults(&mut prev, &cur, defaults);
+    }
     let renamed_columns: Vec<_> = rename_statements
         .iter()
         .filter_map(|statement| match statement {
@@ -1606,7 +1948,9 @@ pub fn compute_migration_with(
         .iter()
         .filter(|(key, old)| {
             !dropped_tables.contains(&key.0)
-                && (cur_indexes.get(*key).is_none_or(|new| **old != *new)
+                && (cur_indexes
+                    .get(*key)
+                    .is_none_or(|new| !indexes_equivalent(old, new))
                     || old.columns.iter().any(|column| {
                         !column.is_expression
                             && recreated_columns
@@ -2139,6 +2483,32 @@ mod tests {
         ddl
     }
 
+    fn server_unique_index(table: &str, name: &str, columns: &[&str]) -> model::Index {
+        let mut index = model::Index::new(
+            table.to_string(),
+            name.to_string(),
+            columns
+                .iter()
+                .map(|column| {
+                    let mut column = model::IndexColumn::column((*column).to_string());
+                    column.ascending = Some(true);
+                    column
+                })
+                .collect(),
+        );
+        index.unique = true;
+        index.using = Some(model::IndexMethod::Btree);
+        index.visible = Some(true);
+        index
+    }
+
+    fn primary_key(table: &str, columns: &[&str]) -> model::PrimaryKey {
+        model::PrimaryKey::new(
+            table.to_string(),
+            columns.iter().map(|column| (*column).to_string()),
+        )
+    }
+
     #[test]
     fn generated_transition_matrix_matches_mysql_alter_rules() {
         use ColumnAlterStrategy::{Modify, Recreate};
@@ -2382,6 +2752,7 @@ mod tests {
                 .table("users", "accounts")
                 .column("accounts", "id", "user_id"),
             strict_renames: true,
+            ..DiffOptions::default()
         };
 
         let migration = compute_migration_with(&prev, &cur, &options).unwrap();
@@ -2584,6 +2955,148 @@ mod tests {
     }
 
     #[test]
+    fn inherited_mysql_defaults_match_explicit_desired_options_with_catalog_context() {
+        let mut prev = table_with_columns("users", &["name"]);
+        prev.columns.list_mut()[0].sql_type = "varchar(255)".into();
+        let mut cur = prev.clone();
+        cur.tables.list_mut()[0].engine = Some("InnoDB".into());
+        cur.tables.list_mut()[0].charset = Some("utf8mb4".into());
+        cur.tables.list_mut()[0].collation = Some("utf8mb4_0900_ai_ci".into());
+        cur.columns.list_mut()[0].charset = Some("utf8mb4".into());
+        cur.columns.list_mut()[0].collation = Some("utf8mb4_0900_ai_ci".into());
+        let options = DiffOptions {
+            catalog_defaults: Some(
+                MySQLCatalogDefaults::new()
+                    .engine("InnoDB")
+                    .charset("utf8mb4")
+                    .collation("utf8mb4_0900_ai_ci"),
+            ),
+            ..DiffOptions::default()
+        };
+
+        let migration = compute_migration_with(&prev, &cur, &options).unwrap();
+
+        assert!(migration.statements.is_empty());
+    }
+
+    #[test]
+    fn catalog_context_does_not_hide_distinct_mysql_options() {
+        let mut prev = table_with_columns("users", &["name"]);
+        prev.columns.list_mut()[0].sql_type = "varchar(255)".into();
+        let mut cur = prev.clone();
+        cur.tables.list_mut()[0].engine = Some("MyISAM".into());
+        cur.tables.list_mut()[0].charset = Some("latin1".into());
+        cur.tables.list_mut()[0].collation = Some("latin1_swedish_ci".into());
+        cur.columns.list_mut()[0].charset = Some("latin1".into());
+        cur.columns.list_mut()[0].collation = Some("latin1_swedish_ci".into());
+        let options = DiffOptions {
+            catalog_defaults: Some(
+                MySQLCatalogDefaults::new()
+                    .engine("InnoDB")
+                    .charset("utf8mb4")
+                    .collation("utf8mb4_0900_ai_ci"),
+            ),
+            ..DiffOptions::default()
+        };
+
+        let migration = compute_migration_with(&prev, &cur, &options).unwrap();
+
+        assert!(migration.sql_statements.iter().any(|sql| {
+            sql.contains("ENGINE=MyISAM")
+                && sql.contains("DEFAULT CHARACTER SET=latin1")
+                && sql.contains("COLLATE=latin1_swedish_ci")
+        }));
+        assert!(migration.sql_statements.iter().any(|sql| {
+            sql.contains("MODIFY COLUMN `name`")
+                && sql.contains("CHARACTER SET latin1")
+                && sql.contains("COLLATE latin1_swedish_ci")
+        }));
+    }
+
+    #[test]
+    fn ordinary_diff_keeps_explicit_mysql_default_options_structural() {
+        let mut prev = table_with_columns("users", &["name"]);
+        prev.columns.list_mut()[0].sql_type = "varchar(255)".into();
+        let mut cur = prev.clone();
+        cur.tables.list_mut()[0].engine = Some("InnoDB".into());
+        cur.tables.list_mut()[0].charset = Some("utf8mb4".into());
+        cur.tables.list_mut()[0].collation = Some("utf8mb4_0900_ai_ci".into());
+        cur.columns.list_mut()[0].charset = Some("utf8mb4".into());
+        cur.columns.list_mut()[0].collation = Some("utf8mb4_0900_ai_ci".into());
+
+        let migration = compute_migration(&prev, &cur).unwrap();
+
+        assert!(
+            migration
+                .statements
+                .iter()
+                .any(|statement| matches!(statement, MySQLStatement::AlterTableOptions { .. }))
+        );
+        assert!(
+            migration
+                .statements
+                .iter()
+                .any(|statement| matches!(statement, MySQLStatement::ModifyColumn { .. }))
+        );
+    }
+
+    #[test]
+    fn primary_key_catalog_not_null_is_ignored_while_membership_is_stable() {
+        let mut prev = table_with_columns("users", &["id"]);
+        prev.columns.list_mut()[0].primary_key = true;
+        prev.pks.push(primary_key("users", &["id"]));
+        let mut cur = prev.clone();
+        cur.columns.list_mut()[0].not_null = false;
+
+        let migration = compute_migration(&prev, &cur).unwrap();
+
+        assert!(migration.statements.is_empty());
+    }
+
+    #[test]
+    fn leaving_primary_key_restores_desired_nullable_column() {
+        let mut prev = table_with_columns("users", &["id"]);
+        prev.columns.list_mut()[0].primary_key = true;
+        prev.pks.push(primary_key("users", &["id"]));
+        let mut cur = prev.clone();
+        cur.pks.list_mut().clear();
+        cur.columns.list_mut()[0].not_null = false;
+        cur.columns.list_mut()[0].primary_key = false;
+
+        let migration = compute_migration(&prev, &cur).unwrap();
+
+        assert!(
+            migration
+                .statements
+                .iter()
+                .any(|statement| matches!(statement, MySQLStatement::DropPrimaryKey { .. }))
+        );
+        assert!(
+            migration
+                .statements
+                .iter()
+                .any(|statement| matches!(statement, MySQLStatement::ModifyColumn { .. }))
+        );
+    }
+
+    #[test]
+    fn entering_primary_key_does_not_emit_redundant_nullability_change() {
+        let mut prev = table_with_columns("users", &["id"]);
+        prev.columns.list_mut()[0].not_null = false;
+        let mut cur = prev.clone();
+        cur.columns.list_mut()[0].primary_key = true;
+        cur.pks.push(primary_key("users", &["id"]));
+
+        let migration = compute_migration(&prev, &cur).unwrap();
+
+        assert_eq!(migration.statements.len(), 1);
+        assert!(matches!(
+            migration.statements[0],
+            MySQLStatement::AddPrimaryKey { .. }
+        ));
+    }
+
+    #[test]
     fn adding_virtual_generated_column_uses_warned_drop_add_transition() {
         let mut prev = table_with_columns("users", &["name", "slug"]);
         prev.views
@@ -2757,6 +3270,7 @@ mod tests {
         let options = DiffOptions {
             renames: RenameHints::new().column("items", "value", "amount"),
             strict_renames: true,
+            ..DiffOptions::default()
         };
         let migration = compute_migration_with(&prev, &renamed, &options).unwrap();
         let drop_check = migration
@@ -2858,6 +3372,191 @@ mod tests {
     }
 
     #[test]
+    fn inline_unique_matches_server_unique_index() {
+        let mut prev = table_with_columns("users", &["email"]);
+        prev.indexes
+            .push(server_unique_index("users", "email", &["email"]));
+        let mut cur = table_with_columns("users", &["email"]);
+        cur.columns.list_mut()[0].unique = true;
+
+        let migration = compute_migration(&prev, &cur).unwrap();
+
+        assert!(migration.statements.is_empty());
+    }
+
+    #[test]
+    fn inline_unique_reconciliation_preserves_foreign_key_target_validation() {
+        let mut prev = table_with_columns("users", &["email"]);
+        let child = table_with_columns("profiles", &["email"]);
+        prev.tables.extend(child.tables.clone().into_vec());
+        prev.columns.extend(child.columns.clone().into_vec());
+        prev.indexes
+            .push(server_unique_index("users", "email", &["email"]));
+        prev.fks.push(model::ForeignKey::new(
+            "profiles",
+            "profiles_email_fk",
+            ["email"],
+            "users",
+            ["email"],
+        ));
+
+        let mut cur = prev.clone();
+        cur.indexes.list_mut().clear();
+        cur.columns
+            .list_mut()
+            .iter_mut()
+            .find(|column| column.table == "users" && column.name == "email")
+            .unwrap()
+            .unique = true;
+
+        let migration = compute_migration(&prev, &cur).unwrap();
+
+        assert!(migration.statements.is_empty());
+    }
+
+    #[test]
+    fn named_unique_constraint_matches_server_unique_index() {
+        let mut prev = table_with_columns("users", &["email", "tenant_id"]);
+        prev.indexes.push(server_unique_index(
+            "users",
+            "users_email_tenant_unique",
+            &["email", "tenant_id"],
+        ));
+        let mut cur = table_with_columns("users", &["email", "tenant_id"]);
+        cur.uniques.push(model::UniqueConstraint::new(
+            "users",
+            "users_email_tenant_unique",
+            ["email", "tenant_id"],
+        ));
+
+        let migration = compute_migration(&prev, &cur).unwrap();
+
+        assert!(migration.statements.is_empty());
+    }
+
+    #[test]
+    fn explicit_unique_index_matches_catalog_defaults_and_nonpersistent_options() {
+        let mut prev = table_with_columns("users", &["email"]);
+        prev.indexes.push(server_unique_index(
+            "users",
+            "users_email_unique",
+            &["email"],
+        ));
+        let mut cur = table_with_columns("users", &["email"]);
+        let mut desired = model::Index::new(
+            "users",
+            "users_email_unique",
+            vec![model::IndexColumn::column("email")],
+        );
+        desired.unique = true;
+        desired.using = Some(model::IndexMethod::Btree);
+        desired.algorithm = Some(model::IndexAlgorithm::Copy);
+        desired.lock = Some(model::IndexLock::Exclusive);
+        cur.indexes.push(desired);
+
+        let migration = compute_migration(&prev, &cur).unwrap();
+
+        assert!(migration.statements.is_empty());
+    }
+
+    #[test]
+    fn meaningful_unique_index_changes_are_rebuilt() {
+        type IndexChange = fn(&mut model::Index);
+        let cases: [(&str, IndexChange); 8] = [
+            ("name", |index| index.name = "renamed".into()),
+            ("columns", |index| {
+                index.columns = vec![model::IndexColumn::column("tenant_id")];
+            }),
+            ("method", |index| {
+                index.using = Some(model::IndexMethod::Hash)
+            }),
+            ("visibility", |index| index.visible = Some(false)),
+            ("comment", |index| index.comment = Some("lookup".into())),
+            ("prefix", |index| index.columns[0].length = Some(16)),
+            ("order", |index| index.columns[0].ascending = Some(false)),
+            ("expression", |index| {
+                index.columns = vec![model::IndexColumn::expression("lower(`email`)")];
+            }),
+        ];
+
+        for (case, change) in cases {
+            let mut prev = table_with_columns("users", &["email", "tenant_id"]);
+            prev.indexes.push(server_unique_index(
+                "users",
+                "users_email_unique",
+                &["email"],
+            ));
+            let mut cur = table_with_columns("users", &["email", "tenant_id"]);
+            let mut desired = model::Index::new(
+                "users",
+                "users_email_unique",
+                vec![model::IndexColumn::column("email")],
+            );
+            desired.unique = true;
+            desired.using = Some(model::IndexMethod::Btree);
+            change(&mut desired);
+            cur.indexes.push(desired);
+
+            let migration = compute_migration(&prev, &cur).unwrap();
+
+            assert!(
+                migration
+                    .statements
+                    .iter()
+                    .any(|statement| matches!(statement, MySQLStatement::DropIndex { .. })),
+                "{case} change did not drop the old index"
+            );
+            assert!(
+                migration
+                    .statements
+                    .iter()
+                    .any(|statement| matches!(statement, MySQLStatement::CreateIndex { .. })),
+                "{case} change did not create the desired index"
+            );
+        }
+    }
+
+    #[test]
+    fn unique_constraint_does_not_absorb_meaningful_index_changes() {
+        for case in ["name", "columns", "visibility"] {
+            let mut prev = table_with_columns("users", &["email", "tenant_id"]);
+            let mut index = server_unique_index("users", "users_email_unique", &["email"]);
+            match case {
+                "name" => index.name = "legacy_email_unique".into(),
+                "columns" => {
+                    index.columns = vec![model::IndexColumn::column("tenant_id")];
+                }
+                "visibility" => index.visible = Some(false),
+                _ => unreachable!(),
+            }
+            prev.indexes.push(index);
+            let mut cur = table_with_columns("users", &["email", "tenant_id"]);
+            cur.uniques.push(model::UniqueConstraint::new(
+                "users",
+                "users_email_unique",
+                ["email"],
+            ));
+
+            let migration = compute_migration(&prev, &cur).unwrap();
+
+            assert!(
+                migration
+                    .statements
+                    .iter()
+                    .any(|statement| matches!(statement, MySQLStatement::DropIndex { .. })),
+                "{case} change was absorbed"
+            );
+            assert!(
+                migration
+                    .statements
+                    .iter()
+                    .any(|statement| matches!(statement, MySQLStatement::AddUnique { .. })),
+                "{case} change did not add the desired constraint"
+            );
+        }
+    }
+
+    #[test]
     fn composite_unique_does_not_suppress_inline_unique() {
         let mut cur = table_with_columns("users", &["id", "tenant_id"]);
         cur.columns.list_mut()[0].unique = true;
@@ -2886,6 +3585,7 @@ mod tests {
         let options = DiffOptions {
             renames: RenameHints::new().column("metrics", "old_value", "new_value"),
             strict_renames: true,
+            ..DiffOptions::default()
         };
 
         let migration = compute_migration_with(&prev, &cur, &options).unwrap();

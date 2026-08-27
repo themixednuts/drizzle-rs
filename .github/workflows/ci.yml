@@ -189,6 +189,11 @@ jobs:
             echo "mysql-sync pulled an async runtime dependency"
             exit 1
           fi
+          if cargo tree -p drizzle-cli --no-default-features --features mysql-sync --edges normal \
+            | grep -E '(^|[[:space:]])(tokio|mysql_async) v'; then
+            echo "drizzle-cli mysql-sync pulled an async runtime dependency"
+            exit 1
+          fi
 
       - name: Run MySQL builder compile-time tests
         if: matrix.features == 'mysql-sync'
@@ -210,6 +215,14 @@ jobs:
         # `query`, where its diagnostics are stable; every other test remains
         # in this full run.
         run: cargo test -p drizzle --no-default-features --features "${{ matrix.test-features }}"
+
+      - name: Run shared CLI parity contract
+        # CLI feature names match the adapter features, but the CLI does not
+        # expose the root crate's query/codec feature set.
+        run: >-
+          cargo test -p drizzle-cli --no-default-features
+          --features "${{ matrix.features }}"
+          --test parity_integration
 
   test-turso:
     name: Test (Turso - Experimental)

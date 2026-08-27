@@ -15,7 +15,7 @@ use alloc::format;
 
 /// Positional SQL and parameters ready for a wire driver's prepared protocol.
 ///
-/// Construct this after [`drizzle_core::PreparedStatement::bind`]. Keeping the
+/// Construct this after [`drizzle_core::prepared::PreparedStatement::bind`]. Keeping the
 /// parameters in a vector avoids the tuple-arity limits in MySQL client APIs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MySQLPreparedRequest<'a> {

@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::config::{Config, Credentials, Dialect, PostgresCreds};
+use crate::config::{Config, Credentials, Dialect, MySQLCreds, PostgresCreds};
 use crate::error::CliError;
 use crate::output;
 
@@ -194,6 +194,23 @@ fn print_credentials(creds: &Credentials) {
                 );
                 if let Some(u) = user {
                     println!("    User: {u}");
+                }
+            }
+        },
+        Credentials::MySQL(mysql) => match mysql {
+            MySQLCreds::Url(url) => {
+                println!("    {}: {}", output::label("MySQL"), mask_url(url));
+            }
+            MySQLCreds::Host {
+                host,
+                port,
+                database,
+                user,
+                ..
+            } => {
+                println!("    {}: {host}:{port}/{database}", output::label("MySQL"));
+                if let Some(user) = user {
+                    println!("    User: {user}");
                 }
             }
         },

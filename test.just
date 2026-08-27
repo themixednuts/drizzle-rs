@@ -6,6 +6,8 @@
 #   just test::sqlite "rusqlite,libsql,uuid"         — SQLite with custom features
 #   just test::pg                                    — PostgreSQL with default features
 #   just test::pg "postgres-sync,tokio-postgres,uuid" — PostgreSQL with custom features
+#   just test::mysql-sync                            — MySQL blocking adapter + CLI parity
+#   just test::mysql-async                           — MySQL async adapter + CLI parity
 
 set windows-shell := ["pwsh", "-NoLogo", "-NoProfile", "-Command"]
 
@@ -14,8 +16,8 @@ _sqlite-ext := "uuid,serde,arrayvec,compact-str,bytes,smallvec-types,query"
 # Additive features shared across all PostgreSQL drivers
 _pg-ext := "uuid,serde,arrayvec,compact-str,bytes,smallvec-types,chrono,cidr,geo-types,bit-vec,query"
 
-# Run all test matrixes (SQLite + PostgreSQL) plus bench-runner smoke tests
-default: sqlite-matrix pg-matrix bench-runner
+# Run all test matrixes plus bench-runner smoke tests
+default: sqlite-matrix pg-matrix mysql-matrix bench-runner
 
 # ---------------------------------------------------------------------------
 # Quick runs — single feature set
@@ -34,6 +36,29 @@ pg features="postgres-sync,tokio-postgres,uuid" *ARGS:
     docker compose exec -T postgres sh -c 'until pg_isready -U postgres -d drizzle_test; do sleep 1; done'
     echo "PostgreSQL is ready!"
     cargo test --workspace --exclude bench-runner --features "{{features}}" {{ARGS}}
+
+# Run the blocking MySQL adapter and the shared CLI parity contract.
+mysql-sync *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    docker compose up -d mysql
+    echo "Waiting for MySQL to be ready..."
+    docker compose exec -T mysql sh -c 'until mysqladmin ping -h 127.0.0.1 -uroot -pmysql --silent; do sleep 1; done'
+    echo "MySQL is ready!"
+    cargo test -p drizzle --no-default-features --features mysql-sync,serde --test compile_fail mysql_builder_ui
+    cargo test -p drizzle --no-default-features --features mysql-sync,query,serde {{ARGS}}
+    cargo test -p drizzle-cli --no-default-features --features mysql-sync --test parity_integration {{ARGS}}
+
+# Run the async MySQL adapter and the shared CLI parity contract.
+mysql-async *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    docker compose up -d mysql
+    echo "Waiting for MySQL to be ready..."
+    docker compose exec -T mysql sh -c 'until mysqladmin ping -h 127.0.0.1 -uroot -pmysql --silent; do sleep 1; done'
+    echo "MySQL is ready!"
+    cargo test -p drizzle --no-default-features --features mysql-async,query,serde {{ARGS}}
+    cargo test -p drizzle-cli --no-default-features --features mysql-async --test parity_integration {{ARGS}}
 
 # Run bench-runner tests once outside feature-matrix unification
 bench-runner *ARGS:
@@ -70,6 +95,11 @@ pg-matrix:
     # tokio-postgres: bare then full
     cargo test --workspace --exclude bench-runner --features tokio-postgres
     cargo test --workspace --exclude bench-runner --features "tokio-postgres,{{_pg-ext}}"
+
+# Run both MySQL adapters separately, then verify feature unification.
+mysql-matrix: mysql-sync mysql-async
+    cargo test -p drizzle --no-default-features --features mysql-sync,mysql-async,query,serde,chrono,time,rust-decimal
+    cargo test -p drizzle-cli --no-default-features --features mysql-sync,mysql-async --test parity_integration
 
 # ---------------------------------------------------------------------------
 # CI helpers — output feature matrices as JSON for GitHub Actions
