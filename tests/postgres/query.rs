@@ -20,7 +20,8 @@ crate::shared_relational_query_suite!(
     postgres,
     PostgresTable,
     PostgresSchema,
-    drizzle::postgres::types::Int4
+    drizzle::postgres::types::Int4,
+    drizzle_postgres::common::PostgresTransactionType::default()
 );
 
 #[PostgresTable(TEMPORARY, NAME = "query_temp_metadata")]

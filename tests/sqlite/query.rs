@@ -21,7 +21,8 @@ crate::shared_relational_query_suite!(
     sqlite,
     SQLiteTable,
     SQLiteSchema,
-    drizzle::sqlite::types::Integer
+    drizzle::sqlite::types::Integer,
+    drizzle::sqlite::connection::SQLiteTransactionType::Deferred
 );
 
 // =============================================================================

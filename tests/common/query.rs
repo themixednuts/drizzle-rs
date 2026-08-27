@@ -5,7 +5,7 @@
 /// and any SQL-shape tests unique to that dialect.
 #[macro_export]
 macro_rules! shared_relational_query_suite {
-    ($dialect:ident, $table:ident, $schema:ident, $integer:path) => {
+    ($dialect:ident, $table:ident, $schema:ident, $integer:path, $transaction_config:expr) => {
         mod shared_relational_query {
             use super::*;
 
@@ -193,6 +193,58 @@ macro_rules! shared_relational_query_suite {
                 );
                 assert_eq!(prepared_rows.len(), 1);
                 assert_eq!(prepared_rows[0].posts.len(), 1);
+            }
+
+            #[drizzle::test($dialect)]
+            fn relational_queries_share_transaction_state_and_obey_rollback(
+                db: &mut TestDb<SharedRelationalSchema>,
+            ) {
+                let SharedRelationalSchema { users, posts, .. } = schema;
+                let rolled_back: drizzle::Result<()> =
+                    result!(db.transaction($transaction_config, |tx| {
+                        result!(
+                            tx.insert(users)
+                                .value(InsertSharedQueryUser::new("transactional").with_id(1))
+                                .execute()
+                        )?;
+                        result!(
+                            tx.insert(posts)
+                                .value(
+                                    InsertSharedQueryPost::new(
+                                        1,
+                                        "visible inside transaction",
+                                        1,
+                                    )
+                                    .with_id(10),
+                                )
+                                .execute()
+                        )?;
+
+                        let user = result!(
+                            tx.query(users)
+                                .r#where(eq(users.id, 1))
+                                .with(users.posts())
+                                .find_first()
+                        )?
+                        .expect("inserted user is visible to its transaction");
+                        assert_eq!(user.posts.len(), 1);
+                        assert_eq!(user.posts[0].title, "visible inside transaction");
+
+                        Err(drizzle::error::DrizzleError::Other(
+                            "rollback relational state".into(),
+                        ))
+                    }));
+                assert!(matches!(
+                    rolled_back,
+                    Err(drizzle::error::DrizzleError::Other(message))
+                        if message == "rollback relational state"
+                ));
+
+                let users_after_rollback = db.query(users).with(users.posts()).find_many();
+                assert!(users_after_rollback.is_empty());
+                let posts_after_rollback: Vec<SelectSharedQueryPost> =
+                    db.select(()).from(posts).all();
+                assert!(posts_after_rollback.is_empty());
             }
         }
     };

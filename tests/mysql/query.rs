@@ -7,7 +7,13 @@ use drizzle::core::asc;
 use drizzle::core::expr::eq;
 use drizzle::mysql::prelude::*;
 
-crate::shared_relational_query_suite!(mysql, MySQLTable, MySQLSchema, drizzle::mysql::types::Int);
+crate::shared_relational_query_suite!(
+    mysql,
+    MySQLTable,
+    MySQLSchema,
+    drizzle::mysql::types::Int,
+    drizzle::mysql::MySQLTransactionConfig::default()
+);
 
 #[MySQLTable(NAME = "mysql_query_codec_values")]
 struct MySQLQueryCodecValue {
