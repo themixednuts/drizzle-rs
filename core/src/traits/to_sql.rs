@@ -219,31 +219,47 @@ where
     }
 }
 
-#[cfg(any(feature = "compact-str", feature = "bytes"))]
-macro_rules! impl_tosql_param_clone {
-    ($($ty:ty),+ $(,)?) => {
-        $(
-            impl<'a, V> ToSQL<'a, V> for $ty
-            where
-                V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
-            {
-                fn to_sql(&self) -> SQL<'a, V> {
-                    SQL::param(V::from(self.clone()))
-                }
+#[cfg(feature = "compact-str")]
+impl<'a, V> ToSQL<'a, V> for compact_str::CompactString
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(self.clone()))
+    }
 
-                fn into_sql(self) -> SQL<'a, V> {
-                    SQL::param(V::from(self))
-                }
-            }
-        )+
-    };
+    fn into_sql(self) -> SQL<'a, V> {
+        SQL::param(V::from(self))
+    }
 }
 
-#[cfg(feature = "compact-str")]
-impl_tosql_param_clone!(compact_str::CompactString);
+#[cfg(feature = "bytes")]
+impl<'a, V> ToSQL<'a, V> for bytes::Bytes
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(self.clone()))
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        SQL::param(V::from(self))
+    }
+}
 
 #[cfg(feature = "bytes")]
-impl_tosql_param_clone!(bytes::Bytes, bytes::BytesMut);
+impl<'a, V> ToSQL<'a, V> for bytes::BytesMut
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(self.clone()))
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        SQL::param(V::from(self))
+    }
+}
 
 #[cfg(feature = "arrayvec")]
 impl<'a, V, const N: usize> ToSQL<'a, V> for arrayvec::ArrayString<N>

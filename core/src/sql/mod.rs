@@ -71,6 +71,19 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
+    /// Creates a comma-separated list of unqualified column identifiers.
+    #[must_use]
+    pub fn columns(columns: &[ColumnRef]) -> Self {
+        let mut sql = Self::with_capacity_chunks(columns.len().saturating_mul(2));
+        for (index, column) in columns.iter().enumerate() {
+            if index > 0 {
+                sql.push_mut(Token::COMMA);
+            }
+            sql.append_mut(Self::ident(column.name));
+        }
+        sql
+    }
+
     /// Creates SQL with raw text (unquoted)
     #[inline]
     pub fn raw(text: impl Into<Cow<'a, str>>) -> Self {
@@ -377,7 +390,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     /// This is used by generated models that outlive their source values. It
     /// preserves identifiers, raw fragments, placeholders, tables, and columns
     /// instead of assuming the fragment consists of a single parameter.
-    pub fn map_params_into_owned<U: SQLParam>(self, mut f: impl FnMut(V) -> U) -> SQL<'static, U> {
+    pub fn into_owned_with<U: SQLParam>(self, mut f: impl FnMut(V) -> U) -> SQL<'static, U> {
         let chunks = self
             .chunks
             .into_iter()
@@ -832,5 +845,66 @@ impl<'a, V: SQLParam> IntoIterator for SQL<'a, V> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.chunks.into_iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Dialect, MySQLDialect};
+
+    #[derive(Clone, Debug)]
+    struct TestParam;
+
+    impl SQLParam for TestParam {
+        const DIALECT: Dialect = Dialect::MySQL;
+        type DialectMarker = MySQLDialect;
+    }
+
+    impl From<TestParam> for Cow<'_, TestParam> {
+        fn from(value: TestParam) -> Self {
+            Cow::Owned(value)
+        }
+    }
+
+    #[test]
+    fn owning_mapped_params_preserves_every_chunk_kind() {
+        let raw = String::from("COALESCE(");
+        let identifier = String::from("display_name");
+        let sql = SQL::raw(raw.as_str())
+            .append(SQL::ident(identifier.as_str()))
+            .push(Token::COMMA)
+            .append(SQL::param(TestParam))
+            .push(Token::COMMA)
+            .push(Param::<TestParam>::from(Placeholder::named("fallback")))
+            .push(Token::RPAREN);
+
+        let owned = sql.into_owned_with(|value| value);
+        drop(raw);
+        drop(identifier);
+
+        assert_eq!(owned.sql(), "COALESCE( `display_name`, ?, ?)");
+        assert_eq!(owned.params().count(), 1);
+        assert_eq!(
+            owned
+                .chunks
+                .iter()
+                .filter(|chunk| matches!(chunk, SQLChunk::Param(param) if param.value.is_none()))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn columns_renders_an_identifier_list() {
+        let columns = [
+            ColumnRef::sql("users", "first"),
+            ColumnRef::sql("users", "last`name"),
+        ];
+
+        assert_eq!(
+            SQL::<TestParam>::columns(&columns).sql(),
+            "`first`, `last``name`"
+        );
     }
 }

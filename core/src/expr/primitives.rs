@@ -181,29 +181,38 @@ where
     type Aggregate = Scalar;
 }
 
-#[cfg(any(feature = "compact-str", feature = "bytes"))]
-macro_rules! impl_expr_for_value_type {
-    ($($ty:ty),+ $(,)?) => {
-        $(
-            impl<'a, V> Expr<'a, V> for $ty
-            where
-                V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
-                Self: ValueTypeForDialect<V::DialectMarker>,
-            {
-                type SQLType =
-                    <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
-                type Nullable = NonNull;
-                type Aggregate = Scalar;
-            }
-        )+
-    };
+#[cfg(feature = "compact-str")]
+impl<'a, V> Expr<'a, V> for compact_str::CompactString
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
+{
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
+    type Nullable = NonNull;
+    type Aggregate = Scalar;
 }
 
-#[cfg(feature = "compact-str")]
-impl_expr_for_value_type!(compact_str::CompactString);
+#[cfg(feature = "bytes")]
+impl<'a, V> Expr<'a, V> for bytes::Bytes
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
+{
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
+    type Nullable = NonNull;
+    type Aggregate = Scalar;
+}
 
 #[cfg(feature = "bytes")]
-impl_expr_for_value_type!(bytes::Bytes, bytes::BytesMut);
+impl<'a, V> Expr<'a, V> for bytes::BytesMut
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+    Self: ValueTypeForDialect<V::DialectMarker>,
+{
+    type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
+    type Nullable = NonNull;
+    type Aggregate = Scalar;
+}
 
 #[cfg(feature = "arrayvec")]
 impl<'a, V, const N: usize> Expr<'a, V> for arrayvec::ArrayString<N>

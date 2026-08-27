@@ -14,7 +14,7 @@ use crate::alloc_prelude::{Cow, Vec};
 /// data because they are part of the column declaration, not named schema
 /// objects as they are in PostgreSQL.
 ///
-/// [`Self::to_sql_type`] returns a type keyword. DDL renderers must append
+/// [`Self::sql`] returns a type keyword. DDL renderers must append
 /// [`Self::inline_values`] for `ENUM` and `SET`, because correct literal
 /// escaping belongs to the DDL renderer's SQL-mode policy.
 #[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
@@ -94,12 +94,12 @@ pub enum MySQLType {
 }
 
 impl MySQLType {
-    /// Resolve a macro attribute name to a non-parameterized MySQL type.
+    /// Parse a macro attribute name as a non-parameterized MySQL type.
     ///
     /// `ENUM` and `SET` require inline values, so construct them with
     /// [`Self::enum_values`] or [`Self::set_values`] instead.
     #[must_use]
-    pub const fn from_attribute_name(name: &str) -> Option<Self> {
+    pub const fn parse_attribute(name: &str) -> Option<Self> {
         if name.eq_ignore_ascii_case("tinyint") {
             Some(Self::Tinyint)
         } else if name.eq_ignore_ascii_case("tinyint_unsigned") {
@@ -216,7 +216,7 @@ impl MySQLType {
     /// For `ENUM` and `SET`, use [`Self::inline_values`] to render their
     /// declaration values in a DDL renderer.
     #[must_use]
-    pub const fn to_sql_type(&self) -> &'static str {
+    pub const fn sql(&self) -> &'static str {
         match self {
             Self::Tinyint => "TINYINT",
             Self::TinyintUnsigned => "TINYINT UNSIGNED",
@@ -321,7 +321,7 @@ impl MySQLType {
 
 impl core::fmt::Display for MySQLType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.to_sql_type())
+        f.write_str(self.sql())
     }
 }
 
@@ -332,18 +332,15 @@ mod tests {
     #[test]
     fn attribute_names_preserve_mysql_integer_signedness() {
         assert_eq!(
-            MySQLType::from_attribute_name("mediumint_unsigned"),
+            MySQLType::parse_attribute("mediumint_unsigned"),
             Some(MySQLType::MediumintUnsigned)
         );
+        assert_eq!(MySQLType::parse_attribute("integer"), Some(MySQLType::Int));
         assert_eq!(
-            MySQLType::from_attribute_name("integer"),
-            Some(MySQLType::Int)
-        );
-        assert_eq!(
-            MySQLType::from_attribute_name("bigint_unsigned"),
+            MySQLType::parse_attribute("bigint_unsigned"),
             Some(MySQLType::BigintUnsigned)
         );
-        assert_eq!(MySQLType::from_attribute_name("enum"), None);
+        assert_eq!(MySQLType::parse_attribute("enum"), None);
     }
 
     #[test]
@@ -351,12 +348,12 @@ mod tests {
         let state = MySQLType::enum_values(["draft", "published"]);
         let tags = MySQLType::set_values(["rust", "sql"]);
 
-        assert_eq!(state.to_sql_type(), "ENUM");
+        assert_eq!(state.sql(), "ENUM");
         assert_eq!(
             state.inline_values(),
             Some(&[Cow::Borrowed("draft"), Cow::Borrowed("published")][..])
         );
-        assert_eq!(tags.to_sql_type(), "SET");
+        assert_eq!(tags.sql(), "SET");
         assert_eq!(
             tags.inline_values(),
             Some(&[Cow::Borrowed("rust"), Cow::Borrowed("sql")][..])

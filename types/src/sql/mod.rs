@@ -297,13 +297,13 @@ impl_mysql_data_types!(
     Any,
 );
 
-macro_rules! impl_mysql_numeric {
-    ($($marker:ident),+ $(,)?) => {
-        $(impl Numeric for crate::mysql::types::$marker {})+
+macro_rules! impl_mysql_marker_trait {
+    ($trait:ident; $($marker:ident),+ $(,)?) => {
+        $(impl $trait for crate::mysql::types::$marker {})+
     };
 }
 
-impl_mysql_numeric!(
+impl_mysql_marker_trait!(Numeric;
     TinyInt,
     TinyIntUnsigned,
     SmallInt,
@@ -320,13 +320,7 @@ impl_mysql_numeric!(
     Decimal,
 );
 
-macro_rules! impl_mysql_integral {
-    ($($marker:ident),+ $(,)?) => {
-        $(impl Integral for crate::mysql::types::$marker {})+
-    };
-}
-
-impl_mysql_integral!(
+impl_mysql_marker_trait!(Integral;
     TinyInt,
     TinyIntUnsigned,
     SmallInt,
@@ -343,23 +337,11 @@ impl_mysql_integral!(
 impl Floating for crate::mysql::types::Float {}
 impl Floating for crate::mysql::types::Double {}
 
-macro_rules! impl_mysql_textual {
-    ($($marker:ident),+ $(,)?) => {
-        $(impl Textual for crate::mysql::types::$marker {})+
-    };
-}
-
-impl_mysql_textual!(
+impl_mysql_marker_trait!(Textual;
     Char, Varchar, TinyText, Text, MediumText, LongText, Enum, Set,
 );
 
-macro_rules! impl_mysql_binary {
-    ($($marker:ident),+ $(,)?) => {
-        $(impl Binary for crate::mysql::types::$marker {})+
-    };
-}
-
-impl_mysql_binary!(Binary, Varbinary, TinyBlob, Blob, MediumBlob, LongBlob, Bit,);
+impl_mysql_marker_trait!(Binary; Binary, Varbinary, TinyBlob, Blob, MediumBlob, LongBlob, Bit,);
 
 impl Temporal for crate::mysql::types::Date {}
 impl Temporal for crate::mysql::types::Time {}

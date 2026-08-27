@@ -17,6 +17,8 @@ use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{DeriveInput, Expr, ExprPath, Lit, Meta, Result, parse::Parse};
 
+use super::string_value;
+
 #[derive(Default)]
 pub struct ViewAttributes {
     name: Option<String>,
@@ -149,19 +151,6 @@ impl Parse for ViewAttributes {
         }
 
         Ok(attrs)
-    }
-}
-
-fn string_value(value: &syn::MetaNameValue, name: &str) -> Result<String> {
-    if let Expr::Lit(lit) = &value.value
-        && let Lit::Str(literal) = &lit.lit
-    {
-        Ok(literal.value())
-    } else {
-        Err(syn::Error::new(
-            value.span(),
-            format!("{name} requires a string literal"),
-        ))
     }
 }
 

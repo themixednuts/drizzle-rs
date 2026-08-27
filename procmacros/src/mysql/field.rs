@@ -19,6 +19,8 @@ use crate::common::{
 };
 use drizzle_types::mysql::{MySQLType, TypeCategory as MySQLRustTypeCategory};
 
+use super::escape_string as escape_mysql_string;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeCategory {
     String,
@@ -515,7 +517,7 @@ fn parse_column_meta(field: &Field, meta: Meta, out: &mut ParsedColumn) -> Resul
                 ));
             }
             _ => {
-                let ty = MySQLType::from_attribute_name(&upper).ok_or_else(|| {
+                let ty = MySQLType::parse_attribute(&upper).ok_or_else(|| {
                     Error::new_spanned(
                         path,
                         format!("unrecognized MySQL column attribute `{name}`"),
@@ -602,7 +604,7 @@ fn parse_column_meta(field: &Field, meta: Meta, out: &mut ParsedColumn) -> Resul
                 set_explicit_type(field, out, MySQLType::set_values(values))?;
             }
             _ => {
-                let ty = MySQLType::from_attribute_name(&upper).ok_or_else(|| {
+                let ty = MySQLType::parse_attribute(&upper).ok_or_else(|| {
                     Error::new_spanned(
                         &list,
                         format!("unrecognized MySQL column attribute `{name}`"),
@@ -793,7 +795,7 @@ fn infer_mysql_type(
         _ => None,
     };
 
-    inferred.or_else(|| category.to_mysql_type().map(|ty| (ty, Vec::new()))).ok_or_else(|| {
+    inferred.or_else(|| category.sql_type().map(|ty| (ty, Vec::new()))).ok_or_else(|| {
         Error::new_spanned(
             &field.ty,
             format!(
@@ -902,7 +904,7 @@ fn validate_explicit_signedness(
             field,
             format!(
                 "{} is unsigned but the Rust field is signed; use the corresponding u8/u16/u32/u64 type",
-                sql.to_sql_type()
+                sql.sql()
             ),
         ));
     }
@@ -911,7 +913,7 @@ fn validate_explicit_signedness(
             field,
             format!(
                 "{} is signed but the Rust field is unsigned; use the corresponding signed Rust type or an *_UNSIGNED SQL type",
-                sql.to_sql_type()
+                sql.sql()
             ),
         ));
     }
@@ -1066,10 +1068,10 @@ fn render_type(ty: &MySQLType, args: &[u16]) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        _ if args.is_empty() => ty.to_sql_type().to_string(),
+        _ if args.is_empty() => ty.sql().to_string(),
         _ => format!(
             "{}({})",
-            ty.to_sql_type(),
+            ty.sql(),
             args.iter()
                 .map(u16::to_string)
                 .collect::<Vec<_>>()
@@ -1189,10 +1191,6 @@ fn validate_inline_label(value: &syn::LitStr) -> Result<()> {
     } else {
         Ok(())
     }
-}
-
-fn escape_mysql_string(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('\'', "''")
 }
 
 fn hex(bytes: impl AsRef<[u8]>) -> String {

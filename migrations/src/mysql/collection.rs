@@ -48,6 +48,32 @@ table_children!(UniqueConstraint);
 table_children!(ForeignKey);
 table_children!(CheckConstraint);
 
+fn validate_children<'a, T>(
+    entities: &'a EntityCollection<T>,
+    kind: &'static str,
+    table_keys: &HashSet<(Option<&'a str>, &'a str)>,
+    fields: impl Fn(&'a T) -> (Option<&'a str>, &'a str, &'a str),
+) -> Result<(), ValidationError> {
+    let mut keys = HashSet::new();
+    for entity in entities.list() {
+        let (database, table, name) = fields(entity);
+        if !table_keys.contains(&(database, table)) {
+            return Err(ValidationError::MissingTable {
+                kind,
+                name: name.to_string(),
+                table: table.to_string(),
+            });
+        }
+        if !keys.insert((database, table, name)) {
+            return Err(ValidationError::Duplicate {
+                kind,
+                name: name.to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
 impl EntityCollection<PrimaryKey> {
     #[must_use]
     pub fn for_table(&self, database: Option<&str>, table: &str) -> Option<&PrimaryKey> {
@@ -338,35 +364,41 @@ impl MySQLDDL {
             }
         }
 
-        macro_rules! validate_children {
-            ($entities:expr, $kind:literal) => {{
-                let mut keys = HashSet::new();
-                for entity in $entities.list() {
-                    if !table_keys.contains(&(entity.database.as_deref(), entity.table.as_ref())) {
-                        return Err(ValidationError::MissingTable {
-                            kind: $kind,
-                            name: entity.name.to_string(),
-                            table: entity.table.to_string(),
-                        });
-                    }
-                    if !keys.insert((
-                        entity.database.as_deref(),
-                        entity.table.as_ref(),
-                        entity.name.as_ref(),
-                    )) {
-                        return Err(ValidationError::Duplicate {
-                            kind: $kind,
-                            name: entity.name.to_string(),
-                        });
-                    }
-                }
-            }};
-        }
-        validate_children!(self.columns, "column");
-        validate_children!(self.indexes, "index");
-        validate_children!(self.uniques, "unique constraint");
-        validate_children!(self.checks, "check constraint");
-        validate_children!(self.fks, "foreign key");
+        validate_children(&self.columns, "column", &table_keys, |column| {
+            (
+                column.database.as_deref(),
+                column.table.as_ref(),
+                column.name.as_ref(),
+            )
+        })?;
+        validate_children(&self.indexes, "index", &table_keys, |index| {
+            (
+                index.database.as_deref(),
+                index.table.as_ref(),
+                index.name.as_ref(),
+            )
+        })?;
+        validate_children(&self.uniques, "unique constraint", &table_keys, |unique| {
+            (
+                unique.database.as_deref(),
+                unique.table.as_ref(),
+                unique.name.as_ref(),
+            )
+        })?;
+        validate_children(&self.checks, "check constraint", &table_keys, |check| {
+            (
+                check.database.as_deref(),
+                check.table.as_ref(),
+                check.name.as_ref(),
+            )
+        })?;
+        validate_children(&self.fks, "foreign key", &table_keys, |foreign_key| {
+            (
+                foreign_key.database.as_deref(),
+                foreign_key.table.as_ref(),
+                foreign_key.name.as_ref(),
+            )
+        })?;
 
         let column_keys: HashSet<_> = self
             .columns

@@ -308,20 +308,6 @@ fn validate_column_types(ddl: &MySQLDDL) -> Result<(), CodegenError> {
     Ok(())
 }
 
-/// Return the safe, dependency-free Rust type used for a MySQL type spelling.
-///
-/// The result deliberately uses `String` for feature-dependent values such as
-/// JSON, DECIMAL, and temporal types. The emitted MySQL column attribute still
-/// preserves the SQL type, while the generated file compiles without assuming
-/// the downstream crate selected optional `serde`, `chrono`, or
-/// `rust-decimal` features.
-#[must_use]
-pub fn sql_type_to_rust_type(sql_type: &str, not_null: bool) -> String {
-    let base =
-        parse_standard_type(sql_type).map_or_else(|| "String".to_string(), |info| info.rust_type);
-    nullable_type(base, not_null)
-}
-
 fn build_name_maps(
     ddl: &MySQLDDL,
     field_casing: FieldCasing,

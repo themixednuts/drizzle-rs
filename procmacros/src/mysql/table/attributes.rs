@@ -1,9 +1,10 @@
 use syn::parse::Parser;
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
-use syn::{ExprPath, Ident, Lit, Meta, Result, Token, parse::Parse};
+use syn::{ExprPath, Ident, Meta, Result, Token, parse::Parse};
 
 use crate::common::make_uppercase_path;
+use crate::mysql::string_value;
 
 #[derive(Default)]
 pub struct TableAttributes {
@@ -60,19 +61,6 @@ impl Parse for ReferencesArg {
             table,
             columns: columns.into_iter().collect(),
         })
-    }
-}
-
-fn string_value(meta: &syn::MetaNameValue, name: &str) -> Result<String> {
-    if let syn::Expr::Lit(lit) = &meta.value
-        && let Lit::Str(value) = &lit.lit
-    {
-        Ok(value.value())
-    } else {
-        Err(syn::Error::new(
-            meta.span(),
-            format!("{name} requires a string literal"),
-        ))
     }
 }
 

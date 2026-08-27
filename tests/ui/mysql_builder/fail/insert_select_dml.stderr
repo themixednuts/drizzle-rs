@@ -1,21 +1,69 @@
-error[E0277]: the trait bound `QueryBuilder<'_, Schema, DeleteWhereSet, Users>: drizzle::mysql::builder::IntoSelectQuery<'_, Schema, _>` is not satisfied
+error[E0277]: the trait bound `(): drizzle::mysql::builder::insert::InsertSelectCompatible<'_, Users, ()>` is not satisfied
   --> tests/ui/mysql_builder/fail/insert_select_dml.rs:20:42
    |
 20 |     let _ = builder.insert(users).select(delete);
-   |                                   ------ ^^^^^^ the trait `drizzle::mysql::builder::IntoSelectQuery<'_, Schema, _>` is not implemented for `QueryBuilder<'_, Schema, DeleteWhereSet, Users>`
+   |                                   ------ ^^^^^^ the trait `drizzle::mysql::builder::insert::InsertSelectCompatible<'_, Users, ()>` is not implemented for `()`
    |                                   |
    |                                   required by a bound introduced by this call
    |
-   = help: the following other types implement trait `drizzle::mysql::builder::IntoSelectQuery<'a, S, R>`:
-             QueryBuilder<'_, S, SelectFromSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectGroupSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectHavingSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectJoinSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectLimitSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectOffsetSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectOrderSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectSetOpSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectWhereSet, T, M, R, G>
+help: the following other types implement trait `drizzle::mysql::builder::insert::InsertSelectCompatible<'a, Target, Row>`
+  --> mysql/src/builder/insert.rs
+   |
+   | / impl<'a, M, Scope, Target, Row> InsertSelectCompatible<'a, Target, Row>
+   | |     for drizzle_core::Scoped<M, Scope>
+   | | where
+   | |     M: InsertSelectCompatible<'a, Target, Row>,
+   | |_______________________________________________^ `Scoped<M, Scope>`
+...
+   | / impl<'a, Target, Row> InsertSelectCompatible<'a, Target, Row> for drizzle_core::SelectStar
+   | | where
+   | |     Target: drizzle_core::HasSelectModel,
+   | |     Row: drizzle_core::TypeEq<<Target as drizzle_core::HasSelectModel>::SelectModel>,
+   | |_____________________________________________________________________________________^ `SelectStar`
+...
+   | / impl<'a, Target, Row, Specified> InsertSelectCompatible<'a, Target, Row>
+   | |     for drizzle_core::SelectAs<Specified>
+   | | where
+   | |     Target: drizzle_core::HasSelectModel,
+   | |     Row: drizzle_core::TypeEq<<Target as drizzle_core::HasSelectModel>::SelectModel>,
+   | |_____________________________________________________________________________________^ `SelectAs<Specified>`
+...
+   | / impl<'a, Target, Row, Cols> InsertSelectCompatible<'a, Target, Row>
+   | |     for drizzle_core::SelectCols<Cols>
+   | | where
+   | |     Target: MySQLInsertSelectTarget,
+   | |     Cols: drizzle_core::SelectedExpressionList,
+   | |     Target::Columns:
+   | |         InsertSelectColumns<'a, <Cols as drizzle_core::SelectedExpressionList>::Expressions>,
+   | |_____________________________________________________________________________________________^ `SelectCols<Cols>`
+note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
+  --> mysql/src/builder/insert.rs
+   |
+   |     pub fn select<Q, R>(self, query: Q) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+   |            ------ required by a bound in this associated function
+...
+   |         Q::Marker: InsertSelectCompatible<'a, Table, R>,
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
+
+error[E0277]: the trait bound `DeleteWhereSet: select::private::Completed` is not satisfied
+  --> tests/ui/mysql_builder/fail/insert_select_dml.rs:20:42
+   |
+20 |     let _ = builder.insert(users).select(delete);
+   |                                   ------ ^^^^^^ the trait `select::private::Completed` is not implemented for `DeleteWhereSet`
+   |                                   |
+   |                                   required by a bound introduced by this call
+   |
+   = help: the following other types implement trait `select::private::Completed`:
+             SelectFromSet
+             SelectGroupSet
+             SelectHavingSet
+             SelectJoinSet
+             SelectLimitSet
+             SelectOffsetSet
+             SelectOrderSet
+             SelectSetOpSet
+             SelectWhereSet
+   = note: required for `QueryBuilder<'_, Schema, DeleteWhereSet, Users>` to implement `drizzle::mysql::builder::IntoSelectQuery<'_, Schema, ()>`
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
   --> mysql/src/builder/insert.rs
    |
@@ -24,20 +72,3 @@ note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Tabl
 ...
    |         Q: super::select::IntoSelectQuery<'a, Schema, R>,
    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
-
-error[E0277]: the trait bound `QueryBuilder<'_, Schema, DeleteWhereSet, Users>: drizzle::mysql::builder::IntoSelectQuery<'_, Schema, _>` is not satisfied
-  --> tests/ui/mysql_builder/fail/insert_select_dml.rs:20:13
-   |
-20 |     let _ = builder.insert(users).select(delete);
-   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `drizzle::mysql::builder::IntoSelectQuery<'_, Schema, _>` is not implemented for `QueryBuilder<'_, Schema, DeleteWhereSet, Users>`
-   |
-   = help: the following other types implement trait `drizzle::mysql::builder::IntoSelectQuery<'a, S, R>`:
-             QueryBuilder<'_, S, SelectFromSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectGroupSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectHavingSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectJoinSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectLimitSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectOffsetSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectOrderSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectSetOpSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectWhereSet, T, M, R, G>

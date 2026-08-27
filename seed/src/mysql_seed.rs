@@ -32,7 +32,7 @@ fn value_to_sql(
     column: &ColumnRef,
     table: TableId,
 ) -> Result<SQL<'static, OwnedMySQLValue>, SeedError> {
-    let category = MySQLTypeCategory::from_sql_type(column.sql_type);
+    let category = MySQLTypeCategory::classify(column.sql_type);
     let invalid = |reason: String| SeedError::InvalidValue {
         table: table.to_string(),
         column: column.name.to_string(),

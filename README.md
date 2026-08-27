@@ -737,9 +737,12 @@ let (mut db, Schema { accounts }) = Drizzle::new(client, Schema::new());
 ## MySQL
 
 MySQL uses the same `select`, `insert`, `update`, `delete`, prepared-statement,
-relational-query, transaction, and seed workflows as the other dialects.
-Migration generation, push, and apply are available through the Drizzle CLI;
-the MySQL adapters do not yet expose a programmatic `migrate` method. Enable
+relational-query, transaction, migration, and seed workflows as the other
+dialects. Migration generation, push, and apply are available through the
+Drizzle CLI, and both adapters expose `migrate(&migrations, Tracking::MYSQL)`.
+MySQL applies each statement in autocommit mode because its DDL can commit
+implicitly. A failed migration stays marked as interrupted until you reconcile
+the partial schema and its tracking row manually. Enable
 `mysql-sync` for the blocking [`mysql`](https://crates.io/crates/mysql)
 client or `mysql-async` for [`mysql_async`](https://crates.io/crates/mysql_async).
 The driver crates remain explicit dependencies because your application creates

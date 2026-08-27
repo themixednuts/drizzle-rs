@@ -1,8 +1,8 @@
 //! Shared contracts between the MySQL dialect and wire-driver adapters.
 //!
 //! This module deliberately contains no connection, pool, runtime, or stream
-//! abstraction. It owns only the data that crosses that boundary: an ordered
-//! prepared request, a borrowed row view, and checked value decoding.
+//! abstraction. It owns only the data that crosses that boundary: a borrowed
+//! row view and checked value decoding.
 
 use crate::{
     prelude::*,
@@ -12,39 +12,6 @@ use drizzle_core::{FromDrizzleRow, error::DrizzleError};
 
 #[cfg(not(feature = "std"))]
 use alloc::format;
-
-/// Positional SQL and parameters ready for a wire driver's prepared protocol.
-///
-/// Construct this after [`drizzle_core::prepared::PreparedStatement::bind`]. Keeping the
-/// parameters in a vector avoids the tuple-arity limits in MySQL client APIs.
-#[derive(Debug, Clone, PartialEq)]
-pub struct MySQLPreparedRequest<'a> {
-    sql: &'a str,
-    params: Vec<MySQLValue<'a>>,
-}
-
-impl<'a> MySQLPreparedRequest<'a> {
-    /// Collects bound values in placeholder order.
-    #[must_use]
-    pub fn new(sql: &'a str, params: impl IntoIterator<Item = MySQLValue<'a>>) -> Self {
-        Self {
-            sql,
-            params: params.into_iter().collect(),
-        }
-    }
-
-    /// SQL rendered with MySQL `?` placeholders.
-    #[must_use]
-    pub const fn sql(&self) -> &str {
-        self.sql
-    }
-
-    /// Bound values in placeholder order.
-    #[must_use]
-    pub fn params(&self) -> &[MySQLValue<'a>] {
-        &self.params
-    }
-}
 
 /// Adapter-owned row storage exposed as client-neutral MySQL values.
 ///
@@ -145,9 +112,7 @@ pub trait DecodeMySQLValue: Sized {
 /// MySQL's JSON constructors never reinterpret the binary character set.
 #[cfg(feature = "query")]
 #[doc(hidden)]
-pub fn decode_projected_mysql_value<T: DecodeMySQLValue>(
-    projected: &serde_json::Value,
-) -> Result<T, DrizzleError> {
+pub fn decode_blob<T: DecodeMySQLValue>(projected: &serde_json::Value) -> Result<T, DrizzleError> {
     let object = projected.as_object().ok_or_else(|| {
         DrizzleError::ConversionError("projected MySQL binary value is not an object".into())
     })?;
@@ -187,9 +152,7 @@ pub fn decode_projected_mysql_value<T: DecodeMySQLValue>(
 /// codec as a value returned by the binary protocol.
 #[cfg(feature = "query")]
 #[doc(hidden)]
-pub fn decode_projected_mysql_text<T: DecodeMySQLValue>(
-    projected: &serde_json::Value,
-) -> Result<T, DrizzleError> {
+pub fn decode_text<T: DecodeMySQLValue>(projected: &serde_json::Value) -> Result<T, DrizzleError> {
     let text = projected.as_str().ok_or_else(|| {
         DrizzleError::ConversionError("projected MySQL text value is not a string".into())
     })?;
@@ -962,17 +925,6 @@ impl From<MySQLValue<'_>> for mysql_common::Value {
     }
 }
 
-#[cfg(feature = "mysql-common")]
-impl<'a> MySQLPreparedRequest<'a> {
-    /// Converts this request to the shared protocol representation used by
-    /// both `mysql` and `mysql_async`.
-    #[must_use]
-    pub fn into_common_parts(self) -> (&'a str, mysql_common::params::Params) {
-        let values: Vec<mysql_common::Value> = self.params.into_iter().map(Into::into).collect();
-        (self.sql, values.into())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -981,15 +933,6 @@ mod tests {
         values: &[OwnedMySQLValue],
     ) -> Result<T, DrizzleError> {
         T::from_row(&MySQLRow::new(values))
-    }
-
-    #[test]
-    fn positional_request_preserves_order_without_tuple_arity() {
-        let params = (0_u64..32).map(MySQLValue::UInt);
-        let request = MySQLPreparedRequest::new("SELECT ?", params);
-        assert_eq!(request.params().len(), 32);
-        assert_eq!(request.params()[0], MySQLValue::UInt(0));
-        assert_eq!(request.params()[31], MySQLValue::UInt(31));
     }
 
     #[test]
@@ -1031,19 +974,16 @@ mod tests {
             "$drizzle_storage": "blob",
             "$drizzle_value": "0001FEFF"
         });
-        assert_eq!(
-            decode_projected_mysql_value::<Vec<u8>>(&tagged).unwrap(),
-            [0, 1, 254, 255]
-        );
+        assert_eq!(decode_blob::<Vec<u8>>(&tagged).unwrap(), [0, 1, 254, 255]);
         assert!(
-            decode_projected_mysql_value::<Vec<u8>>(&serde_json::json!({
+            decode_blob::<Vec<u8>>(&serde_json::json!({
                 "$drizzle_storage": "text",
                 "$drizzle_value": "00"
             }))
             .is_err()
         );
         assert!(
-            decode_projected_mysql_value::<Vec<u8>>(&serde_json::json!({
+            decode_blob::<Vec<u8>>(&serde_json::json!({
                 "$drizzle_storage": "blob",
                 "$drizzle_value": "0"
             }))
@@ -1186,27 +1126,6 @@ mod tests {
             b"79228162514264337593543950336".to_vec(),
         )];
         assert!(decode::<rust_decimal::Decimal>(&overflow).is_err());
-    }
-
-    #[cfg(feature = "mysql-common")]
-    #[test]
-    fn prepared_request_uses_shared_positional_params() {
-        let request = MySQLPreparedRequest::new(
-            "SELECT ?, ?",
-            [MySQLValue::Int(-1), MySQLValue::UInt(u64::MAX)],
-        );
-        let (sql, params) = request.into_common_parts();
-        assert_eq!(sql, "SELECT ?, ?");
-        assert_eq!(
-            params,
-            mysql_common::params::Params::Positional(vec![
-                mysql_common::Value::Int(-1),
-                mysql_common::Value::UInt(u64::MAX),
-            ])
-        );
-
-        let (_, empty) = MySQLPreparedRequest::new("SELECT 1", []).into_common_parts();
-        assert_eq!(empty, mysql_common::params::Params::Empty);
     }
 
     #[cfg(feature = "mysql-common")]

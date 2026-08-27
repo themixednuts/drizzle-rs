@@ -2,16 +2,14 @@
 
 use crate::common::{helpers::mysql_async_setup, schema::mysql::*};
 use drizzle::{
-    core::expr::{count, eq},
+    core::{
+        SQL,
+        expr::{count, eq},
+    },
+    migrations::{Migration, Tracking},
     mysql::{mysql_async::Drizzle, prelude::*},
 };
 use mysql_async::{Pool, PoolConstraints, PoolOpts, prelude::Queryable as _};
-
-macro_rules! user {
-    ($name:expr) => {
-        InsertUser::new($name, true, Role::Member, vec![], 0, 0.0).with_note(None::<String>)
-    };
-}
 
 fn pool() -> Pool {
     let constraints = PoolConstraints::new(1, 1).expect("valid one-connection pool constraints");
@@ -78,7 +76,10 @@ async fn pooled_transactions_rollback_explicitly_and_before_reuse() -> drizzle::
         .await?;
     transaction
         .insert(users)
-        .value(user!("explicit rollback"))
+        .value(
+            InsertUser::new("explicit rollback", true, Role::Member, vec![], 0, 0.0)
+                .with_note(None::<String>),
+        )
         .execute()
         .await?;
     transaction.rollback().await?;
@@ -91,7 +92,10 @@ async fn pooled_transactions_rollback_explicitly_and_before_reuse() -> drizzle::
             .await?;
         transaction
             .insert(users)
-            .value(user!("drop rollback"))
+            .value(
+                InsertUser::new("drop rollback", true, Role::Member, vec![], 0, 0.0)
+                    .with_note(None::<String>),
+            )
             .execute()
             .await?;
     }
@@ -109,7 +113,10 @@ async fn prepared_queries_execute_through_one_pool_checkout() -> drizzle::Result
     let (db, schema, _guard) = setup_pool().await;
     let TestSchema { users, .. } = schema;
     db.insert(users)
-        .values([user!("Alice"), user!("Bob")])
+        .values([
+            InsertUser::new("Alice", true, Role::Member, vec![], 0, 0.0).with_note(None::<String>),
+            InsertUser::new("Bob", true, Role::Member, vec![], 0, 0.0).with_note(None::<String>),
+        ])
         .execute()
         .await?;
 
@@ -145,5 +152,47 @@ async fn disconnect_closes_every_pool_clone() -> drizzle::Result<()> {
             mysql_async::DriverError::PoolDisconnected
         ))
     ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn pooled_migrations_use_one_checkout() -> drizzle::Result<()> {
+    let (db, schema, _guard) = setup_pool().await;
+    let tracking = Tracking::MYSQL.table("__drizzle_pool_migrations");
+    for table in ["mysql_pool_migration", "__drizzle_pool_migrations"] {
+        db.execute(SQL::raw(format!("DROP TABLE IF EXISTS `{table}`")))
+            .await?;
+    }
+
+    let migrations = [Migration::with_hash(
+        "20260827000003_mysql_pool_migration",
+        "mysql-pool-migration",
+        1_787_788_800_003,
+        vec![
+            "CREATE TABLE `mysql_pool_migration` (`id` INT PRIMARY KEY)".to_owned(),
+            "INSERT INTO `mysql_pool_migration` (`id`) VALUES (1)".to_owned(),
+        ],
+    )];
+
+    let outcome = db.migrate(&migrations, tracking.clone()).await?;
+    assert_eq!(
+        outcome.applied_tags(),
+        ["20260827000003_mysql_pool_migration"]
+    );
+    let id: i64 = db
+        .get(SQL::raw("SELECT `id` FROM `mysql_pool_migration`"))
+        .await?;
+    assert_eq!(id, 1);
+    assert!(
+        db.migrate(&migrations, tracking.clone())
+            .await?
+            .is_up_to_date()
+    );
+
+    for table in ["mysql_pool_migration", "__drizzle_pool_migrations"] {
+        db.execute(SQL::raw(format!("DROP TABLE IF EXISTS `{table}`")))
+            .await?;
+    }
+    cleanup(db, &schema).await;
     Ok(())
 }

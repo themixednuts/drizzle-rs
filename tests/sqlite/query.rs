@@ -17,7 +17,7 @@ use crate::common::schema::sqlite::{
 
 use crate::common::schema::sqlite::{ComplexId, ComplexWithInvitedBy, ComplexWithPosts};
 
-crate::shared_relational_query_suite!(
+crate::common::query::shared_relational_query_suite!(
     sqlite,
     SQLiteTable,
     SQLiteSchema,

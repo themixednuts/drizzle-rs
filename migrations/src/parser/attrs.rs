@@ -1175,7 +1175,7 @@ fn mysql_const_capacity(ty: &Type) -> Option<u16> {
 
 fn mysql_inferred_type(ty: &Type) -> Option<(MySQLType, Vec<u16>)> {
     let rendered = type_token_string(ty);
-    let category = MySQLRustTypeCategory::from_type_string(&rendered);
+    let category = MySQLRustTypeCategory::classify(&rendered);
     match category {
         MySQLRustTypeCategory::Uuid => Some((MySQLType::Binary, vec![16])),
         MySQLRustTypeCategory::ArrayString if last_ident_is(ty, "CompactString") => {
@@ -1194,7 +1194,7 @@ fn mysql_inferred_type(ty: &Type) -> Option<(MySQLType, Vec<u16>)> {
             mysql_const_capacity(ty).map(|capacity| (MySQLType::Varbinary, vec![capacity]))
         }
         MySQLRustTypeCategory::ArrayVec => Some((MySQLType::Blob, Vec::new())),
-        _ => category.to_mysql_type().map(|ty| (ty, Vec::new())),
+        _ => category.sql_type().map(|ty| (ty, Vec::new())),
     }
 }
 
@@ -1209,10 +1209,10 @@ fn mysql_render_type(ty: &MySQLType, args: &[u16]) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        _ if args.is_empty() => ty.to_sql_type().to_string(),
+        _ if args.is_empty() => ty.sql().to_string(),
         _ => format!(
             "{}({})",
-            ty.to_sql_type(),
+            ty.sql(),
             args.iter()
                 .map(u16::to_string)
                 .collect::<Vec<_>>()
@@ -1297,7 +1297,7 @@ fn mysql_validate_explicit_signedness(
     field_desc: &str,
     diags: &mut Diags,
 ) {
-    let rust_category = MySQLRustTypeCategory::from_type_string(&type_token_string(rust_type));
+    let rust_category = MySQLRustTypeCategory::classify(&type_token_string(rust_type));
     let rust_unsigned = matches!(
         rust_category,
         MySQLRustTypeCategory::U8
@@ -1326,13 +1326,13 @@ fn mysql_validate_explicit_signedness(
     if sql_type.is_unsigned() && rust_signed {
         diags.errors.push(format!(
             "{field_desc}: {} is unsigned but the Rust field is signed; use the corresponding u8/u16/u32/u64 type",
-            sql_type.to_sql_type()
+            sql_type.sql()
         ));
     }
     if sql_signed && rust_unsigned {
         diags.errors.push(format!(
             "{field_desc}: {} is signed but the Rust field is unsigned; use the corresponding signed Rust type or an *_UNSIGNED SQL type",
-            sql_type.to_sql_type()
+            sql_type.sql()
         ));
     }
 }
@@ -1416,7 +1416,7 @@ pub(crate) fn mysql_column_spec(
                     "DEFERRABLE" | "INITIALLY_DEFERRED" => diags.errors.push(format!(
                         "{field_desc}: MySQL foreign keys are not deferrable"
                     )),
-                    _ => match MySQLType::from_attribute_name(&upper) {
+                    _ => match MySQLType::parse_attribute(&upper) {
                         Some(ty) => set_mysql_explicit_type(&mut args, ty, &field_desc, diags),
                         None => diags.errors.push(format!(
                             "{field_desc}: unrecognized MySQL column attribute `{name}`"
@@ -1541,7 +1541,7 @@ pub(crate) fn mysql_column_spec(
                             args.set_values = Some(values);
                         }
                     }
-                    _ => match MySQLType::from_attribute_name(&upper) {
+                    _ => match MySQLType::parse_attribute(&upper) {
                         Some(ty) => {
                             args.type_args = mysql_parse_type_args(&list, &field_desc, diags);
                             set_mysql_explicit_type(&mut args, ty, &field_desc, diags);

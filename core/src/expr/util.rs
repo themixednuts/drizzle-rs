@@ -341,66 +341,46 @@ pub trait CastNullabilityPolicy<D, Input: Nullability>: DataType {
     type Output: Nullability;
 }
 
-macro_rules! mysql_cast_policies {
-    ($($ty:ty),+ $(,)?) => {
+macro_rules! mysql_cast_policy {
+    (
+        preserving: [$($preserving:ty),+ $(,)?],
+        nullable: [$($nullable:ty),+ $(,)?],
+    ) => {
         $(
-            impl<Source: DataType> CastTypePolicy<MySQLDialect, Source, $ty> for () {}
-        )+
-    };
-}
+            impl<Source: DataType> CastTypePolicy<MySQLDialect, Source, $preserving> for () {}
 
-mysql_cast_policies!(
-    drizzle_types::mysql::types::BigInt,
-    drizzle_types::mysql::types::BigIntUnsigned,
-    drizzle_types::mysql::types::Float,
-    drizzle_types::mysql::types::Double,
-    drizzle_types::mysql::types::Decimal,
-    drizzle_types::mysql::types::Varchar,
-    drizzle_types::mysql::types::Varbinary,
-    drizzle_types::mysql::types::Json,
-    drizzle_types::mysql::types::Date,
-    drizzle_types::mysql::types::Time,
-    drizzle_types::mysql::types::DateTime,
-    drizzle_types::mysql::types::Year,
-);
-
-macro_rules! mysql_preserving_cast_nullability {
-    ($($ty:ty),+ $(,)?) => {
-        $(
-            impl<Input: Nullability> CastNullabilityPolicy<MySQLDialect, Input> for $ty {
+            impl<Input: Nullability> CastNullabilityPolicy<MySQLDialect, Input> for $preserving {
                 type Output = Input;
             }
         )+
-    };
-}
-
-mysql_preserving_cast_nullability!(
-    drizzle_types::mysql::types::BigInt,
-    drizzle_types::mysql::types::BigIntUnsigned,
-    drizzle_types::mysql::types::Float,
-    drizzle_types::mysql::types::Double,
-    drizzle_types::mysql::types::Decimal,
-    drizzle_types::mysql::types::Varchar,
-    drizzle_types::mysql::types::Varbinary,
-    drizzle_types::mysql::types::Json,
-);
-
-macro_rules! mysql_nullable_cast_result {
-    ($($ty:ty),+ $(,)?) => {
         $(
-            impl<Input: Nullability> CastNullabilityPolicy<MySQLDialect, Input> for $ty {
+            impl<Source: DataType> CastTypePolicy<MySQLDialect, Source, $nullable> for () {}
+
+            impl<Input: Nullability> CastNullabilityPolicy<MySQLDialect, Input> for $nullable {
                 type Output = Null;
             }
         )+
     };
 }
 
-mysql_nullable_cast_result!(
-    drizzle_types::mysql::types::Date,
-    drizzle_types::mysql::types::Time,
-    drizzle_types::mysql::types::DateTime,
-    drizzle_types::mysql::types::Year,
-);
+mysql_cast_policy! {
+    preserving: [
+        drizzle_types::mysql::types::BigInt,
+        drizzle_types::mysql::types::BigIntUnsigned,
+        drizzle_types::mysql::types::Float,
+        drizzle_types::mysql::types::Double,
+        drizzle_types::mysql::types::Decimal,
+        drizzle_types::mysql::types::Varchar,
+        drizzle_types::mysql::types::Varbinary,
+        drizzle_types::mysql::types::Json,
+    ],
+    nullable: [
+        drizzle_types::mysql::types::Date,
+        drizzle_types::mysql::types::Time,
+        drizzle_types::mysql::types::DateTime,
+        drizzle_types::mysql::types::Year,
+    ],
+}
 
 impl<Source: DataType + Compatible<Target>, Target: DataType>
     CastTypePolicy<PostgresDialect, Source, Target> for ()

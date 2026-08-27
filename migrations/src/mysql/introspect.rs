@@ -420,7 +420,7 @@ fn normalize_default(column: &RawColumnInfo) -> Option<Cow<'static, str>> {
         return None;
     }
     let value = column.default_value.as_deref()?.trim();
-    let category = MySQLTypeCategory::from_sql_type(&column.column_type);
+    let category = MySQLTypeCategory::classify(&column.column_type);
     let expression = column
         .extra
         .to_ascii_lowercase()

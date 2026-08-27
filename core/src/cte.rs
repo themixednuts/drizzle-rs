@@ -1,89 +1,87 @@
-//! Shared macro for dialect CTE view types.
+//! Driver-neutral common table expression types.
 
-/// Generate dialect-specific `CTEDefinition` and `CTEView` types.
-#[macro_export]
-macro_rules! impl_cte_types {
-    (value_type: $ValueType:ty $(,)?) => {
-        /// Trait for types that can provide a CTE definition for WITH clauses.
-        pub trait CTEDefinition<'a> {
-            /// Returns the SQL for the CTE definition (e.g., `cte_name AS (SELECT ...)`).
-            fn cte_definition(&self) -> $crate::SQL<'a, $ValueType>;
+use core::{marker::PhantomData, ops::Deref};
+
+use crate::{SQL, SQLParam, ToSQL, Token};
+
+/// A value that can provide a CTE definition for a `WITH` clause.
+pub trait CTEDefinition<'a, V: SQLParam> {
+    /// Returns SQL such as `cte_name AS (SELECT ...)`.
+    fn cte_definition(&self) -> SQL<'a, V>;
+}
+
+/// A CTE view with typed table projection.
+#[derive(Clone, Debug)]
+pub struct CTEView<'a, V: SQLParam, Table, Query> {
+    /// The aliased table used for typed field access.
+    pub table: Table,
+    name: &'static str,
+    query: Query,
+    value: PhantomData<(&'a (), V)>,
+}
+
+impl<'a, V, Table, Query> CTEView<'a, V, Table, Query>
+where
+    V: SQLParam,
+    Query: ToSQL<'a, V>,
+{
+    /// Creates a CTE view.
+    pub const fn new(table: Table, name: &'static str, query: Query) -> Self {
+        Self {
+            table,
+            name,
+            query,
+            value: PhantomData,
         }
+    }
 
-        /// A CTE (Common Table Expression) view with typed table projection.
-        #[derive(Clone, Debug)]
-        pub struct CTEView<'a, Table, Query> {
-            /// The aliased table for typed field access.
-            pub table: Table,
-            /// The CTE name.
-            name: &'static str,
-            /// The defining query.
-            query: Query,
-            _phantom: ::core::marker::PhantomData<(&'a (), $ValueType)>,
-        }
+    /// Returns the CTE name.
+    pub const fn cte_name(&self) -> &'static str {
+        self.name
+    }
 
-        impl<'a, Table, Query> CTEView<'a, Table, Query>
-        where
-            Query: $crate::ToSQL<'a, $ValueType>,
-        {
-            /// Creates a new `CTEView`.
-            pub const fn new(table: Table, name: &'static str, query: Query) -> Self {
-                Self {
-                    table,
-                    name,
-                    query,
-                    _phantom: ::core::marker::PhantomData,
-                }
-            }
+    /// Returns the defining query.
+    pub const fn query(&self) -> &Query {
+        &self.query
+    }
+}
 
-            /// Returns the CTE name.
-            pub const fn cte_name(&self) -> &'static str {
-                self.name
-            }
+impl<'a, V, Table, Query> CTEDefinition<'a, V> for CTEView<'a, V, Table, Query>
+where
+    V: SQLParam,
+    Query: ToSQL<'a, V>,
+{
+    fn cte_definition(&self) -> SQL<'a, V> {
+        SQL::ident(self.name)
+            .push(Token::AS)
+            .append(self.query.to_sql().parens())
+    }
+}
 
-            /// Returns a reference to the underlying query.
-            pub const fn query(&self) -> &Query {
-                &self.query
-            }
-        }
+impl<'a, V, Table, Query> CTEDefinition<'a, V> for &CTEView<'a, V, Table, Query>
+where
+    V: SQLParam,
+    Query: ToSQL<'a, V>,
+{
+    fn cte_definition(&self) -> SQL<'a, V> {
+        (*self).cte_definition()
+    }
+}
 
-        impl<'a, Table, Query> CTEDefinition<'a> for CTEView<'a, Table, Query>
-        where
-            Query: $crate::ToSQL<'a, $ValueType>,
-        {
-            fn cte_definition(&self) -> $crate::SQL<'a, $ValueType> {
-                $crate::SQL::ident(self.name)
-                    .push($crate::Token::AS)
-                    .append(self.query.to_sql().parens())
-            }
-        }
+impl<V: SQLParam, Table, Query> Deref for CTEView<'_, V, Table, Query> {
+    type Target = Table;
 
-        impl<'a, Table, Query> CTEDefinition<'a> for &CTEView<'a, Table, Query>
-        where
-            Query: $crate::ToSQL<'a, $ValueType>,
-        {
-            fn cte_definition(&self) -> $crate::SQL<'a, $ValueType> {
-                $crate::SQL::ident(self.name)
-                    .push($crate::Token::AS)
-                    .append(self.query.to_sql().parens())
-            }
-        }
+    fn deref(&self) -> &Self::Target {
+        &self.table
+    }
+}
 
-        impl<'a, Table, Query> ::core::ops::Deref for CTEView<'a, Table, Query> {
-            type Target = Table;
-
-            fn deref(&self) -> &Self::Target {
-                &self.table
-            }
-        }
-
-        impl<'a, Table, Query> $crate::ToSQL<'a, $ValueType> for CTEView<'a, Table, Query>
-        where
-            Query: $crate::ToSQL<'a, $ValueType>,
-        {
-            fn to_sql(&self) -> $crate::SQL<'a, $ValueType> {
-                $crate::SQL::ident(self.name)
-            }
-        }
-    };
+impl<'a, V, Table, Query> ToSQL<'a, V> for CTEView<'a, V, Table, Query>
+where
+    V: SQLParam,
+    Query: ToSQL<'a, V>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::ident(self.name)
+    }
 }

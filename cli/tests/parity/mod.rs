@@ -875,7 +875,6 @@ fn block_on<F: std::future::Future>(future: F) -> F::Output {
         .block_on(future)
 }
 
-#[macro_export]
 macro_rules! shared_dialect_contract {
     ($backend:ty) => {
         #[test]
@@ -885,7 +884,8 @@ macro_rules! shared_dialect_contract {
     };
 }
 
-#[macro_export]
+pub(crate) use shared_dialect_contract;
+
 macro_rules! shared_live_driver_contract {
     ($backend:ty) => {
         #[test]
@@ -906,7 +906,8 @@ macro_rules! shared_live_driver_contract {
     };
 }
 
-#[macro_export]
+pub(crate) use shared_live_driver_contract;
+
 macro_rules! shared_non_postgres_contract {
     ($backend:ty) => {
         #[test]
@@ -915,3 +916,5 @@ macro_rules! shared_non_postgres_contract {
         }
     };
 }
+
+pub(crate) use shared_non_postgres_contract;

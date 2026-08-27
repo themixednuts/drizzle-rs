@@ -3,7 +3,6 @@
 /// Each dialect invokes this once with its table and schema macros. The test
 /// body is deliberately shared; dialect folders contain only the invocation
 /// and any SQL-shape tests unique to that dialect.
-#[macro_export]
 macro_rules! shared_relational_query_suite {
     ($dialect:ident, $table:ident, $schema:ident, $integer:path, $transaction_config:expr) => {
         mod shared_relational_query {
@@ -249,3 +248,5 @@ macro_rules! shared_relational_query_suite {
         }
     };
 }
+
+pub(crate) use shared_relational_query_suite;

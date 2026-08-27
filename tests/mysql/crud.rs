@@ -1,13 +1,10 @@
 //! MySQL value, mutation-result, and detached-builder contracts.
 
 use crate::common::schema::mysql::*;
-use drizzle::core::expr::{count, eq};
-
-macro_rules! user {
-    ($name:expr, $role:expr) => {
-        InsertUser::new($name, true, $role, vec![1, 2, 3], -42, 9.5).with_note(None::<String>)
-    };
-}
+use drizzle::core::{
+    asc,
+    expr::{concat, count, eq},
+};
 
 #[drizzle::test]
 fn mysql_values_and_mutation_metadata_round_trip(db: &mut TestDb<TestSchema>) {
@@ -15,12 +12,20 @@ fn mysql_values_and_mutation_metadata_round_trip(db: &mut TestDb<TestSchema>) {
 
     let inserted = db
         .insert(users)
-        .value(user!("Alice", Role::Admin))
+        .value(
+            InsertUser::new("Alice", true, Role::Admin, vec![1, 2, 3], -42, 9.5)
+                .with_note(None::<String>),
+        )
         .execute();
     let alice_id = inserted.last_insert_id().expect("AUTO_INCREMENT id");
     assert_eq!(inserted.affected_rows(), 1);
 
-    db.insert(users).value(user!("Bob", Role::Member)).execute();
+    db.insert(users)
+        .value(
+            InsertUser::new("Bob", true, Role::Member, vec![1, 2, 3], -42, 9.5)
+                .with_note(None::<String>),
+        )
+        .execute();
     db.insert(posts)
         .value(InsertPost::new(alice_id, "Hello"))
         .execute();
@@ -64,11 +69,34 @@ fn mysql_values_and_mutation_metadata_round_trip(db: &mut TestDb<TestSchema>) {
 fn detached_builder_executes_through_the_mysql_driver(db: &mut TestDb<TestSchema>) {
     let TestSchema { users, .. } = schema;
     db.insert(users)
-        .value(user!("Alice", Role::Admin))
+        .value(
+            InsertUser::new("Alice", true, Role::Admin, vec![1, 2, 3], -42, 9.5)
+                .with_note(None::<String>),
+        )
         .execute();
 
     let detached = db.select(()).from(users).detach();
     let selected: Vec<SelectUser> = db.all(detached);
     assert_eq!(selected.len(), 1);
     assert_eq!(selected[0].name, "Alice");
+}
+
+#[drizzle::test]
+fn mysql_executes_concat_and_standalone_offset(db: &mut TestDb<TestSchema>) {
+    let TestSchema { users, .. } = schema;
+    db.insert(users)
+        .values([
+            InsertUser::new("Alice", true, Role::Admin, vec![], 0, 0.0).with_note(None::<String>),
+            InsertUser::new("Bob", true, Role::Member, vec![], 0, 0.0).with_note(None::<String>),
+        ])
+        .execute();
+
+    let labels: Vec<String> = db
+        .select(concat(users.name, "!"))
+        .from(users)
+        .order_by(asc(users.id))
+        .offset(1)
+        .all();
+
+    assert_eq!(labels, ["Bob!"]);
 }

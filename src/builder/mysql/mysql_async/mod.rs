@@ -9,6 +9,7 @@
 //! a connection. Create one pool per independent runtime and call
 //! `disconnect().await` before that runtime stops.
 
+mod migration;
 pub mod prepared;
 
 use drizzle_core::{
@@ -239,106 +240,6 @@ impl<Connection, Schema> Drizzle<Connection, Schema> {
     }
 }
 
-macro_rules! mysql_async_conn_constructors {
-    () => {
-        pub fn select<'db, 'q, T>(
-            &'db mut self,
-            columns: T,
-        ) -> DrizzleBuilder<
-            'db,
-            &'db mut Drizzle<Conn, Schema>,
-            Schema,
-            SelectBuilder<'q, Schema, SelectInitial, (), T::Marker>,
-            SelectInitial,
-        >
-        where
-            T: ToSQL<'q, MySQLValue<'q>> + drizzle_core::IntoSelectTarget,
-        {
-            DrizzleBuilder::new(self, QueryBuilder::new::<Schema>().select(columns))
-        }
-
-        pub fn select_distinct<'db, 'q, T>(
-            &'db mut self,
-            columns: T,
-        ) -> DrizzleBuilder<
-            'db,
-            &'db mut Drizzle<Conn, Schema>,
-            Schema,
-            SelectBuilder<'q, Schema, SelectInitial, (), T::Marker>,
-            SelectInitial,
-        >
-        where
-            T: ToSQL<'q, MySQLValue<'q>> + drizzle_core::IntoSelectTarget,
-        {
-            DrizzleBuilder::new(self, QueryBuilder::new::<Schema>().select_distinct(columns))
-        }
-
-        pub fn insert<'db, 'q, Table>(
-            &'db mut self,
-            table: Table,
-        ) -> DrizzleBuilder<
-            'db,
-            &'db mut Drizzle<Conn, Schema>,
-            Schema,
-            InsertBuilder<'q, Schema, InsertInitial, Table>,
-            InsertInitial,
-        >
-        where
-            Table: MySQLTable<'q>,
-        {
-            DrizzleBuilder::new(self, QueryBuilder::new::<Schema>().insert(table))
-        }
-
-        pub fn update<'db, 'q, Table>(
-            &'db mut self,
-            table: Table,
-        ) -> DrizzleBuilder<
-            'db,
-            &'db mut Drizzle<Conn, Schema>,
-            Schema,
-            UpdateBuilder<'q, Schema, UpdateInitial, Table>,
-            UpdateInitial,
-        >
-        where
-            Table: MySQLTable<'q>,
-        {
-            DrizzleBuilder::new(self, QueryBuilder::new::<Schema>().update(table))
-        }
-
-        pub fn delete<'db, 'q, Table>(
-            &'db mut self,
-            table: Table,
-        ) -> DrizzleBuilder<
-            'db,
-            &'db mut Drizzle<Conn, Schema>,
-            Schema,
-            DeleteBuilder<'q, Schema, DeleteInitial, Table>,
-            DeleteInitial,
-        >
-        where
-            Table: MySQLTable<'q>,
-        {
-            DrizzleBuilder::new(self, QueryBuilder::new::<Schema>().delete(table))
-        }
-
-        pub fn with<'db, 'q, C>(
-            &'db mut self,
-            cte: &C,
-        ) -> DrizzleBuilder<
-            'db,
-            &'db mut Drizzle<Conn, Schema>,
-            Schema,
-            QueryBuilder<'q, Schema, builder::CTEInit>,
-            builder::CTEInit,
-        >
-        where
-            C: builder::CTEDefinition<'q>,
-        {
-            DrizzleBuilder::new(self, QueryBuilder::new::<Schema>().with(cte))
-        }
-    };
-}
-
 impl<Schema> Drizzle<Conn, Schema> {
     async fn ensure_session(&mut self) -> Result<()> {
         if !self.session_ready {
@@ -403,6 +304,28 @@ impl<Schema> Drizzle<Conn, Schema> {
         self.query_first_rendered(query).await?.decode_first_row()
     }
 
+    /// Applies pending embedded migrations in MySQL autocommit mode.
+    ///
+    /// Each migration is marked dirty before its first statement and marked
+    /// complete only after its last statement succeeds. MySQL DDL cannot be
+    /// made migration-wide atomic, so an interrupted run must be reconciled
+    /// manually before this method will continue.
+    ///
+    /// The connection must have autocommit enabled. Finish transactions begun
+    /// through raw SQL or the raw driver before calling this method because
+    /// the client does not expose their protocol transaction state.
+    pub async fn migrate(
+        &mut self,
+        migrations: &[drizzle_migrations::Migration],
+        tracking: drizzle_migrations::Tracking,
+    ) -> Result<drizzle_migrations::MigrateOutcome> {
+        let result = migration::Runner::new(&mut self.connection, migrations, tracking)
+            .run()
+            .await;
+        self.session_ready = false;
+        result
+    }
+
     #[cfg(feature = "query")]
     pub fn query<'db, 'q, Table>(
         &'db mut self,
@@ -418,7 +341,7 @@ impl<Schema> Drizzle<Conn, Schema> {
         }
     }
 
-    mysql_async_conn_constructors!();
+    mysql_builder_constructors!(&'db mut Drizzle<Conn, Schema>, [&'db mut self], self);
 }
 
 impl<Schema> Drizzle<Pool, Schema> {
@@ -478,6 +401,25 @@ impl<Schema> Drizzle<Pool, Schema> {
         self.query_first_rendered(query).await?.decode_first_row()
     }
 
+    /// Applies pending embedded migrations in MySQL autocommit mode.
+    ///
+    /// This holds one pool checkout for the advisory lock's entire lifetime.
+    /// Interrupted migrations remain dirty and require manual reconciliation
+    /// before this method will continue.
+    ///
+    /// The checked-out connection must have autocommit enabled and must not be
+    /// inside a transaction begun through raw SQL or the raw driver.
+    pub async fn migrate(
+        &self,
+        migrations: &[drizzle_migrations::Migration],
+        tracking: drizzle_migrations::Tracking,
+    ) -> Result<drizzle_migrations::MigrateOutcome> {
+        let mut connection = self.connection.get_conn().await.map_err(driver_error)?;
+        migration::Runner::new(&mut connection, migrations, tracking)
+            .run()
+            .await
+    }
+
     #[cfg(feature = "query")]
     pub fn query<'db, 'q, Table>(
         &'db self,
@@ -498,7 +440,7 @@ impl<Schema> Drizzle<Pool, Schema> {
         self.connection.disconnect().await.map_err(driver_error)
     }
 
-    mysql_shared_builder_constructors!(&'db Drizzle<Pool, Schema>);
+    mysql_builder_constructors!(&'db Drizzle<Pool, Schema>, [&'db self], self);
 }
 
 #[cfg(feature = "query")]
@@ -515,136 +457,196 @@ impl<Schema> common::RelationalPreparedDriver for &Drizzle<Pool, Schema> {
     type PreparedDriver = RelationalPrepared;
 }
 
-macro_rules! async_relational_terminals {
-    ($runner:ty) => {
-        #[cfg(feature = "query")]
-        impl<'db, 'q, Schema, Table, Relations, Clauses>
-            common::DrizzleQueryBuilder<
-                'db,
-                'q,
-                $runner,
-                Schema,
-                Table,
-                Relations,
-                drizzle_core::query::AllColumns,
-                Clauses,
-            >
-        {
-            pub async fn find_many(
-                self,
-            ) -> Result<Vec<<Relations as drizzle_core::query::BuildRow<Table::Select>>::Row>>
-            where
-                Table: drizzle_core::query::QueryTable,
-                for<'row> Table::Select: FromDrizzleRow<MySQLRow<'row, Row>>,
-                Relations: drizzle_core::query::BuildRow<Table::Select>
-                    + drizzle_core::query::RenderRelations<'q, MySQLValue<'q>>,
-                Relations::Store: drizzle_core::query::DeserializeStore,
-            {
-                let query = common::render_relational_all(self.builder);
-                self.runner
-                    .query_rendered(query)
-                    .await?
-                    .decode_relational_all::<Table, Relations>()
-            }
-        }
+pub(crate) trait AsyncRunner {
+    async fn execute_rendered<'q>(
+        self,
+        query: impl ToSQL<'q, MySQLValue<'q>>,
+    ) -> Result<MySQLMutationResult>;
 
-        #[cfg(feature = "query")]
-        impl<'db, 'q, Schema, Table, Relations, Where, Order>
-            common::DrizzleQueryBuilder<
-                'db,
-                'q,
-                $runner,
-                Schema,
-                Table,
-                Relations,
-                drizzle_core::query::AllColumns,
-                drizzle_core::query::Clauses<Where, Order, drizzle_core::query::NoLimit>,
-            >
-        {
-            pub async fn find_first(
-                self,
-            ) -> Result<Option<<Relations as drizzle_core::query::BuildRow<Table::Select>>::Row>>
-            where
-                Table: drizzle_core::query::QueryTable,
-                for<'row> Table::Select: FromDrizzleRow<MySQLRow<'row, Row>>,
-                Relations: drizzle_core::query::BuildRow<Table::Select>
-                    + drizzle_core::query::RenderRelations<'q, MySQLValue<'q>>,
-                Relations::Store: drizzle_core::query::DeserializeStore,
-            {
-                Ok(self.limit(1).find_many().await?.into_iter().next())
-            }
-        }
+    async fn query_rendered<'q>(
+        self,
+        query: impl ToSQL<'q, MySQLValue<'q>>,
+    ) -> Result<QueryOutput<'q>>;
 
-        #[cfg(feature = "query")]
-        impl<'db, 'q, Schema, Table, Relations, Clauses>
-            common::DrizzleQueryBuilder<
-                'db,
-                'q,
-                $runner,
-                Schema,
-                Table,
-                Relations,
-                drizzle_core::query::PartialColumns,
-                Clauses,
-            >
-        {
-            pub async fn find_many(
-                self,
-            ) -> Result<
-                Vec<
-                    <Relations as drizzle_core::query::BuildRow<Table::PartialSelect>>::Row,
-                >,
-            >
-            where
-                Table: drizzle_core::query::QueryTable,
-                Table::PartialSelect: drizzle_core::query::FromJsonObject,
-                Relations: drizzle_core::query::BuildRow<Table::PartialSelect>
-                    + drizzle_core::query::RenderRelations<'q, MySQLValue<'q>>,
-                Relations::Store: drizzle_core::query::DeserializeStore,
-            {
-                let query = common::render_relational_partial(self.builder);
-                self.runner
-                    .query_rendered(query)
-                    .await?
-                    .decode_relational_partial::<Table, Relations>()
-            }
-        }
-
-        #[cfg(feature = "query")]
-        impl<'db, 'q, Schema, Table, Relations, Where, Order>
-            common::DrizzleQueryBuilder<
-                'db,
-                'q,
-                $runner,
-                Schema,
-                Table,
-                Relations,
-                drizzle_core::query::PartialColumns,
-                drizzle_core::query::Clauses<Where, Order, drizzle_core::query::NoLimit>,
-            >
-        {
-            pub async fn find_first(
-                self,
-            ) -> Result<
-                Option<
-                    <Relations as drizzle_core::query::BuildRow<Table::PartialSelect>>::Row,
-                >,
-            >
-            where
-                Table: drizzle_core::query::QueryTable,
-                Table::PartialSelect: drizzle_core::query::FromJsonObject,
-                Relations: drizzle_core::query::BuildRow<Table::PartialSelect>
-                    + drizzle_core::query::RenderRelations<'q, MySQLValue<'q>>,
-                Relations::Store: drizzle_core::query::DeserializeStore,
-            {
-                Ok(self.limit(1).find_many().await?.into_iter().next())
-            }
-        }
-    };
+    async fn query_first_rendered<'q>(
+        self,
+        query: impl ToSQL<'q, MySQLValue<'q>>,
+    ) -> Result<QueryOutput<'q>>;
 }
 
-async_relational_terminals!(&'db mut Drizzle<Conn, Schema>);
-async_relational_terminals!(&'db Drizzle<Pool, Schema>);
+impl<Schema> AsyncRunner for &mut Drizzle<Conn, Schema> {
+    async fn execute_rendered<'q>(
+        self,
+        query: impl ToSQL<'q, MySQLValue<'q>>,
+    ) -> Result<MySQLMutationResult> {
+        Drizzle::<Conn, Schema>::execute_rendered(self, query).await
+    }
+
+    async fn query_rendered<'q>(
+        self,
+        query: impl ToSQL<'q, MySQLValue<'q>>,
+    ) -> Result<QueryOutput<'q>> {
+        Drizzle::<Conn, Schema>::query_rendered(self, query).await
+    }
+
+    async fn query_first_rendered<'q>(
+        self,
+        query: impl ToSQL<'q, MySQLValue<'q>>,
+    ) -> Result<QueryOutput<'q>> {
+        Drizzle::<Conn, Schema>::query_first_rendered(self, query).await
+    }
+}
+
+impl<Schema> AsyncRunner for &Drizzle<Pool, Schema> {
+    async fn execute_rendered<'q>(
+        self,
+        query: impl ToSQL<'q, MySQLValue<'q>>,
+    ) -> Result<MySQLMutationResult> {
+        Drizzle::<Pool, Schema>::execute_rendered(self, query).await
+    }
+
+    async fn query_rendered<'q>(
+        self,
+        query: impl ToSQL<'q, MySQLValue<'q>>,
+    ) -> Result<QueryOutput<'q>> {
+        Drizzle::<Pool, Schema>::query_rendered(self, query).await
+    }
+
+    async fn query_first_rendered<'q>(
+        self,
+        query: impl ToSQL<'q, MySQLValue<'q>>,
+    ) -> Result<QueryOutput<'q>> {
+        Drizzle::<Pool, Schema>::query_first_rendered(self, query).await
+    }
+}
+
+#[cfg(feature = "query")]
+#[allow(private_bounds)]
+impl<'db, 'q, Runner, Schema, Table, Relations, Clauses>
+    common::DrizzleQueryBuilder<
+        'db,
+        'q,
+        Runner,
+        Schema,
+        Table,
+        Relations,
+        drizzle_core::query::AllColumns,
+        Clauses,
+    >
+where
+    Runner: AsyncRunner,
+{
+    pub async fn find_many(
+        self,
+    ) -> Result<Vec<<Relations as drizzle_core::query::BuildRow<Table::Select>>::Row>>
+    where
+        Table: drizzle_core::query::QueryTable,
+        for<'row> Table::Select: FromDrizzleRow<MySQLRow<'row, Row>>,
+        Relations: drizzle_core::query::BuildRow<Table::Select>
+            + drizzle_core::query::RenderRelations<'q, MySQLValue<'q>>,
+        Relations::Store: drizzle_core::query::DeserializeStore,
+    {
+        let query = common::render_relational_all(self.builder);
+        self.runner
+            .query_rendered(query)
+            .await?
+            .decode_relational_all::<Table, Relations>()
+    }
+}
+
+#[cfg(feature = "query")]
+#[allow(private_bounds)]
+impl<'db, 'q, Runner, Schema, Table, Relations, Where, Order>
+    common::DrizzleQueryBuilder<
+        'db,
+        'q,
+        Runner,
+        Schema,
+        Table,
+        Relations,
+        drizzle_core::query::AllColumns,
+        drizzle_core::query::Clauses<Where, Order, drizzle_core::query::NoLimit>,
+    >
+where
+    Runner: AsyncRunner,
+{
+    pub async fn find_first(
+        self,
+    ) -> Result<Option<<Relations as drizzle_core::query::BuildRow<Table::Select>>::Row>>
+    where
+        Table: drizzle_core::query::QueryTable,
+        for<'row> Table::Select: FromDrizzleRow<MySQLRow<'row, Row>>,
+        Relations: drizzle_core::query::BuildRow<Table::Select>
+            + drizzle_core::query::RenderRelations<'q, MySQLValue<'q>>,
+        Relations::Store: drizzle_core::query::DeserializeStore,
+    {
+        Ok(self.limit(1).find_many().await?.into_iter().next())
+    }
+}
+
+#[cfg(feature = "query")]
+#[allow(private_bounds)]
+impl<'db, 'q, Runner, Schema, Table, Relations, Clauses>
+    common::DrizzleQueryBuilder<
+        'db,
+        'q,
+        Runner,
+        Schema,
+        Table,
+        Relations,
+        drizzle_core::query::PartialColumns,
+        Clauses,
+    >
+where
+    Runner: AsyncRunner,
+{
+    pub async fn find_many(
+        self,
+    ) -> Result<Vec<<Relations as drizzle_core::query::BuildRow<Table::PartialSelect>>::Row>>
+    where
+        Table: drizzle_core::query::QueryTable,
+        Table::PartialSelect: drizzle_core::query::FromJsonObject,
+        Relations: drizzle_core::query::BuildRow<Table::PartialSelect>
+            + drizzle_core::query::RenderRelations<'q, MySQLValue<'q>>,
+        Relations::Store: drizzle_core::query::DeserializeStore,
+    {
+        let query = common::render_relational_partial(self.builder);
+        self.runner
+            .query_rendered(query)
+            .await?
+            .decode_relational_partial::<Table, Relations>()
+    }
+}
+
+#[cfg(feature = "query")]
+#[allow(private_bounds)]
+impl<'db, 'q, Runner, Schema, Table, Relations, Where, Order>
+    common::DrizzleQueryBuilder<
+        'db,
+        'q,
+        Runner,
+        Schema,
+        Table,
+        Relations,
+        drizzle_core::query::PartialColumns,
+        drizzle_core::query::Clauses<Where, Order, drizzle_core::query::NoLimit>,
+    >
+where
+    Runner: AsyncRunner,
+{
+    pub async fn find_first(
+        self,
+    ) -> Result<Option<<Relations as drizzle_core::query::BuildRow<Table::PartialSelect>>::Row>>
+    where
+        Table: drizzle_core::query::QueryTable,
+        Table::PartialSelect: drizzle_core::query::FromJsonObject,
+        Relations: drizzle_core::query::BuildRow<Table::PartialSelect>
+            + drizzle_core::query::RenderRelations<'q, MySQLValue<'q>>,
+        Relations::Store: drizzle_core::query::DeserializeStore,
+    {
+        Ok(self.limit(1).find_many().await?.into_iter().next())
+    }
+}
 
 #[cfg(feature = "query")]
 impl<'q, Table, Relations>
@@ -906,60 +908,55 @@ where
     }
 }
 
-macro_rules! async_builder_terminals {
-    ($runner:ty) => {
-        impl<'db, 'q, Schema, State, Table, Marker, DecodedRow, Grouped>
-            DrizzleBuilder<
-                'db,
-                $runner,
-                Schema,
-                QueryBuilder<'q, Schema, State, Table, Marker, DecodedRow, Grouped>,
-                State,
-            >
-        where
-            State: builder::ExecutableState,
-        {
-            pub async fn execute(self) -> Result<MySQLMutationResult> {
-                self.runner.execute_rendered(self.builder).await
-            }
+#[allow(private_bounds)]
+impl<'db, 'q, Runner, Schema, State, Table, Marker, DecodedRow, Grouped>
+    DrizzleBuilder<
+        'db,
+        Runner,
+        Schema,
+        QueryBuilder<'q, Schema, State, Table, Marker, DecodedRow, Grouped>,
+        State,
+    >
+where
+    Runner: AsyncRunner,
+    State: builder::ExecutableState,
+{
+    pub async fn execute(self) -> Result<MySQLMutationResult> {
+        self.runner.execute_rendered(self.builder).await
+    }
 
-            pub async fn all<R, ScopeProof, AggProof>(self) -> Result<Vec<R>>
-            where
-                for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
-                    + MarkerScopeValidFor<ScopeProof>
-                    + StrictDecodeMarker
-                    + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R>,
-                Marker: MarkerAggValidFor<Grouped, AggProof>,
-            {
-                self.runner
-                    .query_rendered(self.builder)
-                    .await?
-                    .decode_all::<Marker, R>()
-            }
+    pub async fn all<R, ScopeProof, AggProof>(self) -> Result<Vec<R>>
+    where
+        for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
+            + MarkerScopeValidFor<ScopeProof>
+            + StrictDecodeMarker
+            + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R>,
+        Marker: MarkerAggValidFor<Grouped, AggProof>,
+    {
+        self.runner
+            .query_rendered(self.builder)
+            .await?
+            .decode_all::<Marker, R>()
+    }
 
-            pub async fn get<R, ScopeProof, AggProof>(self) -> Result<R>
-            where
-                for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
-                    + MarkerScopeValidFor<ScopeProof>
-                    + StrictDecodeMarker
-                    + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R>,
-                Marker: MarkerAggValidFor<Grouped, AggProof>,
-            {
-                self.runner
-                    .query_first_rendered(self.builder)
-                    .await?
-                    .decode_first::<Marker, R>()
-            }
+    pub async fn get<R, ScopeProof, AggProof>(self) -> Result<R>
+    where
+        for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
+            + MarkerScopeValidFor<ScopeProof>
+            + StrictDecodeMarker
+            + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R>,
+        Marker: MarkerAggValidFor<Grouped, AggProof>,
+    {
+        self.runner
+            .query_first_rendered(self.builder)
+            .await?
+            .decode_first::<Marker, R>()
+    }
 
-            #[must_use]
-            pub fn prepare(self) -> prepared::PreparedStatement<'q, Marker, DecodedRow, Grouped> {
-                prepared::PreparedStatement::new(drizzle_core::prepared::prepare_render(
-                    &self.builder.into_sql(),
-                ))
-            }
-        }
-    };
+    #[must_use]
+    pub fn prepare(self) -> prepared::PreparedStatement<'q, Marker, DecodedRow, Grouped> {
+        prepared::PreparedStatement::new(drizzle_core::prepared::prepare_render(
+            &self.builder.into_sql(),
+        ))
+    }
 }
-
-async_builder_terminals!(&'db mut Drizzle<Conn, Schema>);
-async_builder_terminals!(&'db Drizzle<Pool, Schema>);

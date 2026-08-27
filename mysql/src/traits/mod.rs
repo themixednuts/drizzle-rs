@@ -13,7 +13,9 @@ use drizzle_core::error::DrizzleError;
 /// MySQL enum declarations are inline column types. [`SQL_TYPE`](Self::SQL_TYPE)
 /// therefore contains the complete escaped `ENUM(...)` declaration rather
 /// than the name of a separately-created schema object.
-pub trait MySQLEnum: Sized + Send + Sync + 'static {
+pub trait MySQLEnum:
+    Sized + Send + Sync + 'static + core::str::FromStr<Err = DrizzleError>
+{
     /// Complete inline `ENUM(...)` declaration.
     const SQL_TYPE: &'static str;
     /// Accepted values in declaration order.
@@ -21,12 +23,4 @@ pub trait MySQLEnum: Sized + Send + Sync + 'static {
 
     /// Return the database value for this variant.
     fn variant_name(&self) -> &'static str;
-
-    /// Parse a database value.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DrizzleError::ConversionError`] when the value is not one of
-    /// this enum's declared variants.
-    fn try_from_str(value: &str) -> Result<Self, DrizzleError>;
 }

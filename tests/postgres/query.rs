@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::common::schema::postgres::{ComplexId, ComplexWithInvitedBy, ComplexWithPosts};
 
-crate::shared_relational_query_suite!(
+crate::common::query::shared_relational_query_suite!(
     postgres,
     PostgresTable,
     PostgresSchema,

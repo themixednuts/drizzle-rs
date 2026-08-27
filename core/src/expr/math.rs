@@ -128,29 +128,18 @@ impl RoundingPolicy<PostgresDialect> for PgNumeric {
     type Output = Float8;
 }
 
-macro_rules! mysql_signed_integer_rounding_policy {
-    ($($ty:ty),+ $(,)?) => {
+macro_rules! mysql_rounding_policy {
+    ($output:ty; $($ty:ty),+ $(,)?) => {
         $(
             impl RoundingPolicy<MySQLDialect> for $ty {
-                type Output = MyBigInt;
+                type Output = $output;
             }
         )+
     };
 }
 
-mysql_signed_integer_rounding_policy!(MyTinyInt, MySmallInt, MyMediumInt, MyInt, MyBigInt,);
-
-macro_rules! mysql_unsigned_integer_rounding_policy {
-    ($($ty:ty),+ $(,)?) => {
-        $(
-            impl RoundingPolicy<MySQLDialect> for $ty {
-                type Output = MyBigIntUnsigned;
-            }
-        )+
-    };
-}
-
-mysql_unsigned_integer_rounding_policy!(
+mysql_rounding_policy!(MyBigInt; MyTinyInt, MySmallInt, MyMediumInt, MyInt, MyBigInt,);
+mysql_rounding_policy!(MyBigIntUnsigned;
     MyTinyIntUnsigned,
     MySmallIntUnsigned,
     MyMediumIntUnsigned,

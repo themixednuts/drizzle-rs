@@ -46,14 +46,14 @@ pub enum TypeCategory {
 }
 
 impl TypeCategory {
-    /// Detect a Rust type category from its stringified representation.
+    /// Classify a stringified Rust type.
     #[cfg(feature = "std")]
     #[must_use]
-    pub fn from_type_string(type_str: &str) -> Self {
+    pub fn classify(type_str: &str) -> Self {
         let type_str = type_str.replace(' ', "");
 
         if type_str.starts_with("Option<") && type_str.ends_with('>') {
-            return Self::from_type_string(&type_str[7..type_str.len() - 1]);
+            return Self::classify(&type_str[7..type_str.len() - 1]);
         }
 
         if type_str.starts_with("[u8;")
@@ -136,9 +136,9 @@ impl TypeCategory {
         }
     }
 
-    /// Infer the MySQL type declaration for this Rust category.
+    /// Return the MySQL declaration inferred for this Rust category.
     #[must_use]
-    pub fn to_mysql_type(self) -> Option<MySQLType> {
+    pub fn sql_type(self) -> Option<MySQLType> {
         match self {
             Self::I8 => Some(MySQLType::Tinyint),
             Self::I16 => Some(MySQLType::Smallint),
@@ -259,7 +259,7 @@ impl MySQLTypeCategory {
     /// `ZEROFILL` is treated as unsigned because MySQL implicitly adds the
     /// `UNSIGNED` attribute to a `ZEROFILL` numeric declaration.
     #[must_use]
-    pub fn from_sql_type(sql_type: &str) -> Self {
+    pub fn classify(sql_type: &str) -> Self {
         let normalized = sql_type.trim();
 
         Self::integer_category(normalized, "tinyint", Self::TinyInt, Self::TinyIntUnsigned)
@@ -400,14 +400,14 @@ mod tests {
 
     #[test]
     fn rust_type_categories_keep_signedness() {
-        assert_eq!(TypeCategory::from_type_string("i8"), TypeCategory::I8);
-        assert_eq!(TypeCategory::from_type_string("u64"), TypeCategory::U64);
+        assert_eq!(TypeCategory::classify("i8"), TypeCategory::I8);
+        assert_eq!(TypeCategory::classify("u64"), TypeCategory::U64);
         assert_eq!(
-            TypeCategory::from_type_string("Option<u32>").to_mysql_type(),
+            TypeCategory::classify("Option<u32>").sql_type(),
             Some(MySQLType::IntUnsigned)
         );
         assert_eq!(
-            TypeCategory::from_type_string("chrono::NaiveDateTime").to_mysql_type(),
+            TypeCategory::classify("chrono::NaiveDateTime").sql_type(),
             Some(MySQLType::Datetime)
         );
     }
@@ -415,23 +415,23 @@ mod tests {
     #[test]
     fn sql_type_categories_parse_mysql_extensions() {
         assert_eq!(
-            MySQLTypeCategory::from_sql_type("MEDIUMINT(8) UNSIGNED"),
+            MySQLTypeCategory::classify("MEDIUMINT(8) UNSIGNED"),
             MySQLTypeCategory::MediumIntUnsigned
         );
         assert_eq!(
-            MySQLTypeCategory::from_sql_type("INT ZEROFILL"),
+            MySQLTypeCategory::classify("INT ZEROFILL"),
             MySQLTypeCategory::IntUnsigned
         );
         assert_eq!(
-            MySQLTypeCategory::from_sql_type("DECIMAL(20, 8)"),
+            MySQLTypeCategory::classify("DECIMAL(20, 8)"),
             MySQLTypeCategory::Decimal
         );
         assert_eq!(
-            MySQLTypeCategory::from_sql_type("ENUM('draft', 'published')"),
+            MySQLTypeCategory::classify("ENUM('draft', 'published')"),
             MySQLTypeCategory::Enum
         );
         assert_eq!(
-            MySQLTypeCategory::from_sql_type("DATETIME(6)"),
+            MySQLTypeCategory::classify("DATETIME(6)"),
             MySQLTypeCategory::DateTime
         );
     }
@@ -439,7 +439,7 @@ mod tests {
     #[test]
     fn type_names_do_not_match_longer_identifiers() {
         assert_eq!(
-            MySQLTypeCategory::from_sql_type("introspection_type"),
+            MySQLTypeCategory::classify("introspection_type"),
             MySQLTypeCategory::Custom
         );
     }

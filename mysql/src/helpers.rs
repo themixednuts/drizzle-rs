@@ -4,8 +4,7 @@
 use crate::prelude::*;
 use crate::{traits::MySQLTable, values::MySQLValue};
 use drizzle_core::{
-    ColumnRef, SQL, SQLChunk, SQLIndex, SQLIndexInfo, SQLTableInfo, ToSQL, Token, helpers,
-    traits::SQLModel,
+    SQL, SQLChunk, SQLIndex, SQLIndexInfo, SQLTableInfo, ToSQL, Token, helpers, traits::SQLModel,
 };
 
 pub use drizzle_core::Join;
@@ -239,24 +238,6 @@ where
     }
 }
 
-fn columns_info_to_sql<'a>(columns: &[ColumnRef]) -> SQL<'a, MySQLValue<'a>> {
-    let mut sql = SQL::with_capacity_chunks(columns.len().saturating_mul(2));
-    for (index, column) in columns.iter().enumerate() {
-        if index > 0 {
-            sql.push_mut(Token::COMMA);
-        }
-        sql.append_mut(SQL::ident(column.name));
-    }
-    sql
-}
-
-pub(crate) fn insert<'a, Table>(table: &Table) -> SQL<'a, MySQLValue<'a>>
-where
-    Table: MySQLTable<'a>,
-{
-    helpers::insert::<Table, crate::common::MySQLSchemaType, MySQLValue<'a>>(table)
-}
-
 pub(crate) fn insert_ignore<'a>(mut insert: SQL<'a, MySQLValue<'a>>) -> SQL<'a, MySQLValue<'a>> {
     debug_assert!(matches!(
         insert.chunks.first(),
@@ -312,7 +293,7 @@ where
         row_sql.push_mut(Token::RPAREN);
     }
 
-    columns_info_to_sql(columns.as_ref())
+    SQL::columns(columns.as_ref())
         .parens()
         .push(Token::VALUES)
         .append(row_sql)
@@ -487,12 +468,6 @@ impl<'a, Projection, Table> SetOrderBy<'a, Projection, Table, ()> for OrderExpr<
     fn into_set_order_sql(self) -> SQL<'a, MySQLValue<'a>> {
         self.value.to_sql().append(&self.direction)
     }
-}
-
-pub(crate) fn set_order_by<'a, Projection, Table, Proof>(
-    order: impl SetOrderBy<'a, Projection, Table, Proof>,
-) -> SQL<'a, MySQLValue<'a>> {
-    SQL::from_iter([Token::ORDER, Token::BY]).append(order.into_set_order_sql())
 }
 
 pub(crate) fn set_op<'a>(

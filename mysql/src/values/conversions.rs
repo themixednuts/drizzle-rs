@@ -3,44 +3,30 @@
 use super::MySQLValue;
 use crate::prelude::*;
 
-macro_rules! signed_values {
-    ($($ty:ty),+ $(,)?) => {
+macro_rules! integer_values {
+    ($($variant:ident: [$($ty:ty),+ $(,)?]),+ $(,)?) => {
         $(
-            impl From<$ty> for MySQLValue<'_> {
-                fn from(value: $ty) -> Self {
-                    Self::Int(value as i64)
+            $(
+                impl From<$ty> for MySQLValue<'_> {
+                    fn from(value: $ty) -> Self {
+                        Self::$variant(value as _)
+                    }
                 }
-            }
 
-            impl From<&$ty> for MySQLValue<'_> {
-                fn from(value: &$ty) -> Self {
-                    Self::from(*value)
+                impl From<&$ty> for MySQLValue<'_> {
+                    fn from(value: &$ty) -> Self {
+                        Self::from(*value)
+                    }
                 }
-            }
+            )+
         )+
     };
 }
 
-macro_rules! unsigned_values {
-    ($($ty:ty),+ $(,)?) => {
-        $(
-            impl From<$ty> for MySQLValue<'_> {
-                fn from(value: $ty) -> Self {
-                    Self::UInt(value as u64)
-                }
-            }
-
-            impl From<&$ty> for MySQLValue<'_> {
-                fn from(value: &$ty) -> Self {
-                    Self::from(*value)
-                }
-            }
-        )+
-    };
-}
-
-signed_values!(i8, i16, i32, i64, isize);
-unsigned_values!(u8, u16, u32, u64, usize);
+integer_values!(
+    Int: [i8, i16, i32, i64, isize],
+    UInt: [u8, u16, u32, u64, usize],
+);
 
 impl From<bool> for MySQLValue<'_> {
     fn from(value: bool) -> Self {

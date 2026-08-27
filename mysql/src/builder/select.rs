@@ -1,5 +1,5 @@
 use crate::{common::MySQLSchemaType, helpers, values::MySQLValue};
-use drizzle_core::{SQLTable, ToSQL};
+use drizzle_core::{SQL, SQLTable, ToSQL, Token};
 
 use super::ExecutableState;
 
@@ -77,43 +77,82 @@ impl SelectLimitAllowed for SelectHavingSet {}
 impl SelectLimitAllowed for SelectOrderSet {}
 impl SelectLimitAllowed for SelectSetOpSet {}
 
+#[doc(hidden)]
+pub trait SelectOrderAllowed {}
+impl SelectOrderAllowed for SelectFromSet {}
+impl<Kind> SelectOrderAllowed for SelectIndexHintSet<Kind> {}
+impl SelectOrderAllowed for SelectJoinSet {}
+impl SelectOrderAllowed for SelectWhereSet {}
+impl SelectOrderAllowed for SelectGroupSet {}
+impl SelectOrderAllowed for SelectHavingSet {}
+
+#[doc(hidden)]
+pub trait SelectOffsetAllowed {}
+impl SelectOffsetAllowed for SelectFromSet {}
+impl<Kind> SelectOffsetAllowed for SelectIndexHintSet<Kind> {}
+impl SelectOffsetAllowed for SelectJoinSet {}
+impl SelectOffsetAllowed for SelectWhereSet {}
+impl SelectOffsetAllowed for SelectGroupSet {}
+impl SelectOffsetAllowed for SelectHavingSet {}
+impl SelectOffsetAllowed for SelectOrderSet {}
+impl SelectOffsetAllowed for SelectSetOpSet {}
+
+#[doc(hidden)]
+pub trait SetOperationAllowed {}
+impl SetOperationAllowed for SelectFromSet {}
+impl SetOperationAllowed for SelectJoinSet {}
+impl SetOperationAllowed for SelectWhereSet {}
+impl SetOperationAllowed for SelectGroupSet {}
+impl SetOperationAllowed for SelectHavingSet {}
+impl SetOperationAllowed for SelectOrderSet {}
+impl SetOperationAllowed for SelectLimitSet {}
+impl SetOperationAllowed for SelectOffsetSet {}
+impl SetOperationAllowed for SelectSetOpSet {}
+
 pub type SelectBuilder<'a, Schema, State, Table = (), Marker = (), Row = (), Grouped = ()> =
     super::QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>;
 
-macro_rules! select_prepare {
-    ($state:ty $(, $extra:ident)*) => {
-        impl<'a, S, T, M, R, G, $($extra),*> SelectBuilder<'a, S, $state, T, M, R, G> {
-            /// Compiles named or anonymous placeholders into MySQL's ordered
-            /// positional bind plan after validating scope and grouping.
-            #[must_use]
-            pub fn prepare<ScopeProof, AggProof>(
-                &self,
-            ) -> drizzle_core::prepared::PreparedStatement<'a, MySQLValue<'a>>
-            where
-                M: drizzle_core::row::MarkerScopeValidFor<ScopeProof>
-                    + drizzle_core::row::MarkerAggValidFor<G, AggProof>,
-            {
-                self.prepared_statement()
-            }
-        }
+mod private {
+    use super::{
+        SelectForSet, SelectFromSet, SelectGroupSet, SelectHavingSet, SelectIndexHintSet,
+        SelectJoinSet, SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectSetOpSet,
+        SelectWhereSet,
     };
+
+    pub trait SealedSelect {}
+
+    pub trait Prepare {}
+    pub trait Completed: super::ExecutableState {}
+
+    impl Prepare for SelectFromSet {}
+    impl<Kind> Prepare for SelectIndexHintSet<Kind> {}
+    impl Prepare for SelectJoinSet {}
+    impl Prepare for SelectWhereSet {}
+    impl Prepare for SelectGroupSet {}
+    impl Prepare for SelectHavingSet {}
+    impl Prepare for SelectOrderSet {}
+    impl Prepare for SelectLimitSet {}
+    impl Prepare for SelectOffsetSet {}
+    impl Prepare for SelectSetOpSet {}
+    impl<Strength, Modifier> Prepare for SelectForSet<Strength, Modifier> {}
+
+    impl Completed for SelectFromSet {}
+    impl Completed for SelectJoinSet {}
+    impl Completed for SelectWhereSet {}
+    impl Completed for SelectGroupSet {}
+    impl Completed for SelectHavingSet {}
+    impl Completed for SelectOrderSet {}
+    impl Completed for SelectLimitSet {}
+    impl Completed for SelectOffsetSet {}
+    impl Completed for SelectSetOpSet {}
 }
 
-select_prepare!(SelectFromSet);
-select_prepare!(SelectIndexHintSet<Kind>, Kind);
-select_prepare!(SelectJoinSet);
-select_prepare!(SelectWhereSet);
-select_prepare!(SelectGroupSet);
-select_prepare!(SelectHavingSet);
-select_prepare!(SelectOrderSet);
-select_prepare!(SelectLimitSet);
-select_prepare!(SelectOffsetSet);
-select_prepare!(SelectSetOpSet);
-
-impl<'a, S, T, M, R, G, Strength, Modifier>
-    SelectBuilder<'a, S, SelectForSet<Strength, Modifier>, T, M, R, G>
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: private::Prepare,
 {
-    /// Compiles a locking read into MySQL's ordered positional bind plan.
+    /// Compiles named or anonymous placeholders into MySQL's ordered
+    /// positional bind plan after validating scope and grouping.
     #[must_use]
     pub fn prepare<ScopeProof, AggProof>(
         &self,
@@ -288,32 +327,28 @@ where
     }
 }
 
-macro_rules! select_order_by {
-    ($state:ty $(, $extra:ident)*) => {
-        impl<'a, S, T, M, R, G, $($extra),*> SelectBuilder<'a, S, $state, T, M, R, G> {
-            pub fn order_by<O>(self, order: O) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R, G>
-            where
-                O: ToSQL<'a, MySQLValue<'a>>,
-            {
-                SelectBuilder::from_sql(self.sql.append(helpers::order_by(order)))
-            }
-        }
-    };
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: SelectOrderAllowed,
+{
+    pub fn order_by<O>(self, order: O) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R, G>
+    where
+        O: ToSQL<'a, MySQLValue<'a>>,
+    {
+        SelectBuilder::from_sql(self.sql.append(helpers::order_by(order)))
+    }
 }
-
-select_order_by!(SelectFromSet);
-select_order_by!(SelectIndexHintSet<Kind>, Kind);
-select_order_by!(SelectJoinSet);
-select_order_by!(SelectWhereSet);
-select_order_by!(SelectGroupSet);
-select_order_by!(SelectHavingSet);
 
 impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
     pub fn order_by<O, Proof>(self, order: O) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R, G>
     where
         O: helpers::SetOrderBy<'a, M, T, Proof>,
     {
-        SelectBuilder::from_sql(self.sql.append(helpers::set_order_by::<M, T, Proof>(order)))
+        let order = helpers::SetOrderBy::into_set_order_sql(order);
+        SelectBuilder::from_sql(
+            self.sql
+                .append(SQL::from_iter([Token::ORDER, Token::BY]).append(order)),
+        )
     }
 }
 
@@ -330,28 +365,18 @@ where
     }
 }
 
-macro_rules! standalone_offset {
-    ($state:ty $(, $extra:ident)*) => {
-        impl<'a, S, T, M, R, G, $($extra),*> SelectBuilder<'a, S, $state, T, M, R, G> {
-            #[track_caller]
-            pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
-            where
-                P: drizzle_core::PaginationArg<'a, MySQLValue<'a>>,
-            {
-                SelectBuilder::from_sql(self.sql.append(helpers::standalone_offset(offset)))
-            }
-        }
-    };
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: SelectOffsetAllowed,
+{
+    #[track_caller]
+    pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
+    where
+        P: drizzle_core::PaginationArg<'a, MySQLValue<'a>>,
+    {
+        SelectBuilder::from_sql(self.sql.append(helpers::standalone_offset(offset)))
+    }
 }
-
-standalone_offset!(SelectFromSet);
-standalone_offset!(SelectIndexHintSet<Kind>, Kind);
-standalone_offset!(SelectJoinSet);
-standalone_offset!(SelectWhereSet);
-standalone_offset!(SelectGroupSet);
-standalone_offset!(SelectHavingSet);
-standalone_offset!(SelectOrderSet);
-standalone_offset!(SelectSetOpSet);
 
 impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G> {
     #[track_caller]
@@ -456,31 +481,16 @@ macro_rules! set_operation {
     };
 }
 
-macro_rules! impl_set_operations {
-    ($state:ty) => {
-        impl<'a, S, T, M, R, G> SelectBuilder<'a, S, $state, T, M, R, G> {
-            set_operation!(union, drizzle_core::Token::UNION, false);
-            set_operation!(union_all, drizzle_core::Token::UNION, true);
-            set_operation!(intersect, drizzle_core::Token::INTERSECT, false);
-            set_operation!(intersect_all, drizzle_core::Token::INTERSECT, true);
-            set_operation!(except, drizzle_core::Token::EXCEPT, false);
-            set_operation!(except_all, drizzle_core::Token::EXCEPT, true);
-        }
-    };
-}
-
-impl_set_operations!(SelectFromSet);
-impl_set_operations!(SelectJoinSet);
-impl_set_operations!(SelectWhereSet);
-impl_set_operations!(SelectGroupSet);
-impl_set_operations!(SelectHavingSet);
-impl_set_operations!(SelectOrderSet);
-impl_set_operations!(SelectLimitSet);
-impl_set_operations!(SelectOffsetSet);
-impl_set_operations!(SelectSetOpSet);
-
-mod private {
-    pub trait SealedSelect {}
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: SetOperationAllowed,
+{
+    set_operation!(union, drizzle_core::Token::UNION, false);
+    set_operation!(union_all, drizzle_core::Token::UNION, true);
+    set_operation!(intersect, drizzle_core::Token::INTERSECT, false);
+    set_operation!(intersect_all, drizzle_core::Token::INTERSECT, true);
+    set_operation!(except, drizzle_core::Token::EXCEPT, false);
+    set_operation!(except_all, drizzle_core::Token::EXCEPT, true);
 }
 
 /// A completed SELECT with the inferred row shape `R`.
@@ -506,47 +516,41 @@ pub trait IntoSelectQuery<'a, S, R> {
     fn into_select_query(self) -> Self::Select;
 }
 
-macro_rules! impl_completed_select {
-    ($state:ty) => {
-        impl<'a, S, T, M, R, G> private::SealedSelect for SelectBuilder<'a, S, $state, T, M, R, G> {}
-
-        impl<'a, S, T, M, R, G> IntoSelect<'a, S, R> for SelectBuilder<'a, S, $state, T, M, R, G> {
-            type Marker = M;
-
-            fn into_select_sql(self) -> drizzle_core::SQL<'a, MySQLValue<'a>> {
-                self.sql
-            }
-        }
-
-        impl<'a, S, T, M, R, G> IntoSelectQuery<'a, S, R>
-            for SelectBuilder<'a, S, $state, T, M, R, G>
-        {
-            type Marker = M;
-            type Select = Self;
-
-            fn into_select_query(self) -> Self::Select {
-                self
-            }
-        }
-
-        impl<'a, S, T, M, R, G> drizzle_core::expr::Expr<'a, MySQLValue<'a>>
-            for SelectBuilder<'a, S, $state, T, M, R, G>
-        where
-            M: drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>>,
-        {
-            type SQLType = <M as drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>>>::SQLType;
-            type Nullable = drizzle_core::expr::Null;
-            type Aggregate = drizzle_core::expr::Scalar;
-        }
-    };
+impl<'a, S, State, T, M, R, G> private::SealedSelect for SelectBuilder<'a, S, State, T, M, R, G> where
+    State: private::Completed
+{
 }
 
-impl_completed_select!(SelectFromSet);
-impl_completed_select!(SelectJoinSet);
-impl_completed_select!(SelectWhereSet);
-impl_completed_select!(SelectGroupSet);
-impl_completed_select!(SelectHavingSet);
-impl_completed_select!(SelectOrderSet);
-impl_completed_select!(SelectLimitSet);
-impl_completed_select!(SelectOffsetSet);
-impl_completed_select!(SelectSetOpSet);
+impl<'a, S, State, T, M, R, G> IntoSelect<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: private::Completed,
+{
+    type Marker = M;
+
+    fn into_select_sql(self) -> drizzle_core::SQL<'a, MySQLValue<'a>> {
+        self.sql
+    }
+}
+
+impl<'a, S, State, T, M, R, G> IntoSelectQuery<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: private::Completed,
+{
+    type Marker = M;
+    type Select = Self;
+
+    fn into_select_query(self) -> Self::Select {
+        self
+    }
+}
+
+impl<'a, S, State, T, M, R, G> drizzle_core::expr::Expr<'a, MySQLValue<'a>>
+    for SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: private::Completed,
+    M: drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>>,
+{
+    type SQLType = <M as drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>>>::SQLType;
+    type Nullable = drizzle_core::expr::Null;
+    type Aggregate = drizzle_core::expr::Scalar;
+}

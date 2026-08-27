@@ -555,10 +555,12 @@ fn enum_index_schema_and_from_row_are_generated_for_mysql() {
     assert_eq!(AccountStatus::VARIANTS, &["Draft", "Published"]);
     assert_eq!(AccountStatus::Draft.variant_name(), "Draft");
     assert_eq!(
-        AccountStatus::try_from_str("Published").expect("known enum label"),
+        "Published"
+            .parse::<AccountStatus>()
+            .expect("known enum label"),
         AccountStatus::Published
     );
-    assert!(AccountStatus::try_from_str("missing").is_err());
+    assert!("missing".parse::<AccountStatus>().is_err());
     assert_eq!(AccountStatus::SQL_TYPE, "ENUM('Draft', 'Published')");
     assert_mysql_expr::<AccountStatus>();
     assert_mysql_bind_type::<AccountStatus>();

@@ -6,6 +6,49 @@ use drizzle_core::{SQL, ToSQL, Token};
 
 pub use drizzle_core::{BuilderInit, ExecutableState};
 
+macro_rules! mutation_builder_methods {
+    (
+        $builder:ident,
+        prepare: [$($prepare:ty),+ $(,)?],
+        order_by: [$($order:ty),+ $(,)?] => $ordered:ty,
+        limit: [$($limit:ty),+ $(,)?] => $limited:ty $(,)?
+    ) => {
+        $(
+            impl<'a, S, T, M, R> $builder<'a, S, $prepare, T, M, R> {
+                #[must_use]
+                pub fn prepare(
+                    &self,
+                ) -> drizzle_core::prepared::PreparedStatement<'a, crate::values::MySQLValue<'a>> {
+                    self.prepared_statement()
+                }
+            }
+        )+
+
+        $(
+            impl<'a, S, T> $builder<'a, S, $order, T> {
+                pub fn order_by<O>(self, order: O) -> $builder<'a, S, $ordered, T>
+                where
+                    O: drizzle_core::ToSQL<'a, crate::values::MySQLValue<'a>>,
+                {
+                    $builder::from_sql(self.sql.append(crate::helpers::order_by(order)))
+                }
+            }
+        )+
+
+        $(
+            impl<'a, S, T> $builder<'a, S, $limit, T> {
+                #[track_caller]
+                pub fn limit<P>(self, limit: P) -> $builder<'a, S, $limited, T>
+                where
+                    P: drizzle_core::PaginationArg<'a, crate::values::MySQLValue<'a>>,
+                {
+                    $builder::from_sql(self.sql.append(crate::helpers::limit(limit)))
+                }
+            }
+        )+
+    };
+}
+
 pub mod cte;
 pub mod delete;
 pub mod insert;
@@ -111,23 +154,6 @@ impl<'a> QueryBuilder<'a> {
     }
 }
 
-fn select_builder<'a, S, T>(
-    sql: SQL<'a, MySQLValue<'a>>,
-) -> select::SelectBuilder<'a, S, select::SelectInitial, (), T::Marker>
-where
-    T: drizzle_core::IntoSelectTarget,
-{
-    QueryBuilder {
-        sql,
-        schema: PhantomData,
-        state: PhantomData,
-        table: PhantomData,
-        marker: PhantomData,
-        row: PhantomData,
-        grouped: PhantomData,
-    }
-}
-
 impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     pub fn select<T>(
         &self,
@@ -136,7 +162,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     where
         T: ToSQL<'a, MySQLValue<'a>> + drizzle_core::IntoSelectTarget,
     {
-        select_builder::<Schema, T>(crate::helpers::select(columns))
+        QueryBuilder::from_sql(crate::helpers::select(columns))
     }
 
     pub fn select_distinct<T>(
@@ -146,7 +172,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     where
         T: ToSQL<'a, MySQLValue<'a>> + drizzle_core::IntoSelectTarget,
     {
-        select_builder::<Schema, T>(crate::helpers::select_distinct(columns))
+        QueryBuilder::from_sql(crate::helpers::select_distinct(columns))
     }
 
     pub fn insert<Table>(
@@ -156,7 +182,11 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     where
         Table: MySQLTable<'a>,
     {
-        QueryBuilder::from_sql(crate::helpers::insert(&table))
+        QueryBuilder::from_sql(drizzle_core::helpers::insert::<
+            Table,
+            MySQLSchemaType,
+            MySQLValue<'a>,
+        >(&table))
     }
 
     pub fn update<Table>(
@@ -203,7 +233,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
     where
         T: ToSQL<'a, MySQLValue<'a>> + drizzle_core::IntoSelectTarget,
     {
-        select_builder::<Schema, T>(self.sql.clone().append(crate::helpers::select(columns)))
+        QueryBuilder::from_sql(self.sql.clone().append(crate::helpers::select(columns)))
     }
 
     pub fn select_distinct<T>(
@@ -213,7 +243,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
     where
         T: ToSQL<'a, MySQLValue<'a>> + drizzle_core::IntoSelectTarget,
     {
-        select_builder::<Schema, T>(
+        QueryBuilder::from_sql(
             self.sql
                 .clone()
                 .append(crate::helpers::select_distinct(columns)),

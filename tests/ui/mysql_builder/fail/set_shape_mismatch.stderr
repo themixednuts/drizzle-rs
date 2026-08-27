@@ -6,26 +6,24 @@ error[E0277]: the trait bound `QueryBuilder<'_, Schema, SelectFromSet, Users, Sc
    |                 |
    |                 required by a bound introduced by this call
    |
-   = help: the trait `drizzle::mysql::builder::IntoSelectQuery<'_, Schema, (u64,)>` is not implemented for `QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(UsersName,)>, Cons<Users, Nil>>, (std::string::String,)>`
-   = help: the following other types implement trait `drizzle::mysql::builder::IntoSelectQuery<'a, S, R>`:
-             QueryBuilder<'_, S, SelectFromSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectGroupSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectHavingSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectJoinSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectLimitSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectOffsetSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectOrderSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectSetOpSet, T, M, R, G>
-             QueryBuilder<'_, S, SelectWhereSet, T, M, R, G>
-note: required by a bound in `select::<impl QueryBuilder<'a, S, SelectFromSet, T, M, R, G>>::union`
+help: the trait `IntoSelectQuery<'_, Schema, (u64,)>` is not implemented for `QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(UsersName,)>, Cons<Users, Nil>>, (std::string::String,)>`
+      but trait `IntoSelectQuery<'_, Schema, (std::string::String,)>` is implemented for it
+  --> mysql/src/builder/select.rs
+   |
+   | / impl<'a, S, State, T, M, R, G> IntoSelectQuery<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
+   | | where
+   | |     State: private::Completed,
+   | |______________________________^
+   = help: for that trait implementation, expected `std::string::String`, found `u64`
+note: required by a bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::union`
   --> mysql/src/builder/select.rs
    |
    |             other: impl IntoSelectQuery<'a, S, R>,
-   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, SelectFromSet, T, M, R, G>>::union`
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::union`
 ...
-   |             set_operation!(union, drizzle_core::Token::UNION, false);
-   |                            ----- required by a bound in this associated function
-...
-   | impl_set_operations!(SelectFromSet);
-   | ----------------------------------- in this macro invocation
-   = note: this error originates in the macro `set_operation` which comes from the expansion of the macro `impl_set_operations` (in Nightly builds, run with -Z macro-backtrace for more info)
+   |     set_operation!(union, drizzle_core::Token::UNION, false);
+   |     --------------------------------------------------------
+   |     |              |
+   |     |              required by a bound in this associated function
+   |     in this macro invocation
+   = note: this error originates in the macro `set_operation` (in Nightly builds, run with -Z macro-backtrace for more info)

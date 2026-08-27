@@ -1131,7 +1131,7 @@ fn generate_mysql_blob_decode(
     is_nullable: bool,
 ) -> TokenStream {
     let decode = quote! {
-        drizzle::mysql::driver::decode_projected_mysql_value::<#base_type>(&raw)
+        drizzle::mysql::driver::decode_blob::<#base_type>(&raw)
             .map_err(|e| {
                 <__A::Error as drizzle::core::serde::de::Error>::custom(
                     ::std::format!("field '{}': {e}", #col_name)
@@ -1168,7 +1168,7 @@ fn generate_mysql_text_decode(
     is_nullable: bool,
 ) -> TokenStream {
     let decode = quote! {
-        drizzle::mysql::driver::decode_projected_mysql_text::<#base_type>(&raw)
+        drizzle::mysql::driver::decode_text::<#base_type>(&raw)
             .map_err(|e| {
                 <__A::Error as drizzle::core::serde::de::Error>::custom(
                     ::std::format!("field '{}': {e}", #col_name)

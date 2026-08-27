@@ -2,6 +2,8 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Attribute, DataEnum, Error, Fields, Ident};
 
+use super::escape_string as escape_mysql_string;
+
 /// Generate the driver-neutral implementation for an inline MySQL `ENUM`.
 pub fn generate_enum_impl(
     name: &Ident,
@@ -76,20 +78,6 @@ pub fn generate_enum_impl(
                 }
             }
 
-            fn try_from_str(value: &str) -> ::std::result::Result<Self, drizzle::error::DrizzleError> {
-                match value {
-                    #(#variant_names => ::std::result::Result::Ok(Self::#variants),)*
-                    _ => ::std::result::Result::Err(
-                        drizzle::error::DrizzleError::ConversionError(
-                            ::std::format!(
-                                "invalid {} value: {value}",
-                                stringify!(#name),
-                            )
-                            .into(),
-                        ),
-                    ),
-                }
-            }
         }
 
         impl ::std::fmt::Display for #name {
@@ -110,7 +98,18 @@ pub fn generate_enum_impl(
             type Err = drizzle::error::DrizzleError;
 
             fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
-                <Self as drizzle::mysql::traits::MySQLEnum>::try_from_str(value)
+                match value {
+                    #(#variant_names => ::std::result::Result::Ok(Self::#variants),)*
+                    _ => ::std::result::Result::Err(
+                        drizzle::error::DrizzleError::ConversionError(
+                            ::std::format!(
+                                "invalid {} value: {value}",
+                                stringify!(#name),
+                            )
+                            .into(),
+                        ),
+                    ),
+                }
             }
         }
 
@@ -118,7 +117,7 @@ pub fn generate_enum_impl(
             type Error = drizzle::error::DrizzleError;
 
             fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
-                <Self as drizzle::mysql::traits::MySQLEnum>::try_from_str(value)
+                value.parse()
             }
         }
 
@@ -126,7 +125,7 @@ pub fn generate_enum_impl(
             type Error = drizzle::error::DrizzleError;
 
             fn try_from(value: ::std::string::String) -> ::std::result::Result<Self, Self::Error> {
-                <Self as drizzle::mysql::traits::MySQLEnum>::try_from_str(&value)
+                value.parse()
             }
         }
 
@@ -134,7 +133,7 @@ pub fn generate_enum_impl(
             type Error = drizzle::error::DrizzleError;
 
             fn try_from(value: &::std::string::String) -> ::std::result::Result<Self, Self::Error> {
-                <Self as drizzle::mysql::traits::MySQLEnum>::try_from_str(value)
+                value.parse()
             }
         }
 
@@ -163,7 +162,7 @@ pub fn generate_enum_impl(
                         let value = ::std::str::from_utf8(value.as_ref()).map_err(|error| {
                             drizzle::error::DrizzleError::ConversionError(error.to_string().into())
                         })?;
-                        <Self as drizzle::mysql::traits::MySQLEnum>::try_from_str(value)
+                        value.parse()
                     }
                     _ => ::std::result::Result::Err(
                         drizzle::error::DrizzleError::ConversionError(
@@ -213,12 +212,8 @@ pub fn generate_enum_impl(
                 let value = <::std::string::String as drizzle::core::FromDrizzleRow<
                     drizzle::mysql::driver::MySQLRow<'__drizzle_row, __DrizzleRow>
                 >>::from_row_at(row, offset)?;
-                <Self as drizzle::mysql::traits::MySQLEnum>::try_from_str(&value)
+                value.parse()
             }
         }
     })
-}
-
-fn escape_mysql_string(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('\'', "''")
 }

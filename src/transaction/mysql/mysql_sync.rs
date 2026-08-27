@@ -325,7 +325,7 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
         }
     }
 
-    mysql_shared_builder_constructors!(&'db Transaction<'connection, Schema>);
+    mysql_builder_constructors!(&'db Transaction<'connection, Schema>, [&'db self], self);
 }
 
 #[cfg(feature = "query")]

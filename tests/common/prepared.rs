@@ -2,7 +2,6 @@
 ///
 /// Each dialect supplies its table and schema derives plus the integer marker
 /// used by an explicitly typed placeholder.
-#[macro_export]
 macro_rules! shared_prepared_statement_suite {
     ($dialect:ident, $table:ident, $schema:ident, $integer:path) => {
         mod shared_prepared_statement {
@@ -78,3 +77,5 @@ macro_rules! shared_prepared_statement_suite {
         }
     };
 }
+
+pub(crate) use shared_prepared_statement_suite;

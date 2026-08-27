@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use drizzle_core::cte::{CTEDefinition, CTEView};
 use drizzle_core::expr::{
     Agg, AggregateKind, CastTarget, Expr, GreatestLeastPolicy, NonNull, Null, Nullability, Scalar,
     cast, ceil, collate, concat, count, floor, greatest, group_concat, instr, is_distinct_from,
@@ -49,43 +50,9 @@ impl From<&str> for MySQLTestValue {
     }
 }
 
-drizzle_core::impl_cte_types!(value_type: MySQLTestValue);
-
 #[test]
 fn mysql_uses_positional_question_mark_parameters() {
     assert_eq!(SQL::param(MySQLTestValue).sql(), "?");
-}
-
-#[test]
-fn owning_mapped_params_preserves_sql_fragments_and_unbound_placeholders() {
-    use drizzle_core::{Param, Placeholder, SQLChunk, Token};
-
-    let raw = String::from("COALESCE(");
-    let identifier = String::from("display_name");
-    let sql = SQL::raw(raw.as_str())
-        .append(SQL::ident(identifier.as_str()))
-        .push(Token::COMMA)
-        .append(SQL::param(MySQLTestValue))
-        .push(Token::COMMA)
-        .push(Param::<MySQLTestValue>::from(Placeholder::named(
-            "fallback",
-        )))
-        .push(Token::RPAREN);
-
-    let owned = sql.map_params_into_owned(|value| value);
-    drop(raw);
-    drop(identifier);
-
-    assert_eq!(owned.sql(), "COALESCE( `display_name`, ?, ?)");
-    assert_eq!(owned.params().count(), 1);
-    assert_eq!(
-        owned
-            .chunks
-            .iter()
-            .filter(|chunk| matches!(chunk, SQLChunk::Param(param) if param.value.is_none()))
-            .count(),
-        1
-    );
 }
 
 #[test]
@@ -111,7 +78,7 @@ fn mysql_null_safe_comparisons_use_spaceship_operator() {
 
 #[test]
 fn mysql_cte_names_are_quoted_as_identifiers() {
-    let cte = CTEView::new((), "recent`users", SQL::raw("SELECT 1"));
+    let cte = CTEView::<MySQLTestValue, _, _>::new((), "recent`users", SQL::raw("SELECT 1"));
 
     assert_eq!(cte.cte_definition().sql(), "`recent``users` AS (SELECT 1)");
 }

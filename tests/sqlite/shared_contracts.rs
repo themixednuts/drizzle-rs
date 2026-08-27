@@ -2,14 +2,14 @@
 
 use drizzle::sqlite::{connection::SQLiteTransactionType, prelude::*};
 
-crate::shared_crud_join_suite!(sqlite, SQLiteTable, SQLiteSchema);
-crate::shared_prepared_statement_suite!(
+crate::common::crud_join::shared_crud_join_suite!(sqlite, SQLiteTable, SQLiteSchema);
+crate::common::prepared::shared_prepared_statement_suite!(
     sqlite,
     SQLiteTable,
     SQLiteSchema,
     drizzle::sqlite::types::Integer
 );
-crate::shared_transaction_suite!(
+crate::common::transaction::shared_transaction_suite!(
     sqlite,
     SQLiteTable,
     SQLiteSchema,

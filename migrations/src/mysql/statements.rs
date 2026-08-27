@@ -10,7 +10,7 @@ use thiserror::Error;
 
 /// Quotes one MySQL identifier, including embedded backticks.
 #[must_use]
-pub fn quote_identifier(identifier: &str) -> String {
+fn quote_identifier(identifier: &str) -> String {
     format!("`{}`", identifier.replace('`', "``"))
 }
 

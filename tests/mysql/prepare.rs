@@ -4,16 +4,15 @@ use crate::common::schema::mysql::*;
 use drizzle::core::expr::eq;
 use drizzle::mysql::prelude::*;
 
-macro_rules! user {
-    ($name:expr) => {
-        InsertUser::new($name, true, Role::Member, vec![], 0, 0.0).with_note(None::<String>)
-    };
-}
-
 #[drizzle::test]
 fn prepared_mutation_reports_mysql_execution_metadata(db: &mut TestDb<TestSchema>) {
     let TestSchema { users, .. } = schema;
-    let inserted = db.insert(users).value(user!("Alice")).execute();
+    let inserted = db
+        .insert(users)
+        .value(
+            InsertUser::new("Alice", true, Role::Member, vec![], 0, 0.0).with_note(None::<String>),
+        )
+        .execute();
     let id = inserted.last_insert_id().expect("AUTO_INCREMENT id");
 
     let name = users.name.placeholder("name");

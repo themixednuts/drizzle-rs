@@ -90,40 +90,9 @@ macro_rules! neg_output {
 /// arithmetic operator for a dialect/type pair.
 macro_rules! arithmetic_output {
     ($lhs:ty, $rhs:ty => $out:ty) => {
-        impl ArithmeticOutput<$rhs> for $lhs {
-            type Output = $out;
-            type Nullability = PropagateNullability;
-        }
-
-        impl ArithmeticOutput<$rhs, AddOp> for $lhs {
-            type Output = $out;
-            type Nullability = PropagateNullability;
-        }
-
-        impl ArithmeticOutput<$rhs, SubOp> for $lhs {
-            type Output = $out;
-            type Nullability = PropagateNullability;
-        }
-
-        impl ArithmeticOutput<$rhs, MulOp> for $lhs {
-            type Output = $out;
-            type Nullability = PropagateNullability;
-        }
-
-        impl ArithmeticOutput<$rhs, DivOp> for $lhs {
-            type Output = $out;
-            type Nullability = PropagateNullability;
-        }
-
-        impl ArithmeticOutput<$rhs, RemOp> for $lhs {
-            type Output = $out;
-            type Nullability = PropagateNullability;
-        }
+        arithmetic_output!($lhs, $rhs => $out; zero_divisor: PropagateNullability);
     };
-}
-
-macro_rules! sqlite_arithmetic_output {
-    ($lhs:ty, $rhs:ty => $out:ty) => {
+    ($lhs:ty, $rhs:ty => $out:ty; zero_divisor: $zero_divisor:ty) => {
         impl ArithmeticOutput<$rhs> for $lhs {
             type Output = $out;
             type Nullability = PropagateNullability;
@@ -146,12 +115,12 @@ macro_rules! sqlite_arithmetic_output {
 
         impl ArithmeticOutput<$rhs, DivOp> for $lhs {
             type Output = $out;
-            type Nullability = AlwaysNullable;
+            type Nullability = $zero_divisor;
         }
 
         impl ArithmeticOutput<$rhs, RemOp> for $lhs {
             type Output = $out;
-            type Nullability = AlwaysNullable;
+            type Nullability = $zero_divisor;
         }
     };
 }
@@ -166,25 +135,25 @@ macro_rules! sqlite_arithmetic_output {
 use crate::sqlite::types::{Integer, Numeric as SqliteNumeric, Real};
 
 // Integer op Integer → Integer
-sqlite_arithmetic_output!(Integer, Integer => Integer);
+arithmetic_output!(Integer, Integer => Integer; zero_divisor: AlwaysNullable);
 // Integer op Real → Real (widens to float)
-sqlite_arithmetic_output!(Integer, Real => Real);
+arithmetic_output!(Integer, Real => Real; zero_divisor: AlwaysNullable);
 // Integer op Numeric → Numeric
-sqlite_arithmetic_output!(Integer, SqliteNumeric => SqliteNumeric);
+arithmetic_output!(Integer, SqliteNumeric => SqliteNumeric; zero_divisor: AlwaysNullable);
 
 // Real op Integer → Real
-sqlite_arithmetic_output!(Real, Integer => Real);
+arithmetic_output!(Real, Integer => Real; zero_divisor: AlwaysNullable);
 // Real op Real → Real
-sqlite_arithmetic_output!(Real, Real => Real);
+arithmetic_output!(Real, Real => Real; zero_divisor: AlwaysNullable);
 // Real op Numeric → Real
-sqlite_arithmetic_output!(Real, SqliteNumeric => Real);
+arithmetic_output!(Real, SqliteNumeric => Real; zero_divisor: AlwaysNullable);
 
 // Numeric op Integer → Numeric
-sqlite_arithmetic_output!(SqliteNumeric, Integer => SqliteNumeric);
+arithmetic_output!(SqliteNumeric, Integer => SqliteNumeric; zero_divisor: AlwaysNullable);
 // Numeric op Real → Real (widens to float)
-sqlite_arithmetic_output!(SqliteNumeric, Real => Real);
+arithmetic_output!(SqliteNumeric, Real => Real; zero_divisor: AlwaysNullable);
 // Numeric op Numeric → Numeric
-sqlite_arithmetic_output!(SqliteNumeric, SqliteNumeric => SqliteNumeric);
+arithmetic_output!(SqliteNumeric, SqliteNumeric => SqliteNumeric; zero_divisor: AlwaysNullable);
 
 // SQLite Any ↔ all SQLite numeric types
 use crate::sqlite::types::Any as SqliteAny;
@@ -215,61 +184,53 @@ neg_output!(SqliteAny => SqliteAny);
 
 use crate::postgres::types::{Float4, Float8, Int2, Int4, Int8, Numeric as PgNumeric};
 
-/// Helper macro: generates `ArithmeticOutput` impls for a pair of PG types.
-/// `wider!(A, B => W)` means A op B → W.
-macro_rules! pg_arith {
-    ($lhs:ty, $rhs:ty => $out:ty) => {
-        arithmetic_output!($lhs, $rhs => $out);
-    };
-}
-
 // --- Int2 (SMALLINT) ---
-pg_arith!(Int2, Int2 => Int2);
-pg_arith!(Int2, Int4 => Int4); // widens to Int4
-pg_arith!(Int2, Int8 => Int8); // widens to Int8
-pg_arith!(Int2, Float4 => Float4); // cross-family → float
-pg_arith!(Int2, Float8 => Float8); // cross-family → float
-pg_arith!(Int2, PgNumeric => PgNumeric);
+arithmetic_output!(Int2, Int2 => Int2);
+arithmetic_output!(Int2, Int4 => Int4); // widens to Int4
+arithmetic_output!(Int2, Int8 => Int8); // widens to Int8
+arithmetic_output!(Int2, Float4 => Float4); // cross-family → float
+arithmetic_output!(Int2, Float8 => Float8); // cross-family → float
+arithmetic_output!(Int2, PgNumeric => PgNumeric);
 
 // --- Int4 (INTEGER) ---
-pg_arith!(Int4, Int2 => Int4); // Int4 is wider
-pg_arith!(Int4, Int4 => Int4);
-pg_arith!(Int4, Int8 => Int8); // widens to Int8
-pg_arith!(Int4, Float4 => Float8); // cross-family → Float8 (PG rule)
-pg_arith!(Int4, Float8 => Float8); // cross-family → Float8
-pg_arith!(Int4, PgNumeric => PgNumeric);
+arithmetic_output!(Int4, Int2 => Int4); // Int4 is wider
+arithmetic_output!(Int4, Int4 => Int4);
+arithmetic_output!(Int4, Int8 => Int8); // widens to Int8
+arithmetic_output!(Int4, Float4 => Float8); // cross-family → Float8 (PG rule)
+arithmetic_output!(Int4, Float8 => Float8); // cross-family → Float8
+arithmetic_output!(Int4, PgNumeric => PgNumeric);
 
 // --- Int8 (BIGINT) ---
-pg_arith!(Int8, Int2 => Int8); // Int8 is wider
-pg_arith!(Int8, Int4 => Int8); // Int8 is wider
-pg_arith!(Int8, Int8 => Int8);
-pg_arith!(Int8, Float4 => Float8); // cross-family → Float8
-pg_arith!(Int8, Float8 => Float8); // cross-family → Float8
-pg_arith!(Int8, PgNumeric => PgNumeric);
+arithmetic_output!(Int8, Int2 => Int8); // Int8 is wider
+arithmetic_output!(Int8, Int4 => Int8); // Int8 is wider
+arithmetic_output!(Int8, Int8 => Int8);
+arithmetic_output!(Int8, Float4 => Float8); // cross-family → Float8
+arithmetic_output!(Int8, Float8 => Float8); // cross-family → Float8
+arithmetic_output!(Int8, PgNumeric => PgNumeric);
 
 // --- Float4 (REAL) ---
-pg_arith!(Float4, Int2 => Float4); // float absorbs int
-pg_arith!(Float4, Int4 => Float8); // PG: float4 + int4 → float8
-pg_arith!(Float4, Int8 => Float8); // PG: float4 + int8 → float8
-pg_arith!(Float4, Float4 => Float4);
-pg_arith!(Float4, Float8 => Float8); // widens to Float8
-pg_arith!(Float4, PgNumeric => Float8);
+arithmetic_output!(Float4, Int2 => Float4); // float absorbs int
+arithmetic_output!(Float4, Int4 => Float8); // PG: float4 + int4 → float8
+arithmetic_output!(Float4, Int8 => Float8); // PG: float4 + int8 → float8
+arithmetic_output!(Float4, Float4 => Float4);
+arithmetic_output!(Float4, Float8 => Float8); // widens to Float8
+arithmetic_output!(Float4, PgNumeric => Float8);
 
 // --- Float8 (DOUBLE PRECISION) ---
-pg_arith!(Float8, Int2 => Float8);
-pg_arith!(Float8, Int4 => Float8);
-pg_arith!(Float8, Int8 => Float8);
-pg_arith!(Float8, Float4 => Float8); // Float8 is wider
-pg_arith!(Float8, Float8 => Float8);
-pg_arith!(Float8, PgNumeric => Float8);
+arithmetic_output!(Float8, Int2 => Float8);
+arithmetic_output!(Float8, Int4 => Float8);
+arithmetic_output!(Float8, Int8 => Float8);
+arithmetic_output!(Float8, Float4 => Float8); // Float8 is wider
+arithmetic_output!(Float8, Float8 => Float8);
+arithmetic_output!(Float8, PgNumeric => Float8);
 
 // --- Numeric (NUMERIC/DECIMAL) ---
-pg_arith!(PgNumeric, Int2 => PgNumeric);
-pg_arith!(PgNumeric, Int4 => PgNumeric);
-pg_arith!(PgNumeric, Int8 => PgNumeric);
-pg_arith!(PgNumeric, Float4 => Float8); // PG casts numeric+float → float8
-pg_arith!(PgNumeric, Float8 => Float8);
-pg_arith!(PgNumeric, PgNumeric => PgNumeric);
+arithmetic_output!(PgNumeric, Int2 => PgNumeric);
+arithmetic_output!(PgNumeric, Int4 => PgNumeric);
+arithmetic_output!(PgNumeric, Int8 => PgNumeric);
+arithmetic_output!(PgNumeric, Float4 => Float8); // PG casts numeric+float → float8
+arithmetic_output!(PgNumeric, Float8 => Float8);
+arithmetic_output!(PgNumeric, PgNumeric => PgNumeric);
 
 neg_output!(Int2 => Int2);
 neg_output!(Int4 => Int4);
@@ -292,122 +253,80 @@ use crate::mysql::types::{
     Double as MyDouble,
 };
 
-macro_rules! mysql_operator_output {
-    ($lhs:ty, $rhs:ty => $out:ty) => {
-        impl ArithmeticOutput<$rhs, AddOp> for $lhs {
-            type Output = $out;
-            type Nullability = PropagateNullability;
-        }
-        impl ArithmeticOutput<$rhs, SubOp> for $lhs {
-            type Output = $out;
-            type Nullability = PropagateNullability;
-        }
-        impl ArithmeticOutput<$rhs, MulOp> for $lhs {
-            type Output = $out;
-            type Nullability = PropagateNullability;
-        }
-    };
-}
-
-macro_rules! mysql_operator_row {
-    ($lhs:ty, [$($rhs:ty),+ $(,)?] => $out:ty) => {
-        $(mysql_operator_output!($lhs, $rhs => $out);)+
-    };
-}
-
-macro_rules! mysql_operator_matrix {
-    ([$($lhs:ty),+ $(,)?], $rhs:tt => $out:ty) => {
-        $(mysql_operator_row!($lhs, $rhs => $out);)+
-    };
-}
-
-macro_rules! mysql_division {
-    ($lhs:ty, $rhs:ty => $out:ty) => {
-        impl ArithmeticOutput<$rhs, DivOp> for $lhs {
-            type Output = $out;
-            type Nullability = AlwaysNullable;
-        }
-    };
-}
-
-macro_rules! mysql_remainder {
-    ($lhs:ty, $rhs:ty => $out:ty) => {
-        impl ArithmeticOutput<$rhs, RemOp> for $lhs {
-            type Output = $out;
-            type Nullability = AlwaysNullable;
-        }
-    };
-}
-
-macro_rules! mysql_remainder_row {
-    ($lhs:ty, [$($rhs:ty),+ $(,)?] => $out:ty) => {
-        $(mysql_remainder!($lhs, $rhs => $out);)+
-    };
-}
-
-macro_rules! mysql_remainder_matrix {
-    ([$($lhs:ty),+ $(,)?], $rhs:tt => $out:ty) => {
-        $(mysql_remainder_row!($lhs, $rhs => $out);)+
-    };
-}
-
-macro_rules! mysql_division_row {
-    ($lhs:ty, [$($rhs:ty),+ $(,)?] => $out:ty) => {
-        $(mysql_division!($lhs, $rhs => $out);)+
-    };
-}
-
-macro_rules! mysql_division_matrix {
-    ([$($lhs:ty),+ $(,)?], $rhs:tt => $out:ty) => {
-        $(mysql_division_row!($lhs, $rhs => $out);)+
-    };
-}
-
-macro_rules! mysql_arithmetic_matrices {
+macro_rules! mysql_arithmetic {
     (
         signed: [$($signed:ty),+ $(,)?],
         unsigned: [$($unsigned:ty),+ $(,)?],
         decimal: $decimal:ty,
         approximate: [$($approximate:ty),+ $(,)?],
     ) => {
-        mysql_operator_matrix!([$($signed),+], [$($signed),+] => MyBigInt);
-        mysql_operator_matrix!([$($signed),+], [$($unsigned),+] => MyBigIntUnsigned);
-        mysql_operator_matrix!([$($unsigned),+], [$($signed),+, $($unsigned),+] => MyBigIntUnsigned);
+        mysql_arithmetic!(@matrix [AddOp, SubOp, MulOp], PropagateNullability;
+            [$($signed),+], [$($signed),+] => MyBigInt);
+        mysql_arithmetic!(@matrix [AddOp, SubOp, MulOp], PropagateNullability;
+            [$($signed),+], [$($unsigned),+] => MyBigIntUnsigned);
+        mysql_arithmetic!(@matrix [AddOp, SubOp, MulOp], PropagateNullability;
+            [$($unsigned),+], [$($signed),+, $($unsigned),+] => MyBigIntUnsigned);
 
-        mysql_operator_matrix!([$($signed),+, $($unsigned),+], [$decimal] => MyDecimal);
-        mysql_operator_matrix!([$decimal], [$($signed),+, $($unsigned),+, $decimal] => MyDecimal);
+        mysql_arithmetic!(@matrix [AddOp, SubOp, MulOp], PropagateNullability;
+            [$($signed),+, $($unsigned),+], [$decimal] => MyDecimal);
+        mysql_arithmetic!(@matrix [AddOp, SubOp, MulOp], PropagateNullability;
+            [$decimal], [$($signed),+, $($unsigned),+, $decimal] => MyDecimal);
 
-        mysql_operator_matrix!([
-            $($signed),+, $($unsigned),+, $decimal
-        ], [$($approximate),+] => MyDouble);
-        mysql_operator_matrix!([
-            $($approximate),+
-        ], [$($signed),+, $($unsigned),+, $decimal, $($approximate),+] => MyDouble);
+        mysql_arithmetic!(@matrix [AddOp, SubOp, MulOp], PropagateNullability;
+            [$($signed),+, $($unsigned),+, $decimal], [$($approximate),+] => MyDouble);
+        mysql_arithmetic!(@matrix [AddOp, SubOp, MulOp], PropagateNullability;
+            [$($approximate),+],
+            [$($signed),+, $($unsigned),+, $decimal, $($approximate),+] => MyDouble);
 
-        mysql_remainder_matrix!([$($signed),+], [$($signed),+, $($unsigned),+] => MyBigInt);
-        mysql_remainder_matrix!([$($unsigned),+], [$($signed),+, $($unsigned),+] => MyBigIntUnsigned);
-        mysql_remainder_matrix!([$($signed),+, $($unsigned),+], [$decimal] => MyDecimal);
-        mysql_remainder_matrix!([$decimal], [$($signed),+, $($unsigned),+, $decimal] => MyDecimal);
-        mysql_remainder_matrix!([
-            $($signed),+, $($unsigned),+, $decimal
-        ], [$($approximate),+] => MyDouble);
-        mysql_remainder_matrix!([
-            $($approximate),+
-        ], [$($signed),+, $($unsigned),+, $decimal, $($approximate),+] => MyDouble);
+        mysql_arithmetic!(@matrix [RemOp], AlwaysNullable;
+            [$($signed),+], [$($signed),+, $($unsigned),+] => MyBigInt);
+        mysql_arithmetic!(@matrix [RemOp], AlwaysNullable;
+            [$($unsigned),+], [$($signed),+, $($unsigned),+] => MyBigIntUnsigned);
+        mysql_arithmetic!(@matrix [RemOp], AlwaysNullable;
+            [$($signed),+, $($unsigned),+], [$decimal] => MyDecimal);
+        mysql_arithmetic!(@matrix [RemOp], AlwaysNullable;
+            [$decimal], [$($signed),+, $($unsigned),+, $decimal] => MyDecimal);
+        mysql_arithmetic!(@matrix [RemOp], AlwaysNullable;
+            [$($signed),+, $($unsigned),+, $decimal], [$($approximate),+] => MyDouble);
+        mysql_arithmetic!(@matrix [RemOp], AlwaysNullable;
+            [$($approximate),+],
+            [$($signed),+, $($unsigned),+, $decimal, $($approximate),+] => MyDouble);
 
-        mysql_division_matrix!([
-            $($signed),+, $($unsigned),+, $decimal
-        ], [$($signed),+, $($unsigned),+, $decimal] => MyDecimal);
-        mysql_division_matrix!([
-            $($signed),+, $($unsigned),+, $decimal
-        ], [$($approximate),+] => MyDouble);
-        mysql_division_matrix!([
-            $($approximate),+
-        ], [$($signed),+, $($unsigned),+, $decimal, $($approximate),+] => MyDouble);
+        mysql_arithmetic!(@matrix [DivOp], AlwaysNullable;
+            [$($signed),+, $($unsigned),+, $decimal],
+            [$($signed),+, $($unsigned),+, $decimal] => MyDecimal);
+        mysql_arithmetic!(@matrix [DivOp], AlwaysNullable;
+            [$($signed),+, $($unsigned),+, $decimal], [$($approximate),+] => MyDouble);
+        mysql_arithmetic!(@matrix [DivOp], AlwaysNullable;
+            [$($approximate),+],
+            [$($signed),+, $($unsigned),+, $decimal, $($approximate),+] => MyDouble);
+
+        $(neg_output!($signed => MyBigInt);)+
+        $(neg_output!($unsigned => MyBigInt);)+
+        neg_output!($decimal => MyDecimal);
+        $(neg_output!($approximate => MyDouble);)+
     };
+    (@matrix $ops:tt, $nullability:ty;
+        [$($lhs:ty),+], $rhs:tt => $out:ty
+    ) => {
+        $(mysql_arithmetic!(@row $ops, $nullability; $lhs, $rhs => $out);)+
+    };
+    (@row [$op:ty $(, $remaining:ty)*], $nullability:ty;
+        $lhs:ty, [$($rhs:ty),+] => $out:ty
+    ) => {
+        $(
+            impl ArithmeticOutput<$rhs, $op> for $lhs {
+                type Output = $out;
+                type Nullability = $nullability;
+            }
+        )+
+        mysql_arithmetic!(@row [$($remaining),*], $nullability;
+            $lhs, [$($rhs),+] => $out);
+    };
+    (@row [], $nullability:ty; $lhs:ty, $rhs:tt => $out:ty) => {};
 }
 
-mysql_arithmetic_matrices! {
+mysql_arithmetic! {
     signed: [
         crate::mysql::types::TinyInt,
         crate::mysql::types::SmallInt,
@@ -416,32 +335,6 @@ mysql_arithmetic_matrices! {
         crate::mysql::types::BigInt,
     ],
     unsigned: [
-        crate::mysql::types::TinyIntUnsigned,
-        crate::mysql::types::SmallIntUnsigned,
-        crate::mysql::types::MediumIntUnsigned,
-        crate::mysql::types::IntUnsigned,
-        crate::mysql::types::BigIntUnsigned,
-        crate::mysql::types::Year,
-    ],
-    decimal: crate::mysql::types::Decimal,
-    approximate: [crate::mysql::types::Float, crate::mysql::types::Double],
-}
-
-macro_rules! mysql_neg_outputs {
-    (integers: [$($integer:ty),+ $(,)?], decimal: $decimal:ty, approximate: [$($approximate:ty),+ $(,)?] $(,)?) => {
-        $(neg_output!($integer => MyBigInt);)+
-        neg_output!($decimal => MyDecimal);
-        $(neg_output!($approximate => MyDouble);)+
-    };
-}
-
-mysql_neg_outputs! {
-    integers: [
-        crate::mysql::types::TinyInt,
-        crate::mysql::types::SmallInt,
-        crate::mysql::types::MediumInt,
-        crate::mysql::types::Int,
-        crate::mysql::types::BigInt,
         crate::mysql::types::TinyIntUnsigned,
         crate::mysql::types::SmallIntUnsigned,
         crate::mysql::types::MediumIntUnsigned,

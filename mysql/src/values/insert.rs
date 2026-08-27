@@ -48,7 +48,7 @@ impl<'a, T> MySQLInsertValue<'a, MySQLValue<'a>, T> {
                 MySQLInsertValue::Value(ValueWrapper::<MySQLValue<'static>, T>::new(
                     wrapper
                         .value
-                        .map_params_into_owned(|value| MySQLValue::from(value.into_owned())),
+                        .into_owned_with(|value| MySQLValue::from(value.into_owned())),
                 ))
             }
         }

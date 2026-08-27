@@ -311,14 +311,14 @@ pub enum DiffError {
 
 /// Required SQL strategy for an existing column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ColumnAlterStrategy {
+enum ColumnAlterStrategy {
     Modify,
     Recreate,
 }
 
 /// Implements MySQL's generated-column ALTER transition matrix.
 #[must_use]
-pub const fn generated_alter_strategy(
+const fn generated_alter_strategy(
     old: Option<GeneratedKind>,
     new: Option<GeneratedKind>,
 ) -> ColumnAlterStrategy {
@@ -342,25 +342,51 @@ fn database(database: &Option<Cow<'static, str>>) -> Option<String> {
 }
 
 fn declared_database(ddl: &MySQLDDL) -> Result<Option<String>, DiffError> {
-    let mut databases = BTreeSet::new();
-    macro_rules! collect {
-        ($collection:expr) => {
-            databases.extend(
-                $collection
-                    .list()
-                    .iter()
-                    .filter_map(|entity| entity.database.as_deref().map(str::to_string)),
-            );
-        };
-    }
-    collect!(ddl.tables);
-    collect!(ddl.columns);
-    collect!(ddl.indexes);
-    collect!(ddl.fks);
-    collect!(ddl.pks);
-    collect!(ddl.uniques);
-    collect!(ddl.checks);
-    collect!(ddl.views);
+    let databases = ddl
+        .tables
+        .list()
+        .iter()
+        .map(|table| table.database.as_deref())
+        .chain(
+            ddl.columns
+                .list()
+                .iter()
+                .map(|column| column.database.as_deref()),
+        )
+        .chain(
+            ddl.indexes
+                .list()
+                .iter()
+                .map(|index| index.database.as_deref()),
+        )
+        .chain(
+            ddl.fks
+                .list()
+                .iter()
+                .map(|foreign_key| foreign_key.database.as_deref()),
+        )
+        .chain(
+            ddl.pks
+                .list()
+                .iter()
+                .map(|primary_key| primary_key.database.as_deref()),
+        )
+        .chain(
+            ddl.uniques
+                .list()
+                .iter()
+                .map(|unique| unique.database.as_deref()),
+        )
+        .chain(
+            ddl.checks
+                .list()
+                .iter()
+                .map(|check| check.database.as_deref()),
+        )
+        .chain(ddl.views.list().iter().map(|view| view.database.as_deref()))
+        .flatten()
+        .map(str::to_string)
+        .collect::<BTreeSet<_>>();
     match databases.len() {
         0 => Ok(None),
         1 => Ok(databases.into_iter().next()),
@@ -1399,22 +1425,42 @@ fn column_map(ddl: &MySQLDDL) -> BTreeMap<(String, String), &model::Column> {
         .collect()
 }
 
-macro_rules! named_table_map {
-    ($name:ident, $field:ident, $type:ty) => {
-        fn $name(ddl: &MySQLDDL) -> BTreeMap<(String, String), &$type> {
-            ddl.$field
-                .list()
-                .iter()
-                .map(|entity| ((entity.table.to_string(), entity.name.to_string()), entity))
-                .collect()
-        }
-    };
+fn index_map(ddl: &MySQLDDL) -> BTreeMap<(String, String), &model::Index> {
+    ddl.indexes
+        .list()
+        .iter()
+        .map(|index| ((index.table.to_string(), index.name.to_string()), index))
+        .collect()
 }
 
-named_table_map!(index_map, indexes, model::Index);
-named_table_map!(foreign_key_map, fks, model::ForeignKey);
-named_table_map!(unique_map, uniques, model::UniqueConstraint);
-named_table_map!(check_map, checks, model::CheckConstraint);
+fn foreign_key_map(ddl: &MySQLDDL) -> BTreeMap<(String, String), &model::ForeignKey> {
+    ddl.fks
+        .list()
+        .iter()
+        .map(|foreign_key| {
+            (
+                (foreign_key.table.to_string(), foreign_key.name.to_string()),
+                foreign_key,
+            )
+        })
+        .collect()
+}
+
+fn unique_map(ddl: &MySQLDDL) -> BTreeMap<(String, String), &model::UniqueConstraint> {
+    ddl.uniques
+        .list()
+        .iter()
+        .map(|unique| ((unique.table.to_string(), unique.name.to_string()), unique))
+        .collect()
+}
+
+fn check_map(ddl: &MySQLDDL) -> BTreeMap<(String, String), &model::CheckConstraint> {
+    ddl.checks
+        .list()
+        .iter()
+        .map(|check| ((check.table.to_string(), check.name.to_string()), check))
+        .collect()
+}
 
 fn primary_key_map(ddl: &MySQLDDL) -> BTreeMap<String, &model::PrimaryKey> {
     ddl.pks

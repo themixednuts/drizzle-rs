@@ -46,6 +46,7 @@
 //! }
 //! ```
 
+mod migration;
 pub mod prepared;
 
 use drizzle_core::{
@@ -349,7 +350,7 @@ impl<Connection: Queryable, Schema> Drizzle<Connection, Schema> {
         }
     }
 
-    mysql_builder_constructors!(Connection);
+    mysql_builder_constructors!(Connection, [&'db mut self], self);
 }
 
 #[cfg(feature = "query")]
@@ -570,76 +571,88 @@ impl<'q, Table, Relations>
     }
 }
 
-fn begin_transaction_inner<'connection, Connection, Schema>(
-    db: &'connection mut Drizzle<Connection, Schema>,
-    config: drizzle_mysql::MySQLTransactionConfig,
-) -> Result<Transaction<'connection, Schema>>
-where
-    Connection: TransactionConnection,
-    Schema: Copy,
-{
-    db.ensure_session()?;
-    let transaction =
-        crate::transaction::mysql::mysql_sync::start_transaction(&mut db.connection, config)
-            .map_err(driver_error)?;
-    // Transaction code can change session variables through its raw execute
-    // entrypoint. Re-establish invariants when the parent connection becomes
-    // available again, regardless of how the transaction completes.
-    db.session_ready = false;
-    Ok(Transaction::new(transaction, db.schema))
+#[allow(private_bounds)]
+impl<Connection: TransactionConnection, Schema: Copy> Drizzle<Connection, Schema> {
+    /// Starts a transaction for explicit commit or rollback control.
+    pub fn begin_transaction(
+        &mut self,
+        config: drizzle_mysql::MySQLTransactionConfig,
+    ) -> Result<Transaction<'_, Schema>> {
+        self.ensure_session()?;
+        let transaction =
+            crate::transaction::mysql::mysql_sync::start_transaction(&mut self.connection, config)
+                .map_err(driver_error)?;
+        // Raw transaction queries can change session variables. Restore the
+        // adapter invariants when the parent becomes available again.
+        self.session_ready = false;
+        Ok(Transaction::new(transaction, self.schema))
+    }
+
+    /// Runs a transaction, committing on `Ok` and rolling back on `Err` or
+    /// panic.
+    pub fn transaction<R>(
+        &mut self,
+        config: drizzle_mysql::MySQLTransactionConfig,
+        body: impl FnOnce(&Transaction<Schema>) -> Result<R>,
+    ) -> Result<R> {
+        let transaction = self.begin_transaction(config)?;
+        sync_transaction(
+            transaction,
+            "mysql.sync",
+            || {
+                drizzle_core::drizzle_trace_tx!("commit", "mysql.sync");
+            },
+            || {
+                drizzle_core::drizzle_trace_tx!("rollback", "mysql.sync");
+            },
+            |transaction| body(transaction),
+            |transaction| transaction.commit(),
+            |transaction| transaction.rollback(),
+        )
+    }
 }
 
-fn transaction_inner<Connection, Schema, R>(
-    db: &mut Drizzle<Connection, Schema>,
-    config: drizzle_mysql::MySQLTransactionConfig,
-    body: impl FnOnce(&Transaction<Schema>) -> Result<R>,
-) -> Result<R>
-where
-    Connection: TransactionConnection,
-    Schema: Copy,
-{
-    let transaction = begin_transaction_inner(db, config)?;
-    sync_transaction(
-        transaction,
-        "mysql.sync",
-        || {
-            drizzle_core::drizzle_trace_tx!("commit", "mysql.sync");
-        },
-        || {
-            drizzle_core::drizzle_trace_tx!("rollback", "mysql.sync");
-        },
-        |transaction| body(transaction),
-        |transaction| transaction.commit(),
-        |transaction| transaction.rollback(),
-    )
+impl<Schema> Drizzle<mysql::Conn, Schema> {
+    /// Applies pending embedded migrations in MySQL autocommit mode.
+    ///
+    /// Each migration is marked dirty before its first statement and marked
+    /// complete only after its last statement succeeds. MySQL DDL cannot be
+    /// made migration-wide atomic, so an interrupted run must be reconciled
+    /// manually before this method will continue.
+    ///
+    /// The connection must have autocommit enabled. Finish transactions begun
+    /// through raw SQL or the raw driver before calling this method because
+    /// the client does not expose their protocol transaction state.
+    pub fn migrate(
+        &mut self,
+        migrations: &[drizzle_migrations::Migration],
+        tracking: drizzle_migrations::Tracking,
+    ) -> Result<drizzle_migrations::MigrateOutcome> {
+        let result = migration::Runner::new(&mut self.connection, migrations, tracking).run();
+        self.session_ready = false;
+        result
+    }
 }
 
-macro_rules! mysql_sync_transaction_api {
-    ($connection:ty) => {
-        impl<Schema: Copy> Drizzle<$connection, Schema> {
-            /// Starts a transaction for explicit commit or rollback control.
-            pub fn begin_transaction(
-                &mut self,
-                config: drizzle_mysql::MySQLTransactionConfig,
-            ) -> Result<Transaction<'_, Schema>> {
-                begin_transaction_inner(self, config)
-            }
-
-            /// Runs a transaction, committing on `Ok` and rolling back on
-            /// `Err` or panic.
-            pub fn transaction<R>(
-                &mut self,
-                config: drizzle_mysql::MySQLTransactionConfig,
-                body: impl FnOnce(&Transaction<Schema>) -> Result<R>,
-            ) -> Result<R> {
-                transaction_inner(self, config, body)
-            }
-        }
-    };
+impl<Schema> Drizzle<mysql::PooledConn, Schema> {
+    /// Applies pending embedded migrations in MySQL autocommit mode.
+    ///
+    /// This holds the checked-out connection for the advisory lock's entire
+    /// lifetime. Interrupted migrations remain dirty and require manual
+    /// reconciliation before this method will continue.
+    ///
+    /// The checked-out connection must have autocommit enabled and must not be
+    /// inside a transaction begun through raw SQL or the raw driver.
+    pub fn migrate(
+        &mut self,
+        migrations: &[drizzle_migrations::Migration],
+        tracking: drizzle_migrations::Tracking,
+    ) -> Result<drizzle_migrations::MigrateOutcome> {
+        let result = migration::Runner::new(&mut self.connection, migrations, tracking).run();
+        self.session_ready = false;
+        result
+    }
 }
-
-mysql_sync_transaction_api!(mysql::Conn);
-mysql_sync_transaction_api!(mysql::PooledConn);
 
 impl<Connection: Queryable, Schema> Drizzle<Connection, Schema>
 where

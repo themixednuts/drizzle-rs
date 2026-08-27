@@ -3,7 +3,6 @@
 /// Dialect modules supply their table and schema macros plus a fresh transaction
 /// configuration expression. Driver-specific cleanup and configuration behavior
 /// stays in the dialect test modules.
-#[macro_export]
 macro_rules! shared_transaction_suite {
     ($dialect:ident, $table:ident, $schema:ident, $transaction_config:expr) => {
         mod shared_transaction {
@@ -152,3 +151,5 @@ macro_rules! shared_transaction_suite {
         }
     };
 }
+
+pub(crate) use shared_transaction_suite;

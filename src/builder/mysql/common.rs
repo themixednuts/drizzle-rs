@@ -1073,30 +1073,89 @@ where
     }
 }
 
-macro_rules! set_operations {
-    ($state:ty $(, $extra:ident)*) => {
-        impl<'db, 'q, Runner, Schema, T, M, R, G, $($extra),*>
-            DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, $state, T, M, R, G>, $state>
-        {
-            pub fn union(self, other: impl IntoSelectQuery<'q, Schema, R>) -> DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>, SelectSetOpSet> { self.map(|builder| builder.union(other)) }
-            pub fn union_all(self, other: impl IntoSelectQuery<'q, Schema, R>) -> DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>, SelectSetOpSet> { self.map(|builder| builder.union_all(other)) }
-            pub fn intersect(self, other: impl IntoSelectQuery<'q, Schema, R>) -> DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>, SelectSetOpSet> { self.map(|builder| builder.intersect(other)) }
-            pub fn intersect_all(self, other: impl IntoSelectQuery<'q, Schema, R>) -> DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>, SelectSetOpSet> { self.map(|builder| builder.intersect_all(other)) }
-            pub fn except(self, other: impl IntoSelectQuery<'q, Schema, R>) -> DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>, SelectSetOpSet> { self.map(|builder| builder.except(other)) }
-            pub fn except_all(self, other: impl IntoSelectQuery<'q, Schema, R>) -> DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>, SelectSetOpSet> { self.map(|builder| builder.except_all(other)) }
-        }
-    };
-}
+impl<'db, 'q, Runner, Schema, State, T, M, R, G>
+    DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, State, T, M, R, G>, State>
+where
+    State: builder::select::SetOperationAllowed,
+{
+    pub fn union(
+        self,
+        other: impl IntoSelectQuery<'q, Schema, R>,
+    ) -> DrizzleBuilder<
+        'db,
+        Runner,
+        Schema,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectSetOpSet,
+    > {
+        self.map(|builder| builder.union(other))
+    }
 
-set_operations!(SelectFromSet);
-set_operations!(SelectJoinSet);
-set_operations!(SelectWhereSet);
-set_operations!(SelectGroupSet);
-set_operations!(SelectHavingSet);
-set_operations!(SelectOrderSet);
-set_operations!(SelectLimitSet);
-set_operations!(SelectOffsetSet);
-set_operations!(SelectSetOpSet);
+    pub fn union_all(
+        self,
+        other: impl IntoSelectQuery<'q, Schema, R>,
+    ) -> DrizzleBuilder<
+        'db,
+        Runner,
+        Schema,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectSetOpSet,
+    > {
+        self.map(|builder| builder.union_all(other))
+    }
+
+    pub fn intersect(
+        self,
+        other: impl IntoSelectQuery<'q, Schema, R>,
+    ) -> DrizzleBuilder<
+        'db,
+        Runner,
+        Schema,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectSetOpSet,
+    > {
+        self.map(|builder| builder.intersect(other))
+    }
+
+    pub fn intersect_all(
+        self,
+        other: impl IntoSelectQuery<'q, Schema, R>,
+    ) -> DrizzleBuilder<
+        'db,
+        Runner,
+        Schema,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectSetOpSet,
+    > {
+        self.map(|builder| builder.intersect_all(other))
+    }
+
+    pub fn except(
+        self,
+        other: impl IntoSelectQuery<'q, Schema, R>,
+    ) -> DrizzleBuilder<
+        'db,
+        Runner,
+        Schema,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectSetOpSet,
+    > {
+        self.map(|builder| builder.except(other))
+    }
+
+    pub fn except_all(
+        self,
+        other: impl IntoSelectQuery<'q, Schema, R>,
+    ) -> DrizzleBuilder<
+        'db,
+        Runner,
+        Schema,
+        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectSetOpSet,
+    > {
+        self.map(|builder| builder.except_all(other))
+    }
+}
 
 impl<'q, Runner, Schema, State, T, M, R, G> IntoSelectQuery<'q, Schema, R>
     for DrizzleBuilder<'_, Runner, Schema, SelectBuilder<'q, Schema, State, T, M, R, G>, State>
@@ -1281,56 +1340,98 @@ where
     }
 }
 
-macro_rules! update_methods {
-    ($state:ty => [$($method:ident),* $(,)?]) => {
-        impl<'db, 'q, Runner, Schema, Table> DrizzleBuilder<'db, Runner, Schema, UpdateBuilder<'q, Schema, $state, Table>, $state> {
-            $(update_methods!(@method $method);)*
-        }
-    };
-    (@method where) => { pub fn r#where<E>(self, condition: E) -> DrizzleBuilder<'db, Runner, Schema, UpdateBuilder<'q, Schema, UpdateWhereSet, Table>, UpdateWhereSet> where E: drizzle_core::expr::Expr<'q, MySQLValue<'q>>, E::SQLType: drizzle_core::types::BooleanLike { self.map(|builder| builder.r#where(condition)) } };
-    (@method order_by) => { pub fn order_by<O>(self, order: O) -> DrizzleBuilder<'db, Runner, Schema, UpdateBuilder<'q, Schema, UpdateOrderSet, Table>, UpdateOrderSet> where O: ToSQL<'q, MySQLValue<'q>> { self.map(|builder| builder.order_by(order)) } };
-    (@method limit) => { pub fn limit<P>(self, limit: P) -> DrizzleBuilder<'db, Runner, Schema, UpdateBuilder<'q, Schema, UpdateLimitSet, Table>, UpdateLimitSet> where P: drizzle_core::PaginationArg<'q, MySQLValue<'q>> { self.map(|builder| builder.limit(limit)) } };
-}
-
-update_methods!(UpdateSetClauseSet => [where, order_by, limit]);
-update_methods!(UpdateWhereSet => [order_by, limit]);
-update_methods!(UpdateOrderSet => [limit]);
-
-macro_rules! delete_methods {
-    ($state:ty => [$($method:ident),* $(,)?]) => {
-        impl<'db, 'q, Runner, Schema, Table> DrizzleBuilder<'db, Runner, Schema, DeleteBuilder<'q, Schema, $state, Table>, $state> {
-            $(delete_methods!(@method $method);)*
-        }
-    };
-    (@method where) => { pub fn r#where<E>(self, condition: E) -> DrizzleBuilder<'db, Runner, Schema, DeleteBuilder<'q, Schema, DeleteWhereSet, Table>, DeleteWhereSet> where E: drizzle_core::expr::Expr<'q, MySQLValue<'q>>, E::SQLType: drizzle_core::types::BooleanLike { self.map(|builder| builder.r#where(condition)) } };
-    (@method order_by) => { pub fn order_by<O>(self, order: O) -> DrizzleBuilder<'db, Runner, Schema, DeleteBuilder<'q, Schema, DeleteOrderSet, Table>, DeleteOrderSet> where O: ToSQL<'q, MySQLValue<'q>> { self.map(|builder| builder.order_by(order)) } };
-    (@method limit) => { pub fn limit<P>(self, limit: P) -> DrizzleBuilder<'db, Runner, Schema, DeleteBuilder<'q, Schema, DeleteLimitSet, Table>, DeleteLimitSet> where P: drizzle_core::PaginationArg<'q, MySQLValue<'q>> { self.map(|builder| builder.limit(limit)) } };
-}
-
-delete_methods!(DeleteInitial => [where, order_by, limit]);
-delete_methods!(DeleteWhereSet => [order_by, limit]);
-delete_methods!(DeleteOrderSet => [limit]);
-
-macro_rules! locking_reads {
-    ($state:ty $(, $extra:ident)*) => {
-        impl<'db, 'q, Runner, Schema, T, M, R, G, $($extra),*>
-            DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, $state, T, M, R, G>, $state>
+macro_rules! mutation_method {
+    ($builder:ident, $state:ty, where => $next:ty) => {
+        impl<'db, 'q, Runner, Schema, Table>
+            DrizzleBuilder<'db, Runner, Schema, $builder<'q, Schema, $state, Table>, $state>
         {
-            pub fn for_update(self) -> DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, SelectForSet<ForUpdate>, T, M, R, G>, SelectForSet<ForUpdate>> { self.map(|builder| builder.for_update()) }
-            pub fn for_share(self) -> DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, SelectForSet<ForShare>, T, M, R, G>, SelectForSet<ForShare>> { self.map(|builder| builder.for_share()) }
+            pub fn r#where<E>(
+                self,
+                condition: E,
+            ) -> DrizzleBuilder<'db, Runner, Schema, $builder<'q, Schema, $next, Table>, $next>
+            where
+                E: drizzle_core::expr::Expr<'q, MySQLValue<'q>>,
+                E::SQLType: drizzle_core::types::BooleanLike,
+            {
+                self.map(|builder| builder.r#where(condition))
+            }
+        }
+    };
+    ($builder:ident, $state:ty, order_by => $next:ty) => {
+        impl<'db, 'q, Runner, Schema, Table>
+            DrizzleBuilder<'db, Runner, Schema, $builder<'q, Schema, $state, Table>, $state>
+        {
+            pub fn order_by<O>(
+                self,
+                order: O,
+            ) -> DrizzleBuilder<'db, Runner, Schema, $builder<'q, Schema, $next, Table>, $next>
+            where
+                O: ToSQL<'q, MySQLValue<'q>>,
+            {
+                self.map(|builder| builder.order_by(order))
+            }
+        }
+    };
+    ($builder:ident, $state:ty, limit => $next:ty) => {
+        impl<'db, 'q, Runner, Schema, Table>
+            DrizzleBuilder<'db, Runner, Schema, $builder<'q, Schema, $state, Table>, $state>
+        {
+            pub fn limit<P>(
+                self,
+                limit: P,
+            ) -> DrizzleBuilder<'db, Runner, Schema, $builder<'q, Schema, $next, Table>, $next>
+            where
+                P: drizzle_core::PaginationArg<'q, MySQLValue<'q>>,
+            {
+                self.map(|builder| builder.limit(limit))
+            }
         }
     };
 }
 
-locking_reads!(SelectFromSet);
-locking_reads!(SelectIndexHintSet<Kind>, Kind);
-locking_reads!(SelectJoinSet);
-locking_reads!(SelectWhereSet);
-locking_reads!(SelectGroupSet);
-locking_reads!(SelectHavingSet);
-locking_reads!(SelectOrderSet);
-locking_reads!(SelectLimitSet);
-locking_reads!(SelectOffsetSet);
+mutation_method!(UpdateBuilder, UpdateSetClauseSet, where => UpdateWhereSet);
+mutation_method!(UpdateBuilder, UpdateSetClauseSet, order_by => UpdateOrderSet);
+mutation_method!(UpdateBuilder, UpdateSetClauseSet, limit => UpdateLimitSet);
+mutation_method!(UpdateBuilder, UpdateWhereSet, order_by => UpdateOrderSet);
+mutation_method!(UpdateBuilder, UpdateWhereSet, limit => UpdateLimitSet);
+mutation_method!(UpdateBuilder, UpdateOrderSet, limit => UpdateLimitSet);
+
+mutation_method!(DeleteBuilder, DeleteInitial, where => DeleteWhereSet);
+mutation_method!(DeleteBuilder, DeleteInitial, order_by => DeleteOrderSet);
+mutation_method!(DeleteBuilder, DeleteInitial, limit => DeleteLimitSet);
+mutation_method!(DeleteBuilder, DeleteWhereSet, order_by => DeleteOrderSet);
+mutation_method!(DeleteBuilder, DeleteWhereSet, limit => DeleteLimitSet);
+mutation_method!(DeleteBuilder, DeleteOrderSet, limit => DeleteLimitSet);
+
+impl<'db, 'q, Runner, Schema, State, T, M, R, G>
+    DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, State, T, M, R, G>, State>
+where
+    State: builder::select::LockingReadAllowed,
+{
+    pub fn for_update(
+        self,
+    ) -> DrizzleBuilder<
+        'db,
+        Runner,
+        Schema,
+        SelectBuilder<'q, Schema, SelectForSet<ForUpdate>, T, M, R, G>,
+        SelectForSet<ForUpdate>,
+    > {
+        self.map(|builder| builder.for_update())
+    }
+
+    pub fn for_share(
+        self,
+    ) -> DrizzleBuilder<
+        'db,
+        Runner,
+        Schema,
+        SelectBuilder<'q, Schema, SelectForSet<ForShare>, T, M, R, G>,
+        SelectForSet<ForShare>,
+    > {
+        self.map(|builder| builder.for_share())
+    }
+}
 
 impl<'db, 'q, Runner, Schema, Strength, T, M, R, G>
     DrizzleBuilder<

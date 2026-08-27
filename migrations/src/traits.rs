@@ -448,10 +448,10 @@ impl DiffResult {
             warnings: Vec::new(),
         }
     }
+}
 
-    /// Convert the supported migration plan into the legacy typed result.
-    #[must_use]
-    pub fn from_plan(plan: crate::Plan) -> Self {
+impl From<crate::Plan> for DiffResult {
+    fn from(plan: crate::Plan) -> Self {
         let has_changes = !plan.statements.is_empty();
         Self {
             sql_statements: plan.statements,
@@ -490,7 +490,7 @@ impl Dialect for Sqlite {
             &crate::Snapshot::Sqlite(prev.clone()),
             &crate::Snapshot::Sqlite(cur.clone()),
         )
-        .map(DiffResult::from_plan)
+        .map(Into::into)
     }
 }
 
@@ -529,7 +529,7 @@ impl Dialect for Postgres {
             &crate::Snapshot::Postgres(prev.clone()),
             &crate::Snapshot::Postgres(cur.clone()),
         )
-        .map(DiffResult::from_plan)
+        .map(Into::into)
     }
 }
 
@@ -571,7 +571,7 @@ impl Dialect for Mysql {
             &crate::Snapshot::MySQL(prev.clone()),
             &crate::Snapshot::MySQL(cur.clone()),
         )
-        .map(DiffResult::from_plan)
+        .map(Into::into)
     }
 }
 impl CanUpgrade<V5, V6> for Mysql {}

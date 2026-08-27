@@ -166,18 +166,18 @@ impl FloatPolicy for MySQLDialect {
     type Float = drizzle_types::mysql::types::Double;
 }
 
-macro_rules! mysql_exact_aggregate_policy {
-    ($($ty:ty),+ $(,)?) => {
+macro_rules! mysql_aggregate_policy {
+    ($output:ty; $($ty:ty),+ $(,)?) => {
         $(
             impl AggregatePolicy<MySQLDialect> for $ty {
-                type Sum = MyDecimal;
-                type Avg = MyDecimal;
+                type Sum = $output;
+                type Avg = $output;
             }
         )+
     };
 }
 
-mysql_exact_aggregate_policy!(
+mysql_aggregate_policy!(MyDecimal;
     MyTinyInt,
     MyTinyIntUnsigned,
     MySmallInt,
@@ -192,18 +192,7 @@ mysql_exact_aggregate_policy!(
     MyDecimal,
 );
 
-macro_rules! mysql_approximate_aggregate_policy {
-    ($($ty:ty),+ $(,)?) => {
-        $(
-            impl AggregatePolicy<MySQLDialect> for $ty {
-                type Sum = MyDouble;
-                type Avg = MyDouble;
-            }
-        )+
-    };
-}
-
-mysql_approximate_aggregate_policy!(MyFloat, MyDouble);
+mysql_aggregate_policy!(MyDouble; MyFloat, MyDouble);
 
 macro_rules! mysql_statistical_aggregate_policy {
     ($($ty:ty),+ $(,)?) => {

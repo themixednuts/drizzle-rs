@@ -1,10 +1,29 @@
-//! MySQL-specific live migration SQL coverage.
+//! MySQL migration generation and runtime coverage.
 
+#[cfg(feature = "mysql-sync")]
 use crate::common::helpers::mysql_sync_setup;
-use drizzle::Dialect;
-use drizzle::migrations::{DiffOptions, Schema as MigrationSchema, Snapshot, diff, diff_with};
+use drizzle::migrations::{Migration, Tracking};
+#[cfg(feature = "mysql-sync")]
+use drizzle::{
+    Dialect,
+    migrations::{DiffOptions, Schema as MigrationSchema, Snapshot, diff, diff_with},
+};
+use drizzle::{core::SQL, mysql::prelude::*};
+#[cfg(feature = "mysql-sync")]
 use mysql::prelude::Queryable as _;
 
+#[MySQLTable(NAME = "mysql_migration_harness")]
+struct MigrationHarness {
+    #[column(PRIMARY)]
+    id: i32,
+}
+
+#[derive(MySQLSchema)]
+struct RuntimeMigrationSchema {
+    harness: MigrationHarness,
+}
+
+#[cfg(feature = "mysql-sync")]
 mod v1 {
     use drizzle::mysql::prelude::*;
 
@@ -52,6 +71,7 @@ mod v1 {
     }
 }
 
+#[cfg(feature = "mysql-sync")]
 mod v2 {
     use drizzle::mysql::prelude::*;
 
@@ -106,6 +126,7 @@ mod v2 {
     }
 }
 
+#[cfg(feature = "mysql-sync")]
 fn clean(connection: &mut impl mysql::prelude::Queryable) {
     connection
         .query_drop("SET FOREIGN_KEY_CHECKS = 0")
@@ -124,6 +145,7 @@ fn clean(connection: &mut impl mysql::prelude::Queryable) {
         .expect("restore foreign-key checks after migration cleanup");
 }
 
+#[cfg(feature = "mysql-sync")]
 fn apply(connection: &mut impl mysql::prelude::Queryable, statements: &[String]) {
     for statement in statements {
         connection.query_drop(statement).unwrap_or_else(|error| {
@@ -132,6 +154,7 @@ fn apply(connection: &mut impl mysql::prelude::Queryable, statements: &[String])
     }
 }
 
+#[cfg(feature = "mysql-sync")]
 #[test]
 fn generated_create_and_alter_sql_runs_on_supported_mysql() {
     let _guard = mysql_sync_setup::acquire_lock();
@@ -182,4 +205,121 @@ fn generated_create_and_alter_sql_runs_on_supported_mysql() {
     assert!(remaining.is_none());
 
     clean(&mut connection);
+}
+
+#[drizzle::test]
+fn runtime_migrations_apply_in_order_and_only_once(db: &mut TestDb<RuntimeMigrationSchema>) {
+    let tracking = Tracking::MYSQL.table("__drizzle_runtime_order");
+    for table in [
+        "mysql_runtime_second",
+        "mysql_runtime_first",
+        "__drizzle_runtime_order",
+    ] {
+        result!(db.execute(SQL::raw(format!("DROP TABLE IF EXISTS `{table}`"))))
+            .expect("clear prior migration state");
+    }
+
+    let created_at = 1_787_788_800_000;
+    let migrations = [
+        Migration::with_hash(
+            "20260827000000_mysql_runtime_first",
+            "mysql-runtime-first",
+            created_at,
+            vec![
+                "CREATE TABLE `mysql_runtime_first` (`id` INT PRIMARY KEY)".to_owned(),
+                "INSERT INTO `mysql_runtime_first` (`id`) VALUES (1)".to_owned(),
+            ],
+        ),
+        Migration::with_hash(
+            "20260827000000_mysql_runtime_second",
+            "mysql-runtime-second",
+            created_at,
+            vec![
+                "CREATE TABLE `mysql_runtime_second` (`id` INT PRIMARY KEY)".to_owned(),
+                "INSERT INTO `mysql_runtime_second` (`id`) SELECT `id` + 1 FROM `mysql_runtime_first`"
+                    .to_owned(),
+            ],
+        ),
+    ];
+
+    let outcome =
+        result!(db.migrate(&migrations, tracking.clone())).expect("apply MySQL runtime migrations");
+    assert_eq!(
+        outcome.applied_tags(),
+        [
+            "20260827000000_mysql_runtime_first",
+            "20260827000000_mysql_runtime_second",
+        ]
+    );
+    let copied: i64 = result!(db.get(SQL::raw("SELECT `id` FROM `mysql_runtime_second`")))
+        .expect("read the second migration's effect");
+    assert_eq!(copied, 2);
+
+    let outcome = result!(db.migrate(&migrations, tracking.clone()))
+        .expect("recheck MySQL runtime migrations");
+    assert!(outcome.is_up_to_date());
+
+    for table in [
+        "mysql_runtime_second",
+        "mysql_runtime_first",
+        "__drizzle_runtime_order",
+    ] {
+        result!(db.execute(SQL::raw(format!("DROP TABLE IF EXISTS `{table}`"))))
+            .expect("clean migration state");
+    }
+}
+
+#[drizzle::test]
+fn runtime_migrations_keep_the_first_failure_dirty(db: &mut TestDb<RuntimeMigrationSchema>) {
+    let tracking = Tracking::MYSQL.table("__drizzle_runtime_dirty");
+    result!(db.execute(SQL::raw("DROP TABLE IF EXISTS `__drizzle_runtime_dirty`")))
+        .expect("clear prior dirty state");
+
+    let migration = Migration::new(
+        "20260827000001_mysql_runtime_dirty",
+        "THIS IS NOT VALID MYSQL SQL",
+    );
+    let error = result!(db.migrate(std::slice::from_ref(&migration), tracking.clone()))
+        .expect_err("the invalid migration must fail");
+    assert!(error.to_string().contains("dirty marker"), "{error}");
+
+    let dirty: i64 = result!(db.get(SQL::raw(
+        "SELECT COUNT(*) FROM `__drizzle_runtime_dirty` WHERE `applied_at` IS NULL"
+    )))
+    .expect("count dirty migrations");
+    assert_eq!(dirty, 1);
+
+    let error = result!(db.migrate(std::slice::from_ref(&migration), tracking.clone()))
+        .expect_err("an interrupted migration must block retries");
+    let message = error.to_string();
+    assert!(message.contains("20260827000001_mysql_runtime_dirty"));
+    assert!(message.contains("interrupted mid-apply"), "{message}");
+
+    result!(db.execute(SQL::raw("DROP TABLE IF EXISTS `__drizzle_runtime_dirty`")))
+        .expect("clean dirty migration state");
+}
+
+#[drizzle::test]
+fn runtime_migrations_reject_disabled_autocommit_before_writing(
+    db: &mut TestDb<RuntimeMigrationSchema>,
+) {
+    let tracking = Tracking::MYSQL.table("__drizzle_runtime_transaction");
+    result!(db.execute(SQL::raw(
+        "DROP TABLE IF EXISTS `__drizzle_runtime_transaction`"
+    )))
+    .expect("clear prior tracking state");
+    result!(db.execute(SQL::raw("SET autocommit = 0"))).expect("disable autocommit");
+
+    let migration = Migration::new("20260827000002_mysql_runtime_transaction", "SELECT 1");
+    let error = result!(db.migrate(std::slice::from_ref(&migration), tracking))
+        .expect_err("migrate must reject disabled autocommit");
+    assert!(error.to_string().contains("autocommit disabled"), "{error}");
+
+    result!(db.execute(SQL::raw("SET autocommit = 1"))).expect("restore autocommit");
+    let tracking_tables: i64 = result!(db.get(SQL::raw(
+        "SELECT COUNT(*) FROM information_schema.tables \
+         WHERE table_schema = DATABASE() AND table_name = '__drizzle_runtime_transaction'"
+    )))
+    .expect("check tracking-table absence");
+    assert_eq!(tracking_tables, 0, "preflight must not mutate the database");
 }

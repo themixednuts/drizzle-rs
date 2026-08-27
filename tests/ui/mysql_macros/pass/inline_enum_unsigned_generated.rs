@@ -30,5 +30,5 @@ fn main() {
     use drizzle::mysql::traits::MySQLEnum as _;
     let _: &'static str = State::SQL_TYPE;
     let _: &'static [&'static str] = State::VARIANTS;
-    let _ = State::try_from_str("Draft");
+    let _ = "Draft".parse::<State>();
 }

@@ -3,7 +3,7 @@ use crate::prelude::*;
 use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
 use drizzle_core::{
-    ColumnRef, SQL, Token, helpers as core_helpers,
+    SQL, Token, helpers as core_helpers,
     traits::{SQLModel, ToSQL},
 };
 
@@ -22,18 +22,6 @@ drizzle_core::impl_join_arg_trait!(
     condition_trait: ToSQL<'a, SQLiteValue<'a>>,
     value_type: SQLiteValue<'a>,
 );
-
-/// Helper to convert column info to SQL for joining (column names only for INSERT)
-fn columns_info_to_sql<'a>(columns: &[ColumnRef]) -> SQL<'a, SQLiteValue<'a>> {
-    let mut sql = SQL::with_capacity_chunks(columns.len().saturating_mul(2));
-    for (idx, col) in columns.iter().enumerate() {
-        if idx > 0 {
-            sql.push_mut(Token::COMMA);
-        }
-        sql.append_mut(SQL::ident(col.name));
-    }
-    sql
-}
 
 // Generate all join helper functions using the shared macro
 drizzle_core::impl_join_helpers!(
@@ -66,7 +54,7 @@ where
         return SQL::from_iter([Token::DEFAULT, Token::VALUES]);
     }
 
-    let columns_sql = columns_info_to_sql(columns_slice);
+    let columns_sql = SQL::columns(columns_slice);
     let mut values_sql = SQL::with_capacity_chunks(rows.len().saturating_mul(4));
     for (idx, row) in rows.iter().enumerate() {
         if idx > 0 {

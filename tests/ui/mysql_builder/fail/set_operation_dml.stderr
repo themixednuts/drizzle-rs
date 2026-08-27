@@ -1,12 +1,13 @@
-error[E0599]: no method named `union` found for struct `QueryBuilder<'_, Schema, DeleteWhereSet, Users>` in the current scope
+error[E0599]: the method `union` exists for struct `QueryBuilder<'_, Schema, DeleteWhereSet, Users>`, but its trait bounds were not satisfied
   --> tests/ui/mysql_builder/fail/set_operation_dml.rs:20:20
    |
 20 |     let _ = delete.union(other);
-   |                    ^^^^^ method not found in `QueryBuilder<'_, Schema, DeleteWhereSet, Users>`
+   |                    ^^^^^ method cannot be called on `QueryBuilder<'_, Schema, DeleteWhereSet, Users>` due to unsatisfied trait bounds
    |
-   = note: the method was found for
-           - `QueryBuilder<'a, S, SelectFromSet, T, M, R, G>`
-           - `QueryBuilder<'a, S, SelectGroupSet, T, M, R, G>`
-           - `QueryBuilder<'a, S, SelectHavingSet, T, M, R, G>`
-           - `QueryBuilder<'a, S, SelectJoinSet, T, M, R, G>`
-           and 5 more types
+  ::: core/src/builder/states.rs
+   |
+   | pub struct DeleteWhereSet;
+   | ------------------------- doesn't satisfy `_: SetOperationAllowed`
+   |
+   = note: the following trait bounds were not satisfied:
+           `DeleteWhereSet: drizzle::mysql::builder::select::SetOperationAllowed`

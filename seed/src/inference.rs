@@ -34,7 +34,7 @@ pub(crate) fn infer_generator(column: &ColumnRef) -> Box<dyn Generator> {
 
 #[cfg(feature = "mysql")]
 fn infer_mysql_generator(column: &ColumnRef) -> Option<Box<dyn Generator>> {
-    let category = MySQLTypeCategory::from_sql_type(column.sql_type);
+    let category = MySQLTypeCategory::classify(column.sql_type);
     let integer_max = match category {
         MySQLTypeCategory::TinyInt => Some(i64::from(i8::MAX)),
         MySQLTypeCategory::TinyIntUnsigned => Some(i64::from(u8::MAX)),

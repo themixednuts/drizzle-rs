@@ -201,80 +201,58 @@ impl<'a> From<&'a OwnedMySQLValue> for MySQLValue<'a> {
 }
 
 macro_rules! via_mysql_value {
-    ($($ty:ty),+ $(,)?) => {
+    (both: [$($both:ty),+ $(,)?], owned: [$($owned:ty),* $(,)?]) => {
         $(
-            impl From<$ty> for OwnedMySQLValue {
-                fn from(value: $ty) -> Self {
+            impl From<$both> for OwnedMySQLValue {
+                fn from(value: $both) -> Self {
                     MySQLValue::from(value).into_owned()
                 }
             }
-        )+
-    };
-}
 
-macro_rules! via_mysql_value_ref {
-    ($($ty:ty),+ $(,)?) => {
-        $(
-            impl From<&$ty> for OwnedMySQLValue {
-                fn from(value: &$ty) -> Self {
+            impl From<&$both> for OwnedMySQLValue {
+                fn from(value: &$both) -> Self {
                     MySQLValue::from(value).into_owned()
                 }
             }
         )+
+
+        $(
+            impl From<$owned> for OwnedMySQLValue {
+                fn from(value: $owned) -> Self {
+                    MySQLValue::from(value).into_owned()
+                }
+            }
+        )*
     };
 }
 
 via_mysql_value!(
-    i8,
-    i16,
-    i32,
-    i64,
-    isize,
-    u8,
-    u16,
-    u32,
-    u64,
-    usize,
-    bool,
-    f32,
-    f64,
-    String,
-    Vec<u8>,
-    Box<String>,
-    Rc<String>,
-    Arc<String>,
-    Box<str>,
-    Rc<str>,
-    Arc<str>,
-    Box<Vec<u8>>,
-    Rc<Vec<u8>>,
-    Arc<Vec<u8>>,
-);
-
-via_mysql_value_ref!(
-    i8,
-    i16,
-    i32,
-    i64,
-    isize,
-    u8,
-    u16,
-    u32,
-    u64,
-    usize,
-    bool,
-    f32,
-    f64,
-    String,
-    Box<String>,
-    Rc<String>,
-    Arc<String>,
-    Box<str>,
-    Rc<str>,
-    Arc<str>,
-    Box<Vec<u8>>,
-    Rc<Vec<u8>>,
-    Arc<Vec<u8>>,
+    both: [
+        i8,
+        i16,
+        i32,
+        i64,
+        isize,
+        u8,
+        u16,
+        u32,
+        u64,
+        usize,
+        bool,
+        f32,
+        f64,
+        String,
+        Box<String>,
+        Rc<String>,
+        Arc<String>,
+        Box<str>,
+        Rc<str>,
+        Arc<str>,
+        Box<Vec<u8>>,
+        Rc<Vec<u8>>,
+        Arc<Vec<u8>>,
+    ],
+    owned: [Vec<u8>]
 );
 
 impl From<&str> for OwnedMySQLValue {
@@ -335,9 +313,7 @@ where
 }
 
 #[cfg(feature = "compact-str")]
-via_mysql_value!(compact_str::CompactString);
-#[cfg(feature = "compact-str")]
-via_mysql_value_ref!(compact_str::CompactString);
+via_mysql_value!(both: [compact_str::CompactString], owned: []);
 
 #[cfg(feature = "arrayvec")]
 impl<const N: usize> From<arrayvec::ArrayString<N>> for OwnedMySQLValue {
@@ -361,42 +337,25 @@ impl<const N: usize> From<smallvec::SmallVec<[u8; N]>> for OwnedMySQLValue {
 }
 
 #[cfg(feature = "bytes")]
-via_mysql_value!(bytes::Bytes, bytes::BytesMut);
-#[cfg(feature = "bytes")]
-via_mysql_value_ref!(bytes::Bytes, bytes::BytesMut);
+via_mysql_value!(both: [bytes::Bytes, bytes::BytesMut], owned: []);
 
 #[cfg(feature = "uuid")]
-via_mysql_value!(uuid::Uuid);
-#[cfg(feature = "uuid")]
-via_mysql_value_ref!(uuid::Uuid);
+via_mysql_value!(both: [uuid::Uuid], owned: []);
 
 #[cfg(feature = "serde")]
-via_mysql_value!(serde_json::Value);
-#[cfg(feature = "serde")]
-via_mysql_value_ref!(serde_json::Value);
+via_mysql_value!(both: [serde_json::Value], owned: []);
 
 #[cfg(feature = "rust-decimal")]
-via_mysql_value!(rust_decimal::Decimal);
-#[cfg(feature = "rust-decimal")]
-via_mysql_value_ref!(rust_decimal::Decimal);
+via_mysql_value!(both: [rust_decimal::Decimal], owned: []);
 
 #[cfg(feature = "chrono")]
 via_mysql_value!(
-    chrono::NaiveDate,
-    chrono::NaiveTime,
-    chrono::NaiveDateTime,
-    chrono::DateTime<chrono::Utc>,
-    chrono::DateTime<chrono::FixedOffset>,
+    both: [chrono::NaiveDate, chrono::NaiveTime, chrono::NaiveDateTime],
+    owned: [chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::FixedOffset>]
 );
-#[cfg(feature = "chrono")]
-via_mysql_value_ref!(chrono::NaiveDate, chrono::NaiveTime, chrono::NaiveDateTime);
 
 #[cfg(feature = "time")]
 via_mysql_value!(
-    time::Date,
-    time::Time,
-    time::PrimitiveDateTime,
-    time::OffsetDateTime,
+    both: [time::Date, time::Time, time::PrimitiveDateTime],
+    owned: [time::OffsetDateTime]
 );
-#[cfg(feature = "time")]
-via_mysql_value_ref!(time::Date, time::Time, time::PrimitiveDateTime);

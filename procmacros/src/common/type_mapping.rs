@@ -159,50 +159,51 @@ pub fn generate_arithmetic_ops(
     sql_nullable: TokenStream,
 ) -> TokenStream {
     let expr = core_paths::expr();
-    macro_rules! binary_op {
-        ($trait:ident, $method:ident, $op:ident) => {
-            quote! {
-                impl<Rhs> ::core::ops::$trait<Rhs> for #struct_ident
-                where
-                    Rhs: ::core::marker::Copy,
-                    (): #expr::BuildColumnArithmetic<
-                        #struct_ident,
-                        Rhs,
-                        #expr::$op,
-                        <#value_type<'static> as drizzle::core::SQLParam>::DialectMarker,
-                        #sql_type,
-                        #sql_nullable,
-                    >,
-                {
-                    type Output = <() as #expr::BuildColumnArithmetic<
-                        #struct_ident,
-                        Rhs,
-                        #expr::$op,
-                        <#value_type<'static> as drizzle::core::SQLParam>::DialectMarker,
-                        #sql_type,
-                        #sql_nullable,
-                    >>::Output;
+    let binary_op = |op_trait: &str, method: &str, operation: &str| {
+        let op_trait = quote::format_ident!("{op_trait}");
+        let method = quote::format_ident!("{method}");
+        let operation = quote::format_ident!("{operation}");
+        quote! {
+            impl<Rhs> ::core::ops::#op_trait<Rhs> for #struct_ident
+            where
+                Rhs: ::core::marker::Copy,
+                (): #expr::BuildColumnArithmetic<
+                    #struct_ident,
+                    Rhs,
+                    #expr::#operation,
+                    <#value_type<'static> as drizzle::core::SQLParam>::DialectMarker,
+                    #sql_type,
+                    #sql_nullable,
+                >,
+            {
+                type Output = <() as #expr::BuildColumnArithmetic<
+                    #struct_ident,
+                    Rhs,
+                    #expr::#operation,
+                    <#value_type<'static> as drizzle::core::SQLParam>::DialectMarker,
+                    #sql_type,
+                    #sql_nullable,
+                >>::Output;
 
-                    fn $method(self, rhs: Rhs) -> Self::Output {
-                        <() as #expr::BuildColumnArithmetic<
-                            #struct_ident,
-                            Rhs,
-                            #expr::$op,
-                            <#value_type<'static> as drizzle::core::SQLParam>::DialectMarker,
-                            #sql_type,
-                            #sql_nullable,
-                        >>::build(self, rhs)
-                    }
+                fn #method(self, rhs: Rhs) -> Self::Output {
+                    <() as #expr::BuildColumnArithmetic<
+                        #struct_ident,
+                        Rhs,
+                        #expr::#operation,
+                        <#value_type<'static> as drizzle::core::SQLParam>::DialectMarker,
+                        #sql_type,
+                        #sql_nullable,
+                    >>::build(self, rhs)
                 }
             }
-        };
-    }
+        }
+    };
 
-    let add = binary_op!(Add, add, OpAdd);
-    let sub = binary_op!(Sub, sub, OpSub);
-    let mul = binary_op!(Mul, mul, OpMul);
-    let div = binary_op!(Div, div, OpDiv);
-    let rem = binary_op!(Rem, rem, OpRem);
+    let add = binary_op("Add", "add", "OpAdd");
+    let sub = binary_op("Sub", "sub", "OpSub");
+    let mul = binary_op("Mul", "mul", "OpMul");
+    let div = binary_op("Div", "div", "OpDiv");
+    let rem = binary_op("Rem", "rem", "OpRem");
 
     quote! {
         impl #expr::ArithmeticRhs<

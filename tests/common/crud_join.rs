@@ -3,7 +3,6 @@
 /// Each dialect invokes this once after importing its prelude. Mutation results
 /// are intentionally ignored because drivers expose different result metadata;
 /// subsequent reads verify the persisted state instead.
-#[macro_export]
 macro_rules! shared_crud_join_suite {
     ($dialect:ident, $table:ident, $schema:ident) => {
         mod shared_crud_join_contract {
@@ -172,3 +171,5 @@ macro_rules! shared_crud_join_suite {
         }
     };
 }
+
+pub(crate) use shared_crud_join_suite;
