@@ -1,0 +1,6 @@
+error: BIGINT UNSIGNED is unsigned but the Rust field is signed; use the corresponding u8/u16/u32/u64 type
+ --> tests/ui/mysql_macros/fail/serial_requires_unsigned_rust_type.rs:5:5
+  |
+5 | /     #[column(SERIAL)]
+6 | |     id: i64,
+  | |___________^

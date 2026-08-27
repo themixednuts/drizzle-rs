@@ -2,7 +2,7 @@ use drizzle::mysql::prelude::*;
 
 #[MySQLTable]
 struct InvalidPostgresColumnOption {
-    #[column(PRIMARY, SERIAL)]
+    #[column(PRIMARY, BIGSERIAL)]
     id: i32,
 }
 

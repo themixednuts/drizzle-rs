@@ -1,5 +1,5 @@
-error: SERIAL is PostgreSQL-only; use a MySQL integer with AUTO_INCREMENT or inline ENUM
+error: BIGSERIAL is PostgreSQL-only; use a MySQL integer with AUTO_INCREMENT or inline ENUM
  --> tests/ui/mysql_macros/fail/postgres_column_features.rs:5:23
   |
-5 |     #[column(PRIMARY, SERIAL)]
-  |                       ^^^^^^
+5 |     #[column(PRIMARY, BIGSERIAL)]
+  |                       ^^^^^^^^^

@@ -502,7 +502,13 @@ fn parse_column_meta(field: &Field, meta: Meta, out: &mut ParsedColumn) -> Resul
                     "JSONB is PostgreSQL/SQLite-only; MySQL uses JSON",
                 ));
             }
-            "SERIAL" | "BIGSERIAL" | "SMALLSERIAL" | "IDENTITY" | "PGENUM" => {
+            "SERIAL" => {
+                set_explicit_type(field, out, MySQLType::BigintUnsigned)?;
+                out.unique = true;
+                out.not_null = true;
+                out.is_auto_increment = true;
+            }
+            "BIGSERIAL" | "SMALLSERIAL" | "IDENTITY" | "PGENUM" => {
                 return Err(Error::new_spanned(
                     path,
                     format!(

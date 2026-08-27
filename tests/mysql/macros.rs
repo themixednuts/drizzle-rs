@@ -36,6 +36,13 @@ struct Accounts {
     email_length_virtual: u32,
 }
 
+#[MySQLTable]
+struct SerialIds {
+    #[column(SERIAL)]
+    id: u64,
+    name: String,
+}
+
 #[MySQLTable(SCHEMA = "audit_db", NAME = "account_events")]
 struct AccountEvents {
     #[column(PRIMARY, AUTO_INCREMENT)]
@@ -494,6 +501,12 @@ fn relational_metadata_preserves_mysql_database_boundaries() {
     assert_eq!(QualifiedParent::TABLE.schema, Some("billing"));
     assert_eq!(CrossDatabaseChild::TABLE.schema, Some("a_child_db"));
     assert_eq!(CrossDatabaseParent::TABLE.schema, Some("z_parent_db"));
+}
+
+#[test]
+fn serial_expands_to_mysql_bigint_unsigned_alias() {
+    assert!(SerialIds::ddl_sql().contains("`id` BIGINT UNSIGNED UNIQUE NOT NULL AUTO_INCREMENT"));
+    let _insert = InsertSerialIds::new("serial");
 }
 
 #[test]
