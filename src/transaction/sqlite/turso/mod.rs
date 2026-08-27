@@ -61,6 +61,7 @@ crate::drizzle_tx_prepare_impl!('conn);
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 #[derive(Debug)]
+#[must_use = "transactions must be committed or rolled back"]
 pub struct Transaction<'conn, Schema = ()> {
     tx: turso::transaction::Transaction<'conn>,
     tx_type: SQLiteTransactionType,
@@ -120,7 +121,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// ```no_run
     /// # use drizzle::sqlite::turso::Drizzle;
     /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::sqlite::connection::SQLiteTransactionType;
+    /// # use drizzle::sqlite::TransactionConfig;
     /// # use turso::Builder;
     /// # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
     /// # #[derive(SQLiteSchema)] struct S { user: User }
@@ -128,7 +129,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # let db_builder = Builder::new_local(":memory:").build().await?;
     /// # let conn = db_builder.connect()?;
     /// # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
-    /// db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+    /// db.transaction(TransactionConfig::Deferred, async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///
     ///     let _: Result<(), _> = tx.savepoint(async |stx| {

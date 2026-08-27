@@ -627,9 +627,9 @@ fn print_user_posts(user: &UsersWithPosts) {
 > Transactions auto-rollback on error or panic. Return `Ok(value)` to commit, `Err(...)` to rollback. No manual cleanup needed.
 
 ```rust
-use drizzle::sqlite::connection::SQLiteTransactionType;
+use drizzle::sqlite::TransactionConfig;
 
-db.transaction(SQLiteTransactionType::Deferred, |tx| {
+db.transaction(TransactionConfig::Deferred, |tx| {
     tx.insert(users)
         .value(InsertUsers::new("Alice", 28i64))
         .execute()?;
@@ -643,10 +643,10 @@ db.transaction(SQLiteTransactionType::Deferred, |tx| {
 Savepoints nest inside transactions — a failed savepoint rolls back without aborting the outer transaction:
 
 ```rust
-use drizzle::sqlite::connection::SQLiteTransactionType;
+use drizzle::sqlite::TransactionConfig;
 use drizzle::error::DrizzleError;
 
-let count = db.transaction(SQLiteTransactionType::Deferred, |tx| {
+let count = db.transaction(TransactionConfig::Deferred, |tx| {
     tx.insert(users)
         .value(InsertUsers::new("Alice", 28i64))
         .execute()?;
@@ -709,7 +709,20 @@ Use `.prepare().into_owned()` to convert a prepared statement into a self-contai
 
 ## PostgreSQL
 
-Everything above works with `#[PostgresTable]`, `#[derive(PostgresSchema)]`, and `drizzle::postgres::{sync,tokio}::Drizzle`. Transactions take `PostgresTransactionType` (e.g. `ReadCommitted`, `Serializable`) in place of `SQLiteTransactionType`.
+Everything above works with `#[PostgresTable]`, `#[derive(PostgresSchema)]`, and
+`drizzle::postgres::{sync,tokio}::Drizzle`. PostgreSQL's
+`TransactionConfig::default()` uses server defaults. Its typestated builder
+keeps `DEFERRABLE` on the combination where it has meaning:
+
+```rust
+use drizzle::postgres::TransactionConfig;
+
+let config = TransactionConfig::builder()
+    .serializable()
+    .read_only()
+    .deferrable()
+    .build();
+```
 
 ```rust
 use drizzle::postgres::prelude::*;
@@ -820,19 +833,37 @@ Those invariants keep temporal decoding and unsigned arithmetic consistent with
 the Rust types; using `conn_mut()` causes them to be restored before the next
 Drizzle query.
 
-Transactions use `MySQLTransactionConfig` for isolation level, access mode, and
-consistent snapshots. The blocking adapter takes a closure synchronously; the
-async connection and pool adapters expose the same transaction configuration on
-their async methods. MySQL upserts use the native
+Transactions use `TransactionConfig` for isolation level, access mode, and
+consistent snapshots. The typestated builder only exposes `.snapshot()` after
+`.repeatable_read()`. Runtime-derived values can use the enum setters instead.
+The blocking adapter takes a closure synchronously; the async connection and
+pool adapters expose the same transaction configuration on their async methods.
+MySQL upserts use the native
 `.on_duplicate_key_update(...)` builder (or `.ignore()`), not PostgreSQL's
 `.on_conflict(...)` spelling.
 
 ```rust
-db.transaction(MySQLTransactionConfig::default(), |tx| {
+use drizzle::mysql::TransactionConfig;
+
+let config = TransactionConfig::builder()
+    .repeatable_read()
+    .read_only()
+    .snapshot()
+    .build();
+
+db.transaction(config, |tx| {
     tx.insert(users).value(InsertUser::new("Alice")).execute()?;
     Ok(())
 })?;
 ```
+
+Where the driver exposes a transaction handle, `db.begin(config)` provides
+explicit `commit()` or `rollback()` control. Dropping a native SQLite,
+PostgreSQL, or MySQL handle rolls the transaction back through the underlying
+driver. libSQL follows its upstream connection-scoped, best-effort rollback
+behavior. AWS Data API remains callback-only and attempts asynchronous rollback
+if its callback future is cancelled. D1 uses its atomic batch API because the
+platform does not expose transaction handles.
 
 The type surface deliberately leaves unsupported SQL unavailable:
 

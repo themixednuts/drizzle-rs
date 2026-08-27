@@ -46,9 +46,9 @@
 //! # let _ = r####"
 //! # use drizzle::sqlite::prelude::*;
 //! # use drizzle::sqlite::libsql::Drizzle;
-//! use drizzle::sqlite::connection::SQLiteTransactionType;
+//! use drizzle::sqlite::TransactionConfig;
 //!
-//! let count = db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+//! let count = db.transaction(TransactionConfig::Deferred, async |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
 //!     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
 //!     Ok(users.len())
@@ -65,8 +65,8 @@
 //! # let _ = r####"
 //! # use drizzle::sqlite::prelude::*;
 //! # use drizzle::sqlite::libsql::Drizzle;
-//! # use drizzle::sqlite::connection::SQLiteTransactionType;
-//! db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+//! # use drizzle::sqlite::TransactionConfig;
+//! db.transaction(TransactionConfig::Deferred, async |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
 //!
 //!     // This savepoint fails — only its changes roll back
@@ -108,7 +108,6 @@ use libsql::{Connection, Row};
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
     builder::{self, QueryBuilder},
-    connection::SQLiteTransactionType,
     values::SQLiteValue,
 };
 
@@ -116,7 +115,7 @@ crate::drizzle_prepare_impl!();
 
 use crate::builder::sqlite::common;
 use crate::builder::sqlite::rows::LibsqlRows as Rows;
-use crate::transaction::sqlite::libsql::Transaction;
+use crate::transaction::sqlite::libsql::{Transaction, TransactionGuard};
 
 pub type Drizzle<Schema = ()> = common::Drizzle<Connection, Schema>;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
@@ -295,6 +294,25 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         result
     }
 
+    /// Starts a transaction for explicit commit or rollback control.
+    ///
+    /// The returned guard keeps this `Drizzle` handle exclusively borrowed
+    /// until commit, rollback, or drop. Upstream rollback on drop is
+    /// best-effort for remote connections.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if SQLite cannot begin the transaction.
+    pub async fn begin(
+        &mut self,
+        config: drizzle_sqlite::TransactionConfig,
+    ) -> drizzle_core::error::Result<TransactionGuard<'_, Schema>>
+    where
+        Schema: Copy,
+    {
+        Ok(TransactionGuard::new(self.start(config).await?))
+    }
+
     /// Executes a transaction with the given callback.
     ///
     /// The transaction is committed when the callback returns `Ok` and
@@ -305,8 +323,8 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// # let _ = r####"
     /// # use drizzle::sqlite::prelude::*;
     /// # use drizzle::sqlite::libsql::Drizzle;
-    /// # use drizzle::sqlite::connection::SQLiteTransactionType;
-    /// let count = db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+    /// # use drizzle::sqlite::TransactionConfig;
+    /// let count = db.transaction(TransactionConfig::Deferred, async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
     ///     Ok(users.len())
@@ -315,16 +333,14 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// ```
     pub async fn transaction<F, R>(
         &self,
-        tx_type: SQLiteTransactionType,
+        config: drizzle_sqlite::TransactionConfig,
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
         Schema: Copy,
         F: AsyncFnOnce(&Transaction<Schema>) -> Result<R, DrizzleError>,
     {
-        drizzle_core::drizzle_trace_tx!("begin", "sqlite.libsql");
-        let tx = self.conn.transaction_with_behavior(tx_type.into()).await?;
-        let transaction = Transaction::new(tx, tx_type, self.schema);
+        let transaction = self.start(config).await?;
 
         let result = f(&transaction).await;
         match result {
@@ -339,6 +355,18 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                 Err(e)
             }
         }
+    }
+
+    async fn start(
+        &self,
+        config: drizzle_sqlite::TransactionConfig,
+    ) -> drizzle_core::error::Result<Transaction<Schema>>
+    where
+        Schema: Copy,
+    {
+        drizzle_core::drizzle_trace_tx!("begin", "sqlite.libsql");
+        let tx = self.conn.transaction_with_behavior(config.into()).await?;
+        Ok(Transaction::new(tx, config, self.schema))
     }
 }
 

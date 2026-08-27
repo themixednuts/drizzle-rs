@@ -71,6 +71,7 @@ pub(crate) fn options(config: MySQLTransactionConfig) -> TxOpts {
 /// `mysql_async`'s delayed rollback contract: a direct connection cleans it
 /// before its next command, while a pooled connection is cleaned by the pool
 /// recycler before reuse.
+#[must_use = "transactions must be committed or rolled back"]
 pub struct Transaction<'connection, Schema = ()> {
     transaction: tokio::sync::Mutex<Option<DriverTransaction<'connection>>>,
     schema: Schema,
@@ -330,26 +331,39 @@ impl<'connection, Schema> AsyncRunner for &Transaction<'connection, Schema> {
 
 #[cfg(test)]
 mod tests {
-    use drizzle_mysql::{MySQLAccessMode, MySQLIsolationLevel, MySQLTransactionConfig};
+    use drizzle_mysql::{AccessMode, IsolationLevel as ConfigIsolationLevel, TransactionConfig};
     use mysql_async::IsolationLevel;
 
     use super::{options, transaction_was_aborted};
 
     #[test]
     fn transaction_config_maps_to_mysql_driver_options() {
-        let options = options(
-            MySQLTransactionConfig::default()
-                .isolation_level(MySQLIsolationLevel::Serializable)
-                .access_mode(MySQLAccessMode::ReadOnly)
-                .with_consistent_snapshot(),
+        let driver_options = options(
+            TransactionConfig::builder()
+                .repeatable_read()
+                .read_only()
+                .snapshot()
+                .build(),
         );
 
         assert_eq!(
-            options.isolation_level(),
+            driver_options.isolation_level(),
+            Some(IsolationLevel::RepeatableRead)
+        );
+        assert_eq!(driver_options.readonly(), Some(true));
+        assert!(driver_options.consistent_snapshot());
+
+        let runtime = options(
+            TransactionConfig::new()
+                .isolation_level(ConfigIsolationLevel::Serializable)
+                .access_mode(AccessMode::ReadWrite),
+        );
+        assert_eq!(
+            runtime.isolation_level(),
             Some(IsolationLevel::Serializable)
         );
-        assert_eq!(options.readonly(), Some(true));
-        assert!(options.consistent_snapshot());
+        assert_eq!(runtime.readonly(), Some(false));
+        assert!(!runtime.consistent_snapshot());
     }
 
     #[test]

@@ -120,6 +120,7 @@ pub(crate) fn start_transaction<C: TransactionConnection>(
 /// A scoped blocking MySQL transaction.
 ///
 /// Dropping an active value delegates rollback to the upstream driver.
+#[must_use = "transactions must be committed or rolled back"]
 pub struct Transaction<'connection, Schema = ()> {
     transaction: RefCell<Option<DriverTransaction<'connection>>>,
     schema: Schema,
@@ -511,26 +512,39 @@ where
 
 #[cfg(test)]
 mod tests {
-    use drizzle_mysql::{MySQLAccessMode, MySQLIsolationLevel, MySQLTransactionConfig};
+    use drizzle_mysql::{AccessMode as ConfigAccessMode, TransactionConfig};
     use mysql::{AccessMode, IsolationLevel};
 
     use super::{options, transaction_was_aborted};
 
     #[test]
     fn transaction_config_maps_to_mysql_driver_options() {
-        let options = options(
-            MySQLTransactionConfig::default()
-                .isolation_level(MySQLIsolationLevel::Serializable)
-                .access_mode(MySQLAccessMode::ReadOnly)
-                .with_consistent_snapshot(),
+        let driver_options = options(
+            TransactionConfig::builder()
+                .repeatable_read()
+                .read_only()
+                .snapshot()
+                .build(),
         );
 
         assert_eq!(
-            options.isolation_level(),
+            driver_options.isolation_level(),
+            Some(IsolationLevel::RepeatableRead)
+        );
+        assert_eq!(driver_options.access_mode(), Some(AccessMode::ReadOnly));
+        assert!(driver_options.with_consistent_snapshot());
+
+        let runtime = options(
+            TransactionConfig::new()
+                .isolation_level(drizzle_mysql::IsolationLevel::Serializable)
+                .access_mode(ConfigAccessMode::ReadWrite),
+        );
+        assert_eq!(
+            runtime.isolation_level(),
             Some(IsolationLevel::Serializable)
         );
-        assert_eq!(options.access_mode(), Some(AccessMode::ReadOnly));
-        assert!(options.with_consistent_snapshot());
+        assert_eq!(runtime.access_mode(), Some(AccessMode::ReadWrite));
+        assert!(!runtime.with_consistent_snapshot());
     }
 
     #[test]

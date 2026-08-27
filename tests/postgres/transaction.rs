@@ -15,6 +15,35 @@ struct TxSimpleResult {
     name: String,
 }
 
+#[derive(PostgresFromRow)]
+struct TxSettings {
+    isolation: String,
+    read_only: String,
+    deferrable: String,
+}
+
+#[drizzle::test]
+fn transaction_config_reaches_the_server(db: &mut TestDb<SimpleSchema>) {
+    let config = TransactionConfig::builder()
+        .serializable()
+        .read_only()
+        .deferrable()
+        .build();
+
+    result!(db.transaction(config, |tx| {
+        let settings: TxSettings = result!(tx.get(SQL::raw(
+            "SELECT current_setting('transaction_isolation') AS isolation, \
+             current_setting('transaction_read_only') AS read_only, \
+             current_setting('transaction_deferrable') AS deferrable"
+        )))?;
+
+        assert_eq!(settings.isolation, "serializable");
+        assert_eq!(settings.read_only, "on");
+        assert_eq!(settings.deferrable, "on");
+        Ok(())
+    }))?;
+}
+
 #[drizzle::test]
 fn transaction_commit(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;

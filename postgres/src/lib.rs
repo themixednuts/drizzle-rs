@@ -40,6 +40,7 @@ pub mod common;
 pub mod expr;
 pub mod helpers;
 pub mod traits;
+pub mod transaction;
 pub mod types {
     pub use drizzle_types::postgres::types::*;
 }
@@ -66,3 +67,4 @@ pub mod driver_types {
 }
 
 pub use drizzle_core::ParamBind;
+pub use transaction::{AccessMode, IsolationLevel, TransactionConfig};

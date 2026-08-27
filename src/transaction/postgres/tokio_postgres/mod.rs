@@ -22,6 +22,7 @@ use drizzle_postgres::builder::{
     update::UpdateBuilder,
 };
 use drizzle_postgres::common::PostgresTransactionType;
+use drizzle_postgres::transaction::{IsolationLevel, TransactionConfig};
 use drizzle_postgres::values::PostgresValue;
 
 use crate::builder::postgres::tokio_postgres::tokio_postgres_materialize_params as materialize_params;
@@ -44,9 +45,10 @@ use drizzle_core::prepared::prepare_render;
 crate::drizzle_tx_prepare_impl!('conn);
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
+#[must_use = "transactions must be committed or rolled back"]
 pub struct Transaction<'conn, Schema = ()> {
     tx: RefCell<Option<TokioPgTransaction<'conn>>>,
-    tx_type: PostgresTransactionType,
+    config: TransactionConfig,
     savepoints: AsyncSavepointState,
     schema: Schema,
     statement_cache: ClientStatementCache,
@@ -55,7 +57,7 @@ pub struct Transaction<'conn, Schema = ()> {
 impl<Schema> std::fmt::Debug for Transaction<'_, Schema> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Transaction")
-            .field("tx_type", &self.tx_type)
+            .field("config", &self.config)
             .field("is_active", &self.tx.borrow().is_some())
             .finish()
     }
@@ -65,13 +67,13 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// Creates a new transaction wrapper
     pub(crate) fn new(
         tx: TokioPgTransaction<'conn>,
-        tx_type: PostgresTransactionType,
+        config: TransactionConfig,
         schema: Schema,
         statement_cache: ClientStatementCache,
     ) -> Self {
         Self {
             tx: RefCell::new(Some(tx)),
-            tx_type,
+            config,
             savepoints: AsyncSavepointState::new(),
             schema,
             statement_cache,
@@ -84,10 +86,25 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         &self.schema
     }
 
-    /// Gets the transaction type
+    /// Legacy isolation view.
+    ///
+    /// This cannot distinguish server-default isolation from explicit
+    /// `READ COMMITTED`. Use [`Self::config`] when that distinction matters.
+    #[deprecated(since = "0.1.17", note = "use config()")]
     #[inline]
     pub const fn tx_type(&self) -> PostgresTransactionType {
-        self.tx_type
+        match self.config.isolation() {
+            None | Some(IsolationLevel::ReadCommitted) => PostgresTransactionType::ReadCommitted,
+            Some(IsolationLevel::ReadUncommitted) => PostgresTransactionType::ReadUncommitted,
+            Some(IsolationLevel::RepeatableRead) => PostgresTransactionType::RepeatableRead,
+            Some(IsolationLevel::Serializable) => PostgresTransactionType::Serializable,
+        }
+    }
+
+    /// Gets the configuration used to begin this transaction.
+    #[inline]
+    pub const fn config(&self) -> TransactionConfig {
+        self.config
     }
 
     /// Executes a raw SQL string with no parameters.
@@ -111,14 +128,14 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// ```no_run
     /// # use drizzle::postgres::prelude::*;
     /// # use drizzle::postgres::tokio::Drizzle;
-    /// # use drizzle::postgres::common::PostgresTransactionType;
+    /// # use drizzle::postgres::TransactionConfig;
     /// # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
     /// # #[derive(PostgresSchema)] struct S { user: User }
     /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
     /// # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
     /// # tokio::spawn(async move { conn.await.unwrap() });
     /// # let (mut db, S { user }) = Drizzle::new(client, S::new());
-    /// db.transaction(PostgresTransactionType::ReadCommitted, async |tx| {
+    /// db.transaction(TransactionConfig::default(), async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///
     ///     // This savepoint fails — only its changes roll back
@@ -280,7 +297,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Commits the transaction
-    pub(crate) async fn commit(&self) -> drizzle_core::error::Result<()> {
+    pub async fn commit(self) -> drizzle_core::error::Result<()> {
         if let Err(error) = self.savepoints.ensure_usable() {
             let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
             tx.rollback().await.map_err(DrizzleError::from)?;
@@ -291,7 +308,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Rolls back the transaction
-    pub(crate) async fn rollback(&self) -> drizzle_core::error::Result<()> {
+    pub async fn rollback(self) -> drizzle_core::error::Result<()> {
         let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
         tx.rollback().await.map_err(DrizzleError::from)
     }

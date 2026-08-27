@@ -46,6 +46,7 @@ crate::drizzle_tx_prepare_impl!('conn);
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 #[derive(Debug)]
+#[must_use = "transactions must be committed or rolled back"]
 pub struct Transaction<'conn, Schema = ()> {
     tx: rusqlite::Transaction<'conn>,
     tx_type: SQLiteTransactionType,
@@ -104,14 +105,14 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// ```no_run
     /// # use drizzle::sqlite::rusqlite::Drizzle;
     /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::sqlite::connection::SQLiteTransactionType;
+    /// # use drizzle::sqlite::TransactionConfig;
     /// # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
     /// # #[derive(SQLiteSchema)] struct S { user: User }
     /// # fn main() -> drizzle::Result<()> {
     /// # let conn = ::rusqlite::Connection::open_in_memory()?;
     /// # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
     /// # db.create()?;
-    /// db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    /// db.transaction(TransactionConfig::Deferred, |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
     ///
     ///     // This savepoint fails — only its changes are rolled back
@@ -240,7 +241,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns a [`rusqlite::Error`] if the commit call to the database fails.
+    /// Returns [`rusqlite::Error`] if the commit call to the database fails.
     pub fn commit(self) -> rusqlite::Result<()> {
         self.tx.commit()
     }
@@ -249,7 +250,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns a [`rusqlite::Error`] if the rollback call to the database fails.
+    /// Returns [`rusqlite::Error`] if the rollback call to the database fails.
     pub fn rollback(self) -> rusqlite::Result<()> {
         self.tx.rollback()
     }

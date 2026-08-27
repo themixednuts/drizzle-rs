@@ -6,6 +6,7 @@
 //! savepoints through [`Transaction::savepoint`].
 
 use std::marker::PhantomData;
+use std::ops::Deref;
 use std::sync::atomic::AtomicU32;
 
 use ::worker::{SqlStorage, SqlStorageValue};
@@ -16,6 +17,7 @@ use crate::transaction::savepoint::sync_savepoint;
 
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
+    TransactionConfig,
     builder::{
         self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
         update::UpdateBuilder,
@@ -49,10 +51,53 @@ crate::drizzle_tx_prepare_impl!();
 /// Provides the same query-building surface as
 /// [`Drizzle`](crate::builder::sqlite::durable::Drizzle) plus
 /// [`Transaction::savepoint`] for nested savepoints.
+#[must_use = "transactions must be committed or rolled back"]
 pub struct Transaction<Schema = ()> {
     conn: SqlStorage,
+    config: TransactionConfig,
+    active: bool,
     savepoint_depth: AtomicU32,
     schema: Schema,
+}
+
+/// Explicit transaction that keeps its originating `Drizzle` handle borrowed.
+#[must_use = "transactions must be committed or rolled back"]
+pub struct TransactionGuard<'db, Schema = ()> {
+    transaction: Transaction<Schema>,
+    borrow: PhantomData<&'db mut ()>,
+}
+
+impl<Schema> TransactionGuard<'_, Schema> {
+    pub(crate) const fn new(transaction: Transaction<Schema>) -> Self {
+        Self {
+            transaction,
+            borrow: PhantomData,
+        }
+    }
+
+    /// Commits the transaction.
+    pub fn commit(self) -> drizzle_core::error::Result<()> {
+        self.transaction.commit()
+    }
+
+    /// Rolls back the transaction.
+    pub fn rollback(self) -> drizzle_core::error::Result<()> {
+        self.transaction.rollback()
+    }
+}
+
+impl<Schema> Deref for TransactionGuard<'_, Schema> {
+    type Target = Transaction<Schema>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.transaction
+    }
+}
+
+impl<Schema> std::fmt::Debug for TransactionGuard<'_, Schema> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.transaction.fmt(formatter)
+    }
 }
 
 impl<Schema> std::fmt::Debug for Transaction<Schema> {
@@ -62,9 +107,11 @@ impl<Schema> std::fmt::Debug for Transaction<Schema> {
 }
 
 impl<Schema> Transaction<Schema> {
-    pub(crate) fn new(conn: SqlStorage, schema: Schema) -> Self {
+    pub(crate) fn new(conn: SqlStorage, config: TransactionConfig, schema: Schema) -> Self {
         Self {
             conn,
+            config,
+            active: true,
             savepoint_depth: AtomicU32::new(0),
             schema,
         }
@@ -80,6 +127,12 @@ impl<Schema> Transaction<Schema> {
     #[inline]
     pub fn inner(&self) -> &SqlStorage {
         &self.conn
+    }
+
+    /// Configuration used to begin this transaction.
+    #[inline]
+    pub const fn config(&self) -> TransactionConfig {
+        self.config
     }
 
     /// Executes a nested savepoint within this transaction.
@@ -103,6 +156,24 @@ impl<Schema> Transaction<Schema> {
             },
             || f(self),
         )
+    }
+
+    /// Commits the transaction.
+    pub fn commit(mut self) -> drizzle_core::error::Result<()> {
+        self.conn
+            .exec("COMMIT", None)
+            .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+        self.active = false;
+        Ok(())
+    }
+
+    /// Rolls back the transaction.
+    pub fn rollback(mut self) -> drizzle_core::error::Result<()> {
+        self.conn
+            .exec("ROLLBACK", None)
+            .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+        self.active = false;
+        Ok(())
     }
 
     sqlite_transaction_constructors!();
@@ -150,6 +221,14 @@ impl<Schema> Transaction<Schema> {
             .into_iter()
             .next()
             .ok_or(DrizzleError::NotFound)
+    }
+}
+
+impl<Schema> Drop for Transaction<Schema> {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = self.conn.exec("ROLLBACK", None);
+        }
     }
 }
 

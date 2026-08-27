@@ -46,9 +46,9 @@
 //! # fn main() -> drizzle::Result<()> {
 //! # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
 //! # let (mut db, S { user }) = Drizzle::new(client, S::new());
-//! use drizzle::postgres::common::PostgresTransactionType;
+//! use drizzle::postgres::TransactionConfig;
 //!
-//! let count = db.transaction(PostgresTransactionType::ReadCommitted, |tx| {
+//! let count = db.transaction(TransactionConfig::default(), |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
 //!     let users: Vec<SelectUser> = tx.select(()).from(user).all()?;
 //!     Ok(users.len())
@@ -64,13 +64,13 @@
 //! ```no_run
 //! # use drizzle::postgres::prelude::*;
 //! # use drizzle::postgres::sync::Drizzle;
-//! # use drizzle::postgres::common::PostgresTransactionType;
+//! # use drizzle::postgres::TransactionConfig;
 //! # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
 //! # #[derive(PostgresSchema)] struct S { user: User }
 //! # fn main() -> drizzle::Result<()> {
 //! # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
 //! # let (mut db, S { user }) = Drizzle::new(client, S::new());
-//! db.transaction(PostgresTransactionType::ReadCommitted, |tx| {
+//! db.transaction(TransactionConfig::default(), |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
 //!
 //!     // This savepoint fails — only its changes roll back
@@ -125,7 +125,7 @@ use drizzle_core::traits::ToSQL;
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 use drizzle_postgres::traits::PostgresTable;
 use postgres::{
-    Client, IsolationLevel, Row, Statement,
+    Client, IsolationLevel as DriverIsolationLevel, Row, Statement,
     types::{ToSql, Type},
 };
 
@@ -133,7 +133,7 @@ use drizzle_postgres::builder::{
     self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
     update::UpdateBuilder,
 };
-use drizzle_postgres::common::PostgresTransactionType;
+use drizzle_postgres::transaction::{AccessMode, IsolationLevel, TransactionConfig};
 use drizzle_postgres::values::PostgresValue;
 use smallvec::SmallVec;
 
@@ -394,6 +394,58 @@ impl<Schema> Drizzle<Schema> {
         }
     }
 
+    /// Starts a transaction for explicit commit or rollback control.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if PostgreSQL cannot start the transaction.
+    pub fn begin(
+        &mut self,
+        config: impl Into<TransactionConfig>,
+    ) -> drizzle_core::error::Result<Transaction<'_, Schema>>
+    where
+        Schema: Copy,
+    {
+        let config = config.into();
+        let applied_config = if config.uses_server_default_isolation() {
+            let mut applied = TransactionConfig::new();
+            if let Some(access) = config.access() {
+                applied = applied.access_mode(access);
+            }
+            applied
+        } else {
+            config
+        };
+        let client_id = self.client_id();
+        let statement_cache = self.statement_cache();
+        let mut builder = self.client.build_transaction();
+
+        if let Some(isolation) = applied_config.isolation() {
+            builder = builder.isolation_level(match isolation {
+                IsolationLevel::ReadUncommitted => DriverIsolationLevel::ReadUncommitted,
+                IsolationLevel::ReadCommitted => DriverIsolationLevel::ReadCommitted,
+                IsolationLevel::RepeatableRead => DriverIsolationLevel::RepeatableRead,
+                IsolationLevel::Serializable => DriverIsolationLevel::Serializable,
+            });
+        }
+        if let Some(access) = applied_config.access() {
+            builder = builder.read_only(access == AccessMode::ReadOnly);
+        }
+        if applied_config.is_deferrable() {
+            builder = builder.deferrable(true);
+        }
+
+        drizzle_core::drizzle_trace_tx!("begin", "postgres.sync");
+        let tx = builder.start()?;
+        Ok(Transaction::new(
+            tx,
+            applied_config,
+            self.schema,
+            client_id,
+            statement_cache,
+        ))
+    }
+
     /// Executes a transaction with the given callback.
     ///
     /// The transaction is committed when the callback returns `Ok` and
@@ -402,13 +454,13 @@ impl<Schema> Drizzle<Schema> {
     /// ```no_run
     /// # use drizzle::postgres::prelude::*;
     /// # use drizzle::postgres::sync::Drizzle;
-    /// # use drizzle::postgres::common::PostgresTransactionType;
+    /// # use drizzle::postgres::TransactionConfig;
     /// # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
     /// # #[derive(PostgresSchema)] struct S { user: User }
     /// # fn main() -> drizzle::Result<()> {
     /// # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
     /// # let (mut db, S { user }) = Drizzle::new(client, S::new());
-    /// let count = db.transaction(PostgresTransactionType::ReadCommitted, |tx| {
+    /// let count = db.transaction(TransactionConfig::default(), |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
     ///     let users: Vec<SelectUser> = tx.select(()).from(user).all()?;
     ///     Ok(users.len())
@@ -421,35 +473,14 @@ impl<Schema> Drizzle<Schema> {
     /// Returns [`DrizzleError`] if beginning or committing the transaction fails, or if the inner closure returns an error.
     pub fn transaction<F, R>(
         &mut self,
-        tx_type: PostgresTransactionType,
+        config: impl Into<TransactionConfig>,
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
         Schema: Copy,
         F: FnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
-        // Resolved before the transaction borrows the client mutably; sharing the
-        // connection's identity and cache lets statements prepared inside the
-        // transaction serve later transactions and the connection runner.
-        let client_id = self.client_id();
-        let statement_cache = self.statement_cache();
-
-        let builder = self.client.build_transaction();
-        let builder = if tx_type == PostgresTransactionType::default() {
-            builder
-        } else {
-            let isolation = match tx_type {
-                PostgresTransactionType::ReadUncommitted => IsolationLevel::ReadUncommitted,
-                PostgresTransactionType::ReadCommitted => IsolationLevel::ReadCommitted,
-                PostgresTransactionType::RepeatableRead => IsolationLevel::RepeatableRead,
-                PostgresTransactionType::Serializable => IsolationLevel::Serializable,
-            };
-            builder.isolation_level(isolation)
-        };
-        drizzle_core::drizzle_trace_tx!("begin", "postgres.sync");
-        let tx = builder.start()?;
-
-        let transaction = Transaction::new(tx, tx_type, self.schema, client_id, statement_cache);
+        let transaction = self.begin(config)?;
         sync_transaction(
             transaction,
             "postgres.sync",

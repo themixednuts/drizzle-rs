@@ -62,6 +62,44 @@ macro_rules! shared_transaction_suite {
             }
 
             #[drizzle::test($dialect)]
+            fn explicit_commit_rollback_and_drop(db: &mut TestDb<SharedTransactionSchema>) {
+                let SharedTransactionSchema { rows } = schema;
+
+                {
+                    let tx = result!(db.begin($transaction_config))?;
+                    result!(
+                        tx.insert(rows)
+                            .value(InsertSharedTransactionRow::new("dropped").with_id(1))
+                            .execute()
+                    )?;
+                }
+                let after_drop: Vec<SelectSharedTransactionRow> =
+                    db.select(()).from(rows).all();
+                assert!(after_drop.is_empty());
+
+                let tx = result!(db.begin($transaction_config))?;
+                result!(
+                    tx.insert(rows)
+                        .value(InsertSharedTransactionRow::new("committed").with_id(1))
+                        .execute()
+                )?;
+                result!(tx.commit())?;
+
+                let tx = result!(db.begin($transaction_config))?;
+                result!(
+                    tx.insert(rows)
+                        .value(InsertSharedTransactionRow::new("rolled back").with_id(2))
+                        .execute()
+                )?;
+                result!(tx.rollback())?;
+
+                let persisted: Vec<SelectSharedTransactionRow> =
+                    db.select(()).from(rows).all();
+                assert_eq!(persisted.len(), 1);
+                assert_eq!(persisted[0].name, "committed");
+            }
+
+            #[drizzle::test($dialect)]
             fn nested_savepoint_rollback_preserves_enclosing_transactions(
                 db: &mut TestDb<SharedTransactionSchema>,
             ) {

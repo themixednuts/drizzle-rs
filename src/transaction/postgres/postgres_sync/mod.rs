@@ -20,6 +20,7 @@ use drizzle_postgres::builder::{
     update::UpdateBuilder,
 };
 use drizzle_postgres::common::PostgresTransactionType;
+use drizzle_postgres::transaction::{IsolationLevel, TransactionConfig};
 use drizzle_postgres::values::PostgresValue;
 use smallvec::SmallVec;
 
@@ -55,9 +56,10 @@ use drizzle_core::prepared::prepare_render;
 crate::drizzle_tx_prepare_impl!('conn);
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
+#[must_use = "transactions must be committed or rolled back"]
 pub struct Transaction<'conn, Schema = ()> {
     tx: RefCell<Option<PgTransaction<'conn>>>,
-    tx_type: PostgresTransactionType,
+    config: TransactionConfig,
     savepoint_depth: AtomicU32,
     schema: Schema,
     client_id: u64,
@@ -67,7 +69,7 @@ pub struct Transaction<'conn, Schema = ()> {
 impl<Schema> std::fmt::Debug for Transaction<'_, Schema> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Transaction")
-            .field("tx_type", &self.tx_type)
+            .field("config", &self.config)
             .field("is_active", &self.tx.borrow().is_some())
             .finish()
     }
@@ -77,14 +79,14 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// Creates a new transaction wrapper
     pub(crate) const fn new(
         tx: PgTransaction<'conn>,
-        tx_type: PostgresTransactionType,
+        config: TransactionConfig,
         schema: Schema,
         client_id: u64,
         statement_cache: StatementCache,
     ) -> Self {
         Self {
             tx: RefCell::new(Some(tx)),
-            tx_type,
+            config,
             savepoint_depth: AtomicU32::new(0),
             schema,
             client_id,
@@ -109,10 +111,25 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         &self.schema
     }
 
-    /// Gets the transaction type
+    /// Legacy isolation view.
+    ///
+    /// This cannot distinguish server-default isolation from explicit
+    /// `READ COMMITTED`. Use [`Self::config`] when that distinction matters.
+    #[deprecated(since = "0.1.17", note = "use config()")]
     #[inline]
     pub const fn tx_type(&self) -> PostgresTransactionType {
-        self.tx_type
+        match self.config.isolation() {
+            None | Some(IsolationLevel::ReadCommitted) => PostgresTransactionType::ReadCommitted,
+            Some(IsolationLevel::ReadUncommitted) => PostgresTransactionType::ReadUncommitted,
+            Some(IsolationLevel::RepeatableRead) => PostgresTransactionType::RepeatableRead,
+            Some(IsolationLevel::Serializable) => PostgresTransactionType::Serializable,
+        }
+    }
+
+    /// Gets the configuration used to begin this transaction.
+    #[inline]
+    pub const fn config(&self) -> TransactionConfig {
+        self.config
     }
 
     /// Executes a raw SQL string with no parameters.
@@ -135,13 +152,13 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// ```no_run
     /// # use drizzle::postgres::prelude::*;
     /// # use drizzle::postgres::sync::Drizzle;
-    /// # use drizzle::postgres::common::PostgresTransactionType;
+    /// # use drizzle::postgres::TransactionConfig;
     /// # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
     /// # #[derive(PostgresSchema)] struct S { user: User }
     /// # fn main() -> drizzle::Result<()> {
     /// # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
     /// # let (mut db, S { user }) = Drizzle::new(client, S::new());
-    /// db.transaction(PostgresTransactionType::ReadCommitted, |tx| {
+    /// db.transaction(TransactionConfig::default(), |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
     ///
     ///     // This savepoint fails — only its changes roll back
@@ -322,13 +339,13 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Commits the transaction
-    pub(crate) fn commit(&self) -> drizzle_core::error::Result<()> {
+    pub fn commit(self) -> drizzle_core::error::Result<()> {
         let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
         tx.commit().map_err(DrizzleError::from)
     }
 
     /// Rolls back the transaction
-    pub(crate) fn rollback(&self) -> drizzle_core::error::Result<()> {
+    pub fn rollback(self) -> drizzle_core::error::Result<()> {
         let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
         tx.rollback().map_err(DrizzleError::from)
     }

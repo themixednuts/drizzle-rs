@@ -1,7 +1,7 @@
 //! Portable ORM contracts exercised by every PostgreSQL adapter.
 
+use drizzle::postgres::TransactionConfig;
 use drizzle::postgres::prelude::*;
-use drizzle_postgres::common::PostgresTransactionType;
 
 crate::common::crud_join::shared_crud_join_suite!(postgres, PostgresTable, PostgresSchema);
 crate::common::prepared::shared_prepared_statement_suite!(
@@ -14,5 +14,5 @@ crate::common::transaction::shared_transaction_suite!(
     postgres,
     PostgresTable,
     PostgresSchema,
-    PostgresTransactionType::default()
+    TransactionConfig::default()
 );

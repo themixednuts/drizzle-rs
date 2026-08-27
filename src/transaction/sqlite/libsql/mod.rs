@@ -6,6 +6,7 @@ use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, Updat
 use drizzle_sqlite::traits::SQLiteTable;
 use libsql::Row;
 use std::marker::PhantomData;
+use std::ops::Deref;
 
 use crate::builder::sqlite::rows::LibsqlRows as Rows;
 use crate::transaction::savepoint::{AsyncSavepointState, async_savepoint};
@@ -38,11 +39,52 @@ use drizzle_core::prepared::prepare_render;
 crate::drizzle_tx_prepare_impl!();
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
+#[must_use = "transactions must be committed or rolled back"]
 pub struct Transaction<Schema = ()> {
     tx: libsql::Transaction,
     tx_type: SQLiteTransactionType,
     savepoints: AsyncSavepointState,
     schema: Schema,
+}
+
+/// Explicit transaction that keeps its originating `Drizzle` handle borrowed.
+#[must_use = "transactions must be committed or rolled back"]
+pub struct TransactionGuard<'db, Schema = ()> {
+    transaction: Transaction<Schema>,
+    borrow: PhantomData<&'db mut ()>,
+}
+
+impl<Schema> TransactionGuard<'_, Schema> {
+    pub(crate) const fn new(transaction: Transaction<Schema>) -> Self {
+        Self {
+            transaction,
+            borrow: PhantomData,
+        }
+    }
+
+    /// Commits the transaction.
+    pub async fn commit(self) -> Result<(), DrizzleError> {
+        self.transaction.commit().await
+    }
+
+    /// Rolls back the transaction.
+    pub async fn rollback(self) -> Result<(), DrizzleError> {
+        self.transaction.rollback().await
+    }
+}
+
+impl<Schema> Deref for TransactionGuard<'_, Schema> {
+    type Target = Transaction<Schema>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.transaction
+    }
+}
+
+impl<Schema> std::fmt::Debug for TransactionGuard<'_, Schema> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.transaction.fmt(formatter)
+    }
 }
 
 impl<Schema> std::fmt::Debug for Transaction<Schema> {
@@ -107,8 +149,8 @@ impl<Schema> Transaction<Schema> {
     /// # let _ = r####"
     /// # use drizzle::sqlite::prelude::*;
     /// # use drizzle::sqlite::libsql::Drizzle;
-    /// # use drizzle::sqlite::connection::SQLiteTransactionType;
-    /// db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+    /// # use drizzle::sqlite::TransactionConfig;
+    /// db.transaction(TransactionConfig::Deferred, async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///
     ///     let _ = tx.savepoint(async |stx| {

@@ -47,4 +47,5 @@ pub mod types {
 }
 pub mod values;
 
+pub use connection::{SQLiteTransactionType, TransactionConfig};
 pub use drizzle_core::ParamBind;

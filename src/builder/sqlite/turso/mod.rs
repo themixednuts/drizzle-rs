@@ -50,9 +50,9 @@
 //! # let db_builder = Builder::new_local(":memory:").build().await?;
 //! # let conn = db_builder.connect()?;
 //! # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
-//! use drizzle::sqlite::connection::SQLiteTransactionType;
+//! use drizzle::sqlite::TransactionConfig;
 //!
-//! let count = db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+//! let count = db.transaction(TransactionConfig::Deferred, async |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
 //!     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
 //!     Ok(users.len())
@@ -68,7 +68,7 @@
 //! ```no_run
 //! # use drizzle::sqlite::turso::Drizzle;
 //! # use drizzle::sqlite::prelude::*;
-//! # use drizzle::sqlite::connection::SQLiteTransactionType;
+//! # use drizzle::sqlite::TransactionConfig;
 //! # use turso::Builder;
 //! # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
 //! # #[derive(SQLiteSchema)] struct S { user: User }
@@ -76,7 +76,7 @@
 //! # let db_builder = Builder::new_local(":memory:").build().await?;
 //! # let conn = db_builder.connect()?;
 //! # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
-//! db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+//! db.transaction(TransactionConfig::Deferred, async |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
 //!
 //!     // This savepoint fails — only its changes roll back
@@ -130,7 +130,6 @@ use turso::{Connection, IntoValue, Row};
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
     builder::{self, QueryBuilder},
-    connection::SQLiteTransactionType,
     values::SQLiteValue,
 };
 
@@ -148,6 +147,7 @@ async fn turso_execute_cached(
     sql: &str,
     params: Vec<turso::Value>,
 ) -> turso::Result<u64> {
+    conn.execute_batch("").await?;
     let mut stmt = conn.prepare_cached(sql).await?;
     stmt.execute(params).await
 }
@@ -157,6 +157,7 @@ async fn turso_query_cached(
     sql: &str,
     params: Vec<turso::Value>,
 ) -> turso::Result<turso::Rows> {
+    conn.execute_batch("").await?;
     let mut stmt = conn.prepare_cached(sql).await?;
     stmt.query(params).await
 }
@@ -294,6 +295,23 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         }
     }
 
+    /// Starts a transaction for explicit commit or rollback control.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if SQLite cannot begin the transaction.
+    pub async fn begin(
+        &mut self,
+        config: drizzle_sqlite::TransactionConfig,
+    ) -> drizzle_core::error::Result<Transaction<'_, Schema>>
+    where
+        Schema: Copy,
+    {
+        drizzle_core::drizzle_trace_tx!("begin", "sqlite.turso");
+        let tx = self.conn.transaction_with_behavior(config.into()).await?;
+        Ok(Transaction::new(tx, config, self.schema))
+    }
+
     /// Executes a transaction with the given callback.
     ///
     /// The transaction is committed when the callback returns `Ok` and
@@ -302,7 +320,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// ```no_run
     /// # use drizzle::sqlite::turso::Drizzle;
     /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::sqlite::connection::SQLiteTransactionType;
+    /// # use drizzle::sqlite::TransactionConfig;
     /// # use turso::Builder;
     /// # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
     /// # #[derive(SQLiteSchema)] struct S { user: User }
@@ -310,7 +328,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// # let db_builder = Builder::new_local(":memory:").build().await?;
     /// # let conn = db_builder.connect()?;
     /// # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
-    /// let count = db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+    /// let count = db.transaction(TransactionConfig::Deferred, async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
     ///     Ok(users.len())
@@ -319,16 +337,14 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// ```
     pub async fn transaction<F, R>(
         &mut self,
-        tx_type: SQLiteTransactionType,
+        config: drizzle_sqlite::TransactionConfig,
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
         Schema: Copy,
         F: AsyncFnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
-        drizzle_core::drizzle_trace_tx!("begin", "sqlite.turso");
-        let tx = self.conn.transaction_with_behavior(tx_type.into()).await?;
-        let transaction = Transaction::new(tx, tx_type, self.schema);
+        let transaction = self.begin(config).await?;
 
         let outcome = std::panic::AssertUnwindSafe(f(&transaction))
             .catch_unwind()

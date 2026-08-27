@@ -37,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .on_duplicate_key_update(UpdateUser::default().with_name("Alice"))
         .execute()?;
 
-    db.transaction(MySQLTransactionConfig::default(), |tx| {
+    db.transaction(TransactionConfig::default(), |tx| {
         tx.insert(users)
             .value(InsertUser::new("bob@example.com", "Bob"))
             .execute()?;

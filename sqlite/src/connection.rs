@@ -1,8 +1,8 @@
 //! Transaction-type marker and per-driver behavior conversions for `SQLite` drivers.
 
-/// `SQLite` transaction types
-#[derive(Default, Debug, Clone, Copy)]
-pub enum SQLiteTransactionType {
+/// Locking behavior used when starting a `SQLite` transaction.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransactionConfig {
     #[default]
     /// A deferred transaction is the default - it does not acquire locks until needed
     Deferred,
@@ -11,6 +11,9 @@ pub enum SQLiteTransactionType {
     /// An exclusive transaction acquires an EXCLUSIVE lock immediately
     Exclusive,
 }
+
+/// Backwards-compatible name for [`TransactionConfig`].
+pub type SQLiteTransactionType = TransactionConfig;
 
 #[cfg(feature = "rusqlite")]
 impl From<SQLiteTransactionType> for ::rusqlite::TransactionBehavior {

@@ -68,12 +68,11 @@ fn pool_construction_is_lazy_and_runtime_owned_by_first_checkout() {
 }
 
 #[tokio::test]
+#[allow(deprecated)]
 async fn pooled_transactions_rollback_explicitly_and_before_reuse() -> drizzle::Result<()> {
     let (db, TestSchema { users, .. }, _guard) = setup_pool().await;
 
-    let transaction = db
-        .begin_transaction(MySQLTransactionConfig::default())
-        .await?;
+    let transaction = db.begin(TransactionConfig::default()).await?;
     transaction
         .insert(users)
         .value(
@@ -86,10 +85,11 @@ async fn pooled_transactions_rollback_explicitly_and_before_reuse() -> drizzle::
     let after_explicit: i64 = db.select(count(users.id)).from(users).get().await?;
     assert_eq!(after_explicit, 0);
 
+    let transaction = db.begin_transaction(TransactionConfig::default()).await?;
+    transaction.rollback().await?;
+
     {
-        let transaction = db
-            .begin_transaction(MySQLTransactionConfig::default())
-            .await?;
+        let transaction = db.begin(TransactionConfig::default()).await?;
         transaction
             .insert(users)
             .value(

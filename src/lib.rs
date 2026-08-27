@@ -240,7 +240,8 @@ pub mod sqlite {
     };
     #[doc(inline)]
     pub use drizzle_sqlite::{
-        attrs, builder, common, connection, expr, helpers, pragma, traits, types, values,
+        SQLiteTransactionType, TransactionConfig, attrs, builder, common, connection, expr,
+        helpers, pragma, traits, types, values,
     };
 
     #[cfg(feature = "rusqlite")]
@@ -260,7 +261,7 @@ pub mod sqlite {
         #[doc(inline)]
         pub use crate::builder::sqlite::libsql::{Drizzle, DrizzleBuilder};
         #[doc(inline)]
-        pub use crate::transaction::sqlite::libsql::Transaction;
+        pub use crate::transaction::sqlite::libsql::{Transaction, TransactionGuard};
         #[doc(hidden)]
         pub use ::libsql::{Row, Value};
     }
@@ -291,7 +292,7 @@ pub mod sqlite {
         #[doc(inline)]
         pub use crate::builder::sqlite::durable::{Drizzle, DrizzleBuilder};
         #[doc(inline)]
-        pub use crate::transaction::sqlite::durable::Transaction;
+        pub use crate::transaction::sqlite::durable::{Transaction, TransactionGuard};
     }
 
     /// `SQLite` prelude for schema declarations.
@@ -311,6 +312,7 @@ pub mod sqlite {
             SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable, SQLiteView,
         };
         // SQLite types
+        pub use drizzle_sqlite::TransactionConfig;
         pub use drizzle_sqlite::attrs::*;
         pub use drizzle_sqlite::common::SQLiteSchemaType;
         pub use drizzle_sqlite::traits::{DrizzleSQLiteColumn, SQLiteColumn, SQLiteTable};
@@ -332,7 +334,10 @@ pub mod postgres {
     #[doc(hidden)]
     pub use drizzle_postgres::driver_types;
     #[doc(inline)]
-    pub use drizzle_postgres::{attrs, builder, common, expr, helpers, traits, types, values};
+    pub use drizzle_postgres::{
+        AccessMode, IsolationLevel, TransactionConfig, attrs, builder, common, expr, helpers,
+        traits, transaction, types, values,
+    };
 
     #[cfg(all(
         feature = "postgres-sync",
@@ -428,6 +433,7 @@ pub mod postgres {
         pub use drizzle_postgres::values::{
             OwnedPostgresValue, PostgresInsertValue, PostgresUpdateValue, PostgresValue,
         };
+        pub use drizzle_postgres::{AccessMode, IsolationLevel, TransactionConfig};
     }
 }
 
@@ -436,8 +442,7 @@ pub mod postgres {
 /// ```
 /// use drizzle::ddl::mysql::{MySQLType, MySQLTypeCategory};
 /// use drizzle::mysql::{
-///     MySQLDialect, MySQLMutationResult, MySQLTransactionConfig, MySQLValue,
-///     OwnedMySQLValue,
+///     MySQLDialect, MySQLMutationResult, MySQLValue, OwnedMySQLValue, TransactionConfig,
 /// };
 /// ```
 ///
@@ -469,9 +474,10 @@ pub mod mysql {
     pub use drizzle_mysql::values::{MySQLValue, OwnedMySQLValue};
     #[doc(inline)]
     pub use drizzle_mysql::{
-        MySQLAccessMode, MySQLDialect, MySQLIsolationLevel, MySQLMutationResult,
-        MySQLTransactionConfig, ParamBind, ViewAlgorithm, ViewCheckOption, ViewSqlSecurity, attrs,
-        builder, common, driver, helpers, index, traits, transaction, types, values,
+        AccessMode, IsolationLevel, MySQLAccessMode, MySQLDialect, MySQLIsolationLevel,
+        MySQLMutationResult, MySQLTransactionConfig, ParamBind, TransactionConfig, ViewAlgorithm,
+        ViewCheckOption, ViewSqlSecurity, attrs, builder, common, driver, helpers, index, traits,
+        transaction, types, values,
     };
 
     /// Blocking adapter backed by the `mysql` crate.
@@ -529,7 +535,10 @@ pub mod mysql {
         pub use drizzle_mysql::values::{
             MySQLInsertValue, MySQLUpdateValue, MySQLValue, OwnedMySQLValue,
         };
-        pub use drizzle_mysql::{MySQLAccessMode, MySQLIsolationLevel, MySQLTransactionConfig};
+        pub use drizzle_mysql::{
+            AccessMode, IsolationLevel, MySQLAccessMode, MySQLIsolationLevel,
+            MySQLTransactionConfig, TransactionConfig,
+        };
         pub use drizzle_mysql::{
             MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMetadata, MySQLIndexMethod,
         };

@@ -13,5 +13,5 @@ crate::common::transaction::shared_transaction_suite!(
     mysql,
     MySQLTable,
     MySQLSchema,
-    MySQLTransactionConfig::default()
+    TransactionConfig::default()
 );
