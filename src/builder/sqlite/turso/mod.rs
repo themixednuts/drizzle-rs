@@ -344,7 +344,9 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         Schema: Copy,
         F: AsyncFnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
-        let transaction = self.begin(config).await?;
+        drizzle_core::drizzle_trace_tx!("begin", "sqlite.turso");
+        let tx = self.conn.transaction_with_behavior(config.into()).await?;
+        let transaction = Transaction::new(tx, config, self.schema);
 
         let outcome = std::panic::AssertUnwindSafe(f(&transaction))
             .catch_unwind()
