@@ -675,6 +675,17 @@ pub mod mysql_sync_setup {
         connection
             .query_drop("SET FOREIGN_KEY_CHECKS = 0")
             .expect("disable MySQL foreign-key checks for test cleanup");
+        let views: Vec<String> = connection
+            .query(
+                "SELECT TABLE_NAME FROM information_schema.VIEWS WHERE TABLE_SCHEMA = DATABASE()",
+            )
+            .expect("list MySQL test views for cleanup");
+        for view in views {
+            let name = view.replace('`', "``");
+            connection
+                .query_drop(format!("DROP VIEW IF EXISTS `{name}`"))
+                .unwrap_or_else(|error| panic!("drop MySQL test view `{name}`: {error}"));
+        }
         for table in schema.table_refs().iter().rev() {
             let name = table.name.replace('`', "``");
             connection
@@ -800,6 +811,19 @@ pub mod mysql_async_setup {
             .query_drop("SET FOREIGN_KEY_CHECKS = 0")
             .await
             .expect("disable MySQL foreign-key checks for test cleanup");
+        let views: Vec<String> = connection
+            .query(
+                "SELECT TABLE_NAME FROM information_schema.VIEWS WHERE TABLE_SCHEMA = DATABASE()",
+            )
+            .await
+            .expect("list MySQL test views for cleanup");
+        for view in views {
+            let name = view.replace('`', "``");
+            connection
+                .query_drop(format!("DROP VIEW IF EXISTS `{name}`"))
+                .await
+                .unwrap_or_else(|error| panic!("drop MySQL test view `{name}`: {error}"));
+        }
         for table in schema.table_refs().iter().rev() {
             let name = table.name.replace('`', "``");
             connection
