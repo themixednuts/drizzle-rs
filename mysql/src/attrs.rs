@@ -17,6 +17,17 @@ macro_rules! markers {
     };
 }
 
+/// Adds a literal database `DEFAULT` clause and leaves omitted insert values to MySQL.
+pub const DEFAULT: AttributeMarker = AttributeMarker;
+
+/// Generates an omitted insert value in the Rust application.
+///
+/// This does not add a database `DEFAULT` clause.
+pub const DEFAULT_FN: AttributeMarker = AttributeMarker;
+
+/// Adds the supplied SQL expression as a database `DEFAULT` clause.
+pub const DEFAULT_SQL: AttributeMarker = AttributeMarker;
+
 markers!(
     NAME,
     DATABASE,
@@ -27,9 +38,6 @@ markers!(
     NOT_NULL,
     AUTO_INCREMENT,
     AUTOINCREMENT,
-    DEFAULT,
-    DEFAULT_FN,
-    DEFAULT_SQL,
     GENERATED,
     VIRTUAL,
     STORED,
@@ -71,9 +79,15 @@ markers!(
     BIGINT,
     BIGINT_UNSIGNED,
     DECIMAL,
+    DECIMAL_UNSIGNED,
     NUMERIC,
+    NUMERIC_UNSIGNED,
     FLOAT,
+    FLOAT_UNSIGNED,
     DOUBLE,
+    DOUBLE_UNSIGNED,
+    REAL,
+    REAL_UNSIGNED,
     BOOLEAN,
     BOOL,
     BIT,

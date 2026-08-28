@@ -42,10 +42,20 @@ pub enum MySQLType {
     BigintUnsigned,
     /// `DECIMAL`, an exact fixed-point number.
     Decimal,
+    /// `DECIMAL UNSIGNED`, a non-negative exact fixed-point number.
+    DecimalUnsigned,
     /// `FLOAT`, a single-precision approximate number.
     Float,
+    /// `FLOAT UNSIGNED`, a non-negative single-precision approximate number.
+    FloatUnsigned,
     /// `DOUBLE`, a double-precision approximate number.
     Double,
+    /// `DOUBLE UNSIGNED`, a non-negative double-precision approximate number.
+    DoubleUnsigned,
+    /// `REAL`, MySQL's SQL-mode-sensitive approximate number spelling.
+    Real,
+    /// `REAL UNSIGNED`, the non-negative form of MySQL's `REAL` spelling.
+    RealUnsigned,
     /// `BOOLEAN`, an alias for `TINYINT(1)` in MySQL.
     Boolean,
     /// `BIT`, a bit-value type.
@@ -128,13 +138,28 @@ impl MySQLType {
             || name.eq_ignore_ascii_case("fixed")
         {
             Some(Self::Decimal)
+        } else if name.eq_ignore_ascii_case("decimal_unsigned")
+            || name.eq_ignore_ascii_case("numeric_unsigned")
+            || name.eq_ignore_ascii_case("dec_unsigned")
+            || name.eq_ignore_ascii_case("fixed_unsigned")
+        {
+            Some(Self::DecimalUnsigned)
         } else if name.eq_ignore_ascii_case("float") {
             Some(Self::Float)
+        } else if name.eq_ignore_ascii_case("float_unsigned") {
+            Some(Self::FloatUnsigned)
         } else if name.eq_ignore_ascii_case("double")
             || name.eq_ignore_ascii_case("double_precision")
-            || name.eq_ignore_ascii_case("real")
         {
             Some(Self::Double)
+        } else if name.eq_ignore_ascii_case("double_unsigned")
+            || name.eq_ignore_ascii_case("double_precision_unsigned")
+        {
+            Some(Self::DoubleUnsigned)
+        } else if name.eq_ignore_ascii_case("real") {
+            Some(Self::Real)
+        } else if name.eq_ignore_ascii_case("real_unsigned") {
+            Some(Self::RealUnsigned)
         } else if name.eq_ignore_ascii_case("boolean") || name.eq_ignore_ascii_case("bool") {
             Some(Self::Boolean)
         } else if name.eq_ignore_ascii_case("bit") {
@@ -229,8 +254,13 @@ impl MySQLType {
             Self::Bigint => "BIGINT",
             Self::BigintUnsigned => "BIGINT UNSIGNED",
             Self::Decimal => "DECIMAL",
+            Self::DecimalUnsigned => "DECIMAL UNSIGNED",
             Self::Float => "FLOAT",
+            Self::FloatUnsigned => "FLOAT UNSIGNED",
             Self::Double => "DOUBLE",
+            Self::DoubleUnsigned => "DOUBLE UNSIGNED",
+            Self::Real => "REAL",
+            Self::RealUnsigned => "REAL UNSIGNED",
             Self::Boolean => "BOOLEAN",
             Self::Bit => "BIT",
             Self::Char => "CHAR",
@@ -256,7 +286,7 @@ impl MySQLType {
         }
     }
 
-    /// Return whether this is one of MySQL's unsigned integer declarations.
+    /// Return whether this declaration carries MySQL's `UNSIGNED` modifier.
     #[must_use]
     pub const fn is_unsigned(&self) -> bool {
         matches!(
@@ -266,7 +296,123 @@ impl MySQLType {
                 | Self::MediumintUnsigned
                 | Self::IntUnsigned
                 | Self::BigintUnsigned
+                | Self::DecimalUnsigned
+                | Self::FloatUnsigned
+                | Self::DoubleUnsigned
+                | Self::RealUnsigned
         )
+    }
+
+    /// Validate optional numeric, length, width, or temporal arguments.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn validate_args(&self, args: &[u16]) -> Option<&'static str> {
+        match self {
+            Self::Tinyint
+            | Self::TinyintUnsigned
+            | Self::Smallint
+            | Self::SmallintUnsigned
+            | Self::Mediumint
+            | Self::MediumintUnsigned
+            | Self::Int
+            | Self::IntUnsigned
+            | Self::Bigint
+            | Self::BigintUnsigned
+            | Self::Year
+                if args.len() > 1 =>
+            {
+                Some("integer and YEAR types accept at most one width argument")
+            }
+            Self::Varchar | Self::Varbinary if args.len() != 1 => {
+                Some("VARCHAR and VARBINARY require exactly one length argument")
+            }
+            Self::Char | Self::Binary if args.len() > 1 => {
+                Some("CHAR and BINARY accept at most one length argument")
+            }
+            Self::Bit if args.len() > 1 => Some("BIT accepts at most one width argument"),
+            Self::Decimal
+            | Self::DecimalUnsigned
+            | Self::Float
+            | Self::FloatUnsigned
+            | Self::Double
+            | Self::DoubleUnsigned
+            | Self::Real
+            | Self::RealUnsigned
+                if args.len() > 2 =>
+            {
+                Some("numeric types accept precision and optional scale")
+            }
+            Self::Double | Self::DoubleUnsigned | Self::Real | Self::RealUnsigned
+                if args.len() == 1 =>
+            {
+                Some("DOUBLE and REAL require both precision and scale")
+            }
+            Self::Time | Self::Datetime | Self::Timestamp if args.len() > 1 => {
+                Some("temporal types accept at most one fractional-seconds precision")
+            }
+            Self::Tinytext
+            | Self::Text
+            | Self::Mediumtext
+            | Self::Longtext
+            | Self::Tinyblob
+            | Self::Blob
+            | Self::Mediumblob
+            | Self::Longblob
+            | Self::Json
+            | Self::Date
+            | Self::Boolean
+                if !args.is_empty() =>
+            {
+                Some("this MySQL type does not accept arguments")
+            }
+            Self::Bit if args.first().is_some_and(|value| !(1..=64).contains(value)) => {
+                Some("BIT width must be between 1 and 64")
+            }
+            Self::Char | Self::Binary if args.first().is_some_and(|value| *value > 255) => {
+                Some("CHAR/BINARY length must not exceed 255")
+            }
+            Self::Decimal | Self::DecimalUnsigned
+                if args.first().is_some_and(|value| !(1..=65).contains(value)) =>
+            {
+                Some("DECIMAL precision must be between 1 and 65")
+            }
+            Self::Decimal | Self::DecimalUnsigned
+                if args.get(1).is_some_and(|scale| {
+                    *scale > 30 || args.first().is_some_and(|precision| scale > precision)
+                }) =>
+            {
+                Some("DECIMAL scale must not exceed 30 or its precision")
+            }
+            Self::Float | Self::FloatUnsigned if args.len() == 1 && args[0] > 24 => {
+                Some("FLOAT binary precision must not exceed 24; use DOUBLE for double precision")
+            }
+            Self::Float | Self::FloatUnsigned if args.len() == 2 && args[0] > 255 => {
+                Some("FLOAT display width must not exceed 255")
+            }
+            Self::Double | Self::DoubleUnsigned | Self::Real | Self::RealUnsigned
+                if args.first().is_some_and(|precision| *precision > 255) =>
+            {
+                Some("FLOAT, DOUBLE, and REAL precision must not exceed 255")
+            }
+            Self::Float
+            | Self::FloatUnsigned
+            | Self::Double
+            | Self::DoubleUnsigned
+            | Self::Real
+            | Self::RealUnsigned
+                if args.get(1).is_some_and(|scale| {
+                    *scale > 30 || args.first().is_some_and(|precision| scale > precision)
+                }) =>
+            {
+                Some("FLOAT, DOUBLE, and REAL scale must not exceed 30 or its precision")
+            }
+            Self::Time | Self::Datetime | Self::Timestamp
+                if args.first().is_some_and(|value| *value > 6) =>
+            {
+                Some("fractional-seconds precision must be between 0 and 6")
+            }
+            _ => None,
+        }
     }
 
     /// Return whether this is an integer declaration eligible for
@@ -341,6 +487,19 @@ mod tests {
             Some(MySQLType::BigintUnsigned)
         );
         assert_eq!(MySQLType::parse_attribute("enum"), None);
+        assert_eq!(
+            MySQLType::parse_attribute("decimal_unsigned"),
+            Some(MySQLType::DecimalUnsigned)
+        );
+        assert_eq!(
+            MySQLType::parse_attribute("float_unsigned"),
+            Some(MySQLType::FloatUnsigned)
+        );
+        assert_eq!(MySQLType::parse_attribute("real"), Some(MySQLType::Real));
+        assert_eq!(
+            MySQLType::parse_attribute("real_unsigned"),
+            Some(MySQLType::RealUnsigned)
+        );
     }
 
     #[test]
@@ -364,6 +523,10 @@ mod tests {
     fn mysql_column_capabilities_are_type_specific() {
         assert!(MySQLType::BigintUnsigned.supports_auto_increment());
         assert!(!MySQLType::Decimal.supports_auto_increment());
+        assert!(MySQLType::DecimalUnsigned.is_unsigned());
+        assert!(MySQLType::FloatUnsigned.is_unsigned());
+        assert!(MySQLType::DoubleUnsigned.is_unsigned());
+        assert!(MySQLType::RealUnsigned.is_unsigned());
         assert!(!MySQLType::Boolean.supports_auto_increment());
         assert!(MySQLType::Json.supports_generated_columns());
         assert!(MySQLType::Int.is_valid_flag("auto_increment"));

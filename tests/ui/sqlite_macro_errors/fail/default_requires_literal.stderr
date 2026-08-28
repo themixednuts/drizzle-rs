@@ -1,0 +1,5 @@
+error: DEFAULT requires a string, integer, float, or boolean literal; use DEFAULT_SQL for SQL expressions or DEFAULT_FN for an application default
+ --> tests/ui/sqlite_macro_errors/fail/default_requires_literal.rs:6:24
+  |
+6 |     #[column(default = String::new())]
+  |                        ^^^^^^^^^^^^^

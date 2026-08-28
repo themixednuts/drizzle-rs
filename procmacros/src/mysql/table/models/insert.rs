@@ -158,12 +158,12 @@ pub fn generate_insert_model(ctx: &MacroContext, required_fields_pattern: &[bool
 fn get_insert_default_value(field: &FieldInfo) -> TokenStream {
     let name = &field.ident;
 
-    // Handle runtime function defaults (default_fn)
+    // DEFAULT_FN supplies an application-side value for an omitted field.
     if let Some(f) = &field.default_fn {
         return quote! { #name: ((#f)()).into() };
     }
 
-    // Handle compile-time MySQL defaults (SQL defaults - let database handle)
+    // DEFAULT is a database clause, so leave the field omitted.
     if field.default.is_some() {
         return quote! { #name: MySQLInsertValue::Omit };
     }

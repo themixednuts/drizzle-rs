@@ -627,8 +627,9 @@ fn parse_sqlite_args(
                         args.explicit_type = Some(SQLiteType::Blob);
                         args.json = true;
                     }
-                    // Bare DEFAULT means `default_fn = Default::default`.
-                    "DEFAULT" => args.default_fn = true,
+                    "DEFAULT" | "DEFAULT_FN" | "DEFAULT_SQL" => diags
+                        .errors
+                        .push(format!("{field_desc}: {ident_str} requires a value")),
                     "ENUM" => args.enum_marker = true,
                     "PRIMARY" | "PRIMARY_KEY" => args.primary = true,
                     "AUTOINCREMENT" => args.autoincrement = true,
@@ -656,9 +657,8 @@ fn parse_sqlite_args(
                     "DEFAULT" => {
                         let default = default_from_expr(&assign.right, source);
                         if matches!(default, ParsedDefault::Unsupported(_)) {
-                            diags.warnings.push(format!(
-                                "{field_desc}: `default = {raw_value}` is not a literal the \
-                                 table macros emit into DDL; the default is ignored"
+                            diags.errors.push(format!(
+                                "{field_desc}: DEFAULT requires a string, integer, float, or boolean literal; use DEFAULT_SQL for SQL expressions or DEFAULT_FN for an application default"
                             ));
                         }
                         args.default_raw = Some((key, raw_value));
@@ -1210,14 +1210,19 @@ fn mysql_render_type(ty: &MySQLType, args: &[u16]) -> String {
                 .join(", ")
         ),
         _ if args.is_empty() => ty.sql().to_string(),
-        _ => format!(
-            "{}({})",
-            ty.sql(),
-            args.iter()
-                .map(u16::to_string)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        _ => {
+            let sql = ty.sql();
+            let (base, suffix) = sql
+                .strip_suffix(" UNSIGNED")
+                .map_or((sql, ""), |base| (base, " UNSIGNED"));
+            format!(
+                "{base}({}){suffix}",
+                args.iter()
+                    .map(u16::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
     }
 }
 
@@ -1236,59 +1241,7 @@ fn mysql_supports_character_options(ty: &MySQLType) -> bool {
 }
 
 fn mysql_validate_type_args(ty: &MySQLType, args: &[u16]) -> Option<&'static str> {
-    match ty {
-        MySQLType::Varchar | MySQLType::Varbinary if args.len() != 1 => {
-            Some("VARCHAR and VARBINARY require exactly one length argument")
-        }
-        MySQLType::Char | MySQLType::Binary if args.len() > 1 => {
-            Some("CHAR and BINARY accept at most one length argument")
-        }
-        MySQLType::Bit if args.len() > 1 => Some("BIT accepts at most one width argument"),
-        MySQLType::Decimal if args.len() > 2 => {
-            Some("DECIMAL accepts precision and optional scale")
-        }
-        MySQLType::Time | MySQLType::Datetime | MySQLType::Timestamp if args.len() > 1 => {
-            Some("temporal types accept at most one fractional-seconds precision")
-        }
-        _ if !args.is_empty()
-            && !matches!(
-                ty,
-                MySQLType::Varchar
-                    | MySQLType::Varbinary
-                    | MySQLType::Char
-                    | MySQLType::Binary
-                    | MySQLType::Bit
-                    | MySQLType::Decimal
-                    | MySQLType::Time
-                    | MySQLType::Datetime
-                    | MySQLType::Timestamp
-            ) =>
-        {
-            Some("this MySQL type does not accept length, precision, or scale arguments")
-        }
-        MySQLType::Bit if args.first().is_some_and(|value| !(1..=64).contains(value)) => {
-            Some("BIT width must be between 1 and 64")
-        }
-        MySQLType::Char | MySQLType::Binary if args.first().is_some_and(|value| *value > 255) => {
-            Some("CHAR/BINARY length must not exceed 255")
-        }
-        MySQLType::Decimal if args.first().is_some_and(|value| !(1..=65).contains(value)) => {
-            Some("DECIMAL precision must be between 1 and 65")
-        }
-        MySQLType::Decimal
-            if args.get(1).is_some_and(|scale| {
-                *scale > 30 || args.first().is_some_and(|precision| scale > precision)
-            }) =>
-        {
-            Some("DECIMAL scale must not exceed 30 or its precision")
-        }
-        MySQLType::Time | MySQLType::Datetime | MySQLType::Timestamp
-            if args.first().is_some_and(|value| *value > 6) =>
-        {
-            Some("fractional-seconds precision must be between 0 and 6")
-        }
-        _ => None,
-    }
+    ty.validate_args(args)
 }
 
 fn mysql_validate_explicit_signedness(
@@ -1906,56 +1859,50 @@ pub(crate) fn postgres_column_spec(
                     }
                 }
                 "DEFAULT" => {
-                    if meta.input.peek(Token![=]) {
-                        meta.input.parse::<Token![=]>()?;
-                        if let Some(kind) = default_kind {
-                            return Err(meta.error(format!("default conflicts with existing {kind}")));
-                        }
-                        let expr: Expr = meta.input.parse()?;
-                        let raw_value = spanned_source(source, &expr);
-                        spec.named_values.push((key, raw_value.clone()));
-                        let default = default_from_expr(&expr, source);
-                        if matches!(default, ParsedDefault::Unsupported(_)) {
-                            return Err(meta.error(
-                                "unsupported default value; expected a string, integer, float, \
-                                 or boolean literal",
-                            ));
-                        }
-                        spec.default = Some(default);
-                        default_kind = Some("default");
+                    meta.input.parse::<Token![=]>()?;
+                    if let Some(kind) = default_kind {
+                        return Err(meta.error(format!("default conflicts with existing {kind}")));
                     }
+                    let expr: Expr = meta.input.parse()?;
+                    let raw_value = spanned_source(source, &expr);
+                    spec.named_values.push((key, raw_value.clone()));
+                    let default = default_from_expr(&expr, source);
+                    if matches!(default, ParsedDefault::Unsupported(_)) {
+                        return Err(meta.error(
+                            "unsupported default value; expected a string, integer, float, \
+                             or boolean literal",
+                        ));
+                    }
+                    spec.default = Some(default);
+                    default_kind = Some("default");
                 }
                 "DEFAULT_FN" => {
-                    if meta.input.peek(Token![=]) {
-                        meta.input.parse::<Token![=]>()?;
-                        if let Some(kind) = default_kind {
-                            return Err(
-                                meta.error(format!("default_fn conflicts with existing {kind}"))
-                            );
-                        }
-                        let expr: Expr = meta.input.parse()?;
-                        spec.named_values
-                            .push((key, spanned_source(source, &expr)));
-                        spec.has_default_fn = true;
-                        default_kind = Some("default_fn");
+                    meta.input.parse::<Token![=]>()?;
+                    if let Some(kind) = default_kind {
+                        return Err(
+                            meta.error(format!("default_fn conflicts with existing {kind}"))
+                        );
                     }
+                    let expr: Expr = meta.input.parse()?;
+                    spec.named_values
+                        .push((key, spanned_source(source, &expr)));
+                    spec.has_default_fn = true;
+                    default_kind = Some("default_fn");
                 }
                 "DEFAULT_SQL" => {
-                    if meta.input.peek(Token![=]) {
-                        meta.input.parse::<Token![=]>()?;
-                        if let Some(kind) = default_kind {
-                            return Err(
-                                meta.error(format!("default_sql conflicts with existing {kind}"))
-                            );
-                        }
-                        let lit: Lit = meta.input.parse()?;
-                        let Lit::Str(s) = lit else {
-                            return Err(meta.error("DEFAULT_SQL requires a string literal"));
-                        };
-                        spec.named_values.push((key, format!("{:?}", s.value())));
-                        spec.default_sql = Some(s.value());
-                        default_kind = Some("default_sql");
+                    meta.input.parse::<Token![=]>()?;
+                    if let Some(kind) = default_kind {
+                        return Err(
+                            meta.error(format!("default_sql conflicts with existing {kind}"))
+                        );
                     }
+                    let lit: Lit = meta.input.parse()?;
+                    let Lit::Str(s) = lit else {
+                        return Err(meta.error("DEFAULT_SQL requires a string literal"));
+                    };
+                    spec.named_values.push((key, format!("{:?}", s.value())));
+                    spec.default_sql = Some(s.value());
+                    default_kind = Some("default_sql");
                 }
                 "CHECK" => {
                     if meta.input.peek(Token![=]) {
@@ -3522,10 +3469,22 @@ mod tests {
     }
 
     #[test]
-    fn negative_default_matches_macro_drop() {
+    fn sqlite_non_literal_default_matches_macro_error() {
         let (spec, diags) = sqlite_spec("#[column(default = -1)] v: i64");
         assert!(matches!(spec.default, Some(ParsedDefault::Unsupported(_))));
-        assert!(!diags.warnings.is_empty());
+        assert!(!diags.errors.is_empty());
+    }
+
+    #[test]
+    fn database_and_application_defaults_require_values() {
+        for source in [
+            "#[column(DEFAULT)] v: i64",
+            "#[column(DEFAULT_FN)] v: i64",
+            "#[column(DEFAULT_SQL)] v: i64",
+        ] {
+            assert!(!sqlite_spec(source).1.errors.is_empty(), "{source}");
+            assert!(!pg_spec(source).1.errors.is_empty(), "{source}");
+        }
     }
 
     #[test]
@@ -3621,6 +3580,60 @@ mod tests {
 
         let (_, matching) = mysql_spec("#[column(INT_UNSIGNED)] value: u32");
         assert!(matching.errors.is_empty(), "{:#?}", matching.errors);
+    }
+
+    #[test]
+    fn mysql_numeric_attributes_preserve_arguments_unsigned_and_real() {
+        let cases = [
+            (
+                "#[column(DECIMAL_UNSIGNED(20, 8))] value: String",
+                "DECIMAL(20, 8) UNSIGNED",
+            ),
+            (
+                "#[column(FLOAT_UNSIGNED(10, 2))] value: f32",
+                "FLOAT(10, 2) UNSIGNED",
+            ),
+            (
+                "#[column(DOUBLE_UNSIGNED(10, 2))] value: f64",
+                "DOUBLE(10, 2) UNSIGNED",
+            ),
+            ("#[column(REAL(10, 2))] value: f64", "REAL(10, 2)"),
+            (
+                "#[column(REAL_UNSIGNED(10, 2))] value: f64",
+                "REAL(10, 2) UNSIGNED",
+            ),
+        ];
+
+        for (source, expected) in cases {
+            let (spec, diags) = mysql_spec(source);
+            assert!(diags.errors.is_empty(), "{source}: {:#?}", diags.errors);
+            assert_eq!(spec.mysql_type.as_deref(), Some(expected), "{source}");
+        }
+    }
+
+    #[test]
+    fn mysql_numeric_attributes_reject_invalid_arguments() {
+        let (_, float_diags) = mysql_spec("#[column(FLOAT(25))] value: f32");
+        assert!(
+            float_diags
+                .errors
+                .iter()
+                .any(|error| error.contains("use DOUBLE"))
+        );
+
+        for source in [
+            "#[column(DECIMAL_UNSIGNED(66))] value: String",
+            "#[column(FLOAT_UNSIGNED(25))] value: f32",
+            "#[column(FLOAT_UNSIGNED(256, 30))] value: f32",
+            "#[column(DOUBLE_UNSIGNED(10, 31))] value: f64",
+            "#[column(REAL(10, 11))] value: f64",
+            "#[column(REAL(10, 2, 1))] value: f64",
+            "#[column(DOUBLE(10))] value: f64",
+            "#[column(REAL(10))] value: f64",
+        ] {
+            let (_, diags) = mysql_spec(source);
+            assert!(!diags.errors.is_empty(), "{source} must be rejected");
+        }
     }
 
     #[test]

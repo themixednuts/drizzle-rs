@@ -918,7 +918,80 @@ mod tests {
 
     #[test]
     fn catalog_assembly_omits_inherited_options_and_preserves_inline_types() {
-        let ddl = assemble_ddl(raw()).expect("valid catalog");
+        let mut raw = raw();
+        raw.columns.extend([
+            RawColumnInfo {
+                database: "app".to_string(),
+                table: "users".to_string(),
+                name: "amount".to_string(),
+                column_type: "decimal(20,8) unsigned".to_string(),
+                nullable: false,
+                default_value: None,
+                extra: String::new(),
+                generation_expression: None,
+                charset: None,
+                collation: None,
+                comment: None,
+                ordinal_position: 3,
+            },
+            RawColumnInfo {
+                database: "app".to_string(),
+                table: "users".to_string(),
+                name: "ratio".to_string(),
+                column_type: "float(10,2) unsigned".to_string(),
+                nullable: false,
+                default_value: None,
+                extra: String::new(),
+                generation_expression: None,
+                charset: None,
+                collation: None,
+                comment: None,
+                ordinal_position: 4,
+            },
+            RawColumnInfo {
+                database: "app".to_string(),
+                table: "users".to_string(),
+                name: "estimate".to_string(),
+                column_type: "double(10,2) unsigned".to_string(),
+                nullable: false,
+                default_value: None,
+                extra: String::new(),
+                generation_expression: None,
+                charset: None,
+                collation: None,
+                comment: None,
+                ordinal_position: 5,
+            },
+            RawColumnInfo {
+                database: "app".to_string(),
+                table: "users".to_string(),
+                name: "measurement".to_string(),
+                column_type: "real(10,2)".to_string(),
+                nullable: false,
+                default_value: None,
+                extra: String::new(),
+                generation_expression: None,
+                charset: None,
+                collation: None,
+                comment: None,
+                ordinal_position: 6,
+            },
+            RawColumnInfo {
+                database: "app".to_string(),
+                table: "users".to_string(),
+                name: "unsigned_measurement".to_string(),
+                column_type: "real(10,2) unsigned".to_string(),
+                nullable: false,
+                default_value: None,
+                extra: String::new(),
+                generation_expression: None,
+                charset: None,
+                collation: None,
+                comment: None,
+                ordinal_position: 7,
+            },
+        ]);
+        let ddl = assemble_ddl(raw).expect("valid catalog");
         let table = ddl.tables.list().first().expect("table");
         assert_eq!(table.engine, None);
         assert_eq!(table.charset, None);
@@ -945,6 +1018,28 @@ mod tests {
         assert_eq!(
             values.values.iter().map(AsRef::as_ref).collect::<Vec<_>>(),
             ["new", "it's done"]
+        );
+        let numeric_types = ddl
+            .columns
+            .list()
+            .iter()
+            .filter(|column| {
+                matches!(
+                    column.name.as_ref(),
+                    "amount" | "ratio" | "estimate" | "measurement" | "unsigned_measurement"
+                )
+            })
+            .map(|column| column.sql_type.as_ref())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            numeric_types,
+            [
+                "decimal(20,8) unsigned",
+                "float(10,2) unsigned",
+                "double(10,2) unsigned",
+                "real(10,2)",
+                "real(10,2) unsigned",
+            ]
         );
         assert!(matches!(
             IntrospectionResult { ddl }.to_snapshot().ddl[0],

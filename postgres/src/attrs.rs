@@ -300,7 +300,7 @@ pub const COLLATE: ColumnMarker = ColumnMarker;
 ///
 /// ## Difference from DEFAULT
 /// - `DEFAULT_FN`: Calls the function at runtime for each insert (e.g., UUID generation)
-/// - `DEFAULT`: Uses a fixed compile-time value
+/// - `DEFAULT`: Adds a literal database `DEFAULT` clause
 pub const DEFAULT_FN: ColumnMarker = ColumnMarker;
 
 /// Specifies a raw SQL default expression emitted directly in DDL.
@@ -319,7 +319,7 @@ pub const DEFAULT_FN: ColumnMarker = ColumnMarker;
 /// See: <https://www.postgresql.org/docs/current/ddl-default.html>
 pub const DEFAULT_SQL: ColumnMarker = ColumnMarker;
 
-/// Specifies a fixed default value for new rows.
+/// Specifies a literal database `DEFAULT` clause for new rows.
 ///
 /// ## Example
 /// ```rust

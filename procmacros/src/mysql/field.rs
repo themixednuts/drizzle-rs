@@ -376,9 +376,11 @@ impl FieldInfo {
             T::IntUnsigned => quote!(drizzle::mysql::types::IntUnsigned),
             T::Bigint => quote!(drizzle::mysql::types::BigInt),
             T::BigintUnsigned => quote!(drizzle::mysql::types::BigIntUnsigned),
-            T::Decimal => quote!(drizzle::mysql::types::Decimal),
-            T::Float => quote!(drizzle::mysql::types::Float),
-            T::Double => quote!(drizzle::mysql::types::Double),
+            T::Decimal | T::DecimalUnsigned => quote!(drizzle::mysql::types::Decimal),
+            T::Float | T::FloatUnsigned => quote!(drizzle::mysql::types::Float),
+            T::Double | T::DoubleUnsigned | T::Real | T::RealUnsigned => {
+                quote!(drizzle::mysql::types::Double)
+            }
             T::Boolean => quote!(drizzle::mysql::types::Boolean),
             T::Bit => quote!(drizzle::mysql::types::Bit),
             T::Char => quote!(drizzle::mysql::types::Char),
@@ -461,8 +463,13 @@ impl FieldInfo {
                 | MySQLType::Bigint
                 | MySQLType::BigintUnsigned
                 | MySQLType::Decimal
+                | MySQLType::DecimalUnsigned
                 | MySQLType::Float
+                | MySQLType::FloatUnsigned
                 | MySQLType::Double
+                | MySQLType::DoubleUnsigned
+                | MySQLType::Real
+                | MySQLType::RealUnsigned
                 | MySQLType::Year
         )
     }
@@ -682,62 +689,8 @@ fn parse_type_args(list: &syn::MetaList) -> Result<Vec<u16>> {
 }
 
 fn validate_type_args(field: &Field, ty: &MySQLType, args: &[u16]) -> Result<()> {
-    let bad = |message| Error::new_spanned(field, message);
-    match ty {
-        MySQLType::Varchar | MySQLType::Varbinary if args.len() != 1 => Err(bad(
-            "VARCHAR and VARBINARY require exactly one length argument",
-        )),
-        MySQLType::Char | MySQLType::Binary if args.len() > 1 => {
-            Err(bad("CHAR and BINARY accept at most one length argument"))
-        }
-        MySQLType::Bit if args.len() > 1 => Err(bad("BIT accepts at most one width argument")),
-        MySQLType::Decimal if args.len() > 2 => {
-            Err(bad("DECIMAL accepts precision and optional scale"))
-        }
-        MySQLType::Time | MySQLType::Datetime | MySQLType::Timestamp if args.len() > 1 => Err(bad(
-            "temporal types accept at most one fractional-seconds precision",
-        )),
-        _ if !args.is_empty()
-            && !matches!(
-                ty,
-                MySQLType::Varchar
-                    | MySQLType::Varbinary
-                    | MySQLType::Char
-                    | MySQLType::Binary
-                    | MySQLType::Bit
-                    | MySQLType::Decimal
-                    | MySQLType::Time
-                    | MySQLType::Datetime
-                    | MySQLType::Timestamp
-            ) =>
-        {
-            Err(bad(
-                "this MySQL type does not accept length, precision, or scale arguments",
-            ))
-        }
-        MySQLType::Bit if args.first().is_some_and(|value| !(1..=64).contains(value)) => {
-            Err(bad("BIT width must be between 1 and 64"))
-        }
-        MySQLType::Char | MySQLType::Binary if args.first().is_some_and(|value| *value > 255) => {
-            Err(bad("CHAR/BINARY length must not exceed 255"))
-        }
-        MySQLType::Decimal if args.first().is_some_and(|value| !(1..=65).contains(value)) => {
-            Err(bad("DECIMAL precision must be between 1 and 65"))
-        }
-        MySQLType::Decimal
-            if args.get(1).is_some_and(|scale| {
-                *scale > 30 || args.first().is_some_and(|precision| scale > precision)
-            }) =>
-        {
-            Err(bad("DECIMAL scale must not exceed 30 or its precision"))
-        }
-        MySQLType::Time | MySQLType::Datetime | MySQLType::Timestamp
-            if args.first().is_some_and(|value| *value > 6) =>
-        {
-            Err(bad("fractional-seconds precision must be between 0 and 6"))
-        }
-        _ => Ok(()),
-    }
+    ty.validate_args(args)
+        .map_or(Ok(()), |message| Err(Error::new_spanned(field, message)))
 }
 
 fn mysql_rust_category(ty: &Type) -> MySQLRustTypeCategory {
@@ -1117,14 +1070,19 @@ fn render_type(ty: &MySQLType, args: &[u16]) -> String {
                 .join(", ")
         ),
         _ if args.is_empty() => ty.sql().to_string(),
-        _ => format!(
-            "{}({})",
-            ty.sql(),
-            args.iter()
-                .map(u16::to_string)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        _ => {
+            let sql = ty.sql();
+            let (base, suffix) = sql
+                .strip_suffix(" UNSIGNED")
+                .map_or((sql, ""), |base| (base, " UNSIGNED"));
+            format!(
+                "{base}({}){suffix}",
+                args.iter()
+                    .map(u16::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
     }
 }
 
@@ -1310,4 +1268,57 @@ pub fn generate_table_meta_json(table_name: &str, fields: &[FieldInfo]) -> Strin
         "columns": columns,
     })
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn field() -> Field {
+        syn::parse_quote!(value: f64)
+    }
+
+    #[test]
+    fn numeric_type_arguments_follow_mysql_limits() {
+        let field = field();
+        assert!(validate_type_args(&field, &MySQLType::DecimalUnsigned, &[20, 8]).is_ok());
+        assert!(validate_type_args(&field, &MySQLType::FloatUnsigned, &[10, 2]).is_ok());
+        assert!(validate_type_args(&field, &MySQLType::DoubleUnsigned, &[10, 2]).is_ok());
+        assert!(validate_type_args(&field, &MySQLType::Real, &[10, 2]).is_ok());
+        assert!(validate_type_args(&field, &MySQLType::RealUnsigned, &[10, 2]).is_ok());
+
+        assert!(validate_type_args(&field, &MySQLType::Decimal, &[66]).is_err());
+        assert!(validate_type_args(&field, &MySQLType::Float, &[24]).is_ok());
+        let float_error = validate_type_args(&field, &MySQLType::Float, &[25])
+            .expect_err("FLOAT(25) changes the server type to DOUBLE");
+        assert!(float_error.to_string().contains("use DOUBLE"));
+        assert!(validate_type_args(&field, &MySQLType::Float, &[255, 30]).is_ok());
+        assert!(validate_type_args(&field, &MySQLType::Float, &[256, 30]).is_err());
+        assert!(validate_type_args(&field, &MySQLType::Double, &[10, 31]).is_err());
+        assert!(validate_type_args(&field, &MySQLType::Real, &[10, 11]).is_err());
+        assert!(validate_type_args(&field, &MySQLType::Real, &[10, 2, 1]).is_err());
+        assert!(validate_type_args(&field, &MySQLType::Double, &[10]).is_err());
+        assert!(validate_type_args(&field, &MySQLType::Real, &[10]).is_err());
+    }
+
+    #[test]
+    fn numeric_rendering_places_unsigned_after_arguments_and_keeps_real() {
+        assert_eq!(
+            render_type(&MySQLType::DecimalUnsigned, &[20, 8]),
+            "DECIMAL(20, 8) UNSIGNED"
+        );
+        assert_eq!(
+            render_type(&MySQLType::FloatUnsigned, &[10, 2]),
+            "FLOAT(10, 2) UNSIGNED"
+        );
+        assert_eq!(
+            render_type(&MySQLType::DoubleUnsigned, &[10, 2]),
+            "DOUBLE(10, 2) UNSIGNED"
+        );
+        assert_eq!(render_type(&MySQLType::Real, &[10, 2]), "REAL(10, 2)");
+        assert_eq!(
+            render_type(&MySQLType::RealUnsigned, &[10, 2]),
+            "REAL(10, 2) UNSIGNED"
+        );
+    }
 }

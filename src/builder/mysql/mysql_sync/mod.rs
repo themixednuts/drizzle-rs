@@ -8,7 +8,8 @@
 //! The adapter executes every statement through MySQL's prepared binary
 //! protocol, including statements without parameters. Before its first query,
 //! it fixes the session time zone at UTC and removes
-//! `NO_UNSIGNED_SUBTRACTION` so typed unsigned arithmetic has stable behavior.
+//! `NO_UNSIGNED_SUBTRACTION` and `REAL_AS_FLOAT` so typed numeric expressions
+//! and `REAL` columns have stable Rust types.
 //!
 //! # Quick start
 //!
@@ -129,7 +130,7 @@ pub(crate) fn initialize_session_observing(
     connection: &mut impl Queryable,
     observe_error: impl FnMut(&mysql::Error),
 ) -> Result<()> {
-    let sql = "SET time_zone = '+00:00', sql_mode = REPLACE(@@SESSION.sql_mode, 'NO_UNSIGNED_SUBTRACTION', '')";
+    let sql = "SET time_zone = '+00:00', sql_mode = REPLACE(REPLACE(@@SESSION.sql_mode, 'NO_UNSIGNED_SUBTRACTION', ''), 'REAL_AS_FLOAT', '')";
     execute_request_observing(connection, sql, &[], observe_error).map(|_| ())
 }
 

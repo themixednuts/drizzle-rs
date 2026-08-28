@@ -8,10 +8,10 @@
 //! before executing typed queries. This is the adapter-owned invariant that
 //! makes `TIMESTAMP` values round-trip as UTC instants.
 //!
-//! Adapters must also reject or remove `NO_UNSIGNED_SUBTRACTION` from
-//! `sql_mode`. MySQL changes unsigned subtraction to a signed result under
-//! that mode, while the static arithmetic policy models the default unsigned
-//! result rule.
+//! Adapters must also reject or remove `NO_UNSIGNED_SUBTRACTION` and
+//! `REAL_AS_FLOAT` from `sql_mode`. The former changes unsigned subtraction to
+//! a signed result, while the latter changes `REAL` from double to float. The
+//! static type policy models MySQL's default behavior for both.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

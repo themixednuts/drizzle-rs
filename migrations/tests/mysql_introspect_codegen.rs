@@ -252,6 +252,57 @@ fn mysql_codegen_round_trips_macro_representable_ddl() {
 }
 
 #[test]
+fn mysql_codegen_round_trips_numeric_declarations() {
+    let mut original = MySQLDDL::new();
+    original.tables.push(app_table("measurements"));
+    for (name, sql_type) in [
+        ("amount", "DECIMAL(20, 8)"),
+        ("unsigned_amount", "DECIMAL(20, 8) UNSIGNED"),
+        ("ratio", "FLOAT(10)"),
+        ("unsigned_ratio", "FLOAT(10, 2) UNSIGNED"),
+        ("estimate", "DOUBLE(10, 2)"),
+        ("unsigned_estimate", "DOUBLE UNSIGNED"),
+        ("measurement", "REAL(10, 2)"),
+        ("unsigned_measurement", "REAL(10, 2) UNSIGNED"),
+    ] {
+        original
+            .columns
+            .push(app_column("measurements", name, sql_type));
+    }
+    let original =
+        MySQLDDL::try_from_entities(original.to_entities()).expect("numeric DDL is valid");
+
+    let generated = generate_rust_schema(&original, &CodegenOptions::default())
+        .expect("numeric DDL is representable");
+    assert!(generated.warnings.is_empty(), "{:#?}", generated.warnings);
+    for attribute in [
+        "DECIMAL(20, 8)",
+        "DECIMAL_UNSIGNED(20, 8)",
+        "FLOAT(10)",
+        "FLOAT_UNSIGNED(10, 2)",
+        "DOUBLE(10, 2)",
+        "DOUBLE_UNSIGNED",
+        "REAL(10, 2)",
+        "REAL_UNSIGNED(10, 2)",
+    ] {
+        assert!(
+            generated.code.contains(attribute),
+            "generated source lacks {attribute}:\n{}",
+            generated.code
+        );
+    }
+
+    let reparsed = parse_generated_ddl(&generated.code);
+    let diff = compute_migration(&original, &reparsed).expect("equivalent numeric DDL must diff");
+    assert!(
+        diff.statements.is_empty(),
+        "numeric round-trip changed DDL:\nsource:\n{}\nSQL: {:#?}",
+        generated.code,
+        diff.sql_statements
+    );
+}
+
+#[test]
 fn mysql_codegen_casing_keeps_sql_names_stable() {
     let original = rich_ddl();
     let generated = generate_rust_schema(

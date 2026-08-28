@@ -416,7 +416,10 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
                 .with(ColumnRefFlags::NOT_NULL, !f.is_nullable)
                 .with(ColumnRefFlags::PRIMARY_KEY, f.is_primary())
                 .with(ColumnRefFlags::UNIQUE, f.is_unique())
-                .with(ColumnRefFlags::HAS_DEFAULT, f.has_default)
+                .with(
+                    ColumnRefFlags::HAS_DEFAULT,
+                    f.default.is_some() || f.is_serial,
+                )
                 .bits();
             let is_serial = f.is_serial;
             let is_bigserial = false;

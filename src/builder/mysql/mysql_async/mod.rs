@@ -99,7 +99,7 @@ pub(crate) async fn initialize_session_observing(
     connection: &mut (impl Queryable + ?Sized),
     observe_error: impl FnMut(&mysql_async::Error),
 ) -> Result<()> {
-    let sql = "SET time_zone = '+00:00', sql_mode = REPLACE(@@SESSION.sql_mode, 'NO_UNSIGNED_SUBTRACTION', '')";
+    let sql = "SET time_zone = '+00:00', sql_mode = REPLACE(REPLACE(@@SESSION.sql_mode, 'NO_UNSIGNED_SUBTRACTION', ''), 'REAL_AS_FLOAT', '')";
     execute_request_observing(connection, sql, &[], observe_error)
         .await
         .map(|_| ())

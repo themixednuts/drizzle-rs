@@ -115,19 +115,12 @@ impl MacroContext<'_> {
             return quote! { #name: #sqlite_insert_value::Omit };
         }
 
-        // Handle runtime function defaults (default_fn)
+        // DEFAULT_FN supplies an application-side value for an omitted field.
         if let Some(f) = &field.default_fn {
             return quote! { #name: ((#f)()).into() };
         }
 
-        // Handle compile-time literal defaults (default = "value")
-        if field.default_sql.is_none()
-            && let Some(default_lit) = &field.default_value
-        {
-            return quote! { #name: (#default_lit).into() };
-        }
-
-        // Default to Omit so database can handle defaults
+        // DEFAULT and DEFAULT_SQL are database-side defaults.
         quote! { #name: #sqlite_insert_value::Omit }
     }
 

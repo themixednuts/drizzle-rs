@@ -21,6 +21,22 @@ struct MigrationHarness {
     id: i32,
 }
 
+#[MySQLTable(NAME = "mysql_numeric_ddl")]
+struct NumericDdl {
+    #[column(PRIMARY)]
+    id: i32,
+    #[column(DECIMAL_UNSIGNED(20, 8))]
+    amount: String,
+    #[column(FLOAT_UNSIGNED(10, 2))]
+    ratio: f32,
+    #[column(DOUBLE_UNSIGNED(10, 2))]
+    estimate: f64,
+    #[column(REAL(10, 2))]
+    measurement: f64,
+    #[column(REAL_UNSIGNED(10, 2))]
+    unsigned_measurement: f64,
+}
+
 #[MySQLView(
     NAME = "mysql_migration_harness_view",
     DEFINITION = "SELECT id FROM mysql_migration_harness"
@@ -33,6 +49,43 @@ struct MigrationHarnessView {
 struct RuntimeMigrationSchema {
     harness: MigrationHarness,
     harness_view: MigrationHarnessView,
+}
+
+#[drizzle::test]
+fn numeric_ddl_is_accepted_and_introspected(db: &mut TestDb<RuntimeMigrationSchema>) {
+    result!(db.execute(SQL::raw("DROP TABLE IF EXISTS mysql_numeric_ddl")))
+        .expect("clean up the numeric DDL fixture");
+
+    let create_sql = NumericDdl::create_table_sql();
+    result!(db.execute(SQL::raw(&create_sql))).expect("MySQL accepts generated numeric DDL");
+
+    let snapshot = result!(db.introspect()).expect("introspect generated numeric DDL");
+    let Snapshot::MySQL(snapshot) = snapshot else {
+        panic!("MySQL introspection returned another dialect");
+    };
+    let ddl = drizzle::migrations::mysql::MySQLDDL::try_from_entities(snapshot.ddl)
+        .expect("introspection returns valid MySQL numeric DDL");
+    let column_type = |name| {
+        ddl.columns
+            .one(None, "mysql_numeric_ddl", name)
+            .unwrap_or_else(|| panic!("introspection omitted mysql_numeric_ddl.{name}"))
+            .sql_type
+            .to_ascii_lowercase()
+    };
+    assert_eq!(column_type("amount"), "decimal(20,8) unsigned");
+    assert_eq!(column_type("ratio"), "float(10,2) unsigned");
+    assert_eq!(column_type("estimate"), "double(10,2) unsigned");
+    assert!(matches!(
+        column_type("measurement").as_str(),
+        "real(10,2)" | "double(10,2)"
+    ));
+    assert!(matches!(
+        column_type("unsigned_measurement").as_str(),
+        "real(10,2) unsigned" | "double(10,2) unsigned"
+    ));
+
+    result!(db.execute(SQL::raw("DROP TABLE mysql_numeric_ddl")))
+        .expect("clean up the numeric DDL fixture");
 }
 
 #[drizzle::test]

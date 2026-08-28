@@ -45,6 +45,43 @@ async fn cleanup(db: Drizzle<Pool, TestSchema>, schema: &TestSchema) {
     db.disconnect().await.expect("gracefully disconnect pool");
 }
 
+#[tokio::test]
+async fn direct_connection_access_reestablishes_session_invariants() -> drizzle::Result<()> {
+    let _guard = mysql_async_setup::acquire_lock_async().await;
+    let schema = TestSchema::new();
+    let mut connection = mysql_async::Conn::new(mysql_async_setup::options())
+        .await
+        .expect("connect to MySQL");
+    mysql_async_setup::reset_schema(&mut connection, &schema).await;
+    let (mut db, TestSchema { users, .. }) = Drizzle::new(connection, schema);
+    db.create().await?;
+
+    db.conn_mut()
+        .query_drop(
+            "SET SESSION time_zone = '+01:00', sql_mode = CONCAT_WS(',', @@SESSION.sql_mode, 'NO_UNSIGNED_SUBTRACTION', 'REAL_AS_FLOAT')",
+        )
+        .await
+        .expect("change session state");
+    let _: i64 = db.select(count(users.id)).from(users).get().await?;
+
+    let mode: Option<String> = db
+        .conn_mut()
+        .query_first("SELECT @@SESSION.sql_mode")
+        .await
+        .expect("read sql_mode");
+    let timezone: Option<String> = db
+        .conn_mut()
+        .query_first("SELECT @@SESSION.time_zone")
+        .await
+        .expect("read time zone");
+    let mode = mode.unwrap_or_default();
+    assert!(!mode.contains("NO_UNSIGNED_SUBTRACTION"));
+    assert!(!mode.contains("REAL_AS_FLOAT"));
+    assert_eq!(timezone.as_deref(), Some("+00:00"));
+    mysql_async_setup::reset_schema(db.conn_mut(), &TestSchema::new()).await;
+    Ok(())
+}
+
 #[test]
 fn pool_construction_is_lazy_and_runtime_owned_by_first_checkout() {
     let _guard = mysql_async_setup::acquire_lock();

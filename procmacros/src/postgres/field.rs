@@ -1392,76 +1392,69 @@ impl FieldInfo {
                         marker_exprs.push(make_uppercase_path(path_ident, "COLLATE"));
                     }
                     "DEFAULT" => {
-                        if meta.input.peek(Token![=]) {
-                            meta.input.parse::<Token![=]>()?;
-                            if let Some(kind) = default_kind {
-                                return Err(syn::Error::new_spanned(
-                                    path_ident,
-                                    format!("default conflicts with existing {kind}"),
-                                ));
-                            }
-                            let lit: Lit = meta.input.parse()?;
-                            match lit {
-                                Lit::Str(s) => {
-                                    let escaped = s.value().replace('\'', "''");
-                                    default =
-                                        Some(PostgreSQLDefault::Literal(format!("'{escaped}'")));
-                                }
-                                Lit::Int(i) => {
-                                    default = Some(PostgreSQLDefault::Literal(i.to_string()));
-                                }
-                                Lit::Float(f) => {
-                                    default = Some(PostgreSQLDefault::Literal(f.to_string()));
-                                }
-                                Lit::Bool(b) => {
-                                    default = Some(PostgreSQLDefault::Literal(b.value.to_string()));
-                                }
-                                _ => {
-                                    return Err(syn::Error::new_spanned(
-                                        lit,
-                                        "unsupported default value; expected a string, integer, float, or boolean literal",
-                                    ));
-                                }
-                            }
-                            default_kind = Some("default");
-                            marker_exprs.push(make_uppercase_path(path_ident, "DEFAULT"));
+                        meta.input.parse::<Token![=]>()?;
+                        if let Some(kind) = default_kind {
+                            return Err(syn::Error::new_spanned(
+                                path_ident,
+                                format!("default conflicts with existing {kind}"),
+                            ));
                         }
-                    }
-                    "DEFAULT_FN" => {
-                        if meta.input.peek(Token![=]) {
-                            meta.input.parse::<Token![=]>()?;
-                            if let Some(kind) = default_kind {
-                                return Err(syn::Error::new_spanned(
-                                    path_ident,
-                                    format!("default_fn conflicts with existing {kind}"),
-                                ));
+                        let lit: Lit = meta.input.parse()?;
+                        match lit {
+                            Lit::Str(s) => {
+                                let escaped = s.value().replace('\'', "''");
+                                default = Some(PostgreSQLDefault::Literal(format!("'{escaped}'")));
                             }
-                            let expr: Expr = meta.input.parse()?;
-                            default_fn = Some(quote! { #expr });
-                            default_kind = Some("default_fn");
-                            marker_exprs.push(make_uppercase_path(path_ident, "DEFAULT_FN"));
-                        }
-                    }
-                    "DEFAULT_SQL" => {
-                        if meta.input.peek(Token![=]) {
-                            meta.input.parse::<Token![=]>()?;
-                            if let Some(kind) = default_kind {
-                                return Err(syn::Error::new_spanned(
-                                    path_ident,
-                                    format!("default_sql conflicts with existing {kind}"),
-                                ));
+                            Lit::Int(i) => {
+                                default = Some(PostgreSQLDefault::Literal(i.to_string()));
                             }
-                            let lit: Lit = meta.input.parse()?;
-                            if let Lit::Str(s) = lit {
-                                default = Some(PostgreSQLDefault::RawSql(s.value()));
-                                default_kind = Some("default_sql");
-                                marker_exprs.push(make_uppercase_path(path_ident, "DEFAULT_SQL"));
-                            } else {
+                            Lit::Float(f) => {
+                                default = Some(PostgreSQLDefault::Literal(f.to_string()));
+                            }
+                            Lit::Bool(b) => {
+                                default = Some(PostgreSQLDefault::Literal(b.value.to_string()));
+                            }
+                            _ => {
                                 return Err(syn::Error::new_spanned(
                                     lit,
-                                    "DEFAULT_SQL requires a string literal, e.g. default_sql = \"now()\"",
+                                    "unsupported default value; expected a string, integer, float, or boolean literal",
                                 ));
                             }
+                        }
+                        default_kind = Some("default");
+                        marker_exprs.push(make_uppercase_path(path_ident, "DEFAULT"));
+                    }
+                    "DEFAULT_FN" => {
+                        meta.input.parse::<Token![=]>()?;
+                        if let Some(kind) = default_kind {
+                            return Err(syn::Error::new_spanned(
+                                path_ident,
+                                format!("default_fn conflicts with existing {kind}"),
+                            ));
+                        }
+                        let expr: Expr = meta.input.parse()?;
+                        default_fn = Some(quote! { #expr });
+                        default_kind = Some("default_fn");
+                        marker_exprs.push(make_uppercase_path(path_ident, "DEFAULT_FN"));
+                    }
+                    "DEFAULT_SQL" => {
+                        meta.input.parse::<Token![=]>()?;
+                        if let Some(kind) = default_kind {
+                            return Err(syn::Error::new_spanned(
+                                path_ident,
+                                format!("default_sql conflicts with existing {kind}"),
+                            ));
+                        }
+                        let lit: Lit = meta.input.parse()?;
+                        if let Lit::Str(s) = lit {
+                            default = Some(PostgreSQLDefault::RawSql(s.value()));
+                            default_kind = Some("default_sql");
+                            marker_exprs.push(make_uppercase_path(path_ident, "DEFAULT_SQL"));
+                        } else {
+                            return Err(syn::Error::new_spanned(
+                                lit,
+                                "DEFAULT_SQL requires a string literal, e.g. default_sql = \"now()\"",
+                            ));
                         }
                     }
                     "CHECK" => {

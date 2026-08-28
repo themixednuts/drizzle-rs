@@ -43,6 +43,34 @@ struct SerialIds {
     name: String,
 }
 
+#[MySQLTable]
+struct DefaultMetadata {
+    #[column(DEFAULT = 7)]
+    database_value: i32,
+    #[column(DEFAULT_FN = || 7)]
+    application_value: i32,
+}
+
+#[MySQLTable]
+struct NumericDeclarations {
+    #[column(DECIMAL(20, 8))]
+    decimal_value: String,
+    #[column(DECIMAL_UNSIGNED(20, 8))]
+    decimal_unsigned: String,
+    #[column(FLOAT(10))]
+    float_precision: f32,
+    #[column(FLOAT_UNSIGNED(10, 2))]
+    float_unsigned: f32,
+    #[column(DOUBLE(10, 2))]
+    double_value: f64,
+    #[column(DOUBLE_UNSIGNED)]
+    double_unsigned: f64,
+    #[column(REAL(10, 2))]
+    real_value: f64,
+    #[column(REAL_UNSIGNED(10, 2))]
+    real_unsigned: f64,
+}
+
 #[MySQLTable(SCHEMA = "audit_db", NAME = "account_events")]
 struct AccountEvents {
     #[column(PRIMARY, AUTO_INCREMENT)]
@@ -792,6 +820,43 @@ fn text_blob_and_json_defaults_are_rendered_as_mysql_expressions() {
     assert!(sql.contains("`label` TEXT NOT NULL DEFAULT ('draft')"));
     assert!(sql.contains("`payload` BLOB NOT NULL DEFAULT (X'6279746573')"));
     assert!(sql.contains("`metadata` JSON NOT NULL DEFAULT ('{}')"));
+}
+
+#[test]
+fn numeric_metadata_preserves_arguments_unsigned_and_real() {
+    let table = &<NumericDeclarations as DrizzleTable>::TABLE_REF;
+    let sql_types = table
+        .columns
+        .iter()
+        .map(|column| column.sql_type)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sql_types,
+        [
+            "DECIMAL(20, 8)",
+            "DECIMAL(20, 8) UNSIGNED",
+            "FLOAT(10)",
+            "FLOAT(10, 2) UNSIGNED",
+            "DOUBLE(10, 2)",
+            "DOUBLE UNSIGNED",
+            "REAL(10, 2)",
+            "REAL(10, 2) UNSIGNED",
+        ]
+    );
+
+    let sql = NumericDeclarations::create_table_sql();
+    assert!(sql.contains("`decimal_unsigned` DECIMAL(20, 8) UNSIGNED NOT NULL"));
+    assert!(sql.contains("`float_unsigned` FLOAT(10, 2) UNSIGNED NOT NULL"));
+    assert!(sql.contains("`double_unsigned` DOUBLE UNSIGNED NOT NULL"));
+    assert!(sql.contains("`real_value` REAL(10, 2) NOT NULL"));
+    assert!(sql.contains("`real_unsigned` REAL(10, 2) UNSIGNED NOT NULL"));
+}
+
+#[test]
+fn column_metadata_distinguishes_database_and_application_defaults() {
+    let columns = <DefaultMetadata as DrizzleTable>::TABLE_REF.columns;
+    assert!(columns[0].has_default());
+    assert!(!columns[1].has_default());
 }
 
 #[test]

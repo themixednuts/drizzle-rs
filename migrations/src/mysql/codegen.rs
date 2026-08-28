@@ -12,7 +12,7 @@ use super::ddl::{
     ViewCheckOption, ViewSqlSecurity,
 };
 use crate::utils::escape_for_rust_literal;
-use drizzle_types::mysql::MySQLTypeCategory;
+use drizzle_types::mysql::{MySQLType, MySQLTypeCategory};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
@@ -1270,9 +1270,15 @@ fn inline_sql_type<'a>(kind: &str, values: impl Iterator<Item = &'a str>) -> Str
 }
 
 fn attribute_sql_type(attribute: &str) -> String {
-    attribute
-        .strip_suffix("_UNSIGNED")
-        .map_or_else(|| attribute.to_string(), |base| format!("{base} UNSIGNED"))
+    let (base, args) = attribute
+        .split_once('(')
+        .map_or((attribute, ""), |(base, _)| {
+            (base, &attribute[base.len()..])
+        });
+    base.strip_suffix("_UNSIGNED").map_or_else(
+        || attribute.to_string(),
+        |base| format!("{base}{args} UNSIGNED"),
+    )
 }
 
 fn parse_standard_type(sql_type: &str) -> Option<TypeInfo> {
@@ -1305,21 +1311,10 @@ fn parse_standard_type(sql_type: &str) -> Option<TypeInfo> {
         )?,
         "INT" => integer_type(&trailing, "INT", MySQLTypeCategory::Int, "i32", "u32")?,
         "BIGINT" => integer_type(&trailing, "BIGINT", MySQLTypeCategory::BigInt, "i64", "u64")?,
-        "DECIMAL" if trailing.is_empty() => (
-            "DECIMAL".to_string(),
-            MySQLTypeCategory::Decimal,
-            "String".to_string(),
-        ),
-        "FLOAT" if trailing.is_empty() => (
-            "FLOAT".to_string(),
-            MySQLTypeCategory::Float,
-            "f32".to_string(),
-        ),
-        "DOUBLE" if trailing.is_empty() => (
-            "DOUBLE".to_string(),
-            MySQLTypeCategory::Double,
-            "f64".to_string(),
-        ),
+        "DECIMAL" => numeric_type(&trailing, "DECIMAL", MySQLTypeCategory::Decimal, "String")?,
+        "FLOAT" => numeric_type(&trailing, "FLOAT", MySQLTypeCategory::Float, "f32")?,
+        "DOUBLE" => numeric_type(&trailing, "DOUBLE", MySQLTypeCategory::Double, "f64")?,
+        "REAL" => numeric_type(&trailing, "REAL", MySQLTypeCategory::Double, "f64")?,
         "BOOLEAN" if trailing.is_empty() => (
             "BOOLEAN".to_string(),
             MySQLTypeCategory::Boolean,
@@ -1483,6 +1478,19 @@ fn integer_type(
     }
 }
 
+fn numeric_type(
+    trailing: &str,
+    base: &str,
+    category: MySQLTypeCategory,
+    rust_type: &str,
+) -> Option<(String, MySQLTypeCategory, String)> {
+    match trailing {
+        "" => Some((base.to_string(), category, rust_type.to_string())),
+        "UNSIGNED" => Some((format!("{base}_UNSIGNED"), category, rust_type.to_string())),
+        _ => None,
+    }
+}
+
 fn unsigned_category(category: MySQLTypeCategory) -> MySQLTypeCategory {
     match category {
         MySQLTypeCategory::TinyInt => MySQLTypeCategory::TinyIntUnsigned,
@@ -1538,7 +1546,8 @@ fn normalize_type_name(base: &str) -> Option<String> {
         "BIGINT" => Some("BIGINT".to_string()),
         "DECIMAL" | "NUMERIC" | "DEC" | "FIXED" => Some("DECIMAL".to_string()),
         "FLOAT" => Some("FLOAT".to_string()),
-        "DOUBLE" | "DOUBLE PRECISION" | "REAL" => Some("DOUBLE".to_string()),
+        "DOUBLE" | "DOUBLE PRECISION" => Some("DOUBLE".to_string()),
+        "REAL" => Some("REAL".to_string()),
         "BOOLEAN" | "BOOL" => Some("BOOLEAN".to_string()),
         "BIT" => Some("BIT".to_string()),
         "CHAR" | "CHARACTER" => Some("CHAR".to_string()),
@@ -1572,26 +1581,7 @@ fn normalize_words(value: &str) -> String {
 }
 
 fn type_arguments_are_valid(attribute: &str, args: &[u16]) -> bool {
-    match attribute {
-        "TINYINT" | "TINYINT_UNSIGNED" | "SMALLINT" | "SMALLINT_UNSIGNED" | "MEDIUMINT"
-        | "MEDIUMINT_UNSIGNED" | "INT" | "INT_UNSIGNED" | "BIGINT" | "BIGINT_UNSIGNED" | "YEAR" => {
-            args.len() <= 1
-        }
-        "VARCHAR" | "VARBINARY" => args.len() == 1,
-        "CHAR" | "BINARY" => args.len() <= 1 && args.first().is_none_or(|value| *value <= 255),
-        "BIT" => args.len() <= 1 && args.first().is_none_or(|value| (1..=64).contains(value)),
-        "DECIMAL" => {
-            args.len() <= 2
-                && args.first().is_none_or(|value| (1..=65).contains(value))
-                && args.get(1).is_none_or(|scale| {
-                    *scale <= 30 && args.first().is_some_and(|precision| scale <= precision)
-                })
-        }
-        "TIME" | "DATETIME" | "TIMESTAMP" => {
-            args.len() <= 1 && args.first().is_none_or(|value| *value <= 6)
-        }
-        _ => args.is_empty(),
-    }
+    MySQLType::parse_attribute(attribute).is_some_and(|ty| ty.validate_args(args).is_none())
 }
 
 pub(super) fn canonical_sql_type(sql_type: &str) -> Option<String> {
@@ -1906,15 +1896,51 @@ mod tests {
     #[test]
     fn parses_macro_representable_type_declarations() {
         let cases = [
-            ("BIGINT UNSIGNED", "BIGINT_UNSIGNED", "u64"),
-            ("varchar(255)", "VARCHAR(255)", "String"),
-            ("DECIMAL(20, 8)", "DECIMAL(20, 8)", "String"),
-            ("DATETIME(6)", "DATETIME(6)", "String"),
+            (
+                "BIGINT UNSIGNED",
+                "BIGINT_UNSIGNED",
+                "u64",
+                "BIGINT UNSIGNED",
+            ),
+            ("varchar(255)", "VARCHAR(255)", "String", "VARCHAR(255)"),
+            (
+                "DECIMAL(20, 8)",
+                "DECIMAL(20, 8)",
+                "String",
+                "DECIMAL(20, 8)",
+            ),
+            (
+                "DECIMAL(20, 8) UNSIGNED",
+                "DECIMAL_UNSIGNED(20, 8)",
+                "String",
+                "DECIMAL(20, 8) UNSIGNED",
+            ),
+            (
+                "FLOAT(10, 2) UNSIGNED",
+                "FLOAT_UNSIGNED(10, 2)",
+                "f32",
+                "FLOAT(10, 2) UNSIGNED",
+            ),
+            (
+                "DOUBLE(10, 2) UNSIGNED",
+                "DOUBLE_UNSIGNED(10, 2)",
+                "f64",
+                "DOUBLE(10, 2) UNSIGNED",
+            ),
+            ("REAL(10, 2)", "REAL(10, 2)", "f64", "REAL(10, 2)"),
+            (
+                "REAL(10, 2) UNSIGNED",
+                "REAL_UNSIGNED(10, 2)",
+                "f64",
+                "REAL(10, 2) UNSIGNED",
+            ),
+            ("DATETIME(6)", "DATETIME(6)", "String", "DATETIME(6)"),
         ];
-        for (input, attribute, rust_type) in cases {
+        for (input, attribute, rust_type, snapshot_sql_type) in cases {
             let info = parse_standard_type(input).expect("representable type");
             assert_eq!(info.attribute, attribute);
             assert_eq!(info.rust_type, rust_type);
+            assert_eq!(info.snapshot_sql_type, snapshot_sql_type);
         }
         let int = parse_standard_type("INT(11)").expect("display width is non-structural");
         assert_eq!(int.attribute, "INT");
@@ -1922,6 +1948,14 @@ mod tests {
         let boolean = parse_standard_type("TINYINT(1)").expect("BOOLEAN catalog spelling");
         assert_eq!(boolean.attribute, "BOOLEAN");
         assert!(parse_standard_type("INT ZEROFILL").is_none());
+        assert!(parse_standard_type("DECIMAL(66) UNSIGNED").is_none());
+        assert!(parse_standard_type("FLOAT(24)").is_some());
+        assert!(parse_standard_type("FLOAT(25)").is_none());
+        assert!(parse_standard_type("FLOAT(255, 30)").is_some());
+        assert!(parse_standard_type("FLOAT(256, 30)").is_none());
+        assert!(parse_standard_type("REAL(10, 11)").is_none());
+        assert!(parse_standard_type("DOUBLE(10)").is_none());
+        assert!(parse_standard_type("REAL(10)").is_none());
     }
 
     #[test]

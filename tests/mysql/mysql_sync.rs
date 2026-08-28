@@ -20,7 +20,7 @@ fn direct_connection_access_reestablishes_session_invariants() -> drizzle::Resul
     db.create()?;
 
     db.conn_mut().query_drop(
-        "SET SESSION time_zone = '+01:00', sql_mode = CONCAT_WS(',', @@SESSION.sql_mode, 'NO_UNSIGNED_SUBTRACTION')",
+        "SET SESSION time_zone = '+01:00', sql_mode = CONCAT_WS(',', @@SESSION.sql_mode, 'NO_UNSIGNED_SUBTRACTION', 'REAL_AS_FLOAT')",
     ).map_err(|error| DrizzleError::driver("MySQL", error))?;
     let _: i64 = db.select(count(users.id)).from(users).get()?;
 
@@ -32,7 +32,9 @@ fn direct_connection_access_reestablishes_session_invariants() -> drizzle::Resul
         .conn_mut()
         .query_first("SELECT @@SESSION.time_zone")
         .map_err(|error| DrizzleError::driver("MySQL", error))?;
-    assert!(!mode.unwrap_or_default().contains("NO_UNSIGNED_SUBTRACTION"));
+    let mode = mode.unwrap_or_default();
+    assert!(!mode.contains("NO_UNSIGNED_SUBTRACTION"));
+    assert!(!mode.contains("REAL_AS_FLOAT"));
     assert_eq!(timezone.as_deref(), Some("+00:00"));
     mysql_sync_setup::reset_schema(db.conn_mut(), &TestSchema::new());
     Ok(())

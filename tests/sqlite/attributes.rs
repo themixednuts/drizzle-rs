@@ -45,9 +45,9 @@ struct UniqueFields {
     display_name: Option<String>,
 }
 
-// Test default values - compile time literals
+// Test database-side literal defaults.
 #[SQLiteTable(NAME = "compile_defaults")]
-struct CompileTimeDefaults {
+struct DatabaseDefaults {
     #[column(PRIMARY, AUTOINCREMENT)]
     id: i32,
     #[column(DEFAULT = "default_name")]
@@ -178,8 +178,8 @@ struct UniqueFieldsSchema {
 }
 
 #[derive(SQLiteSchema)]
-struct CompileTimeDefaultsSchema {
-    compile_defaults: CompileTimeDefaults,
+struct DatabaseDefaultsSchema {
+    compile_defaults: DatabaseDefaults,
 }
 
 #[derive(SQLiteSchema)]
@@ -297,16 +297,21 @@ fn test_unique_constraints(db: &mut TestDb<UniqueFieldsSchema>) {
 }
 
 #[drizzle::test]
-fn test_compile_time_defaults(db: &mut TestDb<CompileTimeDefaultsSchema>) {
+fn test_database_defaults(db: &mut TestDb<DatabaseDefaultsSchema>) {
     let defaults_table = schema.compile_defaults;
 
     // Insert with minimal data - defaults should be used
-    let data = InsertCompileTimeDefaults::new();
+    let data = InsertDatabaseDefaults::new();
 
-    let result = db.insert(defaults_table).values([data]).execute();
+    let statement = db.insert(defaults_table).values([data]);
+    assert_eq!(
+        statement.to_sql().sql(),
+        r#"INSERT INTO "compile_defaults" DEFAULT VALUES"#
+    );
+    let result = statement.execute();
     assert_eq!(result, 1);
 
-    // Verify compile-time defaults were applied
+    // Verify SQLite applied the declared DEFAULT clauses.
     let select_query = db
         .select((
             defaults_table.name,
@@ -358,6 +363,16 @@ fn test_runtime_defaults(db: &mut TestDb<RuntimeDefaultsSchema>) {
     assert_eq!(results[0].0, ""); // String::new() returns empty string
     assert_eq!(results[0].1, 100); // Closure returns 100
     assert_eq!(results[0].2, "test");
+}
+
+#[test]
+fn column_metadata_distinguishes_database_and_application_defaults() {
+    let database_columns = <DatabaseDefaults as DrizzleTable>::TABLE_REF.columns;
+    assert!(database_columns[1].has_default());
+
+    let application_columns = <RuntimeDefaults as DrizzleTable>::TABLE_REF.columns;
+    assert!(!application_columns[1].has_default());
+    assert!(!application_columns[2].has_default());
 }
 
 #[drizzle::test]
@@ -590,7 +605,7 @@ fn test_schema_generation() {
     let _ = AllTypes::SQL;
     let _ = PrimaryKeyVariations::SQL;
     let _ = UniqueFields::SQL;
-    let _ = CompileTimeDefaults::SQL;
+    let _ = DatabaseDefaults::SQL;
     let _ = RuntimeDefaults::SQL;
     let _ = EnumFields::SQL;
     let _ = NullableTest::SQL;

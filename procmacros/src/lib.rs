@@ -384,8 +384,8 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// - `unique` - Unique constraint
 ///
 /// ## Defaults
-/// - `default = value` - Compile-time default value
-/// - `default_fn = function` - Runtime default function (called at insert time)
+/// - `default = value` - Literal database `DEFAULT` clause
+/// - `default_fn = function` - Application default function (called at insert time)
 ///
 /// ## Special Types
 /// - `enum` - Store enum as TEXT or INTEGER (requires `SQLiteEnum` derive)
@@ -2681,8 +2681,8 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// - `unique` - Unique constraint
 ///
 /// ## Defaults
-/// - `default = value` - Compile-time default value
-/// - `default_fn = function` - Runtime default function
+/// - `default = value` - Literal database `DEFAULT` clause
+/// - `default_fn = function` - Application default function
 ///
 /// ## Special Types
 /// - `enum` - Map a `PostgresEnum` field (`#[column(enum)]`)

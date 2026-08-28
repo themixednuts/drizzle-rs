@@ -336,7 +336,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
             .with(ColumnRefFlags::NOT_NULL, !field.is_nullable)
             .with(ColumnRefFlags::PRIMARY_KEY, field.is_primary())
             .with(ColumnRefFlags::UNIQUE, field.is_unique())
-            .with(ColumnRefFlags::HAS_DEFAULT, field.has_default)
+            .with(ColumnRefFlags::HAS_DEFAULT, field.default.is_some())
             .bits();
         let field_charset = option_str_tokens(field.charset.as_deref());
         let field_collation = option_str_tokens(field.collate.as_deref());
