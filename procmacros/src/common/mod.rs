@@ -26,8 +26,6 @@ pub use constraint::Constraint;
 pub use context::ModelType;
 pub use default::render_default;
 pub use diagnostics::{references_required_message, relation_requires_references_message};
-#[cfg(feature = "sqlite")]
-pub use helpers::has_json_attribute;
 pub use helpers::{extract_struct_fields, make_uppercase_path, parse_column_reference};
 pub use table_pipeline::{
     count_primary_keys, required_fields_pattern, struct_fields, table_name_from_attrs,

@@ -143,7 +143,7 @@ impl SQLiteType {
     ///
     /// - `INTEGER`: `primary`, `primary_key`, `unique`, `autoincrement`, `enum`
     /// - `TEXT`: `primary`, `primary_key`, `unique`, `json`, `enum`
-    /// - `BLOB`: `primary`, `primary_key`, `unique`, `json`
+    /// - `BLOB`: `primary`, `primary_key`, `unique`
     /// - `REAL`: `primary`, `primary_key`, `unique`
     /// - `NUMERIC`: `primary`, `primary_key`, `unique`
     /// - `ANY`: `primary`, `primary_key`, `unique`
@@ -153,7 +153,7 @@ impl SQLiteType {
             || matches!(
                 (self, flag),
                 (Self::Integer, "autoincrement")
-                    | (Self::Text | Self::Blob, "json")
+                    | (Self::Text, "json")
                     | (Self::Text | Self::Integer, "enum")
             )
     }
@@ -231,9 +231,9 @@ mod tests {
         assert!(!SQLiteType::Text.is_valid_flag("autoincrement"));
         assert!(!SQLiteType::Blob.is_valid_flag("autoincrement"));
 
-        // JSON valid for TEXT and BLOB
+        // JSON uses TEXT storage.
         assert!(SQLiteType::Text.is_valid_flag("json"));
-        assert!(SQLiteType::Blob.is_valid_flag("json"));
+        assert!(!SQLiteType::Blob.is_valid_flag("json"));
         assert!(!SQLiteType::Integer.is_valid_flag("json"));
 
         // Enum valid for TEXT and INTEGER

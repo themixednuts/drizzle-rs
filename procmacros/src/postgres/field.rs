@@ -924,6 +924,13 @@ impl FieldInfo {
             }
         }
 
+        if is_explicit_json && is_explicit_jsonb {
+            return Err(Error::new_spanned(
+                field,
+                "JSON and JSONB are mutually exclusive PostgreSQL types",
+            ));
+        }
+
         if explicit_type.is_some() && (is_explicit_json || is_explicit_jsonb || is_pgenum) {
             return Err(Error::new_spanned(
                 field,

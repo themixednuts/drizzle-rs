@@ -42,7 +42,7 @@ pub enum TypeCategory {
     ByteArray,
     /// `uuid::Uuid` - UUID type (defaults to BLOB, can be overridden to TEXT)
     Uuid,
-    /// Any type with `#[json]` flag or `serde_json::Value`
+    /// Any type stored through `#[column(JSON)]` or `serde_json::Value`
     Json,
     /// Any type with `#[enum]` flag (defaults to TEXT, can be INTEGER)
     Enum,
@@ -156,8 +156,8 @@ impl TypeCategory {
             Self::Integer | Self::Bool => Some(SQLiteType::Integer),
             // Floating point → REAL
             Self::Real => Some(SQLiteType::Real),
-            // String types → TEXT. JSON defaults to TEXT (human-readable),
-            // Enum defaults to TEXT (variant names); both can be overridden.
+            // String and JSON types → TEXT. Enum defaults to TEXT (variant
+            // names) and may be overridden to INTEGER.
             Self::String | Self::ArrayString | Self::DateTime | Self::Json | Self::Enum => {
                 Some(SQLiteType::Text)
             }

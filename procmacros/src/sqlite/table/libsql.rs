@@ -171,27 +171,16 @@ fn handle_json_field(
         ));
     }
 
-    let accessor = match info.column_type {
-        SQLiteType::Text => {
-            if is_optional {
-                quote!(row.get::<Option<String>>(#idx).map(|opt| opt.and_then(|v| serde_json::from_str(&v).ok())))
-            } else {
-                quote!(row.get::<String>(#idx).map(|v| serde_json::from_str(v.as_str()))?)
-            }
-        }
-        SQLiteType::Blob => {
-            if is_optional {
-                quote!(row.get::<Option<Vec<u8>>>(#idx).map(|opt| opt.and_then(|v| serde_json::from_slice(&v).ok())))
-            } else {
-                quote!(row.get::<Vec<u8>>(#idx).map(|v| serde_json::from_slice(v.as_slice()))?)
-            }
-        }
-        _ => {
-            return Err(syn::Error::new_spanned(
-                info.ident,
-                errors::json::INVALID_COLUMN_TYPE,
-            ));
-        }
+    let accessor = if is_optional {
+        quote!({
+            let value: Option<String> = row.get(#idx)?;
+            value.map(|value| serde_json::from_str(&value)).transpose()
+        })
+    } else {
+        quote!({
+            let value: String = row.get(#idx)?;
+            serde_json::from_str(&value)
+        })
     };
 
     Ok(quote! { #name: #accessor?, })
@@ -367,64 +356,33 @@ fn handle_standard_field(
 
 /// Generate libsql JSON implementations (Into<libsql::Value>)
 pub fn generate_json_impls(
-    json_type_storage: &std::collections::HashMap<String, (SQLiteType, &FieldInfo)>,
+    json_types: &std::collections::BTreeMap<String, &FieldInfo>,
 ) -> Result<Vec<TokenStream>> {
-    if json_type_storage.is_empty() {
+    if json_types.is_empty() {
         return Ok(vec![]);
     }
 
-    json_type_storage
-        .iter()
-        .map(|(_, (storage_type, info))| {
+    json_types
+        .values()
+        .map(|info| {
             let struct_name = info.base_type;
-            let into_value_impl = match storage_type {
-                SQLiteType::Text => quote! {
+            Ok(quote! {
                     impl From<#struct_name> for drizzle::sqlite::libsql::Value {
                         fn from(value: #struct_name) -> Self {
-                            match serde_json::to_string(&value) {
-                                Ok(json_data) => drizzle::sqlite::libsql::Value::Text(json_data),
-                                Err(_) => drizzle::sqlite::libsql::Value::Null,
-                            }
+                            let json_data = serde_json::to_string(&value)
+                                .expect("failed to serialize JSON value for SQLite JSON column");
+                            drizzle::sqlite::libsql::Value::Text(json_data)
                         }
                     }
 
                     impl From<&#struct_name> for drizzle::sqlite::libsql::Value {
                         fn from(value: &#struct_name) -> Self {
-                            match serde_json::to_string(value) {
-                                Ok(json_data) => drizzle::sqlite::libsql::Value::Text(json_data),
-                                Err(_) => drizzle::sqlite::libsql::Value::Null,
-                            }
+                            let json_data = serde_json::to_string(value)
+                                .expect("failed to serialize JSON value for SQLite JSON column");
+                            drizzle::sqlite::libsql::Value::Text(json_data)
                         }
                     }
-                },
-                SQLiteType::Blob => quote! {
-                    impl From<#struct_name> for drizzle::sqlite::libsql::Value {
-                        fn from(value: #struct_name) -> Self {
-                            match serde_json::to_vec(&value) {
-                                Ok(json_data) => drizzle::sqlite::libsql::Value::Blob(json_data),
-                                Err(_) => drizzle::sqlite::libsql::Value::Null,
-                            }
-                        }
-                    }
-
-                    impl From<&#struct_name> for drizzle::sqlite::libsql::Value {
-                        fn from(value: &#struct_name) -> Self {
-                            match serde_json::to_vec(value) {
-                                Ok(json_data) => drizzle::sqlite::libsql::Value::Blob(json_data),
-                                Err(_) => drizzle::sqlite::libsql::Value::Null,
-                            }
-                        }
-                    }
-                },
-                _ => {
-                    return Err(syn::Error::new_spanned(
-                        info.ident,
-                        errors::json::INVALID_COLUMN_TYPE,
-                    ));
-                }
-            };
-
-            Ok(into_value_impl)
+            })
         })
         .collect::<Result<Vec<_>>>()
 }

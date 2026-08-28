@@ -99,7 +99,7 @@ impl SQLiteType {
             || matches!(
                 (self, flag),
                 (Self::Integer, "autoincrement")
-                    | (Self::Text | Self::Blob, "json")
+                    | (Self::Text, "json")
                     | (Self::Text | Self::Integer, "enum")
             )
     }
@@ -140,13 +140,10 @@ impl SQLiteType {
                      Use: #[column(integer, primary, autoincrement)]"
                 }
                 "json" => {
-                    "JSON serialization is only supported for TEXT or BLOB column types.\n\
-                     \n\
-                     JSON data can be stored as TEXT (human-readable) or BLOB (binary). \
-                     The choice affects storage size and query capabilities.\n\
+                    "SQLite JSON columns use TEXT storage.\n\
                      \n\
                      See: https://sqlite.org/json1.html\n\
-                     Use: #[column(json)] or #[column(blob, json)]"
+                     Use: #[column(JSON)]"
                 }
                 "enum" => {
                     "Enum serialization is supported for TEXT (string) or INTEGER (discriminant) columns.\n\
@@ -446,16 +443,21 @@ impl<'a> FieldInfo<'a> {
                         let upper = ident_str.to_ascii_uppercase();
                         match upper.as_str() {
                             "JSON" => {
-                                // JSON = TEXT storage with JSON serialization
+                                if args.explicit_type.is_some() {
+                                    return Err(Error::new_spanned(
+                                        ident,
+                                        "JSON cannot be combined with another SQLite type; use #[column(JSON)]",
+                                    ));
+                                }
                                 args.explicit_type = Some(SQLiteType::Text);
                                 args.flags.insert("json".to_string());
                                 args.marker_exprs.push(make_uppercase_path(ident, "JSON"));
                             }
                             "JSONB" => {
-                                // JSONB = BLOB storage with JSON serialization
-                                args.explicit_type = Some(SQLiteType::Blob);
-                                args.flags.insert("json".to_string());
-                                args.marker_exprs.push(make_uppercase_path(ident, "JSONB"));
+                                return Err(Error::new_spanned(
+                                    ident,
+                                    "JSONB is PostgreSQL-only; SQLite uses #[column(JSON)]",
+                                ));
                             }
                             "DEFAULT" => {
                                 return Err(Error::new_spanned(ident, "DEFAULT requires a value"));
@@ -483,6 +485,12 @@ impl<'a> FieldInfo<'a> {
                                 if let Some(sqlite_type) =
                                     SQLiteType::from_attribute_name(&ident_str)
                                 {
+                                    if args.explicit_type.is_some() {
+                                        return Err(Error::new_spanned(
+                                            ident,
+                                            "a SQLite column may specify only one SQL type",
+                                        ));
+                                    }
                                     args.explicit_type = Some(sqlite_type);
                                 } else {
                                     args.flags.insert(ident_str);
@@ -734,6 +742,12 @@ impl<'a> FieldInfo<'a> {
 
             // Check for legacy type attribute (#[text], #[integer], etc.)
             if let Some(column_type) = SQLiteType::from_attribute_name(&attr_name) {
+                if data.has_explicit_type {
+                    return Err(Error::new_spanned(
+                        attr,
+                        "a SQLite column may specify only one SQL type",
+                    ));
+                }
                 data.column_type = column_type.clone();
                 data.has_explicit_type = true;
 
@@ -744,6 +758,12 @@ impl<'a> FieldInfo<'a> {
 
                 // Parse arguments for legacy syntax
                 let args = attr.parse_args_with(Self::parse_args)?;
+                if args.flags.contains("json") {
+                    return Err(Error::new_spanned(
+                        attr,
+                        "SQLite JSON columns use #[column(JSON)]",
+                    ));
+                }
                 // Validate flags against the explicit column type
                 args.flags
                     .iter()
@@ -783,6 +803,12 @@ impl<'a> FieldInfo<'a> {
                 let args = attr.parse_args_with(Self::parse_args)?;
                 // If explicit type was provided in args, use it
                 if let Some(explicit_type) = args.explicit_type {
+                    if data.has_explicit_type {
+                        return Err(Error::new_spanned(
+                            attr,
+                            "a SQLite column may specify only one SQL type",
+                        ));
+                    }
                     data.column_type = explicit_type.clone();
                     data.has_explicit_type = true;
 

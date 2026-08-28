@@ -25,18 +25,11 @@ struct JsonUser {
     email: String,
     #[column(JSON)]
     profile: Profile,
+    raw: serde_json::Value,
 }
 #[derive(SQLiteSchema)]
 struct Schema {
     jsonuser: JsonUser,
-}
-
-#[derive(SQLiteFromRow, Debug, PartialEq, Default)]
-pub struct JsonReadResult {
-    id: Uuid,
-    email: String,
-    #[json]
-    profile: Profile,
 }
 
 #[drizzle::test]
@@ -51,9 +44,12 @@ fn json_storage(db: &mut TestDb<Schema>) {
 
     let id = Uuid::new_v4();
 
-    let stmt =
-        db.insert(jsonuser)
-            .values([InsertJsonUser::new(id, "john@test.com", profile.clone())]);
+    let stmt = db.insert(jsonuser).values([InsertJsonUser::new(
+        id,
+        "john@test.com",
+        profile.clone(),
+        serde_json::json!({ "enabled": true }),
+    )]);
 
     // let stmt2 =
     //     db.insert(jsonuser)
@@ -78,15 +74,13 @@ fn json_storage(db: &mut TestDb<Schema>) {
     assert_eq!(user.id, id);
     assert_eq!(user.age, Some(30));
 
-    // Test reading full JSON column back via #[json] on FromRow struct
-    let stmt = db
-        .select((jsonuser.id, jsonuser.email, jsonuser.profile))
-        .from(jsonuser)
-        .r#where(eq(jsonuser.id, id));
+    // The table-generated row owns the custom JSON codec.
+    let stmt = db.select(()).from(jsonuser).r#where(eq(jsonuser.id, id));
 
-    let result: JsonReadResult = stmt.get();
+    let result: SelectJsonUser = stmt.get();
 
     assert_eq!(result.id, id);
     assert_eq!(result.email, "john@test.com");
     assert_eq!(result.profile, profile);
+    assert_eq!(result.raw, serde_json::json!({ "enabled": true }));
 }

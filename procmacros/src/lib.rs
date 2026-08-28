@@ -1123,12 +1123,12 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// | `String` | TEXT | |
 /// | `Vec<u8>` | BLOB | |
 /// | `uuid::Uuid` | BLOB | Requires `uuid` feature |
+/// | `serde_json::Value` | TEXT | Requires `serde` feature |
 /// | `Option<T>` | Any | Nullable columns |
 ///
 /// # Field Attributes
 ///
 /// - `#[column(Table::field)]` - Map to a specific table column (useful for JOINs)
-/// - `#[json]` - Deserialize JSON from TEXT column (requires `serde` feature)
 /// - No attribute - Maps to column with same name as the field
 ///
 /// # Struct Types
@@ -1139,6 +1139,10 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// Note: Turso rows currently do not expose column names, so named structs
 /// also decode by index with the `turso` driver.
+///
+/// `SQLiteFromRow` uses each backend's direct row conversion. Select a full
+/// table into its generated `Select{Table}` model when table-owned JSON or
+/// custom-column codecs must run.
 ///
 /// # Examples
 ///
@@ -1513,23 +1517,14 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #  }
 /// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
-/// // This example requires serde feature and specific rusqlite version compatibility
 /// use drizzle::sqlite::prelude::*;
 /// use drizzle_macros::SQLiteFromRow;
-/// use serde::{Serialize, Deserialize};
-///
-/// #[derive(Serialize, Deserialize, Debug, Default, Clone)]
-/// struct Profile {
-///     bio: String,
-///     website: Option<String>,
-/// }
 ///
 /// #[derive(SQLiteFromRow, Debug, Default)]
 /// struct UserWithProfile {
 ///     id: i32,
 ///     name: String,
-///     #[json]  // Deserialize from JSON TEXT
-///     profile: Profile,
+///     profile: serde_json::Value,
 /// }
 /// # }
 /// ```
@@ -1602,7 +1597,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// # }
 /// ```
 #[cfg(feature = "sqlite")]
-#[proc_macro_derive(SQLiteFromRow, attributes(column, json, from))]
+#[proc_macro_derive(SQLiteFromRow, attributes(column, from))]
 pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
 

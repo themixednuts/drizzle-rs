@@ -1,0 +1,5 @@
+error: a SQLite column may specify only one SQL type
+ --> tests/ui/sqlite_macro_errors/fail/split_json_storage.rs:6:5
+  |
+6 |     #[column(JSON)]
+  |     ^^^^^^^^^^^^^^^

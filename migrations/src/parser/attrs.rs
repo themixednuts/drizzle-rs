@@ -618,13 +618,18 @@ fn parse_sqlite_args(
                 let ident_str = ident.to_string();
                 match ident_str.to_ascii_uppercase().as_str() {
                     "JSON" => {
+                        if args.explicit_type.is_some() {
+                            diags.errors.push(format!(
+                                "{field_desc}: JSON cannot be combined with another SQLite type; use #[column(JSON)]"
+                            ));
+                            continue;
+                        }
                         args.explicit_type = Some(SQLiteType::Text);
                         args.json = true;
                     }
-                    "JSONB" => {
-                        args.explicit_type = Some(SQLiteType::Blob);
-                        args.json = true;
-                    }
+                    "JSONB" => diags.errors.push(format!(
+                        "{field_desc}: JSONB is PostgreSQL-only; SQLite uses #[column(JSON)]"
+                    )),
                     "DEFAULT" | "DEFAULT_FN" => diags
                         .errors
                         .push(format!("{field_desc}: {ident_str} requires a value")),
@@ -634,7 +639,13 @@ fn parse_sqlite_args(
                     "UNIQUE" => args.unique = true,
                     _ => {
                         if let Some(ty) = SQLiteType::from_attribute_name(&ident_str) {
-                            args.explicit_type = Some(ty);
+                            if args.explicit_type.is_some() {
+                                diags.errors.push(format!(
+                                    "{field_desc}: a SQLite column may specify only one SQL type"
+                                ));
+                            } else {
+                                args.explicit_type = Some(ty);
+                            }
                         }
                         // Unknown bare flags are collected silently by the
                         // macro; mirrored here (no diagnostic).
@@ -845,13 +856,20 @@ pub(crate) fn sqlite_column_spec(
 
         // Legacy per-type attribute (`#[text]`, `#[integer(primary)]`, ...).
         let legacy_type = SQLiteType::from_attribute_name(&ident);
+        let is_legacy = legacy_type.is_some();
         let is_column = ident == "column";
         if legacy_type.is_none() && !is_column {
             continue;
         }
 
         if let Some(ty) = legacy_type {
-            explicit_type = explicit_type.or(Some(ty));
+            if explicit_type.is_some() {
+                diags.errors.push(format!(
+                    "{field_desc}: a SQLite column may specify only one SQL type"
+                ));
+            } else {
+                explicit_type = Some(ty);
+            }
         }
 
         let args = match &attr.meta {
@@ -860,11 +878,25 @@ pub(crate) fn sqlite_column_spec(
             Meta::NameValue(_) => continue,
         };
 
+        if is_legacy && args.json {
+            diags.errors.push(format!(
+                "{field_desc}: SQLite JSON columns use #[column(JSON)]"
+            ));
+        }
+
         // Merge with the macro's first-attribute-wins semantics.
         if !seen_column_data {
             seen_column_data = true;
         }
-        explicit_type = explicit_type.or(args.explicit_type);
+        if let Some(ty) = args.explicit_type {
+            if explicit_type.is_some() && !is_legacy {
+                diags.errors.push(format!(
+                    "{field_desc}: a SQLite column may specify only one SQL type"
+                ));
+            } else if !is_legacy {
+                explicit_type = Some(ty);
+            }
+        }
         spec.primary |= args.primary;
         spec.autoincrement |= args.autoincrement;
         spec.unique |= args.unique;
@@ -1337,7 +1369,7 @@ pub(crate) fn mysql_column_spec(
                         set_mysql_explicit_type(&mut args, MySQLType::Json, &field_desc, diags)
                     }
                     "JSONB" => diags.errors.push(format!(
-                        "{field_desc}: JSONB is PostgreSQL/SQLite-only; MySQL uses JSON"
+                        "{field_desc}: JSONB is PostgreSQL-only; MySQL uses JSON"
                     )),
                     "SERIAL" | "BIGSERIAL" | "SMALLSERIAL" | "IDENTITY" | "PGENUM" => {
                         diags.errors.push(format!(
@@ -1947,6 +1979,11 @@ pub(crate) fn postgres_column_spec(
         if spec.relation.is_some() && spec.references.is_none() {
             diags.errors.push(format!(
                 "{field_desc}: relation requires a `references = Table::column` attribute"
+            ));
+        }
+        if spec.json && spec.jsonb {
+            diags.errors.push(format!(
+                "{field_desc}: JSON and JSONB are mutually exclusive PostgreSQL types"
             ));
         }
         if explicit_pg_type.is_some() && (spec.json || spec.jsonb || spec.enum_marker) {
@@ -3696,8 +3733,43 @@ mod tests {
         assert_eq!(spec.sqlite_type.as_deref(), Some("TEXT"));
         let (legacy, _) = sqlite_spec("#[text] id: uuid::Uuid");
         assert_eq!(legacy.sqlite_type.as_deref(), Some("TEXT"));
-        let (json, _) = sqlite_spec("#[column(jsonb)] doc: MyDoc");
-        assert_eq!(json.sqlite_type.as_deref(), Some("BLOB"));
+        let (_, jsonb_diags) = sqlite_spec("#[column(jsonb)] doc: MyDoc");
+        assert!(
+            jsonb_diags
+                .errors
+                .iter()
+                .any(|error| error.contains("PostgreSQL-only"))
+        );
+    }
+
+    #[test]
+    fn sqlite_json_has_one_spelling_and_storage() {
+        let (json, diags) = sqlite_spec("#[column(JSON)] doc: MyDoc");
+        assert_eq!(json.sqlite_type.as_deref(), Some("TEXT"));
+        assert!(diags.errors.is_empty());
+
+        for source in [
+            "#[column(BLOB, JSON)] doc: MyDoc",
+            "#[column(JSON, BLOB)] doc: MyDoc",
+            "#[column(BLOB)] #[column(JSON)] doc: MyDoc",
+            "#[column(JSON)] #[blob] doc: MyDoc",
+            "#[blob(JSON)] doc: MyDoc",
+            "#[text(JSON)] doc: MyDoc",
+        ] {
+            let (_, diags) = sqlite_spec(source);
+            assert!(!diags.errors.is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn postgres_json_types_are_mutually_exclusive() {
+        let (_, diags) = pg_spec("#[column(JSON, JSONB)] doc: String");
+        assert!(
+            diags
+                .errors
+                .iter()
+                .any(|error| error.contains("mutually exclusive"))
+        );
     }
 
     #[test]

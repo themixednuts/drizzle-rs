@@ -501,7 +501,7 @@ fn test_json_storage_types(db: &mut TestDb<JsonFieldsSchema>) {
     let results: Vec<ReturnResult> = db.all(select_query);
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].0, "text"); // text(json) stores as TEXT
+    assert_eq!(results[0].0, "text"); // column(JSON) stores as TEXT
 }
 
 #[cfg(feature = "uuid")]

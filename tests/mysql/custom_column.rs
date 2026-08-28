@@ -14,6 +14,13 @@ struct U32Be(u32);
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 struct SignedValue(i64);
 
+#[cfg(feature = "serde")]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+struct JsonDocument {
+    version: u32,
+    tags: Vec<String>,
+}
+
 impl DrizzleMySQLColumn for U32Be {
     type SQLType = drizzle::mysql::types::Binary;
 
@@ -85,10 +92,41 @@ impl drizzle::core::Tag for CustomU32BeAlias {
     const NAME: &'static str = "mysql_custom_u32_alias";
 }
 
+#[cfg(feature = "serde")]
+#[MySQLTable(NAME = "mysql_custom_json_test")]
+struct CustomJsonTest {
+    #[column(PRIMARY)]
+    id: i32,
+    #[column(JSON)]
+    document: JsonDocument,
+    #[column(JSON)]
+    optional_document: Option<JsonDocument>,
+}
+
+#[cfg(feature = "serde")]
+#[derive(MySQLSchema)]
+struct CustomJsonSchema {
+    values: CustomJsonTest,
+}
+
 #[test]
 fn custom_mysql_column_rejects_invalid_storage() {
     assert!(U32Be::decode(MySQLValue::Int(1)).is_err());
     assert!(U32Be::decode(MySQLValue::from(vec![1, 2, 3])).is_err());
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn custom_json_uses_the_json_codec() {
+    fn assert_json<T: DrizzleMySQLColumn<SQLType = drizzle::mysql::types::Json>>() {}
+
+    assert_json::<JsonDocument>();
+    let document = JsonDocument {
+        version: 1,
+        tags: vec!["typed".to_owned(), "json".to_owned()],
+    };
+    let encoded = document.encode();
+    assert_eq!(JsonDocument::decode(encoded).unwrap(), document);
 }
 
 #[test]
@@ -172,6 +210,37 @@ fn custom_mysql_column_round_trips_through_both_adapters(db: &mut TestDb<CustomU
         .r#where(eq(alias.payload, &replacement))
         .get();
     assert_eq!(selected.payload, replacement);
+}
+
+#[cfg(feature = "serde")]
+#[drizzle::test]
+fn custom_json_round_trips_through_both_adapters(db: &mut TestDb<CustomJsonSchema>) {
+    let document = JsonDocument {
+        version: 1,
+        tags: vec!["typed".to_owned(), "json".to_owned()],
+    };
+    let optional_document = JsonDocument {
+        version: 2,
+        tags: vec!["optional".to_owned()],
+    };
+    let values = schema.values;
+    db.insert(values)
+        .value(
+            InsertCustomJsonTest::new(1, document.clone())
+                .with_optional_document(optional_document.clone()),
+        )
+        .execute();
+
+    let selected: SelectCustomJsonTest = db.select(()).from(values).get();
+    assert_eq!(selected.document, document);
+    assert_eq!(selected.optional_document, Some(optional_document.clone()));
+
+    #[cfg(feature = "query")]
+    {
+        let selected = db.query(values).find_first().unwrap();
+        assert_eq!(selected.document, document);
+        assert_eq!(selected.optional_document, Some(optional_document));
+    }
 }
 
 #[cfg(feature = "query")]

@@ -130,19 +130,6 @@ pub const UNIQUE: ColumnMarker = ColumnMarker;
 /// Requires the `serde` feature. The field type must implement `Serialize` and `Deserialize`.
 pub const JSON: ColumnMarker = ColumnMarker;
 
-/// Enables JSON serialization with BLOB storage.
-///
-/// ## Example
-/// ```rust
-/// # let _ = r####"
-/// #[column(jsonb)]
-/// config: AppConfig,
-/// # "####;
-/// ```
-///
-/// Requires the `serde` feature. The field type must implement `Serialize` and `Deserialize`.
-pub const JSONB: ColumnMarker = ColumnMarker;
-
 /// Marks this column as storing an enum type.
 ///
 /// ## Example

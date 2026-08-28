@@ -8,7 +8,7 @@ use crate::common::type_is_json_value;
 use crate::postgres::field::FieldInfo;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use syn::Result;
 
 /// Generate `TryInto`<PostgresValue> implementations for custom JSON types.
@@ -45,7 +45,7 @@ pub fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
     }
 
     // Track JSON type to PostgreSQL storage type mapping and detect conflicts
-    let mut json_type_storage: HashMap<String, (bool, &FieldInfo)> = HashMap::new();
+    let mut json_type_storage: BTreeMap<String, (bool, &FieldInfo)> = BTreeMap::new();
 
     // Check for conflicts and build the mapping
     // bool = true means jsonb, false means json

@@ -5,7 +5,7 @@
 use super::super::context::{MacroContext, ModelType};
 use crate::common::rust_type_to_nullability;
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
-use crate::sqlite::field::{FieldInfo, SQLiteType, TypeCategory};
+use crate::sqlite::field::{FieldInfo, TypeCategory};
 use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -107,7 +107,6 @@ fn generate_insert_convenience_method(
 
     match category {
         TypeCategory::Json => generate_json_insert_method(
-            field,
             ctx,
             field_index,
             &method_name,
@@ -199,7 +198,6 @@ fn generate_insert_convenience_method(
 
 #[allow(clippy::too_many_arguments)]
 fn generate_json_insert_method(
-    field: &FieldInfo,
     ctx: &MacroContext,
     field_index: usize,
     method_name: &syn::Ident,
@@ -215,11 +213,10 @@ fn generate_json_insert_method(
     let value_wrapper = sqlite_paths::value_wrapper();
     let expression = sqlite_paths::expr();
 
-    let json_wrapper = match field.column_type {
-        SQLiteType::Text => quote! {
+    let json_wrapper = quote! {
             {
                 let json_str = ::serde_json::to_string(&value)
-                    .expect("failed to serialize JSON value for SQLite TEXT column");
+                    .expect("failed to serialize JSON value for SQLite JSON column");
                 #sqlite_insert_value::Value(
                     #value_wrapper {
                         value: #expression::json(
@@ -232,25 +229,6 @@ fn generate_json_insert_method(
                     }
                 )
             }
-        },
-        SQLiteType::Blob => quote! {
-            {
-                let json_bytes = ::serde_json::to_vec(&value)
-                    .expect("failed to serialize JSON value for SQLite BLOB column");
-                #sqlite_insert_value::Value(
-                    #value_wrapper {
-                        value: #expression::jsonb(
-                            #sql::param(
-                                #sqlite_value::Blob(
-                                    ::std::borrow::Cow::Owned(json_bytes)
-                                )
-                            )),
-                        _phantom: ::std::marker::PhantomData,
-                    }
-                )
-            }
-        },
-        _ => return quote! {},
     };
 
     // Generate field assignments with JSON handling for the target field

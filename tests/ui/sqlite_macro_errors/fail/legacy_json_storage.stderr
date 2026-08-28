@@ -1,0 +1,5 @@
+error: SQLite JSON columns use #[column(JSON)]
+ --> tests/ui/sqlite_macro_errors/fail/legacy_json_storage.rs:5:5
+  |
+5 |     #[blob(JSON)]
+  |     ^^^^^^^^^^^^^

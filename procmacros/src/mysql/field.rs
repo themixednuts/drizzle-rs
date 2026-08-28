@@ -549,7 +549,7 @@ fn parse_column_meta(field: &Field, meta: Meta, out: &mut ParsedColumn) -> Resul
             "JSONB" => {
                 return Err(Error::new_spanned(
                     path,
-                    "JSONB is PostgreSQL/SQLite-only; MySQL uses JSON",
+                    "JSONB is PostgreSQL-only; MySQL uses JSON",
                 ));
             }
             "SERIAL" => {

@@ -7,7 +7,6 @@ use super::errors;
 use super::{FieldInfo, MacroContext};
 use crate::common::is_option_type;
 use crate::paths;
-use crate::sqlite::field::SQLiteType;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::Result;
@@ -165,18 +164,17 @@ fn generate_field_conversion(
 
 /// Generate turso JSON implementations (`IntoValue`)
 pub fn generate_json_impls(
-    json_type_storage: &std::collections::HashMap<String, (SQLiteType, &FieldInfo)>,
+    json_types: &std::collections::BTreeMap<String, &FieldInfo>,
 ) -> Result<Vec<TokenStream>> {
-    if json_type_storage.is_empty() {
+    if json_types.is_empty() {
         return Ok(vec![]);
     }
 
-    json_type_storage
-        .iter()
-        .map(|(_, (storage_type, info))| {
+    json_types
+        .values()
+        .map(|info| {
             let struct_name = info.base_type;
-            let into_value_impl = match storage_type {
-                SQLiteType::Text => quote! {
+            Ok(quote! {
                     impl drizzle::sqlite::turso::IntoValue for #struct_name {
                         fn into_value(self) -> drizzle::sqlite::turso::Result<drizzle::sqlite::turso::Value> {
                             let json_data = serde_json::to_string(&self)
@@ -192,33 +190,7 @@ pub fn generate_json_impls(
                             Ok(drizzle::sqlite::turso::Value::Text(json_data))
                         }
                     }
-                },
-                SQLiteType::Blob => quote! {
-                    impl drizzle::sqlite::turso::IntoValue for #struct_name {
-                        fn into_value(self) -> drizzle::sqlite::turso::Result<drizzle::sqlite::turso::Value> {
-                            let json_data = serde_json::to_vec(&self)
-                                .map_err(|e| drizzle::sqlite::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
-                            Ok(drizzle::sqlite::turso::Value::Blob(json_data))
-                        }
-                    }
-
-                    impl drizzle::sqlite::turso::IntoValue for &#struct_name {
-                        fn into_value(self) -> drizzle::sqlite::turso::Result<drizzle::sqlite::turso::Value> {
-                            let json_data = serde_json::to_vec(self)
-                                .map_err(|e| drizzle::sqlite::turso::Error::ToSqlConversionFailure(Box::new(e)))?;
-                            Ok(drizzle::sqlite::turso::Value::Blob(json_data))
-                        }
-                    }
-                },
-                _ => {
-                    return Err(syn::Error::new_spanned(
-                        info.ident,
-                        errors::json::INVALID_COLUMN_TYPE,
-                    ));
-                }
-            };
-
-            Ok(into_value_impl)
+                })
         })
         .collect::<Result<Vec<_>>>()
 }
