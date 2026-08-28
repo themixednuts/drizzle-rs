@@ -77,6 +77,8 @@ url = "./dev.db"
 ### 3. Define Your Schema
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() {
 use drizzle::sqlite::prelude::*;
 
 #[SQLiteTable]
@@ -113,17 +115,30 @@ pub struct Schema {
     pub posts: Posts,
     pub comments: Comments,
 }
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 If you already have a database, run `drizzle introspect` to reverse-engineer the schema instead of writing it by hand.
 
 ### 4. Connect & Query
 
-```rust
+```rust,no_run
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use readme::Schema;
 use drizzle::sqlite::rusqlite::Drizzle;
 
 let conn = rusqlite::Connection::open("app.db")?;
 let (mut db, Schema { users, posts, comments }) = Drizzle::new(conn, Schema::new());
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 > [!NOTE]
@@ -160,7 +175,7 @@ drizzle-migrations = { git = "https://github.com/themixednuts/drizzle-rs" }
 rusqlite = { version = "0.39", features = ["bundled"] }
 ```
 
-```rust
+```rust,no_run
 use drizzle_migrations::build::{Config, Output, run};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -189,7 +204,7 @@ drizzle migrate
 
 **At app startup, from your code:**
 
-```rust
+```text
 use drizzle::migrations::Tracking;
 
 let migrations = drizzle::include_migrations!("./drizzle");
@@ -198,7 +213,7 @@ db.migrate(&migrations, Tracking::SQLITE)?;
 
 Use `Tracking::POSTGRES` for PostgreSQL and `Tracking::MYSQL` for MySQL. Override the tracking table or schema when you need to:
 
-```rust
+```text
 db.migrate(
     &migrations,
     Tracking::POSTGRES
@@ -216,7 +231,7 @@ unsupported because the server may already have committed some statements.
 
 **During `cargo build`, by extending the `build.rs` from above.** Set `DRIZZLE_MIGRATE=1` in your dev environment and your local database stays in lockstep with the schema:
 
-```rust
+```text
 use drizzle::sqlite::rusqlite::Drizzle;
 use drizzle_migrations::{MigrateOutcome, MigrationDir};
 
@@ -238,8 +253,19 @@ if std::env::var("DRIZZLE_MIGRATE").is_ok() {
 ### Push (Dev Only)
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use readme::*;
+# let (mut db, _) = readme::database()?;
 let schema = Schema::new();
 db.push(&schema)?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 `push` skips migration files entirely and applies the live schema diff directly.
@@ -264,8 +290,17 @@ Given the schema above, each `#[SQLiteTable]`, `#[PostgresTable]`, or
 `new()` takes only the required fields (columns without a default or autoincrement). Chain `with_*` for optional fields:
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use readme::InsertUsers;
 InsertUsers::new("Alex Smith", 26i64)
-    .with_email("alex@example.com")
+    .with_email("alex@example.com");
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 ### Update
@@ -273,18 +308,37 @@ InsertUsers::new("Alex Smith", 26i64)
 Start from `default()` and set only the fields you want to change. The query won't compile unless at least one field is set:
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use readme::UpdateUsers;
 UpdateUsers::default()
     .with_age(27)
-    .with_email("new@example.com")
+    .with_email("new@example.com");
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 ## Querying
 
-All comparison and expression functions used below (`eq`, `gt`, `and`, `asc`, `count`, etc.) live in `drizzle::core::expr`.
+Comparison and expression functions such as `eq`, `gt`, `and`, and `count` live
+in `drizzle::core::expr`. Ordering helpers such as `asc` and `desc` live in
+`drizzle::core`.
 
 ### Select
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use drizzle::core::expr::*;
+# use readme::*;
+# let (db, Schema { users, .. }) = readme::database()?;
 // All rows
 let all: Vec<SelectUsers> = db.select(()).from(users).all()?;
 
@@ -314,6 +368,10 @@ let rows: Vec<SelectUsers> = db
     .from(users)
     .r#where(eq(users.name, "Alice") | eq(users.name, "Bob"))
     .all()?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 #### Combining Conditions
@@ -322,30 +380,64 @@ A tuple of conditions *is* a condition, so lists stay flat instead of nesting
 `and(a, and(b, c))`. `all` and `any` combine the same lists explicitly.
 
 ```rust
-use drizzle::core::expr::{all, any};
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+use drizzle::core::expr::{all, any, eq, gt, is_not_null};
+# use readme::*;
+# let (db, Schema { users, posts, .. }) = readme::database()?;
 
-// WHERE ("age" > $1 AND "name" = $2 AND "email" IS NOT NULL)
-.r#where((gt(users.age, 18), eq(users.name, "Alex"), is_not_null(users.email)))
+let adults: Vec<SelectUsers> = db
+    .select(())
+    .from(users)
+    .r#where((gt(users.age, 18), eq(users.name, "Alex"), is_not_null(users.email)))
+    .all()?;
 
-// Flat OR lists
-.r#where(any((eq(users.role, "admin"), eq(users.role, "moderator"))))
+let staff: Vec<SelectUsers> = db
+    .select(())
+    .from(users)
+    .r#where(any((eq(users.name, "Alice"), eq(users.name, "Bob"))))
+    .all()?;
 
-// Tuples nest inside or(), and inside each other
-.r#where(or((a, b), (c, d)))
-
-// `all` is the spelling for a join's ON condition, which takes any SQL fragment
-.inner_join((posts, all((eq(posts.author_id, users.id), is_not_null(posts.content)))))
+let posts: Vec<(i64, i64)> = db
+    .select((users.id, posts.id))
+    .from(users)
+    .inner_join((posts, all((eq(posts.author_id, users.id), is_not_null(posts.content)))))
+    .all()?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 Elements may be `Option`s — `None` contributes nothing, which makes dynamic
 filters composable:
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use drizzle::core::expr::{eq, gt};
+# use readme::*;
+# let (db, Schema { users, .. }) = readme::database()?;
+# let name = Some("Alex");
 let by_name = name.map(|n| eq(users.name, n));
 
 // Some("alex") => ("age" > $1 AND "name" = $2)
 // None         => ("age" > $1)
-.r#where((gt(users.age, 18), by_name))
+let rows: Vec<SelectUsers> = db
+    .select(())
+    .from(users)
+    .r#where((gt(users.age, 18), by_name))
+    .all()?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 When every element is absent the list renders as its operator's identity:
@@ -357,37 +449,66 @@ Bare tuples hold up to 8 conditions; `all`/`any` and nesting cover longer lists.
 #### Ordering, Limiting, Pagination
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use drizzle::core::{asc, desc};
+# use readme::*;
+# let (db, Schema { users, .. }) = readme::database()?;
 let rows: Vec<SelectUsers> = db
     .select(())
     .from(users)
-    .order_by(asc(users.name))
+    .order_by((asc(users.name), desc(users.age)))
     .limit(10)
     .offset(20)
     .all()?;
-
-// Multiple sort keys
-.order_by([asc(users.name), desc(users.age)])
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 #### Group By
 
 ```rust
-db.select((users.name, alias(count(users.id), "total")))
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use drizzle::core::expr::{alias, count, gt};
+# use readme::*;
+# let (db, Schema { users, .. }) = readme::database()?;
+let totals: Vec<(String, i64)> = db
+    .select((users.name, alias(count(users.id), "total")))
     .from(users)
     .group_by(users.name)
     .having(gt(count(users.id), 1))
     .all()?;
 
-// Multiple group columns
-db.select((users.name, users.age, alias(count(users.id), "total")))
+let totals_by_age: Vec<(String, i64, i64)> = db
+    .select((users.name, users.age, alias(count(users.id), "total")))
     .from(users)
     .group_by((users.name, users.age))
     .all()?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 ### Insert
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use readme::*;
+# let (db, Schema { users, .. }) = readme::database()?;
 // Single row
 db.insert(users)
     .value(InsertUsers::new("Alex Smith", 26i64).with_email("alex@example.com"))
@@ -400,6 +521,10 @@ db.insert(users)
         InsertUsers::new("Jordan Lee", 30i64).with_email("jordan@example.com"),
     ])
     .execute()?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 > [!IMPORTANT]
@@ -408,18 +533,42 @@ db.insert(users)
 ### Update
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use drizzle::core::expr::eq;
+# use readme::*;
+# let (db, Schema { users, .. }) = readme::database()?;
 db.update(users)
     .set(UpdateUsers::default().with_age(27))
     .r#where(eq(users.id, 1))
     .execute()?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 ### Delete
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use drizzle::core::expr::eq;
+# use readme::*;
+# let (db, Schema { users, .. }) = readme::database()?;
 db.delete(users)
-    .r#where(eq(users.id, 1))
+    .r#where(eq(users.id, 3))
     .execute()?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 ### Joins
@@ -427,8 +576,14 @@ db.delete(users)
 Use `#[derive(SQLiteFromRow)]` to map columns from multiple tables into a flat struct. `#[from(Users)]` sets the default source table for unannotated fields:
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
 use drizzle::core::expr::eq;
 use drizzle::sqlite::prelude::*;
+# use readme::*;
 
 #[derive(SQLiteFromRow, Debug)]
 #[from(Users)]
@@ -443,6 +598,7 @@ struct UserWithPost {
     content: Option<String>,
 }
 
+# let (db, Schema { users, posts, .. }) = readme::database()?;
 // Explicit ON condition
 let rows: Vec<UserWithPost> = db
     .select(UserWithPost::Select)
@@ -456,6 +612,10 @@ let rows: Vec<UserWithPost> = db
     .from(users)
     .left_join(posts)
     .all()?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 ### Subqueries & Set Operations
@@ -463,6 +623,14 @@ let rows: Vec<UserWithPost> = db
 `SELECT` builders are expressions — pass them directly into comparisons or `IN`:
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use drizzle::core::expr::{eq, gt, in_subquery, min};
+# use readme::*;
+# let (db, Schema { users, .. }) = readme::database()?;
 let min_id = db.select(min(users.id)).from(users);
 let newer: Vec<SelectUsers> = db
     .select(())
@@ -480,11 +648,24 @@ let matched: Vec<SelectUsers> = db
     .from(users)
     .r#where(in_subquery((users.id, users.name), exact_rows))
     .all()?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 Combine queries with `union`, `union_all`, `intersect`, and `except`. `union` removes duplicates; `union_all` keeps them:
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use drizzle::core::{asc, desc};
+# use drizzle::core::expr::{gte, lte};
+# use readme::*;
+# let (db, Schema { users, .. }) = readme::database()?;
 let results: Vec<(String,)> = db
     .select((users.name,))
     .from(users)
@@ -496,6 +677,10 @@ let results: Vec<(String,)> = db
     )
     .order_by(asc(users.name))
     .all()?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 ### Aliases
@@ -503,12 +688,23 @@ let results: Vec<(String,)> = db
 Use a `Tag` to alias a table for self-joins:
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
 use drizzle::sqlite::prelude::*;
+# use readme::*;
 
 tag!(U, "u");
 
+# let (db, _) = readme::database()?;
 let u = Users::alias::<U>();
 let rows: Vec<(i64,)> = db.select((u.id,)).from(u).all()?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 ## Expressions
@@ -516,6 +712,14 @@ let rows: Vec<(i64,)> = db.select((u.id,)).from(u).all()?;
 Aggregate functions and common SQL expressions:
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use drizzle::core::expr::{coalesce, count, max};
+# use readme::*;
+# let (db, Schema { users, .. }) = readme::database()?;
 // Aggregates
 let total: (i64,) = db.select((count(users.id),)).from(users).get()?;
 let oldest: (Option<i64>,) = db.select((max(users.age),)).from(users).get()?;
@@ -525,6 +729,10 @@ let rows: Vec<(String,)> = db
     .select((coalesce(users.email, "unknown"),))
     .from(users)
     .all()?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 Available in `drizzle::core::expr`:
@@ -541,7 +749,7 @@ Available in `drizzle::core::expr`:
 
 Each dialect provides cast target markers for use with `cast()`. Pass a string when you need a custom SQL type name.
 
-```rust
+```text
 use drizzle::core::expr::cast;
 
 // SQLite
@@ -558,6 +766,13 @@ Requires the `query` feature. Fetches a table with its relations in a single que
 Relation methods are generated from `#[column(references = ...)]`. Given `Posts.author_id → Users.id`, `users.posts()` is the reverse (one-to-many) and `posts.author()` is the forward (many-to-one).
 
 ```rust
+# #[cfg(all(feature = "rusqlite", feature = "query"))]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use readme::*;
+# let (db, Schema { users, .. }) = readme::database()?;
 let users = db.query(users)
     .with(users.posts())
     .find_many()?;
@@ -565,36 +780,76 @@ let users = db.query(users)
 for user in &users {
     println!("{}: {} posts", user.name, user.posts.len());
 }
+# Ok(())
+# }
+# #[cfg(not(all(feature = "rusqlite", feature = "query")))]
+# fn main() {}
 ```
 
 `.find_first()` returns `Option<...>`:
 
 ```rust
+# #[cfg(all(feature = "rusqlite", feature = "query"))]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use drizzle::core::expr::eq;
+# use readme::*;
+# let (db, Schema { users, .. }) = readme::database()?;
 let user = db.query(users)
     .with(users.posts())
     .r#where(eq(users.name, "Alice"))
     .find_first()?;
+# Ok(())
+# }
+# #[cfg(not(all(feature = "rusqlite", feature = "query")))]
+# fn main() {}
 ```
 
 Nest relations:
 
 ```rust
+# #[cfg(all(feature = "rusqlite", feature = "query"))]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use readme::*;
+# let (db, Schema { users, posts, .. }) = readme::database()?;
 let users = db.query(users)
     .with(users.posts().with(posts.comments()))
     .find_many()?;
 
 println!("{} comments", users[0].posts[0].comments.len());
+# Ok(())
+# }
+# #[cfg(not(all(feature = "rusqlite", feature = "query")))]
+# fn main() {}
 ```
 
 Filter and paginate the root query:
 
 ```rust
+# #[cfg(all(feature = "rusqlite", feature = "query"))]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use drizzle::core::asc;
+# use drizzle::core::expr::gt;
+# use readme::*;
+# let (db, Schema { users, .. }) = readme::database()?;
 let users = db.query(users)
     .with(users.posts())
     .r#where(gt(users.age, 25))
     .order_by(asc(users.name))
     .limit(10)
     .find_many()?;
+# Ok(())
+# }
+# #[cfg(not(all(feature = "rusqlite", feature = "query")))]
+# fn main() {}
 ```
 
 ### Selecting Specific Columns
@@ -602,6 +857,13 @@ let users = db.query(users)
 `.columns(...)` / `.omit(...)` return `PartialSelectUsers` — same shape as `SelectUsers`, but every field is `Option<T>`:
 
 ```rust
+# #[cfg(all(feature = "rusqlite", feature = "query"))]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use readme::*;
+# let (db, Schema { users, .. }) = readme::database()?;
 let users = db.query(users)
     .columns(users.columns().name().email())
     .find_many()?;
@@ -610,6 +872,10 @@ for u in &users {
     assert!(u.name.is_some());
     assert!(u.id.is_none()); // not selected
 }
+# Ok(())
+# }
+# #[cfg(not(all(feature = "rusqlite", feature = "query")))]
+# fn main() {}
 ```
 
 ### Result Types
@@ -617,9 +883,18 @@ for u in &users {
 `.with(users.posts())` returns `UsersWithPosts` — base columns via deref, relation data on fields like `user.posts`:
 
 ```rust
+# #[cfg(all(feature = "rusqlite", feature = "query"))]
+# fn main() {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use readme::UsersWithPosts;
 fn print_user_posts(user: &UsersWithPosts) {
     println!("{} has {} posts", user.name, user.posts.len());
 }
+# }
+# #[cfg(not(all(feature = "rusqlite", feature = "query")))]
+# fn main() {}
 ```
 
 ## Transactions
@@ -628,8 +903,15 @@ fn print_user_posts(user: &UsersWithPosts) {
 > Transactions auto-rollback on error or panic. Return `Ok(value)` to commit, `Err(...)` to rollback. No manual cleanup needed.
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use readme::*;
 use drizzle::sqlite::TransactionConfig;
 
+# let (mut db, Schema { users, .. }) = readme::database()?;
 db.transaction(TransactionConfig::Deferred, |tx| {
     tx.insert(users)
         .value(InsertUsers::new("Alice", 28i64))
@@ -639,14 +921,25 @@ db.transaction(TransactionConfig::Deferred, |tx| {
 
     Ok(all.len())
 })?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 Savepoints nest inside transactions — a failed savepoint rolls back without aborting the outer transaction:
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use readme::*;
 use drizzle::sqlite::TransactionConfig;
 use drizzle::error::DrizzleError;
 
+# let (mut db, Schema { users, .. }) = readme::database()?;
 let count = db.transaction(TransactionConfig::Deferred, |tx| {
     tx.insert(users)
         .value(InsertUsers::new("Alice", 28i64))
@@ -668,6 +961,10 @@ let count = db.transaction(TransactionConfig::Deferred, |tx| {
     let all: Vec<SelectUsers> = tx.select(()).from(users).all()?;
     Ok(all.len())
 })?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 ## Prepared Statements
@@ -676,8 +973,16 @@ let count = db.transaction(TransactionConfig::Deferred, |tx| {
 > Placeholders are typed by the column they came from. Binding the wrong type fails at compile time, not at runtime.
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use readme::*;
 use drizzle::core::expr::eq;
+use drizzle::core::SQLColumn;
 
+# let (db, Schema { users, .. }) = readme::database()?;
 let name = users.name.placeholder("name");
 
 let find = db
@@ -689,11 +994,23 @@ let find = db
 let alice: Vec<SelectUsers> = find.all(db.conn(), [name.bind("Alice")])?;
 let bob: Vec<SelectUsers> = find.all(db.conn(), [name.bind("Bob")])?;
 // name.bind(42) — compile error: Integer is not compatible with Text
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 Placeholders work in update (and insert) models too:
 
 ```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use drizzle::core::{SQLColumn, expr::eq};
+# use readme::*;
+# let (db, Schema { users, .. }) = readme::database()?;
 let new_name = users.name.placeholder("new_name");
 let target = users.id.placeholder("target");
 
@@ -704,6 +1021,10 @@ let stmt = db
     .prepare();
 
 stmt.execute(db.conn(), [new_name.bind("New Name"), target.bind(1)])?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 Use `.prepare().into_owned()` to convert a prepared statement into a self-contained value that can be stored or moved freely.
@@ -716,6 +1037,8 @@ Everything above works with `#[PostgresTable]`, `#[derive(PostgresSchema)]`, and
 keeps `DEFERRABLE` on the combination where it has meaning:
 
 ```rust
+# #[cfg(feature = "postgres")]
+# fn main() {
 use drizzle::postgres::TransactionConfig;
 
 let config = TransactionConfig::builder()
@@ -723,9 +1046,14 @@ let config = TransactionConfig::builder()
     .read_only()
     .deferrable()
     .build();
+# }
+# #[cfg(not(feature = "postgres"))]
+# fn main() {}
 ```
 
-```rust
+```rust,no_run
+# #[cfg(feature = "postgres-sync")]
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 use drizzle::postgres::prelude::*;
 use drizzle::postgres::sync::Drizzle;
 
@@ -746,6 +1074,10 @@ let client = postgres::Client::connect(
     postgres::NoTls,
 )?;
 let (mut db, Schema { accounts }) = Drizzle::new(client, Schema::new());
+# Ok(())
+# }
+# #[cfg(not(feature = "postgres-sync"))]
+# fn main() {}
 ```
 
 ## MySQL
@@ -768,7 +1100,9 @@ drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["mys
 mysql = "28"
 ```
 
-```rust
+```rust,no_run
+# #[cfg(feature = "mysql-sync")]
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 use drizzle::mysql::{mysql_sync::Drizzle, prelude::*};
 
 #[MySQLTable]
@@ -789,6 +1123,10 @@ let options = mysql::Opts::from_url(
 )?;
 let connection = mysql::Conn::new(options)?;
 let (mut db, Schema { users, .. }) = Drizzle::new(connection, Schema::new());
+# Ok(())
+# }
+# #[cfg(not(feature = "mysql-sync"))]
+# fn main() {}
 ```
 
 The async adapter accepts either an owned `mysql_async::Conn` or a lazy pool:
@@ -800,16 +1138,23 @@ mysql_async = "0.37"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-```rust
+```rust,no_run
+# #[cfg(feature = "mysql-async")]
+# #[tokio::main]
+# async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use drizzle::mysql::{mysql_async::Drizzle, prelude::*};
 
 let options = mysql_async::Opts::from_url(
     "mysql://drizzle:drizzle@127.0.0.1:3307/drizzle_test",
 )?;
 let pool = mysql_async::Pool::new(options);
-let (db, _) = Drizzle::new(pool, Schema::new());
+let (db, ()) = Drizzle::new(pool, ());
 // Calls on a pool-backed adapter are async and check out one connection per operation.
 db.disconnect().await?;
+# Ok(())
+# }
+# #[cfg(not(feature = "mysql-async"))]
+# fn main() {}
 ```
 
 Start the documented MySQL 8.4 container and run the complete adapter matrix or
@@ -843,9 +1188,16 @@ MySQL upserts use the native
 `.on_duplicate_key_update(...)` builder (or `.ignore()`), not PostgreSQL's
 `.on_conflict(...)` spelling.
 
-```rust
+```rust,no_run
+# #[cfg(feature = "mysql-sync")]
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/mysql.rs"));
+# }
+# use readme::*;
 use drizzle::mysql::TransactionConfig;
 
+# let (mut db, Schema { users }) = readme::database()?;
 let config = TransactionConfig::builder()
     .repeatable_read()
     .read_write()
@@ -856,6 +1208,10 @@ db.transaction(config, |tx| {
     tx.insert(users).value(InsertUser::new("Alice")).execute()?;
     Ok(())
 })?;
+# Ok(())
+# }
+# #[cfg(not(feature = "mysql-sync"))]
+# fn main() {}
 ```
 
 Transactions stay scoped to the callback. Returning `Ok` commits; returning
@@ -900,4 +1256,4 @@ Other useful commands:
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](https://github.com/themixednuts/drizzle-rs/blob/main/LICENSE).
