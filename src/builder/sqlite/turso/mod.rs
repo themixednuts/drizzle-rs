@@ -295,12 +295,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         }
     }
 
-    /// Starts a transaction for explicit commit or rollback control.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if SQLite cannot begin the transaction.
-    pub async fn begin(
+    async fn start(
         &mut self,
         config: drizzle_sqlite::TransactionConfig,
     ) -> drizzle_core::error::Result<Transaction<'_, Schema>>
@@ -344,9 +339,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         Schema: Copy,
         F: AsyncFnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
-        drizzle_core::drizzle_trace_tx!("begin", "sqlite.turso");
-        let tx = self.conn.transaction_with_behavior(config.into()).await?;
-        let transaction = Transaction::new(tx, config, self.schema);
+        let transaction = self.start(config).await?;
 
         let outcome = std::panic::AssertUnwindSafe(f(&transaction))
             .catch_unwind()

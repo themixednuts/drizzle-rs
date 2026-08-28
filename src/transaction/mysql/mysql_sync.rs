@@ -120,7 +120,6 @@ pub(crate) fn start_transaction<C: TransactionConnection>(
 /// A scoped blocking MySQL transaction.
 ///
 /// Dropping an active value delegates rollback to the upstream driver.
-#[must_use = "transactions must be committed or rolled back"]
 pub struct Transaction<'connection, Schema = ()> {
     transaction: RefCell<Option<DriverTransaction<'connection>>>,
     schema: Schema,
@@ -249,7 +248,7 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
     }
 
     /// Commits this transaction. A second completion attempt is an error.
-    pub fn commit(self) -> Result<()> {
+    pub(crate) fn commit(self) -> Result<()> {
         let transaction = self.transaction.borrow_mut().take().ok_or_else(consumed)?;
         if self.poisoned.get() {
             return match transaction.rollback() {
@@ -265,7 +264,7 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
     }
 
     /// Rolls this transaction back. A second completion attempt is an error.
-    pub fn rollback(self) -> Result<()> {
+    pub(crate) fn rollback(self) -> Result<()> {
         self.transaction
             .borrow_mut()
             .take()

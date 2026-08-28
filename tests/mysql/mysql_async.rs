@@ -105,41 +105,33 @@ fn pool_construction_is_lazy_and_runtime_owned_by_first_checkout() {
 }
 
 #[tokio::test]
-#[allow(deprecated)]
-async fn pooled_transactions_rollback_explicitly_and_before_reuse() -> drizzle::Result<()> {
+async fn cancelling_pooled_transaction_rolls_back_before_reuse() -> drizzle::Result<()> {
     let (db, TestSchema { users, .. }, _guard) = setup_pool().await;
 
-    let transaction = db.begin(TransactionConfig::default()).await?;
-    transaction
-        .insert(users)
-        .value(
-            InsertUser::new("explicit rollback", true, Role::Member, vec![], 0, 0.0)
-                .with_note(None::<String>),
-        )
-        .execute()
-        .await?;
-    transaction.rollback().await?;
-    let after_explicit: i64 = db.select(count(users.id)).from(users).get().await?;
-    assert_eq!(after_explicit, 0);
-
-    let transaction = db.begin_transaction(TransactionConfig::default()).await?;
-    transaction.rollback().await?;
-
     {
-        let transaction = db.begin(TransactionConfig::default()).await?;
-        transaction
-            .insert(users)
-            .value(
-                InsertUser::new("drop rollback", true, Role::Member, vec![], 0, 0.0)
-                    .with_note(None::<String>),
-            )
-            .execute()
-            .await?;
+        let (inserted, ready) = tokio::sync::oneshot::channel();
+        let transaction = db.transaction(TransactionConfig::default(), async |tx| {
+            tx.insert(users)
+                .value(
+                    InsertUser::new("cancelled", true, Role::Member, vec![], 0, 0.0)
+                        .with_note(None::<String>),
+                )
+                .execute()
+                .await?;
+            let _ = inserted.send(());
+            std::future::pending::<drizzle::Result<()>>().await
+        });
+        tokio::pin!(transaction);
+        tokio::select! {
+            result = &mut transaction => panic!("transaction unexpectedly completed: {result:?}"),
+            result = ready => result.expect("transaction body reached cancellation point"),
+        }
     }
-    // The pool has max=1, so this checkout cannot complete until the recycler
-    // has rolled the dropped transaction back and made that same connection safe.
-    let after_drop: i64 = db.select(count(users.id)).from(users).get().await?;
-    assert_eq!(after_drop, 0);
+
+    // The pool has max=1, so this checkout waits until the recycler rolls the
+    // cancelled transaction back and makes that same connection safe.
+    let count: i64 = db.select(count(users.id)).from(users).get().await?;
+    assert_eq!(count, 0);
 
     cleanup(db, &TestSchema::new()).await;
     drizzle::Result::Ok(())

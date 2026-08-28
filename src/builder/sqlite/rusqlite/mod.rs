@@ -253,12 +253,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         .with_query(|| QueryContext::new(&sql_str, &params))?
     }
 
-    /// Starts a transaction for explicit commit or rollback control.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if SQLite cannot begin the transaction.
-    pub fn begin(
+    fn start(
         &mut self,
         config: drizzle_sqlite::TransactionConfig,
     ) -> drizzle_core::error::Result<Transaction<'_, Schema>>
@@ -303,7 +298,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         Schema: Copy,
         F: FnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
-        let transaction = self.begin(config)?;
+        let transaction = self.start(config)?;
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&transaction)));
 

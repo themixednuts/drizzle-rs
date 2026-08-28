@@ -423,13 +423,7 @@ impl<Schema> Drizzle<Schema> {
         }
     }
 
-    /// Starts a transaction for explicit commit or rollback control.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when outstanding [`Drizzle`] clones prevent exclusive
-    /// client access or PostgreSQL cannot start the transaction.
-    pub async fn begin(
+    async fn start(
         &mut self,
         config: impl Into<TransactionConfig>,
     ) -> drizzle_core::error::Result<Transaction<'_, Schema>>
@@ -517,7 +511,7 @@ impl<Schema> Drizzle<Schema> {
         // Transaction in Drop by queuing ROLLBACK on the client. If the user
         // future below is dropped, this wrapper is dropped with it and the
         // inner transaction's Drop handles rollback.
-        let transaction = self.begin(config).await?;
+        let transaction = self.start(config).await?;
 
         match f(&transaction).await {
             Ok(value) => {

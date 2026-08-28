@@ -56,7 +56,6 @@ use drizzle_core::prepared::prepare_render;
 crate::drizzle_tx_prepare_impl!('conn);
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
-#[must_use = "transactions must be committed or rolled back"]
 pub struct Transaction<'conn, Schema = ()> {
     tx: RefCell<Option<PgTransaction<'conn>>>,
     config: TransactionConfig,
@@ -339,13 +338,13 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Commits the transaction
-    pub fn commit(self) -> drizzle_core::error::Result<()> {
+    pub(crate) fn commit(self) -> drizzle_core::error::Result<()> {
         let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
         tx.commit().map_err(DrizzleError::from)
     }
 
     /// Rolls back the transaction
-    pub fn rollback(self) -> drizzle_core::error::Result<()> {
+    pub(crate) fn rollback(self) -> drizzle_core::error::Result<()> {
         let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
         tx.rollback().map_err(DrizzleError::from)
     }

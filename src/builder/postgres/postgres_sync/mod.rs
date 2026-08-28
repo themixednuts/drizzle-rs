@@ -394,12 +394,7 @@ impl<Schema> Drizzle<Schema> {
         }
     }
 
-    /// Starts a transaction for explicit commit or rollback control.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DrizzleError`] if PostgreSQL cannot start the transaction.
-    pub fn begin(
+    fn start(
         &mut self,
         config: impl Into<TransactionConfig>,
     ) -> drizzle_core::error::Result<Transaction<'_, Schema>>
@@ -480,7 +475,7 @@ impl<Schema> Drizzle<Schema> {
         Schema: Copy,
         F: FnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
-        let transaction = self.begin(config)?;
+        let transaction = self.start(config)?;
         sync_transaction(
             transaction,
             "postgres.sync",

@@ -687,8 +687,7 @@ impl<'q, Table, Relations>
 
 #[allow(private_bounds)]
 impl<Connection: TransactionConnection, Schema: Copy> Drizzle<Connection, Schema> {
-    /// Starts a transaction for explicit commit or rollback control.
-    pub fn begin(
+    fn start(
         &mut self,
         config: drizzle_mysql::TransactionConfig,
     ) -> Result<Transaction<'_, Schema>> {
@@ -702,15 +701,6 @@ impl<Connection: TransactionConnection, Schema: Copy> Drizzle<Connection, Schema
         Ok(Transaction::new(transaction, self.schema))
     }
 
-    /// Backwards-compatible alias for [`Self::begin`].
-    #[deprecated(since = "0.1.17", note = "renamed to `begin`")]
-    pub fn begin_transaction(
-        &mut self,
-        config: drizzle_mysql::TransactionConfig,
-    ) -> Result<Transaction<'_, Schema>> {
-        self.begin(config)
-    }
-
     /// Runs a transaction, committing on `Ok` and rolling back on `Err` or
     /// panic.
     pub fn transaction<R>(
@@ -718,7 +708,7 @@ impl<Connection: TransactionConnection, Schema: Copy> Drizzle<Connection, Schema
         config: drizzle_mysql::TransactionConfig,
         body: impl FnOnce(&Transaction<Schema>) -> Result<R>,
     ) -> Result<R> {
-        let transaction = self.begin(config)?;
+        let transaction = self.start(config)?;
         sync_transaction(
             transaction,
             "mysql.sync",

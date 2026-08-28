@@ -115,7 +115,7 @@ crate::drizzle_prepare_impl!();
 
 use crate::builder::sqlite::common;
 use crate::builder::sqlite::rows::LibsqlRows as Rows;
-use crate::transaction::sqlite::libsql::{Transaction, TransactionGuard};
+use crate::transaction::sqlite::libsql::Transaction;
 
 pub type Drizzle<Schema = ()> = common::Drizzle<Connection, Schema>;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
@@ -292,25 +292,6 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             self.libsql_statement_cache.store(cached);
         }
         result
-    }
-
-    /// Starts a transaction for explicit commit or rollback control.
-    ///
-    /// The returned guard keeps this `Drizzle` handle exclusively borrowed
-    /// until commit, rollback, or drop. Upstream rollback on drop is
-    /// best-effort for remote connections.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if SQLite cannot begin the transaction.
-    pub async fn begin(
-        &mut self,
-        config: drizzle_sqlite::TransactionConfig,
-    ) -> drizzle_core::error::Result<TransactionGuard<'_, Schema>>
-    where
-        Schema: Copy,
-    {
-        Ok(TransactionGuard::new(self.start(config).await?))
     }
 
     /// Executes a transaction with the given callback.

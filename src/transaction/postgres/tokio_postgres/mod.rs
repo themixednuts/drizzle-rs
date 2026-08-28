@@ -45,7 +45,6 @@ use drizzle_core::prepared::prepare_render;
 crate::drizzle_tx_prepare_impl!('conn);
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
-#[must_use = "transactions must be committed or rolled back"]
 pub struct Transaction<'conn, Schema = ()> {
     tx: RefCell<Option<TokioPgTransaction<'conn>>>,
     config: TransactionConfig,
@@ -334,7 +333,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Commits the transaction
-    pub async fn commit(self) -> drizzle_core::error::Result<()> {
+    pub(crate) async fn commit(self) -> drizzle_core::error::Result<()> {
         if let Err(error) = self.savepoints.ensure_usable() {
             let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
             tx.rollback().await.map_err(DrizzleError::from)?;
@@ -345,7 +344,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Rolls back the transaction
-    pub async fn rollback(self) -> drizzle_core::error::Result<()> {
+    pub(crate) async fn rollback(self) -> drizzle_core::error::Result<()> {
         let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
         tx.rollback().await.map_err(DrizzleError::from)
     }

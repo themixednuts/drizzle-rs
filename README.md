@@ -857,13 +857,10 @@ db.transaction(config, |tx| {
 })?;
 ```
 
-Where the driver exposes a transaction handle, `db.begin(config)` provides
-explicit `commit()` or `rollback()` control. Dropping a native SQLite,
-PostgreSQL, or MySQL handle rolls the transaction back through the underlying
-driver. libSQL follows its upstream connection-scoped, best-effort rollback
-behavior. AWS Data API remains callback-only and attempts asynchronous rollback
-if its callback future is cancelled. D1 uses its atomic batch API because the
-platform does not expose transaction handles.
+Transactions stay scoped to the callback. Returning `Ok` commits; returning
+`Err` rolls back. Dropping or cancelling an async transaction future also
+prevents the active transaction from being reused without rollback. D1 uses
+its atomic batch API because the platform does not expose transaction handles.
 
 The type surface deliberately leaves unsupported SQL unavailable:
 

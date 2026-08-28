@@ -46,7 +46,6 @@ crate::drizzle_tx_prepare_impl!('conn);
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 #[derive(Debug)]
-#[must_use = "transactions must be committed or rolled back"]
 pub struct Transaction<'conn, Schema = ()> {
     tx: rusqlite::Transaction<'conn>,
     tx_type: SQLiteTransactionType,
@@ -242,7 +241,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`rusqlite::Error`] if the commit call to the database fails.
-    pub fn commit(self) -> rusqlite::Result<()> {
+    pub(crate) fn commit(self) -> rusqlite::Result<()> {
         self.tx.commit()
     }
 
@@ -251,7 +250,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`rusqlite::Error`] if the rollback call to the database fails.
-    pub fn rollback(self) -> rusqlite::Result<()> {
+    pub(crate) fn rollback(self) -> rusqlite::Result<()> {
         self.tx.rollback()
     }
 }

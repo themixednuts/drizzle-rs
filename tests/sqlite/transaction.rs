@@ -1234,18 +1234,21 @@ fn test_prepared_survives_savepoint_rollback(db: &mut TestDb<SimpleSchema>) {
 
 #[cfg(feature = "turso")]
 #[tokio::test]
-async fn turso_owned_prepared_query_cleans_up_a_dropped_transaction() -> drizzle::Result<()> {
+async fn turso_owned_prepared_query_survives_transaction_rollback() -> drizzle::Result<()> {
     let (mut db, SimpleSchema { simple }) =
         crate::common::helpers::turso_setup::setup_db::<SimpleSchema>().await;
     let prepared = db.select(()).from(simple).prepare().into_owned();
 
-    {
-        let tx = db.begin(TransactionConfig::Deferred).await?;
-        tx.insert(simple)
-            .value(InsertSimple::new("rolled back"))
-            .execute()
-            .await?;
-    }
+    let rolled_back: drizzle::Result<()> = db
+        .transaction(TransactionConfig::Deferred, async |tx| {
+            tx.insert(simple)
+                .value(InsertSimple::new("rolled back"))
+                .execute()
+                .await?;
+            Err(drizzle::error::DrizzleError::Other("rollback".into()))
+        })
+        .await;
+    assert!(rolled_back.is_err());
 
     let rows: Vec<SelectSimple> = prepared.all(db.conn(), []).await?;
     assert!(rows.is_empty());

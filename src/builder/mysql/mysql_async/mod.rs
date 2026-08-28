@@ -909,13 +909,7 @@ impl<'q, Table, Relations>
 }
 
 impl<Schema: Copy> Drizzle<Conn, Schema> {
-    /// Begins a transaction on this owned connection.
-    ///
-    /// The returned transaction borrows the connection until it is committed,
-    /// rolled back, or dropped. Dropping delegates delayed rollback to
-    /// `mysql_async`; the adapter restores its session invariants before the
-    /// next attached query.
-    pub async fn begin(
+    async fn start(
         &mut self,
         config: drizzle_mysql::TransactionConfig,
     ) -> Result<Transaction<'_, Schema>> {
@@ -930,15 +924,6 @@ impl<Schema: Copy> Drizzle<Conn, Schema> {
         // restore invariants after commit, rollback, panic, or delayed drop.
         self.session_ready = false;
         Ok(Transaction::new(transaction, self.schema, true))
-    }
-
-    /// Backwards-compatible alias for [`Self::begin`].
-    #[deprecated(since = "0.1.17", note = "renamed to `begin`")]
-    pub async fn begin_transaction(
-        &mut self,
-        config: drizzle_mysql::TransactionConfig,
-    ) -> Result<Transaction<'_, Schema>> {
-        self.begin(config).await
     }
 
     /// Runs `body` in a transaction, committing its value on success and
@@ -956,7 +941,7 @@ impl<Schema: Copy> Drizzle<Conn, Schema> {
     where
         F: AsyncFnOnce(&Transaction<'_, Schema>) -> Result<R>,
     {
-        let transaction = self.begin(config).await?;
+        let transaction = self.start(config).await?;
         match body(&transaction).await {
             Ok(value) => {
                 drizzle_core::drizzle_trace_tx!("commit", "mysql.async");
@@ -980,11 +965,7 @@ impl<Schema: Copy> Drizzle<Conn, Schema> {
 }
 
 impl<Schema: Copy> Drizzle<Pool, Schema> {
-    /// Checks out a pooled connection and begins a transaction on it.
-    ///
-    /// The owned transaction returns its connection to the pool after explicit
-    /// completion or the upstream driver's delayed-drop cleanup.
-    pub async fn begin(
+    async fn start(
         &self,
         config: drizzle_mysql::TransactionConfig,
     ) -> Result<Transaction<'static, Schema>> {
@@ -1007,15 +988,6 @@ impl<Schema: Copy> Drizzle<Pool, Schema> {
         Ok(transaction)
     }
 
-    /// Backwards-compatible alias for [`Self::begin`].
-    #[deprecated(since = "0.1.17", note = "renamed to `begin`")]
-    pub async fn begin_transaction(
-        &self,
-        config: drizzle_mysql::TransactionConfig,
-    ) -> Result<Transaction<'static, Schema>> {
-        self.begin(config).await
-    }
-
     /// Runs `body` on one pooled connection, committing its value on success
     /// and rolling back on error.
     ///
@@ -1032,7 +1004,7 @@ impl<Schema: Copy> Drizzle<Pool, Schema> {
     where
         F: AsyncFnOnce(&Transaction<'static, Schema>) -> Result<R>,
     {
-        let transaction = self.begin(config).await?;
+        let transaction = self.start(config).await?;
         match body(&transaction).await {
             Ok(value) => {
                 drizzle_core::drizzle_trace_tx!("commit", "mysql.async.pool");

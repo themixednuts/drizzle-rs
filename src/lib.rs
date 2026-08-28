@@ -267,7 +267,7 @@ pub mod sqlite {
         #[doc(inline)]
         pub use crate::builder::sqlite::libsql::{Drizzle, DrizzleBuilder};
         #[doc(inline)]
-        pub use crate::transaction::sqlite::libsql::{Transaction, TransactionGuard};
+        pub use crate::transaction::sqlite::libsql::Transaction;
         #[doc(hidden)]
         pub use ::libsql::{Row, Value};
     }
@@ -298,7 +298,7 @@ pub mod sqlite {
         #[doc(inline)]
         pub use crate::builder::sqlite::durable::{Drizzle, DrizzleBuilder};
         #[doc(inline)]
-        pub use crate::transaction::sqlite::durable::{Transaction, TransactionGuard};
+        pub use crate::transaction::sqlite::durable::Transaction;
     }
 
     /// `SQLite` prelude for schema declarations.

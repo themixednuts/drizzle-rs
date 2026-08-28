@@ -198,21 +198,6 @@ impl<Schema> common::Drizzle<SqlStorage, Schema> {
             .ok_or(DrizzleError::NotFound)
     }
 
-    /// Starts a transaction for explicit commit or rollback control.
-    pub fn begin(
-        &mut self,
-        config: drizzle_sqlite::TransactionConfig,
-    ) -> drizzle_core::error::Result<
-        crate::transaction::sqlite::durable::TransactionGuard<'_, Schema>,
-    >
-    where
-        Schema: Copy,
-    {
-        Ok(crate::transaction::sqlite::durable::TransactionGuard::new(
-            self.start(config)?,
-        ))
-    }
-
     /// Executes a transaction with the given callback.
     ///
     /// Commits when the callback returns `Ok` and rolls back on `Err` or a

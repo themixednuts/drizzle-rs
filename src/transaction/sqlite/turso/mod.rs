@@ -61,7 +61,6 @@ crate::drizzle_tx_prepare_impl!('conn);
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 #[derive(Debug)]
-#[must_use = "transactions must be committed or rolled back"]
 pub struct Transaction<'conn, Schema = ()> {
     tx: turso::transaction::Transaction<'conn>,
     tx_type: SQLiteTransactionType,
@@ -245,7 +244,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the commit call to the database fails.
-    pub async fn commit(self) -> Result<(), DrizzleError> {
+    pub(crate) async fn commit(self) -> Result<(), DrizzleError> {
         if let Err(error) = self.savepoints.ensure_usable() {
             self.tx.rollback().await?;
             return Err(error);
@@ -258,7 +257,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the rollback call to the database fails.
-    pub async fn rollback(self) -> Result<(), DrizzleError> {
+    pub(crate) async fn rollback(self) -> Result<(), DrizzleError> {
         Ok(self.tx.rollback().await?)
     }
 }

@@ -66,12 +66,9 @@ pub(crate) fn options(config: MySQLTransactionConfig) -> TxOpts {
 
 /// A scoped async MySQL transaction.
 ///
-/// Explicit [`commit`](Self::commit) and [`rollback`](Self::rollback) await the
-/// server response. Dropping an active transaction preserves
-/// `mysql_async`'s delayed rollback contract: a direct connection cleans it
-/// before its next command, while a pooled connection is cleaned by the pool
-/// recycler before reuse.
-#[must_use = "transactions must be committed or rolled back"]
+/// The transaction remains scoped to `Drizzle::transaction`. If that future
+/// is cancelled, `mysql_async` rolls the active transaction back before the
+/// connection is reused.
 pub struct Transaction<'connection, Schema = ()> {
     transaction: tokio::sync::Mutex<Option<DriverTransaction<'connection>>>,
     schema: Schema,
@@ -220,7 +217,7 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
             .with_query(|| QueryContext::new::<MySQLValue<'_>>(sql, &[]))
     }
 
-    pub async fn commit(self) -> Result<()> {
+    pub(crate) async fn commit(self) -> Result<()> {
         let unusable = self.ensure_usable().err();
         let transaction = self.transaction.into_inner().ok_or_else(consumed)?;
         if let Some(reason) = unusable {
@@ -234,7 +231,7 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
         transaction.commit().await.map_err(driver_error)
     }
 
-    pub async fn rollback(self) -> Result<()> {
+    pub(crate) async fn rollback(self) -> Result<()> {
         self.transaction
             .into_inner()
             .ok_or_else(consumed)?
