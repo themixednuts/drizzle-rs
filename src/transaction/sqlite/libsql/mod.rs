@@ -100,19 +100,27 @@ impl<Schema> Transaction<Schema> {
     /// If it returns `Err`, the savepoint is rolled back.
     /// The outer transaction is unaffected either way.
     ///
-    /// Savepoints can be nested — each level gets its own savepoint name.
+    /// Savepoints can be nested. Each level gets its own savepoint name.
     ///
-    /// ```rust
-    /// # let _ = r####"
+    /// ```no_run
     /// # use drizzle::sqlite::prelude::*;
     /// # use drizzle::sqlite::libsql::Drizzle;
     /// # use drizzle::sqlite::TransactionConfig;
+    /// # #[SQLiteTable]
+    /// # struct User {
+    /// #     #[column(PRIMARY, AUTOINCREMENT)]
+    /// #     id: i32,
+    /// #     name: String,
+    /// # }
+    /// # #[derive(SQLiteSchema)]
+    /// # struct AppSchema { user: User }
+    /// # async fn example(db: &Drizzle<AppSchema>, user: User) -> drizzle::Result<()> {
     /// db.transaction(TransactionConfig::Deferred, async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///
     ///     let _ = tx.savepoint(async |stx| {
     ///         stx.insert(user).values([InsertUser::new("Bad")]).execute().await?;
-    ///         Err(drizzle::error::DrizzleError::Other("oops".into()))
+    ///         Err::<(), _>(drizzle::error::DrizzleError::Other("oops".into()))
     ///     }).await;
     ///
     ///     // Alice is still there
@@ -120,7 +128,8 @@ impl<Schema> Transaction<Schema> {
     ///     assert_eq!(users.len(), 1);
     ///     Ok(())
     /// }).await?;
-    /// # "####;
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// # Errors

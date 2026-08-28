@@ -357,8 +357,8 @@ impl<Connection: Queryable, Schema> Drizzle<Connection, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns DrizzleError when no database is selected, a catalog query
-    /// fails, or MySQL reports metadata that cannot be represented losslessly.
+    /// Returns an error when no database is selected, a catalog query fails,
+    /// or MySQL reports metadata that cannot be represented losslessly.
     pub fn introspect(&mut self) -> Result<drizzle_migrations::schema::Snapshot> {
         self.ensure_session()?;
         catalog(&mut self.connection).map(introspect::Catalog::into_snapshot)
@@ -371,7 +371,7 @@ impl<Connection: Queryable, Schema> Drizzle<Connection, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns DrizzleError if introspection, planning, or applying a generated
+    /// Returns an error if introspection, planning, or applying a generated
     /// statement fails.
     pub fn push<S: drizzle_migrations::Schema>(&mut self, schema: &S) -> Result<()> {
         self.ensure_session()?;
@@ -410,6 +410,13 @@ impl<Connection: Queryable, Schema> Drizzle<Connection, Schema> {
     }
 
     /// Executes arbitrary typed MySQL SQL through the prepared/binary protocol.
+    ///
+    /// The result contains affected-row and last-insert-ID metadata from the
+    /// server's OK packet.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if session initialization or statement execution fails.
     pub fn execute<'q>(
         &mut self,
         query: impl ToSQL<'q, MySQLValue<'q>>,
@@ -421,6 +428,10 @@ impl<Connection: Queryable, Schema> Drizzle<Connection, Schema> {
     }
 
     /// Executes typed MySQL SQL and decodes every returned row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or row decoding fails.
     pub fn all<'q, R>(&mut self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<Vec<R>>
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
@@ -432,6 +443,10 @@ impl<Connection: Queryable, Schema> Drizzle<Connection, Schema> {
     /// materialized rows.
     ///
     /// The database result is fully consumed before this method returns.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or row decoding fails.
     pub fn rows<'q, T, R>(&mut self, query: T) -> Result<Rows<R>>
     where
         T: ToSQL<'q, MySQLValue<'q>>,
@@ -441,6 +456,10 @@ impl<Connection: Queryable, Schema> Drizzle<Connection, Schema> {
     }
 
     /// Executes typed MySQL SQL and decodes the first row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or decoding fails, or no row is returned.
     pub fn get<'q, R>(&mut self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<R>
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
@@ -491,6 +510,11 @@ impl<'db, 'q, Connection, Schema, Table, Relations, Clauses>
 where
     Connection: Queryable,
 {
+    /// Executes the relational query and decodes every full row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or relational row decoding fails.
     pub fn find_many(
         self,
     ) -> Result<Vec<<Relations as drizzle_core::query::BuildRow<Table::Select>>::Row>>
@@ -523,6 +547,11 @@ impl<'db, 'q, Connection, Schema, Table, Relations, Where, Order>
 where
     Connection: Queryable,
 {
+    /// Executes the relational query with a one-row limit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or relational row decoding fails.
     pub fn find_first(
         self,
     ) -> Result<Option<<Relations as drizzle_core::query::BuildRow<Table::Select>>::Row>>
@@ -552,6 +581,11 @@ impl<'db, 'q, Connection, Schema, Table, Relations, Clauses>
 where
     Connection: Queryable,
 {
+    /// Executes the relational query and decodes every partial row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or relational row decoding fails.
     pub fn find_many(
         self,
     ) -> Result<Vec<<Relations as drizzle_core::query::BuildRow<Table::PartialSelect>>::Row>>
@@ -584,6 +618,11 @@ impl<'db, 'q, Connection, Schema, Table, Relations, Where, Order>
 where
     Connection: Queryable,
 {
+    /// Executes the partial relational query with a one-row limit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or relational row decoding fails.
     pub fn find_first(
         self,
     ) -> Result<Option<<Relations as drizzle_core::query::BuildRow<Table::PartialSelect>>::Row>>
@@ -608,6 +647,11 @@ impl<'q, Table, Relations>
         drizzle_core::query::AllColumns,
     >
 {
+    /// Executes the prepared relational query and decodes every full row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if binding, execution, or relational decoding fails.
     pub fn find_many(
         &self,
         connection: &mut impl Queryable,
@@ -626,6 +670,11 @@ impl<'q, Table, Relations>
         QueryOutput::new(sql.to_owned(), values, rows).decode_relational_all::<Table, Relations>()
     }
 
+    /// Executes the prepared relational query and decodes its first full row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if binding, execution, or relational decoding fails.
     pub fn find_first(
         &self,
         connection: &mut impl Queryable,
@@ -651,6 +700,11 @@ impl<'q, Table, Relations>
         drizzle_core::query::PartialColumns,
     >
 {
+    /// Executes the prepared relational query and decodes every partial row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if binding, execution, or relational decoding fails.
     pub fn find_many(
         &self,
         connection: &mut impl Queryable,
@@ -670,6 +724,11 @@ impl<'q, Table, Relations>
             .decode_relational_partial::<Table, Relations>()
     }
 
+    /// Executes the prepared relational query and decodes its first partial row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if binding, execution, or relational decoding fails.
     pub fn find_first(
         &self,
         connection: &mut impl Queryable,
@@ -703,6 +762,11 @@ impl<Connection: TransactionConnection, Schema: Copy> Drizzle<Connection, Schema
 
     /// Runs a transaction, committing on `Ok` and rolling back on `Err` or
     /// panic.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if transaction startup, the callback, commit, or
+    /// rollback fails.
     pub fn transaction<R>(
         &mut self,
         config: drizzle_mysql::TransactionConfig,
@@ -736,6 +800,11 @@ impl<Schema> Drizzle<mysql::Conn, Schema> {
     /// The connection must have autocommit enabled. Finish transactions begun
     /// through raw SQL or the raw driver before calling this method because
     /// the client does not expose their protocol transaction state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if locking, migration discovery, statement execution,
+    /// or tracking-table maintenance fails.
     pub fn migrate(
         &mut self,
         migrations: &[drizzle_migrations::Migration],
@@ -756,6 +825,11 @@ impl<Schema> Drizzle<mysql::PooledConn, Schema> {
     ///
     /// The checked-out connection must have autocommit enabled and must not be
     /// inside a transaction begun through raw SQL or the raw driver.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if locking, migration discovery, statement execution,
+    /// or tracking-table maintenance fails.
     pub fn migrate(
         &mut self,
         migrations: &[drizzle_migrations::Migration],
@@ -772,6 +846,11 @@ where
     Schema: drizzle_core::traits::SQLSchemaImpl + Default,
 {
     /// Creates every schema object in dependency order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if schema rendering, session initialization, or DDL
+    /// execution fails.
     pub fn create(&mut self) -> Result<()> {
         for statement in Schema::default().create_statements()? {
             self.ensure_session()?;
@@ -794,11 +873,22 @@ where
     State: builder::ExecutableState,
 {
     /// Executes this statement through MySQL's prepared/binary protocol.
+    ///
+    /// Returns affected-row and last-insert-ID metadata from the server's OK
+    /// packet.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if session initialization or execution fails.
     pub fn execute(self) -> Result<MySQLMutationResult> {
         self.runner.execute_rendered(self.builder)
     }
 
     /// Executes this query and decodes every row using its inferred marker.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or row decoding fails.
     pub fn all<R, ScopeProof, AggProof>(self) -> Result<Vec<R>>
     where
         for<'row> Mk: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
@@ -814,6 +904,10 @@ where
 
     /// Executes this query and returns a decoded iterator over its
     /// materialized rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or row decoding fails.
     pub fn rows(self) -> Result<Rows<Rw>>
     where
         for<'row> Rw: FromDrizzleRow<MySQLRow<'row, Row>>,
@@ -822,6 +916,10 @@ where
     }
 
     /// Executes this query and decodes its first row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or decoding fails, or no row is returned.
     pub fn get<R, ScopeProof, AggProof>(self) -> Result<R>
     where
         for<'row> Mk: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>

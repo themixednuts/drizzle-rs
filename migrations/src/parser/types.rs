@@ -369,7 +369,7 @@ pub struct ParsedSchema {
 pub struct ParsedField {
     /// Field name (as written in Rust)
     pub name: String,
-    /// Rust type source text (e.g., "i64", "Option<String>")
+    /// Rust type source text, such as `i64` or `Option<String>`.
     pub ty: String,
     /// Field attribute source texts (e.g., `#[column(primary)]`); doc
     /// comments and `cfg` attributes are not included.

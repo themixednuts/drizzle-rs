@@ -443,7 +443,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check documentation
-        run: cargo doc --workspace --all-features --no-deps
+        run: |
+          RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --exclude drizzle-cli
+          RUSTDOCFLAGS="-D warnings" cargo doc -p drizzle-cli --all-features --no-deps
+          cargo test --workspace --all-features --doc
 
   build-matrix:
     name: Build (${{ matrix.rust }})

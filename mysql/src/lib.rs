@@ -14,6 +14,7 @@
 //! static type policy models MySQL's default behavior for both.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![warn(missing_docs)]
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
@@ -35,13 +36,16 @@ pub(crate) mod prelude {
 
 pub mod attrs;
 pub mod builder;
+/// Schema metadata shared by generated MySQL tables, indexes, and views.
 pub mod common;
 pub mod driver;
 pub mod helpers;
 pub mod index;
 pub mod result;
+/// Traits implemented by generated MySQL schema types and custom columns.
 pub mod traits;
 pub mod transaction;
+/// MySQL SQL type markers.
 pub mod types {
     pub use drizzle_types::mysql::types::*;
 }
@@ -57,7 +61,4 @@ pub use index::{
     MySQLIndexMethod,
 };
 pub use result::MySQLMutationResult;
-pub use transaction::{
-    AccessMode, IsolationLevel, MySQLAccessMode, MySQLIsolationLevel, MySQLTransactionConfig,
-    TransactionConfig,
-};
+pub use transaction::{AccessMode, IsolationLevel, TransactionConfig};

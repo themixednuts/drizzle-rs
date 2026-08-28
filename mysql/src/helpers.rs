@@ -287,6 +287,7 @@ where
 /// index's generated metadata must name the same table, so hints cannot be
 /// accidentally applied across tables.
 pub trait MySQLIndexHintExt: Sized {
+    /// Advises MySQL to consider the supplied indexes for this table source.
     fn use_index<Indexes>(self, indexes: Indexes) -> IndexHintedTable<Self, Indexes, UseIndex>
     where
         Indexes: for<'a> IndexHintList<'a, Self>,
@@ -298,6 +299,7 @@ pub trait MySQLIndexHintExt: Sized {
         }
     }
 
+    /// Advises MySQL to strongly prefer the supplied indexes.
     fn force_index<Indexes>(self, indexes: Indexes) -> IndexHintedTable<Self, Indexes, ForceIndex>
     where
         Indexes: for<'a> IndexHintList<'a, Self>,
@@ -309,6 +311,7 @@ pub trait MySQLIndexHintExt: Sized {
         }
     }
 
+    /// Advises MySQL not to use the supplied indexes.
     fn ignore_index<Indexes>(self, indexes: Indexes) -> IndexHintedTable<Self, Indexes, IgnoreIndex>
     where
         Indexes: for<'a> IndexHintList<'a, Self>,

@@ -17,6 +17,7 @@ pub struct InsertOnDuplicateKeyUpdateSet;
 
 impl drizzle_core::ExecutableState for InsertOnDuplicateKeyUpdateSet {}
 
+/// Typed MySQL `INSERT` builder.
 pub type InsertBuilder<'a, Schema, State, Table, Marker = (), Row = ()> =
     super::QueryBuilder<'a, Schema, State, Table, Marker, Row>;
 
@@ -96,6 +97,7 @@ where
         InsertBuilder::from_sql(self.sql.append(columns.into_target_columns_sql()))
     }
 
+    /// Adds one row to this insert.
     pub fn value<T>(
         self,
         value: Table::Insert<T>,
@@ -103,6 +105,7 @@ where
         self.values([value])
     }
 
+    /// Adds multiple rows to this insert.
     #[track_caller]
     pub fn values<I, T>(self, values: I) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
     where

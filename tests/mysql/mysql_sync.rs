@@ -57,7 +57,7 @@ fn pooled_connection_is_returned_after_transaction_use() -> drizzle::Result<()> 
     let (mut db, TestSchema { users, .. }) = Drizzle::new(connection, schema);
     db.create()?;
 
-    db.transaction(MySQLTransactionConfig::default(), |tx| {
+    db.transaction(TransactionConfig::default(), |tx| {
         tx.insert(users)
             .value(
                 InsertUser::new("pooled", true, Role::Member, vec![], 0, 0.0)

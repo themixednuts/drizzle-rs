@@ -8,7 +8,7 @@
 use crate::config::Config;
 use crate::output;
 
-/// Print the "Database: <name>" line when the config holds more than one
+/// Prints the `Database: <name>` line when the config holds more than one
 /// database. No-op on single-database configs.
 pub fn print_db_header(config: &Config, db_name: Option<&str>) {
     if !config.is_single_database() {

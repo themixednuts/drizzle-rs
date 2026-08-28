@@ -1,4 +1,4 @@
-//! From<T> and `TryFrom`<OwnedSQLiteValue> implementations
+//! `From<T>` and `TryFrom<OwnedSQLiteValue>` implementations.
 
 use super::OwnedSQLiteValue;
 use crate::prelude::*;

@@ -439,7 +439,10 @@ macro_rules! impl_join_arg_trait {
     ) => {
         /// Trait for arguments accepted by `.join()` and related join methods.
         pub trait JoinArg<'a, FromTable> {
+            /// Table added to the query scope by this join.
             type JoinedTable;
+
+            /// Renders the join source and its `ON` condition.
             fn into_join_sql(self, join: $crate::Join) -> $crate::SQL<'a, $ValueType>;
         }
 

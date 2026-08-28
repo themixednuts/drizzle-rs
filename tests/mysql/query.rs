@@ -12,7 +12,7 @@ crate::common::query::shared_relational_query_suite!(
     MySQLTable,
     MySQLSchema,
     drizzle::mysql::types::Int,
-    drizzle::mysql::MySQLTransactionConfig::default()
+    drizzle::mysql::TransactionConfig::default()
 );
 crate::common::query::shared_view_query_suite!(mysql, MySQLTable, MySQLView, MySQLSchema);
 

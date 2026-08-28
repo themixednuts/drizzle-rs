@@ -110,6 +110,7 @@ impl SetOperationAllowed for SelectLimitSet {}
 impl SetOperationAllowed for SelectOffsetSet {}
 impl SetOperationAllowed for SelectSetOpSet {}
 
+/// Typed MySQL `SELECT` builder.
 pub type SelectBuilder<'a, Schema, State, Table = (), Marker = (), Row = (), Grouped = ()> =
     super::QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>;
 
@@ -168,6 +169,7 @@ where
 }
 
 impl<'a, S, M> SelectBuilder<'a, S, SelectInitial, (), M> {
+    /// Sets the source selected from by this query.
     #[allow(clippy::type_complexity)]
     pub fn from<T>(
         self,
@@ -241,6 +243,7 @@ where
 
 macro_rules! join_on_method {
     ($name:ident, $join:expr, $row_trait:ident) => {
+        #[doc = concat!("Adds a typed `", stringify!($name), "` join.")]
         #[allow(clippy::type_complexity)]
         pub fn $name<J: helpers::JoinArg<'a, T>>(
             self,
@@ -386,6 +389,7 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: SelectWhereAllowed,
 {
+    /// Filters rows before grouping and projection.
     pub fn r#where<E>(self, condition: E) -> SelectBuilder<'a, S, SelectWhereSet, T, M, R, G>
     where
         E: drizzle_core::expr::Expr<'a, MySQLValue<'a>>,
@@ -399,6 +403,7 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: drizzle_core::GroupByAllowed,
 {
+    /// Groups rows by the supplied expressions.
     pub fn group_by<Gr>(
         self,
         columns: Gr,
@@ -414,6 +419,7 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: drizzle_core::HavingAllowed,
 {
+    /// Filters grouped rows.
     pub fn having<E>(self, condition: E) -> SelectBuilder<'a, S, SelectHavingSet, T, M, R, G>
     where
         E: drizzle_core::expr::Expr<'a, MySQLValue<'a>>,
@@ -427,6 +433,7 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: SelectOrderAllowed,
 {
+    /// Orders the selected rows.
     pub fn order_by<O>(self, order: O) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R, G>
     where
         O: ToSQL<'a, MySQLValue<'a>>,
@@ -436,6 +443,7 @@ where
 }
 
 impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
+    /// Orders a compound query by an output expression or alias.
     pub fn order_by<O, Proof>(self, order: O) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R, G>
     where
         O: helpers::SetOrderBy<'a, M, T, Proof>,
@@ -452,6 +460,7 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: SelectLimitAllowed,
 {
+    /// Limits the number of returned rows.
     #[track_caller]
     pub fn limit<P>(self, limit: P) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G>
     where
@@ -465,6 +474,9 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: SelectOffsetAllowed,
 {
+    /// Skips rows without an explicit limit.
+    ///
+    /// MySQL renders its maximum-limit sentinel before the offset.
     #[track_caller]
     pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
     where
@@ -475,6 +487,7 @@ where
 }
 
 impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G> {
+    /// Skips rows after an explicit limit.
     #[track_caller]
     pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
     where
@@ -548,6 +561,7 @@ where
     State: AsCteState + ExecutableState,
     T: SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>,
 {
+    /// Converts this query into a named common table expression.
     #[must_use]
     pub fn into_cte<Tag: drizzle_core::Tag + 'static>(
         self,
@@ -599,6 +613,7 @@ where
 
 macro_rules! set_operation {
     ($name:ident, $token:expr, $all:expr) => {
+        #[doc = concat!("Combines this query with another using `", stringify!($name), "`.")]
         pub fn $name(
             self,
             other: impl IntoSelectQuery<'a, S, R>,

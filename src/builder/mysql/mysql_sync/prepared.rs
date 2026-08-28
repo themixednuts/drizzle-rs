@@ -28,6 +28,11 @@ pub type OwnedPreparedStatement<Marker = (), DecodedRow = (), Grouped = ()> =
 
 impl<'q, Marker, DecodedRow, Grouped> PreparedStatement<'q, Marker, DecodedRow, Grouped> {
     /// Executes the prepared statement and returns normalized mutation metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if parameter binding, session initialization, or
+    /// statement execution fails.
     pub fn execute(
         &self,
         connection: &mut impl Queryable,
@@ -39,6 +44,12 @@ impl<'q, Marker, DecodedRow, Grouped> PreparedStatement<'q, Marker, DecodedRow, 
     }
 
     /// Executes the prepared query and decodes every returned row.
+    ///
+    /// Rows are fully materialized before this method returns.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if parameter binding, execution, or row decoding fails.
     pub fn all<R, ScopeProof, AggProof>(
         &self,
         connection: &mut impl Queryable,
@@ -59,6 +70,11 @@ impl<'q, Marker, DecodedRow, Grouped> PreparedStatement<'q, Marker, DecodedRow, 
     }
 
     /// Executes the prepared query and decodes its first row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when parameter binding, execution, or decoding fails,
+    /// or when the query returns no row.
     pub fn get<R, ScopeProof, AggProof>(
         &self,
         connection: &mut impl Queryable,
@@ -83,6 +99,10 @@ impl<'q, Marker, DecodedRow, Grouped> PreparedStatement<'q, Marker, DecodedRow, 
 
 impl<Marker, DecodedRow, Grouped> OwnedPreparedStatement<Marker, DecodedRow, Grouped> {
     /// Executes the prepared statement and returns normalized mutation metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`PreparedStatement::execute`].
     pub fn execute<'a>(
         &'a self,
         connection: &mut impl Queryable,
@@ -92,6 +112,10 @@ impl<Marker, DecodedRow, Grouped> OwnedPreparedStatement<Marker, DecodedRow, Gro
     }
 
     /// Executes the prepared query and decodes every returned row.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`PreparedStatement::all`].
     pub fn all<'a, R, ScopeProof, AggProof>(
         &'a self,
         connection: &mut impl Queryable,
@@ -108,6 +132,10 @@ impl<Marker, DecodedRow, Grouped> OwnedPreparedStatement<Marker, DecodedRow, Gro
     }
 
     /// Executes the prepared query and decodes its first row.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`PreparedStatement::get`].
     pub fn get<'a, R, ScopeProof, AggProof>(
         &'a self,
         connection: &mut impl Queryable,

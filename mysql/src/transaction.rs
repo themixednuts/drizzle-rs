@@ -26,9 +26,6 @@ impl core::fmt::Display for IsolationLevel {
     }
 }
 
-/// Backwards-compatible name for [`IsolationLevel`].
-pub type MySQLIsolationLevel = IsolationLevel;
-
 /// MySQL transaction access mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccessMode {
@@ -47,9 +44,6 @@ impl core::fmt::Display for AccessMode {
     }
 }
 
-/// Backwards-compatible name for [`AccessMode`].
-pub type MySQLAccessMode = AccessMode;
-
 /// Options applied when starting a MySQL transaction.
 ///
 /// Use [`TransactionConfig::builder`] when the choices are known statically.
@@ -57,6 +51,20 @@ pub type MySQLAccessMode = AccessMode;
 /// [`ConfigBuilder::repeatable_read`], matching MySQL's requirement for a
 /// consistent snapshot. The direct setters remain useful when values come
 /// from runtime configuration.
+///
+/// ```
+/// use drizzle_mysql::{AccessMode, IsolationLevel, TransactionConfig};
+///
+/// let config = TransactionConfig::builder()
+///     .repeatable_read()
+///     .read_only()
+///     .snapshot()
+///     .build();
+///
+/// assert_eq!(config.isolation(), Some(IsolationLevel::RepeatableRead));
+/// assert_eq!(config.access(), Some(AccessMode::ReadOnly));
+/// assert!(config.consistent_snapshot());
+/// ```
 ///
 /// ```compile_fail
 /// use drizzle_mysql::TransactionConfig;
@@ -141,9 +149,6 @@ impl TransactionConfig {
         self.consistent_snapshot
     }
 }
-
-/// Backwards-compatible name for [`TransactionConfig`].
-pub type MySQLTransactionConfig = TransactionConfig;
 
 /// Typestated builder for [`TransactionConfig`].
 ///

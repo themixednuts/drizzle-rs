@@ -34,21 +34,34 @@ pub enum MySQLValue<'a> {
     Double(f64),
     /// Date, datetime, or timestamp payload.
     Date {
+        /// Four-digit year.
         year: u16,
+        /// Month in the range 1 through 12.
         month: u8,
+        /// Day of the month.
         day: u8,
+        /// Hour in the range 0 through 23.
         hour: u8,
+        /// Minute in the range 0 through 59.
         minute: u8,
+        /// Second in the range 0 through 59.
         second: u8,
+        /// Fractional seconds in microseconds.
         microseconds: u32,
     },
     /// Time or duration payload.
     Time {
+        /// Whether the duration is negative.
         negative: bool,
+        /// Whole days in the duration.
         days: u32,
+        /// Remaining hours after whole days.
         hours: u8,
+        /// Remaining minutes after whole hours.
         minutes: u8,
+        /// Remaining seconds after whole minutes.
         seconds: u8,
+        /// Fractional seconds in microseconds.
         microseconds: u32,
     },
 }

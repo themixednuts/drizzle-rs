@@ -249,7 +249,8 @@ db.push(&schema)?;
 
 ## Generated Models
 
-Given the schema above, each `#[SQLiteTable]` (or `#[PostgresTable]`) generates four helper types:
+Given the schema above, each `#[SQLiteTable]`, `#[PostgresTable]`, or
+`#[MySQLTable]` generates four helper types:
 
 | Model | Purpose | Fields |
 |-------|---------|--------|
@@ -847,7 +848,7 @@ use drizzle::mysql::TransactionConfig;
 
 let config = TransactionConfig::builder()
     .repeatable_read()
-    .read_only()
+    .read_write()
     .snapshot()
     .build();
 

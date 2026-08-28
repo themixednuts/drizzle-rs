@@ -10,7 +10,7 @@
 //!
 //! Field-level behaviour:
 //!
-//! * **Scalars / blobs / option<T>** → delegated to `FromDrizzleRow` for the
+//! * **Scalars / blobs / `Option<T>`**: delegated to `FromDrizzleRow` for the
 //!   field type. Every type in `PostgresValue` has a matching leaf impl.
 //! * **Integer-stored enum** → read as `i64`, narrowed to `i32`, converted via
 //!   `TryFrom<i32>`.

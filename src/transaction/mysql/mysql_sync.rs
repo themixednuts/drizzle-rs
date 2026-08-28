@@ -12,7 +12,7 @@ use drizzle_core::{
     traits::ToSQL,
 };
 use drizzle_mysql::{
-    MySQLAccessMode, MySQLIsolationLevel, MySQLMutationResult, MySQLRow, MySQLTransactionConfig,
+    AccessMode, IsolationLevel, MySQLMutationResult, MySQLRow, TransactionConfig,
     builder::{
         self, DeleteBuilder, DeleteInitial, InsertBuilder, InsertInitial, QueryBuilder,
         SelectBuilder, SelectInitial, UpdateBuilder, UpdateInitial,
@@ -21,7 +21,8 @@ use drizzle_mysql::{
     values::MySQLValue,
 };
 use mysql::{
-    AccessMode, IsolationLevel, Row, Transaction as DriverTransaction, TxOpts, prelude::Queryable,
+    AccessMode as DriverAccessMode, IsolationLevel as DriverIsolationLevel, Row,
+    Transaction as DriverTransaction, TxOpts, prelude::Queryable,
 };
 
 use crate::{
@@ -51,16 +52,16 @@ fn transaction_was_aborted(error: &mysql::Error) -> bool {
         || matches!(error, mysql::Error::MySqlError(error) if error.code == 1205 || error.state.starts_with("40"))
 }
 
-pub(crate) fn options(config: MySQLTransactionConfig) -> TxOpts {
+pub(crate) fn options(config: TransactionConfig) -> TxOpts {
     let isolation = config.isolation().map(|level| match level {
-        MySQLIsolationLevel::ReadUncommitted => IsolationLevel::ReadUncommitted,
-        MySQLIsolationLevel::ReadCommitted => IsolationLevel::ReadCommitted,
-        MySQLIsolationLevel::RepeatableRead => IsolationLevel::RepeatableRead,
-        MySQLIsolationLevel::Serializable => IsolationLevel::Serializable,
+        IsolationLevel::ReadUncommitted => DriverIsolationLevel::ReadUncommitted,
+        IsolationLevel::ReadCommitted => DriverIsolationLevel::ReadCommitted,
+        IsolationLevel::RepeatableRead => DriverIsolationLevel::RepeatableRead,
+        IsolationLevel::Serializable => DriverIsolationLevel::Serializable,
     });
     let access = config.access().map(|mode| match mode {
-        MySQLAccessMode::ReadOnly => AccessMode::ReadOnly,
-        MySQLAccessMode::ReadWrite => AccessMode::ReadWrite,
+        AccessMode::ReadOnly => DriverAccessMode::ReadOnly,
+        AccessMode::ReadWrite => DriverAccessMode::ReadWrite,
     });
     TxOpts::default()
         .set_isolation_level(isolation)
@@ -95,7 +96,7 @@ impl TransactionConnection for mysql::PooledConn {
 
 pub(crate) fn start_transaction<C: TransactionConnection>(
     connection: &mut C,
-    config: MySQLTransactionConfig,
+    config: TransactionConfig,
 ) -> mysql::Result<DriverTransaction<'_>> {
     if !config.consistent_snapshot() {
         return connection.start_drizzle_transaction(options(config));
@@ -274,6 +275,14 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
     }
 
     /// Runs a nested unit using a MySQL savepoint.
+    ///
+    /// Returning `Ok` releases the savepoint. Returning `Err` rolls it back
+    /// without ending the surrounding transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns the callback error, or an error from savepoint creation,
+    /// release, or rollback.
     pub fn savepoint<R>(&self, body: impl FnOnce(&Self) -> Result<R>) -> Result<R> {
         self.ensure_usable()?;
         sync_savepoint(
@@ -284,6 +293,13 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
     }
 
     /// Executes arbitrary typed MySQL SQL through the prepared/binary protocol.
+    ///
+    /// The result contains affected-row and last-insert-ID metadata from the
+    /// server's OK packet.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transaction is unusable or execution fails.
     pub fn execute<'q>(
         &self,
         query: impl ToSQL<'q, MySQLValue<'q>>,
@@ -295,6 +311,10 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
     }
 
     /// Executes typed MySQL SQL and decodes every returned row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or row decoding fails.
     pub fn all<'q, R>(&self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<Vec<R>>
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
@@ -306,6 +326,10 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
     /// materialized rows.
     ///
     /// The database result is fully consumed before this method returns.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or row decoding fails.
     pub fn rows<'q, T, R>(&self, query: T) -> Result<Rows<R>>
     where
         T: ToSQL<'q, MySQLValue<'q>>,
@@ -315,6 +339,10 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
     }
 
     /// Executes typed MySQL SQL and decodes the first row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or decoding fails, or no row is returned.
     pub fn get<'q, R>(&self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<R>
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
@@ -322,6 +350,7 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
         self.query_first_rendered(query)?.decode_first_row()
     }
 
+    /// Creates a typed relational query scoped to this transaction.
     #[cfg(feature = "query")]
     pub fn query<'db, 'q, Table>(
         &'db self,
@@ -358,6 +387,11 @@ impl<'db, 'connection, 'q, Schema, Table, Relations, Clauses>
         Clauses,
     >
 {
+    /// Executes the relational query and decodes every full row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or relational row decoding fails.
     pub fn find_many(
         self,
     ) -> Result<Vec<<Relations as drizzle_core::query::BuildRow<Table::Select>>::Row>>
@@ -387,6 +421,11 @@ impl<'db, 'connection, 'q, Schema, Table, Relations, Where, Order>
         drizzle_core::query::Clauses<Where, Order, drizzle_core::query::NoLimit>,
     >
 {
+    /// Executes the relational query with a one-row limit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or relational row decoding fails.
     pub fn find_first(
         self,
     ) -> Result<Option<<Relations as drizzle_core::query::BuildRow<Table::Select>>::Row>>
@@ -414,6 +453,11 @@ impl<'db, 'connection, 'q, Schema, Table, Relations, Clauses>
         Clauses,
     >
 {
+    /// Executes the relational query and decodes every partial row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or relational row decoding fails.
     pub fn find_many(
         self,
     ) -> Result<Vec<<Relations as drizzle_core::query::BuildRow<Table::PartialSelect>>::Row>>
@@ -443,6 +487,11 @@ impl<'db, 'connection, 'q, Schema, Table, Relations, Where, Order>
         drizzle_core::query::Clauses<Where, Order, drizzle_core::query::NoLimit>,
     >
 {
+    /// Executes the partial relational query with a one-row limit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or relational row decoding fails.
     pub fn find_first(
         self,
     ) -> Result<Option<<Relations as drizzle_core::query::BuildRow<Table::PartialSelect>>::Row>>
@@ -473,11 +522,22 @@ where
     State: builder::ExecutableState,
 {
     /// Executes this statement through MySQL's prepared/binary protocol.
+    ///
+    /// Returns affected-row and last-insert-ID metadata from the server's OK
+    /// packet.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transaction is unusable or execution fails.
     pub fn execute(self) -> Result<MySQLMutationResult> {
         self.runner.execute_rendered(self.builder)
     }
 
     /// Executes this query and decodes every row using its inferred marker.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or row decoding fails.
     pub fn all<R, ScopeProof, AggProof>(self) -> Result<Vec<R>>
     where
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
@@ -493,6 +553,10 @@ where
 
     /// Executes this query and returns a decoded iterator over its
     /// materialized rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or row decoding fails.
     pub fn rows(self) -> Result<Rows<DecodedRow>>
     where
         for<'row> DecodedRow: FromDrizzleRow<MySQLRow<'row, Row>>,
@@ -504,6 +568,10 @@ where
     }
 
     /// Executes this query and decodes its first row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or decoding fails, or no row is returned.
     pub fn get<R, ScopeProof, AggProof>(self) -> Result<R>
     where
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>

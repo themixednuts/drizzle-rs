@@ -2,8 +2,7 @@
 //!
 //! # Quick start
 //!
-//! ```rust
-//! # let _ = r####"
+//! ```no_run
 //! use drizzle::sqlite::prelude::*;
 //! use drizzle::sqlite::libsql::Drizzle;
 //! use libsql::Builder;
@@ -35,51 +34,69 @@
 //!
 //!     Ok(())
 //! }
-//! # "####;
 //! ```
 //!
 //! # Transactions
 //!
 //! Return `Ok(value)` to commit, `Err(...)` to rollback.
 //!
-//! ```rust
-//! # let _ = r####"
+//! ```no_run
 //! # use drizzle::sqlite::prelude::*;
 //! # use drizzle::sqlite::libsql::Drizzle;
 //! use drizzle::sqlite::TransactionConfig;
+//! # #[SQLiteTable]
+//! # struct User {
+//! #     #[column(PRIMARY, AUTOINCREMENT)]
+//! #     id: i32,
+//! #     name: String,
+//! # }
+//! # #[derive(SQLiteSchema)]
+//! # struct AppSchema { user: User }
+//! # async fn example(db: &Drizzle<AppSchema>, user: User) -> drizzle::Result<()> {
 //!
 //! let count = db.transaction(TransactionConfig::Deferred, async |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
 //!     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
 //!     Ok(users.len())
 //! }).await?;
-//! # "####;
+//! # let _: usize = count;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Savepoints
 //!
-//! Savepoints nest inside transactions — a failed savepoint rolls back
+//! Savepoints nest inside transactions. A failed savepoint rolls back
 //! without aborting the outer transaction.
 //!
-//! ```rust
-//! # let _ = r####"
+//! ```no_run
 //! # use drizzle::sqlite::prelude::*;
 //! # use drizzle::sqlite::libsql::Drizzle;
 //! # use drizzle::sqlite::TransactionConfig;
+//! # #[SQLiteTable]
+//! # struct User {
+//! #     #[column(PRIMARY, AUTOINCREMENT)]
+//! #     id: i32,
+//! #     name: String,
+//! # }
+//! # #[derive(SQLiteSchema)]
+//! # struct AppSchema { user: User }
+//! # async fn example(db: &Drizzle<AppSchema>, user: User) -> drizzle::Result<()> {
 //! db.transaction(TransactionConfig::Deferred, async |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
 //!
-//!     // This savepoint fails — only its changes roll back
+//!     // This savepoint fails, so only its changes roll back.
 //!     let _ = tx.savepoint(async |stx| {
 //!         stx.insert(user).values([InsertUser::new("Bad")]).execute().await?;
-//!         Err(drizzle::error::DrizzleError::Other("oops".into()))
+//!         Err::<(), _>(drizzle::error::DrizzleError::Other("oops".into()))
 //!     }).await;
 //!
 //!     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
 //!     assert_eq!(users.len(), 1); // only Alice
 //!     Ok(())
 //! }).await?;
-//! # "####;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Statement caching
@@ -300,17 +317,27 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// rolled back on `Err`. Unlike the sync rusqlite driver, `transaction`
     /// takes `&self` (not `&mut self`).
     ///
-    /// ```rust
-    /// # let _ = r####"
+    /// ```no_run
     /// # use drizzle::sqlite::prelude::*;
     /// # use drizzle::sqlite::libsql::Drizzle;
     /// # use drizzle::sqlite::TransactionConfig;
+    /// # #[SQLiteTable]
+    /// # struct User {
+    /// #     #[column(PRIMARY, AUTOINCREMENT)]
+    /// #     id: i32,
+    /// #     name: String,
+    /// # }
+    /// # #[derive(SQLiteSchema)]
+    /// # struct AppSchema { user: User }
+    /// # async fn example(db: &Drizzle<AppSchema>, user: User) -> drizzle::Result<()> {
     /// let count = db.transaction(TransactionConfig::Deferred, async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
     ///     Ok(users.len())
     /// }).await?;
-    /// # "####;
+    /// # let _: usize = count;
+    /// # Ok(())
+    /// # }
     /// ```
     pub async fn transaction<F, R>(
         &self,

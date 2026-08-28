@@ -296,6 +296,8 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
     /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
     /// #         pub mod types { pub use drizzle_postgres::types::*; }
+    /// #         #[cfg(feature = "aws-data-api")]
+    /// #         pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
     /// #         pub struct Row;
     /// #         impl Row {
     /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
@@ -389,6 +391,8 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
     /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
     /// #         pub mod types { pub use drizzle_postgres::types::*; }
+    /// #         #[cfg(feature = "aws-data-api")]
+    /// #         pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
     /// #         pub struct Row;
     /// #         impl Row {
     /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }

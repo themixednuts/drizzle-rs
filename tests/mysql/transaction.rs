@@ -9,7 +9,7 @@ fn callback_panic_rolls_back(db: &mut TestDb<TestSchema>) {
     let TestSchema { users, .. } = schema;
 
     let panic: Result<drizzle::Result<()>, _> =
-        catch!(db.transaction(MySQLTransactionConfig::default(), |tx| {
+        catch!(db.transaction(TransactionConfig::default(), |tx| {
             result!(
                 tx.insert(users)
                     .value(
@@ -63,7 +63,7 @@ fn consistent_snapshot_options_execute(db: &mut TestDb<TestSchema>) {
 
 #[drizzle::test]
 fn transaction_session_changes_are_repaired_on_parent_reuse(db: &mut TestDb<TestSchema>) {
-    db.transaction(MySQLTransactionConfig::default(), |tx| {
+    db.transaction(TransactionConfig::default(), |tx| {
         result!(tx.execute(SQL::raw("SET SESSION time_zone = '+01:00'")))?;
         Ok(())
     });

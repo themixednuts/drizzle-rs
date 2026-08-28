@@ -333,7 +333,8 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         SQL { chunks }
     }
 
-    /// Creates a comma-separated list of column assignments from pre-built SQL fragments: "col" = <sql>
+    /// Creates comma-separated column assignments from pre-built SQL fragments,
+    /// such as `"col" = <expression>`.
     ///
     /// Unlike `assignments()` which wraps each value in `SQL::param()`, this variant
     /// accepts pre-built `SQL` fragments, preserving placeholders and raw expressions.

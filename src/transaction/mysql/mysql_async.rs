@@ -8,7 +8,8 @@ use drizzle_core::{
     traits::ToSQL,
 };
 use drizzle_mysql::{
-    MySQLAccessMode, MySQLIsolationLevel, MySQLMutationResult, MySQLRow, MySQLTransactionConfig,
+    AccessMode, IsolationLevel as DrizzleIsolationLevel, MySQLMutationResult, MySQLRow,
+    TransactionConfig,
     builder::{
         self, DeleteBuilder, DeleteInitial, InsertBuilder, InsertInitial, QueryBuilder,
         SelectBuilder, SelectInitial, UpdateBuilder, UpdateInitial,
@@ -47,18 +48,18 @@ fn transaction_was_aborted(error: &mysql_async::Error) -> bool {
         || matches!(error, mysql_async::Error::Server(error) if error.code == 1205 || error.state.starts_with("40"))
 }
 
-pub(crate) fn options(config: MySQLTransactionConfig) -> TxOpts {
+pub(crate) fn options(config: TransactionConfig) -> TxOpts {
     let mut options = TxOpts::default();
     if let Some(isolation) = config.isolation() {
         options.with_isolation_level(match isolation {
-            MySQLIsolationLevel::ReadUncommitted => IsolationLevel::ReadUncommitted,
-            MySQLIsolationLevel::ReadCommitted => IsolationLevel::ReadCommitted,
-            MySQLIsolationLevel::RepeatableRead => IsolationLevel::RepeatableRead,
-            MySQLIsolationLevel::Serializable => IsolationLevel::Serializable,
+            DrizzleIsolationLevel::ReadUncommitted => IsolationLevel::ReadUncommitted,
+            DrizzleIsolationLevel::ReadCommitted => IsolationLevel::ReadCommitted,
+            DrizzleIsolationLevel::RepeatableRead => IsolationLevel::RepeatableRead,
+            DrizzleIsolationLevel::Serializable => IsolationLevel::Serializable,
         });
     }
     if let Some(access) = config.access() {
-        options.with_readonly(matches!(access, MySQLAccessMode::ReadOnly));
+        options.with_readonly(matches!(access, AccessMode::ReadOnly));
     }
     options.with_consistent_snapshot(config.consistent_snapshot());
     options
@@ -144,6 +145,7 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
         self.ensure_session().await
     }
 
+    /// Borrows the schema attached to this transaction.
     #[must_use]
     pub const fn schema(&self) -> &Schema {
         &self.schema
@@ -240,6 +242,15 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
             .map_err(driver_error)
     }
 
+    /// Runs `body` in a nested savepoint.
+    ///
+    /// Returning `Ok` releases the savepoint. Returning `Err` rolls it back
+    /// without ending the surrounding transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns the callback error, or an error from savepoint creation,
+    /// release, or rollback.
     pub async fn savepoint<F, R>(&self, body: F) -> Result<R>
     where
         F: AsyncFnOnce(&Self) -> Result<R>,
@@ -253,6 +264,11 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
         .await
     }
 
+    /// Executes typed SQL and returns normalized MySQL mutation metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transaction is unusable or execution fails.
     pub async fn execute<'q>(
         &self,
         query: impl ToSQL<'q, MySQLValue<'q>>,
@@ -262,6 +278,11 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
         result
     }
 
+    /// Executes typed SQL and decodes every returned row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or row decoding fails.
     pub async fn all<'q, R>(&self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<Vec<R>>
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
@@ -273,6 +294,10 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
     /// materialized rows.
     ///
     /// The database result is fully consumed before this method returns.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or row decoding fails.
     pub async fn rows<'q, T, R>(&self, query: T) -> Result<Rows<R>>
     where
         T: ToSQL<'q, MySQLValue<'q>>,
@@ -281,6 +306,11 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
         Ok(self.query_rendered(query).await?.rows::<R>())
     }
 
+    /// Executes typed SQL and decodes its first row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or decoding fails, or no row is returned.
     pub async fn get<'q, R>(&self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<R>
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
@@ -288,6 +318,7 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
         self.query_first_rendered(query).await?.decode_first_row()
     }
 
+    /// Creates a typed relational query scoped to this transaction.
     #[cfg(feature = "query")]
     pub fn query<'db, 'q, Table>(
         &'db self,
