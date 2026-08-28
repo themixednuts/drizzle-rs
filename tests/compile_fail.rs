@@ -18,8 +18,8 @@ fn mysql_macros_ui() {
 }
 
 // Enabling relational queries exposes a second public `QueryBuilder`, which
-// changes only rustc's path formatting for dialect-builder diagnostics. Run
-// these suites once on their native builder graphs; the relational suites run
+// changes only rustc's path formatting for builder diagnostics. Run these
+// suites once on their native builder graphs; the relational suites run
 // separately with `query` enabled.
 #[cfg(all(feature = "mysql", not(feature = "query")))]
 #[test]
@@ -67,19 +67,19 @@ fn derived_left_lateral_ui() {
     must_fail("tests/ui/derived_tables/shared/fail/*.rs");
 }
 
-#[cfg(feature = "mysql")]
+#[cfg(all(feature = "mysql", not(feature = "query")))]
 #[test]
 fn derived_mysql_builder_left_lateral_ui() {
     must_fail("tests/ui/derived_tables/mysql/fail/*.rs");
 }
 
-#[cfg(feature = "postgres")]
+#[cfg(all(feature = "postgres", not(feature = "query")))]
 #[test]
 fn derived_postgres_builder_left_lateral_ui() {
     must_fail("tests/ui/derived_tables/postgres/fail/*.rs");
 }
 
-#[cfg(all(feature = "rusqlite", feature = "uuid"))]
+#[cfg(all(feature = "rusqlite", feature = "uuid", not(feature = "query")))]
 #[test]
 fn strict_decode_ui() {
     must_fail("tests/ui/strict_decode/*.rs");

@@ -80,6 +80,7 @@ sqlite-matrix:
     # rusqlite: bare then full
     cargo test --workspace --exclude bench-runner --features rusqlite
     cargo test -p drizzle --no-default-features --features std,sqlite,serde --test compile_fail insert_select_sqlite_ui
+    cargo test -p drizzle --features "rusqlite,uuid,serde" --test compile_fail strict_decode_ui
     cargo test --workspace --exclude bench-runner --features "rusqlite,{{_sqlite-ext}}"
     # libsql: bare then full
     cargo test --workspace --exclude bench-runner --features libsql

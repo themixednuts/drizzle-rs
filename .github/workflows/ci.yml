@@ -89,6 +89,12 @@ jobs:
           --features std,sqlite,serde
           --test compile_fail insert_select_sqlite_ui
 
+      - name: Run SQLite strict-decode compile-time tests
+        if: matrix.features == 'rusqlite'
+        run: >-
+          cargo test -p drizzle --features rusqlite,uuid,serde
+          --test compile_fail strict_decode_ui
+
       - name: Run example
         if: contains(matrix.features, 'uuid')  && startsWith(matrix.features, 'rusqlite')
         run: cargo run --example rusqlite --features "rusqlite,uuid,serde"
