@@ -35,7 +35,7 @@ macro_rules! drizzle_builder_join_impl {
                 DrizzleBuilder {
                     runner: self.runner,
                     builder,
-                    state: PhantomData,
+                    state: ::core::marker::PhantomData,
                 }
             }
         }
@@ -97,7 +97,7 @@ macro_rules! drizzle_pg_builder_join_impl {
             DrizzleBuilder {
                 runner: self.runner,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
     };
@@ -135,7 +135,7 @@ macro_rules! drizzle_pg_builder_join_impl {
             DrizzleBuilder {
                 runner: self.runner,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
     };
@@ -158,7 +158,7 @@ macro_rules! drizzle_pg_builder_join_impl {
                 DrizzleBuilder {
                     runner: self.runner,
                     builder,
-                    state: PhantomData,
+                    state: ::core::marker::PhantomData,
                 }
             }
         }
@@ -203,7 +203,7 @@ macro_rules! drizzle_pg_builder_join_using_impl {
             DrizzleBuilder {
                 runner: self.runner,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
     };
@@ -235,7 +235,7 @@ macro_rules! drizzle_pg_builder_join_using_impl {
                 DrizzleBuilder {
                     runner: self.runner,
                     builder,
-                    state: PhantomData,
+                    state: ::core::marker::PhantomData,
                 }
             }
         }
@@ -279,7 +279,7 @@ macro_rules! transaction_builder_join_impl {
                 TransactionBuilder {
                     runner: self.runner,
                     builder,
-                    state: PhantomData,
+                    state: ::core::marker::PhantomData,
                 }
             }
         }
@@ -311,7 +311,7 @@ macro_rules! sqlite_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -337,7 +337,7 @@ macro_rules! sqlite_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -360,7 +360,7 @@ macro_rules! sqlite_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -383,7 +383,7 @@ macro_rules! sqlite_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -406,7 +406,7 @@ macro_rules! sqlite_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -429,7 +429,7 @@ macro_rules! sqlite_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
     };
@@ -459,7 +459,7 @@ macro_rules! postgres_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -484,7 +484,7 @@ macro_rules! postgres_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -506,7 +506,7 @@ macro_rules! postgres_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -528,7 +528,7 @@ macro_rules! postgres_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -550,7 +550,7 @@ macro_rules! postgres_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -572,7 +572,7 @@ macro_rules! postgres_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
     };
