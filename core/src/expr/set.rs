@@ -152,19 +152,12 @@ where
     R: ComparisonOperand<'a, V, E>,
     E::SQLType: Compatible<<R as ComparisonOperand<'a, V, E>>::SQLType>,
 {
-    let left_sql = operand_sql(expr);
     let mut values_iter = values.into_iter();
 
     match values_iter.next() {
-        None => {
-            if negated {
-                left_sql.append(SQL::raw("NOT IN (SELECT NULL WHERE 1=0)"))
-            } else {
-                left_sql.append(SQL::raw("IN (SELECT NULL WHERE 1=0)"))
-            }
-        }
+        None => SQL::raw(if negated { "TRUE" } else { "FALSE" }),
         Some(first_value) => {
-            let mut result = left_sql;
+            let mut result = operand_sql(expr);
             if negated {
                 result = result.push(Token::NOT);
             }

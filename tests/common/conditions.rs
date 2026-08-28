@@ -111,12 +111,21 @@ macro_rules! shared_condition_suite {
                 assert_eq!(selected.len(), 1);
                 assert_eq!(selected[0].name, "Beta");
 
-                let selected: Vec<SelectSharedConditionRow> = db
+                let empty_in = db
                     .select(())
                     .from(rows)
-                    .r#where(in_array(rows.id, Vec::<i32>::new()))
-                    .all();
+                    .r#where(in_array(rows.id, Vec::<i32>::new()));
+                assert!(empty_in.to_sql().sql().ends_with(" WHERE FALSE"));
+                let selected: Vec<SelectSharedConditionRow> = empty_in.all();
                 assert!(selected.is_empty());
+
+                let empty_not_in = db
+                    .select(())
+                    .from(rows)
+                    .r#where(not_in_array(rows.id, Vec::<i32>::new()));
+                assert!(empty_not_in.to_sql().sql().ends_with(" WHERE TRUE"));
+                let selected: Vec<SelectSharedConditionRow> = empty_not_in.all();
+                assert_eq!(selected.len(), 3);
 
                 let selected: Vec<SelectSharedConditionRow> = db
                     .select(())

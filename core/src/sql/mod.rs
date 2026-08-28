@@ -565,7 +565,8 @@ impl<'a, V: SQLParam> SQL<'a, V> {
                 for (index, chunk) in self.chunks.iter().enumerate().skip(select_index + 2) {
                     match chunk {
                         SQLChunk::Token(Token::LPAREN) => depth += 1,
-                        SQLChunk::Token(Token::RPAREN) => depth = depth.saturating_sub(1),
+                        SQLChunk::Token(Token::RPAREN) if depth == 0 => break,
+                        SQLChunk::Token(Token::RPAREN) => depth -= 1,
                         SQLChunk::Token(
                             Token::WHERE
                             | Token::GROUP
@@ -946,6 +947,28 @@ mod tests {
         assert_eq!(
             query.sql(),
             "SELECT `u`.`id`, `u`.`name` FROM `users` AS `u`"
+        );
+    }
+
+    #[test]
+    fn nested_select_star_keeps_derived_alias_in_outer_projection() {
+        let source = SQL::<TestParam>::from(Token::SELECT)
+            .push(Token::FROM)
+            .append(SQL::table(TableRef::sql("posts", &["id", "name"])))
+            .parens()
+            .push(Token::AS)
+            .append(SQL::table(TableRef::sql("post_rows", &[])));
+        let query = SQL::<TestParam>::from(Token::SELECT)
+            .push(Token::FROM)
+            .append(SQL::table(TableRef::sql("users", &["id"])))
+            .append(SQL::raw(" INNER JOIN LATERAL "))
+            .append(source)
+            .push(Token::ON)
+            .append(SQL::raw("TRUE"));
+
+        assert_eq!(
+            query.sql(),
+            "SELECT `users`.`id`, `post_rows`.* FROM `users` INNER JOIN LATERAL (SELECT `posts`.`id`, `posts`.`name` FROM `posts`) AS `post_rows` ON TRUE"
         );
     }
 }
